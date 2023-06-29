@@ -21,6 +21,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
@@ -295,7 +296,7 @@ func (am AppModule) getPriceToDelete(
 		for _, pair := range am.keeper.GetAllRegisteredPairs(ctx, contract.ContractAddr) {
 			store := prefix.NewStore(ctx.KVStore(am.keeper.GetStoreKey()), types.PricePrefix(contract.ContractAddr, pair.PriceDenom, pair.AssetDenom))
 			keysToDelete := am.keeper.GetPriceKeysToDelete(store, timestamp)
-			result = append(result, &types.PriceStore{
+			goutils.InPlaceAppend(&result, &types.PriceStore{
 				Store:     store,
 				PriceKeys: keysToDelete,
 			})

@@ -4,6 +4,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
@@ -64,7 +65,7 @@ func (k Keeper) GetAllLongBook(ctx sdk.Context, contractAddr string) (list []typ
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.LongBook
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		list = append(list, val)
+		goutils.InPlaceAppend(&list, val)
 	}
 
 	return
@@ -79,7 +80,7 @@ func (k Keeper) GetAllLongBookForPair(ctx sdk.Context, contractAddr string, pric
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.LongBook
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		list = append(list, &val)
+		goutils.InPlaceAppend[types.OrderBookEntry](&list, &val)
 	}
 
 	return
@@ -97,7 +98,7 @@ func (k Keeper) GetTopNLongBooksForPair(ctx sdk.Context, contractAddr string, pr
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.LongBook
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		list = append(list, &val)
+		goutils.InPlaceAppend[types.OrderBookEntry](&list, &val)
 		if len(list) == n {
 			break
 		}
@@ -133,7 +134,7 @@ func (k Keeper) GetTopNLongBooksForPairStarting(ctx sdk.Context, contractAddr st
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.LongBook
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		list = append(list, &val)
+		goutils.InPlaceAppend[types.OrderBookEntry](&list, &val)
 		if len(list) == n {
 			break
 		}
@@ -151,7 +152,7 @@ func (k Keeper) GetAllLongBookForPairPaginated(ctx sdk.Context, contractAddr str
 			return err
 		}
 
-		list = append(list, longBook)
+		goutils.InPlaceAppend(&list, longBook)
 		return nil
 	})
 

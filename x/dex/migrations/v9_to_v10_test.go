@@ -7,6 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkaddress "github.com/cosmos/cosmos-sdk/types/address"
+	"github.com/sei-protocol/goutils"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -37,27 +38,27 @@ func TestMigrate9to10(t *testing.T) {
 	// simulate legacy store where registered pairs are indexed by auto increment count
 	address, _ := sdk.AccAddressFromBech32(keepertest.TestContract)
 	address = sdkaddress.MustLengthPrefix(address)
-	rpStore.Set(append(address, countBytes...), pairBytes)
+	rpStore.Set(goutils.ImmutableAppend(address, countBytes...), pairBytes)
 
-	bytes := rpStore.Get(append(address, countBytes...))
+	bytes := rpStore.Get(goutils.ImmutableAppend(address, countBytes...))
 	require.Equal(t, pairBytes, bytes)
 
 	// set count, ticksize, and quantity size
 	newCountBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(newCountBytes, 2)
 	dexStore.Set(
-		append([]byte(migrations.RegisteredPairCount), address...),
+		goutils.ImmutableAppend([]byte(migrations.RegisteredPairCount), address...),
 		newCountBytes,
 	)
 
 	tickBytes, _ := sdk.MustNewDecFromStr("0.0002").Marshal()
 	dexStore.Set(
-		append(append([]byte(migrations.PriceTickSizeKey), address...), pairPrefix...),
+		goutils.ImmutableAppend(goutils.ImmutableAppend([]byte(migrations.PriceTickSizeKey), address...), pairPrefix...),
 		tickBytes,
 	)
 
 	dexStore.Set(
-		append(append([]byte(migrations.QuantityTickSizeKey), address...), pairPrefix...),
+		goutils.ImmutableAppend(goutils.ImmutableAppend([]byte(migrations.QuantityTickSizeKey), address...), pairPrefix...),
 		tickBytes,
 	)
 
@@ -77,18 +78,18 @@ func TestMigrate9to10(t *testing.T) {
 	// verify old/deprecated keeper store data is removed
 	require.False(
 		t,
-		dexStore.Has(append(address, countBytes...)),
+		dexStore.Has(goutils.ImmutableAppend(address, countBytes...)),
 	)
 	require.False(
 		t,
-		dexStore.Has(append([]byte(migrations.RegisteredPairCount), address...)),
+		dexStore.Has(goutils.ImmutableAppend([]byte(migrations.RegisteredPairCount), address...)),
 	)
 	require.False(
 		t,
-		dexStore.Has(append(append([]byte(migrations.PriceTickSizeKey), address...), pairPrefix...)),
+		dexStore.Has(goutils.ImmutableAppend(goutils.ImmutableAppend([]byte(migrations.PriceTickSizeKey), address...), pairPrefix...)),
 	)
 	require.False(
 		t,
-		dexStore.Has(append(append([]byte(migrations.QuantityTickSizeKey), address...), pairPrefix...)),
+		dexStore.Has(goutils.ImmutableAppend(goutils.ImmutableAppend([]byte(migrations.QuantityTickSizeKey), address...), pairPrefix...)),
 	)
 }

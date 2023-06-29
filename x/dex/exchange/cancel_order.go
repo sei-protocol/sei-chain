@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -31,7 +32,7 @@ func cancelOrder(ctx sdk.Context, keeper *keeper.Keeper, cancellation *types.Can
 	newQuantity := sdk.ZeroDec()
 	for _, allocation := range newEntry.Allocations {
 		if allocation.OrderId != cancellation.Id {
-			newAllocations = append(newAllocations, allocation)
+			goutils.InPlaceAppend(&newAllocations, allocation)
 			newQuantity = newQuantity.Add(allocation.Quantity)
 		}
 	}

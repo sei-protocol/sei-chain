@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/client"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
@@ -60,7 +61,7 @@ func New(
 
 	for _, pair := range currencyPairs {
 		for _, provider := range pair.Providers {
-			providerPairs[provider] = append(providerPairs[provider], types.CurrencyPair{
+			providerPairs[provider] = goutils.ImmutableAppend(providerPairs[provider], types.CurrencyPair{
 				Base:  pair.Base,
 				Quote: pair.Quote,
 			})

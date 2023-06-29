@@ -3,6 +3,7 @@ package keeper
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
@@ -42,7 +43,7 @@ func (k Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 			panic(err)
 		}
 
-		genDenoms = append(genDenoms, types.GenesisDenom{
+		goutils.InPlaceAppend(&genDenoms, types.GenesisDenom{
 			Denom:             denom,
 			AuthorityMetadata: authorityMetadata,
 		})

@@ -2,6 +2,7 @@ package dex
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -61,7 +62,7 @@ func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
 		contractPrices := []types.ContractPairPrices{}
 		for _, elem := range registeredPairs {
 			pairPrices := k.GetAllPrices(ctx, contractAddr, elem)
-			contractPrices = append(contractPrices, types.ContractPairPrices{
+			goutils.InPlaceAppend(&contractPrices, types.ContractPairPrices{
 				PricePair: elem,
 				Prices:    pairPrices,
 			})

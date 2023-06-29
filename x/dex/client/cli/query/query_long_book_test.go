@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/testutil/network"
 	"github.com/sei-protocol/sei-chain/testutil/nullify"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
@@ -37,7 +38,7 @@ func networkWithLongBookObjects(t *testing.T, n int) (*network.Network, []types.
 			},
 		}
 		nullify.Fill(&longBook)
-		longBookList = append(longBookList, longBook)
+		goutils.InPlaceAppend(&longBookList, longBook)
 	}
 
 	contractInfo := types.ContractInfoV2{
@@ -88,7 +89,7 @@ func TestShowLongBook(t *testing.T) {
 		t.Run(tc.desc, func(t *testing.T) {
 			// the longbook orders are from genesis contract as created from networkWithLongBookObjects
 			args := []string{"sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc", tc.price, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom}
-			args = append(args, tc.args...)
+			goutils.InPlaceAppend(&args, tc.args...)
 			out, err := clitestutil.ExecTestCLICmd(ctx, query.CmdShowLongBook(), args)
 			if tc.err != nil {
 				stat, ok := status.FromError(tc.err)
@@ -118,13 +119,13 @@ func TestListLongBook(t *testing.T) {
 			fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 		}
 		if next == nil {
-			args = append(args, fmt.Sprintf("--%s=%d", flags.FlagOffset, offset))
+			goutils.InPlaceAppend(&args, fmt.Sprintf("--%s=%d", flags.FlagOffset, offset))
 		} else {
-			args = append(args, fmt.Sprintf("--%s=%s", flags.FlagPageKey, next))
+			goutils.InPlaceAppend(&args, fmt.Sprintf("--%s=%s", flags.FlagPageKey, next))
 		}
-		args = append(args, fmt.Sprintf("--%s=%d", flags.FlagLimit, limit))
+		goutils.InPlaceAppend(&args, fmt.Sprintf("--%s=%d", flags.FlagLimit, limit))
 		if total {
-			args = append(args, fmt.Sprintf("--%s", flags.FlagCountTotal))
+			goutils.InPlaceAppend(&args, fmt.Sprintf("--%s", flags.FlagCountTotal))
 		}
 		return args
 	}

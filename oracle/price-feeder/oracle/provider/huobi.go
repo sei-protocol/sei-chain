@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 
@@ -376,11 +377,11 @@ func (p *HuobiProvider) setCandlePair(candle HuobiCandle) {
 	candle.Tick.TimeStamp *= int64(time.Second / time.Millisecond)
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []HuobiCandle{}
-	candleList = append(candleList, candle)
+	candleList = goutils.ImmutableAppend(candleList, candle)
 
 	for _, c := range p.candles[candle.CH] {
 		if staleTime < c.Tick.TimeStamp {
-			candleList = append(candleList, c)
+			candleList = goutils.ImmutableAppend(candleList, c)
 		}
 	}
 	p.candles[candle.CH] = candleList
@@ -453,7 +454,7 @@ func (p *HuobiProvider) getCandlePrices(cp types.CurrencyPair) ([]CandlePrice, e
 		if err != nil {
 			return []CandlePrice{}, err
 		}
-		candleList = append(candleList, cp)
+		candleList = goutils.ImmutableAppend(candleList, cp)
 	}
 	return candleList, nil
 }

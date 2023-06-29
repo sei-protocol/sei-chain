@@ -10,6 +10,7 @@ import (
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -56,7 +57,7 @@ func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOpera
 		switch m := msg.(type) {
 		case *types.MsgAggregateExchangeRateVote:
 			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, []sdkacltypes.AccessOperation{
+			goutils.InPlaceAppend(&deps, []sdkacltypes.AccessOperation{
 				// validate feeder
 				// read feeder delegation for val addr - READ
 				{
@@ -82,7 +83,7 @@ func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOpera
 		}
 	}
 
-	return next(append(txDeps, deps...), tx, txIndex)
+	return next(goutils.ImmutableAppend(txDeps, deps...), tx, txIndex)
 }
 
 // CheckOracleSpamming check whether the msgs are spamming purpose or not

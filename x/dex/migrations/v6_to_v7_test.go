@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
@@ -37,9 +38,9 @@ func TestMigrate6to7(t *testing.T) {
 	store.Set(types.KeyPrefix(types.NextOrderIDKey), oldID)
 
 	// write old price state
-	store = prefix.NewStore(ctx.KVStore(storeKey), append(
-		append(
-			append(types.KeyPrefix(types.PriceKey), types.KeyPrefix(keepertest.TestContract)...),
+	store = prefix.NewStore(ctx.KVStore(storeKey), goutils.ImmutableAppend(
+		goutils.ImmutableAppend(
+			goutils.ImmutableAppend(types.KeyPrefix(types.PriceKey), types.KeyPrefix(keepertest.TestContract)...),
 			types.KeyPrefix(keepertest.TestPriceDenom)...,
 		),
 		types.KeyPrefix(keepertest.TestAssetDenom)...),

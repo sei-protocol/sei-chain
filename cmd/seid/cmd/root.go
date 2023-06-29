@@ -35,6 +35,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/crisis"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/spf13/cast"
@@ -343,7 +344,7 @@ func getPrimeNums(lo int, hi int) []int {
 			}
 		}
 		if isPrime {
-			primeNums = append(primeNums, lo)
+			goutils.InPlaceAppend(&primeNums, lo)
 		}
 		lo++
 	}

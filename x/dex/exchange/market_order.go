@@ -4,6 +4,7 @@ import (
 	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	cache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -39,7 +40,7 @@ func MatchMarketOrders(
 			settlement.ExecutionCostOrProceed = clearingPrice
 		}
 		minPrice, maxPrice = clearingPrice, clearingPrice
-		settlements = append(settlements, allTakerSettlements...)
+		goutils.InPlaceAppend(&settlements, allTakerSettlements...)
 	}
 	return ExecutionOutcome{
 		TotalNotional: totalPrice,
@@ -99,9 +100,9 @@ func MatchMarketOrder(
 		)
 		// update the status of order in the memState
 		UpdateOrderData(marketOrder, executed, blockOrders)
-		settlements = append(settlements, makerSettlements...)
+		goutils.InPlaceAppend(&settlements, makerSettlements...)
 		// taker settlements' clearing price will need to be adjusted after all market order executions finish
-		allTakerSettlements = append(allTakerSettlements, takerSettlements...)
+		goutils.InPlaceAppend(&allTakerSettlements, takerSettlements...)
 		if remainingQuantity.IsZero() {
 			break
 		}
@@ -153,11 +154,11 @@ func MatchFOKMarketOrder(
 			marketOrder.Price,
 			entry.GetPrice(),
 		)
-		newSettlements = append(newSettlements, makerSettlements...)
-		newTakerSettlements = append(newTakerSettlements, takerSettlements...)
-		orders = append(orders, marketOrder)
-		executedQuantities = append(executedQuantities, executed)
-		entryPrices = append(entryPrices, entry.GetPrice())
+		goutils.InPlaceAppend(&newSettlements, makerSettlements...)
+		goutils.InPlaceAppend(&newTakerSettlements, takerSettlements...)
+		goutils.InPlaceAppend(&orders, marketOrder)
+		goutils.InPlaceAppend(&executedQuantities, executed)
+		goutils.InPlaceAppend(&entryPrices, entry.GetPrice())
 
 		if remainingQuantity.IsZero() {
 			break
@@ -166,8 +167,8 @@ func MatchFOKMarketOrder(
 
 	if remainingQuantity.IsZero() {
 		orderBookEntries.Flush(ctx)
-		settlements = append(settlements, newSettlements...)
-		allTakerSettlements = append(allTakerSettlements, newTakerSettlements...)
+		goutils.InPlaceAppend(&settlements, newSettlements...)
+		goutils.InPlaceAppend(&allTakerSettlements, newTakerSettlements...)
 		for i, order := range orders {
 			UpdateOrderData(order, executedQuantities[i], blockOrders)
 			*totalExecuted = totalExecuted.Add(executedQuantities[i])
@@ -226,11 +227,11 @@ func MatchByValueFOKMarketOrder(
 			marketOrder.Price,
 			entry.GetPrice(),
 		)
-		newSettlements = append(newSettlements, makerSettlements...)
-		newTakerSettlements = MergeByNominalTakerSettlements(append(newTakerSettlements, takerSettlements...))
-		orders = append(orders, marketOrder)
-		executedQuantities = append(executedQuantities, executed)
-		entryPrices = append(entryPrices, entry.GetPrice())
+		goutils.InPlaceAppend(&newSettlements, makerSettlements...)
+		newTakerSettlements = MergeByNominalTakerSettlements(goutils.ImmutableAppend(newTakerSettlements, takerSettlements...))
+		goutils.InPlaceAppend(&orders, marketOrder)
+		goutils.InPlaceAppend(&executedQuantities, executed)
+		goutils.InPlaceAppend(&entryPrices, entry.GetPrice())
 		if remainingFund.IsZero() || remainingQuantity.LTE(sdk.ZeroDec()) {
 			break
 		}
@@ -239,8 +240,8 @@ func MatchByValueFOKMarketOrder(
 	// settle orders only when all fund are used
 	if remainingFund.IsZero() && remainingQuantity.GTE(sdk.ZeroDec()) {
 		orderBookEntries.Flush(ctx)
-		settlements = append(settlements, newSettlements...)
-		allTakerSettlements = append(allTakerSettlements, newTakerSettlements...)
+		goutils.InPlaceAppend(&settlements, newSettlements...)
+		goutils.InPlaceAppend(&allTakerSettlements, newTakerSettlements...)
 		for i, order := range orders {
 			UpdateOrderData(order, executedQuantities[i], blockOrders)
 			*totalExecuted = totalExecuted.Add(executedQuantities[i])

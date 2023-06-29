@@ -6,6 +6,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -46,7 +47,7 @@ func (k msgServer) RegisterPairs(goCtx context.Context, msg *types.MsgRegisterPa
 				// If its already added then no event is emitted
 				continue
 			}
-			events = append(events, sdk.NewEvent(
+			goutils.InPlaceAppend(&events, sdk.NewEvent(
 				types.EventTypeRegisterPair,
 				sdk.NewAttribute(types.AttributeKeyContractAddress, contractAddr),
 				sdk.NewAttribute(types.AttributeKeyPriceDenom, pair.PriceDenom),

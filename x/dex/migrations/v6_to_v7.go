@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -62,9 +63,9 @@ func reformatPriceState(ctx sdk.Context, storeKey sdk.StoreKey) {
 			for ; pairIterator.Valid(); pairIterator.Next() {
 				pair := types.Pair{}
 				if err := pair.Unmarshal(pairIterator.Value()); err == nil {
-					oldPriceStore := prefix.NewStore(ctx.KVStore(storeKey), append(
-						append(
-							append(types.KeyPrefix(types.PriceKey), types.KeyPrefix(contract.ContractAddr)...),
+					oldPriceStore := prefix.NewStore(ctx.KVStore(storeKey), goutils.ImmutableAppend(
+						goutils.ImmutableAppend(
+							goutils.ImmutableAppend(types.KeyPrefix(types.PriceKey), types.KeyPrefix(contract.ContractAddr)...),
 							types.KeyPrefix(pair.PriceDenom)...,
 						),
 						types.KeyPrefix(pair.AssetDenom)...,

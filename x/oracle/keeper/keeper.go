@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 
 	"github.com/tendermint/tendermint/libs/log"
@@ -333,7 +334,7 @@ func (k Keeper) getAllKeysForPrefix(store sdk.KVStore, prefix []byte) [][]byte {
 	iter := sdk.KVStorePrefixIterator(store, prefix)
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
-		keys = append(keys, iter.Key())
+		goutils.InPlaceAppend(&keys, iter.Key())
 	}
 	return keys
 }
@@ -396,7 +397,7 @@ func (k Keeper) AddPriceSnapshot(ctx sdk.Context, snapshot types.PriceSnapshot) 
 		}
 		// delete the previous out of range snapshot
 		if lastOutOfRangeSnapshotTimestamp >= 0 {
-			timestampsToDelete = append(timestampsToDelete, lastOutOfRangeSnapshotTimestamp)
+			goutils.InPlaceAppend(&timestampsToDelete, lastOutOfRangeSnapshotTimestamp)
 		}
 		// update last out of range snapshot
 		lastOutOfRangeSnapshotTimestamp = snapshot.SnapshotTimestamp
@@ -494,7 +495,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 
 	denomKeys := make([]string, 0, len(denomToTimeWeightedMap))
 	for k := range denomToTimeWeightedMap {
-		denomKeys = append(denomKeys, k)
+		goutils.InPlaceAppend(&denomKeys, k)
 	}
 	sort.Strings(denomKeys)
 
@@ -515,7 +516,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 			Twap:            denomTwap,
 			LookbackSeconds: denomDuration,
 		}
-		oracleTwaps = append(oracleTwaps, denomOracleTwap)
+		oracleTwaps = goutils.ImmutableAppend(oracleTwaps, denomOracleTwap)
 	}
 
 	if len(oracleTwaps) == 0 {

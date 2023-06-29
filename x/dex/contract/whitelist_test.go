@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/contract"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ func TestGetDexPrefixes(t *testing.T) {
 
 	for i, dexKeys := range contract.DexWhitelistedKeys {
 		len := []byte{byte(32)}
-		prefix := append(append([]byte(dexKeys), len...), addr...)
+		prefix := goutils.ImmutableAppend(goutils.ImmutableAppend([]byte(dexKeys), len...), addr...)
 		require.Equal(t, string(prefix), dexWhitelistedPrefixes[i])
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dexkeeperabci "github.com/sei-protocol/sei-chain/x/dex/keeper/abci"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -40,12 +41,12 @@ func getUnfulfilledPlacedMarketOrderIds(
 		}
 		if order.OrderType == types.OrderType_MARKET || order.OrderType == types.OrderType_FOKMARKET {
 			if settledQuantity, ok := orderIDToSettledQuantities[order.Id]; !ok || settledQuantity.LT(order.Quantity) {
-				res = append(res, order.Id)
+				goutils.InPlaceAppend(&res, order.Id)
 			}
 		} else if order.OrderType == types.OrderType_FOKMARKETBYVALUE {
 			// cancel market order by nominal if zero quantity is executed
 			if _, ok := orderIDToSettledQuantities[order.Id]; !ok {
-				res = append(res, order.Id)
+				goutils.InPlaceAppend(&res, order.Id)
 			}
 		}
 	}

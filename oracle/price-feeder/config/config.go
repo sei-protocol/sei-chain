@@ -10,6 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/go-playground/validator/v10"
+	"github.com/sei-protocol/goutils"
 )
 
 const (
@@ -285,7 +286,7 @@ func ParseConfig(configPath string) (Config, error) {
 	gatePairs := []string{}
 	for base, providers := range pairs {
 		if _, ok := providers["gate"]; ok {
-			gatePairs = append(gatePairs, base)
+			gatePairs = goutils.ImmutableAppend(gatePairs, base)
 		}
 	}
 	if len(gatePairs) > 1 {

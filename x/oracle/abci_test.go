@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/oracle"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -124,7 +125,7 @@ func TestOracleTally(t *testing.T) {
 
 		vote := types.NewVoteForTally(
 			decExchangeRate, utils.MicroAtomDenom, valAddrs[i], power)
-		ballot = append(ballot, vote)
+		ballot = goutils.ImmutableAppend(ballot, vote)
 
 		// change power of every three validator
 		if i%3 == 0 {

@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -67,7 +68,7 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 	params := keeper.GetParams(ctx)
 	feederDelegations := []types.FeederDelegation{}
 	keeper.IterateFeederDelegations(ctx, func(valAddr sdk.ValAddress, feederAddr sdk.AccAddress) (stop bool) {
-		feederDelegations = append(feederDelegations, types.FeederDelegation{
+		goutils.InPlaceAppend(&feederDelegations, types.FeederDelegation{
 			FeederAddress:    feederAddr.String(),
 			ValidatorAddress: valAddr.String(),
 		})
@@ -76,13 +77,13 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 
 	exchangeRates := []types.ExchangeRateTuple{}
 	keeper.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
-		exchangeRates = append(exchangeRates, types.ExchangeRateTuple{Denom: denom, ExchangeRate: rate.ExchangeRate})
+		goutils.InPlaceAppend(&exchangeRates, types.ExchangeRateTuple{Denom: denom, ExchangeRate: rate.ExchangeRate})
 		return false
 	})
 
 	penaltyCounters := []types.PenaltyCounter{}
 	keeper.IterateVotePenaltyCounters(ctx, func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
-		penaltyCounters = append(penaltyCounters, types.PenaltyCounter{
+		goutils.InPlaceAppend(&penaltyCounters, types.PenaltyCounter{
 			ValidatorAddress:   operator.String(),
 			VotePenaltyCounter: &votePenaltyCounter,
 		})
@@ -91,13 +92,13 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 
 	aggregateExchangeRateVotes := []types.AggregateExchangeRateVote{}
 	keeper.IterateAggregateExchangeRateVotes(ctx, func(_ sdk.ValAddress, aggregateVote types.AggregateExchangeRateVote) bool {
-		aggregateExchangeRateVotes = append(aggregateExchangeRateVotes, aggregateVote)
+		goutils.InPlaceAppend(&aggregateExchangeRateVotes, aggregateVote)
 		return false
 	})
 
 	priceSnapshots := types.PriceSnapshots{}
 	keeper.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) bool {
-		priceSnapshots = append(priceSnapshots, snapshot)
+		priceSnapshots = goutils.ImmutableAppend(priceSnapshots, snapshot)
 		return false
 	})
 

@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/address"
+	"github.com/sei-protocol/goutils"
 )
 
 const (
@@ -48,26 +49,26 @@ var (
 
 // GetExchangeRateKey - stored by *denom*
 func GetExchangeRateKey(denom string) []byte {
-	return append(ExchangeRateKey, []byte(denom)...)
+	return goutils.ImmutableAppend(ExchangeRateKey, []byte(denom)...)
 }
 
 // GetFeederDelegationKey - stored by *Validator* address
 func GetFeederDelegationKey(v sdk.ValAddress) []byte {
-	return append(FeederDelegationKey, address.MustLengthPrefix(v)...)
+	return goutils.ImmutableAppend(FeederDelegationKey, address.MustLengthPrefix(v)...)
 }
 
 // GetVotePenaltyCounterKey - stored by *Validator* address
 func GetVotePenaltyCounterKey(v sdk.ValAddress) []byte {
-	return append(VotePenaltyCounterKey, address.MustLengthPrefix(v)...)
+	return goutils.ImmutableAppend(VotePenaltyCounterKey, address.MustLengthPrefix(v)...)
 }
 
 // GetAggregateExchangeRateVoteKey - stored by *Validator* address
 func GetAggregateExchangeRateVoteKey(v sdk.ValAddress) []byte {
-	return append(AggregateExchangeRateVoteKey, address.MustLengthPrefix(v)...)
+	return goutils.ImmutableAppend(AggregateExchangeRateVoteKey, address.MustLengthPrefix(v)...)
 }
 
 func GetVoteTargetKey(d string) []byte {
-	return append(VoteTargetKey, []byte(d)...)
+	return goutils.ImmutableAppend(VoteTargetKey, []byte(d)...)
 }
 
 func ExtractDenomFromVoteTargetKey(key []byte) (denom string) {
@@ -82,5 +83,5 @@ func GetKeyForTimestamp(timestamp uint64) []byte {
 }
 
 func GetPriceSnapshotKey(timestamp uint64) []byte {
-	return append(PriceSnapshotKey, GetKeyForTimestamp(timestamp)...)
+	return goutils.ImmutableAppend(PriceSnapshotKey, GetKeyForTimestamp(timestamp)...)
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -22,7 +23,7 @@ var ValidAccountCorpus = []string{
 	"sei1vjgdad5v2euf98nj3pwg5d8agflr384k0eks43",
 }
 
-var AccountCorpus = append([]string{
+var AccountCorpus = goutils.ImmutableAppend([]string{
 	"invalid",
 }, ValidAccountCorpus...)
 
@@ -123,7 +124,7 @@ func GetPlacedOrders(direction types.PositionDirection, orderType types.OrderTyp
 			priceDec = sdk.MustNewDecFromStr(fmt.Sprintf("%f", BaselinePrice-float64(price)))
 		}
 		quantity := sdk.NewDec(int64(quantities[i]))
-		res = append(res, &types.Order{
+		goutils.InPlaceAppend(&res, &types.Order{
 			Id:                uint64(i),
 			Status:            types.OrderStatus_PLACED,
 			Price:             priceDec,
@@ -170,12 +171,12 @@ func GetOrderBookEntries(buy bool, priceDenom string, assetDenom string, entryWe
 			),
 		}
 		if buy {
-			res = append(res, &types.LongBook{
+			goutils.InPlaceAppend[types.OrderBookEntry](&res, &types.LongBook{
 				Price: price,
 				Entry: &entry,
 			})
 		} else {
-			res = append(res, &types.ShortBook{
+			goutils.InPlaceAppend[types.OrderBookEntry](&res, &types.ShortBook{
 				Price: price,
 				Entry: &entry,
 			})
@@ -217,7 +218,7 @@ func GetAllocations(totalQuantity int64, accountIndices []byte, weights []byte) 
 		} else {
 			quantity = quantityDec.Mul(sdk.NewDec(int64(weight))).Quo(totalWeightDec)
 		}
-		res = append(res, &types.Allocation{
+		goutils.InPlaceAppend(&res, &types.Allocation{
 			OrderId:  uint64(orderID),
 			Account:  account,
 			Quantity: quantity,

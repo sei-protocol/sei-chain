@@ -8,6 +8,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/goutils"
 )
 
 type SignerDepDecorator struct {
@@ -26,7 +27,7 @@ func (d SignerDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sd
 		accessType = sdkacltypes.AccessType_WRITE
 	}
 	for _, signer := range sigTx.GetSigners() {
-		txDeps = append(txDeps, sdkacltypes.AccessOperation{
+		goutils.InPlaceAppend(&txDeps, sdkacltypes.AccessOperation{
 			AccessType:         accessType,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
 			IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(signer)),

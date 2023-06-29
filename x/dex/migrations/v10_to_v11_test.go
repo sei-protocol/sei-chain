@@ -3,6 +3,7 @@ package migrations_test
 import (
 	"testing"
 
+	"github.com/sei-protocol/goutils"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/migrations"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -53,8 +54,8 @@ func TestMigrate10to11(t *testing.T) {
 func TriggerOrderBookPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
 	prefix := types.KeyPrefix("TriggerBook-value-")
 
-	return append(
-		append(prefix, types.AddressKeyPrefix(contractAddr)...),
+	return goutils.ImmutableAppend(
+		goutils.ImmutableAppend(prefix, types.AddressKeyPrefix(contractAddr)...),
 		types.PairPrefix(priceDenom, assetDenom)...,
 	)
 }

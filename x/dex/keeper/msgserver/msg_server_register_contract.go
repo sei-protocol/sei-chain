@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/goutils"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
@@ -282,6 +283,6 @@ func (k msgServer) SetNewContract(ctx sdk.Context, msg *types.MsgRegisterContrac
 	if err := k.SetContract(ctx, newContract); err != nil {
 		return []types.ContractInfoV2{}, err
 	}
-	allContractInfo = append(allContractInfo, *newContract)
+	goutils.InPlaceAppend(&allContractInfo, *newContract)
 	return allContractInfo, nil
 }

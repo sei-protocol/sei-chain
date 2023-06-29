@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 
@@ -255,7 +256,7 @@ func (p *KrakenProvider) getCandlePrices(key string) ([]CandlePrice, error) {
 		if err != nil {
 			return []CandlePrice{}, err
 		}
-		candleList = append(candleList, cp)
+		candleList = goutils.ImmutableAppend(candleList, cp)
 	}
 	return candleList, nil
 }
@@ -590,10 +591,10 @@ func (p *KrakenProvider) setCandlePair(candle KrakenCandle) {
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []KrakenCandle{}
 
-	candleList = append(candleList, candle)
+	candleList = goutils.ImmutableAppend(candleList, candle)
 	for _, c := range p.candles[candle.Symbol] {
 		if staleTime < c.TimeStamp {
-			candleList = append(candleList, c)
+			candleList = goutils.ImmutableAppend(candleList, c)
 		}
 	}
 	p.candles[candle.Symbol] = candleList

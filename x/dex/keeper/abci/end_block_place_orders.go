@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
@@ -45,7 +46,7 @@ func (w KeeperWrapper) HandleEBPlaceOrders(ctx context.Context, sdkCtx sdk.Conte
 		if len(response.UnsuccessfulOrders) > 0 {
 			sdkCtx.Logger().Info(fmt.Sprintf("%s has %d unsuccessful order placements", contractAddr, len(response.UnsuccessfulOrders)))
 		}
-		responses = append(responses, response)
+		goutils.InPlaceAppend(&responses, response)
 	}
 
 	for _, pair := range registeredPairs {
@@ -61,9 +62,9 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr types.
 	contractOrderPlacements := []types.Order{}
 	for _, pair := range registeredPairs {
 		for _, order := range dexutils.GetMemState(ctx.Context()).GetBlockOrders(ctx, typedContractAddr, pair).Get() {
-			contractOrderPlacements = append(contractOrderPlacements, *order)
+			goutils.InPlaceAppend(&contractOrderPlacements, *order)
 			if len(contractOrderPlacements) == MaxOrdersPerSudoCall {
-				msgs = append(msgs, types.SudoOrderPlacementMsg{
+				goutils.InPlaceAppend(&msgs, types.SudoOrderPlacementMsg{
 					OrderPlacements: types.OrderPlacementMsgDetails{
 						Orders:   contractOrderPlacements,
 						Deposits: []types.ContractDepositInfo{},
@@ -73,7 +74,7 @@ func (w KeeperWrapper) GetPlaceSudoMsg(ctx sdk.Context, typedContractAddr types.
 			}
 		}
 	}
-	msgs = append(msgs, types.SudoOrderPlacementMsg{
+	goutils.InPlaceAppend(&msgs, types.SudoOrderPlacementMsg{
 		OrderPlacements: types.OrderPlacementMsgDetails{
 			Orders:   contractOrderPlacements,
 			Deposits: []types.ContractDepositInfo{},

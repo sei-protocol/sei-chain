@@ -21,6 +21,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/goutils"
 )
 
 type AccountInfo struct {
@@ -140,7 +141,7 @@ func (sc *SignerClient) GetValKeys() []cryptotypes.PrivKey {
 			}
 		}
 
-		valKeys = append(valKeys, privKey)
+		goutils.InPlaceAppend(&valKeys, privKey)
 	}
 	return valKeys
 }
@@ -160,7 +161,7 @@ func (sc *SignerClient) SignTx(chainID string, txBuilder *client.TxBuilder, priv
 		},
 		Sequence: seqNum,
 	}
-	sigsV2 = append(sigsV2, sigV2)
+	goutils.InPlaceAppend(&sigsV2, sigV2)
 	_ = (*txBuilder).SetSignatures(sigsV2...)
 	sigsV2 = []signing.SignatureV2{}
 	signerData := xauthsigning.SignerData{
@@ -176,7 +177,7 @@ func (sc *SignerClient) SignTx(chainID string, txBuilder *client.TxBuilder, priv
 		TestConfig.TxConfig,
 		seqNum,
 	)
-	sigsV2 = append(sigsV2, sigV2)
+	goutils.InPlaceAppend(&sigsV2, sigV2)
 	_ = (*txBuilder).SetSignatures(sigsV2...)
 }
 

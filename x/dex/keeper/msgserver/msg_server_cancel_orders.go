@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/utils"
 )
@@ -48,7 +49,7 @@ func (k msgServer) CancelOrders(goCtx context.Context, msg *types.MsgCancelOrder
 				PositionDirection: cancellation.PositionDirection,
 			}
 			pairBlockCancellations.Add(&cancel)
-			events = append(events, sdk.NewEvent(
+			goutils.InPlaceAppend(&events, sdk.NewEvent(
 				types.EventTypeCancelOrder,
 				sdk.NewAttribute(types.AttributeKeyCancellationID, fmt.Sprint(cancellation.Id)),
 			))

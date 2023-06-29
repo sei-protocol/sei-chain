@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 )
@@ -77,7 +78,7 @@ func (k KeeperWrapper) getMatchedPriceQuantities(ctx sdk.Context, req *types.Que
 	priceQuantities := []priceQuantity{}
 	for price, quantity := range eligibleOrderBookPriceToQuantity {
 		if quantity.IsPositive() {
-			priceQuantities = append(priceQuantities, priceQuantity{price: sdk.MustNewDecFromStr(price), quantity: quantity})
+			goutils.InPlaceAppend(&priceQuantities, priceQuantity{price: sdk.MustNewDecFromStr(price), quantity: quantity})
 		}
 	}
 	sort.Slice(priceQuantities, func(i int, j int) bool {

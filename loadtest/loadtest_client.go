@@ -14,6 +14,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/goutils"
 
 	"crypto/tls"
 
@@ -51,9 +52,9 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 
 	// NOTE: Will likely need to whitelist node from elb rate limits - add ip to producer ip set
 	if config.TLS {
-		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
+		goutils.InPlaceAppend(&dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
 	} else {
-		dialOptions = append(dialOptions, grpc.WithInsecure())
+		goutils.InPlaceAppend(&dialOptions, grpc.WithInsecure())
 	}
 	grpcConn, _ := grpc.Dial(
 		config.GrpcEndpoint,
@@ -123,9 +124,9 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 
 	for i := 0; i < int(numberOfAccounts); i++ {
 		if i%2 == 0 {
-			activeAccounts = append(activeAccounts, i)
+			goutils.InPlaceAppend(&activeAccounts, i)
 		} else {
-			inactiveAccounts = append(inactiveAccounts, i)
+			goutils.InPlaceAppend(&inactiveAccounts, i)
 		}
 	}
 
@@ -136,7 +137,7 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 
 		wg := &sync.WaitGroup{}
 		var senders []func()
-		workgroups = append(workgroups, wg)
+		goutils.InPlaceAppend(&workgroups, wg)
 		c.generatedAdminMessageForBlock = false
 		for j, account := range activeAccounts {
 			accountIdentifier := fmt.Sprint(account)
@@ -157,15 +158,15 @@ func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [
 			// as is.
 			sender := SendTx(signer, &txBuilder, mode, seqDelta, failureExpected, *c, gas, fee)
 			wg.Add(1)
-			senders = append(senders, func() {
+			goutils.InPlaceAppend(&senders, func() {
 				defer wg.Done()
 				sender()
 			})
 		}
 
-		senders = append(senders, c.GenerateOracleSenders(i, config, valKeys, wg)...)
+		goutils.InPlaceAppend(&senders, c.GenerateOracleSenders(i, config, valKeys, wg)...)
 
-		sendersList = append(sendersList, senders)
+		goutils.InPlaceAppend(&sendersList, senders)
 		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
 	}
 
@@ -184,7 +185,7 @@ func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []c
 			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
 			sender := SendTx(valKey, &txBuilder, mode, seqDelta, false, *c, 30000, 100000)
 			waitGroup.Add(1)
-			senders = append(senders, func() {
+			goutils.InPlaceAppend(&senders, func() {
 				defer waitGroup.Done()
 				sender()
 			})
@@ -216,7 +217,7 @@ func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]f
 
 func (c *LoadTestClient) GatherTxHashes() {
 	for txHash := range c.TxResponseChan {
-		c.TxHashList = append(c.TxHashList, *txHash)
+		goutils.InPlaceAppend(&c.TxHashList, *txHash)
 	}
 	fmt.Printf("Transactions Sent=%d\n", len(c.TxHashList))
 }

@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 	"github.com/sei-protocol/sei-chain/utils"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -28,7 +29,7 @@ func DexOrders(t *testing.T, app *processblock.App, f BlockRunnable, txs []signi
 						markets[id] = struct{}{}
 						if orders, ok := orderPlacementsByMarket[id]; ok {
 							o.Id = app.DexKeeper.GetNextOrderID(app.Ctx(), m.ContractAddr) + uint64(len(orders))
-							orderPlacementsByMarket[id] = append(orders, o)
+							orderPlacementsByMarket[id] = goutils.ImmutableAppend(orders, o)
 						} else {
 							o.Id = app.DexKeeper.GetNextOrderID(app.Ctx(), m.ContractAddr)
 							orderPlacementsByMarket[id] = []*dextypes.Order{o}
@@ -39,7 +40,7 @@ func DexOrders(t *testing.T, app *processblock.App, f BlockRunnable, txs []signi
 						id := strings.Join([]string{m.ContractAddr, o.PriceDenom, o.AssetDenom}, ",")
 						markets[id] = struct{}{}
 						if cancels, ok := orderCancellationsByMarket[id]; ok {
-							orderCancellationsByMarket[id] = append(cancels, o)
+							orderCancellationsByMarket[id] = goutils.ImmutableAppend(cancels, o)
 						} else {
 							orderCancellationsByMarket[id] = []*dextypes.Cancellation{o}
 						}
@@ -158,7 +159,7 @@ func addOrders(
 			OrderId:  o.Id,
 		}
 		if entry, ok := book[o.Price.String()]; ok {
-			entry.Allocations = append(entry.Allocations, newAllocation)
+			goutils.InPlaceAppend(&entry.Allocations, newAllocation)
 			updateEntryQuantity(entry)
 		} else {
 			book[o.Price.String()] = &dextypes.OrderEntry{
@@ -234,10 +235,10 @@ func takeLiquidity(book map[string]*dextypes.OrderEntry, price sdk.Dec, quantity
 	for _, a := range entry.Allocations {
 		switch {
 		case allocated.Equal(quantity):
-			newAllocations = append(newAllocations, a)
+			goutils.InPlaceAppend(&newAllocations, a)
 		case allocated.Add(a.Quantity).GT(quantity):
 			a.Quantity = a.Quantity.Sub(quantity.Sub(allocated))
-			newAllocations = append(newAllocations, a)
+			goutils.InPlaceAppend(&newAllocations, a)
 			allocated = quantity
 		default:
 			allocated = allocated.Add(a.Quantity)
@@ -250,7 +251,7 @@ func takeLiquidity(book map[string]*dextypes.OrderEntry, price sdk.Dec, quantity
 func sortedPrices(book map[string]*dextypes.OrderEntry, descending bool) []sdk.Dec {
 	prices := []sdk.Dec{}
 	for p := range book {
-		prices = append(prices, sdk.MustNewDecFromStr(p))
+		goutils.InPlaceAppend(&prices, sdk.MustNewDecFromStr(p))
 	}
 	if descending {
 		sort.Slice(prices, func(i, j int) bool { return prices[i].GT(prices[j]) })

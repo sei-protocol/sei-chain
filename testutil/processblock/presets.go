@@ -9,6 +9,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/testutil/processblock/msgs"
 	"github.com/sei-protocol/sei-chain/utils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
@@ -41,15 +42,15 @@ func CommonPreset(app *App) *Preset {
 	app.FundAccount(p.Admin, 100000000000)
 	for i := 0; i < 3; i++ {
 		acc := app.NewAccount()
-		p.AllAccounts = append(p.AllAccounts, acc)
+		goutils.InPlaceAppend(&p.AllAccounts, acc)
 		fmt.Printf("CommonPreset account: %s\n", acc.String())
 	}
 	for i := 0; i < 3; i++ {
 		val := app.NewValidator()
 		app.FundAccount(sdk.AccAddress(val), 10000000)
 		app.NewDelegation(sdk.AccAddress(val), val, 7000000)
-		p.AllAccounts = append(p.AllAccounts, sdk.AccAddress(val))
-		p.AllValidators = append(p.AllValidators, val)
+		goutils.InPlaceAppend(&p.AllAccounts, sdk.AccAddress(val))
+		goutils.InPlaceAppend(&p.AllValidators, val)
 		fmt.Printf("CommonPreset val: %s\n", sdk.AccAddress(val).String())
 	}
 	return p
@@ -60,15 +61,15 @@ func DexPreset(app *App, numAccounts int, numMarkets int) *Preset {
 	for i := 0; i < numAccounts; i++ {
 		acc := app.NewSignableAccount(fmt.Sprintf("DexPreset%d", i))
 		app.FundAccount(acc, 10000000)
-		p.AllAccounts = append(p.AllAccounts, acc)
-		p.SignableAccounts = append(p.SignableAccounts, acc)
+		goutils.InPlaceAppend(&p.AllAccounts, acc)
+		goutils.InPlaceAppend(&p.SignableAccounts, acc)
 		fmt.Printf("DexPreset account: %s\n", acc.String())
 	}
 	for i := 0; i < numMarkets; i++ {
 		contract := app.NewContract(p.Admin, "./mars.wasm")
 		market := msgs.NewMarket(contract.String(), "SEI", fmt.Sprintf("ATOM%d", i))
-		p.AllContracts = append(p.AllContracts, contract)
-		p.AllDexMarkets = append(p.AllDexMarkets, market)
+		goutils.InPlaceAppend(&p.AllContracts, contract)
+		goutils.InPlaceAppend(&p.AllDexMarkets, market)
 		fmt.Printf("DexPreset contract: %s\n", contract.String())
 	}
 	return p

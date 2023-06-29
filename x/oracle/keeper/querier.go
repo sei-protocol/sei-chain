@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
@@ -58,7 +59,7 @@ func (q querier) ExchangeRates(c context.Context, req *types.QueryExchangeRatesR
 
 	exchangeRates := []types.DenomOracleExchangeRatePair{}
 	q.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
-		exchangeRates = append(exchangeRates, types.DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRate: rate})
+		goutils.InPlaceAppend(&exchangeRates, types.DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRate: rate})
 		return false
 	})
 
@@ -71,7 +72,7 @@ func (q querier) Actives(c context.Context, req *types.QueryActivesRequest) (*ty
 
 	denoms := []string{}
 	q.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
-		denoms = append(denoms, denom)
+		goutils.InPlaceAppend(&denoms, denom)
 		return false
 	})
 
@@ -88,7 +89,7 @@ func (q querier) PriceSnapshotHistory(c context.Context, req *types.QueryPriceSn
 	ctx := sdk.UnwrapSDKContext(c)
 	priceSnapshots := types.PriceSnapshots{}
 	q.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
-		priceSnapshots = append(priceSnapshots, snapshot)
+		priceSnapshots = goutils.ImmutableAppend(priceSnapshots, snapshot)
 		return false
 	})
 	response := types.QueryPriceSnapshotHistoryResponse{PriceSnapshots: priceSnapshots}

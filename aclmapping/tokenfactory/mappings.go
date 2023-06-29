@@ -10,6 +10,7 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/goutils"
 	tfktypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
@@ -34,10 +35,10 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 	moduleAdr := keeper.AccountKeeper.GetModuleAddress(tfktypes.ModuleName)
 	denom := mintMsg.GetAmount().Denom
 
-	denomMetaDataKey := append([]byte(tfktypes.DenomAuthorityMetadataKey), []byte(denom)...)
+	denomMetaDataKey := goutils.ImmutableAppend([]byte(tfktypes.DenomAuthorityMetadataKey), []byte(denom)...)
 	tokenfactoryDenomKey := tfktypes.GetDenomPrefixStore(denom)
 	bankDenomMetaDataKey := banktypes.DenomMetadataKey(denom)
-	supplyKey := hex.EncodeToString(append(banktypes.SupplyKey, []byte(denom)...))
+	supplyKey := hex.EncodeToString(goutils.ImmutableAppend(banktypes.SupplyKey, []byte(denom)...))
 
 	return []sdkacltypes.AccessOperation{
 		// Reads denom data From BankKeeper
@@ -126,10 +127,10 @@ func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 	moduleAdr := keeper.AccountKeeper.GetModuleAddress(tfktypes.ModuleName)
 	denom := burnMsg.GetAmount().Denom
 
-	denomMetaDataKey := append([]byte(tfktypes.DenomAuthorityMetadataKey), []byte(denom)...)
+	denomMetaDataKey := goutils.ImmutableAppend([]byte(tfktypes.DenomAuthorityMetadataKey), []byte(denom)...)
 	tokenfactoryDenomKey := tfktypes.GetDenomPrefixStore(denom)
 	bankDenomMetaDataKey := banktypes.DenomMetadataKey(denom)
-	supplyKey := hex.EncodeToString(append(banktypes.SupplyKey, []byte(denom)...))
+	supplyKey := hex.EncodeToString(goutils.ImmutableAppend(banktypes.SupplyKey, []byte(denom)...))
 	return []sdkacltypes.AccessOperation{
 		// Reads denom data From BankKeeper
 		{

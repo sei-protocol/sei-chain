@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 
@@ -244,7 +245,7 @@ func (p *BinanceProvider) getCandlePrices(key string) ([]CandlePrice, error) {
 		if err != nil {
 			return []CandlePrice{}, err
 		}
-		candleList = append(candleList, cp)
+		candleList = goutils.ImmutableAppend(candleList, cp)
 	}
 	return candleList, nil
 }
@@ -309,11 +310,11 @@ func (p *BinanceProvider) setCandlePair(candle BinanceCandle) {
 	defer p.mtx.Unlock()
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []BinanceCandle{}
-	candleList = append(candleList, candle)
+	candleList = goutils.ImmutableAppend(candleList, candle)
 
 	for _, c := range p.candles[candle.Symbol] {
 		if staleTime < c.Metadata.TimeStamp {
-			candleList = append(candleList, c)
+			candleList = goutils.ImmutableAppend(candleList, c)
 		}
 	}
 	p.candles[candle.Symbol] = candleList

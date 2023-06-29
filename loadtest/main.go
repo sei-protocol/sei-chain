@@ -12,6 +12,7 @@ import (
 	"time"
 
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/goutils"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -360,7 +361,7 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx
 
 	contract := config.ContractDistr.Sample()
 	for j := 0; j < int(msgPerTx); j++ {
-		orderPlacements = append(orderPlacements, &dextypes.Order{
+		goutils.InPlaceAppend(&orderPlacements, &dextypes.Order{
 			Account:           sdk.AccAddress(key.PubKey().Address()).String(),
 			ContractAddr:      contract,
 			PositionDirection: direction,
@@ -452,7 +453,7 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 			Msg:      wasmtypes.RawContractMessage([]byte("{\"deposit\":{}}")),
 			Funds:    amountDeposit,
 		}
-		msgs = append(msgs, vortexDeposit)
+		goutils.InPlaceAppend[sdk.Msg](&msgs, vortexDeposit)
 	}
 
 	// Create a MsgPlaceOrders with numOrders Orders
@@ -469,7 +470,7 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 			OrderType:         orderType,
 			Data:              VortexData,
 		}
-		orderPlacements = append(orderPlacements, vortexOrder)
+		goutils.InPlaceAppend(&orderPlacements, vortexOrder)
 	}
 
 	amount, err := sdk.ParseCoinsNormalized(fmt.Sprintf("%d%s", price.Mul(quantity).Ceil().RoundInt64(), "usei"))
@@ -483,7 +484,7 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 		Funds:        amount,
 	}
 
-	msgs = append(msgs, vortexOrderMsg)
+	goutils.InPlaceAppend[sdk.Msg](&msgs, vortexOrderMsg)
 
 	return msgs
 }

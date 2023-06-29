@@ -14,6 +14,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/version"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/goutils"
 	"github.com/spf13/cobra"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -114,8 +115,8 @@ func dumpIavlCmdHandler(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "Error hashing tree: %s\n", err)
 			os.Exit(1)
 		}
-		lines = append(lines, []byte(fmt.Sprintf("Hash: %X\n", hash))...)
-		lines = append(lines, []byte(fmt.Sprintf("Size: %X\n", tree.ITree.Size()))...)
+		goutils.InPlaceAppend(&lines, []byte(fmt.Sprintf("Hash: %X\n", hash))...)
+		goutils.InPlaceAppend(&lines, []byte(fmt.Sprintf("Size: %X\n", tree.ITree.Size()))...)
 		// write lines to file
 		err = os.WriteFile(fmt.Sprintf("%s/%s.data", outputDir, module), lines, os.ModePerm)
 		if err != nil {
@@ -233,11 +234,11 @@ func PrintKeys(tree *iavl.MutableTree, moduleParser ModuleParser) []byte {
 			if err != nil {
 				printKey = strings.Join([]string{printKey, err.Error()}, " | ")
 			} else {
-				printKey = strings.Join(append([]string{printKey}, parsed...), " | ")
+				printKey = strings.Join(goutils.ImmutableAppend([]string{printKey}, parsed...), " | ")
 			}
 		}
 		digest := sha256.Sum256(value)
-		lines = append(lines, []byte(fmt.Sprintf("  %s\n    %X\n", printKey, digest))...)
+		goutils.InPlaceAppend(&lines, []byte(fmt.Sprintf("  %s\n    %X\n", printKey, digest))...)
 		return false
 	})
 	return lines

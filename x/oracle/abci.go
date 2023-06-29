@@ -4,6 +4,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -31,7 +32,7 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 		i := 0
 		powerOrderedValAddrs := []sdk.ValAddress{}
 		for ; iterator.Valid() && i < int(maxValidators); iterator.Next() {
-			powerOrderedValAddrs = append(powerOrderedValAddrs, iterator.Value())
+			powerOrderedValAddrs = goutils.ImmutableAppend(powerOrderedValAddrs, iterator.Value())
 		}
 
 		for _, valAddr := range powerOrderedValAddrs {
@@ -140,7 +141,7 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 				Denom:              denom,
 				OracleExchangeRate: exchangeRate,
 			}
-			priceSnapshotItems = append(priceSnapshotItems, priceSnapshotItem)
+			goutils.InPlaceAppend(&priceSnapshotItems, priceSnapshotItem)
 			return false
 		})
 		if len(priceSnapshotItems) > 0 {

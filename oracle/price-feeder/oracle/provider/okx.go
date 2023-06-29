@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 )
@@ -275,7 +276,7 @@ func (p *OkxProvider) getCandlePrices(cp types.CurrencyPair) ([]CandlePrice, err
 		if err != nil {
 			return []CandlePrice{}, err
 		}
-		candleList = append(candleList, cp)
+		candleList = goutils.ImmutableAppend(candleList, cp)
 	}
 
 	return candleList, nil
@@ -396,10 +397,10 @@ func (p *OkxProvider) setCandlePair(pairData []string, instID string) {
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []OkxCandlePair{}
 
-	candleList = append(candleList, candle)
+	candleList = goutils.ImmutableAppend(candleList, candle)
 	for _, c := range p.candles[instID] {
 		if staleTime < c.TimeStamp {
-			candleList = append(candleList, c)
+			candleList = goutils.ImmutableAppend(candleList, c)
 		}
 	}
 	p.candles[instID] = candleList

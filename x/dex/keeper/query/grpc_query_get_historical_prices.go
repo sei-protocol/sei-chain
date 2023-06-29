@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -31,7 +32,7 @@ func (k KeeperWrapper) GetHistoricalPrices(goCtx context.Context, req *types.Que
 		// append early so that we include the latest price before beginTimestamp, since
 		// we need it to set the open price of the first period.
 		if price.SnapshotTimestampInSeconds < currentTimeStamp {
-			validPrices = append(validPrices, price)
+			goutils.InPlaceAppend(&validPrices, price)
 		}
 		if price.SnapshotTimestampInSeconds < beginTimestamp {
 			break

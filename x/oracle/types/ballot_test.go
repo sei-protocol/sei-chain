@@ -14,6 +14,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 )
 
@@ -75,15 +76,15 @@ func TestToCrossRate(t *testing.T) {
 	for _, data := range data {
 		valAddr := sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
 		if !data.base.IsZero() {
-			pbBase = append(pbBase, NewVoteForTally(data.base, utils.MicroAtomDenom, valAddr, 100))
+			pbBase = goutils.ImmutableAppend(pbBase, NewVoteForTally(data.base, utils.MicroAtomDenom, valAddr, 100))
 		}
 
-		pbQuote = append(pbQuote, NewVoteForTally(data.quote, utils.MicroAtomDenom, valAddr, 100))
+		pbQuote = goutils.ImmutableAppend(pbQuote, NewVoteForTally(data.quote, utils.MicroAtomDenom, valAddr, 100))
 
 		if !data.base.IsZero() && !data.quote.IsZero() {
-			cb = append(cb, NewVoteForTally(data.base.Quo(data.quote), utils.MicroAtomDenom, valAddr, 100))
+			cb = goutils.ImmutableAppend(cb, NewVoteForTally(data.base.Quo(data.quote), utils.MicroAtomDenom, valAddr, 100))
 		} else {
-			cb = append(cb, NewVoteForTally(sdk.ZeroDec(), utils.MicroAtomDenom, valAddr, 0))
+			cb = goutils.ImmutableAppend(cb, NewVoteForTally(sdk.ZeroDec(), utils.MicroAtomDenom, valAddr, 0))
 		}
 	}
 
@@ -120,7 +121,7 @@ func TestPBPower(t *testing.T) {
 			power,
 		)
 
-		pb = append(pb, vote)
+		pb = goutils.ImmutableAppend(pb, vote)
 
 		require.NotEqual(t, int64(0), vote.Power)
 
@@ -139,7 +140,7 @@ func TestPBPower(t *testing.T) {
 		0,
 	)
 
-	pb = append(pb, fakeVote)
+	pb = goutils.ImmutableAppend(pb, fakeVote)
 	require.Equal(t, ballotPower, pb.Power())
 }
 
@@ -197,7 +198,7 @@ func TestPBWeightedMedian(t *testing.T) {
 				power,
 			)
 
-			pb = append(pb, vote)
+			pb = goutils.ImmutableAppend(pb, vote)
 		}
 
 		require.Equal(t, tc.median, pb.WeightedMedianWithAssertion())
@@ -259,7 +260,7 @@ func TestPBStandardDeviation(t *testing.T) {
 				power,
 			)
 
-			pb = append(pb, vote)
+			pb = goutils.ImmutableAppend(pb, vote)
 		}
 
 		require.Equal(t, tc.standardDeviation, pb.StandardDeviation(pb.WeightedMedianWithAssertion()))

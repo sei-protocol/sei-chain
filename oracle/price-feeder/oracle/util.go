@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -145,7 +146,7 @@ func StandardDeviation(
 			}
 
 			priceSums[base] = priceSums[base].Add(p)
-			priceSlice[base] = append(priceSlice[base], p)
+			priceSlice[base] = goutils.ImmutableAppend(priceSlice[base], p)
 		}
 	}
 

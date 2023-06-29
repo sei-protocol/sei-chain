@@ -14,6 +14,7 @@ import (
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
@@ -145,7 +146,7 @@ import (
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
 func getGovProposalHandlers() []govclient.ProposalHandler {
-	govProposalHandlers := append(wasmclient.ProposalHandlers, //nolint:gocritic // ignore: appending to a slice is OK
+	govProposalHandlers := goutils.ImmutableAppend(wasmclient.ProposalHandlers, //nolint:gocritic // ignore: appending to a slice is OK
 		paramsclient.ProposalHandler,
 		distrclient.ProposalHandler,
 		upgradeclient.ProposalHandler,
@@ -515,7 +516,7 @@ func New(
 	)
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
-	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
+	goutils.InPlaceAppend[aclkeeper.Option](&aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
 	app.AccessControlKeeper = aclkeeper.NewKeeper(
 		appCodec,
 		app.keys[acltypes.StoreKey],
@@ -527,7 +528,7 @@ func New(
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
-	wasmOpts = append(
+	wasmOpts = goutils.ImmutableAppend(
 		wasmbinding.RegisterCustomPlugins(
 			&app.OracleKeeper,
 			&app.DexKeeper,
@@ -1047,7 +1048,7 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.E
 
 	txResults := []*abci.ExecTxResult{}
 	for _, tx := range txs {
-		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx))
+		goutils.InPlaceAppend(&txResults, app.DeliverTxWithResult(ctx, tx))
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 	return txResults
@@ -1061,7 +1062,7 @@ func GetChannelsFromSignalMapping(signalMapping acltypes.MessageCompletionSignal
 		for accessOperation, completionSignals := range accessOperationsToSignal {
 			var channels []chan interface{}
 			for _, completionSignal := range completionSignals {
-				channels = append(channels, completionSignal.Channel)
+				goutils.InPlaceAppend(&channels, completionSignal.Channel)
 			}
 			channelsMapping[messageIndex][accessOperation] = channels
 		}
@@ -1164,7 +1165,7 @@ func (app *App) ProcessBlockConcurrent(
 
 	// Gather Results and store in array based on txIndex to preserve ordering
 	for txIndex := range txs {
-		txResults = append(txResults, txResultsMap[txIndex])
+		goutils.InPlaceAppend(&txResults, txResultsMap[txIndex])
 	}
 
 	ok := true
@@ -1235,7 +1236,7 @@ func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioriti
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("Error decoding tx for partitioning: %v", err))
 			// if theres an issue decoding, add it to `otherTxs` for normal processing and continue
-			otherTxs = append(otherTxs, tx)
+			goutils.InPlaceAppend(&otherTxs, tx)
 			continue
 		}
 		prioritized := false
@@ -1257,9 +1258,9 @@ func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioriti
 			}
 		}
 		if prioritized {
-			prioritizedTxs = append(prioritizedTxs, tx)
+			goutils.InPlaceAppend(&prioritizedTxs, tx)
 		} else {
-			otherTxs = append(otherTxs, tx)
+			goutils.InPlaceAppend(&otherTxs, tx)
 		}
 
 	}
@@ -1315,7 +1316,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}
 
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
-	events = append(events, beginBlockResp.Events...)
+	goutils.InPlaceAppend(&events, beginBlockResp.Events...)
 
 	var txResults []*abci.ExecTxResult
 
@@ -1323,27 +1324,27 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	// run the prioritized txs
 	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs)
-	txResults = append(txResults, prioritizedResults...)
+	goutils.InPlaceAppend(&txResults, prioritizedResults...)
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
 	deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
-	events = append(events, deferredWriteEvents...)
+	goutils.InPlaceAppend(&events, deferredWriteEvents...)
 
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
-	events = append(events, midBlockEvents...)
+	goutils.InPlaceAppend(&events, midBlockEvents...)
 
 	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, txs)
-	txResults = append(txResults, otherResults...)
+	goutils.InPlaceAppend(&txResults, otherResults...)
 
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
-	events = append(events, lazyWriteEvents...)
+	goutils.InPlaceAppend(&events, lazyWriteEvents...)
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height: req.GetHeight(),
 	})
 
-	events = append(events, endBlockResp.Events...)
+	goutils.InPlaceAppend(&events, endBlockResp.Events...)
 	return events, txResults, endBlockResp, nil
 }
 
@@ -1358,7 +1359,7 @@ func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*ab
 						if string(attr.Key) == wasmtypes.AttributeKeyContractAddr {
 							addr, err := sdk.AccAddressFromBech32(string(attr.Value))
 							if err == nil {
-								wasmContractsWithIncorrectDependencies = append(wasmContractsWithIncorrectDependencies, addr)
+								goutils.InPlaceAppend(&wasmContractsWithIncorrectDependencies, addr)
 							}
 						}
 					}

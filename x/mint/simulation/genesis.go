@@ -10,6 +10,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -27,7 +28,7 @@ func RandomizedGenState(simState *module.SimulationState) {
 			EndDate:            currentDate.AddDate(3, 0, 0).Format(types.TokenReleaseDateFormat),
 			TokenReleaseAmount: randomProvision / uint64(i),
 		}
-		tokenReleaseSchedule = append(tokenReleaseSchedule, scheduledTokenRelease)
+		goutils.InPlaceAppend(&tokenReleaseSchedule, scheduledTokenRelease)
 	}
 
 	params := types.NewParams(mintDenom, tokenReleaseSchedule)

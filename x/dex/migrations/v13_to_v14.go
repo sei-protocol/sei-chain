@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -46,7 +47,7 @@ func convertOrderBookEntryKeysForContract(ctx sdk.Context, dexkeeper keeper.Keep
 		store.Delete([]byte(key))
 		var val types.LongBook
 		dexkeeper.Cdc.MustUnmarshal(v, &val)
-		newKey := append(types.PairPrefix(val.Entry.PriceDenom, val.Entry.AssetDenom), keeper.GetKeyForPrice(val.Price)...)
+		newKey := goutils.ImmutableAppend(types.PairPrefix(val.Entry.PriceDenom, val.Entry.AssetDenom), keeper.GetKeyForPrice(val.Price)...)
 		store.Set(newKey, v)
 	}
 
@@ -63,7 +64,7 @@ func convertOrderBookEntryKeysForContract(ctx sdk.Context, dexkeeper keeper.Keep
 		store.Delete([]byte(key))
 		var val types.ShortBook
 		dexkeeper.Cdc.MustUnmarshal(v, &val)
-		newKey := append(types.PairPrefix(val.Entry.PriceDenom, val.Entry.AssetDenom), keeper.GetKeyForPrice(val.Price)...)
+		newKey := goutils.ImmutableAppend(types.PairPrefix(val.Entry.PriceDenom, val.Entry.AssetDenom), keeper.GetKeyForPrice(val.Price)...)
 		store.Set(newKey, v)
 	}
 }

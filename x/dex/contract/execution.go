@@ -11,6 +11,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/store/whitelist/multi"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/exchange"
@@ -156,9 +157,9 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 			mu.Lock()
 			defer mu.Unlock()
 			orders, cancels := GetMatchResults(ctx, typedContractAddr, pairCopy)
-			orderResults = append(orderResults, orders...)
-			cancelResults = append(cancelResults, cancels...)
-			settlements = append(settlements, pairSettlements...)
+			goutils.InPlaceAppend(&orderResults, orders...)
+			goutils.InPlaceAppend(&cancelResults, cancels...)
+			goutils.InPlaceAppend(&settlements, pairSettlements...)
 			// ordering of events doesn't matter since events aren't part of consensus
 			ctx.EventManager().EmitEvents(pairCtx.EventManager().Events())
 		}()

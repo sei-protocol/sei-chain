@@ -2,6 +2,7 @@ package keeper
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 )
 
 func (k Keeper) addDenomFromCreator(ctx sdk.Context, creator, denom string) {
@@ -17,7 +18,7 @@ func (k Keeper) getDenomsFromCreator(ctx sdk.Context, creator string) []string {
 
 	denoms := []string{}
 	for ; iterator.Valid(); iterator.Next() {
-		denoms = append(denoms, string(iterator.Key()))
+		goutils.InPlaceAppend(&denoms, string(iterator.Key()))
 	}
 	return denoms
 }

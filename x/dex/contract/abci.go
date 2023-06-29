@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/utils/logging"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -275,7 +276,7 @@ func filterNewValidContracts(ctx sdk.Context, env *environment) []types.Contract
 	newValidContracts := []types.ContractInfoV2{}
 	for _, contract := range env.validContractsInfo {
 		if _, ok := env.failedContractAddressesToErrors.Load(contract.ContractAddr); !ok && !env.outOfRentContractAddresses.Contains(contract.ContractAddr) {
-			newValidContracts = append(newValidContracts, contract)
+			goutils.InPlaceAppend(&newValidContracts, contract)
 		}
 	}
 	env.failedContractAddressesToErrors.Range(func(failedContractAddress string, _ error) bool {
@@ -292,7 +293,7 @@ func getOutOfRentContracts(env *environment) []types.ContractInfoV2 {
 	outOfRentContracts := []types.ContractInfoV2{}
 	for _, contract := range env.validContractsInfo {
 		if env.outOfRentContractAddresses.Contains(contract.ContractAddr) {
-			outOfRentContracts = append(outOfRentContracts, contract)
+			goutils.InPlaceAppend(&outOfRentContracts, contract)
 		}
 	}
 	return outOfRentContracts

@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -32,7 +33,7 @@ func (o *BlockCancellations) Get() (list []*types.Cancellation) {
 		if err := val.Unmarshal(iterator.Value()); err != nil {
 			panic(err)
 		}
-		list = append(list, &val)
+		goutils.InPlaceAppend(&list, &val)
 	}
 
 	return
@@ -48,7 +49,7 @@ func (o *BlockCancellations) GetIdsToCancel() (list []uint64) {
 		if err := val.Unmarshal(iterator.Value()); err != nil {
 			panic(err)
 		}
-		list = append(list, val.Id)
+		goutils.InPlaceAppend(&list, val.Id)
 	}
 
 	return

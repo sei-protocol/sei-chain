@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/spf13/cobra"
 )
@@ -63,7 +64,7 @@ func CmdPlaceOrders() *cobra.Command {
 					}
 					newOrder.Nominal = argNominal
 				}
-				orders = append(orders, &newOrder)
+				goutils.InPlaceAppend(&orders, &newOrder)
 			}
 
 			clientCtx, err := client.GetClientTxContext(cmd)

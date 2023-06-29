@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
@@ -34,7 +35,7 @@ func (w KeeperWrapper) getCancelSudoMsg(sdkCtx sdk.Context, typedContractAddr ty
 	idsToCancel := []uint64{}
 	for _, pair := range registeredPairs {
 		for _, cancel := range dexutils.GetMemState(sdkCtx.Context()).GetBlockCancels(sdkCtx, typedContractAddr, pair).Get() {
-			idsToCancel = append(idsToCancel, cancel.Id)
+			goutils.InPlaceAppend(&idsToCancel, cancel.Id)
 		}
 	}
 	return types.SudoOrderCancellationMsg{

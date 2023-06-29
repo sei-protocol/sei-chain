@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -49,7 +50,7 @@ func (s *MemState) GetAllBlockOrders(ctx sdk.Context, contractAddr types.Contrac
 		if err := val.Unmarshal(iterator.Value()); err != nil {
 			panic(err)
 		}
-		list = append(list, &val)
+		goutils.InPlaceAppend(&list, &val)
 	}
 	return
 }
@@ -227,8 +228,8 @@ func DeepDelete(kvStore sdk.KVStore, storePrefix []byte, matcher func([]byte) bo
 		defer iterator.Close()
 		keys, values := [][]byte{}, [][]byte{}
 		for ; iterator.Valid(); iterator.Next() {
-			keys = append(keys, iterator.Key())
-			values = append(values, iterator.Value())
+			goutils.InPlaceAppend(&keys, iterator.Key())
+			goutils.InPlaceAppend(&values, iterator.Value())
 		}
 		return keys, values
 	}
@@ -250,7 +251,7 @@ func GetAllDownstreamContracts(ctx sdk.Context, contractAddress string, loader f
 		for _, dep := range target.Dependencies {
 			if downstream, err := loader(ctx, dep.Dependency); err == nil && !seen.Contains(downstream.ContractAddr) {
 				if !downstream.Suspended {
-					downstreams = append(downstreams, &downstream)
+					goutils.InPlaceAppend(&downstreams, &downstream)
 					seen.Add(downstream.ContractAddr)
 				}
 			} else {
@@ -269,7 +270,7 @@ func GetAllDownstreamContracts(ctx sdk.Context, contractAddress string, loader f
 
 	for len(downstreams) > 0 {
 		downstream := downstreams[0]
-		res = append(res, downstream.ContractAddr)
+		goutils.InPlaceAppend(&res, downstream.ContractAddr)
 		populater(downstream)
 		downstreams = downstreams[1:]
 	}

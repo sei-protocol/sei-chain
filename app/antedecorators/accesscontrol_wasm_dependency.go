@@ -11,6 +11,7 @@ import (
 	acl "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	"github.com/sei-protocol/goutils"
 )
 
 type ACLWasmDependencyDecorator struct {
@@ -72,11 +73,11 @@ func (ad ACLWasmDependencyDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperati
 				},
 			}
 
-			deps = append(deps, dependencies...)
+			goutils.InPlaceAppend(&deps, dependencies...)
 		default:
 			continue
 		}
 	}
 
-	return next(append(txDeps, deps...), tx, txIndex)
+	return next(goutils.ImmutableAppend(txDeps, deps...), tx, txIndex)
 }

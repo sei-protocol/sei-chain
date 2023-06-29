@@ -9,6 +9,7 @@ import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
@@ -59,7 +60,7 @@ func TestRegisterPairs(t *testing.T) {
 	require.NoError(t, err)
 
 	batchContractPairs := []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddrA.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
@@ -83,7 +84,7 @@ func TestRegisterPairs(t *testing.T) {
 		PriceTicksize:    &keepertest.TestTicksize,
 		QuantityTicksize: &keepertest.TestTicksize,
 	}
-	multiplePairs = append(multiplePairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&multiplePairs, types.BatchContractPair{
 		ContractAddr: contractAddrB.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair, &secondTestPair},
 	})
@@ -132,7 +133,7 @@ func TestRegisterPairsInvalidMsg(t *testing.T) {
 	err = RegisterContractUtil(server, wctx, contractAddrA.String(), nil)
 	require.NoError(t, err)
 	batchContractPairs := []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddrA.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
@@ -154,7 +155,7 @@ func TestRegisterPairsInvalidMsg(t *testing.T) {
 
 	// Test with invalid Creator address
 	batchContractPairs = []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddrA.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
@@ -166,7 +167,7 @@ func TestRegisterPairsInvalidMsg(t *testing.T) {
 
 	// Test with empty contract address
 	batchContractPairs = []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: "",
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
@@ -178,7 +179,7 @@ func TestRegisterPairsInvalidMsg(t *testing.T) {
 
 	// Test with empty pairs list
 	batchContractPairs = []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddrA.String(),
 		Pairs:        []*types.Pair{},
 	})
@@ -190,7 +191,7 @@ func TestRegisterPairsInvalidMsg(t *testing.T) {
 
 	// Test with nil pair
 	batchContractPairs = []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddrA.String(),
 		Pairs:        []*types.Pair{nil},
 	})
@@ -240,7 +241,7 @@ func TestInvalidRegisterPairCreator(t *testing.T) {
 	batchContractPairs := []types.BatchContractPair{}
 
 	initalEventSize := len(eventManger.Events())
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddrA.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
@@ -311,7 +312,7 @@ func TestRegisterPairsExceedingLimit(t *testing.T) {
 	require.NoError(t, err)
 
 	batchContractPairs := []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddrA.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})

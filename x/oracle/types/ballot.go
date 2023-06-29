@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 )
 
 // NOTE: we don't need to implement proto interface on this file
@@ -58,7 +59,7 @@ func (pb ExchangeRateBallot) ToCrossRate(bases map[string]sdk.Dec) (cb ExchangeR
 			vote.Power = 0
 		}
 
-		cb = append(cb, vote)
+		cb = goutils.ImmutableAppend(cb, vote)
 	}
 
 	return

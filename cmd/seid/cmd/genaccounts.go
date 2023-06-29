@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -131,7 +132,7 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 
 			// Add the new account to the set of genesis accounts and sanitize the
 			// accounts afterwards.
-			accs = append(accs, genAccount)
+			accs = goutils.ImmutableAppend(accs, genAccount)
 			accs = authtypes.SanitizeGenesisAccounts(accs)
 
 			genAccs, err := authtypes.PackAccounts(accs)
@@ -148,7 +149,7 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 			appState[authtypes.ModuleName] = authGenStateBz
 
 			bankGenState := banktypes.GetGenesisStateFromAppState(depCdc, appState)
-			bankGenState.Balances = append(bankGenState.Balances, balances)
+			goutils.InPlaceAppend(&bankGenState.Balances, balances)
 			bankGenState.Balances = banktypes.SanitizeGenesisBalances(bankGenState.Balances)
 
 			bankGenStateBz, err := cdc.MarshalJSON(bankGenState)

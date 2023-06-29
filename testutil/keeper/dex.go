@@ -14,6 +14,7 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	typesparams "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/app"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -134,7 +135,7 @@ func CreateAssetMetadata(keeper *keeper.Keeper, ctx sdk.Context) types.AssetMeta
 	}
 
 	var denomUnits []*banktypes.DenomUnit
-	denomUnits = append(denomUnits, &denomUnit)
+	goutils.InPlaceAppend(&denomUnits, &denomUnit)
 
 	metadata := banktypes.Metadata{
 		Description: "Circle's stablecoin on Axelar",

@@ -3,6 +3,7 @@ package keeper
 import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -45,7 +46,7 @@ func (k Keeper) GetAllRegisteredPairs(ctx sdk.Context, contractAddr string) []ty
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.Pair
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		list = append(list, val)
+		goutils.InPlaceAppend(&list, val)
 	}
 
 	return list

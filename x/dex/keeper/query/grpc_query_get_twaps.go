@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -19,7 +20,7 @@ func (k KeeperWrapper) GetTwaps(goCtx context.Context, req *types.QueryGetTwapsR
 	twaps := []*types.Twap{}
 	for _, pair := range allRegisteredPairs {
 		prices := k.GetPricesForTwap(ctx, req.ContractAddr, pair, req.LookbackSeconds)
-		twaps = append(twaps, &types.Twap{
+		goutils.InPlaceAppend(&twaps, &types.Twap{
 			Pair:            &pair, //nolint:gosec,exportloopref // USING THE POINTER HERE COULD BE BAD, LET'S CHECK IT.
 			Twap:            calculateTwap(ctx, prices, req.LookbackSeconds),
 			LookbackSeconds: req.LookbackSeconds,

@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 )
 
 func DecToBigEndian(d sdk.Dec) (res []byte) {
@@ -18,7 +19,7 @@ func DecToBigEndian(d sdk.Dec) (res []byte) {
 			word = ^word
 		}
 		binary.BigEndian.PutUint64(bz, word)
-		res = append(res, bz...)
+		goutils.InPlaceAppend(&res, bz...)
 	}
 	lastZeroByteIdx := -1
 	for i := 0; i < len(res); i++ {
@@ -33,11 +34,11 @@ func DecToBigEndian(d sdk.Dec) (res []byte) {
 	}
 	lengthHeaderBz := make([]byte, 4)
 	binary.BigEndian.PutUint32(lengthHeaderBz, numNonZeroBytes)
-	res = append(lengthHeaderBz, res[lastZeroByteIdx+1:]...)
+	res = goutils.ImmutableAppend(lengthHeaderBz, res[lastZeroByteIdx+1:]...)
 	if d.IsNegative() {
-		res = append([]byte{0}, res...)
+		res = goutils.ImmutableAppend([]byte{0}, res...)
 	} else {
-		res = append([]byte{1}, res...)
+		res = goutils.ImmutableAppend([]byte{1}, res...)
 	}
 	return res
 }
@@ -53,14 +54,14 @@ func BytesToDec(bz []byte) sdk.Dec {
 		paddingLength = 8 - int(length)%8
 	}
 	padding := make([]byte, paddingLength)
-	bz = append(padding, bz[5:]...)
+	bz = goutils.ImmutableAppend(padding, bz[5:]...)
 	words := []big.Word{}
 	for i := 0; i < len(bz); i += 8 {
 		word := binary.BigEndian.Uint64(bz[i : i+8])
 		if neg {
 			word = ^word
 		}
-		words = append([]big.Word{big.Word(word)}, words...)
+		words = goutils.ImmutableAppend([]big.Word{big.Word(word)}, words...)
 	}
 	bi := &big.Int{}
 	bi.SetBits(words)

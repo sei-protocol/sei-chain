@@ -2,6 +2,7 @@ package keeper
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -36,7 +37,7 @@ func (k Keeper) GetAllAssetMetadata(ctx sdk.Context) []types.AssetMetadata {
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.AssetMetadata
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		list = append(list, val)
+		goutils.InPlaceAppend(&list, val)
 	}
 
 	return list

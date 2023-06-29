@@ -3,6 +3,7 @@ package types
 import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
@@ -46,7 +47,7 @@ func (c *CachedSortedOrderBookEntries) load(ctx sdk.Context) {
 	} else {
 		loaded = c.loader(ctx, c.CachedEntries[len(c.CachedEntries)-1].GetOrderEntry().Price, true)
 	}
-	c.CachedEntries = append(c.CachedEntries, loaded...)
+	goutils.InPlaceAppend(&c.CachedEntries, loaded...)
 }
 
 // Reduce quantity of the order book entry currently being pointed at by the specified quantity.
@@ -74,13 +75,13 @@ func (c *CachedSortedOrderBookEntries) SettleQuantity(ctx sdk.Context, quantity 
 		postSettle := settled.Add(a.Quantity)
 		if postSettle.LTE(quantity) {
 			settled = postSettle
-			res = append(res, AllocationToSettle(a))
+			goutils.InPlaceAppend(&res, AllocationToSettle(a))
 		} else {
 			newFirstAllocationIdx = idx
 			if settled.Equal(quantity) {
 				break
 			}
-			res = append(res, ToSettle{
+			goutils.InPlaceAppend(&res, ToSettle{
 				OrderID: a.OrderId,
 				Account: a.Account,
 				Amount:  quantity.Sub(settled),
@@ -172,7 +173,7 @@ func (m *LongBook) SetEntry(newEntry *OrderEntry) {
 func (m *LongBook) DeepCopy() OrderBookEntry {
 	allocations := []*Allocation{}
 	for _, allo := range m.Entry.Allocations {
-		allocations = append(allocations, &Allocation{
+		goutils.InPlaceAppend(&allocations, &Allocation{
 			OrderId:  allo.OrderId,
 			Quantity: allo.Quantity,
 			Account:  allo.Account,
@@ -210,7 +211,7 @@ func (m *ShortBook) SetEntry(newEntry *OrderEntry) {
 func (m *ShortBook) DeepCopy() OrderBookEntry {
 	allocations := []*Allocation{}
 	for _, allo := range m.Entry.Allocations {
-		allocations = append(allocations, &Allocation{
+		goutils.InPlaceAppend(&allocations, &Allocation{
 			OrderId:  allo.OrderId,
 			Quantity: allo.Quantity,
 			Account:  allo.Account,

@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 
@@ -200,7 +201,7 @@ func (p *CoinbaseProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[str
 			if trade.Time-startTime > unixMinute {
 				index++
 				startTime = trade.Time
-				candleSlice = append(candleSlice, CandlePrice{
+				candleSlice = goutils.ImmutableAppend(candleSlice, CandlePrice{
 					Price:  sdk.ZeroDec(),
 					Volume: sdk.ZeroDec(),
 				})
@@ -450,7 +451,7 @@ func (p *CoinbaseProvider) setTradePair(tradeResponse CoinbaseTradeResponse) {
 
 	for _, t := range p.trades[tradeResponse.ProductID] {
 		if staleTime < t.Time {
-			tradeList = append(tradeList, t)
+			tradeList = goutils.ImmutableAppend(tradeList, t)
 		}
 	}
 	p.trades[tradeResponse.ProductID] = tradeList

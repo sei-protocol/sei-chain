@@ -3,6 +3,7 @@ package dex
 import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -24,7 +25,7 @@ func (d *DepositInfo) Get() (list []*types.DepositInfoEntry) {
 		if err := val.Unmarshal(iterator.Value()); err != nil {
 			panic(err)
 		}
-		list = append(list, &val)
+		goutils.InPlaceAppend(&list, &val)
 	}
 
 	return

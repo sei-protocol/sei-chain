@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/dex/utils"
 )
@@ -74,8 +75,8 @@ func (k msgServer) PlaceOrders(goCtx context.Context, msg *types.MsgPlaceOrders)
 		order.Account = msg.Creator
 		order.ContractAddr = msg.GetContractAddr()
 		utils.GetMemState(ctx.Context()).GetBlockOrders(ctx, types.ContractAddress(msg.GetContractAddr()), pair).Add(order)
-		idsInResp = append(idsInResp, nextID)
-		events = append(events, sdk.NewEvent(
+		goutils.InPlaceAppend(&idsInResp, nextID)
+		goutils.InPlaceAppend(&events, sdk.NewEvent(
 			types.EventTypePlaceOrder,
 			sdk.NewAttribute(types.AttributeKeyOrderID, fmt.Sprint(nextID)),
 		))
