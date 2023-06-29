@@ -8,7 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-func TestParamsEqual(t *testing.T) {
+func TestParamsValid(t *testing.T) {
 	p1 := DefaultParams()
 	err := p1.Validate()
 	require.NoError(t, err)
@@ -54,7 +54,14 @@ func TestParamsEqual(t *testing.T) {
 	err = p7.Validate()
 	require.Error(t, err)
 
+	// slash window not divisible
 	p8 := DefaultParams()
-	require.NotNil(t, p8.ParamSetPairs())
-	require.NotNil(t, p8.String())
+	p8.SlashWindow = 2
+	p8.VotePeriod = 3
+	err = p8.Validate()
+	require.Error(t, err)
+
+	p9 := DefaultParams()
+	require.NotNil(t, p9.ParamSetPairs())
+	require.NotNil(t, p9.String())
 }

@@ -107,6 +107,10 @@ func (p Params) Validate() error {
 		return fmt.Errorf("oracle parameter SlashWindow must be greater than or equal with VotePeriod")
 	}
 
+	if p.SlashWindow%p.VotePeriod != 0 {
+		return fmt.Errorf("oracle parameter SlashWindow must be divisible by VotePeriod")
+	}
+
 	if p.MinValidPerWindow.GT(sdk.OneDec()) || p.MinValidPerWindow.IsNegative() {
 		return fmt.Errorf("oracle parameter MinValidPerWindow must be between [0, 1]")
 	}

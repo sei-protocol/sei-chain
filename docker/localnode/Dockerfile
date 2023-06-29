@@ -1,6 +1,6 @@
 FROM ubuntu:latest
 RUN apt-get update && \
-    apt-get install -y make git golang jq python3 curl vim
+    apt-get install -y make git golang jq python3 curl vim uuid-runtime
 RUN rm -rf build/generated
 SHELL ["/bin/bash", "-c"]
 

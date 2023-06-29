@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // DefaultGenesis returns the default Capability genesis state
@@ -31,6 +33,9 @@ func (gs GenesisState) Validate() error {
 func (cs ContractState) Validate() error {
 	if len(cs.ContractInfo.ContractAddr) == 0 {
 		return fmt.Errorf("empty contract addr")
+	}
+	if _, err := sdk.AccAddressFromBech32(cs.ContractInfo.ContractAddr); err != nil {
+		return fmt.Errorf("contract address is invalid")
 	}
 	// Check for duplicated price in a single market
 	// Can only be a one price per pair per contract

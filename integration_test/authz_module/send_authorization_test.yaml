@@ -1,0 +1,36 @@
+- name: Test Authz Send Authorization
+  inputs:
+    # Get admin addr
+    - cmd: printf "12345678\n" | seid keys list --output json | jq ".[] | select (.name==\"admin\")" | jq -r .address
+      env: ADMIN_ADDR
+    # create new grantee addr
+    - cmd: printf "12345678\ny\n" | seid keys add grantee --output json | jq -r ".address"
+      env: GRANTEE_ADDR
+    # create second new addr
+    - cmd: printf "12345678\ny\n" | seid keys add other-acc --output json | jq -r ".address"
+      env: OTHER_ACC_ADDR
+    # send some funds to grantee for gas
+    - cmd: printf "12345678\n" | seid tx bank send admin $GRANTEE_ADDR 1sei --fees 2000usei -b block -y
+    # create an authz grant
+    - cmd: printf "12345678\n" | seid tx authz grant $GRANTEE_ADDR send --from admin --spend-limit 10sei --fees 2000usei -b block -y
+    # create generate send tx and write to json
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $OTHER_ACC_ADDR 6sei --generate-only > send_tx.json
+    # execute the authz tx - we want to validate that this succeeds with code 0
+    - cmd: printf "12345678\n" | seid tx authz exec send_tx.json --from $GRANTEE_ADDR -b block -y --fees 2000usei --output json  | jq -r ".code"
+      env: AUTHZ_1_ERROR_CODE
+    # execute the authz tx again - this time we want it to fail because send authorization is insufficient
+    - cmd: printf "12345678\n" | seid tx authz exec send_tx.json --from $GRANTEE_ADDR -b block -y --fees 2000usei --output json  | jq -r ".code"
+      env: AUTHZ_2_ERROR_CODE
+    # query bank balances for the other addr to validate the amount the account has
+    - cmd: seid q bank balances $OTHER_ACC_ADDR --denom usei --output json | jq -r ".amount"
+      env: OTHER_ACC_BALANCE
+  verifiers:
+    # verify that error code == 0 for first authz exec
+    - type: eval
+      expr: AUTHZ_1_ERROR_CODE == 0
+    # verify that error code == 5 for second authz exec (insufficient spend balance)
+    - type: eval
+      expr: AUTHZ_2_ERROR_CODE == 5
+    # verify that other acc balance is 6 sei
+    - type: eval
+      expr: OTHER_ACC_BALANCE == 6000000
