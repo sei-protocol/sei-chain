@@ -25,7 +25,7 @@ var (
 
 // Default parameter values
 const (
-	DefaultVotePeriod  = 2                      // Voting every block
+	DefaultVotePeriod  = 2                      // Voting every other block
 	DefaultSlashWindow = utils.BlocksPerDay * 2 // 2 days for oracle slashing
 )
 
