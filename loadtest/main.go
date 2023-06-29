@@ -453,7 +453,7 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 			Msg:      wasmtypes.RawContractMessage([]byte("{\"deposit\":{}}")),
 			Funds:    amountDeposit,
 		}
-		goutils.InPlaceAppend[sdk.Msg](&msgs, vortexDeposit)
+		goutils.InPlaceAppend[[]sdk.Msg, sdk.Msg](&msgs, vortexDeposit)
 	}
 
 	// Create a MsgPlaceOrders with numOrders Orders
@@ -484,7 +484,7 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 		Funds:        amount,
 	}
 
-	goutils.InPlaceAppend[sdk.Msg](&msgs, vortexOrderMsg)
+	goutils.InPlaceAppend[[]sdk.Msg, sdk.Msg](&msgs, vortexOrderMsg)
 
 	return msgs
 }

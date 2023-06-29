@@ -32,7 +32,7 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 		i := 0
 		powerOrderedValAddrs := []sdk.ValAddress{}
 		for ; iterator.Valid() && i < int(maxValidators); iterator.Next() {
-			powerOrderedValAddrs = goutils.ImmutableAppend(powerOrderedValAddrs, iterator.Value())
+			goutils.InPlaceAppend[[]sdk.ValAddress, sdk.ValAddress](&powerOrderedValAddrs, iterator.Value())
 		}
 
 		for _, valAddr := range powerOrderedValAddrs {

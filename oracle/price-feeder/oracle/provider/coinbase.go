@@ -201,7 +201,7 @@ func (p *CoinbaseProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[str
 			if trade.Time-startTime > unixMinute {
 				index++
 				startTime = trade.Time
-				candleSlice = goutils.ImmutableAppend(candleSlice, CandlePrice{
+				goutils.InPlaceAppend(&candleSlice, CandlePrice{
 					Price:  sdk.ZeroDec(),
 					Volume: sdk.ZeroDec(),
 				})
@@ -451,7 +451,7 @@ func (p *CoinbaseProvider) setTradePair(tradeResponse CoinbaseTradeResponse) {
 
 	for _, t := range p.trades[tradeResponse.ProductID] {
 		if staleTime < t.Time {
-			tradeList = goutils.ImmutableAppend(tradeList, t)
+			goutils.InPlaceAppend(&tradeList, t)
 		}
 	}
 	p.trades[tradeResponse.ProductID] = tradeList

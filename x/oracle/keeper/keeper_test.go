@@ -259,7 +259,7 @@ func TestIterateMissCounters(t *testing.T) {
 	var votePenaltyCounters types.VotePenaltyCounters
 	input.OracleKeeper.IterateVotePenaltyCounters(input.Ctx, func(delegator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
 		goutils.InPlaceAppend(&operators, delegator)
-		votePenaltyCounters = goutils.ImmutableAppend(votePenaltyCounters, votePenaltyCounter)
+		goutils.InPlaceAppend(&votePenaltyCounters, votePenaltyCounter)
 		return false
 	})
 
@@ -482,7 +482,7 @@ func TestPriceSnapshotAdd(t *testing.T) {
 
 	input.OracleKeeper.AddPriceSnapshot(input.Ctx, newSnapshot)
 
-	expectedSnapshots = goutils.ImmutableAppend(expectedSnapshots, newSnapshot)
+	goutils.InPlaceAppend(&expectedSnapshots, newSnapshot)
 
 	totalSnapshots = 0
 	input.OracleKeeper.IteratePriceSnapshots(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
@@ -528,7 +528,7 @@ func TestPriceSnapshotAdd(t *testing.T) {
 	)
 	input.OracleKeeper.AddPriceSnapshot(input.Ctx, newSnapshot2)
 
-	expectedSnapshots = goutils.ImmutableAppend(expectedSnapshots, newSnapshot2)
+	goutils.InPlaceAppend(&expectedSnapshots, newSnapshot2)
 	expectedSnapshots = expectedSnapshots[2:]
 	expectedTimestamps = []int64{3660, 10000}
 

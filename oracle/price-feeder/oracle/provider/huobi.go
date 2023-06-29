@@ -377,11 +377,11 @@ func (p *HuobiProvider) setCandlePair(candle HuobiCandle) {
 	candle.Tick.TimeStamp *= int64(time.Second / time.Millisecond)
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []HuobiCandle{}
-	candleList = goutils.ImmutableAppend(candleList, candle)
+	goutils.InPlaceAppend(&candleList, candle)
 
 	for _, c := range p.candles[candle.CH] {
 		if staleTime < c.Tick.TimeStamp {
-			candleList = goutils.ImmutableAppend(candleList, c)
+			goutils.InPlaceAppend(&candleList, c)
 		}
 	}
 	p.candles[candle.CH] = candleList
@@ -454,7 +454,7 @@ func (p *HuobiProvider) getCandlePrices(cp types.CurrencyPair) ([]CandlePrice, e
 		if err != nil {
 			return []CandlePrice{}, err
 		}
-		candleList = goutils.ImmutableAppend(candleList, cp)
+		goutils.InPlaceAppend(&candleList, cp)
 	}
 	return candleList, nil
 }

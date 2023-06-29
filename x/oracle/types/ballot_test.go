@@ -76,15 +76,15 @@ func TestToCrossRate(t *testing.T) {
 	for _, data := range data {
 		valAddr := sdk.ValAddress(secp256k1.GenPrivKey().PubKey().Address())
 		if !data.base.IsZero() {
-			pbBase = goutils.ImmutableAppend(pbBase, NewVoteForTally(data.base, utils.MicroAtomDenom, valAddr, 100))
+			goutils.InPlaceAppend(&pbBase, NewVoteForTally(data.base, utils.MicroAtomDenom, valAddr, 100))
 		}
 
-		pbQuote = goutils.ImmutableAppend(pbQuote, NewVoteForTally(data.quote, utils.MicroAtomDenom, valAddr, 100))
+		goutils.InPlaceAppend(&pbQuote, NewVoteForTally(data.quote, utils.MicroAtomDenom, valAddr, 100))
 
 		if !data.base.IsZero() && !data.quote.IsZero() {
-			cb = goutils.ImmutableAppend(cb, NewVoteForTally(data.base.Quo(data.quote), utils.MicroAtomDenom, valAddr, 100))
+			goutils.InPlaceAppend(&cb, NewVoteForTally(data.base.Quo(data.quote), utils.MicroAtomDenom, valAddr, 100))
 		} else {
-			cb = goutils.ImmutableAppend(cb, NewVoteForTally(sdk.ZeroDec(), utils.MicroAtomDenom, valAddr, 0))
+			goutils.InPlaceAppend(&cb, NewVoteForTally(sdk.ZeroDec(), utils.MicroAtomDenom, valAddr, 0))
 		}
 	}
 
@@ -121,7 +121,7 @@ func TestPBPower(t *testing.T) {
 			power,
 		)
 
-		pb = goutils.ImmutableAppend(pb, vote)
+		goutils.InPlaceAppend(&pb, vote)
 
 		require.NotEqual(t, int64(0), vote.Power)
 
@@ -140,7 +140,7 @@ func TestPBPower(t *testing.T) {
 		0,
 	)
 
-	pb = goutils.ImmutableAppend(pb, fakeVote)
+	goutils.InPlaceAppend(&pb, fakeVote)
 	require.Equal(t, ballotPower, pb.Power())
 }
 
@@ -198,7 +198,7 @@ func TestPBWeightedMedian(t *testing.T) {
 				power,
 			)
 
-			pb = goutils.ImmutableAppend(pb, vote)
+			goutils.InPlaceAppend(&pb, vote)
 		}
 
 		require.Equal(t, tc.median, pb.WeightedMedianWithAssertion())
@@ -260,7 +260,7 @@ func TestPBStandardDeviation(t *testing.T) {
 				power,
 			)
 
-			pb = goutils.ImmutableAppend(pb, vote)
+			goutils.InPlaceAppend(&pb, vote)
 		}
 
 		require.Equal(t, tc.standardDeviation, pb.StandardDeviation(pb.WeightedMedianWithAssertion()))

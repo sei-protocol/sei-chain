@@ -89,7 +89,7 @@ func (q querier) PriceSnapshotHistory(c context.Context, req *types.QueryPriceSn
 	ctx := sdk.UnwrapSDKContext(c)
 	priceSnapshots := types.PriceSnapshots{}
 	q.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
-		priceSnapshots = goutils.ImmutableAppend(priceSnapshots, snapshot)
+		goutils.InPlaceAppend(&priceSnapshots, snapshot)
 		return false
 	})
 	response := types.QueryPriceSnapshotHistoryResponse{PriceSnapshots: priceSnapshots}

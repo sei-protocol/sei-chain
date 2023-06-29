@@ -125,7 +125,7 @@ func TestOracleTally(t *testing.T) {
 
 		vote := types.NewVoteForTally(
 			decExchangeRate, utils.MicroAtomDenom, valAddrs[i], power)
-		ballot = goutils.ImmutableAppend(ballot, vote)
+		goutils.InPlaceAppend(&ballot, vote)
 
 		// change power of every three validator
 		if i%3 == 0 {

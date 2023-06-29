@@ -59,7 +59,7 @@ func (pb ExchangeRateBallot) ToCrossRate(bases map[string]sdk.Dec) (cb ExchangeR
 			vote.Power = 0
 		}
 
-		cb = goutils.ImmutableAppend(cb, vote)
+		goutils.InPlaceAppend(&cb, vote)
 	}
 
 	return

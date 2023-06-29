@@ -206,7 +206,7 @@ func (p *GateProvider) getCandlePrices(key string) ([]CandlePrice, error) {
 			return []CandlePrice{}, err
 		}
 
-		candleList = goutils.ImmutableAppend(candleList, cp)
+		goutils.InPlaceAppend(&candleList, cp)
 	}
 
 	return candleList, nil
@@ -241,7 +241,7 @@ func (p *GateProvider) subscribeTickers(cps ...types.CurrencyPair) error {
 	topics := []string{}
 
 	for _, cp := range cps {
-		topics = goutils.ImmutableAppend(topics, currencyPairToGatePair(cp))
+		goutils.InPlaceAppend(&topics, currencyPairToGatePair(cp))
 	}
 
 	tickerMsg := newGateTickerSubscription(topics...)
@@ -508,10 +508,10 @@ func (p *GateProvider) setCandlePair(candle GateCandle) {
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []GateCandle{}
 
-	candleList = goutils.ImmutableAppend(candleList, candle)
+	goutils.InPlaceAppend(&candleList, candle)
 	for _, c := range p.candles[candle.Symbol] {
 		if staleTime < c.TimeStamp {
-			candleList = goutils.ImmutableAppend(candleList, c)
+			goutils.InPlaceAppend(&candleList, c)
 		}
 	}
 	p.candles[candle.Symbol] = candleList

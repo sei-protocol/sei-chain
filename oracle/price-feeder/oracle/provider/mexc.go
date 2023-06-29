@@ -264,7 +264,7 @@ func (p *MexcProvider) getCandlePrices(key string) ([]CandlePrice, error) {
 		if err != nil {
 			return []CandlePrice{}, err
 		}
-		candleList = goutils.ImmutableAppend(candleList, cp)
+		goutils.InPlaceAppend(&candleList, cp)
 	}
 	return candleList, nil
 }
@@ -339,11 +339,11 @@ func (p *MexcProvider) setCandlePair(candle MexcCandle) {
 	defer p.mtx.Unlock()
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []MexcCandle{}
-	candleList = goutils.ImmutableAppend(candleList, candle)
+	goutils.InPlaceAppend(&candleList, candle)
 
 	for _, c := range p.candles[candle.Symbol] {
 		if staleTime < c.Metadata.TimeStamp {
-			candleList = goutils.ImmutableAppend(candleList, c)
+			goutils.InPlaceAppend(&candleList, c)
 		}
 	}
 	// Uncomment below two lines to log retrieved candle prices

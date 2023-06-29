@@ -132,7 +132,7 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 
 			// Add the new account to the set of genesis accounts and sanitize the
 			// accounts afterwards.
-			accs = goutils.ImmutableAppend(accs, genAccount)
+			goutils.InPlaceAppend[authtypes.GenesisAccounts, authtypes.GenesisAccount](&accs, genAccount)
 			accs = authtypes.SanitizeGenesisAccounts(accs)
 
 			genAccs, err := authtypes.PackAccounts(accs)

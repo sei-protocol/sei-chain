@@ -65,7 +65,7 @@ func (k Keeper) GetAllShortBookForPair(ctx sdk.Context, contractAddr string, pri
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.ShortBook
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		goutils.InPlaceAppend[types.OrderBookEntry](&list, &val)
+		goutils.InPlaceAppend[[]types.OrderBookEntry, types.OrderBookEntry](&list, &val)
 	}
 
 	return
@@ -83,7 +83,7 @@ func (k Keeper) GetTopNShortBooksForPair(ctx sdk.Context, contractAddr string, p
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.ShortBook
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		goutils.InPlaceAppend[types.OrderBookEntry](&list, &val)
+		goutils.InPlaceAppend[[]types.OrderBookEntry, types.OrderBookEntry](&list, &val)
 		if len(list) == n {
 			break
 		}
@@ -119,7 +119,7 @@ func (k Keeper) GetTopNShortBooksForPairStarting(ctx sdk.Context, contractAddr s
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.ShortBook
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		goutils.InPlaceAppend[types.OrderBookEntry](&list, &val)
+		goutils.InPlaceAppend[[]types.OrderBookEntry, types.OrderBookEntry](&list, &val)
 		if len(list) == n {
 			break
 		}

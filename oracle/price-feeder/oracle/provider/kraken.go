@@ -256,7 +256,7 @@ func (p *KrakenProvider) getCandlePrices(key string) ([]CandlePrice, error) {
 		if err != nil {
 			return []CandlePrice{}, err
 		}
-		candleList = goutils.ImmutableAppend(candleList, cp)
+		goutils.InPlaceAppend(&candleList, cp)
 	}
 	return candleList, nil
 }
@@ -591,10 +591,10 @@ func (p *KrakenProvider) setCandlePair(candle KrakenCandle) {
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []KrakenCandle{}
 
-	candleList = goutils.ImmutableAppend(candleList, candle)
+	goutils.InPlaceAppend(&candleList, candle)
 	for _, c := range p.candles[candle.Symbol] {
 		if staleTime < c.TimeStamp {
-			candleList = goutils.ImmutableAppend(candleList, c)
+			goutils.InPlaceAppend(&candleList, c)
 		}
 	}
 	p.candles[candle.Symbol] = candleList

@@ -276,7 +276,7 @@ func (p *OkxProvider) getCandlePrices(cp types.CurrencyPair) ([]CandlePrice, err
 		if err != nil {
 			return []CandlePrice{}, err
 		}
-		candleList = goutils.ImmutableAppend(candleList, cp)
+		goutils.InPlaceAppend(&candleList, cp)
 	}
 
 	return candleList, nil
@@ -397,10 +397,10 @@ func (p *OkxProvider) setCandlePair(pairData []string, instID string) {
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []OkxCandlePair{}
 
-	candleList = goutils.ImmutableAppend(candleList, candle)
+	goutils.InPlaceAppend(&candleList, candle)
 	for _, c := range p.candles[instID] {
 		if staleTime < c.TimeStamp {
-			candleList = goutils.ImmutableAppend(candleList, c)
+			goutils.InPlaceAppend(&candleList, c)
 		}
 	}
 	p.candles[instID] = candleList

@@ -516,7 +516,7 @@ func New(
 	)
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
-	goutils.InPlaceAppend[aclkeeper.Option](&aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
+	goutils.InPlaceAppend[[]aclkeeper.Option, aclkeeper.Option](&aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
 	app.AccessControlKeeper = aclkeeper.NewKeeper(
 		appCodec,
 		app.keys[acltypes.StoreKey],

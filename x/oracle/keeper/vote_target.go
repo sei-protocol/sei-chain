@@ -13,7 +13,7 @@ func (k Keeper) IsVoteTarget(ctx sdk.Context, denom string) bool {
 
 func (k Keeper) GetVoteTargets(ctx sdk.Context) (voteTargets []string) {
 	k.IterateVoteTargets(ctx, func(denom string, denomInfo types.Denom) bool {
-		voteTargets = goutils.ImmutableAppend(voteTargets, denom)
+		goutils.InPlaceAppend(&voteTargets, denom)
 		return false
 	})
 

@@ -171,12 +171,12 @@ func GetOrderBookEntries(buy bool, priceDenom string, assetDenom string, entryWe
 			),
 		}
 		if buy {
-			goutils.InPlaceAppend[types.OrderBookEntry](&res, &types.LongBook{
+			goutils.InPlaceAppend[[]types.OrderBookEntry, types.OrderBookEntry](&res, &types.LongBook{
 				Price: price,
 				Entry: &entry,
 			})
 		} else {
-			goutils.InPlaceAppend[types.OrderBookEntry](&res, &types.ShortBook{
+			goutils.InPlaceAppend[[]types.OrderBookEntry, types.OrderBookEntry](&res, &types.ShortBook{
 				Price: price,
 				Entry: &entry,
 			})

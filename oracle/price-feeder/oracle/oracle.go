@@ -61,10 +61,12 @@ func New(
 
 	for _, pair := range currencyPairs {
 		for _, provider := range pair.Providers {
-			providerPairs[provider] = goutils.ImmutableAppend(providerPairs[provider], types.CurrencyPair{
+			providerPair := providerPairs[provider]
+			goutils.InPlaceAppend(&providerPair, types.CurrencyPair{
 				Base:  pair.Base,
 				Quote: pair.Quote,
 			})
+			providerPairs[provider] = providerPair
 		}
 		chainDenomMapping[pair.Base] = pair.ChainDenom
 	}

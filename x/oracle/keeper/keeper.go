@@ -516,7 +516,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 			Twap:            denomTwap,
 			LookbackSeconds: denomDuration,
 		}
-		oracleTwaps = goutils.ImmutableAppend(oracleTwaps, denomOracleTwap)
+		goutils.InPlaceAppend(&oracleTwaps, denomOracleTwap)
 	}
 
 	if len(oracleTwaps) == 0 {

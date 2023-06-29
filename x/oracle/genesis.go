@@ -98,7 +98,7 @@ func ExportGenesis(ctx sdk.Context, keeper keeper.Keeper) *types.GenesisState {
 
 	priceSnapshots := types.PriceSnapshots{}
 	keeper.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) bool {
-		priceSnapshots = goutils.ImmutableAppend(priceSnapshots, snapshot)
+		goutils.InPlaceAppend(&priceSnapshots, snapshot)
 		return false
 	})
 

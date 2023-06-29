@@ -286,7 +286,7 @@ func ParseConfig(configPath string) (Config, error) {
 	gatePairs := []string{}
 	for base, providers := range pairs {
 		if _, ok := providers["gate"]; ok {
-			gatePairs = goutils.ImmutableAppend(gatePairs, base)
+			goutils.InPlaceAppend(&gatePairs, base)
 		}
 	}
 	if len(gatePairs) > 1 {

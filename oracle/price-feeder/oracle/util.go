@@ -146,7 +146,9 @@ func StandardDeviation(
 			}
 
 			priceSums[base] = priceSums[base].Add(p)
-			priceSlice[base] = goutils.ImmutableAppend(priceSlice[base], p)
+			slice := priceSlice[base]
+			goutils.InPlaceAppend(&slice, p)
+			priceSlice[base] = slice
 		}
 	}
 
