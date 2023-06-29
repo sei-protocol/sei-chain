@@ -1,8 +1,8 @@
 - name: Test number of validators should be equal to 4
   inputs:
     # Wait for chain to hit height 100
-    - cmd: until [ $(seid status |jq -M -r .SyncInfo.latest_block_height) -gt 100 ]; do sleep 10; done
-    # Chec and make sure snapshot folder exist
+    - cmd: until [ $(seid status |jq -M -r .SyncInfo.latest_block_height) -gt 150 ]; do sleep 10; done
+    # Check and make sure snapshot folder exist
     - cmd: if [ -d "./build/snapshots" ]; then echo "true" >&2; else echo "false"; fi
       env: SNAPSHOT_FOLDER_EXIST
   verifiers:

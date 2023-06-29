@@ -63,7 +63,7 @@ jobs:
           {
             name: "Chain Operation Tests",
             scripts: [
-
+              "python3 integration_test/scripts/runner.py integration_test/chain_operation/chain_operation_test.yaml"
             ]
           }
         ]
