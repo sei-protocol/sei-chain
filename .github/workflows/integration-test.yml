@@ -61,8 +61,12 @@ jobs:
             ]
           },
           {
-            name: "Chain Operation Tests",
+            name: "Chain Operation Test",
             scripts: [
+              "make run-rpc-node &",
+              "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done"
+              "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/gov_module/statesync_operation.yaml"
 
             ]
           }

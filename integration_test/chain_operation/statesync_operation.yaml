@@ -1,0 +1,9 @@
+- name: Test rpc node should be able to state sync from the snapshots
+  inputs:
+    # Check if rpc node is up and running
+    - cmd: seid status |jq -M -r .SyncInfo.latest_block_height
+      env: HEIGHT
+      node: sei-rpc-node
+  verifiers:
+  - type: eval
+    expr: HEIGHT > 0
