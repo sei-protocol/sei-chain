@@ -3,6 +3,7 @@ package migrations
 import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -10,7 +11,7 @@ import (
 const OldPairSeparator = '|'
 
 func OldPairPrefix(priceDenom string, assetDenom string) []byte {
-	return append(append([]byte(priceDenom), OldPairSeparator), []byte(assetDenom)...)
+	return goutils.ImmutableAppend(goutils.ImmutableAppend([]byte(priceDenom), OldPairSeparator), []byte(assetDenom)...)
 }
 
 func V16ToV17(ctx sdk.Context, dexkeeper keeper.Keeper) error {
@@ -27,7 +28,7 @@ func V16ToV17(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 		for k, v := range kv {
 			kbz := []byte(k)
 			store.Delete(kbz)
-			rootStore.Set(append(newPref, kbz...), v)
+			rootStore.Set(goutils.ImmutableAppend(newPref, kbz...), v)
 		}
 	}
 
@@ -35,7 +36,7 @@ func V16ToV17(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 		for _, p := range dexkeeper.GetAllRegisteredPairs(ctx, c.ContractAddr) {
 			// long order book
 			handler(
-				append(
+				goutils.ImmutableAppend(
 					types.OrderBookContractPrefix(true, c.ContractAddr),
 					OldPairPrefix(p.PriceDenom, p.AssetDenom)...,
 				),
@@ -44,7 +45,7 @@ func V16ToV17(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 
 			// short order book
 			handler(
-				append(
+				goutils.ImmutableAppend(
 					types.OrderBookContractPrefix(false, c.ContractAddr),
 					OldPairPrefix(p.PriceDenom, p.AssetDenom)...,
 				),
@@ -53,7 +54,7 @@ func V16ToV17(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 
 			// price
 			handler(
-				append(
+				goutils.ImmutableAppend(
 					types.PriceContractPrefix(c.ContractAddr),
 					OldPairPrefix(p.PriceDenom, p.AssetDenom)...,
 				),
@@ -62,8 +63,8 @@ func V16ToV17(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 
 			// order count (long)
 			handler(
-				append(
-					append(types.KeyPrefix(types.LongOrderCountKey), types.AddressKeyPrefix(c.ContractAddr)...),
+				goutils.ImmutableAppend(
+					goutils.ImmutableAppend(types.KeyPrefix(types.LongOrderCountKey), types.AddressKeyPrefix(c.ContractAddr)...),
 					OldPairPrefix(p.PriceDenom, p.AssetDenom)...,
 				),
 				types.OrderCountPrefix(c.ContractAddr, p.PriceDenom, p.AssetDenom, true),
@@ -71,19 +72,19 @@ func V16ToV17(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 
 			// order count (short)
 			handler(
-				append(
-					append(types.KeyPrefix(types.ShortOrderCountKey), types.AddressKeyPrefix(c.ContractAddr)...),
+				goutils.ImmutableAppend(
+					goutils.ImmutableAppend(types.KeyPrefix(types.ShortOrderCountKey), types.AddressKeyPrefix(c.ContractAddr)...),
 					OldPairPrefix(p.PriceDenom, p.AssetDenom)...,
 				),
 				types.OrderCountPrefix(c.ContractAddr, p.PriceDenom, p.AssetDenom, false),
 			)
 
 			// registered pair
-			k := append(types.RegisteredPairPrefix(c.ContractAddr), OldPairPrefix(p.PriceDenom, p.AssetDenom)...)
+			k := goutils.ImmutableAppend(types.RegisteredPairPrefix(c.ContractAddr), OldPairPrefix(p.PriceDenom, p.AssetDenom)...)
 			pair := rootStore.Get(k)
 			rootStore.Delete(k)
 			rootStore.Set(
-				append(types.RegisteredPairPrefix(c.ContractAddr), types.PairPrefix(p.PriceDenom, p.AssetDenom)...),
+				goutils.ImmutableAppend(types.RegisteredPairPrefix(c.ContractAddr), types.PairPrefix(p.PriceDenom, p.AssetDenom)...),
 				pair,
 			)
 		}
