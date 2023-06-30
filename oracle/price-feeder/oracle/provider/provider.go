@@ -18,6 +18,17 @@ const (
 	defaultReconnectTime     = time.Minute * 20
 	maxReconnectionTries     = 3
 	providerCandlePeriod     = 10 * time.Minute
+
+	// Provider names
+	ProviderBinance  = "binance"
+	ProviderCoinbase = "coinbase"
+	ProviderCrypto   = "crypto"
+	ProviderHuobi    = "huobi"
+	ProviderKraken   = "kraken"
+	ProviderMexc     = "mexc"
+	ProviderMock     = "mock"
+	ProviderOkx      = "okx"
+	ProviderGate     = "gate"
 )
 
 var ping = []byte("ping")
