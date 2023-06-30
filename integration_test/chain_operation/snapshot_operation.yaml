@@ -1,8 +1,6 @@
 - name: Test validators should be able to create snapshot with custom location
   inputs:
-    # Wait for sei node 0 to hit height 120
-    - cmd: until [ $(seid status |jq -M -r .SyncInfo.latest_block_height) -gt 120 ]; do sleep 10; done
-      node: sei-node-0
+    # Check if snapshotd are created
     - cmd: if [ -d "./build/generated/node_0/snapshots" ]; then echo "true"; else echo "false"; fi
       env: FOUND
       node: sei-node-0
