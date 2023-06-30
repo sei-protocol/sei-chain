@@ -63,7 +63,6 @@ jobs:
           {
             name: "Chain Operation Test",
             scripts: [
-              "make run-rpc-node-skipbuild &",
               "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
               "python3 integration_test/scripts/runner.py integration_test/gov_module/statesync_operation.yaml"
@@ -99,6 +98,9 @@ jobs:
             sleep 10
           done
           sleep 10
+
+      - name: Start rpc node
+        run: make run-rpc-node-skipbuild &
 
       - name: Verify Sei Chain is running
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
