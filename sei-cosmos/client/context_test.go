@@ -13,6 +13,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/cosmos/cosmos-sdk/testutil/network"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
@@ -112,4 +113,115 @@ func TestCLIQueryConn(t *testing.T) {
 	res, err := testClient.Echo(context.Background(), &testdata.EchoRequest{Message: "hello"})
 	require.NoError(t, err)
 	require.Equal(t, "hello", res.Message)
+}
+
+func TestGetFromFields(t *testing.T) {
+	path := hd.CreateHDPath(118, 0, 0).String()
+	testCases := []struct {
+		name        string
+		clientCtx   client.Context
+		keyring     func() keyring.Keyring
+		from        string
+		expectedErr string
+	}{
+		{
+			name: "from keyring",
+			keyring: func() keyring.Keyring {
+				kb := keyring.NewInMemory()
+
+				_, _, err := kb.NewMnemonic("alice", keyring.English, path, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
+				require.NoError(t, err)
+
+				return kb
+			},
+			from: "alice",
+		},
+		{
+			name: "from keyring",
+			keyring: func() keyring.Keyring {
+				kb, err := keyring.New(t.Name(), keyring.BackendTest, t.TempDir(), nil)
+				require.NoError(t, err)
+
+				_, _, err = kb.NewMnemonic("alice", keyring.English, path, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
+				require.NoError(t, err)
+
+				return kb
+			},
+			from: "alice",
+		},
+		{
+			name: "key not found, in memory",
+			keyring: func() keyring.Keyring {
+				return keyring.NewInMemory()
+			},
+			from:        "cosmos139f7kncmglres2nf3h4hc4tade85ekfr8sulz5",
+			expectedErr: "key not found",
+		},
+		{
+			keyring: func() keyring.Keyring {
+				kb, err := keyring.New(t.Name(), keyring.BackendTest, t.TempDir(), nil)
+				require.NoError(t, err)
+				return kb
+			},
+			from:        "alice",
+			expectedErr: "alice.info: key not found",
+		},
+		{
+			name: "bech32 address",
+			keyring: func() keyring.Keyring {
+				return keyring.NewInMemory()
+			},
+			from:      "cosmos139f7kncmglres2nf3h4hc4tade85ekfr8sulz5",
+			clientCtx: client.Context{}.WithSimulation(true),
+		},
+		{
+			name: "invalid bech32 address, simulation",
+			keyring: func() keyring.Keyring {
+				return keyring.NewInMemory()
+			},
+			from:        "alice",
+			clientCtx:   client.Context{}.WithSimulation(true),
+			expectedErr: "a valid bech32 address must be provided in simulation mode",
+		},
+		{
+			name: "generate only mode, valid bech32 address",
+			keyring: func() keyring.Keyring {
+				return keyring.NewInMemory()
+			},
+			from:      "cosmos139f7kncmglres2nf3h4hc4tade85ekfr8sulz5",
+			clientCtx: client.Context{}.WithGenerateOnly(true),
+		},
+		{
+			name: "invalid bech32 address, generate only",
+			keyring: func() keyring.Keyring {
+				return keyring.NewInMemory()
+			},
+			from:        "alice",
+			clientCtx:   client.Context{}.WithGenerateOnly(true),
+			expectedErr: "alice.info: key not found",
+		},
+		{
+			keyring: func() keyring.Keyring {
+				kb, err := keyring.New(t.Name(), keyring.BackendTest, t.TempDir(), nil)
+				require.NoError(t, err)
+
+				_, _, err = kb.NewMnemonic("alice", keyring.English, path, keyring.DefaultBIP39Passphrase, hd.Secp256k1)
+				require.NoError(t, err)
+
+				return kb
+			},
+			clientCtx: client.Context{}.WithGenerateOnly(true),
+			from:      "alice",
+		},
+	}
+
+	for _, tc := range testCases {
+		println("Running test case: ", tc.name)
+		_, _, _, err := client.GetFromFields(tc.clientCtx, tc.keyring(), tc.from)
+		if tc.expectedErr == "" {
+			require.NoError(t, err)
+		} else {
+			require.ErrorContains(t, err, tc.expectedErr)
+		}
+	}
 }

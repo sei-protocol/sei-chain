@@ -42,6 +42,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 * [\#2](https://github.com/sei-protocol/sei-cosmos/pull/2) Fix GRPC bug
 * [\#88](https://github.com/sei-protocol/sei-cosmos/pull/88) Fix Rollback bug not actually rolling back CMS version
+* [https://github.com/cosmos/cosmos-sdk/commit/4f1cc3aeac7884cf1f522b87af04a455e92db7cf]
 
 ### Improvements
 
