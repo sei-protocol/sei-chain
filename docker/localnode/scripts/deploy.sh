@@ -52,8 +52,8 @@ do
      sleep 1
 done
 
-# Step 4: Configure persistent peers
-/usr/bin/persistent_peers.sh
+# Step 4: Config overrides
+/usr/bin/config_override.sh
 
 # Step 5: Start the chain
 /usr/bin/start_sei.sh
