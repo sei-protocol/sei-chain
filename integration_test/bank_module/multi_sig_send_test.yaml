@@ -1,0 +1,31 @@
+- name: Test multi-sig sending funds
+  inputs:
+    # Create 3 wallets that manages 1 multisig wallet
+    - cmd: seid keys add wallet1 --keyring-backend test --output json | jq -r ".address"
+      env: WALLET_1_ACC
+    - cmd: seid keys add wallet2 --keyring-backend test --output json | jq -r ".address"
+      env: WALLET_2_ACC
+    - cmd: seid keys add wallet3 --keyring-backend test --output json | jq -r ".address"
+      env: WALLET_3_ACC
+    - cmd: seid keys add multisig --multisig-threshold=2 --multisig=wallet1,wallet2,wallet3 --keyring-backend test --output json | jq -r ".address"
+      env: MULTI_SIG_ACC
+
+    # Send funds to the multisig
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ACC
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ACC $MULTI_SIG_ACC 11sei -b block --fees 2000usei --chain-id sei -y
+
+    # Creat and send multi-sig transaction
+    - cmd: seid tx bank send $MULTI_SIG_ACC $MULTI_SIG_ACC 1sei -b block -y --fees 1sei -y --from $MULTI_SIG_ACC --generate-only --keyring-backend test > unsigned-tx.json
+    - cmd: seid tx sign unsigned-tx.json --multisig=$MULTI_SIG_ACC --keyring-backend test --from=wallet1 --output-document=wallet1.json --chain-id sei -b block --fees 1sei
+    - cmd: seid tx sign unsigned-tx.json --multisig=$MULTI_SIG_ACC --keyring-backend test --from=wallet2 --output-document=wallet2.json --chain-id sei -b block --fees 1sei
+    - cmd: seid tx multisign unsigned-tx.json multisig wallet1.json wallet2.json --chain-id sei --keyring-backend test > signed-tx.json
+    - cmd: seid tx broadcast signed-tx.json --chain-id sei -b block -y
+
+    # Check multi-sig balance
+    - cmd: seid q bank balances $MULTI_SIG_ACC --output json | jq -r .balances[0].amount
+      env: MULTI_SIG_ACC_BALANCE
+  verifiers:
+    # Bank balance should be 10 sei, 1 sei paid and 10sei sent to self
+    - type: eval
+      expr: MULTI_SIG_ACC_BALANCE == 10000000
