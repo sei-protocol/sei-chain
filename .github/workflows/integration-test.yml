@@ -85,6 +85,12 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
             ]
           },
+          {
+            name: "Accesscontrol Module",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/acl_module/accesscontrol_register_test.yaml",
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3

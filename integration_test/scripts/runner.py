@@ -47,7 +47,7 @@ class TestRunner:
             elems = verifier["expr"].strip().split()
             expr = ""
             for i in range(len(elems)):
-                if env_map.get(elems[i]):
+                if elems[i] in env_map:
                     variable = env_map[elems[i]]
                     if str(variable).isnumeric():
                         expr = expr + f' {variable}'
