@@ -18,6 +18,7 @@ if [ -z "$SKIP_BUILD" ]
 then
   /usr/bin/build.sh
 fi
+cp build/seid "$GOBIN"/
 
 # Run init to set up state sync configurations
 /usr/bin/configure_init.sh
