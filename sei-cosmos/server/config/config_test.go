@@ -18,3 +18,8 @@ func TestSetMinimumFees(t *testing.T) {
 	cfg.SetMinGasPrices(sdk.DecCoins{sdk.NewInt64DecCoin("foo", 5)})
 	require.Equal(t, "5.000000000000000000foo", cfg.MinGasPrices)
 }
+
+func TestSetSnapshotDirectory(t *testing.T) {
+	cfg := DefaultConfig()
+	require.Equal(t, "", cfg.StateSync.SnapshotDirectory)
+}

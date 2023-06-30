@@ -92,6 +92,11 @@ func SetSnapshotKeepRecent(keepRecent uint32) func(*BaseApp) {
 	return func(app *BaseApp) { app.SetSnapshotKeepRecent(keepRecent) }
 }
 
+// SetSnapshotDirectory sets the snapshot directory.
+func SetSnapshotDirectory(dir string) func(*BaseApp) {
+	return func(app *BaseApp) { app.SetSnapshotDirectory(dir) }
+}
+
 // SetSnapshotStore sets the snapshot store.
 func SetSnapshotStore(snapshotStore *snapshots.Store) func(*BaseApp) {
 	return func(app *BaseApp) { app.SetSnapshotStore(snapshotStore) }
@@ -296,6 +301,14 @@ func (app *BaseApp) SetSnapshotKeepRecent(snapshotKeepRecent uint32) {
 		panic("SetSnapshotKeepRecent() on sealed BaseApp")
 	}
 	app.snapshotKeepRecent = snapshotKeepRecent
+}
+
+// SetSnapshotDirectory sets the snapshot directory.
+func (app *BaseApp) SetSnapshotDirectory(dir string) {
+	if app.sealed {
+		panic("SetSnapshotDirectory() on sealed BaseApp")
+	}
+	app.snapshotDirectory = dir
 }
 
 // SetInterfaceRegistry sets the InterfaceRegistry.

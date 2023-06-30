@@ -174,6 +174,10 @@ type StateSyncConfig struct {
 	// SnapshotKeepRecent sets the number of recent state sync snapshots to keep.
 	// 0 keeps all snapshots.
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
+
+	// SnapshotDirectory sets the parent directory for where state sync snapshots are persisted.
+	// Default is emtpy which will then store under the app home directory.
+	SnapshotDirectory string `mapstructure:"snapshot-directory"`
 }
 
 // Config defines the server's top level configuration
@@ -264,6 +268,7 @@ func DefaultConfig() *Config {
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   0,
 			SnapshotKeepRecent: 2,
+			SnapshotDirectory:  "",
 		},
 	}
 }
@@ -345,6 +350,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   v.GetUint64("state-sync.snapshot-interval"),
 			SnapshotKeepRecent: v.GetUint32("state-sync.snapshot-keep-recent"),
+			SnapshotDirectory:  v.GetString("state-sync.snapshot-directory"),
 		},
 	}, nil
 }

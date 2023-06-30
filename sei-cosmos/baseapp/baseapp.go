@@ -214,6 +214,7 @@ type snapshotData struct {
 	snapshotManager    *snapshots.Manager
 	snapshotInterval   uint64 // block interval between state sync snapshots
 	snapshotKeepRecent uint32 // recent state sync snapshots to keep
+	snapshotDirectory  string //  state sync snapshots directory
 }
 
 // NewBaseApp returns a reference to an initialized BaseApp. It accepts a

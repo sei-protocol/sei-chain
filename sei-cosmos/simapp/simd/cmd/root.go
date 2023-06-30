@@ -270,12 +270,16 @@ func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, t
 		panic(err)
 	}
 
-	snapshotDir := filepath.Join(cast.ToString(appOpts.Get(flags.FlagHome)), "data", "snapshots")
-	snapshotDB, err := sdk.NewLevelDB("metadata", snapshotDir)
+	snapshotDirectory := cast.ToString(appOpts.Get(server.FlagStateSyncSnapshotDir))
+	if snapshotDirectory == "" {
+		snapshotDirectory = filepath.Join(cast.ToString(appOpts.Get(flags.FlagHome)), "data", "snapshots")
+	}
+
+	snapshotDB, err := sdk.NewLevelDB("metadata", snapshotDirectory)
 	if err != nil {
 		panic(err)
 	}
-	snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDir)
+	snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDirectory)
 	if err != nil {
 		panic(err)
 	}
@@ -298,6 +302,7 @@ func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, t
 		baseapp.SetSnapshotStore(snapshotStore),
 		baseapp.SetSnapshotInterval(cast.ToUint64(appOpts.Get(server.FlagStateSyncSnapshotInterval))),
 		baseapp.SetSnapshotKeepRecent(cast.ToUint32(appOpts.Get(server.FlagStateSyncSnapshotKeepRecent))),
+		baseapp.SetSnapshotDirectory(snapshotDirectory),
 		baseapp.SetIAVLCacheSize(cast.ToInt(appOpts.Get(server.FlagIAVLCacheSize))),
 		baseapp.SetIAVLDisableFastNode(cast.ToBool(appOpts.Get(server.FlagIAVLFastNode))),
 		baseapp.SetCompactionInterval(cast.ToUint64(appOpts.Get(server.FlagCompactionInterval))),
