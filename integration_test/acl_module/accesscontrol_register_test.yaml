@@ -9,12 +9,16 @@
     # instantiate contract - get contract address
     - cmd: "printf \"12345678\\n\" | seid tx wasm instantiate $COUNTER_CODE_ID \"{\\\"count\\\": 0}\" --label counter --admin $ADMIN_ADDR --from admin -b block -y --gas 5000000 --fees 5sei | grep -A 1 -m 1 \"key: _contract_address\" | sed -n \"s/.*value: //p\" | xargs"
       env: COUNTER_ADDRESS
-    # set up parallel dependencies
-    - cmd: python3 integration_test/contracts/contract_dep_generator.py build_counter_deps integration_test/contracts/parallelism_template.json integration_test/contracts/good_deps.json $COUNTER_CODE_ID $COUNTER_ADDRESS
+    # assign filepath to env
+    - cmd: echo "integration_test/contracts/good_deps.json"
       env: GOOD_DEPS_FILEPATH
-    # set up bad parallel dependencies
-    - cmd: python3 integration_test/contracts/contract_dep_generator.py build_counter_deps integration_test/contracts/bad_parallelism_template.json integration_test/contracts/bad_deps.json $COUNTER_CODE_ID $COUNTER_ADDRESS
+    # set up parallel dependencies
+    - cmd: python3 integration_test/contracts/contract_dep_generator.py build_counter_deps --base-filepath integration_test/contracts/parallelism_template.json --output-filepath $GOOD_DEPS_FILEPATH --code-id $COUNTER_CODE_ID --contract-address $COUNTER_ADDRESS
+    # assign filepath to env
+    - cmd: echo "integration_test/contracts/bad_deps.json"
       env: BAD_DEPS_FILEPATH
+    # set up bad parallel dependencies
+    - cmd: python3 integration_test/contracts/contract_dep_generator.py build_counter_deps --base-filepath integration_test/contracts/bad_parallelism_template.json --output-filepath $BAD_DEPS_FILEPATH --code-id $COUNTER_CODE_ID --contract-address $COUNTER_ADDRESS
     # register bad deps with chain
     - cmd: printf "12345678\n" | seid tx accesscontrol register-wasm-dependency-mapping $BAD_DEPS_FILEPATH --from admin -b block -y --fees 2000usei
     # make a counter contract tx to reset the mapping

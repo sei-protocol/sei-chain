@@ -1,5 +1,7 @@
 import json
 import sys
+import argparse
+from functools import partial
 
 def build_counter_deps(base_filepath, output_filepath, code_id, contract_address):
     with open(base_filepath, 'r') as file:
@@ -21,14 +23,22 @@ def build_counter_deps(base_filepath, output_filepath, code_id, contract_address
                     access_op["operation"]["identifier_template"] = f"07{int(code_id):016x}"
         with open(output_filepath, 'w') as output_file:
             json.dump(proposal, output_file, indent=4)
-    return output_filepath
 
 def main():
-    args = sys.argv[1:]
-    if args[0] == "build_counter_deps":
-        print(build_counter_deps(args[1], args[2], args[3], args[4]))
-    else:
-        print("Unknown args")
+    parser = argparse.ArgumentParser(description="This is a parser to generate a parallel dependency json file from a template")
+    parser.add_argument('Action', type=str, help="The action to perform (eg. build_counter_deps)")
+    parser.add_argument('--base-filepath', dest="base_filepath", type=str, help="The json template filepath")
+    parser.add_argument('--output-filepath', dest="output_filepath", type=str, help="The json dependency output filepath")
+    parser.add_argument('--code-id', type=int, dest="code_id", help="The code id for which to generate dependencies")
+    parser.add_argument('--contract-address', dest="contract_address", type=str, help="The contract address for which to generate dependencies")
+    args = parser.parse_args()
+    actions = {
+        "build_counter_deps": partial(build_counter_deps, args.base_filepath, args.output_filepath, args.code_id, args.contract_address),
+    }
+    if args.Action not in actions:
+        print("Invalid Action")
+    actions[args.Action]()
+
 
 if __name__ == "__main__":
     main()
