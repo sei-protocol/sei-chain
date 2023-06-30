@@ -30,7 +30,7 @@
     - cmd: seid q accesscontrol wasm-dependency-mapping $COUNTER_ADDRESS --output json | jq -r ".wasm_dependency_mapping.reset_reason"
       env: RESET_REASON_2
   verifiers:
-    # registered deps should be empty after resetting the bad one
+    # reset reason should have a value after resetting the bad one
     - type: eval
       expr: RESET_REASON == "incorrectly specified dependency access list"
     # second reset reason should be empty
