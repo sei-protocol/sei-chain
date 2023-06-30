@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/address"
+	"github.com/sei-protocol/goutils"
 )
 
 const (
@@ -34,22 +35,22 @@ func AddressKeyPrefix(contractAddr string) []byte {
 }
 
 func ContractKeyPrefix(p string, contractAddr string) []byte {
-	return append([]byte(p), AddressKeyPrefix(contractAddr)...)
+	return goutils.ImmutableAppend([]byte(p), AddressKeyPrefix(contractAddr)...)
 }
 
 func DenomPrefix(denom string) []byte {
 	length := uint16(len(denom))
 	bz := make([]byte, 2)
 	binary.BigEndian.PutUint16(bz, length)
-	return append(bz, []byte(denom)...)
+	return goutils.ImmutableAppend(bz, []byte(denom)...)
 }
 
 func PairPrefix(priceDenom string, assetDenom string) []byte {
-	return append(DenomPrefix(priceDenom), DenomPrefix(assetDenom)...)
+	return goutils.ImmutableAppend(DenomPrefix(priceDenom), DenomPrefix(assetDenom)...)
 }
 
 func OrderBookPrefix(long bool, contractAddr string, priceDenom string, assetDenom string) []byte {
-	return append(
+	return goutils.ImmutableAppend(
 		OrderBookContractPrefix(long, contractAddr),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
@@ -62,82 +63,82 @@ func OrderBookContractPrefix(long bool, contractAddr string) []byte {
 	} else {
 		prefix = KeyPrefix(ShortBookKey)
 	}
-	return append(prefix, AddressKeyPrefix(contractAddr)...)
+	return goutils.ImmutableAppend(prefix, AddressKeyPrefix(contractAddr)...)
 }
 
 // `Price` constant + contract + price denom + asset denom
 func PricePrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
-	return append(
+	return goutils.ImmutableAppend(
 		PriceContractPrefix(contractAddr),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func PriceContractPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(PriceKey), AddressKeyPrefix(contractAddr)...)
+	return goutils.ImmutableAppend(KeyPrefix(PriceKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func RegisteredPairPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(RegisteredPairKey), AddressKeyPrefix(contractAddr)...)
+	return goutils.ImmutableAppend(KeyPrefix(RegisteredPairKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func OrderPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(OrderKey), AddressKeyPrefix(contractAddr)...)
+	return goutils.ImmutableAppend(KeyPrefix(OrderKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func AssetListPrefix(assetDenom string) []byte {
-	return append(KeyPrefix(AssetListKey), DenomPrefix(assetDenom)...)
+	return goutils.ImmutableAppend(KeyPrefix(AssetListKey), DenomPrefix(assetDenom)...)
 }
 
 func NextOrderIDPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(NextOrderIDKey), AddressKeyPrefix(contractAddr)...)
+	return goutils.ImmutableAppend(KeyPrefix(NextOrderIDKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func MatchResultPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MatchResultKey), AddressKeyPrefix(contractAddr)...)
+	return goutils.ImmutableAppend(KeyPrefix(MatchResultKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func GetSettlementOrderIDPrefix(orderID uint64, account string) []byte {
-	accountBytes := append([]byte(account), []byte("|")...)
+	accountBytes := goutils.ImmutableAppend([]byte(account), []byte("|")...)
 	orderIDBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(orderIDBytes, orderID)
-	return append(accountBytes, orderIDBytes...)
+	return goutils.ImmutableAppend(accountBytes, orderIDBytes...)
 }
 
 func GetSettlementKey(orderID uint64, account string, settlementID uint64) []byte {
 	settlementIDBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(settlementIDBytes, settlementID)
-	return append(GetSettlementOrderIDPrefix(orderID, account), settlementIDBytes...)
+	return goutils.ImmutableAppend(GetSettlementOrderIDPrefix(orderID, account), settlementIDBytes...)
 }
 
 func MemOrderPrefixForPair(contractAddr string, priceDenom string, assetDenom string) []byte {
-	return append(
-		append(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...),
+	return goutils.ImmutableAppend(
+		goutils.ImmutableAppend(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func MemCancelPrefixForPair(contractAddr string, priceDenom string, assetDenom string) []byte {
-	return append(
-		append(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...),
+	return goutils.ImmutableAppend(
+		goutils.ImmutableAppend(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...),
 		PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func MemOrderPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...)
+	return goutils.ImmutableAppend(KeyPrefix(MemOrderKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func MemCancelPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...)
+	return goutils.ImmutableAppend(KeyPrefix(MemCancelKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func MemDepositPrefix(contractAddr string) []byte {
-	return append(KeyPrefix(MemDepositKey), AddressKeyPrefix(contractAddr)...)
+	return goutils.ImmutableAppend(KeyPrefix(MemDepositKey), AddressKeyPrefix(contractAddr)...)
 }
 
 func MemDepositSubprefix(creator, denom string) []byte {
-	return append([]byte(creator), DenomPrefix(denom)...)
+	return goutils.ImmutableAppend([]byte(creator), DenomPrefix(denom)...)
 }
 
 func ContractKey(contractAddr string) []byte {
@@ -151,7 +152,7 @@ func OrderCountPrefix(contractAddr string, priceDenom string, assetDenom string,
 	} else {
 		prefix = KeyPrefix(ShortOrderCountKey)
 	}
-	return append(prefix, append(AddressKeyPrefix(contractAddr), PairPrefix(priceDenom, assetDenom)...)...)
+	return goutils.ImmutableAppend(prefix, goutils.ImmutableAppend(AddressKeyPrefix(contractAddr), PairPrefix(priceDenom, assetDenom)...)...)
 }
 
 const (

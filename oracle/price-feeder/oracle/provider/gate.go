@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 )
@@ -205,7 +206,7 @@ func (p *GateProvider) getCandlePrices(key string) ([]CandlePrice, error) {
 			return []CandlePrice{}, err
 		}
 
-		candleList = append(candleList, cp)
+		goutils.InPlaceAppend(&candleList, cp)
 	}
 
 	return candleList, nil
@@ -240,7 +241,7 @@ func (p *GateProvider) subscribeTickers(cps ...types.CurrencyPair) error {
 	topics := []string{}
 
 	for _, cp := range cps {
-		topics = append(topics, currencyPairToGatePair(cp))
+		goutils.InPlaceAppend(&topics, currencyPairToGatePair(cp))
 	}
 
 	tickerMsg := newGateTickerSubscription(topics...)
@@ -507,10 +508,10 @@ func (p *GateProvider) setCandlePair(candle GateCandle) {
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []GateCandle{}
 
-	candleList = append(candleList, candle)
+	goutils.InPlaceAppend(&candleList, candle)
 	for _, c := range p.candles[candle.Symbol] {
 		if staleTime < c.TimeStamp {
-			candleList = append(candleList, c)
+			goutils.InPlaceAppend(&candleList, c)
 		}
 	}
 	p.candles[candle.Symbol] = candleList

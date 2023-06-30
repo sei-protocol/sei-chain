@@ -5,6 +5,7 @@ import (
 	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -40,7 +41,7 @@ func MatchLimitOrders(
 			longEntry.GetPrice(),
 			shortEntry.GetPrice(),
 		)
-		settlements = append(settlements, newSettlements...)
+		goutils.InPlaceAppend(&settlements, newSettlements...)
 	}
 
 	orderbook.Longs.Flush(ctx)
@@ -73,7 +74,7 @@ func addOrderToOrderBookEntry(
 		}
 	}
 	orderEntry.Quantity = orderEntry.Quantity.Add(order.Quantity)
-	orderEntry.Allocations = append(orderEntry.Allocations, &types.Allocation{
+	goutils.InPlaceAppend(&orderEntry.Allocations, &types.Allocation{
 		OrderId:  order.Id,
 		Quantity: order.Quantity,
 		Account:  order.Account,

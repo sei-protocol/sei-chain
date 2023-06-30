@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -23,7 +24,7 @@ func TopologicalSortContractInfo(contracts []types.ContractInfoV2) ([]types.Cont
 	for len(frontierNodes) > 0 {
 		for _, frontierNode := range frontierNodes {
 			if contract, ok := contractAddrToContractInfo[frontierNode.contractAddr]; ok {
-				res = append(res, contract)
+				goutils.InPlaceAppend(&res, contract)
 			}
 			for _, nonFrontierNode := range nonFrontierNodes {
 				nonFrontierNode.incomingNodes.Remove(frontierNode.contractAddr)

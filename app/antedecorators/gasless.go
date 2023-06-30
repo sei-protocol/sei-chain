@@ -8,6 +8,7 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/goutils"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -86,7 +87,7 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 		switch m := msg.(type) {
 		case *oracletypes.MsgAggregateExchangeRateVote:
 			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, []sdkacltypes.AccessOperation{
+			goutils.InPlaceAppend(&deps, []sdkacltypes.AccessOperation{
 				// validate feeder
 				// read feeder delegation for val addr - READ
 				{
@@ -112,7 +113,7 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 		}
 	}
 
-	return next(append(txDeps, deps...), tx, txIndex)
+	return next(goutils.ImmutableAppend(txDeps, deps...), tx, txIndex)
 }
 
 func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (bool, error) {

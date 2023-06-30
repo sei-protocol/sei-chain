@@ -7,6 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -39,7 +40,7 @@ func CmdRegisterContract() *cobra.Command {
 			}
 			var dependencies []*types.ContractDependencyInfo
 			for _, dependency := range args[5:] {
-				dependencies = append(dependencies, &types.ContractDependencyInfo{Dependency: dependency})
+				goutils.InPlaceAppend(&dependencies, &types.ContractDependencyInfo{Dependency: dependency})
 			}
 
 			clientCtx, err := client.GetClientTxContext(cmd)

@@ -10,6 +10,7 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/goutils"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -74,7 +75,7 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 		{
 			AccessType:   sdkacltypes.AccessType_READ,
 			ResourceType: sdkacltypes.ResourceType_KV_DEX_MEM_DEPOSIT,
-			IdentifierTemplate: hex.EncodeToString(append(
+			IdentifierTemplate: hex.EncodeToString(goutils.ImmutableAppend(
 				dextypes.MemDepositPrefix(contractAddr),
 				[]byte(placeOrdersMsg.Creator)...,
 			)),
@@ -82,7 +83,7 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 		{
 			AccessType:   sdkacltypes.AccessType_WRITE,
 			ResourceType: sdkacltypes.ResourceType_KV_DEX_MEM_DEPOSIT,
-			IdentifierTemplate: hex.EncodeToString(append(
+			IdentifierTemplate: hex.EncodeToString(goutils.ImmutableAppend(
 				dextypes.MemDepositPrefix(contractAddr),
 				[]byte(placeOrdersMsg.Creator)...,
 			)),
@@ -156,7 +157,7 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 	}
 
 	// Last Operation should always be a commit
-	aclOps = append(aclOps, *acltypes.CommitAccessOp())
+	goutils.InPlaceAppend(&aclOps, *acltypes.CommitAccessOp())
 	return aclOps, nil
 }
 
@@ -188,10 +189,10 @@ func DexCancelOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context
 	for _, order := range cancelOrdersMsg.GetCancellations() {
 		priceDenom := order.GetPriceDenom()
 		assetDenom := order.GetAssetDenom()
-		aclOps = append(aclOps, GetLongShortOrderBookOps(contractAddr, priceDenom, assetDenom)...)
+		goutils.InPlaceAppend(&aclOps, GetLongShortOrderBookOps(contractAddr, priceDenom, assetDenom)...)
 	}
 
 	// Last Operation should always be a commit
-	aclOps = append(aclOps, *acltypes.CommitAccessOp())
+	goutils.InPlaceAppend(&aclOps, *acltypes.CommitAccessOp())
 	return aclOps, nil
 }

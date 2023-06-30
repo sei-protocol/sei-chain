@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -28,7 +29,8 @@ func (k Keeper) OrganizeBallotByDenom(ctx sdk.Context, validatorClaimMap map[str
 					tmpPower = 0
 				}
 
-				votes[tuple.Denom] = append(votes[tuple.Denom],
+				vote := votes[tuple.Denom]
+				goutils.InPlaceAppend(&vote,
 					types.NewVoteForTally(
 						tuple.ExchangeRate,
 						tuple.Denom,
@@ -36,6 +38,7 @@ func (k Keeper) OrganizeBallotByDenom(ctx sdk.Context, validatorClaimMap map[str
 						tmpPower,
 					),
 				)
+				votes[tuple.Denom] = vote
 			}
 
 		}

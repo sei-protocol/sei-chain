@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/query"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -16,7 +17,7 @@ func TestAssetListQuery(t *testing.T) {
 	item := keepertest.CreateAssetMetadata(keeper, ctx)
 
 	var expectedAssetList []types.AssetMetadata
-	expectedAssetList = append(expectedAssetList, item)
+	goutils.InPlaceAppend(&expectedAssetList, item)
 
 	request := types.QueryAssetListRequest{}
 	expectedResponse := types.QueryAssetListResponse{

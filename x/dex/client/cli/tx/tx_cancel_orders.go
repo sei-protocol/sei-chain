@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/spf13/cobra"
 )
@@ -49,7 +50,7 @@ func CmdCancelOrders() *cobra.Command {
 				newCancel.Price = argPrice
 				newCancel.PriceDenom = cancelDetails[3]
 				newCancel.AssetDenom = cancelDetails[4]
-				cancellations = append(cancellations, &newCancel)
+				goutils.InPlaceAppend(&cancellations, &newCancel)
 			}
 
 			clientCtx, err := client.GetClientTxContext(cmd)

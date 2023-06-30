@@ -6,6 +6,7 @@ import (
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 
@@ -103,7 +104,7 @@ func TestMigrate4to5(t *testing.T) {
 	missCounter := uint64(12)
 	oldPrevoteKey := []byte{0x04}
 	genPrevoteKey := func(v sdk.ValAddress) []byte {
-		return append(oldPrevoteKey, address.MustLengthPrefix(v)...)
+		return goutils.ImmutableAppend(oldPrevoteKey, address.MustLengthPrefix(v)...)
 	}
 
 	// store the value with legacy proto

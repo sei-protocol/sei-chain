@@ -4,6 +4,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/sei-protocol/goutils"
 	"golang.org/x/exp/constraints"
 )
 
@@ -44,7 +45,7 @@ func (m *TypedSyncMap[K, V]) Range(f func(K, V) bool) {
 	// All map iterations should be deterministic, so we apply f in sorted order to avoid nondeterminism
 	var keys []K
 	m.internal.Range(func(key, val any) bool {
-		keys = append(keys, key.(K))
+		goutils.InPlaceAppend(&keys, key.(K))
 		return true
 	})
 	sort.Slice(keys, func(i, j int) bool {

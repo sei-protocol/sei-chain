@@ -7,6 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -81,7 +82,7 @@ func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
 	for ; iterator.Valid(); iterator.Next() {
 		contract := types.ContractInfoV2{}
 		if err := contract.Unmarshal(iterator.Value()); err == nil {
-			list = append(list, contract)
+			goutils.InPlaceAppend(&list, contract)
 		}
 	}
 
@@ -189,9 +190,9 @@ func (k Keeper) ClearDependenciesForContract(ctx sdk.Context, removedContract ty
 				newDependencies := []*types.ContractDependencyInfo{}
 				for _, elderSiblingDep := range immediateElderSibling.Dependencies {
 					if elderSiblingDep.Dependency != dep.Dependency {
-						newDependencies = append(newDependencies, elderSiblingDep)
+						goutils.InPlaceAppend(&newDependencies, elderSiblingDep)
 					} else {
-						newDependencies = append(newDependencies, &types.ContractDependencyInfo{
+						goutils.InPlaceAppend(&newDependencies, &types.ContractDependencyInfo{
 							Dependency:              elderSiblingDep.Dependency,
 							ImmediateElderSibling:   elderSiblingDep.ImmediateElderSibling,
 							ImmediateYoungerSibling: dep.ImmediateYoungerSibling,
@@ -208,9 +209,9 @@ func (k Keeper) ClearDependenciesForContract(ctx sdk.Context, removedContract ty
 				newDependencies := []*types.ContractDependencyInfo{}
 				for _, youngerSiblingDep := range immediateYoungerSibling.Dependencies {
 					if youngerSiblingDep.Dependency != dep.Dependency {
-						newDependencies = append(newDependencies, youngerSiblingDep)
+						goutils.InPlaceAppend(&newDependencies, youngerSiblingDep)
 					} else {
-						newDependencies = append(newDependencies, &types.ContractDependencyInfo{
+						goutils.InPlaceAppend(&newDependencies, &types.ContractDependencyInfo{
 							Dependency:              youngerSiblingDep.Dependency,
 							ImmediateElderSibling:   dep.ImmediateElderSibling,
 							ImmediateYoungerSibling: youngerSiblingDep.ImmediateYoungerSibling,

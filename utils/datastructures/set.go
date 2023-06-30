@@ -3,6 +3,8 @@ package datastructures
 import (
 	"sort"
 	"sync"
+
+	"github.com/sei-protocol/goutils"
 )
 
 // A set-like data structure that is guaranteed to be data race free during write
@@ -58,7 +60,7 @@ func (s *SyncSet[T]) Contains(val T) bool {
 func (s *SyncSet[T]) ToOrderedSlice(comparator func(T, T) bool) []T {
 	res := []T{}
 	for s := range s.dict {
-		res = append(res, s)
+		goutils.InPlaceAppend(&res, s)
 	}
 	sort.SliceStable(res, func(i, j int) bool {
 		return comparator(res[i], res[j])

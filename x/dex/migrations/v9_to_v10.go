@@ -3,6 +3,7 @@ package migrations
 import (
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -41,7 +42,7 @@ func V9ToV10(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 		pairPrefix := types.PairPrefix(registeredPair.PriceDenom, registeredPair.AssetDenom)
 
 		// set the price and quantity ticks from the appropriate store
-		priceTickStore := prefix.NewStore(store, append([]byte(PriceTickSizeKey), rpContractKey...))
+		priceTickStore := prefix.NewStore(store, goutils.ImmutableAppend([]byte(PriceTickSizeKey), rpContractKey...))
 		priceTickSize := sdk.Dec{}
 		b = priceTickStore.Get(pairPrefix)
 		err = priceTickSize.Unmarshal(b)
@@ -50,7 +51,7 @@ func V9ToV10(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 		}
 		registeredPair.PriceTicksize = &priceTickSize
 
-		quantityTickStore := prefix.NewStore(store, append([]byte(QuantityTickSizeKey), rpContractKey...))
+		quantityTickStore := prefix.NewStore(store, goutils.ImmutableAppend([]byte(QuantityTickSizeKey), rpContractKey...))
 		quantityTickSize := sdk.Dec{}
 		b = quantityTickStore.Get(pairPrefix)
 		err = quantityTickSize.Unmarshal(b)
@@ -60,7 +61,7 @@ func V9ToV10(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 		registeredPair.QuantityTicksize = &quantityTickSize
 
 		// delete the old store value
-		rpStore := prefix.NewStore(store, append([]byte(types.RegisteredPairKey), rpContractKey...))
+		rpStore := prefix.NewStore(store, goutils.ImmutableAppend([]byte(types.RegisteredPairKey), rpContractKey...))
 		rpStore.Delete(rpKey)
 		// updated registered pair, now we need to set it to the correct store value
 		writeBytes := dexkeeper.Cdc.MustMarshal(&registeredPair)

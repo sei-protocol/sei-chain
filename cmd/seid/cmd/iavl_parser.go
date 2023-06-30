@@ -8,6 +8,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/app/params"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
@@ -30,9 +31,9 @@ func MintParser(key []byte) ([]string, error) {
 	keyItems := []string{}
 	switch {
 	case bytes.HasPrefix(key, minttypes.MinterKey):
-		keyItems = append(keyItems, "MinterKey")
+		goutils.InPlaceAppend(&keyItems, "MinterKey")
 	default:
-		keyItems = append(keyItems, UNRECOGNIZED)
+		goutils.InPlaceAppend(&keyItems, UNRECOGNIZED)
 	}
 	return keyItems, nil
 }
@@ -41,15 +42,15 @@ func AccountParser(key []byte) ([]string, error) {
 	keyItems := []string{}
 	switch {
 	case bytes.HasPrefix(key, authtypes.AddressStoreKeyPrefix):
-		keyItems = append(keyItems, "AddressStore")
+		goutils.InPlaceAppend(&keyItems, "AddressStore")
 		remaining := bytes.TrimPrefix(key, authtypes.AddressStoreKeyPrefix)
 		bech32Addr, err := sdk.Bech32ifyAddressBytes(params.Bech32PrefixAccAddr, remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, fmt.Sprintf("AddrBech32: %s", bech32Addr))
+		goutils.InPlaceAppend(&keyItems, fmt.Sprintf("AddrBech32: %s", bech32Addr))
 	default:
-		keyItems = append(keyItems, UNRECOGNIZED)
+		goutils.InPlaceAppend(&keyItems, UNRECOGNIZED)
 	}
 	return keyItems, nil
 }
@@ -58,27 +59,27 @@ func BankParser(key []byte) ([]string, error) {
 	keyItems := []string{}
 	switch {
 	case bytes.HasPrefix(key, banktypes.SupplyKey):
-		keyItems = append(keyItems, "Supply")
+		goutils.InPlaceAppend(&keyItems, "Supply")
 		// rest of the key is the denom
 		remaining := bytes.TrimPrefix(key, banktypes.SupplyKey)
-		keyItems = append(keyItems, fmt.Sprintf("Denom: %s", string(remaining)))
+		goutils.InPlaceAppend(&keyItems, fmt.Sprintf("Denom: %s", string(remaining)))
 	case bytes.HasPrefix(key, banktypes.DenomMetadataPrefix):
-		keyItems = append(keyItems, "DenomMetadata")
+		goutils.InPlaceAppend(&keyItems, "DenomMetadata")
 		// rest of the key is the denom
 		remaining := bytes.TrimPrefix(key, banktypes.DenomMetadataPrefix)
-		keyItems = append(keyItems, fmt.Sprintf("Denom: %s", string(remaining)))
+		goutils.InPlaceAppend(&keyItems, fmt.Sprintf("Denom: %s", string(remaining)))
 	case bytes.HasPrefix(key, banktypes.BalancesPrefix):
-		keyItems = append(keyItems, "Balances")
+		goutils.InPlaceAppend(&keyItems, "Balances")
 		// remaining is length prefixed addr + denom
 		remaining := bytes.TrimPrefix(key, banktypes.BalancesPrefix)
 		items, denom, err := parseLengthPrefixedAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
-		keyItems = append(keyItems, fmt.Sprintf("Denom: %s", string(denom)))
+		goutils.InPlaceAppend(&keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, fmt.Sprintf("Denom: %s", string(denom)))
 	default:
-		keyItems = append(keyItems, UNRECOGNIZED)
+		goutils.InPlaceAppend(&keyItems, UNRECOGNIZED)
 	}
 
 	return keyItems, nil
@@ -90,14 +91,14 @@ func DexParser(key []byte) ([]string, error) {
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 		return keyItems, nil
 	}
 	switch {
 	case bytes.HasPrefix(key, []byte(dexkeeper.EpochKey)):
 		// do nothing since the key is a string and no other data to be parsed
 	default:
-		keyItems = append(keyItems, UNRECOGNIZED)
+		goutils.InPlaceAppend(&keyItems, UNRECOGNIZED)
 	}
 	return keyItems, nil
 }
@@ -126,15 +127,15 @@ func MatchAndExtractDexAddressPrefixKeys(key []byte) (bool, []string, []byte, er
 
 	for _, prefix := range keysToMatch {
 		if bytes.HasPrefix(key, dextypes.KeyPrefix(prefix)) {
-			keyItems = append(keyItems, prefix)
+			goutils.InPlaceAppend(&keyItems, prefix)
 			remaining := bytes.TrimPrefix(key, dextypes.KeyPrefix(prefix))
 			items, remaining, err := parseLengthPrefixedAddress(remaining)
 			if err != nil {
 				return true, keyItems, remaining, err
 			}
-			keyItems = append(keyItems, items...)
+			goutils.InPlaceAppend(&keyItems, items...)
 			if len(remaining) > 0 {
-				keyItems = append(keyItems, fmt.Sprintf("RemainingString: %s", string(remaining)))
+				goutils.InPlaceAppend(&keyItems, fmt.Sprintf("RemainingString: %s", string(remaining)))
 			}
 			return true, keyItems, remaining, nil
 		}
@@ -151,7 +152,7 @@ func parseLengthPrefixedAddress(remainingKey []byte) ([]string, []byte, error) {
 	if err != nil {
 		return keyItems, remaining, err
 	}
-	keyItems = append(keyItems, fmt.Sprintf("AddrBech32: %s", bech32Addr))
+	goutils.InPlaceAppend(&keyItems, fmt.Sprintf("AddrBech32: %s", bech32Addr))
 	return keyItems, remaining, nil
 }
 
@@ -164,7 +165,7 @@ func parseLengthPrefixedOperAddress(remainingKey []byte) ([]string, []byte, erro
 	if err != nil {
 		return keyItems, remaining, err
 	}
-	keyItems = append(keyItems, fmt.Sprintf("ValBech32: %s", bech32Addr))
+	goutils.InPlaceAppend(&keyItems, fmt.Sprintf("ValBech32: %s", bech32Addr))
 	return keyItems, remaining, nil
 }
 
@@ -177,7 +178,7 @@ func parseLengthPrefixedConsAddress(remainingKey []byte) ([]string, []byte, erro
 	if err != nil {
 		return keyItems, remaining, err
 	}
-	keyItems = append(keyItems, fmt.Sprintf("ConsBech32: %s", bech32Addr))
+	goutils.InPlaceAppend(&keyItems, fmt.Sprintf("ConsBech32: %s", bech32Addr))
 	return keyItems, remaining, nil
 }
 
@@ -185,144 +186,144 @@ func StakingParser(key []byte) ([]string, error) {
 	keyItems := []string{}
 	switch {
 	case bytes.HasPrefix(key, stakingtypes.LastValidatorPowerKey):
-		keyItems = append(keyItems, "LastValidatorPower")
+		goutils.InPlaceAppend(&keyItems, "LastValidatorPower")
 		remaining := bytes.TrimPrefix(key, stakingtypes.LastValidatorPowerKey)
 		items, _, err := parseLengthPrefixedOperAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 	case bytes.HasPrefix(key, stakingtypes.LastTotalPowerKey):
-		keyItems = append(keyItems, "LastTotalPower")
+		goutils.InPlaceAppend(&keyItems, "LastTotalPower")
 	case bytes.HasPrefix(key, stakingtypes.ValidatorsKey):
-		keyItems = append(keyItems, "Validators")
+		goutils.InPlaceAppend(&keyItems, "Validators")
 		remaining := bytes.TrimPrefix(key, stakingtypes.ValidatorsKey)
 		items, _, err := parseLengthPrefixedOperAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 	case bytes.HasPrefix(key, stakingtypes.ValidatorsByConsAddrKey):
-		keyItems = append(keyItems, "ValidatorsByConsAddr")
+		goutils.InPlaceAppend(&keyItems, "ValidatorsByConsAddr")
 		remaining := bytes.TrimPrefix(key, stakingtypes.ValidatorsByConsAddrKey)
 		items, _, err := parseLengthPrefixedConsAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 	case bytes.HasPrefix(key, stakingtypes.ValidatorsByPowerIndexKey):
-		keyItems = append(keyItems, "ValidatorsByPowerIndex")
+		goutils.InPlaceAppend(&keyItems, "ValidatorsByPowerIndex")
 		operAddr := stakingtypes.ParseValidatorPowerRankKey(key)
 		valAddr, err := sdk.Bech32ifyAddressBytes(params.Bech32PrefixValAddr, operAddr)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, fmt.Sprintf("ValBech32: %s", valAddr))
+		goutils.InPlaceAppend(&keyItems, fmt.Sprintf("ValBech32: %s", valAddr))
 	case bytes.HasPrefix(key, stakingtypes.DelegationKey):
-		keyItems = append(keyItems, "Delegation")
+		goutils.InPlaceAppend(&keyItems, "Delegation")
 		remaining := bytes.TrimPrefix(key, stakingtypes.DelegationKey)
 		// delegator addr
 		items, remaining, err := parseLengthPrefixedAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 		items, _, err = parseLengthPrefixedOperAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 	case bytes.HasPrefix(key, stakingtypes.UnbondingDelegationKey):
-		keyItems = append(keyItems, "UnbondingDelegation")
+		goutils.InPlaceAppend(&keyItems, "UnbondingDelegation")
 		remaining := bytes.TrimPrefix(key, stakingtypes.UnbondingDelegationKey)
 		// delegator addr
 		items, remaining, err := parseLengthPrefixedAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 		items, _, err = parseLengthPrefixedOperAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 	case bytes.HasPrefix(key, stakingtypes.UnbondingDelegationByValIndexKey):
-		keyItems = append(keyItems, "UnbondingDelegationByValIndex")
+		goutils.InPlaceAppend(&keyItems, "UnbondingDelegationByValIndex")
 		remaining := bytes.TrimPrefix(key, stakingtypes.UnbondingDelegationByValIndexKey)
 		items, remaining, err := parseLengthPrefixedOperAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 		items, _, err = parseLengthPrefixedAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 	case bytes.HasPrefix(key, stakingtypes.RedelegationKey):
-		keyItems = append(keyItems, "Redelegation")
+		goutils.InPlaceAppend(&keyItems, "Redelegation")
 		remaining := bytes.TrimPrefix(key, stakingtypes.RedelegationKey)
 		items, _, err := parseLengthPrefixedAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 	case bytes.HasPrefix(key, stakingtypes.RedelegationByValSrcIndexKey):
-		keyItems = append(keyItems, "RedelegationByValSrcIndex")
+		goutils.InPlaceAppend(&keyItems, "RedelegationByValSrcIndex")
 		remaining := bytes.TrimPrefix(key, stakingtypes.RedelegationByValSrcIndexKey)
 		items, remaining, err := parseLengthPrefixedOperAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 		items, _, err = parseLengthPrefixedAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 	case bytes.HasPrefix(key, stakingtypes.RedelegationByValDstIndexKey):
-		keyItems = append(keyItems, "RedelegationByValDstIndex")
+		goutils.InPlaceAppend(&keyItems, "RedelegationByValDstIndex")
 		remaining := bytes.TrimPrefix(key, stakingtypes.RedelegationByValDstIndexKey)
 		items, _, err := parseLengthPrefixedOperAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 		items, _, err = parseLengthPrefixedAddress(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, items...)
+		goutils.InPlaceAppend(&keyItems, items...)
 	case bytes.HasPrefix(key, stakingtypes.UnbondingQueueKey):
-		keyItems = append(keyItems, "UnbondingQueue")
+		goutils.InPlaceAppend(&keyItems, "UnbondingQueue")
 		remaining := bytes.TrimPrefix(key, stakingtypes.UnbondingQueueKey)
 		time, err := sdk.ParseTimeBytes(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, fmt.Sprintf("Timestamp: %s", time.String()))
+		goutils.InPlaceAppend(&keyItems, fmt.Sprintf("Timestamp: %s", time.String()))
 	case bytes.HasPrefix(key, stakingtypes.RedelegationQueueKey):
-		keyItems = append(keyItems, "RedelegationQueue")
+		goutils.InPlaceAppend(&keyItems, "RedelegationQueue")
 		remaining := bytes.TrimPrefix(key, stakingtypes.RedelegationQueueKey)
 		time, err := sdk.ParseTimeBytes(remaining)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, fmt.Sprintf("Timestamp: %s", time.String()))
+		goutils.InPlaceAppend(&keyItems, fmt.Sprintf("Timestamp: %s", time.String()))
 	case bytes.HasPrefix(key, stakingtypes.ValidatorQueueKey):
-		keyItems = append(keyItems, "ValidatorQueue")
+		goutils.InPlaceAppend(&keyItems, "ValidatorQueue")
 		time, height, err := stakingtypes.ParseValidatorQueueKey(key)
 		if err != nil {
 			return keyItems, err
 		}
-		keyItems = append(keyItems, fmt.Sprintf("Time: %s", time.String()))
-		keyItems = append(keyItems, fmt.Sprintf("Height: %d", height))
+		goutils.InPlaceAppend(&keyItems, fmt.Sprintf("Time: %s", time.String()))
+		goutils.InPlaceAppend(&keyItems, fmt.Sprintf("Height: %d", height))
 	case bytes.HasPrefix(key, stakingtypes.HistoricalInfoKey):
-		keyItems = append(keyItems, "HistoricalInfo")
+		goutils.InPlaceAppend(&keyItems, "HistoricalInfo")
 		remaining := bytes.TrimPrefix(key, stakingtypes.HistoricalInfoKey)
-		keyItems = append(keyItems, fmt.Sprintf("Height: %s", remaining))
+		goutils.InPlaceAppend(&keyItems, fmt.Sprintf("Height: %s", remaining))
 	default:
-		keyItems = append(keyItems, UNRECOGNIZED)
+		goutils.InPlaceAppend(&keyItems, UNRECOGNIZED)
 	}
 	return keyItems, nil
 }

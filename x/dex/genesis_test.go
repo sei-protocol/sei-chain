@@ -3,6 +3,7 @@ package dex_test
 import (
 	"testing"
 
+	"github.com/sei-protocol/goutils"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -79,7 +80,7 @@ func TestGenesis(t *testing.T) {
 		PriceList:    priceList,
 		NextOrderId:  10,
 	}
-	contractList = append(contractList, contractState)
+	goutils.InPlaceAppend(&contractList, contractState)
 
 	genesisState := types.GenesisState{
 		Params: types.DefaultParams(),

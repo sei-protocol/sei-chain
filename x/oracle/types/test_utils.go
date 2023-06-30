@@ -8,6 +8,7 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/goutils"
 
 	"github.com/tendermint/tendermint/crypto/secp256k1"
 	tmprotocrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
@@ -27,15 +28,15 @@ func GenerateRandomTestCase() (rates []float64, valValAddrs []sdk.ValAddress, st
 	numInputs := 10 + (rand.Int() % 100)
 	for i := 0; i < numInputs; i++ {
 		rate := float64(int64(rand.Float64()*base)) / base
-		rates = append(rates, rate)
+		goutils.InPlaceAppend(&rates, rate)
 
 		pubKey := secp256k1.GenPrivKey().PubKey()
 		valValAddr := sdk.ValAddress(pubKey.Address())
-		valValAddrs = append(valValAddrs, valValAddr)
+		goutils.InPlaceAppend(&valValAddrs, valValAddr)
 
 		power := rand.Int63()%1000 + 1
 		mockValidator := NewMockValidator(valValAddr, power)
-		mockValidators = append(mockValidators, mockValidator)
+		goutils.InPlaceAppend(&mockValidators, mockValidator)
 	}
 
 	stakingKeeper = NewDummyStakingKeeper(mockValidators)

@@ -10,6 +10,7 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/goutils"
 	utils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 )
 
@@ -98,7 +99,7 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 	toAddr, err := sdk.AccAddressFromBech32(msgSend.ToAddress)
 	if err != nil {
 		// let msg server handle it
-		accessOperations = append(accessOperations, sdkacltypes.AccessOperation{
+		goutils.InPlaceAppend(&accessOperations, sdkacltypes.AccessOperation{
 			ResourceType:       sdkacltypes.ResourceType_ANY,
 			AccessType:         sdkacltypes.AccessType_COMMIT,
 			IdentifierTemplate: utils.DefaultIDTemplate,
@@ -106,13 +107,13 @@ func MsgSendDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sd
 		return accessOperations, nil
 	}
 	if !keeper.AccountKeeper.HasAccount(ctx, toAddr) {
-		accessOperations = append(accessOperations, sdkacltypes.AccessOperation{
+		goutils.InPlaceAppend(&accessOperations, sdkacltypes.AccessOperation{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_AUTH_GLOBAL_ACCOUNT_NUMBER,
 			IdentifierTemplate: hex.EncodeToString(authtypes.GlobalAccountNumberKey),
 		})
 	}
-	accessOperations = append(accessOperations, sdkacltypes.AccessOperation{
+	goutils.InPlaceAppend(&accessOperations, sdkacltypes.AccessOperation{
 		ResourceType:       sdkacltypes.ResourceType_ANY,
 		AccessType:         sdkacltypes.AccessType_COMMIT,
 		IdentifierTemplate: utils.DefaultIDTemplate,

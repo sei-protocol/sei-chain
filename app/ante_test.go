@@ -18,6 +18,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/sei-protocol/goutils"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	app "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
@@ -126,7 +127,7 @@ func (suite *AnteTestSuite) CreateTestTx(privs []cryptotypes.PrivKey, accNums []
 			Sequence: accSeqs[i],
 		}
 
-		sigsV2 = append(sigsV2, sigV2)
+		goutils.InPlaceAppend(&sigsV2, sigV2)
 	}
 	err := suite.txBuilder.SetSignatures(sigsV2...)
 	if err != nil {
@@ -148,7 +149,7 @@ func (suite *AnteTestSuite) CreateTestTx(privs []cryptotypes.PrivKey, accNums []
 			return nil, err
 		}
 
-		sigsV2 = append(sigsV2, sigV2)
+		goutils.InPlaceAppend(&sigsV2, sigV2)
 	}
 	err = suite.txBuilder.SetSignatures(sigsV2...)
 	if err != nil {

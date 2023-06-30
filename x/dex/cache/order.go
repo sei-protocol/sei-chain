@@ -6,6 +6,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -45,7 +46,7 @@ func (o *BlockOrders) Get() (list []*types.Order) {
 		if err := val.Unmarshal(iterator.Value()); err != nil {
 			panic(err)
 		}
-		list = append(list, &val)
+		goutils.InPlaceAppend(&list, &val)
 	}
 
 	return
@@ -84,8 +85,8 @@ func (o *BlockOrders) getKVsToSet(failedOrdersMap map[uint64]types.UnsuccessfulO
 		if bz, err := val.Marshal(); err != nil {
 			panic(err)
 		} else {
-			keys = append(keys, iterator.Key())
-			vals = append(vals, bz)
+			goutils.InPlaceAppend(&keys, iterator.Key())
+			goutils.InPlaceAppend(&vals, bz)
 		}
 	}
 	return keys, vals
@@ -93,8 +94,8 @@ func (o *BlockOrders) getKVsToSet(failedOrdersMap map[uint64]types.UnsuccessfulO
 
 func (o *BlockOrders) GetSortedMarketOrders(direction types.PositionDirection) []*types.Order {
 	res := o.getOrdersByCriteria(types.OrderType_MARKET, direction)
-	res = append(res, o.getOrdersByCriteria(types.OrderType_FOKMARKET, direction)...)
-	res = append(res, o.getOrdersByCriteria(types.OrderType_FOKMARKETBYVALUE, direction)...)
+	goutils.InPlaceAppend(&res, o.getOrdersByCriteria(types.OrderType_FOKMARKET, direction)...)
+	goutils.InPlaceAppend(&res, o.getOrdersByCriteria(types.OrderType_FOKMARKETBYVALUE, direction)...)
 	sort.SliceStable(res, func(i, j int) bool {
 		// a price of 0 indicates that there is no worst price for the order, so it should
 		// always be ranked at the top.
@@ -136,7 +137,7 @@ func (o *BlockOrders) getOrdersByCriteria(orderType types.OrderType, direction t
 		if val.Status == types.OrderStatus_FAILED_TO_PLACE {
 			continue
 		}
-		res = append(res, &val)
+		goutils.InPlaceAppend(&res, &val)
 	}
 	return res
 }

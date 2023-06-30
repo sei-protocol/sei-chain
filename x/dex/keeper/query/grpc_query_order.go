@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -73,7 +74,7 @@ func (k KeeperWrapper) GetOrders(c context.Context, req *types.QueryGetOrdersReq
 	for _, longBook := range longBooks {
 		for _, allocation := range longBook.Entry.Allocations {
 			if allocation.Account == req.Account {
-				orders = append(orders, &types.Order{
+				goutils.InPlaceAppend(&orders, &types.Order{
 					Id:                allocation.OrderId,
 					Price:             longBook.Price,
 					Quantity:          allocation.Quantity,
@@ -92,7 +93,7 @@ func (k KeeperWrapper) GetOrders(c context.Context, req *types.QueryGetOrdersReq
 	for _, shortBook := range shortBooks {
 		for _, allocation := range shortBook.Entry.Allocations {
 			if allocation.Account == req.Account {
-				orders = append(orders, &types.Order{
+				goutils.InPlaceAppend(&orders, &types.Order{
 					Id:                allocation.OrderId,
 					Price:             shortBook.Price,
 					Quantity:          allocation.Quantity,

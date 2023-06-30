@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/query"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -23,7 +24,7 @@ func TestRegisteredPairsQuery(t *testing.T) {
 	keeper.AddRegisteredPair(ctx, keepertest.TestContract, expectedPair)
 
 	var expectedRegisteredPairs []types.Pair
-	expectedRegisteredPairs = append(expectedRegisteredPairs, expectedPair)
+	goutils.InPlaceAppend(&expectedRegisteredPairs, expectedPair)
 
 	request := types.QueryRegisteredPairsRequest{
 		ContractAddr: keepertest.TestContract,

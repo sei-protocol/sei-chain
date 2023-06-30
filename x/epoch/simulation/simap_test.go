@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	"github.com/sei-protocol/goutils"
 	epochsimulation "github.com/sei-protocol/sei-chain/x/epoch/simulation"
 
 	"github.com/stretchr/testify/require"
@@ -13,10 +14,10 @@ import (
 func TestFindAccount(t *testing.T) {
 	// Setup
 	var accs []simtypes.Account
-	accs = append(accs, simtypes.Account{
+	goutils.InPlaceAppend(&accs, simtypes.Account{
 		Address: sdk.AccAddress([]byte("sei1qzdrwc3806zfdl98608nqnsvhg8hn854xs365g")),
 	})
-	accs = append(accs, simtypes.Account{
+	goutils.InPlaceAppend(&accs, simtypes.Account{
 		Address: sdk.AccAddress([]byte("sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y")),
 	})
 

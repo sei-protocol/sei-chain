@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	"github.com/sei-protocol/goutils"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/testutil/nullify"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -14,7 +15,7 @@ func TestAssetListGet(t *testing.T) {
 	item := keepertest.CreateAssetMetadata(keeper, ctx)
 
 	var expected_asset_list []types.AssetMetadata
-	expected_asset_list = append(expected_asset_list, item)
+	goutils.InPlaceAppend(&expected_asset_list, item)
 
 	asset_list := keeper.GetAllAssetMetadata(ctx)
 

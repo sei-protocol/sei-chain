@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -72,7 +73,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 			StartDate:          v2TokenReleaseSchedule.GetDate(),
 			EndDate:            v2TokenReleaseSchedule.GetDate(),
 		}
-		v3TokenReleaseSchedule = append(v3TokenReleaseSchedule, v3Schedule)
+		goutils.InPlaceAppend(&v3TokenReleaseSchedule, v3Schedule)
 	}
 	v3Params := types.Params{
 		MintDenom:            v2MintDenom,

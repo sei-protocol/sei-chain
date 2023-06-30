@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 )
 
@@ -16,7 +17,7 @@ func removeMatched[T any](l []T, matcher func(T) bool) []T {
 	newL := []T{}
 	for _, i := range l {
 		if !matcher(i) {
-			newL = append(newL, i)
+			goutils.InPlaceAppend(&newL, i)
 		}
 	}
 	return newL

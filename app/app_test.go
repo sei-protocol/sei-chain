@@ -11,6 +11,7 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/k0kubun/pp/v3"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -29,7 +30,7 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
 		testWrapper.App.Commit(context.Background())
 		data := res.AppHash
-		commitData = append(commitData, data)
+		goutils.InPlaceAppend(&commitData, data)
 	}
 
 	referenceData := commitData[0]

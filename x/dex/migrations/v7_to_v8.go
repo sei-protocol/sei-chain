@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -54,8 +55,8 @@ func flattenSettlements(ctx sdk.Context, storeKey sdk.StoreKey) error {
 						settlementIterator.Close()
 						return err
 					}
-					newKeys = append(newKeys, types.GetSettlementKey(settlementEntry.OrderId, settlementEntry.Account, uint64(i)))
-					newVals = append(newVals, settlementBytes)
+					goutils.InPlaceAppend(&newKeys, types.GetSettlementKey(settlementEntry.OrderId, settlementEntry.Account, uint64(i)))
+					goutils.InPlaceAppend(&newVals, settlementBytes)
 				}
 
 				if len(val.Entries) > 0 {
@@ -69,7 +70,7 @@ func flattenSettlements(ctx sdk.Context, storeKey sdk.StoreKey) error {
 					binary.BigEndian.PutUint64(value, uint64(len(val.Entries)))
 					settlementIDStore.Set(key, value)
 				}
-				oldKeys = append(oldKeys, settlementIterator.Key())
+				goutils.InPlaceAppend(&oldKeys, settlementIterator.Key())
 			}
 
 			settlementIterator.Close()
@@ -87,15 +88,15 @@ func flattenSettlements(ctx sdk.Context, storeKey sdk.StoreKey) error {
 }
 
 func SettlementEntryPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
-	return append(
-		append(types.KeyPrefix("SettlementEntry-"), types.AddressKeyPrefix(contractAddr)...),
+	return goutils.ImmutableAppend(
+		goutils.ImmutableAppend(types.KeyPrefix("SettlementEntry-"), types.AddressKeyPrefix(contractAddr)...),
 		types.PairPrefix(priceDenom, assetDenom)...,
 	)
 }
 
 func NextSettlementIDPrefix(contractAddr string, priceDenom string, assetDenom string) []byte {
-	return append(
-		append(types.KeyPrefix("NextSettlementID-"), types.AddressKeyPrefix(contractAddr)...),
+	return goutils.ImmutableAppend(
+		goutils.ImmutableAppend(types.KeyPrefix("NextSettlementID-"), types.AddressKeyPrefix(contractAddr)...),
 		types.PairPrefix(priceDenom, assetDenom)...,
 	)
 }

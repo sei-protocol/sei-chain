@@ -7,6 +7,7 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	"github.com/sei-protocol/goutils"
 )
 
 // forked from wasm
@@ -60,7 +61,7 @@ func GenerateAllowedResourceAccess(resource sdkacltypes.ResourceType, access sdk
 		},
 	}
 	if access == sdkacltypes.AccessType_READ {
-		accesses = append(accesses, acltypes.ResourceAccess{
+		goutils.InPlaceAppend(&accesses, acltypes.ResourceAccess{
 			ResourceType: resource,
 			AccessType:   access,
 		})

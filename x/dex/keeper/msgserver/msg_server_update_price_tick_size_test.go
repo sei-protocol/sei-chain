@@ -9,6 +9,7 @@ import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver"
@@ -55,7 +56,7 @@ func TestUpdatePriceTickSize(t *testing.T) {
 
 	// First register pair
 	batchContractPairs := []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddr.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
@@ -67,7 +68,7 @@ func TestUpdatePriceTickSize(t *testing.T) {
 
 	// Test updated tick size
 	tickUpdates := []types.TickSize{}
-	tickUpdates = append(tickUpdates, types.TickSize{
+	goutils.InPlaceAppend(&tickUpdates, types.TickSize{
 		ContractAddr: contractAddr.String(),
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
@@ -117,7 +118,7 @@ func TestUpdatePriceTickSizeInvalidMsg(t *testing.T) {
 	require.NoError(t, err)
 	// First register pair
 	batchContractPairs := []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddr.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
@@ -129,7 +130,7 @@ func TestUpdatePriceTickSizeInvalidMsg(t *testing.T) {
 
 	// Test with empty creator address
 	tickUpdates := []types.TickSize{}
-	tickUpdates = append(tickUpdates, types.TickSize{
+	goutils.InPlaceAppend(&tickUpdates, types.TickSize{
 		ContractAddr: contractAddr.String(),
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
@@ -150,7 +151,7 @@ func TestUpdatePriceTickSizeInvalidMsg(t *testing.T) {
 
 	// Test with invalid Creator address
 	tickUpdates = []types.TickSize{}
-	tickUpdates = append(tickUpdates, types.TickSize{
+	goutils.InPlaceAppend(&tickUpdates, types.TickSize{
 		ContractAddr: contractAddr.String(),
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
@@ -163,7 +164,7 @@ func TestUpdatePriceTickSizeInvalidMsg(t *testing.T) {
 
 	// Test with empty contract address
 	tickUpdates = []types.TickSize{}
-	tickUpdates = append(tickUpdates, types.TickSize{
+	goutils.InPlaceAppend(&tickUpdates, types.TickSize{
 		ContractAddr: "",
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
@@ -176,7 +177,7 @@ func TestUpdatePriceTickSizeInvalidMsg(t *testing.T) {
 
 	// Test with nil pair
 	tickUpdates = []types.TickSize{}
-	tickUpdates = append(tickUpdates, types.TickSize{
+	goutils.InPlaceAppend(&tickUpdates, types.TickSize{
 		ContractAddr: "",
 		Pair:         nil,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),
@@ -225,7 +226,7 @@ func TestInvalidUpdatePriceTickSizeCreator(t *testing.T) {
 
 	// First register pair
 	batchContractPairs := []types.BatchContractPair{}
-	batchContractPairs = append(batchContractPairs, types.BatchContractPair{
+	goutils.InPlaceAppend(&batchContractPairs, types.BatchContractPair{
 		ContractAddr: contractAddr.String(),
 		Pairs:        []*types.Pair{&keepertest.TestPair},
 	})
@@ -237,7 +238,7 @@ func TestInvalidUpdatePriceTickSizeCreator(t *testing.T) {
 
 	// Test invalid tx creator
 	tickUpdates := []types.TickSize{}
-	tickUpdates = append(tickUpdates, types.TickSize{
+	goutils.InPlaceAppend(&tickUpdates, types.TickSize{
 		ContractAddr: contractAddr.String(),
 		Pair:         &keepertest.TestPair,
 		Ticksize:     sdk.MustNewDecFromStr("0.1"),

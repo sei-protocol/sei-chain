@@ -2,6 +2,7 @@ package exchange
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -17,7 +18,7 @@ func (o *ExecutionOutcome) Merge(other *ExecutionOutcome) ExecutionOutcome {
 	return ExecutionOutcome{
 		TotalNotional: o.TotalNotional.Add(other.TotalNotional),
 		TotalQuantity: o.TotalQuantity.Add(other.TotalQuantity),
-		Settlements:   append(o.Settlements, other.Settlements...),
+		Settlements:   goutils.ImmutableAppend(o.Settlements, other.Settlements...),
 		MinPrice:      sdk.MinDec(o.MinPrice, other.MinPrice),
 		MaxPrice:      sdk.MaxDec(o.MaxPrice, other.MaxPrice),
 	}

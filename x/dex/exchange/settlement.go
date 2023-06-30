@@ -2,6 +2,7 @@ package exchange
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	cache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
@@ -23,7 +24,7 @@ func Settle(
 	}
 	newToSettle, _ := orderbook.SettleQuantity(ctx, quantityTaken)
 	for _, toSettle := range newToSettle {
-		takerSettlements = append(takerSettlements, types.NewSettlementEntry(
+		goutils.InPlaceAppend(&takerSettlements, types.NewSettlementEntry(
 			ctx,
 			takerOrder.Id,
 			takerOrder.Account,
@@ -35,7 +36,7 @@ func Settle(
 			worstPrice,
 			takerOrder.OrderType,
 		))
-		makerSettlements = append(makerSettlements, types.NewSettlementEntry(
+		goutils.InPlaceAppend(&makerSettlements, types.NewSettlementEntry(
 			ctx,
 			toSettle.OrderID,
 			toSettle.Account,
@@ -93,7 +94,7 @@ func SettleFromBook(
 		} else {
 			quantity = shortToSettle.Amount
 		}
-		settlements = append(settlements, types.NewSettlementEntry(
+		goutils.InPlaceAppend(&settlements, types.NewSettlementEntry(
 			ctx,
 			longToSettle.OrderID,
 			longToSettle.Account,

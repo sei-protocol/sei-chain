@@ -7,6 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/testutil/network"
 	"github.com/sei-protocol/sei-chain/testutil/nullify"
 	"github.com/sei-protocol/sei-chain/x/dex/client/cli/query"
@@ -43,7 +44,7 @@ func networkWithShortBookObjects(t *testing.T, n int) (*network.Network, []types
 			},
 		}
 		nullify.Fill(&shortBook)
-		shortBookList = append(shortBookList, shortBook)
+		goutils.InPlaceAppend(&shortBookList, shortBook)
 	}
 
 	contractInfo := types.ContractInfoV2{
@@ -93,7 +94,7 @@ func TestShowShortBook(t *testing.T) {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			args := []string{"sei1ghd753shjuwexxywmgs4xz7x2q732vcnkm6h2pyv9s6ah3hylvrqladqwc", tc.price, TEST_PAIR().PriceDenom, TEST_PAIR().AssetDenom}
-			args = append(args, tc.args...)
+			goutils.InPlaceAppend(&args, tc.args...)
 			out, err := clitestutil.ExecTestCLICmd(ctx, query.CmdShowShortBook(), args)
 			if tc.err != nil {
 				stat, ok := status.FromError(tc.err)
@@ -123,13 +124,13 @@ func TestListShortBook(t *testing.T) {
 			fmt.Sprintf("--%s=json", tmcli.OutputFlag),
 		}
 		if next == nil {
-			args = append(args, fmt.Sprintf("--%s=%d", flags.FlagOffset, offset))
+			goutils.InPlaceAppend(&args, fmt.Sprintf("--%s=%d", flags.FlagOffset, offset))
 		} else {
-			args = append(args, fmt.Sprintf("--%s=%s", flags.FlagPageKey, next))
+			goutils.InPlaceAppend(&args, fmt.Sprintf("--%s=%s", flags.FlagPageKey, next))
 		}
-		args = append(args, fmt.Sprintf("--%s=%d", flags.FlagLimit, limit))
+		goutils.InPlaceAppend(&args, fmt.Sprintf("--%s=%d", flags.FlagLimit, limit))
 		if total {
-			args = append(args, fmt.Sprintf("--%s", flags.FlagCountTotal))
+			goutils.InPlaceAppend(&args, fmt.Sprintf("--%s", flags.FlagCountTotal))
 		}
 		return args
 	}

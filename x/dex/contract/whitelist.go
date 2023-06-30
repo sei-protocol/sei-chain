@@ -4,6 +4,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -51,7 +52,7 @@ func GetPerPairWhitelistMap(contractAddr string, pair types.Pair) map[string][]s
 
 func GetDexWhitelistedPrefixes(contractAddr string) []string {
 	return utils.Map(DexWhitelistedKeys, func(key string) string {
-		return string(append(
+		return string(goutils.ImmutableAppend(
 			types.KeyPrefix(key), types.AddressKeyPrefix(contractAddr)...,
 		))
 	})
@@ -59,7 +60,7 @@ func GetDexWhitelistedPrefixes(contractAddr string) []string {
 
 func GetDexMemWhitelistedPrefixes(contractAddr string) []string {
 	return utils.Map(DexMemWhitelistedKeys, func(key string) string {
-		return string(append(
+		return string(goutils.ImmutableAppend(
 			types.KeyPrefix(key), types.AddressKeyPrefix(contractAddr)...,
 		))
 	})
@@ -68,7 +69,7 @@ func GetDexMemWhitelistedPrefixes(contractAddr string) []string {
 func GetWasmWhitelistedPrefixes(contractAddr string) []string {
 	addr, _ := sdk.AccAddressFromBech32(contractAddr)
 	return utils.Map(WasmWhitelistedKeys, func(key string) string {
-		return string(append(
+		return string(goutils.ImmutableAppend(
 			[]byte(key), addr...,
 		))
 	})
@@ -76,7 +77,7 @@ func GetWasmWhitelistedPrefixes(contractAddr string) []string {
 
 func GetDexPerPairWhitelistedPrefixes(contractAddr string, pair types.Pair) []string {
 	return utils.Map(DexWhitelistedKeys, func(key string) string {
-		return string(append(append(
+		return string(goutils.ImmutableAppend(goutils.ImmutableAppend(
 			types.KeyPrefix(key), types.AddressKeyPrefix(contractAddr)...,
 		), types.PairPrefix(pair.PriceDenom, pair.AssetDenom)...))
 	})
@@ -84,7 +85,7 @@ func GetDexPerPairWhitelistedPrefixes(contractAddr string, pair types.Pair) []st
 
 func GetDexMemPerPairWhitelistedPrefixes(contractAddr string, pair types.Pair) []string {
 	return utils.Map(DexMemWhitelistedKeys, func(key string) string {
-		return string(append(append(
+		return string(goutils.ImmutableAppend(goutils.ImmutableAppend(
 			types.KeyPrefix(key), types.AddressKeyPrefix(contractAddr)...,
 		), types.PairPrefix(pair.PriceDenom, pair.AssetDenom)...))
 	})

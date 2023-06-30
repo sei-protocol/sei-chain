@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -31,7 +32,7 @@ func (k Keeper) GetPriceKeysToDelete(store sdk.KVStore, timestamp uint64) [][]by
 		priceKey := iterator.Key()
 		priceTs := binary.BigEndian.Uint64(priceKey)
 		if priceTs < timestamp {
-			keys = append(keys, priceKey)
+			goutils.InPlaceAppend(&keys, priceKey)
 		} else {
 			break
 		}
@@ -61,7 +62,7 @@ func (k Keeper) GetAllPrices(ctx sdk.Context, contractAddr string, pair types.Pa
 	for ; iterator.Valid(); iterator.Next() {
 		var val types.Price
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
-		list = append(list, &val)
+		goutils.InPlaceAppend(&list, &val)
 	}
 
 	return
@@ -78,7 +79,7 @@ func (k Keeper) GetPricesForTwap(ctx sdk.Context, contractAddr string, pair type
 		var val types.Price
 		k.Cdc.MustUnmarshal(iterator.Value(), &val)
 		// add to list before breaking since we want to include one older price if there is any
-		list = append(list, &val)
+		goutils.InPlaceAppend(&list, &val)
 		if val.SnapshotTimestampInSeconds < cutoff {
 			break
 		}
