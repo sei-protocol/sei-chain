@@ -64,6 +64,7 @@ jobs:
             name: "Chain Operation Test",
             scripts: [
               "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
+              "until [ $(docker exec sei-rpc-node seid status |jq -M -r .SyncInfo.latest_block_height) = 1 ]; do sleep 10; done",
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml"
 
