@@ -1,0 +1,58 @@
+{
+  "wasm_dependency_mapping": {
+    "contract_address": "{contract_address}",
+    "base_access_ops": [
+      {
+        "operation": {
+          "access_type": "WRITE",
+          "resource_type": "KV_WASM_CONTRACT_STORE",
+          "identifier_template": "03%s"
+        },
+        "selector_type": "CONTRACT_ADDRESS",
+        "selector": "{contract_address}"
+      },
+      {
+        "operation": {
+          "access_type": "READ",
+          "resource_type": "KV_WASM_CONTRACT_STORE",
+          "identifier_template": "03%s"
+        },
+        "selector_type": "CONTRACT_ADDRESS",
+        "selector": "{contract_address}"
+      },
+      {
+        "operation": {
+          "access_type": "READ",
+          "resource_type": "KV_WASM_CODE",
+          "identifier_template": "{contract_code_id}"
+        },
+        "selector_type": "NONE"
+      },
+      {
+        "operation": {
+          "access_type": "READ",
+          "resource_type": "KV_WASM_PINNED_CODE_INDEX",
+          "identifier_template": "{contract_code_id}"
+        },
+        "selector_type": "NONE"
+      },
+      {
+        "operation": {
+          "access_type": "READ",
+          "resource_type": "KV_WASM_CONTRACT_ADDRESS",
+          "identifier_template": "02%s"
+        },
+        "selector_type": "CONTRACT_ADDRESS",
+        "selector": "{contract_address}"
+      },
+      {
+        "operation": {
+          "access_type": "COMMIT",
+          "resource_type": "ANY",
+          "identifier_template": "*"
+        },
+        "selector_type": "NONE"
+      }
+    ]
+  }
+}
