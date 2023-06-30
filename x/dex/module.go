@@ -209,7 +209,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 15, func(ctx sdk.Context) error {
 		return migrations.V15ToV16(ctx, am.keeper)
 	})
-	_ = cfg.RegisterMigration(types.ModuleName, 15, func(ctx sdk.Context) error {
+	_ = cfg.RegisterMigration(types.ModuleName, 16, func(ctx sdk.Context) error {
 		return migrations.V16ToV17(ctx, am.keeper)
 	})
 }
