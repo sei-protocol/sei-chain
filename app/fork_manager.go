@@ -1,18 +1,27 @@
 package app
 
 import (
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/goutils"
 )
 
 type HardForkHandler interface {
+	// a unique identifying name to ensure no duplicate handlers are registered
+	GetName() string
+	// The target chain ID for which to run this handler (which chain to run on)
 	GetTargetChainID() string
+	// The target height at which the handler should be executed
 	GetTargetHeight() int64
+	// An execution function used to process a hard fork handler
 	ExecuteHandler(ctx sdk.Context) error
 }
 
 type HardForkManager struct {
-	chainID    string
-	handlerMap map[int64][]HardForkHandler
+	chainID       string
+	handlerMap    map[int64][]HardForkHandler
+	uniqueNameMap map[string]struct{}
 }
 
 // Create a new hard fork manager for a given chain ID.
@@ -20,8 +29,9 @@ type HardForkManager struct {
 // and create a map that maps between target height and handlers to run for the given heights.
 func NewHardForkManager(chainID string) *HardForkManager {
 	return &HardForkManager{
-		chainID:    chainID,
-		handlerMap: make(map[int64][]HardForkHandler),
+		chainID:       chainID,
+		handlerMap:    make(map[int64][]HardForkHandler),
+		uniqueNameMap: make(map[string]struct{}),
 	}
 }
 
@@ -32,10 +42,16 @@ func (hfm *HardForkManager) RegisterHandler(handler HardForkHandler) {
 	if handler.GetTargetChainID() != hfm.chainID {
 		return
 	}
+	handlerName := handler.GetName()
+	if _, ok := hfm.uniqueNameMap[handlerName]; ok {
+		// we already have a migration with this name - panic
+		panic(fmt.Errorf("hard fork handler with name %s already registered", handlerName))
+	}
+	// register name for uniqueness assertion
+	hfm.uniqueNameMap[handlerName] = struct{}{}
 	targetHeight := handler.GetTargetHeight()
 	if handlers, ok := hfm.handlerMap[targetHeight]; ok {
-		// TODO: refactor to use goutils InPlaceAppend once it's merged
-		handlers = append(handlers, handler)
+		goutils.InPlaceAppend[[]HardForkHandler](&handlers, handler)
 		hfm.handlerMap[targetHeight] = handlers
 	} else {
 		hfm.handlerMap[targetHeight] = []HardForkHandler{handler}
@@ -56,10 +72,21 @@ func (hfm *HardForkManager) ExecuteForTargetHeight(ctx sdk.Context) {
 		return
 	}
 	for _, handler := range handlers {
+		handlerName := handler.GetName()
+		ctx.Logger().Info(fmt.Sprintf(
+			"Executing hard fork handler %s for chain ID %s at height %d",
+			handlerName,
+			handler.GetTargetChainID(),
+			handler.GetTargetHeight(),
+		))
 		err := handler.ExecuteHandler(ctx)
 		if err != nil {
 			panic(err)
 		}
+		ctx.Logger().Info(fmt.Sprintf(
+			"Completed execution for hard fork handler %s",
+			handlerName,
+		))
 	}
 	// TODO: do we want to emit any events to the context event manager (for use in beginBlockResponse)
 }
