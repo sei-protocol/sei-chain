@@ -434,6 +434,15 @@ trust-hash = "{{ .StateSync.TrustHash }}"
 # period should suffice.
 trust-period = "{{ .StateSync.TrustPeriod }}"
 
+# Backfill sequentially fetches after state sync completes, verifies and stores light blocks in reverse order.
+# backfill-blocks means it will keep reverse fetching up to backfill-blocks number of blocks behind state sync position
+# backfill-duration means it will keep fetching up to backfill-duration old time
+# The actual backfill process will take at backfill-blocks as priority:
+# - If backfill-blocks is set, use backfill-blocks to backfill
+# - If backfill-blocks is not set to be greater than 0, use backfill-duration to backfill
+backfill-blocks = "{{ .StateSync.BackfillBlocks }}"
+backfill-duration = "{{ .StateSync.BackfillDuration }}"
+
 # Time to spend discovering snapshots before initiating a restore.
 discovery-time = "{{ .StateSync.DiscoveryTime }}"
 
