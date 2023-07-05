@@ -2,8 +2,21 @@ package provider
 
 import (
 	"context"
+	"fmt"
+	"net/url"
+	"sync"
 
+	"github.com/gorilla/websocket"
+	"github.com/rs/zerolog"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
+	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
+)
+
+const (
+	cryptoRestHost = "https://api.crypto.com"
+	cryptoRestPath = "/exchange/v1"
+	cryptoWsHost   = "wss://stream.crypto.com"
+	cryptoWsPath   = "/exchange/v1/market"
 )
 
 var _ Provider = (*Provider)(nil)
@@ -14,8 +27,16 @@ type (
 	//
 	// REF: https://exchange-docs.crypto.com/spot/index.html
 	CryptoProvider struct {
-		ctx       context.Context
-		endpoints config.ProviderEndpoint
+		ctx      context.Context
+		logger   zerolog.Logger
+		endpoint config.ProviderEndpoint
+		wsURL    url.URL
+		wsClient *websocket.Conn
+
+		mtx             sync.RWMutex
+		tickers         map[string]CryptoTicker
+		candles         map[string][]CryptoCandle
+		subscribedPairs map[string]types.CurrencyPair // Symbol => types.CurrencyPair
 	}
 
 	CryptoTickersResponse struct {
@@ -33,4 +54,92 @@ type (
 		Volume string `json:"v"` // Total traded base asset volume ex.: 1000
 		Time   int64  `json:"t"` // Timestamp ex.: 1675246930699
 	}
+
+	CryptoCandleResponse struct {
+		Code   int64                    `json:"code"`
+		Result CryptoCandleResponseData `json:"result"`
+	}
+
+	CryptoCandleResponseData struct {
+		Data           []CryptoCandle `json:"data"`
+		InstrumentName string         `json:"instrument_name"`
+	}
+
+	CryptoCandle struct {
+		Open   string `json:"o"` // Open price
+		High   string `json:"h"` // High price
+		Low    string `json:"l"` // Low price
+		Close  string `json:"c"` // Close price
+		Volume string `json:"v"` // Volume
+		Start  int64  `json:"t"` // Start time
+	}
 )
+
+func NewCryptoProvider(
+	ctx context.Context,
+	logger zerolog.Logger,
+	endpoint config.ProviderEndpoint,
+	pairs ...types.CurrencyPair,
+) (*CryptoProvider, error) {
+	if endpoint.Name != config.ProviderCrypto {
+		endpoint = config.ProviderEndpoint{
+			Name:      config.ProviderCrypto,
+			Rest:      cryptoRestHost,
+			Websocket: cryptoWsHost,
+		}
+	}
+
+	wsURL := url.URL{
+		Scheme: "wss",
+		Host:   endpoint.Websocket,
+		Path:   cryptoWsPath,
+	}
+
+	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
+	defer func() {
+		if response != nil {
+			response.Body.Close()
+		}
+	}()
+	if err != nil {
+		return nil, fmt.Errorf("error connecting to crypto.com websocket: %w", err)
+	}
+
+	provider := &CryptoProvider{
+		wsURL:           wsURL,
+		wsClient:        wsConn,
+		logger:          logger.With().Str("provider", "okx").Logger(),
+		endpoint:        endpoint,
+		tickers:         map[string]CryptoTicker{},
+		candles:         map[string][]CryptoCandle{},
+		subscribedPairs: map[string]types.CurrencyPair{},
+	}
+
+	if err := provider.SubscribeCurrencyPairs(pairs...); err != nil {
+		return nil, err
+	}
+
+	go provider.handleWebSocketMsgs(ctx)
+
+	return provider, nil
+}
+
+// func (p *BinanceProvider) GetAvailablePairs() (map[string]struct{}, error) {
+// 	resp, err := http.Get(p.endpoints.Rest + binanceRestPath)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	defer resp.Body.Close()
+
+// 	var pairsSummary []BinancePairSummary
+// 	if err := json.NewDecoder(resp.Body).Decode(&pairsSummary); err != nil {
+// 		return nil, err
+// 	}
+
+// 	availablePairs := make(map[string]struct{}, len(pairsSummary))
+// 	for _, pairName := range pairsSummary {
+// 		availablePairs[strings.ToUpper(pairName.Symbol)] = struct{}{}
+// 	}
+
+// 	return availablePairs, nil
+// }
