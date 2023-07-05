@@ -25,7 +25,7 @@ type (
 	// CryptoProvider defines an oracle provider implemented by the crypto.com
 	// public API.
 	//
-	// REF: https://exchange-docs.crypto.com/spot/index.html
+	// REF: https://exchange-docs.crypto.com/exchange/v1/rest-ws/index.html
 	CryptoProvider struct {
 		ctx      context.Context
 		logger   zerolog.Logger
@@ -73,6 +73,11 @@ type (
 		Volume string `json:"v"` // Volume
 		Start  int64  `json:"t"` // Start time
 	}
+
+	CryptoSubscriptionMsg struct {
+		Method   string   `json:"method"`   // subscribe/unsubscribe
+		Channels []string `json:"channels"` // Channels to be subscribed
+	}
 )
 
 func NewCryptoProvider(
@@ -119,9 +124,68 @@ func NewCryptoProvider(
 		return nil, err
 	}
 
-	go provider.handleWebSocketMsgs(ctx)
+	// go provider.handleWebSocketMsgs(ctx)
 
 	return provider, nil
+}
+
+func (p *CryptoProvider) SubscribeCurrencyPairs(cps ...types.CurrencyPair) error {
+	if len(cps) == 0 {
+		return fmt.Errorf("currency pairs is empty")
+	}
+
+	if err := p.subscribeChannels(cps...); err != nil {
+		return err
+	}
+
+	p.setSubscribedPairs(cps...)
+	return nil
+}
+
+func (p *CryptoProvider) subscribeChannels(cps ...types.CurrencyPair) error {
+	if err := p.subscribeTickers(cps...); err != nil {
+		return err
+	}
+
+	return p.subscribeCandles(cps...)
+}
+
+func (p *CryptoProvider) subscribeTickers(cps ...types.CurrencyPair) error {
+	pairs := make([]string, len(cps))
+
+	for i, cp := range cps {
+		pairs[i] = fmt.Sprintf("ticker.%s_%s", cp.Base, cp.Quote)
+	}
+
+	return p.subscribePairs(pairs...)
+}
+
+func (p *CryptoProvider) subscribeCandles(cps ...types.CurrencyPair) error {
+	pairs := make([]string, len(cps))
+
+	for i, cp := range cps {
+		pairs[i] = fmt.Sprintf("candlestick.1m.%s_%s", cp.Base, cp.Quote)
+	}
+
+	return p.subscribePairs(pairs...)
+}
+
+func (p *CryptoProvider) subscribePairs(channels ...string) error {
+	subsMsg := CryptoSubscriptionMsg{
+		Method:   "subscribe",
+		Channels: channels,
+	}
+
+	return p.wsClient.WriteJSON(subsMsg)
+}
+
+func (p *CryptoProvider) setSubscribedPairs(cps ...types.CurrencyPair) {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+
+	for _, cp := range cps {
+		p.subscribedPairs[cp.String()] = cp
+	}
 }
 
 // func (p *BinanceProvider) GetAvailablePairs() (map[string]struct{}, error) {
