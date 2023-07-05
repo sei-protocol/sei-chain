@@ -10,7 +10,6 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
-	cosmostestutil "github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
@@ -40,6 +39,15 @@ func (t TestTx) GetMsgs() []sdk.Msg {
 }
 
 func (t TestTx) ValidateBasic() error {
+	return nil
+}
+
+type TestAppOpts struct{}
+
+func (t TestAppOpts) Get(s string) interface{} {
+	if s == "chain-id" {
+		return "sei-test"
+	}
 	return nil
 }
 
@@ -159,7 +167,7 @@ func Setup(isCheckTx bool) *App {
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		&cosmostestutil.TestAppOpts{},
+		TestAppOpts{},
 		EmptyWasmOpts,
 		EmptyACLOpts,
 	)
@@ -204,7 +212,7 @@ func SetupTestingAppWithLevelDb(isCheckTx bool) (*App, func()) {
 		nil,
 		encodingConfig,
 		wasm.EnableAllProposals,
-		&cosmostestutil.TestAppOpts{},
+		TestAppOpts{},
 		EmptyWasmOpts,
 		EmptyACLOpts,
 	)

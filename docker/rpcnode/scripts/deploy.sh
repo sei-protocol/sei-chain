@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 
-NODE_ID=${ID:-0}
+SKIP_BUILD=${SKIP_BUILD:-""}
+
 # Set up env
 export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
@@ -11,8 +12,13 @@ echo "GOBIN=$GOPATH/bin" >> /root/.bashrc
 echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH" >> /root/.bashrc
 /bin/bash -c "source /root/.bashrc"
 mkdir -p $GOBIN
+
 # Step 1 build seid
-/usr/bin/build.sh
+if [ -z "$SKIP_BUILD" ]
+then
+  /usr/bin/build.sh
+fi
+cp build/seid "$GOBIN"/
 
 # Run init to set up state sync configurations
 /usr/bin/configure_init.sh

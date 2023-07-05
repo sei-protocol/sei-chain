@@ -17,26 +17,21 @@ jobs:
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     strategy:
       # other jobs should run even if one integration test fails
-      fail-fast: false
+      fail-fast: true
       matrix:
         test: [
           {
-            name: "Dex Module",
+            name: "Dex & Wasm Module",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_dex_contract.sh mars",
               "python3 integration_test/scripts/runner.py integration_test/dex_module/place_order_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/dex_module/cancel_order_test.yaml"
-            ]
-          },
-          {
-            name: "Wasm Module",
-            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/dex_module/cancel_order_test.yaml",
               "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
               "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml",
@@ -46,43 +41,40 @@ jobs:
             ]
           },
           {
-            name: "Mint Module",
+            name: "Mint & Staking & Bank Module",
             scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
             ]
           },
           {
-            name: "Staking Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml"
-            ]
-          },
-          {
-            name: "Gov Module",
+            name: "Gov & Oracle & Authz Module",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml"
-            ]
-          },
-          {
-            name: "Oracle Module",
-            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml"
-            ]
-          },
-          {
-            name: "Authz Module",
-            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
             ]
           },
           {
-            name: "Bank Module",
+            name: "Chain Operation Test",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
+              "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
+              "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
+              "echo rpc node started",
+              "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml"
+            ]
+
+          },
+          {
+            name: "Accesscontrol Module",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/acl_module/accesscontrol_register_test.yaml",
             ]
           },
         ]
@@ -114,6 +106,9 @@ jobs:
             sleep 10
           done
           sleep 10
+
+      - name: Start rpc node
+        run: make run-rpc-node-skipbuild &
 
       - name: Verify Sei Chain is running
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
