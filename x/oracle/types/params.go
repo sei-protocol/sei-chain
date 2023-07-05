@@ -32,7 +32,7 @@ const (
 // Default parameter values
 var (
 	DefaultVoteThreshold = sdk.NewDecWithPrec(667, 3) // 66.7%
-	DefaultRewardBand    = sdk.NewDecWithPrec(2, 2)  // 2% (-1, 1)
+	DefaultRewardBand    = sdk.NewDecWithPrec(2, 2)   // 2% (-1, 1)
 	DefaultWhitelist     = DenomList{
 		{Name: utils.MicroAtomDenom},
 		// 		{Name: utils.MicroUsdcDenom},
