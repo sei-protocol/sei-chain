@@ -82,6 +82,9 @@ func V16ToV17(ctx sdk.Context, dexkeeper keeper.Keeper) error {
 			// registered pair
 			k := goutils.ImmutableAppend(types.RegisteredPairPrefix(c.ContractAddr), OldPairPrefix(p.PriceDenom, p.AssetDenom)...)
 			pair := rootStore.Get(k)
+			if pair == nil {
+				continue
+			}
 			rootStore.Delete(k)
 			rootStore.Set(
 				goutils.ImmutableAppend(types.RegisteredPairPrefix(c.ContractAddr), types.PairPrefix(p.PriceDenom, p.AssetDenom)...),
