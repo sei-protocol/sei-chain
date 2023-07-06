@@ -20,7 +20,6 @@ import (
 const (
 	cryptoWSHost             = "stream.crypto.com"
 	cryptoWSPath             = "/v2/market"
-	cryptoReconnectTime      = time.Second * 30
 	cryptoRestHost           = "https://api.crypto.com"
 	cryptoRestPath           = "/v2/public/get-ticker"
 	cryptoTickerChannel      = "ticker"
