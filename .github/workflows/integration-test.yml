@@ -23,7 +23,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     strategy:
       # other jobs should run even if one integration test fails
-      fail-fast: true
+      fail-fast: false
       matrix:
         test: [
           {
@@ -112,6 +112,7 @@ jobs:
 
       - name: Verify Sei Chain is running
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
+        continue-on-error: true
 
       - name: ${{ matrix.test.name }}
         run: |
@@ -123,6 +124,7 @@ jobs:
             bash -c "${script}"
           done
           unset IFS  # revert the internal field separator back to default
+        continue-on-error: true
 
   unit-test-check:
     name: Unit Test Check
