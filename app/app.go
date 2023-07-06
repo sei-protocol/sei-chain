@@ -900,7 +900,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
-	if upgradeInfo.Name == "TODO" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	if upgradeInfo.Name == "3.0.6" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
 			Added: []string{authzkeeper.StoreKey},
 		}
