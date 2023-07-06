@@ -124,10 +124,23 @@ jobs:
           done
           unset IFS  # revert the internal field separator back to default
 
-  integration-test-check:
-    name: Integration Test Check
+  unit-test-check:
+    name: Unit Test Check
     runs-on: ubuntu-latest
-    needs: integration-tests # This job will only run if all 'integration-tests' jobs have completed successfully
+    needs: integration-tests
     steps:
+      - name: Get workflow conclusion
+        id: workflow_conclusion
+        run: |
+          conclusion=$(curl --request GET \
+          --url https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }} \
+          --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' | jq -r '.jobs[] | select(.name=="integration-tests") | .conclusion')
+          echo "Test job conclusion: $conclusion"
+          echo "CONCLUSION=$conclusion" >> $GITHUB_ENV
       - name: Check
-        run: echo "All tests have passed!"
+        run: |
+          if [[ "${{ env.CONCLUSION }}" == "success" ]]; then
+            echo "All tests have passed!"
+          else
+            echo "Some or all tests have failed!"
+          fi
