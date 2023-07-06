@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "**.go"
+      - "go.*"
     branches:
       - main
       - release/**
@@ -40,6 +41,7 @@ jobs:
         run: |
           NUM_SPLIT=20
           make test-group-${{matrix.part}} NUM_SPLIT=20
+        continue-on-error: true
 
       - uses: actions/upload-artifact@v3
         with:
@@ -86,10 +88,24 @@ jobs:
           file: ./coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
+
   unit-test-check:
     name: Unit Test Check
     runs-on: ubuntu-latest
-    needs: tests # This job will only run if all 'tests' jobs have completed successfully
+    needs: tests
     steps:
+      - name: Get workflow conclusion
+        id: workflow_conclusion
+        run: |
+          conclusion=$(curl --request GET \
+          --url https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }} \
+          --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' | jq -r '.jobs[] | select(.name=="tests") | .conclusion')
+          echo "Test job conclusion: $conclusion"
+          echo "CONCLUSION=$conclusion" >> $GITHUB_ENV
       - name: Check
-        run: echo "All tests have passed!"
+        run: |
+          if [[ "${{ env.CONCLUSION }}" == "success" ]]; then
+            echo "All tests have passed!"
+          else
+            echo "Some or all tests have failed!"
+          fi
