@@ -135,14 +135,15 @@ func NewCryptoProvider(
 
 	provider.wsc = NewWebsocketController(
 		ctx,
-		ProviderCrypto,
+		config.ProviderCrypto,
 		wsURL,
 		provider.getSubscriptionMsgs(pairs...),
 		provider.messageReceived,
 		disabledPingDuration,
 		websocket.PingMessage,
-		cryptoLogger,
+		provider.logger,
 	)
+
 	go provider.wsc.Start()
 
 	return provider, nil
