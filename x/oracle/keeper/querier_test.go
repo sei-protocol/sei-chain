@@ -86,19 +86,26 @@ func TestQueryFeederDelegation(t *testing.T) {
 func TestQuerySlashingWindow(t *testing.T) {
 	input := CreateTestInput(t)
 	querier := NewQuerier(input.OracleKeeper)
+	votePeriod := input.OracleKeeper.VotePeriod(input.Ctx)
 
-	input.Ctx = input.Ctx.WithBlockHeight(12502)
+	blocks := int64(12502)
+	expectedWindows := uint64(blocks) / votePeriod
+
+	input.Ctx = input.Ctx.WithBlockHeight(blocks)
 	ctx := sdk.WrapSDKContext(input.Ctx)
 	res, err := querier.SlashWindow(ctx, &types.QuerySlashWindowRequest{})
 	require.NoError(t, err)
 	// Based on voting period
-	require.Equal(t, 12502, int(res.WindowProgress))
+	require.Equal(t, expectedWindows, res.WindowProgress)
 
-	input.Ctx = input.Ctx.WithBlockHeight(300501)
+	blocks = int64(300501 % input.OracleKeeper.SlashWindow(input.Ctx))
+	expectedWindows = uint64(blocks) / votePeriod
+
+	input.Ctx = input.Ctx.WithBlockHeight(blocks)
 	ctx = sdk.WrapSDKContext(input.Ctx)
 	res, err = querier.SlashWindow(ctx, &types.QuerySlashWindowRequest{})
 	require.NoError(t, err)
-	require.Equal(t, 300501, int(res.WindowProgress))
+	require.Equal(t, expectedWindows, res.WindowProgress)
 }
 
 func TestQueryVoteTargets(t *testing.T) {
