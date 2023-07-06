@@ -2,14 +2,6 @@ package cmd
 
 import (
 	"errors"
-	"fmt"
-	"io"
-	"math"
-	"math/rand"
-	"os"
-	"path/filepath"
-	"time"
-
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -43,6 +35,10 @@ import (
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
+	"io"
+	"math"
+	"os"
+	"path/filepath"
 )
 
 // Option configures root command option.
@@ -394,16 +390,7 @@ func initAppConfig() (string, interface{}) {
 	srvCfg.API.Enable = true
 
 	// Pruning configs
-	srvCfg.Pruning = "custom"
-	// With block times of 0.3 seconds, this gives us 3 days worth of blocks to store (in case of outage)
-	srvCfg.PruningKeepRecent = "864000"
-	// Randomly generate pruning interval. We want the following properties:
-	//   - random: if everyone has the same value, the block that everyone prunes will be slow
-	//   - prime: no overlap
-	primes := getPrimeNums(2500, 4000)
-	rand.Seed(time.Now().Unix())
-	pruningInterval := primes[rand.Intn(len(primes))]
-	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
+	srvCfg.Pruning = "default"
 
 	// Metrics
 	srvCfg.Telemetry.Enabled = true
