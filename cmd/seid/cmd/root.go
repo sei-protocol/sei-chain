@@ -2,6 +2,14 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"math"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"time"
+
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -35,10 +43,6 @@ import (
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
-	"io"
-	"math"
-	"os"
-	"path/filepath"
 )
 
 // Option configures root command option.
@@ -391,6 +395,13 @@ func initAppConfig() (string, interface{}) {
 
 	// Pruning configs
 	srvCfg.Pruning = "default"
+	// Randomly generate pruning interval. Note this only takes affect if using custom pruning. We want the following properties:
+	//   - random: if everyone has the same value, the block that everyone prunes will be slow
+	//   - prime: no overlap
+	primes := getPrimeNums(2500, 4000)
+	rand.Seed(time.Now().Unix())
+	pruningInterval := primes[rand.Intn(len(primes))]
+	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
 
 	// Metrics
 	srvCfg.Telemetry.Enabled = true
