@@ -1,0 +1,41 @@
+name: Create and Push Docker Image
+
+on:
+  push:
+    tags:
+    - '**'
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: strangelove-ventures/heighliner-build-action@v0.0.3
+        with:
+          chain: sei
+          dockerfile: cargo
+          build-target: |
+            set -eux
+            # Build seid
+            export GOOS=linux GOARCH=${TARGETARCH}
+            make install
+          binaries: |
+            - /root/go/bin/seid
+          libraries: |
+            - /root/go/pkg/mod/github.com/!cosm!wasm/wasmvm@v*/api/libwasmvm.${ARCH}.so
+          platforms: |
+            - linux/amd64
