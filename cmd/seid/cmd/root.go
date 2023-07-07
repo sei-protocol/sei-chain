@@ -261,7 +261,7 @@ func newApp(
 	// This varies from the default value of 140_000_000 because we would like to appropriately represent the
 	// compute time required as a proportion of block gas used for a wasm contract that performs a lot of compute
 	// This makes it such that the wasm VM gas converts to sdk gas at a 6.66x rate vs that of the previous multiplier
-	wasmGasRegisterConfig.GasMultiplier = 210_000_000
+	wasmGasRegisterConfig.GasMultiplier = 140_000_000
 
 	return app.New(
 		logger,
