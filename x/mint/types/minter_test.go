@@ -372,6 +372,15 @@ func TestValidateMinterBase(t *testing.T) {
 	m = types.NewMinter(
 		time.Now().Format(types.TokenReleaseDateFormat),
 		time.Now().AddDate(0, 0, 1).Format(types.TokenReleaseDateFormat),
+		"invalid denom",
+		1000,
+	)
+	err = types.ValidateMinter(m)
+	require.NotNil(t, err)
+
+	m = types.NewMinter(
+		time.Now().Format(types.TokenReleaseDateFormat),
+		time.Now().AddDate(0, 0, 1).Format(types.TokenReleaseDateFormat),
 		sdk.DefaultBondDenom,
 		1000,
 	)

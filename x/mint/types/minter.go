@@ -20,7 +20,7 @@ func NewMinter(
 	return Minter{
 		StartDate:           startDate,
 		EndDate:             endDate,
-		Denom:               sdk.DefaultBondDenom,
+		Denom:               denom,
 		TotalMintAmount:     totalMintAmount,
 		RemainingMintAmount: totalMintAmount,
 		LastMintDate:        time.Time{}.Format(TokenReleaseDateFormat),
@@ -54,6 +54,9 @@ func ValidateMinter(minter Minter) error {
 	startDate := minter.GetStartDateTime()
 	if endDate.Before(startDate) {
 		return fmt.Errorf("end date must be after start date %s < %s", endDate, startDate)
+	}
+	if err := validateMintDenom(minter.Denom); err != nil {
+		return err
 	}
 	return nil
 }
