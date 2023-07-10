@@ -48,7 +48,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            # ghcr.io/cosmoscontracts/sei:3.0.5
+            ghcr.io/cosmoscontracts/sei:3.0.5
 
 # ghcr.io/cosmoscontracts/juno:${{ env.MAJOR_VERSION }}
 # ghcr.io/cosmoscontracts/juno:${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}
