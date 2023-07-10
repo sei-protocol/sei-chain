@@ -26,33 +26,30 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      -
-        name: Parse tag
-        id: tag
-        run: |
-          # VERSION=$(echo ${{ github.ref_name }} | sed "s/v//")
-          # MAJOR_VERSION=$(echo $VERSION | cut -d '.' -f 1)
-          # MINOR_VERSION=$(echo $VERSION | cut -d '.' -f 2)
-          # PATCH_VERSION=$(echo $VERSION | cut -d '.' -f 3)
-          VERSION=3.0.5 # TODO: remove
-          MAJOR_VERSION=3
-          MINOR_VERSION=0
-          PATCH_VERSION=5
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "MAJOR_VERSION=$MAJOR_VERSION" >> $GITHUB_ENV
-          echo "MINOR_VERSION=$MINOR_VERSION" >> $GITHUB_ENV
-          echo "PATCH_VERSION=$PATCH_VERSION" >> $GITHUB_ENV
+      # -
+      #   name: Parse tag
+      #   id: tag
+      #   run: |
+      #     VERSION=$(echo ${{ github.ref_name }} | sed "s/v//")
+      #     MAJOR_VERSION=$(echo $VERSION | cut -d '.' -f 1)
+      #     MINOR_VERSION=$(echo $VERSION | cut -d '.' -f 2)
+      #     PATCH_VERSION=$(echo $VERSION | cut -d '.' -f 3)
+      #     echo "VERSION=$VERSION" >> $GITHUB_ENV
+      #     echo "MAJOR_VERSION=$MAJOR_VERSION" >> $GITHUB_ENV
+      #     echo "MINOR_VERSION=$MINOR_VERSION" >> $GITHUB_ENV
+      #     echo "PATCH_VERSION=$PATCH_VERSION" >> $GITHUB_ENV
       -
         name: Build and push
         id: build_push_image
         uses: docker/build-push-action@v4
         with:
-          file: Dockerfile
+          file: docker/rpcnode/Dockerfile
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}
-            ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}
-            ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}.${{ env.PATCH_VERSION }}
-            ghcr.io/sei-protocol/sei:v${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}.${{ env.PATCH_VERSION }}
+            # ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}
+            # ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}
+            # ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}.${{ env.PATCH_VERSION }}
+            # ghcr.io/sei-protocol/sei:v${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}.${{ env.PATCH_VERSION }}
+            ghcr.io/sei-protocol/sei:3.0.5
