@@ -32,7 +32,7 @@ jobs:
           dockerfile: cosmos
           build-target: |
             make install
-          binaries:
-            /go/bin/seid
-          build-env:
-            BUILD_TAGS=muslc
+          binaries: |
+            - /go/bin/seid
+          build-env: |
+            - BUILD_TAGS=muslc
