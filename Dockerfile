@@ -1,5 +1,5 @@
-# docker build . -t cosmoscontracts/sei:latest
-# docker run --rm -it cosmoscontracts/sei:latest /bin/sh
+# docker build . -t sei-protocol/sei:latest
+# docker run --rm -it sei-protocol/sei:latest /bin/sh
 FROM golang:1.20-alpine AS go-builder
 
 # this comes from standard alpine nightly file
@@ -29,22 +29,18 @@ RUN set -eux; \
 COPY . /code/
 
 # force it to use static lib (from above) not standard libgo_cosmwasm.so file
-# then log output of file /code/bin/seid
+# then log output of file /code/build/seid
 # then ensure static linking
-RUN LEDGER_ENABLED=false BUILD_TAGS=muslc LINK_STATICALLY=true make build \
-  && file /code/bin/seid \
+RUN LEDGER_ENABLED=false BUILD_TAGS=muslc LINK_STATICALLY=true make build -B \
+  && file /code/build/seid \
   && echo "Ensuring binary is statically linked ..." \
-  && (file /code/bin/seid | grep "statically linked")
+  && (file /code/build/seid | grep "statically linked")
 
 # --------------------------------------------------------
 FROM alpine:3.16
 
-COPY --from=go-builder /code/bin/seid /usr/bin/seid
+COPY --from=go-builder /code/build/seid /usr/bin/seid
 
-COPY docker/* /opt/
-RUN chmod +x /opt/*.sh
-
-WORKDIR /opt
 
 # rest server, tendermint p2p, tendermint rpc
 EXPOSE 1317 26656 26657
