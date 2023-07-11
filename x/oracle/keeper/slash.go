@@ -13,21 +13,22 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 	height := ctx.BlockHeight()
 	distributionHeight := height - sdk.ValidatorUpdateDelay - 1
 
-	// slash_window / vote_period
-	votePeriodsPerWindow := uint64(
-		sdk.NewDec(int64(k.SlashWindow(ctx))).
-			QuoInt64(int64(k.VotePeriod(ctx))).
-			TruncateInt64(),
-	)
 	minValidPerWindow := k.MinValidPerWindow(ctx)
 	slashFraction := k.SlashFraction(ctx)
 	powerReduction := k.StakingKeeper.PowerReduction(ctx)
 
 	k.IterateVotePenaltyCounters(ctx, func(operator sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) bool {
-		// Calculate valid vote rate; (SlashWindow - (MissCounter + AbstainCounter))/SlashWindow
+		// Calculate valid vote rate; (totalVotes - (MissCounter + AbstainCounter))/totalVotes
+		// this accounts for changes in vote period within a window, and will take the overall success rate
+		// as opposed to the one expected based on the number of vote period expected based on the ending slash window or vote period
+		totalVotes := votePenaltyCounter.SuccessCount + votePenaltyCounter.AbstainCount + votePenaltyCounter.MissCount
+		if totalVotes == 0 {
+			ctx.Logger().Error("zero votes in penalty counter, this should never happen")
+			return false
+		}
 		validVoteRate := sdk.NewDecFromInt(
-			sdk.NewInt(int64(votePeriodsPerWindow - (votePenaltyCounter.MissCount + votePenaltyCounter.AbstainCount)))).
-			QuoInt64(int64(votePeriodsPerWindow))
+			sdk.NewInt(int64(votePenaltyCounter.SuccessCount))).
+			QuoInt64(int64(totalVotes))
 
 		// Penalize the validator whose the valid vote rate is smaller than min threshold
 		if validVoteRate.LT(minValidPerWindow) {
@@ -47,14 +48,12 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 			}
 		}
 
-		winCount := votePeriodsPerWindow - (votePenaltyCounter.MissCount + votePenaltyCounter.AbstainCount)
 		ctx.EventManager().EmitEvent(
 			sdk.NewEvent(types.EventTypeEndSlashWindow,
 				sdk.NewAttribute(types.AttributeKeyOperator, operator.String()),
 				sdk.NewAttribute(types.AttributeKeyMissCount, strconv.FormatUint(votePenaltyCounter.MissCount, 10)),
 				sdk.NewAttribute(types.AttributeKeyAbstainCount, strconv.FormatUint(votePenaltyCounter.AbstainCount, 10)),
 				sdk.NewAttribute(types.AttributeKeySuccessCount, strconv.FormatUint(votePenaltyCounter.SuccessCount, 10)),
-				sdk.NewAttribute(types.AttributeKeyWinCount, strconv.FormatUint(winCount, 10)),
 			),
 		)
 
