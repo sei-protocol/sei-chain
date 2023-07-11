@@ -145,9 +145,8 @@ jobs:
           --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' | jq -r '. | .conclusion')
           echo "Test job conclusion: $conclusion"
           echo "CONCLUSION=$conclusion" >> $GITHUB_ENV
-      - name: Check
-        run: |
-          if [[ "${{ env.CONCLUSION }}" == "success" ]]; then
+
+          if [[ "$conclusion" == "success" ]]; then
             echo "All tests have passed!"
           else
             echo "Some or all tests have failed!"
