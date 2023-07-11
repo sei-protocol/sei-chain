@@ -27,18 +27,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # -
-      #   name: Parse tag
-      #   id: tag
-      #   run: |
-      #     VERSION=$(echo ${{ github.ref_name }} | sed "s/v//")
-      #     MAJOR_VERSION=$(echo $VERSION | cut -d '.' -f 1)
-      #     MINOR_VERSION=$(echo $VERSION | cut -d '.' -f 2)
-      #     PATCH_VERSION=$(echo $VERSION | cut -d '.' -f 3)
-      #     echo "VERSION=$VERSION" >> $GITHUB_ENV
-      #     echo "MAJOR_VERSION=$MAJOR_VERSION" >> $GITHUB_ENV
-      #     echo "MINOR_VERSION=$MINOR_VERSION" >> $GITHUB_ENV
-      #     echo "PATCH_VERSION=$PATCH_VERSION" >> $GITHUB_ENV
+      -
+        name: Parse tag
+        id: tag
+        run: |
+          VERSION=$(echo ${{ github.ref_name }} | sed "s/v//")
+          MAJOR_VERSION=$(echo $VERSION | cut -d '.' -f 1)
+          MINOR_VERSION=$(echo $VERSION | cut -d '.' -f 2)
+          PATCH_VERSION=$(echo $VERSION | cut -d '.' -f 3)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "MAJOR_VERSION=$MAJOR_VERSION" >> $GITHUB_ENV
+          echo "MINOR_VERSION=$MINOR_VERSION" >> $GITHUB_ENV
+          echo "PATCH_VERSION=$PATCH_VERSION" >> $GITHUB_ENV
       -
         name: Build and push
         id: build_push_image
