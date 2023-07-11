@@ -1,5 +1,7 @@
 - name: Test funding community pool
   inputs:
+    # Start with initial community pool amount
+    - cmd: printf "12345678\n" | seid tx distribution fund-community-pool 10sei --from admin -b block --fees 2000usei --chain-id sei -y
     - cmd: seid q distribution community-pool -o json | jq -r ".pool[0].amount"
       env: COMMUNITY_FUND_POOL_START
     # Fund community pool
