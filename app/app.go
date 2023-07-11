@@ -346,6 +346,8 @@ type App struct {
 	CheckTxMemState         *dexcache.MemState
 	ProcessProposalMemState *dexcache.MemState
 	MemState                *dexcache.MemState
+
+	HardForkManager *HardForkManager
 }
 
 // New returns a reference to an initialized blockchain app
@@ -779,6 +781,11 @@ func New(
 	app.SetInitChainer(app.InitChainer)
 	app.SetBeginBlocker(app.BeginBlocker)
 
+	// register hard fork handlers with the hard fork manager
+	app.HardForkManager = NewHardForkManager(app.ChainID)
+	// register and hard fork handlers below
+	// example: app.HardForkManager.RegisterHandler(myHandler)
+
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 
@@ -893,8 +900,8 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
-	// TODO: add upgrade name for authz module
-	if false && upgradeInfo.Name == "TODO" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+
+	if upgradeInfo.Name == "3.0.6" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
 			Added: []string{authzkeeper.StoreKey},
 		}
@@ -913,6 +920,10 @@ func (app App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
 	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
+	// check if we've reached a target height, if so, execute any applicable handlers
+	if app.HardForkManager.TargetHeightReached(ctx) {
+		app.HardForkManager.ExecuteForTargetHeight(ctx)
+	}
 	return app.mm.BeginBlock(ctx, req)
 }
 

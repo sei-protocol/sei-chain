@@ -1,0 +1,26 @@
+- name: Test simulation sending funds
+  inputs:
+    # Create test account
+    - cmd: seid keys add simulation-test --keyring-backend test
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ACC
+    - cmd: seid keys show -a simulation-test --keyring-backend test
+      env: SIMULATION_TEST_ACC
+
+    # Send funds
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ACC $SIMULATION_TEST_ACC 1sei -b block --fees 2000usei --chain-id sei -y
+
+    - cmd: seid tx bank send $ADMIN_ACC $SIMULATION_TEST_ACC 1000sei --from $ADMIN_ACC  --chain-id sei -b block -y --dry-run --keyring-backend test
+      env: GAS_ESIMATE
+
+    # Validate that only the 1sei is sent
+    - cmd: seid q bank balances $SIMULATION_TEST_ACC --output json | jq -r .balances[0].amount
+      env: SIMULATION_TEST_ACC_BALANCE
+
+  verifiers:
+    # Bank balance should be 1sei
+    - type: eval
+      expr: SIMULATION_TEST_ACC_BALANCE == 1000000
+    - type: regex
+      expr: "^gas estimate.*[0-9]+"
+      result: GAS_ESIMATE

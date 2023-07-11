@@ -25,14 +25,14 @@ var (
 
 // Default parameter values
 const (
-	DefaultVotePeriod  = 1                   // Voting every block
-	DefaultSlashWindow = utils.BlocksPerWeek // window for a week
+	DefaultVotePeriod  = 2                      // Voting every other block
+	DefaultSlashWindow = utils.BlocksPerDay * 2 // 2 days for oracle slashing
 )
 
 // Default parameter values
 var (
-	DefaultVoteThreshold = sdk.NewDecWithPrec(50, 2) // 50%
-	DefaultRewardBand    = sdk.NewDecWithPrec(2, 2)  // 2% (-1, 1)
+	DefaultVoteThreshold = sdk.NewDecWithPrec(667, 3) // 66.7%
+	DefaultRewardBand    = sdk.NewDecWithPrec(2, 2)   // 2% (-1, 1)
 	DefaultWhitelist     = DenomList{
 		{Name: utils.MicroAtomDenom},
 		// 		{Name: utils.MicroUsdcDenom},

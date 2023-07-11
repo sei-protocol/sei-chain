@@ -243,12 +243,16 @@ func newApp(
 		panic(err)
 	}
 
-	snapshotDir := filepath.Join(cast.ToString(appOpts.Get(flags.FlagHome)), "data", "snapshots")
-	snapshotDB, err := sdk.NewLevelDB("metadata", snapshotDir)
+	snapshotDirectory := cast.ToString(appOpts.Get(server.FlagStateSyncSnapshotDir))
+	if snapshotDirectory == "" {
+		snapshotDirectory = filepath.Join(cast.ToString(appOpts.Get(flags.FlagHome)), "data", "snapshots")
+	}
+
+	snapshotDB, err := sdk.NewLevelDB("metadata", snapshotDirectory)
 	if err != nil {
 		panic(err)
 	}
-	snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDir)
+	snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDirectory)
 	if err != nil {
 		panic(err)
 	}
@@ -290,6 +294,7 @@ func newApp(
 		baseapp.SetSnapshotStore(snapshotStore),
 		baseapp.SetSnapshotInterval(cast.ToUint64(appOpts.Get(server.FlagStateSyncSnapshotInterval))),
 		baseapp.SetSnapshotKeepRecent(cast.ToUint32(appOpts.Get(server.FlagStateSyncSnapshotKeepRecent))),
+		baseapp.SetSnapshotDirectory(cast.ToString(appOpts.Get(server.FlagStateSyncSnapshotDir))),
 		baseapp.SetOrphanConfig(&iavl.Options{
 			SeparateOrphanStorage:       cast.ToBool(appOpts.Get(server.FlagSeparateOrphanStorage)),
 			SeparateOphanVersionsToKeep: cast.ToInt64(appOpts.Get(server.FlagSeparateOrphanVersionsToKeep)),
@@ -389,10 +394,8 @@ func initAppConfig() (string, interface{}) {
 	srvCfg.API.Enable = true
 
 	// Pruning configs
-	srvCfg.Pruning = "custom"
-	// With block times of 0.3 seconds, this gives us 3 days worth of blocks to store (in case of outage)
-	srvCfg.PruningKeepRecent = "864000"
-	// Randomly generate pruning interval. We want the following properties:
+	srvCfg.Pruning = "default"
+	// Randomly generate pruning interval. Note this only takes affect if using custom pruning. We want the following properties:
 	//   - random: if everyone has the same value, the block that everyone prunes will be slow
 	//   - prime: no overlap
 	primes := getPrimeNums(2500, 4000)

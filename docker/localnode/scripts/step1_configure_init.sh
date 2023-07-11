@@ -24,9 +24,12 @@ seid init "$MONIKER" --chain-id sei >/dev/null 2>&1
 
 # Copy configs
 ORACLE_CONFIG_FILE="build/generated/node_$NODE_ID/price_feeder_config.toml"
-cp docker/localnode/config/app.toml ~/.sei/config/app.toml
-cp docker/localnode/config/config.toml ~/.sei/config/config.toml
+APP_CONFIG_FILE="build/generated/node_$NODE_ID/app.toml"
+TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
+cp docker/localnode/config/app.toml "$APP_CONFIG_FILE"
+cp docker/localnode/config/config.toml "$TENDERMINT_CONFIG_FILE"
 cp docker/localnode/config/price_feeder_config.toml "$ORACLE_CONFIG_FILE"
+
 
 # Set up persistent peers
 SEI_NODE_ID=$(seid tendermint show-node-id)
