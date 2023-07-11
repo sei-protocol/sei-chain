@@ -4,8 +4,6 @@ on:
   push:
     tags:
     - 'v[0-9]+.[0-9]+.[0-9]+' # ignore rc
-  pull_request: # TODO: remove
-    branches: [ "main" ]
 
 jobs:
   sei-images:
@@ -51,9 +49,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/sei-protocol/sei:3.0.5
-
-# ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}
-# ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}
-# ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}.${{ env.PATCH_VERSION }}
-# ghcr.io/sei-protocol/sei:v${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}.${{ env.PATCH_VERSION }}
+            ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}
+            ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}
+            ghcr.io/sei-protocol/sei:${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}.${{ env.PATCH_VERSION }}
+            ghcr.io/sei-protocol/sei:v${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}.${{ env.PATCH_VERSION }}
