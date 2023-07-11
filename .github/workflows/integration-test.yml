@@ -23,7 +23,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     strategy:
       # other jobs should run even if one integration test fails
-      fail-fast: true
+      fail-fast: false
       matrix:
         test: [
           {
