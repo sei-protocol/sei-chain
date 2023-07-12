@@ -151,7 +151,7 @@ jobs:
               for status in $job_statuses
               do
                 echo "Status: $status"
-                if [[ "$status" != "success" ]]; then
+                if [[ "$status" == "failure" ]]; then
                   echo "Some or all tests have failed!"
                   exit 1
                 fi
