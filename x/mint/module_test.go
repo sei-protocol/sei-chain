@@ -43,13 +43,13 @@ func TestNewProposalHandler(t *testing.T) {
 	newMinter := types.NewMinter(
 		"2023-10-05",
 		"2023-11-22",
-		"test",
+		"usei",
 		12345,
 	)
 	updateMinterProposal := &types.UpdateMinterProposal{
-		Title: "Test Title",
+		Title:       "Test Title",
 		Description: "Test Description",
-		Minter: &newMinter,
+		Minter:      &newMinter,
 	}
 	err := handler(ctx, updateMinterProposal)
 	require.NoError(t, err)
@@ -63,9 +63,9 @@ func TestNewProposalHandler(t *testing.T) {
 		12345,
 	)
 	invalidProposal := &types.UpdateMinterProposal{
-		Title: "Invalid Minter",
+		Title:       "Invalid Minter",
 		Description: "Invalid Minter",
-		Minter: &invalidMinter,
+		Minter:      &invalidMinter,
 	}
 	err = handler(ctx, invalidProposal)
 	require.Error(t, err)
