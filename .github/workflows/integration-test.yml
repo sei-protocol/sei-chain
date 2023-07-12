@@ -141,10 +141,21 @@ jobs:
     steps:
       - name: Get workflow conclusion
         id: workflow_conclusion
-        run: |
-          if [[ "${{ needs.tests.outputs.status }}" == "success" ]]; then
-            echo "All tests have passed!"
-          else
-            echo "Some or all tests have failed!"
-            exit 1
-          fi
+        uses: nick-fields/retry@v2
+        with:
+          max_attempts: 3
+          retry_on: error
+          timeout_seconds: 60
+          command: |
+              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+
+              for status in $job_statuses
+              do
+                if [[ "$status" != "success" ]]; then
+                  echo "Some or all tests have failed!"
+                  exit 1
+                fi
+              done
+
+              echo "All tests have passed!"
