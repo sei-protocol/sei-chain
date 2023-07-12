@@ -149,7 +149,7 @@ func TestGaslessDecorator(t *testing.T) {
 	// gasless tx (checkTx w/ gas limit) -> wrapped should still be run
 	output = ""
 	outputDeps = ""
-	resCtx, err := chainedHandler(ctx.WithIsCheckTx(true), FakeTx{
+	_, err = chainedHandler(ctx.WithIsCheckTx(true), FakeTx{
 		FakeMsgs: []sdk.Msg{&types.MsgPlaceOrders{}},
 		Gas:      100,
 	}, false)
@@ -158,12 +158,11 @@ func TestGaslessDecorator(t *testing.T) {
 	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
 	require.NoError(t, err)
 	require.Equal(t, "onetwothree", outputDeps)
-	require.NotEqual(t, resCtx.GasMeter().Limit(), 0) // make sure gas meter is limited
 
 	// gasless tx (checkTx w/o gas limit) -> wrapped should not be run
 	output = ""
 	outputDeps = ""
-	resCtx, err = chainedHandler(ctx.WithIsCheckTx(true), FakeTx{
+	_, err = chainedHandler(ctx.WithIsCheckTx(true), FakeTx{
 		FakeMsgs: []sdk.Msg{&types.MsgPlaceOrders{}},
 	}, false)
 	require.NoError(t, err)
@@ -171,7 +170,6 @@ func TestGaslessDecorator(t *testing.T) {
 	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
 	require.NoError(t, err)
 	require.Equal(t, "onetwothree", outputDeps)
-	require.NotEqual(t, resCtx.GasMeter().Limit(), 0) // make sure gas meter is limited
 }
 
 func TestOracleVoteGasless(t *testing.T) {

@@ -48,7 +48,9 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 		// Otherwise (i.e. in the case of checkTx), we only want to perform fee checks and fee deduction if the tx is not considered
 		// gasless, or if it specifies a non-zero gas limit even if it is considered gasless, so that the wrapped deduct fee
 		// handler will assign an appropriate priority to it.
-		ctx = ctx.WithGasMeter(originalGasMeter)
+		if !isGasless {
+			ctx = ctx.WithGasMeter(originalGasMeter)
+		}
 		return gd.handleWrapped(ctx, tx, simulate, next)
 	}
 
