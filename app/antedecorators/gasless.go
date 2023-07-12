@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -25,7 +26,7 @@ func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekee
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	originalGasMeter := ctx.GasMeter()
 	// eagerly set infinite gas meter so that queries performed by isTxGasless will not incur gas cost
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 
 	feeTx, ok := tx.(sdk.FeeTx)
 	if !ok {
@@ -48,7 +49,9 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 		// Otherwise (i.e. in the case of checkTx), we only want to perform fee checks and fee deduction if the tx is not considered
 		// gasless, or if it specifies a non-zero gas limit even if it is considered gasless, so that the wrapped deduct fee
 		// handler will assign an appropriate priority to it.
-		ctx = ctx.WithGasMeter(originalGasMeter)
+		if !isGasless {
+			ctx = ctx.WithGasMeter(originalGasMeter)
+		}
 		return gd.handleWrapped(ctx, tx, simulate, next)
 	}
 
