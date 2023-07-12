@@ -139,10 +139,15 @@ jobs:
     steps:
       - name: Get workflow conclusion
         id: workflow_conclusion
+        timeout-minutes: 1
         run: |
-          conclusion=$(curl --request GET --url https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }} | jq -r '. | .conclusion')
-          echo "Test job conclusion: $conclusion"
+          conclusion=""
 
+          while [[ $conclusion == "null" ]]; do
+            sleep 5  # Wait for 5 seconds
+            conclusion=$(curl --request GET --url https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }} | jq -r '. | .conclusion')
+          done
+          echo "Test job conclusion: $conclusion"
           if [[ "$conclusion" == "success" ]]; then
             echo "All tests have passed!"
           else
