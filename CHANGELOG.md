@@ -28,7 +28,6 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 ### 3.0.6
-### 3.0.6
 sei-chain:
 *[#944] (https://github.com/sei-protocol/sei-chain/pull/944) Add new configuration for snapshot directory
 *[#940] (https://github.com/sei-protocol/sei-chain/pull/940) Use ImmutableAppend for v16 to v17 dex migration
