@@ -43,7 +43,25 @@ func (h HardForkUpgradeHandler) GetTargetHeight() int64 {
 
 func (h HardForkUpgradeHandler) ExecuteHandler(ctx sdk.Context) error {
 	govKeeper := wasmkeeper.NewGovPermissionKeeper(h.WasmKeeper)
-	_, err := govKeeper.Migrate(ctx, nil, nil, nil, nil)
+	return h.migrateGringotts(ctx, govKeeper)
+}
+
+func (h HardForkUpgradeHandler) migrateGringotts(ctx sdk.Context, govKeeper *wasmkeeper.PermissionedKeeper) error {
+	var (
+		contractAddr sdk.AccAddress
+		newCodeID    uint64
+		msg          []byte
+	)
+
+	switch h.TargetChainID {
+	case upgrades.ChainIDSeiHardForkTest:
+		// TODO: ...
+
+	default:
+		return fmt.Errorf("unknown chain ID: %s", h.TargetChainID)
+	}
+
+	_, err := govKeeper.Migrate(ctx, contractAddr, sdk.AccAddress{}, newCodeID, msg)
 	if err != nil {
 		return fmt.Errorf("failed to execute wasm migration: %w", err)
 	}

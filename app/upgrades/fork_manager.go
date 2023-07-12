@@ -7,6 +7,11 @@ import (
 	"github.com/sei-protocol/goutils"
 )
 
+// Chain-ID constants for use in hard fork handlers.
+const (
+	ChainIDSeiHardForkTest = "sei-hard-fork-test"
+)
+
 type HardForkHandler interface {
 	// a unique identifying name to ensure no duplicate handlers are registered
 	GetName() string

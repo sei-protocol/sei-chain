@@ -859,7 +859,7 @@ func New(
 	//
 	// example: app.HardForkManager.RegisterHandler(myHandler)
 	app.HardForkManager = upgrades.NewHardForkManager(app.ChainID)
-	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, app.ChainID, app.WasmKeeper))
+	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, upgrades.ChainIDSeiHardForkTest, app.WasmKeeper))
 
 	return app
 }
