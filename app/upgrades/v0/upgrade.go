@@ -61,6 +61,8 @@ func (h HardForkUpgradeHandler) migrateGringotts(ctx sdk.Context, govKeeper *was
 		return fmt.Errorf("unknown chain ID: %s", h.TargetChainID)
 	}
 
+	// Note: Since we're using a GovPermissionKeeper, the caller is not used/required,
+	// since the authz policy will automatically allow the migration.
 	_, err := govKeeper.Migrate(ctx, contractAddr, sdk.AccAddress{}, newCodeID, msg)
 	if err != nil {
 		return fmt.Errorf("failed to execute wasm migration: %w", err)
