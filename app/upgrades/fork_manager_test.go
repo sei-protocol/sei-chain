@@ -1,4 +1,4 @@
-package app_test
+package upgrades_test
 
 import (
 	"fmt"
@@ -6,8 +6,8 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	app "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
+	"github.com/sei-protocol/sei-chain/app/upgrades"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -55,7 +55,7 @@ func (th TestHandler) ExecuteHandler(ctx sdk.Context) error {
 	return nil
 }
 
-var _ app.HardForkHandler = TestHandler{}
+var _ upgrades.HardForkHandler = TestHandler{}
 
 func TestForkSuite(t *testing.T) {
 	suite.Run(t, new(ForkTestSuite))
