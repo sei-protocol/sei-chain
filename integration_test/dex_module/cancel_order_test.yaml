@@ -22,4 +22,4 @@
       env: NUMORDER
   verifiers:
     - type: eval
-      expr: NUMORDER == 4 # placed from the place_order test
+      expr: NUMORDER == 5 # placed from the place_order test
