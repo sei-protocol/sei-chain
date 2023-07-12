@@ -9,7 +9,7 @@
     # Verify that placing a dex order with gas > max block gas is okay since gas will be ignored
     - cmd: printf "12345678\n" | seid tx dex place-orders $CONTRACT_ADDR $PARAMS --amount=1000000000usei -y --from=admin --chain-id=sei --fees=1000000usei --gas=500000000 --broadcast-mode=block --output json|jq -M -r ".logs[].events[].attributes[] | select(.key == \"order_id\").value"
     # Place an order and set ORDER_ID
-    - cmd: printf "12345678\n" | seid tx dex place-orders $CONTRACT_ADDR $PARAMS --amount=1000000000usei -y --from=admin --chain-id=sei --fees=1000000usei --gas=50000000 --broadcast-mode=block --output json|jq -M -r ".logs[].events[].attributes[] | select(.key == \"order_id\").value"
+    - cmd: printf "12345678\n" | seid tx dex place-orders $CONTRACT_ADDR $PARAMS --amount=1000000000usei -y --from=admin --chain-id=sei --fees=1000000usei --gas=5000000 --broadcast-mode=block --output json|jq -M -r ".logs[].events[].attributes[] | select(.key == \"order_id\").value"
       env: ORDER_ID
     # Query the order by id
     - cmd: seid q dex get-orders-by-id $CONTRACT_ADDR SEI ATOM $ORDER_ID --output json |jq .order.status
