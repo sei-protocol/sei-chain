@@ -43,6 +43,8 @@ func (h HardForkUpgradeHandler) GetTargetHeight() int64 {
 
 func (h HardForkUpgradeHandler) ExecuteHandler(ctx sdk.Context) error {
 	govKeeper := wasmkeeper.NewGovPermissionKeeper(h.WasmKeeper)
+	// If other contract need to be migrated, create functions for them and pass
+	// the govKeeper to them.
 	return h.migrateGringotts(ctx, govKeeper)
 }
 
