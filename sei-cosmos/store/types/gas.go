@@ -272,6 +272,31 @@ func (g *infiniteGasMeter) String() string {
 	return fmt.Sprintf("InfiniteGasMeter:\n  consumed: %d", g.consumed)
 }
 
+type noConsumptionInfiniteGasMeter struct {
+	infiniteGasMeter
+}
+
+func NewNoConsumptionInfiniteGasMeter() GasMeter {
+	return &noConsumptionInfiniteGasMeter{
+		infiniteGasMeter: infiniteGasMeter{
+			consumed: 0,
+			lock:     &sync.Mutex{},
+		},
+	}
+}
+
+func (g *noConsumptionInfiniteGasMeter) GasConsumed() Gas {
+	return 0
+}
+
+func (g *noConsumptionInfiniteGasMeter) GasConsumedToLimit() Gas {
+	return 0
+}
+
+func (g *noConsumptionInfiniteGasMeter) ConsumeGas(amount Gas, descriptor string) {}
+
+func (g *noConsumptionInfiniteGasMeter) RefundGas(amount Gas, descriptor string) {}
+
 // GasConfig defines gas cost for each operation on KVStores
 type GasConfig struct {
 	HasCost          Gas
