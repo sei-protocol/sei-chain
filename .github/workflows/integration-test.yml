@@ -18,6 +18,8 @@ jobs:
     name: Integration Test (${{ matrix.test.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      status: ${{ job.status }}
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -139,19 +141,8 @@ jobs:
     steps:
       - name: Get workflow conclusion
         id: workflow_conclusion
-        timeout-minutes: 5
         run: |
-          conclusion="null"
-
-          while [[ $conclusion == "null" ]]; do
-            sleep 5  # Wait for 5 seconds
-            curl --request GET --url https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            conclusion=$(curl --request GET --url https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }} | jq -r '. | .conclusion')
-            echo "Test job conclusion: $conclusion"
-          done
-
-          echo "Test job conclusion: $conclusion"
-          if [[ "$conclusion" == "success" ]]; then
+          if [[ "${{ needs.tests.outputs.status }}" == "success" ]]; then
             echo "All tests have passed!"
           else
             echo "Some or all tests have failed!"

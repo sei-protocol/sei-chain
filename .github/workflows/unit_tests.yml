@@ -15,6 +15,8 @@ jobs:
       fail-fast: false
       matrix:
         part: ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"]
+    outputs:
+      status: ${{ job.status }}
     steps:
       - uses: actions/setup-go@v3
         with:
@@ -94,18 +96,8 @@ jobs:
     steps:
       - name: Get workflow conclusion
         id: workflow_conclusion
-        timeout-minutes: 5
         run: |
-          conclusion="null"
-
-          while [[ $conclusion == "null" ]]; do
-            sleep 5  # Wait for 5 seconds
-            curl --request GET --url https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            conclusion=$(curl --request GET --url https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }} | jq -r '. | .conclusion')
-          done
-
-          echo "Test job conclusion: $conclusion"
-          if [[ "$conclusion" == "success" ]]; then
+          if [[ "${{ needs.tests.outputs.status }}" == "success" ]]; then
             echo "All tests have passed!"
           else
             echo "Some or all tests have failed!"
