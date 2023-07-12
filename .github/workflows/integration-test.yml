@@ -141,7 +141,7 @@ jobs:
         id: workflow_conclusion
         timeout-minutes: 1
         run: |
-          conclusion=""
+          conclusion="null"
 
           while [[ $conclusion == "null" ]]; do
             sleep 5  # Wait for 5 seconds
