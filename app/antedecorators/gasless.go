@@ -28,19 +28,15 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	// eagerly set infinite gas meter so that queries performed by isTxGasless will not incur gas cost
 	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 
-	feeTx, ok := tx.(sdk.FeeTx)
-	if !ok {
-		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
-	}
-	gas := feeTx.GetGas()
-	// If non-zero gas limit is provided by the TX, we then consider it exempt from the gasless TX, and then prioritize it accordingly
 	isGasless, err := isTxGasless(tx, ctx, gd.oracleKeeper)
 	if err != nil {
 		return ctx, err
 	}
+	if !isGasless {
+		ctx = ctx.WithGasMeter(originalGasMeter)
+	}
 	isDeliverTx := !ctx.IsCheckTx() && !ctx.IsReCheckTx() && !simulate
-	shouldCheckTxSkipFeeDeduct := gas == 0 && isGasless // whether the tx should be subject to min fee check AND priority assignment. Applicable to CheckTx only.
-	if isDeliverTx || !shouldCheckTxSkipFeeDeduct {
+	if isDeliverTx || !isGasless {
 		// In the case of deliverTx, we want to deduct fees regardless of whether the tx is considered gasless or not, since
 		// gasless txs will be subject to application-specific fee requirements in later stage of ante, for which the payment
 		// of those app-specific fees happens here. Note that the minimum fee check in the wrapped deduct fee handler is only
@@ -49,13 +45,9 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 		// Otherwise (i.e. in the case of checkTx), we only want to perform fee checks and fee deduction if the tx is not considered
 		// gasless, or if it specifies a non-zero gas limit even if it is considered gasless, so that the wrapped deduct fee
 		// handler will assign an appropriate priority to it.
-		if !isGasless {
-			ctx = ctx.WithGasMeter(originalGasMeter)
-		}
 		return gd.handleWrapped(ctx, tx, simulate, next)
 	}
 
-	// must be gasless if this part is reached, so no need to overwrite gas meter back
 	return next(ctx, tx, simulate)
 }
 
