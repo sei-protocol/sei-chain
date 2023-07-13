@@ -37,7 +37,7 @@
     - cmd: echo "LONG?1.0?10?usei?uatom?LIMIT? LONG?3.0?3000?usei?uatomatomatom?LIMIT? LONG?3.0?1000?usei?uatomatom?LIMIT?"
       env: PARAMS
     # Place 3 orders
-    - cmd: printf "12345678\n" | seid tx dex place-orders $CONTRACT_ADDR $PARAMS --amount=1000000000usei -y --from=admin --chain-id=sei --fees=1000000usei --gas=50000000 --broadcast-mode=block --output json| jq .code
+    - cmd: printf "12345678\n" | seid tx dex place-orders $CONTRACT_ADDR $PARAMS --amount=1000000000usei -y --from=admin --chain-id=sei --fees=1000000usei --gas=5000000 --broadcast-mode=block --output json| jq .code
 
     # Query all the orders
     - cmd: seid q dex get-orders $CONTRACT_ADDR $ADMIN_ADDR --output json |jq ".[] | length"
