@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"io"
 	"os"
 	"path/filepath"
@@ -1514,6 +1515,14 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		feeTx, ok := decoded.(sdk.FeeTx)
 		if !ok {
 			// such tx will not be processed and thus won't consume gas. Skipping
+			continue
+		}
+		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper)
+		if err != nil {
+			ctx.Logger().Error("error checking if tx is gasless", "error", err)
+			continue
+		}
+		if isGasless {
 			continue
 		}
 		totalGasWanted += feeTx.GetGas()

@@ -25,10 +25,10 @@ func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekee
 
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	originalGasMeter := ctx.GasMeter()
-	// eagerly set infinite gas meter so that queries performed by isTxGasless will not incur gas cost
+	// eagerly set infinite gas meter so that queries performed by IsTxGasless will not incur gas cost
 	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 
-	isGasless, err := isTxGasless(tx, ctx, gd.oracleKeeper)
+	isGasless, err := IsTxGasless(tx, ctx, gd.oracleKeeper)
 	if err != nil {
 		return ctx, err
 	}
@@ -112,7 +112,7 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 	return next(append(txDeps, deps...), tx, txIndex)
 }
 
-func isTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (bool, error) {
+func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (bool, error) {
 	if len(tx.GetMsgs()) == 0 {
 		// empty TX shouldn't be gasless
 		return false, nil
