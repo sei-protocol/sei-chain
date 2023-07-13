@@ -16,6 +16,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -1515,6 +1516,15 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		if !ok {
 			// such tx will not be processed and thus won't consume gas. Skipping
 			continue
+		}
+		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper)
+		if err != nil {
+			ctx.Logger().Error("error checking if tx is gasless", "error", err)
+			continue
+		}
+		if isGasless {
+			// gasless tx's gas should not be included in total block gas wanted
+			// continue
 		}
 		totalGasWanted += feeTx.GetGas()
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
