@@ -146,20 +146,7 @@ func TestGaslessDecorator(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "onetwothree", outputDeps)
 
-	// gasless tx (checkTx w/ gas limit) -> wrapped should still be run
-	output = ""
-	outputDeps = ""
-	_, err = chainedHandler(ctx.WithIsCheckTx(true), FakeTx{
-		FakeMsgs: []sdk.Msg{&types.MsgPlaceOrders{}},
-		Gas:      100,
-	}, false)
-	require.NoError(t, err)
-	require.Equal(t, "onetwothree", output)
-	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
-	require.NoError(t, err)
-	require.Equal(t, "onetwothree", outputDeps)
-
-	// gasless tx (checkTx w/o gas limit) -> wrapped should not be run
+	// gasless tx (checkTx) -> wrapped should not be run
 	output = ""
 	outputDeps = ""
 	_, err = chainedHandler(ctx.WithIsCheckTx(true), FakeTx{

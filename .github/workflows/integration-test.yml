@@ -23,7 +23,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     strategy:
       # other jobs should run even if one integration test fails
-      fail-fast: true
+      fail-fast: false
       matrix:
         test: [
           {
@@ -77,6 +77,13 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/acl_module/accesscontrol_register_test.yaml",
             ]
           },
+          {
+            name: "Distribution Module",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
@@ -127,7 +134,27 @@ jobs:
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
-    needs: integration-tests # This job will only run if all 'integration-tests' jobs have completed successfully
+    needs: integration-tests
+    if: always()
     steps:
-      - name: Check
-        run: echo "All tests have passed!"
+      - name: Get workflow conclusion
+        id: workflow_conclusion
+        uses: nick-fields/retry@v2
+        with:
+          max_attempts: 2
+          retry_on: error
+          timeout_seconds: 30
+          command: |
+              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+
+              for status in $job_statuses
+              do
+                echo "Status: $status"
+                if [[ "$status" == "failure" ]]; then
+                  echo "Some or all tests have failed!"
+                  exit 1
+                fi
+              done
+
+              echo "All tests have passed!"
