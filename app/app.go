@@ -1524,7 +1524,7 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		}
 		if isGasless {
 			// gasless tx's gas should not be included in total block gas wanted
-			// continue
+			continue
 		}
 		totalGasWanted += feeTx.GetGas()
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
