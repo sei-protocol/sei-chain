@@ -57,7 +57,7 @@ func (h HardForkUpgradeHandler) migrateGringotts(ctx sdk.Context, govKeeper *was
 
 	switch h.TargetChainID {
 	case upgrades.ChainIDSeiHardForkTest:
-		// TODO: ...
+		// TODO: Fill in the appropriate fields (contractAddr, newCodeID, and msg) here!
 
 	default:
 		return fmt.Errorf("unknown chain ID: %s", h.TargetChainID)
