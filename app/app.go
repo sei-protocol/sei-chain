@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
