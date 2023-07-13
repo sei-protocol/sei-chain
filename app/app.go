@@ -19,6 +19,8 @@ import (
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/upgrades"
+	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 
@@ -349,7 +351,7 @@ type App struct {
 	ProcessProposalMemState *dexcache.MemState
 	MemState                *dexcache.MemState
 
-	HardForkManager *HardForkManager
+	HardForkManager *upgrades.HardForkManager
 }
 
 // New returns a reference to an initialized blockchain app
@@ -783,11 +785,6 @@ func New(
 	app.SetInitChainer(app.InitChainer)
 	app.SetBeginBlocker(app.BeginBlocker)
 
-	// register hard fork handlers with the hard fork manager
-	app.HardForkManager = NewHardForkManager(app.ChainID)
-	// register and hard fork handlers below
-	// example: app.HardForkManager.RegisterHandler(myHandler)
-
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 
@@ -858,7 +855,14 @@ func New(
 	app.ScopedIBCKeeper = scopedIBCKeeper
 	app.ScopedTransferKeeper = scopedTransferKeeper
 	app.ScopedWasmKeeper = scopedWasmKeeper
-	// this line is used by starport scaffolding # stargate/app/beforeInitReturn
+
+	// Create hard fork manager and register all hard fork upgrade handlers. Note,
+	// when creating the manager, BaseApp must already be instantiated.
+	//
+	// example: app.HardForkManager.RegisterHandler(myHandler)
+	app.HardForkManager = upgrades.NewHardForkManager(app.ChainID)
+	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, upgrades.ChainIDSeiHardForkTest, app.WasmKeeper))
+
 	return app
 }
 
