@@ -86,3 +86,31 @@ jobs:
           file: ./coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
+
+  unit-test-check:
+    name: Unit Test Check
+    runs-on: ubuntu-latest
+    needs: tests
+    if: always()
+    steps:
+      - name: Get workflow conclusion
+        id: workflow_conclusion
+        uses: nick-fields/retry@v2
+        with:
+          max_attempts: 2
+          retry_on: error
+          timeout_seconds: 30
+          command: |
+              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+
+              for status in $job_statuses
+              do
+                echo "Status: $status"
+                if [[ "$status" == "failure" ]]; then
+                  echo "Some or all tests have failed!"
+                  exit 1
+                fi
+              done
+
+              echo "All tests have passed!"
