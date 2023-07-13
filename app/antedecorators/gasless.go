@@ -32,11 +32,14 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	if err != nil {
 		return ctx, err
 	}
-	feeTx, ok := tx.(sdk.FeeTx)
-	if !ok {
-		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
-	}
-	if !isGasless || feeTx.GetGas() > 0 {
+	//feeTx, ok := tx.(sdk.FeeTx)
+	//if !ok {
+	//	return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+	//}
+	//if !isGasless || feeTx.GetGas() > 0 {
+	//	ctx = ctx.WithGasMeter(originalGasMeter)
+	//}
+	if !isGasless {
 		ctx = ctx.WithGasMeter(originalGasMeter)
 	}
 	isDeliverTx := !ctx.IsCheckTx() && !ctx.IsReCheckTx() && !simulate
