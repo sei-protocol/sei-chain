@@ -1018,7 +1018,8 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
 		// TODO should we handle context cancels here?
 	}
 }
-func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompletion bool, height int64, span otrace.Span) {
+func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompletion bool, height int64, span otrace.Span, onPropose bool) {
+	cs.metrics.ProposalBlockCreatedOnPropose.With("success", strconv.FormatBool(onPropose)).Add(1)
 	if fsyncUponCompletion {
 		if err := cs.wal.FlushAndSync(); err != nil { // fsync
 			cs.logger.Error("Error flushing wal after receiving all block parts", "error", err)
@@ -1058,7 +1059,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 				if !isProposer && cs.roundState.ProposalBlock() == nil {
 					created := cs.tryCreateProposalBlock(spanCtx, msg.Proposal.Height, msg.Proposal.Round, msg.Proposal.Header, msg.Proposal.LastCommit, msg.Proposal.Evidence, msg.Proposal.ProposerAddress)
 					if created {
-						cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Proposal.Height, span)
+						cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Proposal.Height, span, true)
 					}
 				}
 			}
@@ -1093,7 +1094,7 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 
 		cs.mtx.Lock()
 		if added && cs.roundState.ProposalBlockParts().IsComplete() {
-			cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Height, span)
+			cs.fsyncAndCompleteProposal(ctx, fsyncUponCompletion, msg.Height, span, false)
 		}
 		if added {
 			select {
@@ -2480,7 +2481,6 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context, height int64, round
 	}
 	block := cs.buildProposalBlock(height, header, lastCommit, evidence, proposerAddress, cs.roundState.Proposal().TxKeys)
 	if block == nil {
-		cs.metrics.ProposalBlockCreatedOnPropose.With("success", strconv.FormatBool(false)).Add(1)
 		return false
 	}
 	cs.roundState.SetProposalBlock(block)
@@ -2490,7 +2490,6 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context, height int64, round
 	}
 	cs.roundState.SetProposalBlockParts(partSet)
 	// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
-	cs.metrics.ProposalBlockCreatedOnPropose.With("success", strconv.FormatBool(true)).Add(1)
 	cs.metrics.MarkBlockGossipComplete()
 	return true
 }
