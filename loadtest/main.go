@@ -167,14 +167,17 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			}), // maybe make this configurable as well in the future
 		}}
 	case Bank:
-		msgs = []sdk.Msg{&banktypes.MsgSend{
-			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
-			ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
-			Amount: sdk.NewCoins(sdk.Coin{
-				Denom:  "usei",
-				Amount: sdk.NewInt(1),
-			}),
-		}}
+		msgs = []sdk.Msg{}
+		for i := 0; i < int(msgPerTx); i++ {
+			msgs = append(msgs, &banktypes.MsgSend{
+				FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+				ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
+				Amount: sdk.NewCoins(sdk.Coin{
+					Denom:  "usei",
+					Amount: sdk.NewInt(1),
+				}),
+			})
+		}
 	case DistributeRewards:
 		adminKey := c.SignerClient.GetAdminKey()
 		msgs = []sdk.Msg{&banktypes.MsgSend{
