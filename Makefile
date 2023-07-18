@@ -68,6 +68,9 @@ all: lint install
 install: go.sum
 		go install $(BUILD_FLAGS) ./cmd/seid
 
+install-with-race-detector: go.sum
+		go install -race $(BUILD_FLAGS) ./cmd/seid
+
 install-price-feeder: go.sum
 		go install $(BUILD_FLAGS) ./oracle/price-feeder
 

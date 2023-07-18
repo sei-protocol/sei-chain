@@ -1,10 +1,15 @@
-package app
+package upgrades
 
 import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/goutils"
+)
+
+// Chain-ID constants for use in hard fork handlers.
+const (
+	ChainIDSeiHardForkTest = "sei-hard-fork-test"
 )
 
 type HardForkHandler interface {
