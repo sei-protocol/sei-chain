@@ -8,7 +8,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/memiavl"
 	"github.com/sei-protocol/sei-chain/store/rootmulti"
 )
@@ -34,11 +33,6 @@ func SetupMemIAVL(logger log.Logger, homePath string, appOpts servertypes.AppOpt
 			CacheSize:          cast.ToInt(appOpts.Get(FlagCacheSize)),
 		}
 
-		if opts.ZeroCopy {
-			// it's unsafe to cache zero-copied byte slices without copying them
-			sdk.SetAddrCacheEnabled(false)
-		}
-
 		// cms must be overridden before the other options, because they may use the cms,
 		// make sure the cms aren't be overridden by the other options later on.
 		baseAppOptions = append([]func(*baseapp.BaseApp){setMemIAVL(homePath, logger, opts, sdk46Compact)}, baseAppOptions...)
@@ -53,6 +47,7 @@ func setMemIAVL(homePath string, logger log.Logger, opts memiavl.Options, sdk46C
 		opts.TriggerStateSyncExport = func(height int64) {
 			go bapp.SnapshotManager().SnapshotIfApplicable(height)
 		}
+
 		cms := rootmulti.NewStore(filepath.Join(homePath, "data", "memiavl.db"), logger, sdk46Compact)
 		cms.SetMemIAVLOptions(opts)
 		bapp.SetCMS(cms)
