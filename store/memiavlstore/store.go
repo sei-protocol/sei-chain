@@ -137,7 +137,7 @@ func (st *Store) PopChangeSet() iavl.ChangeSet {
 
 func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 	if req.Height > 0 && req.Height != st.tree.Version() {
-		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, "invalid height"), false)
+		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, "invalid height"))
 	}
 
 	res.Height = st.tree.Version()
@@ -174,7 +174,7 @@ func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 
 		res.Value = bz
 	default:
-		return sdkerrors.QueryResult(errors.Wrapf(sdkerrors.ErrUnknownRequest, "unexpected query path: %v", req.Path), false)
+		return sdkerrors.QueryResult(errors.Wrapf(sdkerrors.ErrUnknownRequest, "unexpected query path: %v", req.Path))
 	}
 
 	return res
