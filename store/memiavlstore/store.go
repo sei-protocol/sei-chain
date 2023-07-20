@@ -6,6 +6,7 @@ import (
 
 	"cosmossdk.io/errors"
 	ics23 "github.com/confio/ics23/go"
+	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/memiavl"
@@ -38,7 +39,7 @@ func New(tree *memiavl.Tree, logger log.Logger) *Store {
 	return &Store{tree: tree, logger: logger}
 }
 
-func (st *Store) Commit() types.CommitID {
+func (st *Store) Commit(_ bool) types.CommitID {
 	panic("memiavl store is not supposed to be committed alone")
 }
 
@@ -62,9 +63,17 @@ func (st *Store) GetPruning() types.PruningOptions {
 	panic("cannot get pruning options on an initialized IAVL store")
 }
 
+func (st *Store) GetWorkingHash() ([]byte, error) {
+	panic("not implemented")
+}
+
 // Implements Store.
 func (st *Store) GetStoreType() types.StoreType {
 	return types.StoreTypeIAVL
+}
+
+func (st *Store) CacheWrapWithListeners(k types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
+	return cachekv.NewStore(listenkv.NewStore(st, k, listeners), k, types.DefaultCacheSizeLimit)
 }
 
 func (st *Store) CacheWrap(k types.StoreKey) types.CacheWrap {
@@ -72,8 +81,8 @@ func (st *Store) CacheWrap(k types.StoreKey) types.CacheWrap {
 }
 
 // CacheWrapWithTrace implements the Store interface.
-func (st *Store) CacheWrapWithTrace(w io.Writer, tc types.TraceContext) types.CacheWrap {
-	return cachekv.NewStore(tracekv.NewStore(st, w, tc))
+func (st *Store) CacheWrapWithTrace(k types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
+	return cachekv.NewStore(tracekv.NewStore(st, w, tc), k, types.DefaultCacheSizeLimit)
 }
 
 // Implements types.KVStore.
