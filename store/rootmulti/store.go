@@ -129,7 +129,7 @@ func (rs *Store) SetPruning(types.PruningOptions) {
 
 // Implements interface Committer
 func (rs *Store) GetPruning() types.PruningOptions {
-	return types.NewPruningOptions(types.PruningDefault)
+	return types.PruneDefault
 }
 
 // Implements interface Store

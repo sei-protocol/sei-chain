@@ -67,8 +67,8 @@ func (st *Store) GetStoreType() types.StoreType {
 	return types.StoreTypeIAVL
 }
 
-func (st *Store) CacheWrap() types.CacheWrap {
-	return cachekv.NewStore(st)
+func (st *Store) CacheWrap(k types.StoreKey) types.CacheWrap {
+	return cachekv.NewStore(st, k, types.DefaultCacheSizeLimit)
 }
 
 // CacheWrapWithTrace implements the Store interface.
