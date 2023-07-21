@@ -35,7 +35,8 @@ quote = "USD"
 
 [[currency_pairs]]
 base = "SOL"
-chain_denom = "usol"
+# this is because we need some dummy price feed that moves for usei
+chain_denom = "usei"
 providers = [
   "huobi",
   "kraken",
