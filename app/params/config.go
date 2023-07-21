@@ -99,7 +99,7 @@ func SetTendermintConfigs(config *tmcfg.Config) {
 	config.Consensus.UnsafeProposeTimeoutDeltaOverride = 50 * time.Millisecond
 	config.Consensus.UnsafeVoteTimeoutOverride = 50 * time.Millisecond
 	config.Consensus.UnsafeVoteTimeoutDeltaOverride = 50 * time.Millisecond
-	config.Consensus.UnsafeCommitTimeoutOverride = 100 * time.Millisecond
+	config.Consensus.UnsafeCommitTimeoutOverride = 200 * time.Millisecond
 	config.Consensus.UnsafeBypassCommitTimeoutOverride = &UnsafeBypassCommitTimeoutOverride
 	// Metrics
 	config.Instrumentation.Prometheus = true
