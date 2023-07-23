@@ -41,6 +41,7 @@ type (
 		mtx              sync.Mutex
 		client           *websocket.Conn
 		reconnectCounter uint
+		dialer           *websocket.Dialer
 	}
 )
 
@@ -65,6 +66,7 @@ func NewWebsocketController(
 		pingDuration:     pingDuration,
 		pingMessageType:  pingMessageType,
 		logger:           logger,
+		dialer:           websocket.DefaultDialer,
 	}
 }
 
@@ -106,7 +108,7 @@ func (wsc *WebsocketController) connect() error {
 	defer wsc.mtx.Unlock()
 
 	wsc.logger.Debug().Msg("connecting to websocket")
-	conn, resp, err := websocket.DefaultDialer.Dial(wsc.websocketURL.String(), nil)
+	conn, resp, err := wsc.dialer.Dial(wsc.websocketURL.String(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to dial WS for %s: %w", wsc.providerName, err)
 	}
