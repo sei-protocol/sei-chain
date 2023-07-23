@@ -12,12 +12,10 @@ import (
 )
 
 const (
-	defaultTimeout           = 10 * time.Second
-	defaultReadNewWSMessage  = 50 * time.Millisecond
-	defaultMaxConnectionTime = time.Hour * 23 // should be < 24h
-	defaultReconnectTime     = time.Minute * 20
-	maxReconnectionTries     = 3
-	providerCandlePeriod     = 10 * time.Minute
+	defaultTimeout       = 10 * time.Second
+	defaultReconnectTime = time.Minute * 20
+	maxReconnectionTries = 3
+	providerCandlePeriod = 10 * time.Minute
 )
 
 var ping = []byte("ping")

@@ -22,6 +22,7 @@ const (
 
 	ProviderKraken   = "kraken"
 	ProviderBinance  = "binance"
+	ProviderCrypto   = "crypto"
 	ProviderMexc     = "mexc"
 	ProviderHuobi    = "huobi"
 	ProviderOkx      = "okx"
