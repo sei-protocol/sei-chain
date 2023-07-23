@@ -15,7 +15,6 @@ import (
 const (
 	defaultReadNewWSMessage   = 50 * time.Millisecond
 	defaultMaxConnectionTime  = time.Hour * 23 // should be < 24h
-	defaultPingDuration       = 15 * time.Second
 	disabledPingDuration      = time.Duration(0)
 	startingReconnectDuration = 5 * time.Second
 	maxRetryMultiplier        = 25 // max retry duration: 52m5s
@@ -124,7 +123,7 @@ func (wsc *WebsocketController) connect() error {
 }
 
 func (wsc *WebsocketController) iterateRetryCounter() time.Duration {
-	if wsc.reconnectCounter < 25 {
+	if wsc.reconnectCounter < maxRetryMultiplier {
 		wsc.reconnectCounter++
 	}
 	multiplier := math.Pow(float64(wsc.reconnectCounter), 2)
