@@ -3,6 +3,7 @@ package seiprotocol.seichain.tokenfactory;
 
 import "gogoproto/gogo.proto";
 import "cosmos/base/v1beta1/coin.proto";
+import "cosmos/bank/v1beta1/bank.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/tokenfactory/types";
 
@@ -12,6 +13,8 @@ service Msg {
   rpc Mint(MsgMint) returns (MsgMintResponse);
   rpc Burn(MsgBurn) returns (MsgBurnResponse);
   rpc ChangeAdmin(MsgChangeAdmin) returns (MsgChangeAdminResponse);
+  rpc SetDenomMetadata(MsgSetDenomMetadata)
+      returns (MsgSetDenomMetadataResponse);
 
   // ForceTransfer is deactivated for now because we need to think through edge
   // cases rpc ForceTransfer(MsgForceTransfer) returns
@@ -89,3 +92,14 @@ message MsgChangeAdminResponse {}
 // }
 
 // message MsgForceTransferResponse {}
+
+// MsgSetDenomMetadata is the sdk.Msg type for allowing an admin account to set
+// the denom's bank metadata
+message MsgSetDenomMetadata {
+  string sender = 1 [ (gogoproto.moretags) = "yaml:\"sender\"" ];
+  cosmos.bank.v1beta1.Metadata metadata = 2 [ (gogoproto.moretags) = "yaml:\"metadata\"", (gogoproto.nullable)   = false ];
+}
+
+// MsgSetDenomMetadataResponse defines the response structure for an executed
+// MsgSetDenomMetadata message.
+message MsgSetDenomMetadataResponse {}
