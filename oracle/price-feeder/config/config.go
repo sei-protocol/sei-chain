@@ -42,6 +42,7 @@ var (
 	SupportedProviders = map[string]struct{}{
 		ProviderKraken:   {},
 		ProviderBinance:  {},
+		ProviderCrypto:   {},
 		ProviderMexc:     {},
 		ProviderOkx:      {},
 		ProviderHuobi:    {},
