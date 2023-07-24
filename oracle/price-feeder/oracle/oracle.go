@@ -445,6 +445,7 @@ func (o *Oracle) getOrSetProvider(ctx context.Context, providerName string) (pro
 	return priceProvider, nil
 }
 
+// Create various providers to pull priace data for oracle price feeds
 func NewProvider(
 	ctx context.Context,
 	providerName string,

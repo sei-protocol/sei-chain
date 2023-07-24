@@ -38,7 +38,7 @@ var (
 	ErrEmptyConfigPath = errors.New("empty configuration file path")
 
 	// SupportedProviders defines a lookup table of all the supported currency API
-	// providers.
+	// providers to pull data for oracle for.
 	SupportedProviders = map[string]struct{}{
 		ProviderKraken:   {},
 		ProviderBinance:  {},
