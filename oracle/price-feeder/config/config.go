@@ -20,6 +20,7 @@ const (
 	defaultSrvReadTimeout  = 15 * time.Second
 	defaultProviderTimeout = 100 * time.Millisecond
 
+	// Oracle data providers for price feeds
 	ProviderKraken   = "kraken"
 	ProviderBinance  = "binance"
 	ProviderCrypto   = "crypto"
