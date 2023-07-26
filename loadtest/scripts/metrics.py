@@ -58,7 +58,7 @@ def get_transaction_breakdown(height):
             module = "oracle"
         elif "MsgDelegate" in b64_decoded:
             module = "staking"
-        elif  "MsgCreateDenom" in b64_decoded:
+        elif "MsgCreateDenom" in b64_decoded:
             module = "tokenfactory"
         else:
             # Dex orders
@@ -77,6 +77,17 @@ def get_transaction_breakdown(height):
             tx_mapping[module] += 1
     return tx_mapping
 
+def get_best_block_stats(block_info_list):
+    for i in range(len(block_info_list)):
+        block = block_info_list[i]
+        next_block_time = get_block_time(block["height"] + 1)
+        block_time = (next_block_time - block["timestamp"]) // timedelta(milliseconds=1)
+        throughput = block["number_of_txs"] / block_time
+        if throughput > max_throughput:
+            max_throughput = throughput
+            max_block_height = block["height"]
+            max_block_time = block_time
+    return max_throughput, max_block_height, max_block_time
 def get_metrics():
     all_heights = get_all_heights()
     if len(all_heights) <= 2:
@@ -94,16 +105,7 @@ def get_metrics():
     average_txs_num = total_txs_num / len(skip_edge_blocks)
 
     # Best block stats:
-    max_throughput, max_block_height, max_block_time = -1, -1, -1
-    for i in range(len(block_info_list)):
-        block = block_info_list[i]
-        next_block_time = get_block_time(block["height"] + 1)
-        block_time = (next_block_time - block["timestamp"]) // timedelta(milliseconds=1)
-        throughput = block["number_of_txs"] / block_time
-        if throughput > max_throughput:
-            max_throughput = throughput
-            max_block_height = block["height"]
-            max_block_time = block_time
+    max_throughput, max_block_height, max_block_time = get_best_block_stats(block_info_list)
 
     tx_mapping = get_transaction_breakdown(max_block_height)
 
