@@ -25,5 +25,6 @@ var (
 	ErrEncodeTokenFactoryChangeAdmin = sdkerrors.Register(ModuleName, 14, "Error while encoding tokenfactory change admin msg in wasmd")
 	ErrParsingSeiTokenFactoryQuery   = sdkerrors.Register(ModuleName, 15, "Error parsing SeiTokenFactoryQuery")
 	ErrAdminAlreadyExists            = sdkerrors.Register(ModuleName, 16, "attempting to create a new admin that already exists for the denom")
+	ErrEncodeTokenFactorySetMetadata = sdkerrors.Register(ModuleName, 17, "Error while encoding tokenfactory set metadata msg in wasmd")
 	ErrUnknownSeiTokenFactoryQuery   = sdkerrors.Register(ModuleName, 23, "Error unknown sei token factory query")
 )
