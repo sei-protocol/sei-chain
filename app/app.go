@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	memiavlstore "github.com/sei-protocol/mmap-iavl/store"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -374,6 +375,9 @@ func New(
 	appCodec := encodingConfig.Marshaler
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
+
+	// setup memiavl if it's enabled in config
+	baseAppOptions = memiavlstore.SetupMemIAVL(logger, homePath, appOpts, true, baseAppOptions)
 
 	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
