@@ -6,6 +6,11 @@ then
     exit
 fi
 
+if [ -z "$1" ]
+then
+  echo "Must provide a height as the first parameter"
+  exit
+fi
 HEIGHT=$1
 
 # install iaviewer
