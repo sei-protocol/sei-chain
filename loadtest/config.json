@@ -44,7 +44,7 @@
     },
     "constant": true,
     "loadtest_interval": 600,
-    "message_type": "bank,dex,tokenfactory,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
+    "message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {
