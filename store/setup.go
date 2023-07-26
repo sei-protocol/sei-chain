@@ -45,7 +45,7 @@ func setMemIAVL(homePath string, logger log.Logger, opts memiavl.Options, sdk46C
 	return func(bapp *baseapp.BaseApp) {
 		// trigger state-sync snapshot creation by memiavl
 		opts.TriggerStateSyncExport = func(height int64) {
-			go bapp.SnapshotManager().SnapshotIfApplicable(height)
+			go bapp.SnapshotManager().Create(uint64(height))
 		}
 
 		cms := rootmulti.NewStore(filepath.Join(homePath, "data", "memiavl.db"), logger, sdk46Compact)

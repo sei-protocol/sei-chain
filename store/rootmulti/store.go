@@ -66,7 +66,7 @@ func NewStore(dir string, logger log.Logger, sdk46Compact bool) *Store {
 }
 
 // Implements interface Committer
-func (rs *Store) Commit() types.CommitID {
+func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	var changeSets []*memiavl.NamedChangeSet
 	for key := range rs.stores {
 		// it'll unwrap the inter-block cache
@@ -77,7 +77,7 @@ func (rs *Store) Commit() types.CommitID {
 				Changeset: memiavlStore.PopChangeSet(),
 			})
 		} else {
-			_ = store.Commit()
+			_ = store.Commit(bumpVersion)
 		}
 	}
 	sort.SliceStable(changeSets, func(i, j int) bool {
@@ -138,13 +138,17 @@ func (rs *Store) GetStoreType() types.StoreType {
 }
 
 // Implements interface CacheWrapper
-func (rs *Store) CacheWrap() types.CacheWrap {
-	return rs.CacheMultiStore().(types.CacheWrap)
+func (rs *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
+	return rs.CacheMultiStore().CacheWrap(storeKey).(types.CacheWrap)
 }
 
 // Implements interface CacheWrapper
-func (rs *Store) CacheWrapWithTrace(_ io.Writer, _ types.TraceContext) types.CacheWrap {
-	return rs.CacheWrap()
+func (rs *Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ types.TraceContext) types.CacheWrap {
+	return rs.CacheWrap(storeKey)
+}
+
+func (rs *Store) CacheWrapWithListeners(k types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
+	return rs.CacheMultiStore().CacheWrapWithListeners(k, listeners).(types.CacheWrap)
 }
 
 // Implements interface MultiStore
@@ -160,23 +164,26 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 		}
 		stores[k] = store
 	}
-	return cachemulti.NewStore(nil, stores, rs.keysByName, nil, nil)
+	return cachemulti.NewStore(nil, stores, rs.keysByName, nil, nil, nil)
 }
 
 // Implements interface MultiStore
 // used to createQueryContext, abci_query or grpc query service.
 func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
-	panic("rootmulti Store don't support historical query service")
+	rs.CacheMultiStore().CacheMultiStoreWithVersion(version)
+	panic("uncached Store don't support historical query service")
 }
 
 // Implements interface MultiStore
 func (rs *Store) GetStore(key types.StoreKey) types.Store {
-	panic("uncached KVStore is not supposed to be accessed directly")
+	return rs.CacheMultiStore().GetStore(key)
+	//panic("uncached KVStore is not supposed to be accessed directly")
 }
 
 // Implements interface MultiStore
 func (rs *Store) GetKVStore(key types.StoreKey) types.KVStore {
-	panic("uncached KVStore is not supposed to be accessed directly")
+	return rs.CacheMultiStore().GetKVStore(key)
+	//panic("uncached KVStore is not supposed to be accessed directly")
 }
 
 // Implements interface MultiStore
@@ -468,7 +475,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		var err error
 		db, err = memiavl.Load(rs.dir, memiavl.Options{TargetVersion: uint32(version), ReadOnly: true})
 		if err != nil {
-			return sdkerrors.QueryResult(err, false)
+			return sdkerrors.QueryResult(err)
 		}
 		defer db.Close()
 	}
@@ -476,7 +483,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	path := req.Path
 	storeName, subpath, err := parsePath(path)
 	if err != nil {
-		return sdkerrors.QueryResult(err, false)
+		return sdkerrors.QueryResult(err)
 	}
 
 	store := types.Queryable(memiavlstore.New(db.TreeByName(storeName), rs.logger))
@@ -490,7 +497,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	}
 
 	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
-		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"), false)
+		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
 	}
 
 	commitInfo := db.LastCommitInfo()
@@ -560,4 +567,16 @@ func amendCommitInfo(commitInfo *types.CommitInfo, storeParams map[types.StoreKe
 		}
 	}
 	return mergeStoreInfos(commitInfo, extraStoreInfos)
+}
+
+func (rs *Store) GetWorkingHash() ([]byte, error) {
+	return rs.LastCommitID().Hash, nil
+}
+
+func (rs *Store) GetEvents() []abci.Event {
+	panic("should never attempt to get events from commit multi store")
+}
+
+func (rs *Store) ResetEvents() {
+	panic("should never attempt to reset events from commit multi store")
 }

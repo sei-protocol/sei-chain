@@ -34,6 +34,10 @@ type cacheNode struct {
 	key, value []byte
 }
 
+func (n *cacheNode) GetCacheKey() []byte {
+	return n.key
+}
+
 func (n *cacheNode) GetKey() []byte {
 	return n.key
 }

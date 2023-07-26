@@ -1,6 +1,6 @@
 FROM ubuntu:latest
 RUN apt-get update && \
-    apt-get install -y make git golang jq python3 curl vim
+    apt-get install -y make git golang-1.20 jq python3 curl vim
 
 SHELL ["/bin/bash", "-c"]
 

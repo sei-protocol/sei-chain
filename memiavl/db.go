@@ -421,6 +421,7 @@ func (db *DB) pruneSnapshots() {
 func (db *DB) Commit(changeSets []*NamedChangeSet) ([]byte, int64, error) {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
+	db.logger.Info("[MemIAVL] Committing in memiavl db")
 
 	if db.readOnly {
 		return nil, 0, errReadOnly

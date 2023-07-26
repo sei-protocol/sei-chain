@@ -241,3 +241,7 @@ func NewIavlCacheNode(key, value []byte) iavlCacheNode {
 func (n iavlCacheNode) GetKey() []byte {
 	return n.key
 }
+
+func (n iavlCacheNode) GetCacheKey() []byte {
+	return n.key
+}

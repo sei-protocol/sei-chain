@@ -7,7 +7,7 @@ ARCH=$(uname -m)
 # Build seid
 echo "Building seid from local branch"
 git config --global --add safe.directory /sei-protocol/sei-chain
-LEDGER_ENABLED=false
+export LEDGER_ENABLED=false
 make clean
 make build-linux
 make build-price-feeder-linux
