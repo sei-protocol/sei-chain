@@ -2,7 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -228,7 +228,7 @@ Where metadata.json contains:
 func ParseMetadataJSON(cdc *codec.LegacyAmino, metadataFile string) (banktypes.Metadata, error) {
 	proposal := banktypes.Metadata{}
 
-	contents, err := ioutil.ReadFile(metadataFile)
+	contents, err := os.ReadFile(metadataFile)
 	if err != nil {
 		return proposal, err
 	}
