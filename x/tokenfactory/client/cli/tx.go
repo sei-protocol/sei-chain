@@ -162,18 +162,7 @@ func NewSetDenomMetadataCmd() *cobra.Command {
 		Use:   "set-denom-metadata [metadata-file] [flags]",
 		Short: "Set metadata for a factory-created denom. Must have admin authority to do so.",
 		Long: strings.TrimSpace(
-			`Submit a parameter proposal along with an initial deposit.
-The proposal details must be supplied via a JSON file. For values that contains
-objects, only non-empty fields will be updated.
-
-IMPORTANT: Currently parameter changes are evaluated but not validated, so it is
-very important that any "value" change is valid (ie. correct type and within bounds)
-for its respective parameter, eg. "MaxValidators" should be an integer and not a decimal.
-
-Proper vetting of a parameter change proposal should prevent this from happening
-(no deposits should occur during the governance process), but it should be noted
-regardless.
-
+			`
 Example:
 $ seid tx tokenfactory set-denom-metadata <path/to/metadata.json> --from=<key_or_address>
 
