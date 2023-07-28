@@ -26,6 +26,6 @@ var (
 	ErrParsingSeiTokenFactoryQuery    = sdkerrors.Register(ModuleName, 15, "Error parsing SeiTokenFactoryQuery")
 	ErrAdminAlreadyExists             = sdkerrors.Register(ModuleName, 16, "attempting to create a new admin that already exists for the denom")
 	ErrUnknownSeiTokenFactoryQuery    = sdkerrors.Register(ModuleName, 17, "Error unknown sei token factory query")
-	ErrEncodingDenomAuthorityMetadata = sdkerrors.Register(ModuleName, 14, "Error encoding denom authority metadata as JSON")
-	ErrEncodingDenomsFromCreator      = sdkerrors.Register(ModuleName, 14, "Error encoding denoms from creator as JSON")
+	ErrEncodingDenomAuthorityMetadata = sdkerrors.Register(ModuleName, 18, "Error encoding denom authority metadata as JSON")
+	ErrEncodingDenomsFromCreator      = sdkerrors.Register(ModuleName, 19, "Error encoding denoms from creator as JSON")
 )
