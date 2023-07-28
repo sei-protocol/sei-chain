@@ -2,13 +2,17 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
+	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -151,4 +155,76 @@ func NewChangeAdminCmd() *cobra.Command {
 
 	flags.AddTxFlagsToCmd(cmd)
 	return cmd
+}
+
+func NewSetDenomMetadataCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "set-denom-metadata [metadata-file] [flags]",
+		Short: "Set metadata for a factory-created denom. Must have admin authority to do so.",
+		Long: strings.TrimSpace(
+			`
+Example:
+$ seid tx tokenfactory set-denom-metadata <path/to/metadata.json> --from=<key_or_address>
+
+Where metadata.json contains:
+
+{
+  "description": "Update token metadata",
+  "denom_units": [
+	{
+		"denom": "doge1",
+		"exponent": 6,
+		"aliases": ["d", "o", "g"]
+	},
+	{
+		"denom": "doge2",
+		"exponent": 3,
+		"aliases": ["d", "o", "g"]
+	}
+  ],
+  "base": "doge",
+  "display": "DOGE",
+  "name": "dogecoin",
+  "symbol": "DOGE"
+}`),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
+
+			metadata, err := ParseMetadataJSON(clientCtx.LegacyAmino, args[0])
+			if err != nil {
+				return err
+			}
+
+			msg := types.NewMsgSetDenomMetadata(
+				clientCtx.GetFromAddress().String(),
+				metadata,
+			)
+
+			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+	return cmd
+}
+
+func ParseMetadataJSON(cdc *codec.LegacyAmino, metadataFile string) (banktypes.Metadata, error) {
+	proposal := banktypes.Metadata{}
+
+	contents, err := os.ReadFile(metadataFile)
+	if err != nil {
+		return proposal, err
+	}
+
+	if err := cdc.UnmarshalJSON(contents, &proposal); err != nil {
+		return proposal, err
+	}
+
+	return proposal, nil
 }

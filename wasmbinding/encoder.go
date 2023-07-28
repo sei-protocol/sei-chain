@@ -17,6 +17,7 @@ type SeiWasmMessage struct {
 	MintTokens   json.RawMessage `json:"mint_tokens,omitempty"`
 	BurnTokens   json.RawMessage `json:"burn_tokens,omitempty"`
 	ChangeAdmin  json.RawMessage `json:"change_admin,omitempty"`
+	SetMetadata  json.RawMessage `json:"set_metadata,omitempty"`
 }
 
 func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
@@ -37,6 +38,8 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error
 		return tokenfactorywasm.EncodeTokenFactoryBurn(parsedMessage.BurnTokens, sender)
 	case parsedMessage.ChangeAdmin != nil:
 		return tokenfactorywasm.EncodeTokenFactoryChangeAdmin(parsedMessage.ChangeAdmin, sender)
+	case parsedMessage.SetMetadata != nil:
+		return tokenfactorywasm.EncodeTokenFactorySetMetadata(parsedMessage.SetMetadata, sender)
 	default:
 		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
 	}

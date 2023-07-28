@@ -2,6 +2,7 @@ package bindings
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
@@ -20,6 +21,10 @@ type CreateDenom struct {
 type ChangeAdmin struct {
 	Denom           string `json:"denom"`
 	NewAdminAddress string `json:"new_admin_address"`
+}
+
+type SetMetadata struct {
+	Metadata banktypes.Metadata `json:"metadata"`
 }
 
 type MintTokens struct {
