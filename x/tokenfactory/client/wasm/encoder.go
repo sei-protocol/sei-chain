@@ -56,3 +56,15 @@ func EncodeTokenFactoryChangeAdmin(rawMsg json.RawMessage, sender sdk.AccAddress
 	}
 	return []sdk.Msg{&changeAdminMsg}, nil
 }
+
+func EncodeTokenFactorySetMetadata(rawMsg json.RawMessage, sender sdk.AccAddress) ([]sdk.Msg, error) {
+	encodedSetMetadataMsg := bindings.SetMetadata{}
+	if err := json.Unmarshal(rawMsg, &encodedSetMetadataMsg); err != nil {
+		return []sdk.Msg{}, types.ErrEncodeTokenFactorySetMetadata
+	}
+	setMetadataMsg := types.MsgSetDenomMetadata{
+		Sender:   sender.String(),
+		Metadata: encodedSetMetadataMsg.Metadata,
+	}
+	return []sdk.Msg{&setMetadataMsg}, nil
+}

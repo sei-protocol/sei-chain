@@ -7,7 +7,7 @@ import time
 
 from pathlib import Path
 
-PARALLEISM=32
+PARALLEISM=64
 
 # Global Variable used for accounts
 # Does not need to be thread safe, each thread should only be writing to its own index
@@ -31,12 +31,7 @@ def add_key(account_name, local=False):
     return address, mnemonic
 
 
-def add_account(account_name, address, mnemonic, local=False):
-    if local:
-        add_account_cmd = f"~/go/bin/seid add-genesis-account {address} 1000000000usei --keyring-backend test"
-    else:
-        add_account_cmd = f"printf '12345678\n' | ~/go/bin/seid add-genesis-account {address} 1000000000usei"
-
+def dump_account_data_to_file(account_name, address, mnemonic):
     filename = f"{home_path}/test_accounts/{account_name}.json"
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     with open(filename, 'w') as f:
@@ -46,33 +41,14 @@ def add_account(account_name, address, mnemonic, local=False):
         }
         json.dump(data, f)
 
-    return add_account_cmd
-
 
 def create_genesis_account(account_index, account_name, local=False):
     address, mnemonic = add_key(account_name=account_name, local=local)
-    add_account_cmd = add_account(account_name=account_name, address=address, mnemonic=mnemonic, local=local)
-
-    retry_counter = 0
-    sleep_time = 1
-
-    while True and retry_counter < 1000:
-        try:
-            print(f'Running: ${add_account_cmd}')
-            subprocess.call(
-                [add_account_cmd],
-                shell=True,
-                timeout=20,
-            )
-            break
-        except subprocess.CalledProcessError as e:
-            print(f"Encountered error {e}, retried {retry_counter} times")
-            retry_counter += 1
-            sleep_time += 0.5
-            time.sleep(sleep_time)
-
-    if retry_counter >= 1000:
-        exit(-1)
+    dump_account_data_to_file(
+        account_name=account_name,
+        address=address,
+        mnemonic=mnemonic,
+    )
 
     global_accounts_mapping[account_index] = {
         "balance": {
@@ -136,7 +112,6 @@ def main():
             t.join()
         except Exception as error:
             print(f"Error waiting for thread, skipping: {error}")
-
 
     sorted_keys = sorted(list(global_accounts_mapping.keys()))
     account_info = [0] * len(sorted_keys)
