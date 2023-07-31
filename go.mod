@@ -25,7 +25,7 @@ require (
 	github.com/rs/cors v1.8.2
 	github.com/rs/zerolog v1.27.0
 	github.com/sei-protocol/goutils v0.0.2
-	github.com/sei-protocol/mmap-iavl v1.0.1
+	github.com/sei-protocol/mmap-iavl v1.0.3
 	github.com/sirkon/goproxy v1.4.8
 	github.com/spf13/cast v1.5.0
 	github.com/spf13/cobra v1.6.1
