@@ -432,4 +432,6 @@ namespace = "tendermint"
 
 [memiavl]
 
-enable = false
+enable = true
+
+snapshot-interval = 200
