@@ -14,6 +14,7 @@ import (
 	oraclebindings "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
+	tokenfactorybindings "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
@@ -156,5 +157,34 @@ func (qp QueryPlugin) HandleEpochQuery(ctx sdk.Context, queryData json.RawMessag
 }
 
 func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
-	return nil, tokenfactorytypes.ErrUnknownSeiTokenFactoryQuery
+	var parsedQuery tokenfactorybindings.SeiTokenFactoryQuery
+	if err := json.Unmarshal(queryData, &parsedQuery); err != nil {
+		return nil, tokenfactorytypes.ErrParsingSeiTokenFactoryQuery
+	}
+	switch {
+	case parsedQuery.DenomAuthorityMetadata != nil:
+		res, err := qp.tokenfactoryHandler.GetDenomAuthorityMetadata(ctx, parsedQuery.DenomAuthorityMetadata)
+		if err != nil {
+			return nil, err
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, tokenfactorytypes.ErrEncodingDenomAuthorityMetadata
+		}
+
+		return bz, nil
+	case parsedQuery.DenomsFromCreator != nil:
+		res, err := qp.tokenfactoryHandler.GetDenomsFromCreator(ctx, parsedQuery.DenomsFromCreator)
+		if err != nil {
+			return nil, err
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, tokenfactorytypes.ErrEncodingDenomsFromCreator
+		}
+
+		return bz, nil
+	default:
+		return nil, tokenfactorytypes.ErrUnknownSeiTokenFactoryQuery
+	}
 }

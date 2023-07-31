@@ -3,6 +3,7 @@ package wasmbinding
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,6 +27,8 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	oracleutils "github.com/sei-protocol/sei-chain/x/oracle/utils"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
+	tokenfactorybinding "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -319,6 +322,83 @@ func TestWasmGetEpoch(t *testing.T) {
 	require.Equal(t, uint64(69), epoch.CurrentEpoch)
 	require.Equal(t, time.Unix(12345, 0).UTC(), epoch.CurrentEpochStartTime)
 	require.Equal(t, int64(40), epoch.CurrentEpochHeight)
+}
+
+func TestWasmGetDenomAuthorityMetadata(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	denom := fmt.Sprintf("factory/%s/test", app.TestUser)
+	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
+	// Create denom
+	testWrapper.App.TokenFactoryKeeper.CreateDenom(testWrapper.Ctx, app.TestUser, "test")
+	authorityMetadata := tokenfactorytypes.DenomAuthorityMetadata{
+		Admin: app.TestUser,
+	}
+
+	// Setup tfk query
+	req := tokenfactorybinding.SeiTokenFactoryQuery{DenomAuthorityMetadata: &tokenfactorytypes.QueryDenomAuthorityMetadataRequest{Denom: denom}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.TokenFactoryRoute, QueryData: queryData}
+
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	res, err := customQuerier(testWrapper.Ctx, rawQuery)
+	require.NoError(t, err)
+
+	var parsedRes tokenfactorytypes.QueryDenomAuthorityMetadataResponse
+	err = json.Unmarshal(res, &parsedRes)
+	require.NoError(t, err)
+	require.Equal(t, tokenfactorytypes.QueryDenomAuthorityMetadataResponse{AuthorityMetadata: authorityMetadata}, parsedRes)
+}
+
+func TestWasmGetDenomsFromCreator(t *testing.T) {
+	testWrapper, customQuerier := SetupWasmbindingTest(t)
+
+	denom1 := fmt.Sprintf("factory/%s/test1", app.TestUser)
+	denom2 := fmt.Sprintf("factory/%s/test2", app.TestUser)
+	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(11).WithBlockTime(time.Unix(3600, 0))
+
+	// No denoms created initially
+	req := tokenfactorybinding.SeiTokenFactoryQuery{DenomsFromCreator: &tokenfactorytypes.QueryDenomsFromCreatorRequest{Creator: app.TestUser}}
+	queryData, err := json.Marshal(req)
+	require.NoError(t, err)
+	query := wasmbinding.SeiQueryWrapper{Route: wasmbinding.TokenFactoryRoute, QueryData: queryData}
+
+	rawQuery, err := json.Marshal(query)
+	require.NoError(t, err)
+
+	res, err := customQuerier(testWrapper.Ctx, rawQuery)
+	require.NoError(t, err)
+
+	var parsedRes tokenfactorytypes.QueryDenomsFromCreatorResponse
+	err = json.Unmarshal(res, &parsedRes)
+	require.NoError(t, err)
+	require.Equal(t, tokenfactorytypes.QueryDenomsFromCreatorResponse{Denoms: nil}, parsedRes)
+
+	// Add first denom
+	testWrapper.App.TokenFactoryKeeper.CreateDenom(testWrapper.Ctx, app.TestUser, "test1")
+
+	res, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.NoError(t, err)
+
+	var parsedRes2 tokenfactorytypes.QueryDenomsFromCreatorResponse
+	err = json.Unmarshal(res, &parsedRes2)
+	require.NoError(t, err)
+	require.Equal(t, tokenfactorytypes.QueryDenomsFromCreatorResponse{Denoms: []string{denom1}}, parsedRes2)
+
+	// Add second denom
+	testWrapper.App.TokenFactoryKeeper.CreateDenom(testWrapper.Ctx, app.TestUser, "test2")
+
+	res, err = customQuerier(testWrapper.Ctx, rawQuery)
+	require.NoError(t, err)
+
+	var parsedRes3 tokenfactorytypes.QueryDenomsFromCreatorResponse
+	err = json.Unmarshal(res, &parsedRes3)
+	require.NoError(t, err)
+	require.Equal(t, tokenfactorytypes.QueryDenomsFromCreatorResponse{Denoms: []string{denom1, denom2}}, parsedRes3)
+
 }
 
 func MockQueryPlugins() wasmkeeper.QueryPlugins {
