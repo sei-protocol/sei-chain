@@ -162,8 +162,8 @@ func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.Ra
 		return nil, tokenfactorytypes.ErrParsingSeiTokenFactoryQuery
 	}
 	switch {
-	case parsedQuery.DenomAuthorityMetadata != nil:
-		res, err := qp.tokenfactoryHandler.GetDenomAuthorityMetadata(ctx, parsedQuery.DenomAuthorityMetadata)
+	case parsedQuery.GetDenomAuthorityMetadata != nil:
+		res, err := qp.tokenfactoryHandler.GetDenomAuthorityMetadata(ctx, parsedQuery.GetDenomAuthorityMetadata)
 		if err != nil {
 			return nil, err
 		}
@@ -173,8 +173,8 @@ func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.Ra
 		}
 
 		return bz, nil
-	case parsedQuery.DenomsFromCreator != nil:
-		res, err := qp.tokenfactoryHandler.GetDenomsFromCreator(ctx, parsedQuery.DenomsFromCreator)
+	case parsedQuery.GetDenomsFromCreator != nil:
+		res, err := qp.tokenfactoryHandler.GetDenomsFromCreator(ctx, parsedQuery.GetDenomsFromCreator)
 		if err != nil {
 			return nil, err
 		}
