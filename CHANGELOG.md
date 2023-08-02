@@ -27,6 +27,15 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+### 3.0.7
+sei-chain:
+*[#1002] (https://github.com/sei-protocol/sei-chain/pull/1002) Tokenfactory Query Wasmbindings
+*[#989] (https://github.com/sei-protocol/sei-chain/pull/989) Add CLI/wasmbinding to set tokenfactory metadata
+*[#963] (https://github.com/sei-protocol/sei-chain/pull/963) Add SetMetadata to tokenfactory
+
+sei-cosmos:
+*[#308] (https://github.com/sei-protocol/sei-cosmos/pull/308) Add NoConsumptionInfiniteGasMeter
+
 ### 3.0.6
 sei-chain:
 *[#944] (https://github.com/sei-protocol/sei-chain/pull/944) Add new configuration for snapshot directory
@@ -36,10 +45,10 @@ sei-cosmos:
 *[#306] (https://github.com/sei-protocol/sei-cosmos/pull/306) Fix dryRun for seid tx
 
 ### 3.0.5
-sei-chain: 
+sei-chain:
 * [#878] (https://github.com/sei-protocol/sei-chain/pull/878) Fix denom key collision
 
-sei-tendermint: 
+sei-tendermint:
 * [#149] (https://github.com/sei-protocol/sei-tendermint/pull/149) Fix condition for tx key dissemination
 
 sei-iavl:
@@ -49,9 +58,9 @@ sei-iavl:
 sei-chain:
 * [#874] (https://github.com/sei-protocol/sei-chain/pull/874) Charge rent after failed Sudo call
 * [#869] (https://github.com/sei-protocol/sei-chain/pull/869) Require fee per byte in order data
-* [#861] (https://github.com/sei-protocol/sei-chain/pull/861) Fix tokenfactory metadata 
+* [#861] (https://github.com/sei-protocol/sei-chain/pull/861) Fix tokenfactory metadata
 
-sei-cosmos: 
+sei-cosmos:
 * [#287] (https://github.com/sei-protocol/sei-cosmos/pull/287) Refactor deferred balance to use memkv
 * [#286] (https://github.com/sei-protocol/sei-cosmos/pull/286) Prevent multisig sign with wrong key
 * [#284] (https://github.com/sei-protocol/sei-cosmos/pull/284) Fix allowed_msg uncapped spend limit
@@ -59,9 +68,9 @@ sei-cosmos:
 
 sei-tendermint:
 * [#148] (https://github.com/sei-protocol/sei-tendermint/pull/148) Add sleep to avoid consensus reactor retrying too quickly
-* 
+*
 ## 3.0.3
-sei-chain: 
+sei-chain:
 * [#816] (https://github.com/sei-protocol/sei-chain/pull/816) Reenable tx concurrency for non oracle/priority txs
 
 sei-cosmos:
@@ -76,7 +85,7 @@ sei-chain:
 * [#810] (https://github.com/sei-protocol/sei-chain/pull/810) Disable FOK orders
 * [#809] (https://github.com/sei-protocol/sei-chain/pull/809) Huckleberry patch
 * [#808] (https://github.com/sei-protocol/sei-chain/pull/808) Add global min fees as a param
- 
+
 ## 3.0.1
 sei-chain:
 * [#797] (https://github.com/sei-protocol/sei-chain/pull/797) Don't charge gas for loading contract dependencies
@@ -92,7 +101,7 @@ tm-db:
 * [#2] (https://github.com/sei-protocol/tm-db/pull/2) Load items eagerly to memdb_iterator to avoid deadlock
 
 sei-tendermint:
-* [#137] (https://github.com/sei-protocol/sei-tendermint/pull/137) New endpoint to expose lag 
+* [#137] (https://github.com/sei-protocol/sei-tendermint/pull/137) New endpoint to expose lag
 
 ## 3.0.0
 sei-chain:
@@ -108,7 +117,7 @@ sei-cosmos
 sei-tendermint
 * [#136] (https://github.com/sei-protocol/sei-tendermint/pull/136) Revert block.Evidence to nested block.Evidence.Evidence
 * [#135] (https://github.com/sei-protocol/sei-tendermint/pull/135) Auto switch to blocksync should only start in consensus mode
- 
+
 ## 2.0.48beta
 sei-chain:
 * [#743] (https://github.com/sei-protocol/sei-chain/pull/743) Do not unregister contract if out of rent
@@ -124,12 +133,12 @@ sei-tendermint
 ## 2.0.47beta
 sei-chain:
 * [#726] (https://github.com/sei-protocol/sei-chain/pull/726) Fix of dex rent transfer issue
-* [#723] (https://github.com/sei-protocol/sei-chain/pull/723) Security CW Patch Cherry 
+* [#723] (https://github.com/sei-protocol/sei-chain/pull/723) Security CW Patch Cherry
 * [#699] (https://github.com/sei-protocol/sei-chain/pull/699) Loadtest update
 * [#716] (https://github.com/sei-protocol/sei-chain/pull/716) Sei cluster init script update
 * [#725] (https://github.com/sei-protocol/sei-chain/pull/725) DBSync config update
 * [#718] (https://github.com/sei-protocol/sei-chain/pull/718) Update mint distriution to be daily
-* [#729] (https://github.com/sei-protocol/sei-chain/pull/729) Add gov prop handler for updating current minter 
+* [#729] (https://github.com/sei-protocol/sei-chain/pull/729) Add gov prop handler for updating current minter
 * [#730] (https://github.com/sei-protocol/sei-chain/pull/730) Add README.md for epoch module
 * [#727] (https://github.com/sei-protocol/sei-chain/pull/727) Bump max wasm file size to 2MB
 * [#731] (https://github.com/sei-protocol/sei-chain/pull/731) Bump for module to module debug logs
