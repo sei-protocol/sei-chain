@@ -27,7 +27,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
-### 3.0.7
+## 3.0.7
 sei-chain:
 * [#1002] (https://github.com/sei-protocol/sei-chain/pull/1002) Tokenfactory Query Wasmbindings
 * [#989] (https://github.com/sei-protocol/sei-chain/pull/989) Add CLI/wasmbinding to set tokenfactory metadata
@@ -36,7 +36,7 @@ sei-chain:
 sei-cosmos:
 * [#308] (https://github.com/sei-protocol/sei-cosmos/pull/308) Add NoConsumptionInfiniteGasMeter
 
-### 3.0.6
+## 3.0.6
 sei-chain:
 * [#944] (https://github.com/sei-protocol/sei-chain/pull/944) Add new configuration for snapshot directory
 * [#940] (https://github.com/sei-protocol/sei-chain/pull/940) Use ImmutableAppend for v16 to v17 dex migration
@@ -44,7 +44,7 @@ sei-chain:
 sei-cosmos:
 * [#306] (https://github.com/sei-protocol/sei-cosmos/pull/306) Fix dryRun for seid tx
 
-### 3.0.5
+## 3.0.5
 sei-chain:
 * [#878] (https://github.com/sei-protocol/sei-chain/pull/878) Fix denom key collision
 
