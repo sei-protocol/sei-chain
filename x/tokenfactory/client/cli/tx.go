@@ -33,6 +33,7 @@ func GetTxCmd() *cobra.Command {
 		NewBurnCmd(),
 		// NewForceTransferCmd(),
 		NewChangeAdminCmd(),
+		NewSetDenomMetadataCmd(),
 	)
 
 	return cmd
