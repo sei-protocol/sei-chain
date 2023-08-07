@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/k0kubun/pp/v3"
 	"github.com/sei-protocol/sei-chain/app"
@@ -191,18 +193,37 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		mixedTx,
 	}
 
-	prioritizedTxs, otherTxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs)
-	require.Equal(t, prioritizedTxs, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx})
-	require.Equal(t, otherTxs, [][]byte{otherTx, mixedTx})
+	prioritizedTxs, otherTxs, prioIdxs, otherIdxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs)
+	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
+	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
+	require.Equal(t, []int{0, 1, 2, 3}, prioIdxs)
+	require.Equal(t, []int{4, 5}, otherIdxs)
+
+	diffOrderTxs := [][]byte{
+		oracleTx,
+		otherTx,
+		contractRegisterTx,
+		contractUnregisterTx,
+		mixedTx,
+		contractSuspendTx,
+	}
+
+	prioritizedTxs, otherTxs, prioIdxs, otherIdxs = testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, diffOrderTxs)
+	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
+	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
+	require.Equal(t, []int{0, 2, 3, 5}, prioIdxs)
+	require.Equal(t, []int{1, 4}, otherIdxs)
 }
 
 func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
+	secondAcc := secp256k1.GenPrivKey().PubKey()
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub)
 
 	account := sdk.AccAddress(valPub.Address()).String()
+	account2 := sdk.AccAddress(secondAcc.Address()).String()
 	validator := sdk.ValAddress(valPub.Address()).String()
 
 	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
@@ -211,10 +232,10 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		Validator:     validator,
 	}
 
-	otherMsg := &stakingtypes.MsgDelegate{
-		DelegatorAddress: account,
-		ValidatorAddress: validator,
-		Amount:           sdk.NewCoin("usei", sdk.NewInt(1)),
+	otherMsg := &banktypes.MsgSend{
+		FromAddress: account,
+		ToAddress:   account2,
+		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 2)),
 	}
 
 	oracleTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
@@ -223,11 +244,15 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 
 	err := oracleTxBuilder.SetMsgs(oracleMsg)
 	require.NoError(t, err)
+	oracleTxBuilder.SetGasLimit(200000)
+	oracleTxBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 20000)))
 	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
 	require.NoError(t, err)
 
 	err = otherTxBuilder.SetMsgs(otherMsg)
 	require.NoError(t, err)
+	otherTxBuilder.SetGasLimit(100000)
+	otherTxBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 10000)))
 	otherTx, err := txEncoder(otherTxBuilder.GetTx())
 	require.NoError(t, err)
 
@@ -249,8 +274,36 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		req,
 		req.DecidedLastCommit,
 	)
+	fmt.Println("txResults1", txResults)
 
 	require.Equal(t, 2, len(txResults))
+	require.Equal(t, uint32(3), txResults[0].Code)
+	require.Equal(t, uint32(5), txResults[1].Code)
+
+	diffOrderTxs := [][]byte{
+		otherTx,
+		oracleTx,
+	}
+
+	req = &abci.RequestFinalizeBlock{
+		Height: 1,
+	}
+	_, txResults2, _, _ := testWrapper.App.ProcessBlock(
+		testWrapper.Ctx.WithBlockHeight(
+			1,
+		).WithBlockGasMeter(
+			sdk.NewInfiniteGasMeter(),
+		),
+		diffOrderTxs,
+		req,
+		req.DecidedLastCommit,
+	)
+	fmt.Println("txResults2", txResults2)
+
+	require.Equal(t, 2, len(txResults2))
+	// opposite ordering due to true index ordering
+	require.Equal(t, uint32(5), txResults2[0].Code)
+	require.Equal(t, uint32(3), txResults2[1].Code)
 }
 
 func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {

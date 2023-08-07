@@ -1246,8 +1246,8 @@ func (app *App) ProcessTxs(
 	return txResults, ctx
 }
 
-func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioritizedTxs, otherTxs [][]byte) {
-	for _, tx := range txs {
+func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioritizedTxs, otherTxs [][]byte, prioritizedIndices, otherIndices []int) {
+	for idx, tx := range txs {
 		decodedTx, err := app.txDecoder(tx)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("Error decoding tx for partitioning: %v", err))
@@ -1256,7 +1256,7 @@ func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioriti
 			continue
 		}
 		prioritized := false
-		// if theres a prioritized msg, we want to add to prioritizedTxs
+		// if all messages are prioritized, we want to add to prioritizedTxs
 	msgLoop:
 		for _, msg := range decodedTx.GetMsgs() {
 			switch msg.(type) {
@@ -1275,12 +1275,14 @@ func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioriti
 		}
 		if prioritized {
 			prioritizedTxs = append(prioritizedTxs, tx)
+			prioritizedIndices = append(prioritizedIndices, idx)
 		} else {
 			otherTxs = append(otherTxs, tx)
+			otherIndices = append(otherIndices, idx)
 		}
 
 	}
-	return prioritizedTxs, otherTxs
+	return prioritizedTxs, otherTxs, prioritizedIndices, otherIndices
 }
 
 func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
@@ -1334,13 +1336,16 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 
-	var txResults []*abci.ExecTxResult
+	txResults := make([]*abci.ExecTxResult, len(txs))
 
-	prioritizedTxs, txs := app.PartitionPrioritizedTxs(ctx, txs)
+	// TODO: need to recombine txresults based on ORIGINAL ordering
+	prioritizedTxs, otherTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs)
 
 	// run the prioritized txs
 	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs)
-	txResults = append(txResults, prioritizedResults...)
+	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
+		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
+	}
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
 	deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
@@ -1349,8 +1354,10 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
-	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, txs)
-	txResults = append(txResults, otherResults...)
+	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, otherTxs)
+	for relativeOtherIndex, originalIndex := range otherIndices {
+		txResults[originalIndex] = otherResults[relativeOtherIndex]
+	}
 
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
