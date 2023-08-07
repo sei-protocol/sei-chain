@@ -1337,8 +1337,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, beginBlockResp.Events...)
 
 	txResults := make([]*abci.ExecTxResult, len(txs))
-
-	// TODO: need to recombine txresults based on ORIGINAL ordering
 	prioritizedTxs, otherTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs)
 
 	// run the prioritized txs
