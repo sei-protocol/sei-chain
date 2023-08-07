@@ -40,8 +40,15 @@ make install
 # gentx for account
 ~/go/bin/seid gentx $keyname 70000000000000000000usei --chain-id sei-chain --keyring-backend test
 # update config to run as a validator, add validator information to genesis file
-sed -i '' 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
-sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  sed -i 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
+  sed -i 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+  sed -i '' 's/mode = "full"/mode = "validator"/g' $HOME/.sei/config/config.toml
+  sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $HOME/.sei/config/config.toml
+else
+  printf "Platform not supported\n"
+fi
 KEY=$(jq '.pub_key' ~/.sei/config/priv_validator_key.json -c)
 jq '.validators = [{}]' ~/.sei/config/genesis.json > ~/.sei/config/tmp_genesis.json
 jq '.validators[0] += {"power":"70000000000000"}' ~/.sei/config/tmp_genesis.json > ~/.sei/config/tmp_genesis_2.json
