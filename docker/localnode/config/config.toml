@@ -435,3 +435,5 @@ namespace = "tendermint"
 enable = true
 
 snapshot-interval = 200
+
+zero-copy = false
