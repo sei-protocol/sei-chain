@@ -27,6 +27,9 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## 3.0.8
+sei-chain:
+* [#1018](https://github.com/sei-protocol/sei-chain/pull/1018) Reorder tx results into absolute order
 ## 3.0.7
 sei-chain:
 * [#1002](https://github.com/sei-protocol/sei-chain/pull/1002) Tokenfactory Query Wasmbindings
