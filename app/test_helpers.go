@@ -25,6 +25,7 @@ import (
 )
 
 const TestContract = "TEST"
+const TestUser = "sei1jdppe6fnj2q7hjsepty5crxtrryzhuqsjrj95y"
 
 type TestTx struct {
 	msgs []sdk.Msg
