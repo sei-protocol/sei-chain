@@ -285,6 +285,16 @@ func GetComputedPrices(
 	providerPairs map[string][]types.CurrencyPair,
 	deviations map[string]sdk.Dec,
 ) (prices map[string]sdk.Dec, err error) {
+	assetProviderMap := make(map[string][]string)
+	for provider, val := range providerPrices {
+		for asset, _ := range val {
+			if _, ok := assetProviderMap[asset]; !ok {
+				assetProviderMap[asset] = []string{}
+			}
+			assetProviderMap[asset] = append(assetProviderMap[asset], provider)
+		}
+	}
+	logger.Debug().Msg(fmt.Sprint(assetProviderMap))
 	// convert any non-USD denominated candles into USD
 	convertedCandles, err := convertCandlesToUSD(
 		logger,
