@@ -2318,6 +2318,10 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 		for roundId := 0; int32(roundId) <= roundState.ValidRound; roundId++ {
 			preVotes := roundState.Votes.Prevotes(int32(roundId))
 			pl := preVotes.List()
+			if pl == nil || len(pl) == 0 {
+				cs.logger.Info("no prevotes to emit latency metrics for", "height", height, "round", roundId)
+				continue
+			}
 			sort.Slice(pl, func(i, j int) bool {
 				return pl[i].Timestamp.Before(pl[j].Timestamp)
 			})
