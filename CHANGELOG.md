@@ -27,6 +27,9 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v3.0.9
+* [#154](https://github.com/sei-protocol/sei-tendermint/pull/154) Fix empty prevote latency metrics
+
 ## 3.0.8
 sei-chain:
 * [#1018](https://github.com/sei-protocol/sei-chain/pull/1018) Reorder tx results into absolute order
