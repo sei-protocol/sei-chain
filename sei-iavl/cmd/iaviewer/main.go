@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -22,7 +21,7 @@ const (
 
 func main() {
 	args := os.Args[1:]
-	if len(args) < 3 || (args[0] != "data" && args[0] != "shape" && args[0] != "versions" && args[0] != "size") {
+	if len(args) < 3 || (args[0] != "data" && args[0] != "keys" && args[0] != "shape" && args[0] != "versions" && args[0] != "size") {
 		fmt.Fprintln(os.Stderr, "Usage: iaviewer <data|shape|versions|size> <leveldb dir> <prefix> [version number]")
 		fmt.Fprintln(os.Stderr, "<prefix> is the prefix of db, and the iavl tree of different modules in cosmos-sdk uses ")
 		fmt.Fprintln(os.Stderr, "different <prefix> to identify, just like \"s/k:gov/\" represents the prefix of gov module")
@@ -49,18 +48,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error hashing tree: %s\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Tree hash is %X, tree size is %X\n", treeHash, tree.ImmutableTree().Size())
+	fmt.Printf("Tree hash is %X, tree size is %d\n", treeHash, tree.ImmutableTree().Size())
 
 	switch args[0] {
 	case "data":
-		PrintKeys(tree)
-		hash, err := tree.Hash()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error hashing tree: %s\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Hash: %X\n", hash)
-		fmt.Printf("Size: %X\n", tree.ImmutableTree().Size())
+		PrintTreeData(tree, false)
+	case "keys":
+		PrintTreeData(tree, true)
 	case "shape":
 		PrintShape(tree)
 	case "versions":
@@ -137,7 +131,7 @@ func ReadTree(dir string, version int, prefix []byte) (*iavl.MutableTree, error)
 	return tree, err
 }
 
-func PrintKeys(tree *iavl.MutableTree) {
+func PrintTreeData(tree *iavl.MutableTree, keysOnly bool) {
 	fmt.Println("Printing all keys with hashed values (to detect diff)")
 	totalKeySize := 0
 	totalValSize := 0
@@ -145,8 +139,12 @@ func PrintKeys(tree *iavl.MutableTree) {
 	keyPrefixMap := map[string]int{}
 	tree.Iterate(func(key []byte, value []byte) bool {
 		printKey := parseWeaveKey(key)
-		digest := sha256.Sum256(value)
-		fmt.Printf("  %s\n    %X\n", printKey, digest)
+		if keysOnly {
+			fmt.Printf("%s\n", printKey)
+		} else {
+			digest := sha256.Sum256(value)
+			fmt.Printf("%s\n    %X\n", printKey, digest)
+		}
 		totalKeySize += len(key)
 		totalValSize += len(value)
 		totalNumKeys++
@@ -159,13 +157,7 @@ func PrintKeys(tree *iavl.MutableTree) {
 // parseWeaveKey assumes a separating : where all in front should be ascii,
 // and all afterwards may be ascii or binary
 func parseWeaveKey(key []byte) string {
-	cut := bytes.IndexRune(key, ':')
-	if cut == -1 {
-		return encodeID(key)
-	}
-	prefix := key[:cut]
-	id := key[cut+1:]
-	return fmt.Sprintf("%s:%s", encodeID(prefix), encodeID(id))
+	return encodeID(key)
 }
 
 // casts to a string if it is printable ascii, hex-encodes otherwise
