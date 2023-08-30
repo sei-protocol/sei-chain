@@ -298,11 +298,11 @@ func GetComputedPrices(
 				assetProviderMap[asset] = append(assetProviderMap[asset], provider)
 			}
 		}
-		assetProviderJson, err := json.MarshalIndent(assetProviderMap, "", "  ")
+		assetProviderJSON, err := json.MarshalIndent(assetProviderMap, "", "  ")
 		if err != nil {
 			return nil, err
 		}
-		logger.Debug().Msg(fmt.Sprintf("Asset Provider Coverage Map: %s", string(assetProviderJson)))
+		logger.Debug().Msg(fmt.Sprintf("Asset Provider Coverage Map: %s", string(assetProviderJSON)))
 	}
 	// convert any non-USD denominated candles into USD
 	convertedCandles, err := convertCandlesToUSD(
