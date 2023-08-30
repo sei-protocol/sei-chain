@@ -14,14 +14,15 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/client"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 	pfsync "github.com/sei-protocol/sei-chain/oracle/price-feeder/pkg/sync"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
-	"golang.org/x/sync/errgroup"
-	"google.golang.org/grpc"
 )
 
 // Oracle implements the core component responsible for fetching exchange rates
@@ -49,7 +50,11 @@ type Oracle struct {
 	mockSetPrices   func(ctx context.Context) error
 }
 
-func createMappingsFromPairs(currencyPairs []config.CurrencyPair) (map[string]string, map[string][]types.CurrencyPair) {
+// createMappingsFromPairs is a helper function to initialize maps from currencyPairs
+// this is used to by test cases to initialize the oracle lcient
+func createMappingsFromPairs(currencyPairs []config.CurrencyPair) (
+	map[string]string,
+	map[string][]types.CurrencyPair) {
 	chainDenomMapping := make(map[string]string)
 	providerPairs := make(map[string][]types.CurrencyPair)
 

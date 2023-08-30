@@ -447,7 +447,7 @@ func TestTick_Scenarios(t *testing.T) {
 			var setPriceCount int
 			var broadcastCount int
 			// Create the oracle instance
-			oracleInstance := &Oracle{
+			oracle := &Oracle{
 				jailCache: JailCache{
 					isJailed: test.isJailed,
 				},
@@ -485,7 +485,7 @@ func TestTick_Scenarios(t *testing.T) {
 			}
 
 			// execute the tick function
-			err := oracleInstance.tick(ctx, sdkclient.Context{}, test.blockHeight)
+			err := oracle.tick(ctx, sdkclient.Context{}, test.blockHeight)
 
 			if test.expectedErr != nil {
 				require.Equal(t, test.expectedErr, err)
