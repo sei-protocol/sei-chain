@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"encoding/json"
+
 	sdkclient "github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -285,6 +287,23 @@ func GetComputedPrices(
 	providerPairs map[string][]types.CurrencyPair,
 	deviations map[string]sdk.Dec,
 ) (prices map[string]sdk.Dec, err error) {
+	// only do asset provider map logic is log level is debug
+	if logger.GetLevel() == zerolog.DebugLevel {
+		assetProviderMap := make(map[string][]string)
+		for provider, val := range providerPrices {
+			for asset := range val {
+				if _, ok := assetProviderMap[asset]; !ok {
+					assetProviderMap[asset] = []string{}
+				}
+				assetProviderMap[asset] = append(assetProviderMap[asset], provider)
+			}
+		}
+		assetProviderJSON, err := json.MarshalIndent(assetProviderMap, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		logger.Debug().Msg(fmt.Sprintf("Asset Provider Coverage Map: %s", string(assetProviderJSON)))
+	}
 	// convert any non-USD denominated candles into USD
 	convertedCandles, err := convertCandlesToUSD(
 		logger,
