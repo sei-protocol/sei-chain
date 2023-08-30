@@ -150,6 +150,7 @@ run-rpc-node: build-rpc-node
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
     -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
+    -v $(PROJECT_HOME)/../mmap-iavl:/sei-protocol/mmap-iavl:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
@@ -163,6 +164,7 @@ run-rpc-node-skipbuild: build-rpc-node
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
     -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
+    -v $(PROJECT_HOME)/../mmap-iavl:/sei-protocol/mmap-iavl:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
