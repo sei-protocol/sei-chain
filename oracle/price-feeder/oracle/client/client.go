@@ -45,6 +45,9 @@ type (
 		GRPCEndpoint        string
 		KeyringPassphrase   string
 		BlockHeightEvents   chan int64
+
+		// MockBroadcastTx allows for a basic mock without refactoring this to an interface
+		MockBroadcastTx func(clientCtx client.Context, msgs ...sdk.Msg) (*sdk.TxResponse, error)
 	}
 
 	passReader struct {
@@ -149,6 +152,11 @@ func (r *passReader) Read(p []byte) (n int, err error) {
 func (oc OracleClient) BroadcastTx(
 	clientCtx client.Context,
 	msgs ...sdk.Msg) (*sdk.TxResponse, error) {
+
+	// this allows for basic mocking without refactoring this to an interface (much larger change)
+	if oc.MockBroadcastTx != nil {
+		return oc.MockBroadcastTx(clientCtx, msgs...)
+	}
 
 	startTime := time.Now()
 	defer telemetry.MeasureSince(startTime, "latency", "broadcast")
