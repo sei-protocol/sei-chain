@@ -3,6 +3,9 @@ package oracle
 import (
 	"context"
 	"fmt"
+	sdkclient "github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"testing"
 	"time"
 
@@ -350,6 +353,190 @@ func (ots *OracleTestSuite) TestPrices() {
 	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdt"))
 }
 
+func denomList(names ...string) oracletypes.DenomList {
+	var result oracletypes.DenomList
+	for _, n := range names {
+		result = append(result, oracletypes.Denom{Name: n})
+	}
+	return result
+}
+
+func generateValidatorAddr() string {
+	privKey := ed25519.GenPrivKey()
+	pubKey := privKey.PubKey()
+	valAddress := sdk.ValAddress(pubKey.Address().Bytes())
+	return valAddress.String()
+}
+
+func generateAcctAddr() string {
+	privKey := ed25519.GenPrivKey()
+	pubKey := privKey.PubKey()
+	valAddress := sdk.AccAddress(pubKey.Address().Bytes())
+	return valAddress.String()
+}
+
+func TestTick_Scenarios(t *testing.T) {
+	validatorAddr := generateValidatorAddr()
+	feederAddr := generateAcctAddr()
+
+	tests := map[string]struct {
+		isJailed        bool
+		prices          map[string]sdk.Dec
+		pairs           []config.CurrencyPair
+		whitelist       oracletypes.DenomList
+		expectedVoteMsg *oracletypes.MsgAggregateExchangeRateVote
+		expectedErr     error
+	}{
+		"Jailed should return error": {
+			isJailed:    true,
+			expectedErr: fmt.Errorf("validator %s is jailed", validatorAddr),
+		},
+		"Filtered prices, should broadcast only whitelisted entries": {
+			isJailed: false,
+			pairs: []config.CurrencyPair{
+				{Base: "USDT", ChainDenom: "uusdt", Quote: "USD"},
+				{Base: "BTC", ChainDenom: "ubtc", Quote: "USD"},
+				{Base: "OTHER", ChainDenom: "uother", Quote: "USD"}, // filtered out
+			},
+			prices: map[string]sdk.Dec{
+				"USDT":  sdk.MustNewDecFromStr("1.1"),
+				"BTC":   sdk.MustNewDecFromStr("2.2"),
+				"OTHER": sdk.MustNewDecFromStr("3.3"),
+			},
+			whitelist: denomList("uusdt", "ubtc"),
+			expectedVoteMsg: &oracletypes.MsgAggregateExchangeRateVote{
+				ExchangeRates: "2.200000000000000000ubtc,1.100000000000000000uusdt", // does not include uother
+				Feeder:        feederAddr,
+				Validator:     validatorAddr,
+			},
+		},
+	}
+
+	ctx := context.Background()
+	for testName, test := range tests {
+
+		cdm, _ := createMappingsFromPairs(test.pairs)
+		t.Run(testName, func(t *testing.T) {
+			var setPriceCount int
+			var broadcastCount int
+			// Create the oracle instance
+			oracleInstance := &Oracle{
+				jailCache: JailCache{
+					isJailed: test.isJailed,
+				},
+				mockSetPrices: func(ctx context.Context) error {
+					setPriceCount++
+					return nil
+				},
+				chainDenomMapping: cdm,
+				prices:            test.prices,
+				paramCache: ParamCache{
+					params: &oracletypes.Params{
+						Whitelist: test.whitelist,
+					},
+				},
+				oracleClient: client.OracleClient{
+					OracleAddrString:    feederAddr,
+					ValidatorAddrString: validatorAddr,
+					MockBroadcastTx: func(ctx sdkclient.Context, msgs ...sdk.Msg) (*sdk.TxResponse, error) {
+						// Assert that there's only one message
+						require.Equal(t, 1, len(msgs))
+
+						// Extract the message of type MsgAggregateExchangeRateVote
+						voteMsg, ok := msgs[0].(*oracletypes.MsgAggregateExchangeRateVote)
+						require.True(t, ok, "Expected message type *oracletypes.MsgAggregateExchangeRateVote")
+
+						// Assert the expected values in the voteMsg
+						require.Equal(t, test.expectedVoteMsg.ExchangeRates, voteMsg.ExchangeRates)
+						require.Equal(t, test.expectedVoteMsg.Feeder, voteMsg.Feeder)
+						require.Equal(t, test.expectedVoteMsg.Validator, voteMsg.Validator)
+
+						broadcastCount++
+						return &sdk.TxResponse{TxHash: "0xhash", Code: 200}, nil
+					},
+				},
+			}
+
+			err := oracleInstance.tick(ctx, sdkclient.Context{}, int64(1))
+
+			if test.expectedErr != nil {
+				require.Equal(t, test.expectedErr, err)
+			} else {
+				require.NoError(t, err)
+			}
+			if test.expectedVoteMsg != nil {
+				// ensure functions were actually called
+				require.Equal(t, 1, broadcastCount)
+				require.Equal(t, 1, setPriceCount)
+			}
+		})
+	}
+}
+
+func TestFilterPricesWithDenomList(t *testing.T) {
+	tests := []struct {
+		name           string
+		inputDC        sdk.DecCoins
+		inputDL        oracletypes.DenomList
+		expectedResult sdk.DecCoins
+	}{
+		{
+			name: "Matching denominations",
+			inputDC: sdk.NewDecCoins(
+				sdk.NewDecCoin("usdt", sdk.NewInt(100)),
+				sdk.NewDecCoin("eth", sdk.NewInt(5)),
+			),
+			inputDL: oracletypes.DenomList{
+				{Name: "usdt"},
+			},
+			expectedResult: sdk.NewDecCoins(
+				sdk.NewDecCoin("usdt", sdk.NewInt(100)),
+			),
+		},
+		{
+			name: "No matching denominations",
+			inputDC: sdk.NewDecCoins(
+				sdk.NewDecCoin("btc", sdk.NewInt(1)),
+				sdk.NewDecCoin("eth", sdk.NewInt(10)),
+			),
+			inputDL: oracletypes.DenomList{
+				{Name: "usdt"},
+			},
+			expectedResult: sdk.NewDecCoins(),
+		},
+		{
+			name:           "Empty input DecCoins and DenomList",
+			inputDC:        sdk.DecCoins{},
+			inputDL:        oracletypes.DenomList{},
+			expectedResult: sdk.NewDecCoins(),
+		},
+		{
+			name:    "Empty input DecCoins",
+			inputDC: sdk.DecCoins{},
+			inputDL: oracletypes.DenomList{
+				{Name: "usdt"},
+			},
+			expectedResult: sdk.NewDecCoins(),
+		},
+		{
+			name: "Empty input DenomList",
+			inputDC: sdk.NewDecCoins(
+				sdk.NewDecCoin("usdt", sdk.NewInt(100)),
+				sdk.NewDecCoin("eth", sdk.NewInt(5)),
+			),
+			inputDL:        oracletypes.DenomList{},
+			expectedResult: sdk.NewDecCoins(),
+		},
+	}
+
+	for _, test := range tests {
+		tc := test
+		t.Run(tc.name, func(t *testing.T) {
+			result := filterPricesByDenomList(tc.inputDC, tc.inputDL)
+			require.Equal(t, tc.expectedResult, result)
+		})
+	}
+}
 func TestGenerateExchangeRatesString(t *testing.T) {
 	testCases := map[string]struct {
 		input    sdk.DecCoins

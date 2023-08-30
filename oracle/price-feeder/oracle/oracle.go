@@ -46,6 +46,23 @@ type Oracle struct {
 	paramCache      ParamCache
 	jailCache       JailCache
 	healthchecks    map[string]http.Client
+	mockSetPrices   func(ctx context.Context) error
+}
+
+func createMappingsFromPairs(currencyPairs []config.CurrencyPair) (map[string]string, map[string][]types.CurrencyPair) {
+	chainDenomMapping := make(map[string]string)
+	providerPairs := make(map[string][]types.CurrencyPair)
+
+	for _, pair := range currencyPairs {
+		for _, p := range pair.Providers {
+			providerPairs[p] = append(providerPairs[p], types.CurrencyPair{
+				Base:  pair.Base,
+				Quote: pair.Quote,
+			})
+		}
+		chainDenomMapping[pair.Base] = pair.ChainDenom
+	}
+	return chainDenomMapping, providerPairs
 }
 
 func New(
@@ -57,18 +74,8 @@ func New(
 	endpoints map[string]config.ProviderEndpoint,
 	healthchecksConfig []config.Healthchecks,
 ) *Oracle {
-	providerPairs := make(map[string][]types.CurrencyPair)
-	chainDenomMapping := make(map[string]string)
 
-	for _, pair := range currencyPairs {
-		for _, provider := range pair.Providers {
-			providerPairs[provider] = append(providerPairs[provider], types.CurrencyPair{
-				Base:  pair.Base,
-				Quote: pair.Quote,
-			})
-		}
-		chainDenomMapping[pair.Base] = pair.ChainDenom
-	}
+	chainDenomMapping, providerPairs := createMappingsFromPairs(currencyPairs)
 
 	healthchecks := make(map[string]http.Client)
 	for _, healthcheck := range healthchecksConfig {
@@ -178,6 +185,9 @@ func (o *Oracle) GetPrices() sdk.DecCoins {
 // with VWAP. Warns the user of any missing prices, and filters out any faulty
 // providers which do not report prices or candles within 2𝜎 of the others.
 func (o *Oracle) SetPrices(ctx context.Context) error {
+	if o.mockSetPrices != nil {
+		return o.mockSetPrices(ctx)
+	}
 	g := new(errgroup.Group)
 	mtx := new(sync.Mutex)
 	providerPrices := make(provider.AggregatedProviderPrices)
@@ -516,6 +526,20 @@ func (o *Oracle) checkWhitelist(params oracletypes.Params) {
 	}
 }
 
+// filterPricesByDenomList takes a list of DecCoins and filters out any
+// coins that are not in the provided DenomList.
+func filterPricesByDenomList(dc sdk.DecCoins, dl oracletypes.DenomList) sdk.DecCoins {
+	result := sdk.NewDecCoins()
+	for _, c := range dc {
+		for _, d := range dl {
+			if d.Name == c.Denom {
+				result = result.Add(c)
+			}
+		}
+	}
+	return result
+}
+
 func (o *Oracle) tick(
 	ctx context.Context,
 	clientCtx sdkclient.Context,
@@ -567,7 +591,11 @@ func (o *Oracle) tick(
 		return err
 	}
 
-	exchangeRatesStr := GenerateExchangeRatesString(o.GetPrices())
+	prices := o.GetPrices()
+
+	// filter for whitelisted denominations so that extra oracle prices are not penalized
+	filteredPrices := filterPricesByDenomList(prices, oracleParams.Whitelist)
+	exchangeRatesStr := GenerateExchangeRatesString(filteredPrices)
 
 	// otherwise, we're in the next voting period and thus we vote
 	voteMsg := &oracletypes.MsgAggregateExchangeRateVote{
@@ -575,6 +603,10 @@ func (o *Oracle) tick(
 		Feeder:        o.oracleClient.OracleAddrString,
 		Validator:     valAddr.String(),
 	}
+
+	o.logger.Debug().
+		Str("exchange_rates", GenerateExchangeRatesString(prices)).
+		Msg("pre-filtered prices")
 
 	o.logger.Info().
 		Str("exchange_rates", voteMsg.ExchangeRates).
