@@ -3,12 +3,11 @@ package oracle
 import (
 	"context"
 	"fmt"
-	sdkclient "github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"testing"
 	"time"
 
+	sdkclient "github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
@@ -18,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/client"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 type mockProvider struct {
@@ -387,7 +387,7 @@ func TestTick_Scenarios(t *testing.T) {
 		blockHeight     int64
 		expectedErr     error
 	}{
-		"Filtered prices, should broadcst all entries": {
+		"Filtered prices, should broadcast all entries, none filtered": {
 			isJailed:    false,
 			blockHeight: 1,
 			pairs: []config.CurrencyPair{
@@ -484,6 +484,7 @@ func TestTick_Scenarios(t *testing.T) {
 				},
 			}
 
+			// execute the tick function
 			err := oracleInstance.tick(ctx, sdkclient.Context{}, test.blockHeight)
 
 			if test.expectedErr != nil {
