@@ -364,18 +364,17 @@ func denomList(names ...string) oracletypes.DenomList {
 func generateValidatorAddr() string {
 	privKey := ed25519.GenPrivKey()
 	pubKey := privKey.PubKey()
-	valAddress := sdk.ValAddress(pubKey.Address().Bytes())
-	return valAddress.String()
+	return sdk.ValAddress(pubKey.Address().Bytes()).String()
 }
 
 func generateAcctAddr() string {
 	privKey := ed25519.GenPrivKey()
 	pubKey := privKey.PubKey()
-	valAddress := sdk.AccAddress(pubKey.Address().Bytes())
-	return valAddress.String()
+	return sdk.AccAddress(pubKey.Address().Bytes()).String()
 }
 
 func TestTick_Scenarios(t *testing.T) {
+	// generate address so that Bech32 address is valid
 	validatorAddr := generateValidatorAddr()
 	feederAddr := generateAcctAddr()
 
@@ -385,14 +384,32 @@ func TestTick_Scenarios(t *testing.T) {
 		pairs           []config.CurrencyPair
 		whitelist       oracletypes.DenomList
 		expectedVoteMsg *oracletypes.MsgAggregateExchangeRateVote
+		blockHeight     int64
 		expectedErr     error
 	}{
-		"Jailed should return error": {
-			isJailed:    true,
-			expectedErr: fmt.Errorf("validator %s is jailed", validatorAddr),
+		"Filtered prices, should broadcst all entries": {
+			isJailed:    false,
+			blockHeight: 1,
+			pairs: []config.CurrencyPair{
+				{Base: "USDT", ChainDenom: "uusdt", Quote: "USD"},
+				{Base: "BTC", ChainDenom: "ubtc", Quote: "USD"},
+				{Base: "ETH", ChainDenom: "ueth", Quote: "USD"},
+			},
+			prices: map[string]sdk.Dec{
+				"USDT": sdk.MustNewDecFromStr("1.1"),
+				"BTC":  sdk.MustNewDecFromStr("2.2"),
+				"ETH":  sdk.MustNewDecFromStr("3.3"),
+			},
+			whitelist: denomList("uusdt", "ubtc", "ueth"),
+			expectedVoteMsg: &oracletypes.MsgAggregateExchangeRateVote{
+				ExchangeRates: "2.200000000000000000ubtc,3.300000000000000000ueth,1.100000000000000000uusdt",
+				Feeder:        feederAddr,
+				Validator:     validatorAddr,
+			},
 		},
 		"Filtered prices, should broadcast only whitelisted entries": {
-			isJailed: false,
+			isJailed:    false,
+			blockHeight: 1,
 			pairs: []config.CurrencyPair{
 				{Base: "USDT", ChainDenom: "uusdt", Quote: "USD"},
 				{Base: "BTC", ChainDenom: "ubtc", Quote: "USD"},
@@ -410,11 +427,21 @@ func TestTick_Scenarios(t *testing.T) {
 				Validator:     validatorAddr,
 			},
 		},
+		"Jailed should return error": {
+			isJailed:    true,
+			blockHeight: 1,
+			expectedErr: fmt.Errorf("validator %s is jailed", validatorAddr),
+		},
+		"Zero block height should return error": {
+			isJailed:    false,
+			blockHeight: 0,
+			expectedErr: fmt.Errorf("expected positive block height"),
+		},
 	}
 
 	ctx := context.Background()
-	for testName, test := range tests {
-
+	for testName, tc := range tests {
+		test := tc
 		cdm, _ := createMappingsFromPairs(test.pairs)
 		t.Run(testName, func(t *testing.T) {
 			var setPriceCount int
@@ -457,7 +484,7 @@ func TestTick_Scenarios(t *testing.T) {
 				},
 			}
 
-			err := oracleInstance.tick(ctx, sdkclient.Context{}, int64(1))
+			err := oracleInstance.tick(ctx, sdkclient.Context{}, test.blockHeight)
 
 			if test.expectedErr != nil {
 				require.Equal(t, test.expectedErr, err)
