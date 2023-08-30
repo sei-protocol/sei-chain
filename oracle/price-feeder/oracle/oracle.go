@@ -51,7 +51,7 @@ type Oracle struct {
 }
 
 // createMappingsFromPairs is a helper function to initialize maps from currencyPairs
-// this is used to by test cases to initialize the oracle lcient
+// this is used to by test cases to initialize the oracle client
 func createMappingsFromPairs(currencyPairs []config.CurrencyPair) (
 	map[string]string,
 	map[string][]types.CurrencyPair) {
