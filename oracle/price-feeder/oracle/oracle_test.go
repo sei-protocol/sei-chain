@@ -373,23 +373,31 @@ func generateAcctAddr() string {
 	return sdk.AccAddress(pubKey.Address().Bytes()).String()
 }
 
-func TestTick_Scenarios(t *testing.T) {
+func TestTickScenarios(t *testing.T) {
 	// generate address so that Bech32 address is valid
 	validatorAddr := generateValidatorAddr()
 	feederAddr := generateAcctAddr()
 
-	tests := map[string]struct {
-		isJailed        bool
-		prices          map[string]sdk.Dec
-		pairs           []config.CurrencyPair
-		whitelist       oracletypes.DenomList
+	tests := []struct {
+		name               string
+		isJailed           bool
+		prices             map[string]sdk.Dec
+		pairs              []config.CurrencyPair
+		whitelist          oracletypes.DenomList
+		blockHeight        int64
+		previousVotePeriod float64
+		votePeriod         uint64
+
+		// expectations
 		expectedVoteMsg *oracletypes.MsgAggregateExchangeRateVote
-		blockHeight     int64
 		expectedErr     error
 	}{
-		"Filtered prices, should broadcast all entries, none filtered": {
-			isJailed:    false,
-			blockHeight: 1,
+		{
+			name:               "Filtered prices, should broadcast all entries, none filtered",
+			isJailed:           false,
+			blockHeight:        1,
+			previousVotePeriod: 0,
+			votePeriod:         1,
 			pairs: []config.CurrencyPair{
 				{Base: "USDT", ChainDenom: "uusdt", Quote: "USD"},
 				{Base: "BTC", ChainDenom: "ubtc", Quote: "USD"},
@@ -407,9 +415,12 @@ func TestTick_Scenarios(t *testing.T) {
 				Validator:     validatorAddr,
 			},
 		},
-		"Filtered prices, should broadcast only whitelisted entries": {
-			isJailed:    false,
-			blockHeight: 1,
+		{
+			name:               "Filtered prices, should broadcast only whitelisted entries",
+			isJailed:           false,
+			blockHeight:        1,
+			previousVotePeriod: 0,
+			votePeriod:         1,
 			pairs: []config.CurrencyPair{
 				{Base: "USDT", ChainDenom: "uusdt", Quote: "USD"},
 				{Base: "BTC", ChainDenom: "ubtc", Quote: "USD"},
@@ -427,12 +438,23 @@ func TestTick_Scenarios(t *testing.T) {
 				Validator:     validatorAddr,
 			},
 		},
-		"Jailed should return error": {
+		{
+			name:               "Same voting period should avoid broadcasting without error",
+			isJailed:           false,
+			blockHeight:        1,
+			previousVotePeriod: 1,
+			votePeriod:         2,
+			expectedErr:        nil,
+			expectedVoteMsg:    nil,
+		},
+		{
+			name:        "Jailed should return error",
 			isJailed:    true,
 			blockHeight: 1,
 			expectedErr: fmt.Errorf("validator %s is jailed", validatorAddr),
 		},
-		"Zero block height should return error": {
+		{
+			name:        "Zero block height should return error",
 			isJailed:    false,
 			blockHeight: 0,
 			expectedErr: fmt.Errorf("expected positive block height"),
@@ -440,10 +462,10 @@ func TestTick_Scenarios(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	for testName, tc := range tests {
+	for _, tc := range tests {
 		test := tc
 		cdm, _ := createMappingsFromPairs(test.pairs)
-		t.Run(testName, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			var setPriceCount int
 			var broadcastCount int
 			// Create the oracle instance
@@ -455,11 +477,13 @@ func TestTick_Scenarios(t *testing.T) {
 					setPriceCount++
 					return nil
 				},
-				chainDenomMapping: cdm,
-				prices:            test.prices,
+				previousVotePeriod: test.previousVotePeriod,
+				chainDenomMapping:  cdm,
+				prices:             test.prices,
 				paramCache: ParamCache{
 					params: &oracletypes.Params{
-						Whitelist: test.whitelist,
+						Whitelist:  test.whitelist,
+						VotePeriod: test.votePeriod,
 					},
 				},
 				oracleClient: client.OracleClient{
@@ -474,9 +498,9 @@ func TestTick_Scenarios(t *testing.T) {
 						require.True(t, ok, "Expected message type *oracletypes.MsgAggregateExchangeRateVote")
 
 						// Assert the expected values in the voteMsg
-						require.Equal(t, test.expectedVoteMsg.ExchangeRates, voteMsg.ExchangeRates)
-						require.Equal(t, test.expectedVoteMsg.Feeder, voteMsg.Feeder)
-						require.Equal(t, test.expectedVoteMsg.Validator, voteMsg.Validator)
+						require.Equal(t, test.expectedVoteMsg.ExchangeRates, voteMsg.ExchangeRates, test.name)
+						require.Equal(t, test.expectedVoteMsg.Feeder, voteMsg.Feeder, test.name)
+						require.Equal(t, test.expectedVoteMsg.Validator, voteMsg.Validator, test.name)
 
 						broadcastCount++
 						return &sdk.TxResponse{TxHash: "0xhash", Code: 200}, nil
@@ -488,14 +512,18 @@ func TestTick_Scenarios(t *testing.T) {
 			err := oracle.tick(ctx, sdkclient.Context{}, test.blockHeight)
 
 			if test.expectedErr != nil {
-				require.Equal(t, test.expectedErr, err)
+				require.Equal(t, test.expectedErr, err, test.name)
 			} else {
-				require.NoError(t, err)
+				require.NoError(t, err, test.name)
 			}
 			if test.expectedVoteMsg != nil {
 				// ensure functions were actually called
-				require.Equal(t, 1, broadcastCount)
-				require.Equal(t, 1, setPriceCount)
+				require.Equal(t, 1, broadcastCount, test.name)
+				require.Equal(t, 1, setPriceCount, test.name)
+			}
+			if test.expectedVoteMsg == nil {
+				// should not call broadcast
+				require.Equal(t, 0, broadcastCount, test.name)
 			}
 		})
 	}

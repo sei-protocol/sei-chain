@@ -533,10 +533,10 @@ func (o *Oracle) checkWhitelist(params oracletypes.Params) {
 
 // filterPricesByDenomList takes a list of DecCoins and filters out any
 // coins that are not in the provided DenomList.
-func filterPricesByDenomList(dc sdk.DecCoins, dl oracletypes.DenomList) sdk.DecCoins {
+func filterPricesByDenomList(coinPrices sdk.DecCoins, denomList oracletypes.DenomList) sdk.DecCoins {
 	result := sdk.NewDecCoins()
-	for _, c := range dc {
-		for _, d := range dl {
+	for _, c := range coinPrices {
+		for _, d := range denomList {
 			if d.Name == c.Denom {
 				result = result.Add(c)
 			}
