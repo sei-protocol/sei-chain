@@ -429,9 +429,3 @@ max-open-connections = 3
 
 # Instrumentation namespace
 namespace = "tendermint"
-
-[memiavl]
-
-enable = true
-snapshot-interval = 500
-zero-copy = false

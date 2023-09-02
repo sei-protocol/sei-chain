@@ -190,7 +190,7 @@ enable-unsafe-cors = true
 
 # snapshot-interval specifies the block interval at which local state sync snapshots are
 # taken (0 to disable). Must be a multiple of pruning-keep-every.
-snapshot-interval = 0
+snapshot-interval = 200
 
 # snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
 snapshot-keep-recent = 3
@@ -204,3 +204,27 @@ query_gas_limit = 300000
 # This is the number of wasm vm instances we keep cached in memory for speed-up
 # Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
 lru_size = 0
+
+[memiavl]
+
+# Enable defines if the memiavl should be enabled.
+enable = true
+
+# ZeroCopy defines if the memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
+# the zero-copied slices must not be retained beyond current block's execution.
+# the sdk address cache will be disabled if zero-copy is enabled.
+zero-copy = false
+
+# AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
+# performance, -1 means synchronous commit.
+async-commit-buffer = 0
+
+# SnapshotKeepRecent defines what many old snapshots (excluding the latest one) to keep after new snapshots are
+# taken, defaults to 1 to make sure ibc relayers work.
+snapshot-keep-recent = 2
+
+# SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 1000.
+snapshot-interval = 500
+
+# CacheSize defines the size of the cache for each memiavl store, default to 1000.
+cache-size = 1000
