@@ -224,7 +224,7 @@ async-commit-buffer = 0
 snapshot-keep-recent = 2
 
 # SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 1000.
-snapshot-interval = 500
+snapshot-interval = 200
 
 # CacheSize defines the size of the cache for each memiavl store, default to 1000.
 cache-size = 1000
