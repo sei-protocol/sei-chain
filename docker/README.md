@@ -23,7 +23,7 @@ Detailed instruction: see the `Makefile` in the root of [the repo](https://githu
 **To start a single local node (Not Recommended)**
 
 ```sh
-make build-docker-node && make run-docker-node
+make build-docker-node && make run-local-node
 ```
 
 **To start 4 node cluster**
