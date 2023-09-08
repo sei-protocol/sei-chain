@@ -93,4 +93,4 @@ go mod edit -replace github.com/tendermint/tendermint=../sei-tendermint
 # Build with Us!
 If you are interested in building with Sei Network:
 Email us at team@seinetwork.io
-DM us on Twitter https://twitter.com/SeiNetwor
+DM us on Twitter https://twitter.com/SeiNetwork
