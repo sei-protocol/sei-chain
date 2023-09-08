@@ -41,7 +41,7 @@ All the logs and genesis files will be generated under the temporary build/gener
 
 ```sh
 # To monitor logs after cluster is started
-tail -f build/generated/seid-0.log
+tail -f build/generated/logs/seid-0.log
 ```
 
 **To ssh into a single node**
