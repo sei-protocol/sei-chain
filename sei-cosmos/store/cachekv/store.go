@@ -176,6 +176,8 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	defer store.mtx.Unlock()
 	// TODO: (occ) Note that for iterators, we'll need to have special handling (discussed in RFC) to ensure proper validation
 
+	// TODO: (occ) Note that for iterators, we'll need to have special handling (discussed in RFC) to ensure proper validation
+
 	var parent, cache types.Iterator
 
 	if ascending {
