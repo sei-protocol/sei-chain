@@ -322,11 +322,26 @@ func GetComputedPrices(
 				assetProviderMap[asset] = append(assetProviderMap[asset], provider)
 			}
 		}
-		assetProviderJSON, err := json.MarshalIndent(assetProviderMap, "", "  ")
+		assetProviderJSON, err := json.Marshal(assetProviderMap)
 		if err != nil {
 			return nil, err
 		}
 		logger.Debug().Msg(fmt.Sprintf("Asset Provider Coverage Map: %s", string(assetProviderJSON)))
+
+		candleProviderMap := make(map[string][]string)
+		for provider, val := range providerCandles {
+			for asset := range val {
+				if _, ok := candleProviderMap[asset]; !ok {
+					candleProviderMap[asset] = []string{}
+				}
+				candleProviderMap[asset] = append(candleProviderMap[asset], provider)
+			}
+		}
+		candleProviderJSON, err := json.Marshal(candleProviderMap)
+		if err != nil {
+			return nil, err
+		}
+		logger.Debug().Msg(fmt.Sprintf("Candle Provider Coverage Map: %s", string(candleProviderJSON)))
 	}
 	// convert any non-USD denominated candles into USD
 	convertedCandles, err := convertCandlesToUSD(
