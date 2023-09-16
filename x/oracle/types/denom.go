@@ -20,6 +20,15 @@ func (d Denom) Equal(d1 *Denom) bool {
 // DenomList is array of Denom
 type DenomList []Denom
 
+func (dl DenomList) Contains(denom string) bool {
+	for _, d := range dl {
+		if d.Name == denom {
+			return true
+		}
+	}
+	return false
+}
+
 // String implements fmt.Stringer interface
 func (dl DenomList) String() (out string) {
 	for _, d := range dl {

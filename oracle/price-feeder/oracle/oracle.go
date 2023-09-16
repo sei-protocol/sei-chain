@@ -189,7 +189,7 @@ func (o *Oracle) GetPrices() sdk.DecCoins {
 // to determine prices. If candles are not available, uses the most recent prices
 // with VWAP. Warns the user of any missing prices, and filters out any faulty
 // providers which do not report prices or candles within 2𝜎 of the others.
-func (o *Oracle) SetPrices(ctx context.Context) error {
+func (o *Oracle) SetPrices(ctx context.Context, whitelist oracletypes.DenomList) error {
 	if o.mockSetPrices != nil {
 		return o.mockSetPrices(ctx)
 	}
@@ -210,7 +210,9 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 
 		for _, pair := range currencyPairs {
 			if _, ok := requiredRates[pair.Base]; !ok {
-				requiredRates[pair.Base] = struct{}{}
+				if whitelist.Contains(o.chainDenomMapping[pair.Base]) {
+					requiredRates[pair.Base] = struct{}{}
+				}
 			}
 		}
 
@@ -277,10 +279,6 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: make this more lenient to allow assigning prices even when unable to retrieve all
-	if len(computedPrices) != len(requiredRates) {
-		return fmt.Errorf("unable to get prices for all exchange candles")
-	}
 	for base := range requiredRates {
 		if _, ok := computedPrices[base]; !ok {
 			return fmt.Errorf("reported prices were not equal to required rates, missed: %s", base)
@@ -569,7 +567,7 @@ func (o *Oracle) tick(
 		return err
 	}
 
-	if err = o.SetPrices(ctx); err != nil {
+	if err = o.SetPrices(ctx, oracleParams.Whitelist); err != nil {
 		return err
 	}
 	o.lastPriceSyncTS = time.Now()

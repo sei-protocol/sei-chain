@@ -146,6 +146,15 @@ func (ots *OracleTestSuite) TestPrices() {
 	// initial prices should be empty (not set)
 	ots.Require().Empty(ots.oracle.GetPrices())
 
+	var denoms []string
+	for _, v := range ots.oracle.chainDenomMapping {
+		// we'll make ubxt a non-whitelisted denom
+		if v != "uxbt" {
+			denoms = append(denoms, v)
+		}
+	}
+	whitelist := denomList(denoms...)
+
 	// Use a mock provider with exchange rates that are not specified in
 	// configuration.
 	ots.oracle.priceProviders = map[string]provider.Provider{
@@ -167,7 +176,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
-	ots.Require().Error(ots.oracle.SetPrices(context.TODO()))
+	ots.Require().Error(ots.oracle.SetPrices(context.TODO(), whitelist))
 	ots.Require().Empty(ots.oracle.GetPrices())
 
 	// use a mock provider without a conversion rate for these stablecoins
@@ -190,7 +199,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
-	ots.Require().Error(ots.oracle.SetPrices(context.TODO()))
+	ots.Require().Error(ots.oracle.SetPrices(context.TODO(), whitelist))
 
 	prices := ots.oracle.GetPrices()
 	ots.Require().Len(prices, 0)
@@ -239,7 +248,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
-	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
+	ots.Require().NoError(ots.oracle.SetPrices(context.TODO(), whitelist))
 
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 4)
@@ -292,7 +301,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
-	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
+	ots.Require().NoError(ots.oracle.SetPrices(context.TODO(), whitelist))
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 4)
 	ots.Require().Equal(sdk.MustNewDecFromStr("3.70"), prices.AmountOf("uumee"))
@@ -344,11 +353,55 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
-	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
+	ots.Require().NoError(ots.oracle.SetPrices(context.TODO(), whitelist))
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 4)
 	ots.Require().Equal(sdk.MustNewDecFromStr("3.71"), prices.AmountOf("uumee"))
 	ots.Require().Equal(sdk.MustNewDecFromStr("3.717"), prices.AmountOf("uxbt"))
+	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdc"))
+	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdt"))
+
+	// a non-whitelisted entry fails (ubxt), but the rest succeed
+	ots.oracle.priceProviders = map[string]provider.Provider{
+		config.ProviderBinance: failingProvider{
+			prices: map[string]provider.TickerPrice{
+				"UMEEUSDC": {
+					Price:  sdk.MustNewDecFromStr("3.72"),
+					Volume: sdk.MustNewDecFromStr("2396974.02000000"),
+				},
+			},
+		},
+		config.ProviderKraken: mockProvider{
+			prices: map[string]provider.TickerPrice{
+				"UMEEUSDC": {
+					Price:  sdk.MustNewDecFromStr("3.71"),
+					Volume: sdk.MustNewDecFromStr("1994674.34000000"),
+				},
+			},
+		},
+		config.ProviderHuobi: mockProvider{
+			prices: map[string]provider.TickerPrice{
+				"USDCUSD": {
+					Price:  sdk.MustNewDecFromStr("1"),
+					Volume: sdk.MustNewDecFromStr("2396974.34000000"),
+				},
+			},
+		},
+		config.ProviderCoinbase: mockProvider{
+			prices: map[string]provider.TickerPrice{
+				"USDTUSD": {
+					Price:  sdk.MustNewDecFromStr("1"),
+					Volume: sdk.MustNewDecFromStr("1994674.34000000"),
+				},
+			},
+		},
+		config.ProviderOkx: failingProvider{},
+	}
+
+	ots.Require().NoError(ots.oracle.SetPrices(context.TODO(), whitelist))
+	prices = ots.oracle.GetPrices()
+	ots.Require().Len(prices, 3)
+	ots.Require().Equal(sdk.MustNewDecFromStr("3.71"), prices.AmountOf("uumee"))
 	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdc"))
 	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdt"))
 }
