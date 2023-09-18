@@ -210,7 +210,9 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 
 		for _, pair := range currencyPairs {
 			if _, ok := requiredRates[pair.Base]; !ok {
-				requiredRates[pair.Base] = struct{}{}
+				if o.paramCache.params.Whitelist.Contains(o.chainDenomMapping[pair.Base]) {
+					requiredRates[pair.Base] = struct{}{}
+				}
 			}
 		}
 
@@ -277,10 +279,6 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: make this more lenient to allow assigning prices even when unable to retrieve all
-	if len(computedPrices) != len(requiredRates) {
-		return fmt.Errorf("unable to get prices for all exchange candles")
-	}
 	for base := range requiredRates {
 		if _, ok := computedPrices[base]; !ok {
 			return fmt.Errorf("reported prices were not equal to required rates, missed: %s", base)
