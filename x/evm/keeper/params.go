@@ -5,6 +5,10 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
+	k.Paramstore.SetParamSet(ctx, &params)
+}
+
 func (k *Keeper) GetParams(ctx sdk.Context) types.Params {
 	params := types.Params{}
 	k.Paramstore.GetParamSet(ctx, &params)

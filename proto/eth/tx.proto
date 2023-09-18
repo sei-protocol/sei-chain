@@ -133,9 +133,16 @@ string blob_fee_cap = 10 [
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
 ];
 repeated bytes blob_hashes = 11;
-bytes v = 12;
-bytes r = 13;
-bytes s = 14;
+BlobTxSidecar sidecar = 12;
+bytes v = 13;
+bytes r = 14;
+bytes s = 15;
+}
+
+message BlobTxSidecar {
+    repeated bytes blobs = 1;
+    repeated bytes commitments = 2;
+    repeated bytes proofs = 3;
 }
 
 message ExtensionOptionsEthereumTx {

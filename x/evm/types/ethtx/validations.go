@@ -1,20 +1,13 @@
 package ethtx
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 )
 
-func IsEmptyHash(hash string) bool {
-	return bytes.Equal(common.HexToHash(hash).Bytes(), common.Hash{}.Bytes())
-}
-
-func IsZeroAddress(address string) bool {
-	return bytes.Equal(common.HexToAddress(address).Bytes(), common.Address{}.Bytes())
-}
-
+// address is validate if it is a hex string (case insensitive)
+// of length 40. It may optionally have a '0x' or '0X' prefix.
 func ValidateAddress(address string) error {
 	if !common.IsHexAddress(address) {
 		return fmt.Errorf(
@@ -23,14 +16,4 @@ func ValidateAddress(address string) error {
 		)
 	}
 	return nil
-}
-
-func ValidateNonZeroAddress(address string) error {
-	if IsZeroAddress(address) {
-		return fmt.Errorf(
-			"address '%s' must not be zero",
-			address,
-		)
-	}
-	return ValidateAddress(address)
 }

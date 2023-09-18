@@ -19,30 +19,12 @@ func NewAccessListTx(tx *ethtypes.Transaction) (*AccessListTx, error) {
 	}
 
 	v, r, s := tx.RawSignatureValues()
-	if to := tx.To(); to != nil {
-		txData.To = to.Hex()
-	}
 
-	if tx.Value() != nil {
-		amountInt, err := SafeNewIntFromBigInt(tx.Value())
-		if err != nil {
-			return nil, err
-		}
-		txData.Amount = &amountInt
-	}
-
-	if tx.GasPrice() != nil {
-		gasPriceInt, err := SafeNewIntFromBigInt(tx.GasPrice())
-		if err != nil {
-			return nil, err
-		}
-		txData.GasPrice = &gasPriceInt
-	}
-
-	if tx.AccessList() != nil {
-		al := tx.AccessList()
-		txData.Accesses = NewAccessList(&al)
-	}
+	SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
+	MustSetConvertIfPresent(tx.Value(), SafeNewIntFromBigInt, txData.SetAmount)
+	MustSetConvertIfPresent(tx.GasPrice(), SafeNewIntFromBigInt, txData.SetGasPrice)
+	al := tx.AccessList()
+	SetConvertIfPresent(&al, NewAccessList, txData.SetAccesses)
 
 	txData.SetSignatureValues(tx.ChainId(), v, r, s)
 	return txData, nil

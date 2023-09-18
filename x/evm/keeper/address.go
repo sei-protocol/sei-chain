@@ -12,13 +12,15 @@ func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, e
 	store.Set(types.SeiAddressToEVMAddressKey(seiAddress), evmAddress[:])
 }
 
-func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (string, bool) {
+func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (common.Address, bool) {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.SeiAddressToEVMAddressKey(seiAddress))
+	addr := common.Address{}
 	if bz == nil {
-		return "", false
+		return addr, false
 	}
-	return string(bz), true
+	copy(addr[:], bz)
+	return addr, true
 }
 
 func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (sdk.AccAddress, bool) {

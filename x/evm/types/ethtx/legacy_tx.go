@@ -17,25 +17,9 @@ func NewLegacyTx(tx *ethtypes.Transaction) (*LegacyTx, error) {
 	}
 
 	v, r, s := tx.RawSignatureValues()
-	if to := tx.To(); to != nil {
-		txData.To = to.Hex()
-	}
-
-	if tx.Value() != nil {
-		amountInt, err := SafeNewIntFromBigInt(tx.Value())
-		if err != nil {
-			return nil, err
-		}
-		txData.Amount = &amountInt
-	}
-
-	if tx.GasPrice() != nil {
-		gasPriceInt, err := SafeNewIntFromBigInt(tx.GasPrice())
-		if err != nil {
-			return nil, err
-		}
-		txData.GasPrice = &gasPriceInt
-	}
+	SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
+	MustSetConvertIfPresent(tx.Value(), SafeNewIntFromBigInt, txData.SetAmount)
+	MustSetConvertIfPresent(tx.GasPrice(), SafeNewIntFromBigInt, txData.SetGasPrice)
 
 	txData.SetSignatureValues(tx.ChainId(), v, r, s)
 	return txData, nil
@@ -59,9 +43,18 @@ func (tx *LegacyTx) Copy() TxData {
 	}
 }
 
+// copied from go-etherem/core/types:deriveChainId
 func (tx *LegacyTx) GetChainID() *big.Int {
 	v, _, _ := tx.GetRawSignatureValues()
-	return DeriveChainID(v)
+	if v.BitLen() <= 64 {
+		v := v.Uint64()
+		if v == 27 || v == 28 {
+			return new(big.Int)
+		}
+		return new(big.Int).SetUint64((v - 35) / 2)
+	}
+	v = new(big.Int).Sub(v, big.NewInt(35))
+	return v.Div(v, big.NewInt(2))
 }
 
 func (tx *LegacyTx) GetAccessList() ethtypes.AccessList {
@@ -187,27 +180,22 @@ func (tx LegacyTx) Validate() error {
 	return nil
 }
 
-// Fee returns gasprice * gaslimit.
 func (tx LegacyTx) Fee() *big.Int {
 	return fee(tx.GetGasPrice(), tx.GetGas())
 }
 
-// Cost returns amount + gasprice * gaslimit.
 func (tx LegacyTx) Cost() *big.Int {
 	return cost(tx.Fee(), tx.GetValue())
 }
 
-// EffectiveGasPrice is the same as GasPrice for LegacyTx
 func (tx LegacyTx) EffectiveGasPrice(_ *big.Int) *big.Int {
 	return tx.GetGasPrice()
 }
 
-// EffectiveFee is the same as Fee for LegacyTx
 func (tx LegacyTx) EffectiveFee(_ *big.Int) *big.Int {
 	return tx.Fee()
 }
 
-// EffectiveCost is the same as Cost for LegacyTx
 func (tx LegacyTx) EffectiveCost(_ *big.Int) *big.Int {
 	return tx.Cost()
 }

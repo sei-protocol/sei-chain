@@ -8,6 +8,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
 	proto "github.com/gogo/protobuf/proto"
@@ -21,7 +22,12 @@ var (
 )
 
 func init() {
+	cryptocodec.RegisterCrypto(amino)
 	amino.Seal()
+}
+
+func GetAmino() *codec.LegacyAmino {
+	return amino
 }
 
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
