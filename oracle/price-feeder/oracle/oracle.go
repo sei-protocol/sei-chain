@@ -3,6 +3,7 @@ package oracle
 import (
 	"context"
 	"fmt"
+	"github.com/armon/go-metrics"
 	"math"
 	"net/http"
 	"sync"
@@ -226,20 +227,20 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 				defer close(ch)
 				prices, err = priceProvider.GetTickerPrices(currencyPairs...)
 				if err != nil {
-					IncrProviderFailureMetric(ProviderFailureMetricLabels{
-						Reason:   FailureReasonError,
-						Type:     PriceTypeTicker,
-						Provider: providerName,
+					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+						{Name: "type", Value: "ticker"},
+						{Name: "reason", Value: "error"},
+						{Name: "provider", Value: providerName},
 					})
 					errCh <- err
 				}
 
 				candles, err = priceProvider.GetCandlePrices(currencyPairs...)
 				if err != nil {
-					IncrProviderFailureMetric(ProviderFailureMetricLabels{
-						Reason:   FailureReasonError,
-						Type:     PriceTypeCandle,
-						Provider: providerName,
+					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+						{Name: "type", Value: "candle"},
+						{Name: "reason", Value: "error"},
+						{Name: "provider", Value: providerName},
 					})
 					errCh <- err
 				}
@@ -251,9 +252,9 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 			case err := <-errCh:
 				return err
 			case <-time.After(o.providerTimeout):
-				IncrProviderFailureMetric(ProviderFailureMetricLabels{
-					Reason:   FailureReasonTimeout,
-					Provider: providerName,
+				telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+					{Name: "reason", Value: "timeout"},
+					{Name: "provider", Value: providerName},
 				})
 				return fmt.Errorf("provider timed out: %s", providerName)
 			}
