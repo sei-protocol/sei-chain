@@ -3,7 +3,6 @@ package oracle
 import (
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
 )
@@ -59,7 +58,12 @@ func FilterTickerDeviations(
 				}
 				p[base] = tp
 			} else {
-				telemetry.IncrCounter(1, "failure", "provider", "type", "ticker")
+				IncrProviderFailureMetric(ProviderFailureMetricLabels{
+					Reason:   FailureReasonDeviation,
+					Type:     PriceTypeTicker,
+					Base:     base,
+					Provider: providerName,
+				})
 				logger.Warn().
 					Str("base", base).
 					Str("provider", providerName).
@@ -133,7 +137,12 @@ func FilterCandleDeviations(
 				}
 				p[base] = candles[providerName][base]
 			} else {
-				telemetry.IncrCounter(1, "failure", "provider", "type", "candle")
+				IncrProviderFailureMetric(ProviderFailureMetricLabels{
+					Reason:   FailureReasonDeviation,
+					Type:     PriceTypeCandle,
+					Base:     base,
+					Provider: providerName,
+				})
 				logger.Warn().
 					Str("base", base).
 					Str("provider", providerName).

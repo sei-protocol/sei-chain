@@ -226,13 +226,21 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 				defer close(ch)
 				prices, err = priceProvider.GetTickerPrices(currencyPairs...)
 				if err != nil {
-					telemetry.IncrCounter(1, "failure", "provider", "type", "ticker")
+					IncrProviderFailureMetric(ProviderFailureMetricLabels{
+						Reason:   FailureReasonError,
+						Type:     PriceTypeTicker,
+						Provider: providerName,
+					})
 					errCh <- err
 				}
 
 				candles, err = priceProvider.GetCandlePrices(currencyPairs...)
 				if err != nil {
-					telemetry.IncrCounter(1, "failure", "provider", "type", "candle")
+					IncrProviderFailureMetric(ProviderFailureMetricLabels{
+						Reason:   FailureReasonError,
+						Type:     PriceTypeCandle,
+						Provider: providerName,
+					})
 					errCh <- err
 				}
 			}()
@@ -243,7 +251,10 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 			case err := <-errCh:
 				return err
 			case <-time.After(o.providerTimeout):
-				telemetry.IncrCounter(1, "failure", "provider", "type", "timeout")
+				IncrProviderFailureMetric(ProviderFailureMetricLabels{
+					Reason:   FailureReasonTimeout,
+					Provider: providerName,
+				})
 				return fmt.Errorf("provider timed out: %s", providerName)
 			}
 
