@@ -79,6 +79,7 @@ type OracleTestSuite struct {
 // SetupSuite executes once before the suite's tests are executed.
 func (ots *OracleTestSuite) SetupSuite() {
 	ots.oracle = New(
+		// set to debug to hit the debug-only code paths
 		zerolog.Nop().Level(zerolog.DebugLevel),
 		client.OracleClient{},
 		[]config.CurrencyPair{
@@ -154,7 +155,11 @@ func (ots *OracleTestSuite) TestPrices() {
 			denoms = append(denoms, v)
 		}
 	}
-	whitelist := denomList(denoms...)
+	ots.oracle.paramCache = ParamCache{
+		params: &oracletypes.Params{
+			Whitelist: denomList(denoms...),
+		},
+	}
 
 	// Use a mock provider with exchange rates that are not specified in
 	// configuration.
@@ -177,7 +182,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
-	ots.Require().Error(ots.oracle.SetPrices(context.TODO(), whitelist))
+	ots.Require().Error(ots.oracle.SetPrices(context.TODO()))
 	ots.Require().Empty(ots.oracle.GetPrices())
 
 	// use a mock provider without a conversion rate for these stablecoins
@@ -200,7 +205,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
-	ots.Require().Error(ots.oracle.SetPrices(context.TODO(), whitelist))
+	ots.Require().Error(ots.oracle.SetPrices(context.TODO()))
 
 	prices := ots.oracle.GetPrices()
 	ots.Require().Len(prices, 0)
@@ -249,7 +254,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
-	ots.Require().NoError(ots.oracle.SetPrices(context.TODO(), whitelist))
+	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
 
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 4)
@@ -302,7 +307,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
-	ots.Require().NoError(ots.oracle.SetPrices(context.TODO(), whitelist))
+	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 4)
 	ots.Require().Equal(sdk.MustNewDecFromStr("3.70"), prices.AmountOf("uumee"))
@@ -354,7 +359,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
-	ots.Require().NoError(ots.oracle.SetPrices(context.TODO(), whitelist))
+	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 4)
 	ots.Require().Equal(sdk.MustNewDecFromStr("3.71"), prices.AmountOf("uumee"))
@@ -399,7 +404,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		config.ProviderOkx: failingProvider{},
 	}
 
-	ots.Require().NoError(ots.oracle.SetPrices(context.TODO(), whitelist))
+	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 3)
 	ots.Require().Equal(sdk.MustNewDecFromStr("3.71"), prices.AmountOf("uumee"))

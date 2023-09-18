@@ -40,6 +40,7 @@ type Oracle struct {
 	oracleClient       client.OracleClient
 	deviations         map[string]sdk.Dec
 	endpoints          map[string]config.ProviderEndpoint
+	params             oracletypes.Params
 
 	mtx             sync.RWMutex
 	lastPriceSyncTS time.Time
@@ -189,7 +190,7 @@ func (o *Oracle) GetPrices() sdk.DecCoins {
 // to determine prices. If candles are not available, uses the most recent prices
 // with VWAP. Warns the user of any missing prices, and filters out any faulty
 // providers which do not report prices or candles within 2𝜎 of the others.
-func (o *Oracle) SetPrices(ctx context.Context, whitelist oracletypes.DenomList) error {
+func (o *Oracle) SetPrices(ctx context.Context) error {
 	if o.mockSetPrices != nil {
 		return o.mockSetPrices(ctx)
 	}
@@ -210,7 +211,7 @@ func (o *Oracle) SetPrices(ctx context.Context, whitelist oracletypes.DenomList)
 
 		for _, pair := range currencyPairs {
 			if _, ok := requiredRates[pair.Base]; !ok {
-				if whitelist.Contains(o.chainDenomMapping[pair.Base]) {
+				if o.paramCache.params.Whitelist.Contains(o.chainDenomMapping[pair.Base]) {
 					requiredRates[pair.Base] = struct{}{}
 				}
 			}
@@ -567,7 +568,7 @@ func (o *Oracle) tick(
 		return err
 	}
 
-	if err = o.SetPrices(ctx, oracleParams.Whitelist); err != nil {
+	if err = o.SetPrices(ctx); err != nil {
 		return err
 	}
 	o.lastPriceSyncTS = time.Now()
