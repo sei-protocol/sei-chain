@@ -40,7 +40,6 @@ type Oracle struct {
 	oracleClient       client.OracleClient
 	deviations         map[string]sdk.Dec
 	endpoints          map[string]config.ProviderEndpoint
-	params             oracletypes.Params
 
 	mtx             sync.RWMutex
 	lastPriceSyncTS time.Time
