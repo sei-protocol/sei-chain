@@ -2,11 +2,11 @@ package oracle
 
 import (
 	"github.com/armon/go-metrics"
-	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
-
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
+
+	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
 )
 
 // defaultDeviationThreshold defines how many 𝜎 a provider can be away

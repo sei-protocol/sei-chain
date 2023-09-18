@@ -2,15 +2,14 @@ package oracle
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/armon/go-metrics"
 	"math"
 	"net/http"
 	"sync"
 	"time"
 
-	"encoding/json"
-
+	"github.com/armon/go-metrics"
 	sdkclient "github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
