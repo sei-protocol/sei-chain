@@ -151,7 +151,8 @@ func (p *HuobiProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string
 	for _, cp := range pairs {
 		price, err := p.getTickerPrice(cp)
 		if err != nil {
-			return nil, err
+			p.logger.Warn().Msg(fmt.Sprint("failed to fetch tickers for pair ", cp, " due to the following error ", err.Error()))
+			continue
 		}
 		tickerPrices[cp.String()] = price
 	}
@@ -166,7 +167,8 @@ func (p *HuobiProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string
 	for _, cp := range pairs {
 		price, err := p.getCandlePrices(cp)
 		if err != nil {
-			return nil, err
+			p.logger.Warn().Msg(fmt.Sprint("failed to fetch candles for pair ", cp, " due to the following error ", err.Error()))
+			continue
 		}
 		candlePrices[cp.String()] = price
 	}

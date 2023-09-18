@@ -159,7 +159,8 @@ func (p *MexcProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]
 		key := cp.String()
 		price, err := p.getTickerPrice(key)
 		if err != nil {
-			return nil, err
+			p.logger.Warn().Msg(fmt.Sprint("failed to fetch tickers for pair ", cp, " due to the following error ", err.Error()))
+			continue
 		}
 		tickerPrices[key] = price
 	}
@@ -175,7 +176,8 @@ func (p *MexcProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string]
 		key := cp.String()
 		prices, err := p.getCandlePrices(key)
 		if err != nil {
-			return nil, err
+			p.logger.Warn().Msg(fmt.Sprint("failed to fetch candles for pair ", cp, " due to the following error ", err.Error()))
+			continue
 		}
 		candlePrices[key] = prices
 	}

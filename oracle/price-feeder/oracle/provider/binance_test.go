@@ -89,18 +89,14 @@ func TestBinanceProvider_GetTickerPrices(t *testing.T) {
 }
 
 func TestBinanceProvider_SubscribeCurrencyPairs(t *testing.T) {
-	server := NewMockProviderServer()
-	server.Start()
-	defer server.Close()
+	// server := NewMockProviderServer()
+	// server.Start()
+	// defer server.Close()
 
 	p, err := NewBinanceProvider(
 		context.TODO(),
 		zerolog.Nop(),
-		config.ProviderEndpoint{
-			Name:      config.ProviderBinance,
-			Rest:      "",
-			Websocket: server.GetBaseURL(),
-		},
+		config.ProviderEndpoint{},
 		types.CurrencyPair{Base: "ATOM", Quote: "USDT"},
 	)
 	require.NoError(t, err)
