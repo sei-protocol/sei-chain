@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -135,14 +134,6 @@ func (cc ChainConfig) Validate() error {
 	if err := cc.EthereumConfig(nil).CheckConfigForkOrder(); err != nil {
 		return errors.New("invalid config fork order")
 	}
-	return nil
-}
-
-func validateHash(hex string) error {
-	if hex != "" && strings.TrimSpace(hex) == "" {
-		return errors.New("hash cannot be blank")
-	}
-
 	return nil
 }
 

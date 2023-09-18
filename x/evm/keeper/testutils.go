@@ -39,7 +39,7 @@ func MockEVMKeeper() (*Keeper, sdk.Context) {
 	stateStore.MountStoreWithDB(bankStoreKey, sdk.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(tKeyParams, sdk.StoreTypeTransient, db)
 	stateStore.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
-	stateStore.LoadLatestVersion()
+	_ = stateStore.LoadLatestVersion()
 
 	cdc := codec.NewProtoCodec(app.MakeEncodingConfig().InterfaceRegistry)
 

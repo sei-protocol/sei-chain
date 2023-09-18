@@ -1,5 +1,3 @@
-// Copyright Tharsis Labs Ltd.(Evmos)
-// SPDX-License-Identifier:ENCL-1.0(https://github.com/evmos/evmos/blob/main/LICENSE)
 package types
 
 import (
@@ -11,7 +9,9 @@ import (
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
-	proto "github.com/gogo/protobuf/proto"
+
+	//nolint:all
+	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
