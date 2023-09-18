@@ -79,7 +79,7 @@ type OracleTestSuite struct {
 // SetupSuite executes once before the suite's tests are executed.
 func (ots *OracleTestSuite) SetupSuite() {
 	ots.oracle = New(
-		zerolog.Nop(),
+		zerolog.Nop().Level(zerolog.DebugLevel),
 		client.OracleClient{},
 		[]config.CurrencyPair{
 			{
@@ -143,6 +143,7 @@ func (ots *OracleTestSuite) TestGetLastPriceSyncTimestamp() {
 }
 
 func (ots *OracleTestSuite) TestPrices() {
+
 	// initial prices should be empty (not set)
 	ots.Require().Empty(ots.oracle.GetPrices())
 
