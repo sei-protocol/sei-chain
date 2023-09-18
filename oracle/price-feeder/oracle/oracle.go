@@ -2,14 +2,14 @@ package oracle
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"sync"
 	"time"
 
-	"encoding/json"
-
+	"github.com/armon/go-metrics"
 	sdkclient "github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -226,13 +226,21 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 				defer close(ch)
 				prices, err = priceProvider.GetTickerPrices(currencyPairs...)
 				if err != nil {
-					telemetry.IncrCounter(1, "failure", "provider", "type", "ticker")
+					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+						{Name: "type", Value: "ticker"},
+						{Name: "reason", Value: "error"},
+						{Name: "provider", Value: providerName},
+					})
 					errCh <- err
 				}
 
 				candles, err = priceProvider.GetCandlePrices(currencyPairs...)
 				if err != nil {
-					telemetry.IncrCounter(1, "failure", "provider", "type", "candle")
+					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+						{Name: "type", Value: "candle"},
+						{Name: "reason", Value: "error"},
+						{Name: "provider", Value: providerName},
+					})
 					errCh <- err
 				}
 			}()
@@ -243,7 +251,10 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 			case err := <-errCh:
 				return err
 			case <-time.After(o.providerTimeout):
-				telemetry.IncrCounter(1, "failure", "provider", "type", "timeout")
+				telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+					{Name: "reason", Value: "timeout"},
+					{Name: "provider", Value: providerName},
+				})
 				return fmt.Errorf("provider timed out: %s", providerName)
 			}
 
