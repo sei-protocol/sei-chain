@@ -670,9 +670,9 @@ func currencyPairToGatePair(pair types.CurrencyPair) string {
 
 // newGateTickerSubscription returns a new subscription topic for tickers.
 func newGateTickerSubscription(cp ...string) GateTickerSubscriptionMsg {
-	time_secs := time.Now().Unix()
+	timeSecs := time.Now().Unix()
 	return GateTickerSubscriptionMsg{
-		Time:    time_secs,
+		Time:    timeSecs,
 		Channel: "spot.tickers",
 		Event:   "subscribe",
 		Payload: cp,
@@ -683,9 +683,9 @@ func newGateTickerSubscription(cp ...string) GateTickerSubscriptionMsg {
 // newGateCandleSubscription returns a new subscription topic for candles.
 func newGateCandleSubscription(gatePair string) GateCandleSubscriptionMsg {
 	pair := []string{"1m", gatePair}
-	time_secs := time.Now().Unix()
+	timeSecs := time.Now().Unix()
 	return GateCandleSubscriptionMsg{
-		Time:    time_secs,
+		Time:    timeSecs,
 		Channel: "spot.candlesticks",
 		Event:   "subscribe",
 		Payload: pair,

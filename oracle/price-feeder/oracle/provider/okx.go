@@ -234,16 +234,17 @@ func (p *OkxProvider) subscribeTickers(cps ...types.CurrencyPair) error {
 	return p.subscribePairs(topics...)
 }
 
-// subscribeCandles subscribe all currency pairs into candle channel.
-func (p *OkxProvider) subscribeCandles(cps ...types.CurrencyPair) error {
-	topics := make([]OkxSubscriptionTopic, len(cps))
+// CONTEXT: commented out because okx candles are currently unused
+// // subscribeCandles subscribe all currency pairs into candle channel.
+// func (p *OkxProvider) subscribeCandles(cps ...types.CurrencyPair) error {
+// 	topics := make([]OkxSubscriptionTopic, len(cps))
 
-	for i, cp := range cps {
-		topics[i] = newOkxCandleSubscriptionTopic(currencyPairToOkxPair(cp))
-	}
+// 	for i, cp := range cps {
+// 		topics[i] = newOkxCandleSubscriptionTopic(currencyPairToOkxPair(cp))
+// 	}
 
-	return p.subscribePairs(topics...)
-}
+// 	return p.subscribePairs(topics...)
+// }
 
 // subscribedPairsToSlice returns the map of subscribed pairs as slice
 func (p *OkxProvider) subscribedPairsToSlice() []types.CurrencyPair {
@@ -528,13 +529,14 @@ func newOkxTickerSubscriptionTopic(instID string) OkxSubscriptionTopic {
 	}
 }
 
-// newOkxSubscriptionTopic returns a new subscription topic.
-func newOkxCandleSubscriptionTopic(instID string) OkxSubscriptionTopic {
-	return OkxSubscriptionTopic{
-		Channel: "candle1m",
-		InstID:  instID,
-	}
-}
+// CONTEXT: commented out because okx candles are unused
+// // newOkxSubscriptionTopic returns a new subscription topic.
+// func newOkxCandleSubscriptionTopic(instID string) OkxSubscriptionTopic {
+// 	return OkxSubscriptionTopic{
+// 		Channel: "candle1m",
+// 		InstID:  instID,
+// 	}
+// }
 
 // newOkxSubscriptionMsg returns a new subscription Msg for Okx.
 func newOkxSubscriptionMsg(args ...OkxSubscriptionTopic) OkxSubscriptionMsg {
