@@ -34,8 +34,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+## [v0.1.0] 2023-09-18
+- Add in changes from ibc-go 3.2.0
+
 ## [v0.0.1] 2023-05-27
 - Huckleberry patch
+
 ## [v3.2.0](https://github.com/cosmos/ibc-go/releases/tag/v3.2.0) - 2022-08-12
 
 ### Dependencies
