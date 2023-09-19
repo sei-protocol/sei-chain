@@ -1,5 +1,6 @@
 package types
 
+//nolint:typecheck
 import (
 	"errors"
 	fmt "fmt"
@@ -10,7 +11,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
 
-	//nolint:all
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
