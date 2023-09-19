@@ -249,13 +249,17 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 			case <-ch:
 				break
 			case err := <-errCh:
-				return err
+				o.logger.Debug().Err(err).Msg("failed to get ticker prices from provider")
+				// returning nil to avoid canceling other providers that might succeed
+				return nil
 			case <-time.After(o.providerTimeout):
 				telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
 					{Name: "reason", Value: "timeout"},
 					{Name: "provider", Value: providerName},
 				})
-				return fmt.Errorf("provider timed out: %s", providerName)
+				o.logger.Error().Msgf("provider timed out: %s", providerName)
+				// returning nil to avoid canceling other providers that might succeed
+				return nil
 			}
 
 			// flatten and collect prices based on the base currency per provider
@@ -266,7 +270,12 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 				success := SetProviderTickerPricesAndCandles(providerName, providerPrices, providerCandles, prices, candles, pair)
 				if !success {
 					mtx.Unlock()
-					return fmt.Errorf("failed to find any exchange rates in provider responses")
+					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+						{Name: "reason", Value: "set-prices"},
+						{Name: "provider", Value: providerName},
+					})
+					o.logger.Error().Msgf("failed to set prices for provider %s", providerName)
+					return nil
 				}
 			}
 
@@ -276,7 +285,8 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 	}
 
 	if err := g.Wait(); err != nil {
-		o.logger.Debug().Err(err).Msg("failed to get ticker prices from provider")
+		// this should not be possible because there
+		o.logger.Debug().Err(err).Msg("errgroup returned an error")
 	}
 
 	computedPrices, err := GetComputedPrices(
