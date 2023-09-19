@@ -162,7 +162,7 @@ func (p *KrakenProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[strin
 		tickerPrice, ok := p.tickers[key]
 		if !ok {
 			err := fmt.Errorf("failed to get ticker price for %s", key)
-			p.logger.Warn().Msg(fmt.Sprint("failed to fetch tickers for pair ", cp, " due to the following error ", err.Error()))
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch tickers for pair ", cp))
 			continue
 		}
 		tickerPrices[key] = tickerPrice
@@ -179,7 +179,7 @@ func (p *KrakenProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[strin
 		key := cp.String()
 		candlePrice, err := p.getCandlePrices(key)
 		if err != nil {
-			p.logger.Warn().Msg(fmt.Sprint("failed to fetch candles for pair ", cp, " due to the following error ", err.Error()))
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch candles for pair ", cp))
 			continue
 		}
 		candlePrices[key] = candlePrice

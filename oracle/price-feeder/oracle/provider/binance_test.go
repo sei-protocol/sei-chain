@@ -82,21 +82,24 @@ func TestBinanceProvider_GetTickerPrices(t *testing.T) {
 
 	t.Run("invalid_request_invalid_ticker", func(t *testing.T) {
 		prices, err := p.GetTickerPrices(types.CurrencyPair{Base: "FOO", Quote: "BAR"})
-		require.Error(t, err)
-		require.Equal(t, "binance provider failed to get ticker price for FOOBAR", err.Error())
-		require.Nil(t, prices)
+		require.NoError(t, err)
+		require.Zero(t, len(prices))
 	})
 }
 
 func TestBinanceProvider_SubscribeCurrencyPairs(t *testing.T) {
-	// server := NewMockProviderServer()
-	// server.Start()
-	// defer server.Close()
+	server := NewMockProviderServer()
+	server.Start()
+	defer server.Close()
 
 	p, err := NewBinanceProvider(
 		context.TODO(),
 		zerolog.Nop(),
-		config.ProviderEndpoint{},
+		config.ProviderEndpoint{
+			Name:      config.ProviderBinance,
+			Rest:      "",
+			Websocket: server.GetBaseURL(),
+		},
 		types.CurrencyPair{Base: "ATOM", Quote: "USDT"},
 	)
 	require.NoError(t, err)

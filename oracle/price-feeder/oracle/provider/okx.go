@@ -161,7 +161,7 @@ func (p *OkxProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]T
 	for _, currencyPair := range pairs {
 		price, err := p.getTickerPrice(currencyPair)
 		if err != nil {
-			p.logger.Warn().Msg(fmt.Sprint("failed to fetch tickers for pair ", currencyPair, " due to the following error ", err.Error()))
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch tickers for pair ", currencyPair))
 			continue
 		}
 

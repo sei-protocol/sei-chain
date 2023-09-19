@@ -75,9 +75,8 @@ func TestGateProvider_GetTickerPrices(t *testing.T) {
 
 	t.Run("invalid_request_invalid_ticker", func(t *testing.T) {
 		prices, err := p.GetTickerPrices(types.CurrencyPair{Base: "FOO", Quote: "BAR"})
-		require.Error(t, err)
-		require.Equal(t, "gate provider failed to get ticker price for FOO_BAR", err.Error())
-		require.Nil(t, prices)
+		require.NoError(t, err)
+		require.Zero(t, len(prices))
 	})
 }
 

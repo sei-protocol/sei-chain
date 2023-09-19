@@ -150,7 +150,7 @@ func (p *CoinbaseProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[str
 	for _, currencyPair := range pairs {
 		price, err := p.getTickerPrice(currencyPair)
 		if err != nil {
-			p.logger.Warn().Msg(fmt.Sprint("failed to fetch tickers for pair ", currencyPair, " due to the following error ", err.Error()))
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch tickers for pair ", currencyPair))
 			continue
 		}
 
@@ -169,7 +169,7 @@ func (p *CoinbaseProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[str
 		key := currencyPairToCoinbasePair(cp)
 		tradeSet, err := p.getTradePrices(key)
 		if err != nil {
-			p.logger.Warn().Msg(fmt.Sprint("failed to fetch candles for pair ", cp, " due to the following error ", err.Error()))
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch candles for pair ", cp))
 			continue
 		}
 		tradeMap[key] = tradeSet

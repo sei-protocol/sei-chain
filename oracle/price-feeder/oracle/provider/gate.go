@@ -201,7 +201,7 @@ func (p *GateProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]
 	for _, currencyPair := range pairs {
 		price, err := p.getTickerPrice(currencyPair)
 		if err != nil {
-			p.logger.Warn().Msg(fmt.Sprint("failed to fetch tickers for pair ", currencyPair, " due to the following error ", err.Error()))
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch tickers for pair ", currencyPair))
 			continue
 		}
 
@@ -218,7 +218,7 @@ func (p *GateProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string]
 		gp := currencyPairToGatePair(currencyPair)
 		price, err := p.getCandlePrices(gp)
 		if err != nil {
-			p.logger.Warn().Msg(fmt.Sprint("failed to fetch candles for pair ", currencyPair, " due to the following error ", err.Error()))
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch candles for pair ", currencyPair))
 			continue
 		}
 
@@ -374,7 +374,7 @@ func (p *GateProvider) messageReceived(messageType int, bz []byte) {
 		tickerErr error
 		candleErr error
 	)
-	// fmt.Println("gate response", string(bz))
+
 	gateErr = json.Unmarshal(bz, &gateEvent)
 	if gateErr == nil {
 		switch gateEvent.Result.Status {
