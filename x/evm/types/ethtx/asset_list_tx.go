@@ -11,7 +11,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-func NewAccessListTx(tx *ethtypes.Transaction) (*AccessListTx, error) {
+func NewAccessListTx(tx *ethtypes.Transaction) (altx *AccessListTx, reserr error) {
 	txData := &AccessListTx{
 		Nonce:    tx.Nonce(),
 		Data:     tx.Data(),
@@ -20,6 +20,12 @@ func NewAccessListTx(tx *ethtypes.Transaction) (*AccessListTx, error) {
 
 	v, r, s := tx.RawSignatureValues()
 
+	defer func() {
+		if err := recover(); err != nil {
+			altx = nil
+			reserr = fmt.Errorf("%s", err)
+		}
+	}()
 	SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
 	MustSetConvertIfPresent(tx.Value(), SafeNewIntFromBigInt, txData.SetAmount)
 	MustSetConvertIfPresent(tx.GasPrice(), SafeNewIntFromBigInt, txData.SetGasPrice)

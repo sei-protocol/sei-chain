@@ -10,7 +10,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-func NewDynamicFeeTx(tx *ethtypes.Transaction) (*DynamicFeeTx, error) {
+func NewDynamicFeeTx(tx *ethtypes.Transaction) (dftx *DynamicFeeTx, reserr error) {
 	txData := &DynamicFeeTx{
 		Nonce:    tx.Nonce(),
 		Data:     tx.Data(),
@@ -18,6 +18,12 @@ func NewDynamicFeeTx(tx *ethtypes.Transaction) (*DynamicFeeTx, error) {
 	}
 
 	v, r, s := tx.RawSignatureValues()
+	defer func() {
+		if err := recover(); err != nil {
+			dftx = nil
+			reserr = fmt.Errorf("%s", err)
+		}
+	}()
 	SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
 	MustSetConvertIfPresent(tx.Value(), SafeNewIntFromBigInt, txData.SetAmount)
 	MustSetConvertIfPresent(tx.GasFeeCap(), SafeNewIntFromBigInt, txData.SetGasFeeCap)

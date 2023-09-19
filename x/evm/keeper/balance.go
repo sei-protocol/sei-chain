@@ -27,11 +27,7 @@ func (k *Keeper) SetBalance(ctx sdk.Context, address common.Address, amount uint
 		return
 	}
 	balance := sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromUint64(amount))
-	bz, err := balance.Marshal()
-	if err != nil {
-		// this should never happen
-		panic(err)
-	}
+	bz, _ := balance.Marshal()
 	store.Set(types.BalanceKey(address), bz)
 }
 

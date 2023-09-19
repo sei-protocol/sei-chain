@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
-func NewBlobTx(tx *ethtypes.Transaction) (*BlobTx, error) {
+func NewBlobTx(tx *ethtypes.Transaction) (blobTx *BlobTx, reserr error) {
 	txData := &BlobTx{
 		Nonce:    tx.Nonce(),
 		Data:     tx.Data(),
@@ -23,6 +23,12 @@ func NewBlobTx(tx *ethtypes.Transaction) (*BlobTx, error) {
 
 	v, r, s := tx.RawSignatureValues()
 
+	defer func() {
+		if err := recover(); err != nil {
+			blobTx = nil
+			reserr = fmt.Errorf("%s", err)
+		}
+	}()
 	SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
 	MustSetConvertIfPresent(tx.Value(), SafeNewIntFromBigInt, txData.SetAmount)
 	MustSetConvertIfPresent(tx.GasFeeCap(), SafeNewIntFromBigInt, txData.SetGasFeeCap)

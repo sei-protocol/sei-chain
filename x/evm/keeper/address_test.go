@@ -9,11 +9,15 @@ import (
 func TestSetGetAddressMapping(t *testing.T) {
 	k, ctx := MockEVMKeeper()
 	seiAddr, evmAddr := MockAddressPair()
-	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	foundEVM, ok := k.GetEVMAddress(ctx, seiAddr)
+	require.False(t, ok)
+	foundSei, ok := k.GetSeiAddress(ctx, evmAddr)
+	require.False(t, ok)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+	foundEVM, ok = k.GetEVMAddress(ctx, seiAddr)
 	require.True(t, ok)
 	require.Equal(t, evmAddr, foundEVM)
-	foundSei, ok := k.GetSeiAddress(ctx, evmAddr)
+	foundSei, ok = k.GetSeiAddress(ctx, evmAddr)
 	require.True(t, ok)
 	require.Equal(t, seiAddr, foundSei)
 }

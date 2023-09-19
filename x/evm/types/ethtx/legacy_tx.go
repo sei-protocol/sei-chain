@@ -9,7 +9,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-func NewLegacyTx(tx *ethtypes.Transaction) (*LegacyTx, error) {
+func NewLegacyTx(tx *ethtypes.Transaction) (ltx *LegacyTx, reserr error) {
 	txData := &LegacyTx{
 		Nonce:    tx.Nonce(),
 		Data:     tx.Data(),
@@ -17,6 +17,12 @@ func NewLegacyTx(tx *ethtypes.Transaction) (*LegacyTx, error) {
 	}
 
 	v, r, s := tx.RawSignatureValues()
+	defer func() {
+		if err := recover(); err != nil {
+			ltx = nil
+			reserr = fmt.Errorf("%s", err)
+		}
+	}()
 	SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
 	MustSetConvertIfPresent(tx.Value(), SafeNewIntFromBigInt, txData.SetAmount)
 	MustSetConvertIfPresent(tx.GasPrice(), SafeNewIntFromBigInt, txData.SetGasPrice)
