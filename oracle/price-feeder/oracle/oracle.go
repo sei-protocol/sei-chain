@@ -286,7 +286,7 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 	}
 
 	if err := g.Wait(); err != nil {
-		// this should not be possible because there
+		// this should not be possible because there are no errors returned from the tasks
 		o.logger.Error().Err(err).Msg("set-prices errgroup returned an error")
 	}
 
