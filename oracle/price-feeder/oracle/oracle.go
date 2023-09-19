@@ -318,9 +318,6 @@ func GetComputedPrices(
 		assetProviderMap := make(map[string][]string)
 		for provider, val := range providerPrices {
 			for asset := range val {
-				if _, ok := assetProviderMap[asset]; !ok {
-					assetProviderMap[asset] = []string{}
-				}
 				assetProviderMap[asset] = append(assetProviderMap[asset], provider)
 			}
 		}
@@ -333,9 +330,6 @@ func GetComputedPrices(
 		candleProviderMap := make(map[string][]string)
 		for provider, val := range providerCandles {
 			for asset := range val {
-				if _, ok := candleProviderMap[asset]; !ok {
-					candleProviderMap[asset] = []string{}
-				}
 				candleProviderMap[asset] = append(candleProviderMap[asset], provider)
 			}
 		}
@@ -367,19 +361,19 @@ func GetComputedPrices(
 	}
 
 	// attempt to use candles for TVWAP calculations
-	tvwapPrices, err := ComputeTVWAP(filteredCandles)
+	computedPrices, err := ComputeTVWAP(filteredCandles)
 	if err != nil {
 		return nil, err
 	}
 
 	candleAssets := []string{}
 	tickerAssets := []string{}
-	for base := range tvwapPrices {
+	for base := range computedPrices {
 		candleAssets = append(candleAssets, base)
 	}
 	allRequiredAssetsPresent := true
 	for asset := range requiredRates {
-		if _, ok := tvwapPrices[asset]; !ok {
+		if _, ok := computedPrices[asset]; !ok {
 			allRequiredAssetsPresent = false
 		}
 	}
@@ -412,14 +406,14 @@ func GetComputedPrices(
 		}
 
 		for asset, price := range vwapPrices {
-			if _, ok := tvwapPrices[asset]; !ok {
+			if _, ok := computedPrices[asset]; !ok {
 				tickerAssets = append(tickerAssets, asset)
-				tvwapPrices[asset] = price
+				computedPrices[asset] = price
 			}
 		}
 	}
 	logger.Debug().Msg(fmt.Sprint("Assets using Candle TVWAP: ", candleAssets, " Assets using Ticker VWAP: ", tickerAssets))
-	return tvwapPrices, nil
+	return computedPrices, nil
 }
 
 // SetProviderTickerPricesAndCandles flattens and collects prices for
