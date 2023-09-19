@@ -285,6 +285,7 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 		providerPrices,
 		o.providerPairs,
 		o.deviations,
+		requiredRates,
 	)
 	if err != nil {
 		return err
@@ -310,23 +311,33 @@ func GetComputedPrices(
 	providerPrices provider.AggregatedProviderPrices,
 	providerPairs map[string][]types.CurrencyPair,
 	deviations map[string]sdk.Dec,
+	requiredRates map[string]struct{},
 ) (prices map[string]sdk.Dec, err error) {
 	// only do asset provider map logic is log level is debug
 	if logger.GetLevel() == zerolog.DebugLevel {
 		assetProviderMap := make(map[string][]string)
 		for provider, val := range providerPrices {
 			for asset := range val {
-				if _, ok := assetProviderMap[asset]; !ok {
-					assetProviderMap[asset] = []string{}
-				}
 				assetProviderMap[asset] = append(assetProviderMap[asset], provider)
 			}
 		}
-		assetProviderJSON, err := json.MarshalIndent(assetProviderMap, "", "  ")
+		assetProviderJSON, err := json.Marshal(assetProviderMap)
 		if err != nil {
 			return nil, err
 		}
 		logger.Debug().Msg(fmt.Sprintf("Asset Provider Coverage Map: %s", string(assetProviderJSON)))
+
+		candleProviderMap := make(map[string][]string)
+		for provider, val := range providerCandles {
+			for asset := range val {
+				candleProviderMap[asset] = append(candleProviderMap[asset], provider)
+			}
+		}
+		candleProviderJSON, err := json.Marshal(candleProviderMap)
+		if err != nil {
+			return nil, err
+		}
+		logger.Debug().Msg(fmt.Sprintf("Candle Provider Coverage Map: %s", string(candleProviderJSON)))
 	}
 	// convert any non-USD denominated candles into USD
 	convertedCandles, err := convertCandlesToUSD(
@@ -350,14 +361,26 @@ func GetComputedPrices(
 	}
 
 	// attempt to use candles for TVWAP calculations
-	tvwapPrices, err := ComputeTVWAP(filteredCandles)
+	computedPrices, err := ComputeTVWAP(filteredCandles)
 	if err != nil {
 		return nil, err
 	}
 
-	// If TVWAP candles are not available or were filtered out due to staleness,
+	candleAssets := []string{}
+	tickerAssets := []string{}
+	for base := range computedPrices {
+		candleAssets = append(candleAssets, base)
+	}
+	allRequiredAssetsPresent := true
+	for asset := range requiredRates {
+		if _, ok := computedPrices[asset]; !ok {
+			allRequiredAssetsPresent = false
+		}
+	}
+	// If we're missing some assets, calculate tickers too to fill the gaps
 	// use most recent prices & VWAP instead.
-	if len(tvwapPrices) == 0 {
+	if !allRequiredAssetsPresent {
+		logger.Debug().Msg("Evaluating tickers because some required rates were not provided via candles")
 		convertedTickers, err := convertTickersToUSD(
 			logger,
 			providerPrices,
@@ -382,10 +405,15 @@ func GetComputedPrices(
 			return nil, err
 		}
 
-		return vwapPrices, nil
+		for asset, price := range vwapPrices {
+			if _, ok := computedPrices[asset]; !ok {
+				tickerAssets = append(tickerAssets, asset)
+				computedPrices[asset] = price
+			}
+		}
 	}
-
-	return tvwapPrices, nil
+	logger.Debug().Msg(fmt.Sprint("Assets using Candle TVWAP: ", candleAssets, " Assets using Ticker VWAP: ", tickerAssets))
+	return computedPrices, nil
 }
 
 // SetProviderTickerPricesAndCandles flattens and collects prices for
