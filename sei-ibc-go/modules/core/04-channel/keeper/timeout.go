@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"bytes"
+	"strconv"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -159,7 +160,7 @@ func (k Keeper) TimeoutExecuted(
 
 	k.Logger(ctx).Info(
 		"packet timed-out",
-		"sequence", packet.GetSequence(),
+		"sequence", strconv.FormatUint(packet.GetSequence(), 10),
 		"src_port", packet.GetSourcePort(),
 		"src_channel", packet.GetSourceChannel(),
 		"dst_port", packet.GetDestPort(),
@@ -168,6 +169,10 @@ func (k Keeper) TimeoutExecuted(
 
 	// emit an event marking that we have processed the timeout
 	EmitTimeoutPacketEvent(ctx, packet, channel)
+
+	if channel.Ordering == types.ORDERED && channel.State == types.CLOSED {
+		EmitChannelClosedEvent(ctx, packet, channel)
+	}
 
 	return nil
 }

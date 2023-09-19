@@ -11,6 +11,7 @@ const (
 	AttributeKeyConnectionID       = "connection_id"
 	AttributeKeyPortID             = "port_id"
 	AttributeKeyChannelID          = "channel_id"
+	AttributeVersion               = "version"
 	AttributeCounterpartyPortID    = "counterparty_port_id"
 	AttributeCounterpartyChannelID = "counterparty_channel_id"
 
@@ -47,6 +48,7 @@ var (
 	EventTypeChannelOpenConfirm  = "channel_open_confirm"
 	EventTypeChannelCloseInit    = "channel_close_init"
 	EventTypeChannelCloseConfirm = "channel_close_confirm"
+	EventTypeChannelClosed       = "channel_close"
 
 	AttributeValueCategory = fmt.Sprintf("%s_%s", host.ModuleName, SubModuleName)
 )

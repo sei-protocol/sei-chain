@@ -30,10 +30,12 @@ func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 		{
 			"non-matching substitute", func() {
 				suite.coordinator.SetupClients(substitutePath)
-				substituteClientState = suite.chainA.GetClientState(substitutePath.EndpointA.ClientID).(*types.ClientState)
-				tmClientState, ok := substituteClientState.(*types.ClientState)
+				substituteClientState, ok := suite.chainA.GetClientState(substitutePath.EndpointA.ClientID).(*types.ClientState)
 				suite.Require().True(ok)
+				// change trusting period so that test should fail
+				substituteClientState.TrustingPeriod = time.Hour * 24 * 7
 
+				tmClientState := substituteClientState
 				tmClientState.ChainId = tmClientState.ChainId + "different chain"
 			},
 		},
@@ -50,8 +52,6 @@ func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 
 			suite.coordinator.SetupClients(subjectPath)
 			subjectClientState := suite.chainA.GetClientState(subjectPath.EndpointA.ClientID).(*types.ClientState)
-			subjectClientState.AllowUpdateAfterMisbehaviour = true
-			subjectClientState.AllowUpdateAfterExpiry = true
 
 			// expire subject client
 			suite.coordinator.IncrementTimeBy(subjectClientState.TrustingPeriod)
@@ -74,137 +74,37 @@ func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 	testCases := []struct {
 		name                         string
-		AllowUpdateAfterExpiry       bool
-		AllowUpdateAfterMisbehaviour bool
 		FreezeClient                 bool
 		ExpireClient                 bool
 		expPass                      bool
 	}{
 		{
-			name:                         "not allowed to be updated, not frozen or expired",
-			AllowUpdateAfterExpiry:       false,
-			AllowUpdateAfterMisbehaviour: false,
-			FreezeClient:                 false,
-			ExpireClient:                 false,
-			expPass:                      false,
-		},
-		{
-			name:                         "not allowed to be updated, client is frozen",
-			AllowUpdateAfterExpiry:       false,
-			AllowUpdateAfterMisbehaviour: false,
-			FreezeClient:                 true,
-			ExpireClient:                 false,
-			expPass:                      false,
-		},
-		{
-			name:                         "not allowed to be updated, client is expired",
-			AllowUpdateAfterExpiry:       false,
-			AllowUpdateAfterMisbehaviour: false,
-			FreezeClient:                 false,
-			ExpireClient:                 true,
-			expPass:                      false,
-		},
-		{
-			name:                         "not allowed to be updated, client is frozen and expired",
-			AllowUpdateAfterExpiry:       false,
-			AllowUpdateAfterMisbehaviour: false,
-			FreezeClient:                 true,
-			ExpireClient:                 true,
-			expPass:                      false,
-		},
-		{
-			name:                         "allowed to be updated only after misbehaviour, not frozen or expired",
-			AllowUpdateAfterExpiry:       false,
-			AllowUpdateAfterMisbehaviour: true,
-			FreezeClient:                 false,
-			ExpireClient:                 false,
-			expPass:                      false,
-		},
-		{
-			name:                         "allowed to be updated only after misbehaviour, client is expired",
-			AllowUpdateAfterExpiry:       false,
-			AllowUpdateAfterMisbehaviour: true,
-			FreezeClient:                 false,
-			ExpireClient:                 true,
-			expPass:                      false,
-		},
-		{
-			name:                         "allowed to be updated only after expiry, not frozen or expired",
-			AllowUpdateAfterExpiry:       true,
-			AllowUpdateAfterMisbehaviour: false,
-			FreezeClient:                 false,
-			ExpireClient:                 false,
-			expPass:                      false,
-		},
-		{
-			name:                         "allowed to be updated only after expiry, client is frozen",
-			AllowUpdateAfterExpiry:       true,
-			AllowUpdateAfterMisbehaviour: false,
-			FreezeClient:                 true,
-			ExpireClient:                 false,
-			expPass:                      false,
-		},
-		{
-			name:                         "PASS: allowed to be updated only after misbehaviour, client is frozen",
-			AllowUpdateAfterExpiry:       false,
-			AllowUpdateAfterMisbehaviour: true,
-			FreezeClient:                 true,
-			ExpireClient:                 false,
-			expPass:                      true,
-		},
-		{
-			name:                         "PASS: allowed to be updated only after misbehaviour, client is frozen and expired",
-			AllowUpdateAfterExpiry:       false,
-			AllowUpdateAfterMisbehaviour: true,
+			name:                         "PASS: update checks are deprecated, client is frozen and expired",
 			FreezeClient:                 true,
 			ExpireClient:                 true,
 			expPass:                      true,
 		},
 		{
-			name:                         "PASS: allowed to be updated only after expiry, client is expired",
-			AllowUpdateAfterExpiry:       true,
-			AllowUpdateAfterMisbehaviour: false,
+			name:                         "PASS: update checks are deprecated, not frozen or expired",
 			FreezeClient:                 false,
-			ExpireClient:                 true,
+			ExpireClient:                 false,
 			expPass:                      true,
 		},
 		{
-			name:                         "allowed to be updated only after expiry, client is frozen and expired",
-			AllowUpdateAfterExpiry:       true,
-			AllowUpdateAfterMisbehaviour: false,
-			FreezeClient:                 true,
-			ExpireClient:                 true,
-			expPass:                      false,
-		},
-		{
-			name:                         "allowed to be updated after expiry and misbehaviour, not frozen or expired",
-			AllowUpdateAfterExpiry:       true,
-			AllowUpdateAfterMisbehaviour: true,
+			name:                         "PASS: update checks are deprecated, not frozen or expired",
 			FreezeClient:                 false,
 			ExpireClient:                 false,
-			expPass:                      false,
+			expPass:                      true,
 		},
 		{
-			name:                         "PASS: allowed to be updated after expiry and misbehaviour, client is frozen",
-			AllowUpdateAfterExpiry:       true,
-			AllowUpdateAfterMisbehaviour: true,
+			name:                         "PASS: update checks are deprecated, client is frozen",
 			FreezeClient:                 true,
 			ExpireClient:                 false,
 			expPass:                      true,
 		},
 		{
-			name:                         "PASS: allowed to be updated after expiry and misbehaviour, client is expired",
-			AllowUpdateAfterExpiry:       true,
-			AllowUpdateAfterMisbehaviour: true,
+			name:                         "PASS: update checks are deprecated, client is expired",
 			FreezeClient:                 false,
-			ExpireClient:                 true,
-			expPass:                      true,
-		},
-		{
-			name:                         "PASS: allowed to be updated after expiry and misbehaviour, client is frozen and expired",
-			AllowUpdateAfterExpiry:       true,
-			AllowUpdateAfterMisbehaviour: true,
-			FreezeClient:                 true,
 			ExpireClient:                 true,
 			expPass:                      true,
 		},
@@ -225,8 +125,6 @@ func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 			subjectPath := ibctesting.NewPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupClients(subjectPath)
 			subjectClientState := suite.chainA.GetClientState(subjectPath.EndpointA.ClientID).(*types.ClientState)
-			subjectClientState.AllowUpdateAfterExpiry = tc.AllowUpdateAfterExpiry
-			subjectClientState.AllowUpdateAfterMisbehaviour = tc.AllowUpdateAfterMisbehaviour
 
 			// apply freezing or expiry as determined by the test case
 			if tc.FreezeClient {
@@ -247,8 +145,8 @@ func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 			substitutePath := ibctesting.NewPath(suite.chainA, suite.chainB)
 			suite.coordinator.SetupClients(substitutePath)
 			substituteClientState := suite.chainA.GetClientState(substitutePath.EndpointA.ClientID).(*types.ClientState)
-			substituteClientState.AllowUpdateAfterExpiry = tc.AllowUpdateAfterExpiry
-			substituteClientState.AllowUpdateAfterMisbehaviour = tc.AllowUpdateAfterMisbehaviour
+			// update trusting period of substitute client state
+			substituteClientState.TrustingPeriod = time.Hour * 24 * 7
 			suite.chainA.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainA.GetContext(), substitutePath.EndpointA.ClientID, substituteClientState)
 
 			// update substitute a few times
@@ -299,6 +197,7 @@ func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 				suite.Require().Equal(expectedIterationKey, subjectIterationKey)
 
 				suite.Require().Equal(newChainID, updatedClient.(*types.ClientState).ChainId)
+				suite.Require().Equal(time.Hour*24*7, updatedClient.(*types.ClientState).TrustingPeriod)
 			} else {
 				suite.Require().Error(err)
 				suite.Require().Nil(updatedClient)
@@ -344,9 +243,15 @@ func (suite *TendermintTestSuite) TestIsMatchingClientState() {
 			}, true,
 		},
 		{
-			"not matching, trusting period is different", func() {
+			"matching, trusting period is different", func() {
 				subjectClientState.TrustingPeriod = time.Duration(time.Hour * 10)
 				substituteClientState.TrustingPeriod = time.Duration(time.Hour * 1)
+			}, true,
+		},
+		{
+			"not matching, trust level is different", func() {
+				subjectClientState.TrustLevel = types.Fraction{2, 3}
+				substituteClientState.TrustLevel = types.Fraction{1, 3}
 			}, false,
 		},
 	}

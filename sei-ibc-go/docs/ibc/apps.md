@@ -464,13 +464,13 @@ which implements everything discussed above.
 Here are the useful parts of the module to look at:
 
 [Binding to transfer
-port](https://github.com/cosmos/ibc-go/blob/main/modules/apps/transfer/types/genesis.go)
+port](https://github.com/cosmos/ibc-go/blob/main/modules/apps/transfer/keeper/genesis.go)
 
 [Sending transfer
 packets](https://github.com/cosmos/ibc-go/blob/main/modules/apps/transfer/keeper/relay.go)
 
 [Implementing IBC
-callbacks](https://github.com/cosmos/ibc-go/blob/main/modules/apps/transfer/module.go)
+callbacks](https://github.com/cosmos/ibc-go/blob/main/modules/apps/transfer/ibc_module.go)
 
 ## Next {hide}
 

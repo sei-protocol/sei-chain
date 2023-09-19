@@ -47,11 +47,11 @@ enum ResponseResultType {
   option (gogoproto.goproto_enum_prefix) = false;
 
   // Default zero value enumeration
-  RESPONSE_RESULT_UNSPECIFIED = 0 [(gogoproto.enumvalue_customname) = "UNSPECIFIED"];
+  RESPONSE_RESULT_TYPE_UNSPECIFIED = 0 [(gogoproto.enumvalue_customname) = "UNSPECIFIED"];
   // The message did not call the IBC application callbacks (because, for example, the packet had already been relayed)
-  RESPONSE_RESULT_NOOP = 1 [(gogoproto.enumvalue_customname) = "NOOP"];
+  RESPONSE_RESULT_TYPE_NOOP = 1 [(gogoproto.enumvalue_customname) = "NOOP"];
   // The message was executed successfully
-  RESPONSE_RESULT_SUCCESS = 2 [(gogoproto.enumvalue_customname) = "SUCCESS"];
+  RESPONSE_RESULT_TYPE_SUCCESS = 2 [(gogoproto.enumvalue_customname) = "SUCCESS"];
 }
 
 // MsgChannelOpenInit defines an sdk.Msg to initialize a channel handshake. It
@@ -68,6 +68,7 @@ message MsgChannelOpenInit {
 // MsgChannelOpenInitResponse defines the Msg/ChannelOpenInit response type.
 message MsgChannelOpenInitResponse {
   string channel_id = 1 [(gogoproto.moretags) = "yaml:\"channel_id\""];
+  string version    = 2;
 }
 
 // MsgChannelOpenInit defines a msg sent by a Relayer to try to open a channel
@@ -91,7 +92,9 @@ message MsgChannelOpenTry {
 }
 
 // MsgChannelOpenTryResponse defines the Msg/ChannelOpenTry response type.
-message MsgChannelOpenTryResponse {}
+message MsgChannelOpenTryResponse {
+  string version = 1;
+}
 
 // MsgChannelOpenAck defines a msg sent by a Relayer to Chain A to acknowledge
 // the change of channel state to TRYOPEN on Chain B.

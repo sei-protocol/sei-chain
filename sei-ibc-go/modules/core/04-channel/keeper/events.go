@@ -20,6 +20,7 @@ func EmitChannelOpenInitEvent(ctx sdk.Context, portID string, channelID string, 
 			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
 			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
 			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
+			sdk.NewAttribute(types.AttributeVersion, channel.Version),
 		),
 	})
 
@@ -41,6 +42,7 @@ func EmitChannelOpenTryEvent(ctx sdk.Context, portID string, channelID string, c
 			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
 			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
 			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
+			sdk.NewAttribute(types.AttributeVersion, channel.Version),
 		),
 	})
 	ctx.EventManager().EmitEvents(sdk.Events{
@@ -247,6 +249,21 @@ func EmitTimeoutPacketEvent(ctx sdk.Context, packet exported.PacketI, channel ty
 		sdk.NewEvent(
 			sdk.EventTypeMessage,
 			sdk.NewAttribute(sdk.AttributeKeyModule, types.AttributeValueCategory),
+		),
+	})
+}
+
+// EmitChannelClosedEvent emits a channel closed event.
+func EmitChannelClosedEvent(ctx sdk.Context, packet exported.PacketI, channel types.Channel) {
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			types.EventTypeChannelClosed,
+			sdk.NewAttribute(types.AttributeKeyPortID, packet.GetSourcePort()),
+			sdk.NewAttribute(types.AttributeKeyChannelID, packet.GetSourceChannel()),
+			sdk.NewAttribute(types.AttributeCounterpartyPortID, channel.Counterparty.PortId),
+			sdk.NewAttribute(types.AttributeCounterpartyChannelID, channel.Counterparty.ChannelId),
+			sdk.NewAttribute(types.AttributeKeyConnectionID, channel.ConnectionHops[0]),
+			sdk.NewAttribute(types.AttributeKeyChannelOrdering, channel.Ordering.String()),
 		),
 	})
 }

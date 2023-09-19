@@ -58,7 +58,12 @@ callbacks to IBC applications.
 | update_client_proposal | client_type      | {clientType}      |
 | update_client_proposal | consensus_height | {consensusHeight} |
 
+### UpgradeProposal
 
+| Type                    | Attribute Key   | Attribute Value   |
+|-------------------------|-----------------|-------------------|
+| upgrade_client_proposal | title           | {title}           |
+| upgrade_client_proposal | height          | {height}          |     
 
 ## ICS 03 - Connection
 

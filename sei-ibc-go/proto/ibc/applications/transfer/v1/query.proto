@@ -30,12 +30,17 @@ service Query {
   rpc DenomHash(QueryDenomHashRequest) returns (QueryDenomHashResponse) {
     option (google.api.http).get = "/ibc/apps/transfer/v1/denom_hashes/{trace}";
   }
+
+  // EscrowAddress returns the escrow address for a particular port and channel id.
+  rpc EscrowAddress(QueryEscrowAddressRequest) returns (QueryEscrowAddressResponse) {
+    option (google.api.http).get = "/ibc/apps/transfer/v1/channels/{channel_id}/ports/{port_id}/escrow_address";
+  }
 }
 
 // QueryDenomTraceRequest is the request type for the Query/DenomTrace RPC
 // method
 message QueryDenomTraceRequest {
-  // hash (in hex format) of the denomination trace information.
+  // hash (in hex format) or denom (full denom with ibc prefix) of the denomination trace information.
   string hash = 1;
 }
 
@@ -83,4 +88,18 @@ message QueryDenomHashRequest {
 message QueryDenomHashResponse {
   // hash (in hex format) of the denomination trace information.
   string hash = 1;
+}
+
+// QueryEscrowAddressRequest is the request type for the EscrowAddress RPC method.
+message QueryEscrowAddressRequest {
+  // unique port identifier
+  string port_id = 1;
+  // unique channel identifier
+  string channel_id = 2;
+}
+
+// QueryEscrowAddressResponse is the response type of the EscrowAddress RPC method.
+message QueryEscrowAddressResponse {
+  // the escrow account address
+  string escrow_address = 1;
 }

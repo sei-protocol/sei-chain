@@ -6,4 +6,5 @@ const (
 
 	AttributeKeyAckError      = "error"
 	AttributeKeyHostChannelID = "host_channel_id"
+	AttributeKeyAckSuccess    = "success"
 )

@@ -48,3 +48,11 @@ For example, a Cosmos SDK based chain that elects to provide hosted Interchain A
     "allow_messages": ["/cosmos.staking.v1beta1.MsgDelegate", "/cosmos.gov.v1beta1.MsgVote"]
 }
 ```
+There is also a special wildcard `"*"` message type which allows any type of message to be executed by the interchain account. This must be the only message in the `allow_messages` array.
+
+```
+"params": {
+    "host_enabled": true,
+    "allow_messages": ["*"]
+}
+```
