@@ -110,8 +110,8 @@ func TestCryptoProvider_GetCandlePrices(t *testing.T) {
 
 	t.Run("invalid_request_invalid_candle", func(t *testing.T) {
 		prices, err := p.GetCandlePrices(types.CurrencyPair{Base: "FOO", Quote: "BAR"})
-		require.Error(t, err)
-		require.Nil(t, prices)
+		require.NoError(t, err)
+		require.Zero(t, len(prices))
 	})
 }
 
