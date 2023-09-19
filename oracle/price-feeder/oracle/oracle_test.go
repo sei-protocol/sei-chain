@@ -3,9 +3,12 @@ package oracle
 import (
 	"context"
 	"fmt"
+	"golang.org/x/exp/slices"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/armon/go-metrics"
 	sdkclient "github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -19,6 +22,74 @@ import (
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
+
+type mockTelemetry struct {
+	mx       sync.Mutex
+	recorded []mockMetric
+}
+
+type mockMetric struct {
+	keys   []string
+	val    float32
+	labels []metrics.Label
+}
+
+func resetMockTelemetry() *mockTelemetry {
+	res := &mockTelemetry{
+		mx: sync.Mutex{},
+	}
+	sendProviderFailureMetric = res.IncrCounterWithLabels
+	return res
+}
+
+func (r mockMetric) containsLabel(expected metrics.Label) bool {
+	for _, l := range r.labels {
+		if l.Name == expected.Name && l.Value == expected.Value {
+			return true
+		}
+	}
+	return false
+}
+
+func (r mockMetric) labelsEqual(expected []metrics.Label) bool {
+	if len(expected) != len(r.labels) {
+		return false
+	}
+	for _, l := range expected {
+		if !r.containsLabel(l) {
+			return false
+		}
+	}
+	return true
+}
+
+func (mt *mockTelemetry) IncrCounterWithLabels(keys []string, val float32, labels []metrics.Label) {
+	mt.mx.Lock()
+	defer mt.mx.Unlock()
+	mt.recorded = append(mt.recorded, mockMetric{keys, val, labels})
+}
+
+func (mt *mockTelemetry) Len() int {
+	return len(mt.recorded)
+}
+
+func (mt *mockTelemetry) AssertProviderError(t *testing.T, provider, base, reason, priceType string) {
+	mt.AssertContains(t, []string{"failure", "provider"}, 1, []metrics.Label{
+		{Name: "provider", Value: provider},
+		{Name: "base", Value: base},
+		{Name: "reason", Value: reason},
+		{Name: "type", Value: priceType},
+	})
+}
+
+func (mt *mockTelemetry) AssertContains(t *testing.T, keys []string, val float32, labels []metrics.Label) {
+	for _, r := range mt.recorded {
+		if r.val == val && slices.Equal(keys, r.keys) && r.labelsEqual(labels) {
+			return
+		}
+	}
+	require.Fail(t, fmt.Sprintf("no matching metric found: keys=%v, val=%v, labels=%v", keys, val, labels))
+}
 
 type mockProvider struct {
 	prices map[string]provider.TickerPrice
@@ -160,7 +231,6 @@ func (ots *OracleTestSuite) TestPrices() {
 			Whitelist: denomList(denoms...),
 		},
 	}
-
 	// Use a mock provider with exchange rates that are not specified in
 	// configuration.
 	ots.oracle.priceProviders = map[string]provider.Provider{
@@ -181,9 +251,21 @@ func (ots *OracleTestSuite) TestPrices() {
 			},
 		},
 	}
-
+	telemetryMock := resetMockTelemetry()
 	ots.Require().Error(ots.oracle.SetPrices(context.TODO()))
 	ots.Require().Empty(ots.oracle.GetPrices())
+
+	ots.Require().Equal(10, telemetryMock.Len())
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderBinance, "UMEE", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderKraken, "UMEE", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderOkx, "XBT", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderHuobi, "USDC", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderCoinbase, "USDT", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderBinance, "UMEE", "error", "candle")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderKraken, "UMEE", "error", "candle")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderOkx, "XBT", "error", "candle")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderHuobi, "USDC", "error", "candle")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderCoinbase, "USDT", "error", "candle")
 
 	// use a mock provider without a conversion rate for these stablecoins
 	ots.oracle.priceProviders = map[string]provider.Provider{
@@ -204,8 +286,15 @@ func (ots *OracleTestSuite) TestPrices() {
 			},
 		},
 	}
-
+	telemetryMock = resetMockTelemetry()
 	ots.Require().Error(ots.oracle.SetPrices(context.TODO()))
+	ots.Require().Equal(6, telemetryMock.Len())
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderOkx, "XBT", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderHuobi, "USDC", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderCoinbase, "USDT", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderOkx, "XBT", "error", "candle")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderHuobi, "USDC", "error", "candle")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderCoinbase, "USDT", "error", "candle")
 
 	prices := ots.oracle.GetPrices()
 	ots.Require().Len(prices, 0)
@@ -254,7 +343,9 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
+	telemetryMock = resetMockTelemetry()
 	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
+	ots.Require().Equal(0, telemetryMock.Len())
 
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 4)
@@ -307,7 +398,12 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 	}
 
+	telemetryMock = resetMockTelemetry()
 	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
+	ots.Require().Equal(2, telemetryMock.Len())
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderBinance, "UMEE", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderBinance, "UMEE", "error", "candle")
+
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 4)
 	ots.Require().Equal(sdk.MustNewDecFromStr("3.70"), prices.AmountOf("uumee"))
@@ -358,8 +454,12 @@ func (ots *OracleTestSuite) TestPrices() {
 			},
 		},
 	}
-
+	telemetryMock = resetMockTelemetry()
 	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
+	ots.Require().Equal(2, telemetryMock.Len())
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderBinance, "UMEE", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderBinance, "UMEE", "error", "candle")
+
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 4)
 	ots.Require().Equal(sdk.MustNewDecFromStr("3.71"), prices.AmountOf("uumee"))
@@ -403,8 +503,12 @@ func (ots *OracleTestSuite) TestPrices() {
 		},
 		config.ProviderOkx: failingProvider{},
 	}
-
+	telemetryMock = resetMockTelemetry()
 	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
+	ots.Require().Equal(4, telemetryMock.Len())
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderOkx, "XBT", "error", "ticker")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderOkx, "XBT", "error", "candle")
+
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 3)
 	ots.Require().Equal(sdk.MustNewDecFromStr("3.71"), prices.AmountOf("uumee"))

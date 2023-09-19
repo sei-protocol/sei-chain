@@ -184,10 +184,21 @@ func (o *Oracle) GetPrices() sdk.DecCoins {
 	return prices
 }
 
+var sendProviderFailureMetric = telemetry.IncrCounterWithLabels
+
+// safeMapContains handles a nil check if the map is nil
+func safeMapContains[V any](m map[string]V, key string) bool {
+	if m == nil {
+		return false
+	}
+	_, ok := m[key]
+	return ok
+}
+
 func reportPriceErrMetrics[V any](providerName string, priceType string, prices map[string]V, expected []types.CurrencyPair) {
 	for _, pair := range expected {
-		if _, ok := prices[pair.String()]; !ok {
-			telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+		if !safeMapContains(prices, pair.String()) {
+			sendProviderFailureMetric([]string{"failure", "provider"}, 1, []metrics.Label{
 				{Name: "type", Value: priceType},
 				{Name: "reason", Value: "error"},
 				{Name: "provider", Value: providerName},
@@ -233,31 +244,25 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 			prices := make(map[string]provider.TickerPrice, 0)
 			candles := make(map[string][]provider.CandlePrice, 0)
 			ch := make(chan struct{})
-			errCh := make(chan error, 1)
 
 			go func() {
 				defer close(ch)
 				prices, err = priceProvider.GetTickerPrices(currencyPairs...)
 				if err != nil {
-					errCh <- err
+					o.logger.Debug().Err(err).Msg("failed to get ticker prices from provider")
 				}
 				reportPriceErrMetrics(providerName, "ticker", prices, currencyPairs)
 
 				candles, err = priceProvider.GetCandlePrices(currencyPairs...)
 				if err != nil {
-					errCh <- err
+					o.logger.Debug().Err(err).Msg("failed to get candle prices from provider")
 				}
 				reportPriceErrMetrics(providerName, "candle", prices, currencyPairs)
-
 			}()
 
 			select {
 			case <-ch:
 				break
-			case err := <-errCh:
-				o.logger.Debug().Err(err).Msg("failed to get ticker prices from provider")
-				// returning nil to avoid canceling other providers that might succeed
-				return nil
 			case <-time.After(o.providerTimeout):
 				telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
 					{Name: "reason", Value: "timeout"},
