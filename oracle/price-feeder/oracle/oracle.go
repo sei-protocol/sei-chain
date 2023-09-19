@@ -285,6 +285,7 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 		providerPrices,
 		o.providerPairs,
 		o.deviations,
+		requiredRates,
 	)
 	if err != nil {
 		return err
@@ -310,6 +311,7 @@ func GetComputedPrices(
 	providerPrices provider.AggregatedProviderPrices,
 	providerPairs map[string][]types.CurrencyPair,
 	deviations map[string]sdk.Dec,
+	requiredRates map[string]struct{},
 ) (prices map[string]sdk.Dec, err error) {
 	// only do asset provider map logic is log level is debug
 	if logger.GetLevel() == zerolog.DebugLevel {
@@ -375,10 +377,16 @@ func GetComputedPrices(
 	for base := range tvwapPrices {
 		candleAssets = append(candleAssets, base)
 	}
-
+	allRequiredAssetsPresent := true
+	for asset := range requiredRates {
+		if _, ok := tvwapPrices[asset]; !ok {
+			allRequiredAssetsPresent = false
+		}
+	}
 	// If we're missing some assets, calculate tickers too to fill the gaps
 	// use most recent prices & VWAP instead.
-	if len(tvwapPrices) != len(providerPairs) {
+	if !allRequiredAssetsPresent {
+		logger.Debug().Msg("Evaluating tickers because some required rates were not provided via candles")
 		convertedTickers, err := convertTickersToUSD(
 			logger,
 			providerPrices,
