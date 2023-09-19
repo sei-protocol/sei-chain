@@ -184,6 +184,7 @@ func (o *Oracle) GetPrices() sdk.DecCoins {
 	return prices
 }
 
+// sendProviderFailureMetric function is overridden by unit tests
 var sendProviderFailureMetric = telemetry.IncrCounterWithLabels
 
 // safeMapContains handles a nil check if the map is nil
@@ -195,6 +196,7 @@ func safeMapContains[V any](m map[string]V, key string) bool {
 	return ok
 }
 
+// reportPriceErrMetrics sends metrics to telemetry for missing prices
 func reportPriceErrMetrics[V any](providerName string, priceType string, prices map[string]V, expected []types.CurrencyPair) {
 	for _, pair := range expected {
 		if !safeMapContains(prices, pair.String()) {
