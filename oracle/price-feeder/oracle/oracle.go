@@ -184,6 +184,19 @@ func (o *Oracle) GetPrices() sdk.DecCoins {
 	return prices
 }
 
+func reportPriceErrMetrics[V any](providerName string, priceType string, prices map[string]V, expected []types.CurrencyPair) {
+	for _, pair := range expected {
+		if _, ok := prices[pair.String()]; !ok {
+			telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+				{Name: "type", Value: priceType},
+				{Name: "reason", Value: "error"},
+				{Name: "provider", Value: providerName},
+				{Name: "base", Value: pair.Base},
+			})
+		}
+	}
+}
+
 // SetPrices retrieves all the prices and candles from our set of providers as
 // determined in the config. If candles are available, uses TVWAP in order
 // to determine prices. If candles are not available, uses the most recent prices
@@ -226,23 +239,16 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 				defer close(ch)
 				prices, err = priceProvider.GetTickerPrices(currencyPairs...)
 				if err != nil {
-					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
-						{Name: "type", Value: "ticker"},
-						{Name: "reason", Value: "error"},
-						{Name: "provider", Value: providerName},
-					})
 					errCh <- err
 				}
+				reportPriceErrMetrics(providerName, "ticker", prices, currencyPairs)
 
 				candles, err = priceProvider.GetCandlePrices(currencyPairs...)
 				if err != nil {
-					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
-						{Name: "type", Value: "candle"},
-						{Name: "reason", Value: "error"},
-						{Name: "provider", Value: providerName},
-					})
 					errCh <- err
 				}
+				reportPriceErrMetrics(providerName, "candle", prices, currencyPairs)
+
 			}()
 
 			select {
