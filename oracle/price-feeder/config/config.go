@@ -281,8 +281,8 @@ func ParseConfig(configPath string) (Config, error) {
 	}
 
 	for base, providers := range pairs {
-		if _, ok := pairs[base]["mock"]; !ok && len(providers) < 2 {
-			return cfg, fmt.Errorf("must have at least two providers for %s", base)
+		if _, ok := pairs[base]["mock"]; !ok && len(providers) < 3 {
+			return cfg, fmt.Errorf("must have at least three providers for %s", base)
 		}
 	}
 

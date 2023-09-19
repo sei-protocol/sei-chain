@@ -370,9 +370,15 @@ func GetComputedPrices(
 		return nil, err
 	}
 
-	// If TVWAP candles are not available or were filtered out due to staleness,
+	candleAssets := []string{}
+	tickerAssets := []string{}
+	for base := range tvwapPrices {
+		candleAssets = append(candleAssets, base)
+	}
+
+	// If we're missing some assets, calculate tickers too to fill the gaps
 	// use most recent prices & VWAP instead.
-	if len(tvwapPrices) == 0 {
+	if len(tvwapPrices) != len(providerPairs) {
 		convertedTickers, err := convertTickersToUSD(
 			logger,
 			providerPrices,
@@ -397,9 +403,14 @@ func GetComputedPrices(
 			return nil, err
 		}
 
-		return vwapPrices, nil
+		for asset, price := range vwapPrices {
+			if _, ok := tvwapPrices[asset]; !ok {
+				tickerAssets = append(tickerAssets, asset)
+				tvwapPrices[asset] = price
+			}
+		}
 	}
-
+	logger.Debug().Msg(fmt.Sprint("Assets using Candle TVWAP: ", candleAssets, " Assets using Ticker VWAP: ", tickerAssets))
 	return tvwapPrices, nil
 }
 
