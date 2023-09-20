@@ -489,7 +489,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		config.ProviderKraken: mockProvider{
 			prices: map[string]provider.TickerPrice{
 				"UMEEUSDC": {
-					Price:  sdk.MustNewDecFromStr("3.70"),
+					Price:  sdk.MustNewDecFromStr("3.71"),
 					Volume: sdk.MustNewDecFromStr("1994674.34000000"),
 				},
 			},
@@ -521,7 +521,7 @@ func (ots *OracleTestSuite) TestPrices() {
 
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 3)
-	ots.Require().Equal(sdk.MustNewDecFromStr("3.70"), prices.AmountOf("uumee"))
+	ots.Require().Equal(sdk.MustNewDecFromStr("3.71"), prices.AmountOf("uumee"))
 	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdc"))
 	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdt"))
 }
