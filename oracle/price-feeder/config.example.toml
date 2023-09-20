@@ -87,7 +87,7 @@ base = "OSMO"
 chain_denom = "uosmo"
 providers = [
   "huobi",
-  "binance", # if you are operating your price feeder in the US, binance provider will not work and must be removed
+  "binance",
   "gate",
 ]
 quote = "USDT"
@@ -104,7 +104,7 @@ quote = "USD"
 base = "SEI"
 chain_denom = "usei"
 providers = [
-  "binance", # if you are operating your price feeder in the US, binance provider will not work and must be removed
+  "binance",
   "huobi",
   "gate",
 ]
@@ -125,7 +125,7 @@ chain_denom = "uatom"
 providers = [
   "huobi",
   "crypto",
-  "binance", # if you are operating your price feeder in the US, binance provider will not work and must be removed
+  "binance",
   "gate",
   "okx",
 ]
