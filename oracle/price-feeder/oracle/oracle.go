@@ -528,6 +528,7 @@ func (o *Oracle) getOrSetProvider(ctx context.Context, providerName string) (pro
 		ok            bool
 	)
 
+	//TODO: replace with a exponential backoff mechanism
 	if err, ok := o.failedProviders[providerName]; ok {
 		return nil, errors.Wrap(err, "failed at first init (skipping provider)")
 	}
