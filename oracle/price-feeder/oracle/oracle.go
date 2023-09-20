@@ -184,6 +184,32 @@ func (o *Oracle) GetPrices() sdk.DecCoins {
 	return prices
 }
 
+// sendProviderFailureMetric function is overridden by unit tests
+var sendProviderFailureMetric = telemetry.IncrCounterWithLabels
+
+// safeMapContains handles a nil check if the map is nil
+func safeMapContains[V any](m map[string]V, key string) bool {
+	if m == nil {
+		return false
+	}
+	_, ok := m[key]
+	return ok
+}
+
+// reportPriceErrMetrics sends metrics to telemetry for missing prices
+func reportPriceErrMetrics[V any](providerName string, priceType string, prices map[string]V, expected []types.CurrencyPair) {
+	for _, pair := range expected {
+		if !safeMapContains(prices, pair.String()) {
+			sendProviderFailureMetric([]string{"failure", "provider"}, 1, []metrics.Label{
+				{Name: "type", Value: priceType},
+				{Name: "reason", Value: "error"},
+				{Name: "provider", Value: providerName},
+				{Name: "base", Value: pair.Base},
+			})
+		}
+	}
+}
+
 // SetPrices retrieves all the prices and candles from our set of providers as
 // determined in the config. If candles are available, uses TVWAP in order
 // to determine prices. If candles are not available, uses the most recent prices
@@ -220,42 +246,33 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 			prices := make(map[string]provider.TickerPrice, 0)
 			candles := make(map[string][]provider.CandlePrice, 0)
 			ch := make(chan struct{})
-			errCh := make(chan error, 1)
 
 			go func() {
 				defer close(ch)
 				prices, err = priceProvider.GetTickerPrices(currencyPairs...)
 				if err != nil {
-					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
-						{Name: "type", Value: "ticker"},
-						{Name: "reason", Value: "error"},
-						{Name: "provider", Value: providerName},
-					})
-					errCh <- err
+					o.logger.Debug().Err(err).Msg("failed to get ticker prices from provider")
 				}
+				reportPriceErrMetrics(providerName, "ticker", prices, currencyPairs)
 
 				candles, err = priceProvider.GetCandlePrices(currencyPairs...)
 				if err != nil {
-					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
-						{Name: "type", Value: "candle"},
-						{Name: "reason", Value: "error"},
-						{Name: "provider", Value: providerName},
-					})
-					errCh <- err
+					o.logger.Debug().Err(err).Msg("failed to get candle prices from provider")
 				}
+				reportPriceErrMetrics(providerName, "candle", prices, currencyPairs)
 			}()
 
 			select {
 			case <-ch:
 				break
-			case err := <-errCh:
-				return err
 			case <-time.After(o.providerTimeout):
 				telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
 					{Name: "reason", Value: "timeout"},
 					{Name: "provider", Value: providerName},
 				})
-				return fmt.Errorf("provider timed out: %s", providerName)
+				o.logger.Error().Msgf("provider timed out: %s", providerName)
+				// returning nil to avoid canceling other providers that might succeed
+				return nil
 			}
 
 			// flatten and collect prices based on the base currency per provider
@@ -266,7 +283,13 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 				success := SetProviderTickerPricesAndCandles(providerName, providerPrices, providerCandles, prices, candles, pair)
 				if !success {
 					mtx.Unlock()
-					return fmt.Errorf("failed to find any exchange rates in provider responses")
+					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+						{Name: "reason", Value: "set-prices"},
+						{Name: "provider", Value: providerName},
+					})
+					o.logger.Error().Msgf("failed to set prices for provider %s", providerName)
+					// returning nil to avoid canceling other providers that might succeed
+					return nil
 				}
 			}
 
@@ -276,7 +299,8 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 	}
 
 	if err := g.Wait(); err != nil {
-		o.logger.Debug().Err(err).Msg("failed to get ticker prices from provider")
+		// this should not be possible because there are no errors returned from the tasks
+		o.logger.Error().Err(err).Msg("set-prices errgroup returned an error")
 	}
 
 	computedPrices, err := GetComputedPrices(
