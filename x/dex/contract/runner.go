@@ -30,10 +30,10 @@ func NewParallelRunner(runnable func(contract types.ContractInfoV2), contracts [
 	contractsFrontier := datastructures.NewTypedSyncMap[types.ContractAddress, struct{}]()
 	for _, contract := range contracts {
 		// runner will mutate ContractInfo fields
-		copy := contract
+		copyContract := contract
 		typedContractAddr := types.ContractAddress(contract.ContractAddr)
-		contractAddrToInfo.Store(typedContractAddr, &copy)
-		if copy.NumIncomingDependencies == 0 {
+		contractAddrToInfo.Store(typedContractAddr, &copyContract)
+		if copyContract.NumIncomingDependencies == 0 {
 			contractsFrontier.Store(typedContractAddr, struct{}{})
 		}
 	}

@@ -44,7 +44,7 @@ func GetLongShortOrderBookOps(contractAddr string, priceDenom string, assetDenom
 	}
 }
 
-func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
+func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, _ sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
 	placeOrdersMsg, ok := msg.(*dextypes.MsgPlaceOrders)
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrPlaceOrdersGenerator
@@ -160,7 +160,7 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context,
 	return aclOps, nil
 }
 
-func DexCancelOrdersDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
+func DexCancelOrdersDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
 	cancelOrdersMsg, ok := msg.(*dextypes.MsgCancelOrders)
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrPlaceOrdersGenerator
