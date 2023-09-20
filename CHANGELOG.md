@@ -27,7 +27,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
-## v3.1.0
+## v3.1.1
 sei-ibc-go:
 * [#34](https://github.com/sei-protocol/sei-ibc-go/pull/34) Upgrade to Ibc v3.2.0
 
