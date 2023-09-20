@@ -231,7 +231,8 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 
 		priceProvider, err := o.getOrSetProvider(ctx, providerName)
 		if err != nil {
-			return err
+			o.logger.Debug().AnErr("err", err).Msgf("Failed to get or set provider %s", providerName)
+			continue // don't block everything on one provider having an issue
 		}
 
 		for _, pair := range currencyPairs {
