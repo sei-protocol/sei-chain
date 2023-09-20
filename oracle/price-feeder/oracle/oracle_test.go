@@ -874,6 +874,9 @@ func TestSuccessGetComputedPricesCandles(t *testing.T) {
 		make(provider.AggregatedProviderPrices, 1),
 		providerPair,
 		make(map[string]sdk.Dec),
+		map[string]struct{}{
+			"ATOM": {},
+		},
 	)
 
 	require.NoError(t, err, "It should successfully get computed candle prices")
@@ -907,6 +910,9 @@ func TestSuccessGetComputedPricesTickers(t *testing.T) {
 		providerPrices,
 		providerPair,
 		make(map[string]sdk.Dec),
+		map[string]struct{}{
+			"ATOM": {},
+		},
 	)
 
 	require.NoError(t, err, "It should successfully get computed ticker prices")
@@ -1003,6 +1009,9 @@ func TestGetComputedPricesCandlesConversion(t *testing.T) {
 		make(provider.AggregatedProviderPrices, 1),
 		providerPair,
 		make(map[string]sdk.Dec),
+		map[string]struct{}{
+			"BTC": {},
+		},
 	)
 
 	require.NoError(t, err,
@@ -1087,6 +1096,9 @@ func TestGetComputedPricesTickersConversion(t *testing.T) {
 		providerPrices,
 		providerPair,
 		make(map[string]sdk.Dec),
+		map[string]struct{}{
+			"BTC": {},
+		},
 	)
 
 	require.NoError(t, err,
