@@ -74,12 +74,17 @@ func (mt *mockTelemetry) Len() int {
 }
 
 func (mt *mockTelemetry) AssertProviderError(t *testing.T, provider, base, reason, priceType string) {
-	mt.AssertContains(t, []string{"failure", "provider"}, 1, []metrics.Label{
+	labels := []metrics.Label{
 		{Name: "provider", Value: provider},
-		{Name: "base", Value: base},
 		{Name: "reason", Value: reason},
-		{Name: "type", Value: priceType},
-	})
+	}
+	if base != "" {
+		labels = append(labels, metrics.Label{Name: "base", Value: base})
+	}
+	if priceType != "" {
+		labels = append(labels, metrics.Label{Name: "type", Value: priceType})
+	}
+	mt.AssertContains(t, []string{"failure", "provider"}, 1, labels)
 }
 
 func (mt *mockTelemetry) AssertContains(t *testing.T, keys []string, val float32, labels []metrics.Label) {
@@ -467,6 +472,10 @@ func (ots *OracleTestSuite) TestPrices() {
 	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdc"))
 	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdt"))
 
+	// if a provider never initialized correctly, verify it doesn't prevent future updates
+	ots.oracle.failedProviders = map[string]error{
+		config.ProviderBinance: fmt.Errorf("test error"),
+	}
 	// a non-whitelisted entry fails (ubxt), but the rest succeed
 	ots.oracle.priceProviders = map[string]provider.Provider{
 		config.ProviderBinance: failingProvider{
@@ -480,7 +489,7 @@ func (ots *OracleTestSuite) TestPrices() {
 		config.ProviderKraken: mockProvider{
 			prices: map[string]provider.TickerPrice{
 				"UMEEUSDC": {
-					Price:  sdk.MustNewDecFromStr("3.71"),
+					Price:  sdk.MustNewDecFromStr("3.70"),
 					Volume: sdk.MustNewDecFromStr("1994674.34000000"),
 				},
 			},
@@ -505,13 +514,14 @@ func (ots *OracleTestSuite) TestPrices() {
 	}
 	telemetryMock = resetMockTelemetry()
 	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
-	ots.Require().Equal(4, telemetryMock.Len())
+	ots.Require().Equal(3, telemetryMock.Len())
 	telemetryMock.AssertProviderError(ots.T(), config.ProviderOkx, "XBT", "error", "ticker")
 	telemetryMock.AssertProviderError(ots.T(), config.ProviderOkx, "XBT", "error", "candle")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderBinance, "", "init", "")
 
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 3)
-	ots.Require().Equal(sdk.MustNewDecFromStr("3.71"), prices.AmountOf("uumee"))
+	ots.Require().Equal(sdk.MustNewDecFromStr("3.70"), prices.AmountOf("uumee"))
 	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdc"))
 	ots.Require().Equal(sdk.MustNewDecFromStr("1"), prices.AmountOf("uusdt"))
 }
