@@ -59,6 +59,7 @@ var upgradesList = []string{
 	"3.0.7",
 	"3.0.8",
 	"v3.0.9",
+	"v3.1.0",
 }
 
 func (app App) RegisterUpgradeHandlers() {
