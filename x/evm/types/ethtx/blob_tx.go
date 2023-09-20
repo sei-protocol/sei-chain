@@ -23,19 +23,14 @@ func NewBlobTx(tx *ethtypes.Transaction) (blobTx *BlobTx, reserr error) {
 
 	v, r, s := tx.RawSignatureValues()
 
-	defer func() {
-		if err := recover(); err != nil {
-			blobTx = nil
-			reserr = fmt.Errorf("%s", err)
-		}
-	}()
 	SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
-	MustSetConvertIfPresent(tx.Value(), SafeNewIntFromBigInt, txData.SetAmount)
-	MustSetConvertIfPresent(tx.GasFeeCap(), SafeNewIntFromBigInt, txData.SetGasFeeCap)
-	MustSetConvertIfPresent(tx.GasTipCap(), SafeNewIntFromBigInt, txData.SetGasTipCap)
+	// internally BlobTx uses uint256 which is guaranteed to not have overflow, so using NewIntFromBigInt directly here
+	SetConvertIfPresent(tx.Value(), sdk.NewIntFromBigInt, txData.SetAmount)
+	SetConvertIfPresent(tx.GasFeeCap(), sdk.NewIntFromBigInt, txData.SetGasFeeCap)
+	SetConvertIfPresent(tx.GasTipCap(), sdk.NewIntFromBigInt, txData.SetGasTipCap)
 	al := tx.AccessList()
 	SetConvertIfPresent(&al, NewAccessList, txData.SetAccesses)
-	MustSetConvertIfPresent(tx.BlobGasFeeCap(), SafeNewIntFromBigInt, txData.SetBlobFeeCap)
+	SetConvertIfPresent(tx.BlobGasFeeCap(), sdk.NewIntFromBigInt, txData.SetBlobFeeCap)
 	bh := tx.BlobHashes()
 	SetConvertIfPresent(&bh, func(hs *[]common.Hash) [][]byte { return utils.Map(*hs, func(h common.Hash) []byte { return h[:] }) }, txData.SetBlobHashes)
 	SetConvertIfPresent(tx.BlobTxSidecar(), sidecarConverter, txData.SetBlobSidecar)
@@ -208,31 +203,20 @@ func (tx BlobTx) Validate() error {
 		return fmt.Errorf("gas fee cap cannot be negative %s", tx.GasFeeCap)
 	}
 
-	if !IsValidInt256(tx.GetGasTipCap()) {
-		return fmt.Errorf("out of bound")
-	}
-
-	if !IsValidInt256(tx.GetGasFeeCap()) {
-		return fmt.Errorf("out of bound")
-	}
-
 	if tx.GasFeeCap.LT(*tx.GasTipCap) {
 		return fmt.Errorf("max priority fee per gas higher than max fee per gas (%s > %s)",
 			tx.GasTipCap, tx.GasFeeCap,
 		)
 	}
 
-	if IsValidInt256(tx.Fee()) {
-		return errors.New("out of bound")
+	if !IsValidInt256(tx.Fee()) {
+		return errors.New("fee out of bound")
 	}
 
 	amount := tx.GetValue()
 	// Amount can be 0
 	if amount != nil && amount.Sign() == -1 {
 		return fmt.Errorf("amount cannot be negative %s", amount)
-	}
-	if !IsValidInt256(amount) {
-		return errors.New("out of bound")
 	}
 
 	if tx.To != "" {
@@ -249,17 +233,15 @@ func (tx BlobTx) Validate() error {
 		)
 	}
 
-	if !(chainID.Cmp(big.NewInt(9001)) == 0 || chainID.Cmp(big.NewInt(9000)) == 0) {
-		return fmt.Errorf(
-			"chain ID must be 9000 or 9001 on Evmos, got %s", chainID,
-		)
-	}
-
 	return nil
 }
 
 func (tx BlobTx) Fee() *big.Int {
-	return fee(tx.GetGasFeeCap(), tx.GasLimit)
+	return new(big.Int).Add(fee(tx.GetGasFeeCap(), tx.GasLimit), tx.blobFee())
+}
+
+func (tx BlobTx) blobFee() *big.Int {
+	return fee(tx.GetBlobFeeCap(), tx.BlobGas())
 }
 
 func (tx BlobTx) Cost() *big.Int {
@@ -271,7 +253,7 @@ func (tx *BlobTx) EffectiveGasPrice(baseFee *big.Int) *big.Int {
 }
 
 func (tx BlobTx) EffectiveFee(baseFee *big.Int) *big.Int {
-	return fee(tx.EffectiveGasPrice(baseFee), tx.GasLimit)
+	return new(big.Int).Add(fee(tx.EffectiveGasPrice(baseFee), tx.GasLimit), tx.blobFee())
 }
 
 func (tx BlobTx) EffectiveCost(baseFee *big.Int) *big.Int {

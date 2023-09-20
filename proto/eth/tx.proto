@@ -30,6 +30,7 @@ message LegacyTx {
         (gogoproto.customname) = "Amount"
     ];
     bytes data = 6;
+    // signature values
     bytes v = 7;
     bytes r = 8;
     bytes s = 9;
@@ -61,6 +62,7 @@ repeated AccessTuple accesses = 8 [
     (gogoproto.jsontag) = "accessList",
     (gogoproto.nullable) = false
 ];
+// signature values
 bytes v = 9;
 bytes r = 10;
 bytes s = 11;
@@ -95,6 +97,7 @@ repeated AccessTuple accesses = 9 [
     (gogoproto.jsontag) = "accessList",
     (gogoproto.nullable) = false
 ];
+// signature values
 bytes v = 10;
 bytes r = 11;
 bytes s = 12;
@@ -134,6 +137,7 @@ string blob_fee_cap = 10 [
 ];
 repeated bytes blob_hashes = 11;
 BlobTxSidecar sidecar = 12;
+// signature values
 bytes v = 13;
 bytes r = 14;
 bytes s = 15;

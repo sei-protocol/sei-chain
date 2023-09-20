@@ -147,20 +147,14 @@ func (tx LegacyTx) Validate() error {
 	if gasPrice.Sign() == -1 {
 		return fmt.Errorf("gas price cannot be negative %s", gasPrice)
 	}
-	if !IsValidInt256(gasPrice) {
-		return errors.New("out of bound")
-	}
 	if !IsValidInt256(tx.Fee()) {
-		return errors.New("out of bound")
+		return errors.New("fee out of bound")
 	}
 
 	amount := tx.GetValue()
 	// Amount can be 0
 	if amount != nil && amount.Sign() == -1 {
 		return fmt.Errorf("amount cannot be negative %s", amount)
-	}
-	if !IsValidInt256(amount) {
-		return errors.New("out of bound")
 	}
 
 	if tx.To != "" {
@@ -174,12 +168,6 @@ func (tx LegacyTx) Validate() error {
 	if chainID == nil {
 		return errors.New(
 			"chain ID must be present on AccessList txs",
-		)
-	}
-
-	if !(chainID.Cmp(big.NewInt(9001)) == 0 || chainID.Cmp(big.NewInt(9000)) == 0) {
-		return fmt.Errorf(
-			"chain ID must be 9000 or 9001 on Evmos, got %s", chainID,
 		)
 	}
 

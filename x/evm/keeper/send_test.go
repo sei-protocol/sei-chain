@@ -36,6 +36,7 @@ func TestBankToEVMSend(t *testing.T) {
 	k, ctx := MockEVMKeeper()
 	seiAddr1, _ := MockAddressPair()
 	_, evmAddr2 := MockAddressPair()
+	require.NotNil(t, k.BankToEVMSend(ctx, seiAddr1, evmAddr2, 10))
 	k.bankKeeper.MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(20))))
 	k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(20))))
 	require.Nil(t, k.BankToEVMSend(ctx, seiAddr1, evmAddr2, 10))

@@ -170,31 +170,20 @@ func (tx DynamicFeeTx) Validate() error {
 		return fmt.Errorf("gas fee cap cannot be negative %s", tx.GasFeeCap)
 	}
 
-	if !IsValidInt256(tx.GetGasTipCap()) {
-		return fmt.Errorf("out of bound")
-	}
-
-	if !IsValidInt256(tx.GetGasFeeCap()) {
-		return fmt.Errorf("out of bound")
-	}
-
 	if tx.GasFeeCap.LT(*tx.GasTipCap) {
 		return fmt.Errorf("max priority fee per gas higher than max fee per gas (%s > %s)",
 			tx.GasTipCap, tx.GasFeeCap,
 		)
 	}
 
-	if IsValidInt256(tx.Fee()) {
-		return errors.New("out of bound")
+	if !IsValidInt256(tx.Fee()) {
+		return errors.New("fee out of bound")
 	}
 
 	amount := tx.GetValue()
 	// Amount can be 0
 	if amount != nil && amount.Sign() == -1 {
 		return fmt.Errorf("amount cannot be negative %s", amount)
-	}
-	if !IsValidInt256(amount) {
-		return errors.New("out of bound")
 	}
 
 	if tx.To != "" {
@@ -208,12 +197,6 @@ func (tx DynamicFeeTx) Validate() error {
 	if chainID == nil {
 		return errors.New(
 			"chain ID must be present on AccessList txs",
-		)
-	}
-
-	if !(chainID.Cmp(big.NewInt(9001)) == 0 || chainID.Cmp(big.NewInt(9000)) == 0) {
-		return fmt.Errorf(
-			"chain ID must be 9000 or 9001 on Evmos, got %s", chainID,
 		)
 	}
 
