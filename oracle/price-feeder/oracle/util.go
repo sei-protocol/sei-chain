@@ -111,7 +111,7 @@ func ComputeTVWAP(prices provider.AggregatedProviderCandles) (map[string]sdk.Dec
 			if !period.Equal(sdk.ZeroDec()) {
 				weightUnit = weightUnit.Sub(minimumTimeWeight).Quo(period)
 			}
-			
+
 			// get weighted prices, and sum of volumes
 			for _, candle := range cp {
 				// we only want candles within the last timePeriod
