@@ -27,7 +27,7 @@ type Keeper struct {
 func NewKeeper(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
 	sk types.StakingKeeper, ak types.AccountKeeper, bk types.BankKeeper,
-	ek types.EpochKeeper, feeCollectorName string,
+	_ types.EpochKeeper, feeCollectorName string,
 ) Keeper {
 	// ensure mint module account is set
 	if addr := ak.GetModuleAddress(types.ModuleName); addr == nil {

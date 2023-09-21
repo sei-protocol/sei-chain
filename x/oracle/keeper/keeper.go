@@ -489,7 +489,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 			denomToTimeWeightedMap[denom] = denomTimeWeightedSum
 			denomDurationMap[denom] = timeTraversed
 		}
-		return
+		return stop
 	})
 
 	denomKeys := make([]string, 0, len(denomToTimeWeightedMap))

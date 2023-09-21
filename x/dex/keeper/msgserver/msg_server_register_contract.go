@@ -111,9 +111,8 @@ func (k msgServer) RemoveExistingDependencies(ctx sdk.Context, msg *types.MsgReg
 				// old dependency doesn't exist. Do nothing.
 				ctx.Logger().Info(fmt.Sprintf("existing contract %s old dependency %s does not exist", msg.Contract.ContractAddr, oldDependency.Dependency))
 				continue
-			} else {
-				return err
 			}
+			return err
 		}
 		dependencyInfo.NumIncomingDependencies--
 		if err := k.SetContract(ctx, &dependencyInfo); err != nil {

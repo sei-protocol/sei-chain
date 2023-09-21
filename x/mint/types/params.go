@@ -44,10 +44,7 @@ func (p Params) Validate() error {
 	if err := validateMintDenom(p.MintDenom); err != nil {
 		return err
 	}
-	if err := validateTokenReleaseSchedule(p.TokenReleaseSchedule); err != nil {
-		return err
-	}
-	return nil
+	return validateTokenReleaseSchedule(p.TokenReleaseSchedule)
 }
 
 // String implements the Stringer interface.

@@ -126,10 +126,7 @@ func (k Keeper) GetRentsForContracts(ctx sdk.Context, contractAddrs []string) ma
 func (k Keeper) DoUnregisterContractWithRefund(ctx sdk.Context, contract types.ContractInfoV2) error {
 	k.DoUnregisterContract(ctx, contract)
 	creatorAddr, _ := sdk.AccAddressFromBech32(contract.Creator)
-	if err := k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(contract.RentBalance))))); err != nil {
-		return err
-	}
-	return nil
+	return k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(contract.RentBalance)))))
 }
 
 // Contract unregistration will remove all orderbook data stored for the contract

@@ -12,7 +12,7 @@ import (
 )
 
 // This migration updates contract info to match the new data format
-func V5ToV6(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {
+func V5ToV6(ctx sdk.Context, storeKey sdk.StoreKey, _ codec.BinaryCodec) error {
 	for i := 0; i < 256; i++ {
 		if err := updateContractInfoForBytePrefix(ctx, storeKey, byte(i)); err != nil {
 			return err

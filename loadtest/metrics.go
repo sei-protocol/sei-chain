@@ -23,7 +23,7 @@ type MetricsServer struct {
 	server  *http.Server
 }
 
-func (s *MetricsServer) metricsHandler(w http.ResponseWriter, r *http.Request) {
+func (s *MetricsServer) metricsHandler(w http.ResponseWriter, _ *http.Request) {
 	gr, err := s.metrics.Gather("prometheus")
 	if err != nil {
 		rest.WriteErrorResponse(w, http.StatusBadRequest, fmt.Sprintf("failed to gather metrics: %s", err))
@@ -70,7 +70,7 @@ func (s *MetricsServer) StartMetricsClient(config Config) {
 	}
 }
 
-func (s *MetricsServer) healthzHandler(w http.ResponseWriter, r *http.Request) {
+func (s *MetricsServer) healthzHandler(w http.ResponseWriter, _ *http.Request) {
 	_, err := io.WriteString(w, "ok\n")
 	if err != nil {
 		panic(err)
