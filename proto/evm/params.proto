@@ -1,0 +1,24 @@
+syntax = "proto3";
+package seiprotocol.seichain.evm;
+
+import "gogoproto/gogo.proto";
+import "evm/config.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (gogoproto.goproto_stringer) = false;
+  
+  string base_denom = 1 [
+    (gogoproto.moretags)   = "yaml:\"base_denom\"",
+    (gogoproto.jsontag) = "base_denom"
+  ];
+  string gas_multiplier = 2 [
+      (gogoproto.moretags)   = "yaml:\"gas_multiplier\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false,
+      (gogoproto.jsontag) = "gas_multiplier"
+  ];
+  ChainConfig chain_config = 3 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
+}
