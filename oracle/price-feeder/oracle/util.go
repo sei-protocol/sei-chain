@@ -105,11 +105,11 @@ func ComputeTVWAP(prices provider.AggregatedProviderCandles) (map[string]sdk.Dec
 			period := sdk.NewDec(now - cp[0].TimeStamp)
 
 			// weight unit is one, then decreased proportionately by candle age
-			weightUnit := sdk.OneDec()
+			weightUnit := sdk.OneDec().Sub(minimumTimeWeight)
 
 			// if zero, it would divide by zero
 			if !period.Equal(sdk.ZeroDec()) {
-				weightUnit = weightUnit.Sub(minimumTimeWeight).Quo(period)
+				weightUnit = weightUnit.Quo(period)
 			}
 
 			// get weighted prices, and sum of volumes
