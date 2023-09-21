@@ -12,6 +12,9 @@ import (
 
 var minimumTimeWeight = sdk.MustNewDecFromStr("0.2")
 
+// this lets us mock now for tests
+var mockNow int64
+
 const (
 	// tvwapCandlePeriod represents the time period we use for tvwap in minutes
 	tvwapCandlePeriod = 5 * time.Minute
@@ -79,6 +82,11 @@ func ComputeTVWAP(prices provider.AggregatedProviderCandles) (map[string]sdk.Dec
 		timePeriod     = provider.PastUnixTime(tvwapCandlePeriod)
 	)
 
+	// this lets us mock now for tests
+	if mockNow > 0 {
+		now = mockNow
+	}
+
 	for _, providerPrices := range prices {
 		for base := range providerPrices {
 			cp := providerPrices[base]
@@ -96,11 +104,16 @@ func ComputeTVWAP(prices provider.AggregatedProviderCandles) (map[string]sdk.Dec
 			})
 
 			period := sdk.NewDec(now - cp[0].TimeStamp)
-			if period.Equal(sdk.ZeroDec()) {
-				return nil, fmt.Errorf("unable to divide by zero")
+
+			// weight unit is one, then decreased proportionately by candle age
+			weightUnit := sdk.OneDec()
+
+			// if zero, it would divide by zero
+			if !period.Equal(sdk.ZeroDec()) {
+				weightUnit = weightUnit.Sub(minimumTimeWeight).Quo(period)
+			} else {
+				fmt.Println("HERE")
 			}
-			// weightUnit = (1 - minimumTimeWeight) / period
-			weightUnit := sdk.OneDec().Sub(minimumTimeWeight).Quo(period)
 
 			// get weighted prices, and sum of volumes
 			for _, candle := range cp {
