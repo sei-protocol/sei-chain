@@ -20,7 +20,7 @@ func (k *Keeper) GetBalance(ctx sdk.Context, address common.Address) uint64 {
 	return balance.Amount.Uint64()
 }
 
-func (k *Keeper) SetBalance(ctx sdk.Context, address common.Address, amount uint64) {
+func (k *Keeper) SetOrDeleteBalance(ctx sdk.Context, address common.Address, amount uint64) {
 	store := ctx.KVStore(k.storeKey)
 	if amount == 0 {
 		k.deleteBalance(ctx, address)

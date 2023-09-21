@@ -5,6 +5,15 @@ import "gogoproto/gogo.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
+/*
+*
+XXBlock/Time fields indicate upgrade heights/timestamps. For example, a BerlinBlock
+of 123 means the chain upgraded to the Berlin version at height 123; a ShanghaiTime
+of 42198537129 means the chain upgraded to the Shanghai version at timestamp 42198537129.
+A value of 0 means the upgrade is included in the genesis of the EVM, which will be the
+case on Sei for all versions up to Cancun. Still, we want to keep these fields in the
+config for backward compatibility with the official EVM lib.
+*/
 message ChainConfig {
     string homestead_block = 1 [
       (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",

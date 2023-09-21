@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"math/big"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-func NewLegacyTx(tx *ethtypes.Transaction) (ltx *LegacyTx, reserr error) {
+func NewLegacyTx(tx *ethtypes.Transaction) (*LegacyTx, error) {
+	if err := ValidateEthTx(tx); err != nil {
+		return nil, err
+	}
 	txData := &LegacyTx{
 		Nonce:    tx.Nonce(),
 		Data:     tx.Data(),
@@ -17,18 +21,12 @@ func NewLegacyTx(tx *ethtypes.Transaction) (ltx *LegacyTx, reserr error) {
 	}
 
 	v, r, s := tx.RawSignatureValues()
-	defer func() {
-		if err := recover(); err != nil {
-			ltx = nil
-			reserr = fmt.Errorf("%s", err)
-		}
-	}()
 	SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
-	MustSetConvertIfPresent(tx.Value(), SafeNewIntFromBigInt, txData.SetAmount)
-	MustSetConvertIfPresent(tx.GasPrice(), SafeNewIntFromBigInt, txData.SetGasPrice)
+	SetConvertIfPresent(tx.Value(), sdk.NewIntFromBigInt, txData.SetAmount)
+	SetConvertIfPresent(tx.GasPrice(), sdk.NewIntFromBigInt, txData.SetGasPrice)
 
 	txData.SetSignatureValues(tx.ChainId(), v, r, s)
-	return txData, nil
+	return txData, txData.Validate()
 }
 
 func (tx *LegacyTx) TxType() uint8 {

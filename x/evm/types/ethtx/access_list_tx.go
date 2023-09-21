@@ -11,7 +11,10 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-func NewAccessListTx(tx *ethtypes.Transaction) (altx *AccessListTx, reserr error) {
+func NewAccessListTx(tx *ethtypes.Transaction) (*AccessListTx, error) {
+	if err := ValidateEthTx(tx); err != nil {
+		return nil, err
+	}
 	txData := &AccessListTx{
 		Nonce:    tx.Nonce(),
 		Data:     tx.Data(),
@@ -20,20 +23,15 @@ func NewAccessListTx(tx *ethtypes.Transaction) (altx *AccessListTx, reserr error
 
 	v, r, s := tx.RawSignatureValues()
 
-	defer func() {
-		if err := recover(); err != nil {
-			altx = nil
-			reserr = fmt.Errorf("%s", err)
-		}
-	}()
 	SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
-	MustSetConvertIfPresent(tx.Value(), SafeNewIntFromBigInt, txData.SetAmount)
-	MustSetConvertIfPresent(tx.GasPrice(), SafeNewIntFromBigInt, txData.SetGasPrice)
+	SetConvertIfPresent(tx.Value(), sdk.NewIntFromBigInt, txData.SetAmount)
+	SetConvertIfPresent(tx.GasPrice(), sdk.NewIntFromBigInt, txData.SetGasPrice)
 	al := tx.AccessList()
 	SetConvertIfPresent(&al, NewAccessList, txData.SetAccesses)
 
 	txData.SetSignatureValues(tx.ChainId(), v, r, s)
-	return txData, nil
+
+	return txData, txData.Validate()
 }
 
 func (tx *AccessListTx) TxType() uint8 {
@@ -154,7 +152,6 @@ func (tx AccessListTx) Validate() error {
 	if gasPrice == nil {
 		return errors.New("gas price cannot be nil")
 	}
-
 	if gasPrice.Sign() == -1 {
 		return fmt.Errorf("gas price cannot be negative %s", gasPrice)
 	}
@@ -166,7 +163,7 @@ func (tx AccessListTx) Validate() error {
 	}
 
 	if !IsValidInt256(tx.Fee()) {
-		return errors.New("out of bound")
+		return errors.New("fee out of bound")
 	}
 
 	if tx.To != "" {

@@ -5,6 +5,8 @@ import "gogoproto/gogo.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types/ethtx";
 
+// Source: https://github.com/evmos/evmos/blob/main/proto/ethermint/evm/v1/tx.proto
+
 message AccessTuple {
     option (gogoproto.goproto_getters) = false;
 
@@ -21,9 +23,7 @@ message LegacyTx {
     string gas_price = 2 [
         (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
     ];
-    uint64 gas = 3 [
-        (gogoproto.customname) = "GasLimit"
-    ];
+    uint64 gas_limit = 3;
     string to = 4;
     string value = 5 [
         (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
@@ -48,9 +48,7 @@ uint64 nonce = 2;
 string gas_price = 3 [
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
 ];
-uint64 gas = 4 [
-    (gogoproto.customname) = "GasLimit"
-];
+uint64 gas_limit = 4;
 string to = 5;
 string value = 6 [
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
@@ -83,9 +81,7 @@ string gas_tip_cap = 3 [
 string gas_fee_cap = 4 [
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
 ];
-uint64 gas = 5 [
-    (gogoproto.customname) = "GasLimit"
-];
+uint64 gas_limit = 5;
 string to = 6;
 string value = 7 [
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
@@ -118,9 +114,7 @@ string gas_tip_cap = 3 [
 string gas_fee_cap = 4 [
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
 ];
-uint64 gas = 5 [
-    (gogoproto.customname) = "GasLimit"
-];
+uint64 gas_limit = 5;
 string to = 6;
 string value = 7 [
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",

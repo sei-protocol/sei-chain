@@ -31,7 +31,6 @@ func TestAccessListTransaction(t *testing.T) {
 	ethTx := mockAccessListTransaction(big.NewInt(20))
 	tx, err := NewAccessListTx(ethTx)
 	require.Nil(t, err)
-	require.Nil(t, tx.Validate())
 
 	require.Equal(t, uint8(ethtypes.AccessListTxType), tx.TxType())
 	copy := tx.Copy()

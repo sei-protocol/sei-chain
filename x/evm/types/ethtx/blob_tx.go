@@ -14,7 +14,10 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
-func NewBlobTx(tx *ethtypes.Transaction) (blobTx *BlobTx, reserr error) {
+func NewBlobTx(tx *ethtypes.Transaction) (*BlobTx, error) {
+	if err := ValidateEthTx(tx); err != nil {
+		return nil, err
+	}
 	txData := &BlobTx{
 		Nonce:    tx.Nonce(),
 		Data:     tx.Data(),
@@ -36,7 +39,7 @@ func NewBlobTx(tx *ethtypes.Transaction) (blobTx *BlobTx, reserr error) {
 	SetConvertIfPresent(tx.BlobTxSidecar(), sidecarConverter, txData.SetBlobSidecar)
 
 	txData.SetSignatureValues(tx.ChainId(), v, r, s)
-	return txData, nil
+	return txData, txData.Validate()
 }
 
 func (tx *BlobTx) TxType() uint8 {

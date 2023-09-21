@@ -10,11 +10,11 @@ import (
 func TestSetGetBalance(t *testing.T) {
 	k, ctx := MockEVMKeeper()
 	_, evmAddr := MockAddressPair()
-	k.SetBalance(ctx, evmAddr, 10)
+	k.SetOrDeleteBalance(ctx, evmAddr, 10)
 	require.Equal(t, uint64(10), k.GetBalance(ctx, evmAddr))
-	k.SetBalance(ctx, evmAddr, 20)
+	k.SetOrDeleteBalance(ctx, evmAddr, 20)
 	require.Equal(t, uint64(20), k.GetBalance(ctx, evmAddr))
-	k.SetBalance(ctx, evmAddr, 0)
+	k.SetOrDeleteBalance(ctx, evmAddr, 0)
 	require.Equal(t, uint64(0), k.GetBalance(ctx, evmAddr))
 }
 

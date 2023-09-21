@@ -10,7 +10,10 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-func NewDynamicFeeTx(tx *ethtypes.Transaction) (dftx *DynamicFeeTx, reserr error) {
+func NewDynamicFeeTx(tx *ethtypes.Transaction) (*DynamicFeeTx, error) {
+	if err := ValidateEthTx(tx); err != nil {
+		return nil, err
+	}
 	txData := &DynamicFeeTx{
 		Nonce:    tx.Nonce(),
 		Data:     tx.Data(),
@@ -18,21 +21,15 @@ func NewDynamicFeeTx(tx *ethtypes.Transaction) (dftx *DynamicFeeTx, reserr error
 	}
 
 	v, r, s := tx.RawSignatureValues()
-	defer func() {
-		if err := recover(); err != nil {
-			dftx = nil
-			reserr = fmt.Errorf("%s", err)
-		}
-	}()
 	SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
-	MustSetConvertIfPresent(tx.Value(), SafeNewIntFromBigInt, txData.SetAmount)
-	MustSetConvertIfPresent(tx.GasFeeCap(), SafeNewIntFromBigInt, txData.SetGasFeeCap)
-	MustSetConvertIfPresent(tx.GasTipCap(), SafeNewIntFromBigInt, txData.SetGasTipCap)
+	SetConvertIfPresent(tx.Value(), sdk.NewIntFromBigInt, txData.SetAmount)
+	SetConvertIfPresent(tx.GasFeeCap(), sdk.NewIntFromBigInt, txData.SetGasFeeCap)
+	SetConvertIfPresent(tx.GasTipCap(), sdk.NewIntFromBigInt, txData.SetGasTipCap)
 	al := tx.AccessList()
 	SetConvertIfPresent(&al, NewAccessList, txData.SetAccesses)
 
 	txData.SetSignatureValues(tx.ChainId(), v, r, s)
-	return txData, nil
+	return txData, txData.Validate()
 }
 
 func (tx *DynamicFeeTx) TxType() uint8 {
