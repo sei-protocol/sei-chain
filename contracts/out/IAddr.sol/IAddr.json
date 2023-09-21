@@ -1,0 +1,502 @@
+{
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "addr",
+          "type": "string"
+        }
+      ],
+      "name": "getEvmAddr",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "response",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "addr",
+          "type": "address"
+        }
+      ],
+      "name": "getSeiAddr",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "response",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": {
+    "object": "0x",
+    "sourceMap": "",
+    "linkReferences": {}
+  },
+  "deployedBytecode": {
+    "object": "0x",
+    "sourceMap": "",
+    "linkReferences": {}
+  },
+  "methodIdentifiers": {
+    "getEvmAddr(string)": "1778e539",
+    "getSeiAddr(address)": "0c3c20ed"
+  },
+  "rawMetadata": "{\"compiler\":{\"version\":\"0.8.22+commit.4fc1097e\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"string\",\"name\":\"addr\",\"type\":\"string\"}],\"name\":\"getEvmAddr\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"response\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"addr\",\"type\":\"address\"}],\"name\":\"getSeiAddr\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"response\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"contracts/src/precompiles/IAddr.sol\":\"IAddr\"},\"evmVersion\":\"paris\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":true,\"runs\":200},\"remappings\":[\":@openzeppelin/contracts/=contracts/lib/openzeppelin-contracts/contracts/\",\":ds-test/=contracts/lib/forge-std/lib/ds-test/src/\",\":erc4626-tests/=contracts/lib/openzeppelin-contracts/lib/erc4626-tests/\",\":forge-std/=contracts/lib/forge-std/src/\",\":openzeppelin-contracts/=contracts/lib/openzeppelin-contracts/\"]},\"sources\":{\"contracts/src/precompiles/IAddr.sol\":{\"keccak256\":\"0x5b194e1d90fdf4c4519ee83066a4fb5f3db4ed47d224ae466602a5b733b7a65a\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://0cad65e21ef4d8389004919137fb9b3efcad85cc29567e2173454413955b7422\",\"dweb:/ipfs/QmPC19GVGS64BMkiz2tCDfGweBA9NbUZ5qWsqE4gb81dj2\"]}},\"version\":1}",
+  "metadata": {
+    "compiler": {
+      "version": "0.8.22+commit.4fc1097e"
+    },
+    "language": "Solidity",
+    "output": {
+      "abi": [
+        {
+          "inputs": [
+            {
+              "internalType": "string",
+              "name": "addr",
+              "type": "string"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "getEvmAddr",
+          "outputs": [
+            {
+              "internalType": "address",
+              "name": "response",
+              "type": "address"
+            }
+          ]
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "address",
+              "name": "addr",
+              "type": "address"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "getSeiAddr",
+          "outputs": [
+            {
+              "internalType": "string",
+              "name": "response",
+              "type": "string"
+            }
+          ]
+        }
+      ],
+      "devdoc": {
+        "kind": "dev",
+        "methods": {},
+        "version": 1
+      },
+      "userdoc": {
+        "kind": "user",
+        "methods": {},
+        "version": 1
+      }
+    },
+    "settings": {
+      "remappings": [
+        "@openzeppelin/contracts/=contracts/lib/openzeppelin-contracts/contracts/",
+        "ds-test/=contracts/lib/forge-std/lib/ds-test/src/",
+        "erc4626-tests/=contracts/lib/openzeppelin-contracts/lib/erc4626-tests/",
+        "forge-std/=contracts/lib/forge-std/src/",
+        "openzeppelin-contracts/=contracts/lib/openzeppelin-contracts/"
+      ],
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "compilationTarget": {
+        "contracts/src/precompiles/IAddr.sol": "IAddr"
+      },
+      "libraries": {}
+    },
+    "sources": {
+      "contracts/src/precompiles/IAddr.sol": {
+        "keccak256": "0x5b194e1d90fdf4c4519ee83066a4fb5f3db4ed47d224ae466602a5b733b7a65a",
+        "urls": [
+          "bzz-raw://0cad65e21ef4d8389004919137fb9b3efcad85cc29567e2173454413955b7422",
+          "dweb:/ipfs/QmPC19GVGS64BMkiz2tCDfGweBA9NbUZ5qWsqE4gb81dj2"
+        ],
+        "license": "MIT"
+      }
+    },
+    "version": 1
+  },
+  "ast": {
+    "absolutePath": "contracts/src/precompiles/IAddr.sol",
+    "id": 47679,
+    "exportedSymbols": {
+      "ADDR_CONTRACT": [
+        47663
+      ],
+      "ADDR_PRECOMPILE_ADDRESS": [
+        47657
+      ],
+      "IAddr": [
+        47678
+      ]
+    },
+    "nodeType": "SourceUnit",
+    "src": "32:390:34",
+    "nodes": [
+      {
+        "id": 47654,
+        "nodeType": "PragmaDirective",
+        "src": "32:23:34",
+        "nodes": [],
+        "literals": [
+          "solidity",
+          "^",
+          "0.8",
+          ".0"
+        ]
+      },
+      {
+        "id": 47657,
+        "nodeType": "VariableDeclaration",
+        "src": "57:85:34",
+        "nodes": [],
+        "constant": true,
+        "mutability": "constant",
+        "name": "ADDR_PRECOMPILE_ADDRESS",
+        "nameLocation": "74:23:34",
+        "scope": 47679,
+        "stateVariable": false,
+        "storageLocation": "default",
+        "typeDescriptions": {
+          "typeIdentifier": "t_address",
+          "typeString": "address"
+        },
+        "typeName": {
+          "id": 47655,
+          "name": "address",
+          "nodeType": "ElementaryTypeName",
+          "src": "57:7:34",
+          "stateMutability": "nonpayable",
+          "typeDescriptions": {
+            "typeIdentifier": "t_address",
+            "typeString": "address"
+          }
+        },
+        "value": {
+          "hexValue": "307830303030303030303030303030303030303030303030303030303030303030303030303031303034",
+          "id": 47656,
+          "isConstant": false,
+          "isLValue": false,
+          "isPure": true,
+          "kind": "number",
+          "lValueRequested": false,
+          "nodeType": "Literal",
+          "src": "100:42:34",
+          "typeDescriptions": {
+            "typeIdentifier": "t_address",
+            "typeString": "address"
+          },
+          "value": "0x0000000000000000000000000000000000001004"
+        },
+        "visibility": "internal"
+      },
+      {
+        "id": 47663,
+        "nodeType": "VariableDeclaration",
+        "src": "145:67:34",
+        "nodes": [],
+        "constant": true,
+        "mutability": "constant",
+        "name": "ADDR_CONTRACT",
+        "nameLocation": "160:13:34",
+        "scope": 47679,
+        "stateVariable": false,
+        "storageLocation": "default",
+        "typeDescriptions": {
+          "typeIdentifier": "t_contract$_IAddr_$47678",
+          "typeString": "contract IAddr"
+        },
+        "typeName": {
+          "id": 47659,
+          "nodeType": "UserDefinedTypeName",
+          "pathNode": {
+            "id": 47658,
+            "name": "IAddr",
+            "nameLocations": [
+              "145:5:34"
+            ],
+            "nodeType": "IdentifierPath",
+            "referencedDeclaration": 47678,
+            "src": "145:5:34"
+          },
+          "referencedDeclaration": 47678,
+          "src": "145:5:34",
+          "typeDescriptions": {
+            "typeIdentifier": "t_contract$_IAddr_$47678",
+            "typeString": "contract IAddr"
+          }
+        },
+        "value": {
+          "arguments": [
+            {
+              "id": 47661,
+              "name": "ADDR_PRECOMPILE_ADDRESS",
+              "nodeType": "Identifier",
+              "overloadedDeclarations": [],
+              "referencedDeclaration": 47657,
+              "src": "187:23:34",
+              "typeDescriptions": {
+                "typeIdentifier": "t_address",
+                "typeString": "address"
+              }
+            }
+          ],
+          "expression": {
+            "argumentTypes": [
+              {
+                "typeIdentifier": "t_address",
+                "typeString": "address"
+              }
+            ],
+            "id": 47660,
+            "name": "IAddr",
+            "nodeType": "Identifier",
+            "overloadedDeclarations": [],
+            "referencedDeclaration": 47678,
+            "src": "176:5:34",
+            "typeDescriptions": {
+              "typeIdentifier": "t_type$_t_contract$_IAddr_$47678_$",
+              "typeString": "type(contract IAddr)"
+            }
+          },
+          "id": 47662,
+          "isConstant": false,
+          "isLValue": false,
+          "isPure": true,
+          "kind": "typeConversion",
+          "lValueRequested": false,
+          "nameLocations": [],
+          "names": [],
+          "nodeType": "FunctionCall",
+          "src": "176:36:34",
+          "tryCall": false,
+          "typeDescriptions": {
+            "typeIdentifier": "t_contract$_IAddr_$47678",
+            "typeString": "contract IAddr"
+          }
+        },
+        "visibility": "internal"
+      },
+      {
+        "id": 47678,
+        "nodeType": "ContractDefinition",
+        "src": "215:206:34",
+        "nodes": [
+          {
+            "id": 47670,
+            "nodeType": "FunctionDefinition",
+            "src": "252:81:34",
+            "nodes": [],
+            "functionSelector": "0c3c20ed",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "getSeiAddr",
+            "nameLocation": "261:10:34",
+            "parameters": {
+              "id": 47666,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 47665,
+                  "mutability": "mutable",
+                  "name": "addr",
+                  "nameLocation": "280:4:34",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 47670,
+                  "src": "272:12:34",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_address",
+                    "typeString": "address"
+                  },
+                  "typeName": {
+                    "id": 47664,
+                    "name": "address",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "272:7:34",
+                    "stateMutability": "nonpayable",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_address",
+                      "typeString": "address"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "271:14:34"
+            },
+            "returnParameters": {
+              "id": 47669,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 47668,
+                  "mutability": "mutable",
+                  "name": "response",
+                  "nameLocation": "323:8:34",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 47670,
+                  "src": "309:22:34",
+                  "stateVariable": false,
+                  "storageLocation": "memory",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_string_memory_ptr",
+                    "typeString": "string"
+                  },
+                  "typeName": {
+                    "id": 47667,
+                    "name": "string",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "309:6:34",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_string_storage_ptr",
+                      "typeString": "string"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "308:24:34"
+            },
+            "scope": 47678,
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 47677,
+            "nodeType": "FunctionDefinition",
+            "src": "338:81:34",
+            "nodes": [],
+            "functionSelector": "1778e539",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "getEvmAddr",
+            "nameLocation": "347:10:34",
+            "parameters": {
+              "id": 47673,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 47672,
+                  "mutability": "mutable",
+                  "name": "addr",
+                  "nameLocation": "372:4:34",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 47677,
+                  "src": "358:18:34",
+                  "stateVariable": false,
+                  "storageLocation": "memory",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_string_memory_ptr",
+                    "typeString": "string"
+                  },
+                  "typeName": {
+                    "id": 47671,
+                    "name": "string",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "358:6:34",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_string_storage_ptr",
+                      "typeString": "string"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "357:20:34"
+            },
+            "returnParameters": {
+              "id": 47676,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 47675,
+                  "mutability": "mutable",
+                  "name": "response",
+                  "nameLocation": "409:8:34",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 47677,
+                  "src": "401:16:34",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_address",
+                    "typeString": "address"
+                  },
+                  "typeName": {
+                    "id": 47674,
+                    "name": "address",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "401:7:34",
+                    "stateMutability": "nonpayable",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_address",
+                      "typeString": "address"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "400:18:34"
+            },
+            "scope": 47678,
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          }
+        ],
+        "abstract": false,
+        "baseContracts": [],
+        "canonicalName": "IAddr",
+        "contractDependencies": [],
+        "contractKind": "interface",
+        "fullyImplemented": false,
+        "linearizedBaseContracts": [
+          47678
+        ],
+        "name": "IAddr",
+        "nameLocation": "225:5:34",
+        "scope": 47679,
+        "usedErrors": [],
+        "usedEvents": []
+      }
+    ],
+    "license": "MIT"
+  },
+  "id": 34
+}

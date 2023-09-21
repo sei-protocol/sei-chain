@@ -1,0 +1,583 @@
+{
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "bytes",
+          "name": "input",
+          "type": "bytes"
+        },
+        {
+          "internalType": "string",
+          "name": "key",
+          "type": "string"
+        }
+      ],
+      "name": "extractAsBytes",
+      "outputs": [
+        {
+          "internalType": "bytes",
+          "name": "response",
+          "type": "bytes"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes",
+          "name": "input",
+          "type": "bytes"
+        },
+        {
+          "internalType": "string",
+          "name": "key",
+          "type": "string"
+        }
+      ],
+      "name": "extractAsBytesList",
+      "outputs": [
+        {
+          "internalType": "bytes[]",
+          "name": "response",
+          "type": "bytes[]"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": {
+    "object": "0x",
+    "sourceMap": "",
+    "linkReferences": {}
+  },
+  "deployedBytecode": {
+    "object": "0x",
+    "sourceMap": "",
+    "linkReferences": {}
+  },
+  "methodIdentifiers": {
+    "extractAsBytes(bytes,string)": "08d858e5",
+    "extractAsBytesList(bytes,string)": "87cdf621"
+  },
+  "rawMetadata": "{\"compiler\":{\"version\":\"0.8.22+commit.4fc1097e\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"input\",\"type\":\"bytes\"},{\"internalType\":\"string\",\"name\":\"key\",\"type\":\"string\"}],\"name\":\"extractAsBytes\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"response\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"bytes\",\"name\":\"input\",\"type\":\"bytes\"},{\"internalType\":\"string\",\"name\":\"key\",\"type\":\"string\"}],\"name\":\"extractAsBytesList\",\"outputs\":[{\"internalType\":\"bytes[]\",\"name\":\"response\",\"type\":\"bytes[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"contracts/src/precompiles/IJson.sol\":\"IJson\"},\"evmVersion\":\"paris\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":true,\"runs\":200},\"remappings\":[\":@openzeppelin/contracts/=contracts/lib/openzeppelin-contracts/contracts/\",\":ds-test/=contracts/lib/forge-std/lib/ds-test/src/\",\":erc4626-tests/=contracts/lib/openzeppelin-contracts/lib/erc4626-tests/\",\":forge-std/=contracts/lib/forge-std/src/\",\":openzeppelin-contracts/=contracts/lib/openzeppelin-contracts/\"]},\"sources\":{\"contracts/src/precompiles/IJson.sol\":{\"keccak256\":\"0x565f33e65166d1a9df8c76b8bb234eb66242f818caf3a68eaac3b2224d1f5f5c\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://3027cb67cb8f59fc3ba2914b9f45aed4a4058adedd898c6c11d4085bb4778128\",\"dweb:/ipfs/QmVJMngfZF6nWQ3ffmYcPK9vdCBwRX7hpRjnFzJeTbP4KB\"]}},\"version\":1}",
+  "metadata": {
+    "compiler": {
+      "version": "0.8.22+commit.4fc1097e"
+    },
+    "language": "Solidity",
+    "output": {
+      "abi": [
+        {
+          "inputs": [
+            {
+              "internalType": "bytes",
+              "name": "input",
+              "type": "bytes"
+            },
+            {
+              "internalType": "string",
+              "name": "key",
+              "type": "string"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "extractAsBytes",
+          "outputs": [
+            {
+              "internalType": "bytes",
+              "name": "response",
+              "type": "bytes"
+            }
+          ]
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "bytes",
+              "name": "input",
+              "type": "bytes"
+            },
+            {
+              "internalType": "string",
+              "name": "key",
+              "type": "string"
+            }
+          ],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "extractAsBytesList",
+          "outputs": [
+            {
+              "internalType": "bytes[]",
+              "name": "response",
+              "type": "bytes[]"
+            }
+          ]
+        }
+      ],
+      "devdoc": {
+        "kind": "dev",
+        "methods": {},
+        "version": 1
+      },
+      "userdoc": {
+        "kind": "user",
+        "methods": {},
+        "version": 1
+      }
+    },
+    "settings": {
+      "remappings": [
+        "@openzeppelin/contracts/=contracts/lib/openzeppelin-contracts/contracts/",
+        "ds-test/=contracts/lib/forge-std/lib/ds-test/src/",
+        "erc4626-tests/=contracts/lib/openzeppelin-contracts/lib/erc4626-tests/",
+        "forge-std/=contracts/lib/forge-std/src/",
+        "openzeppelin-contracts/=contracts/lib/openzeppelin-contracts/"
+      ],
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "compilationTarget": {
+        "contracts/src/precompiles/IJson.sol": "IJson"
+      },
+      "libraries": {}
+    },
+    "sources": {
+      "contracts/src/precompiles/IJson.sol": {
+        "keccak256": "0x565f33e65166d1a9df8c76b8bb234eb66242f818caf3a68eaac3b2224d1f5f5c",
+        "urls": [
+          "bzz-raw://3027cb67cb8f59fc3ba2914b9f45aed4a4058adedd898c6c11d4085bb4778128",
+          "dweb:/ipfs/QmVJMngfZF6nWQ3ffmYcPK9vdCBwRX7hpRjnFzJeTbP4KB"
+        ],
+        "license": "MIT"
+      }
+    },
+    "version": 1
+  },
+  "ast": {
+    "absolutePath": "contracts/src/precompiles/IJson.sol",
+    "id": 47794,
+    "exportedSymbols": {
+      "IJson": [
+        47793
+      ],
+      "JSON_CONTRACT": [
+        47773
+      ],
+      "JSON_PRECOMPILE_ADDRESS": [
+        47767
+      ]
+    },
+    "nodeType": "SourceUnit",
+    "src": "32:453:36",
+    "nodes": [
+      {
+        "id": 47764,
+        "nodeType": "PragmaDirective",
+        "src": "32:23:36",
+        "nodes": [],
+        "literals": [
+          "solidity",
+          "^",
+          "0.8",
+          ".0"
+        ]
+      },
+      {
+        "id": 47767,
+        "nodeType": "VariableDeclaration",
+        "src": "57:85:36",
+        "nodes": [],
+        "constant": true,
+        "mutability": "constant",
+        "name": "JSON_PRECOMPILE_ADDRESS",
+        "nameLocation": "74:23:36",
+        "scope": 47794,
+        "stateVariable": false,
+        "storageLocation": "default",
+        "typeDescriptions": {
+          "typeIdentifier": "t_address",
+          "typeString": "address"
+        },
+        "typeName": {
+          "id": 47765,
+          "name": "address",
+          "nodeType": "ElementaryTypeName",
+          "src": "57:7:36",
+          "stateMutability": "nonpayable",
+          "typeDescriptions": {
+            "typeIdentifier": "t_address",
+            "typeString": "address"
+          }
+        },
+        "value": {
+          "hexValue": "307830303030303030303030303030303030303030303030303030303030303030303030303031303033",
+          "id": 47766,
+          "isConstant": false,
+          "isLValue": false,
+          "isPure": true,
+          "kind": "number",
+          "lValueRequested": false,
+          "nodeType": "Literal",
+          "src": "100:42:36",
+          "typeDescriptions": {
+            "typeIdentifier": "t_address",
+            "typeString": "address"
+          },
+          "value": "0x0000000000000000000000000000000000001003"
+        },
+        "visibility": "internal"
+      },
+      {
+        "id": 47773,
+        "nodeType": "VariableDeclaration",
+        "src": "145:67:36",
+        "nodes": [],
+        "constant": true,
+        "mutability": "constant",
+        "name": "JSON_CONTRACT",
+        "nameLocation": "160:13:36",
+        "scope": 47794,
+        "stateVariable": false,
+        "storageLocation": "default",
+        "typeDescriptions": {
+          "typeIdentifier": "t_contract$_IJson_$47793",
+          "typeString": "contract IJson"
+        },
+        "typeName": {
+          "id": 47769,
+          "nodeType": "UserDefinedTypeName",
+          "pathNode": {
+            "id": 47768,
+            "name": "IJson",
+            "nameLocations": [
+              "145:5:36"
+            ],
+            "nodeType": "IdentifierPath",
+            "referencedDeclaration": 47793,
+            "src": "145:5:36"
+          },
+          "referencedDeclaration": 47793,
+          "src": "145:5:36",
+          "typeDescriptions": {
+            "typeIdentifier": "t_contract$_IJson_$47793",
+            "typeString": "contract IJson"
+          }
+        },
+        "value": {
+          "arguments": [
+            {
+              "id": 47771,
+              "name": "JSON_PRECOMPILE_ADDRESS",
+              "nodeType": "Identifier",
+              "overloadedDeclarations": [],
+              "referencedDeclaration": 47767,
+              "src": "187:23:36",
+              "typeDescriptions": {
+                "typeIdentifier": "t_address",
+                "typeString": "address"
+              }
+            }
+          ],
+          "expression": {
+            "argumentTypes": [
+              {
+                "typeIdentifier": "t_address",
+                "typeString": "address"
+              }
+            ],
+            "id": 47770,
+            "name": "IJson",
+            "nodeType": "Identifier",
+            "overloadedDeclarations": [],
+            "referencedDeclaration": 47793,
+            "src": "176:5:36",
+            "typeDescriptions": {
+              "typeIdentifier": "t_type$_t_contract$_IJson_$47793_$",
+              "typeString": "type(contract IJson)"
+            }
+          },
+          "id": 47772,
+          "isConstant": false,
+          "isLValue": false,
+          "isPure": true,
+          "kind": "typeConversion",
+          "lValueRequested": false,
+          "nameLocations": [],
+          "names": [],
+          "nodeType": "FunctionCall",
+          "src": "176:36:36",
+          "tryCall": false,
+          "typeDescriptions": {
+            "typeIdentifier": "t_contract$_IJson_$47793",
+            "typeString": "contract IJson"
+          }
+        },
+        "visibility": "internal"
+      },
+      {
+        "id": 47793,
+        "nodeType": "ContractDefinition",
+        "src": "215:269:36",
+        "nodes": [
+          {
+            "id": 47782,
+            "nodeType": "FunctionDefinition",
+            "src": "252:109:36",
+            "nodes": [],
+            "functionSelector": "08d858e5",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "extractAsBytes",
+            "nameLocation": "261:14:36",
+            "parameters": {
+              "id": 47778,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 47775,
+                  "mutability": "mutable",
+                  "name": "input",
+                  "nameLocation": "289:5:36",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 47782,
+                  "src": "276:18:36",
+                  "stateVariable": false,
+                  "storageLocation": "memory",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_bytes_memory_ptr",
+                    "typeString": "bytes"
+                  },
+                  "typeName": {
+                    "id": 47774,
+                    "name": "bytes",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "276:5:36",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_bytes_storage_ptr",
+                      "typeString": "bytes"
+                    }
+                  },
+                  "visibility": "internal"
+                },
+                {
+                  "constant": false,
+                  "id": 47777,
+                  "mutability": "mutable",
+                  "name": "key",
+                  "nameLocation": "310:3:36",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 47782,
+                  "src": "296:17:36",
+                  "stateVariable": false,
+                  "storageLocation": "memory",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_string_memory_ptr",
+                    "typeString": "string"
+                  },
+                  "typeName": {
+                    "id": 47776,
+                    "name": "string",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "296:6:36",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_string_storage_ptr",
+                      "typeString": "string"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "275:39:36"
+            },
+            "returnParameters": {
+              "id": 47781,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 47780,
+                  "mutability": "mutable",
+                  "name": "response",
+                  "nameLocation": "351:8:36",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 47782,
+                  "src": "338:21:36",
+                  "stateVariable": false,
+                  "storageLocation": "memory",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_bytes_memory_ptr",
+                    "typeString": "bytes"
+                  },
+                  "typeName": {
+                    "id": 47779,
+                    "name": "bytes",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "338:5:36",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_bytes_storage_ptr",
+                      "typeString": "bytes"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "337:23:36"
+            },
+            "scope": 47793,
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 47792,
+            "nodeType": "FunctionDefinition",
+            "src": "367:115:36",
+            "nodes": [],
+            "functionSelector": "87cdf621",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "extractAsBytesList",
+            "nameLocation": "376:18:36",
+            "parameters": {
+              "id": 47787,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 47784,
+                  "mutability": "mutable",
+                  "name": "input",
+                  "nameLocation": "408:5:36",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 47792,
+                  "src": "395:18:36",
+                  "stateVariable": false,
+                  "storageLocation": "memory",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_bytes_memory_ptr",
+                    "typeString": "bytes"
+                  },
+                  "typeName": {
+                    "id": 47783,
+                    "name": "bytes",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "395:5:36",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_bytes_storage_ptr",
+                      "typeString": "bytes"
+                    }
+                  },
+                  "visibility": "internal"
+                },
+                {
+                  "constant": false,
+                  "id": 47786,
+                  "mutability": "mutable",
+                  "name": "key",
+                  "nameLocation": "429:3:36",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 47792,
+                  "src": "415:17:36",
+                  "stateVariable": false,
+                  "storageLocation": "memory",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_string_memory_ptr",
+                    "typeString": "string"
+                  },
+                  "typeName": {
+                    "id": 47785,
+                    "name": "string",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "415:6:36",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_string_storage_ptr",
+                      "typeString": "string"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "394:39:36"
+            },
+            "returnParameters": {
+              "id": 47791,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 47790,
+                  "mutability": "mutable",
+                  "name": "response",
+                  "nameLocation": "472:8:36",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 47792,
+                  "src": "457:23:36",
+                  "stateVariable": false,
+                  "storageLocation": "memory",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_array$_t_bytes_memory_ptr_$dyn_memory_ptr",
+                    "typeString": "bytes[]"
+                  },
+                  "typeName": {
+                    "baseType": {
+                      "id": 47788,
+                      "name": "bytes",
+                      "nodeType": "ElementaryTypeName",
+                      "src": "457:5:36",
+                      "typeDescriptions": {
+                        "typeIdentifier": "t_bytes_storage_ptr",
+                        "typeString": "bytes"
+                      }
+                    },
+                    "id": 47789,
+                    "nodeType": "ArrayTypeName",
+                    "src": "457:7:36",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_array$_t_bytes_storage_$dyn_storage_ptr",
+                      "typeString": "bytes[]"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "456:25:36"
+            },
+            "scope": 47793,
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          }
+        ],
+        "abstract": false,
+        "baseContracts": [],
+        "canonicalName": "IJson",
+        "contractDependencies": [],
+        "contractKind": "interface",
+        "fullyImplemented": false,
+        "linearizedBaseContracts": [
+          47793
+        ],
+        "name": "IJson",
+        "nameLocation": "225:5:36",
+        "scope": 47794,
+        "usedErrors": [],
+        "usedEvents": []
+      }
+    ],
+    "license": "MIT"
+  },
+  "id": 36
+}
