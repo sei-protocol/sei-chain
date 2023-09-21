@@ -25,7 +25,7 @@ func NewQuerier(keeper Keeper) types.QueryServer {
 var _ types.QueryServer = querier{}
 
 // Params queries params of distribution module
-func (q querier) Params(c context.Context, req *types.QueryParamsRequest) (*types.QueryParamsResponse, error) {
+func (q querier) Params(c context.Context, _ *types.QueryParamsRequest) (*types.QueryParamsResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 	var params types.Params
 	q.paramSpace.GetParamSet(ctx, &params)
@@ -53,7 +53,7 @@ func (q querier) ExchangeRate(c context.Context, req *types.QueryExchangeRateReq
 }
 
 // ExchangeRates queries exchange rates of all denoms
-func (q querier) ExchangeRates(c context.Context, req *types.QueryExchangeRatesRequest) (*types.QueryExchangeRatesResponse, error) {
+func (q querier) ExchangeRates(c context.Context, _ *types.QueryExchangeRatesRequest) (*types.QueryExchangeRatesResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 
 	exchangeRates := []types.DenomOracleExchangeRatePair{}
@@ -66,7 +66,7 @@ func (q querier) ExchangeRates(c context.Context, req *types.QueryExchangeRatesR
 }
 
 // Actives queries all denoms for which exchange rates exist
-func (q querier) Actives(c context.Context, req *types.QueryActivesRequest) (*types.QueryActivesResponse, error) {
+func (q querier) Actives(c context.Context, _ *types.QueryActivesRequest) (*types.QueryActivesResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 
 	denoms := []string{}
@@ -79,12 +79,12 @@ func (q querier) Actives(c context.Context, req *types.QueryActivesRequest) (*ty
 }
 
 // VoteTargets queries the voting target list on current vote period
-func (q querier) VoteTargets(c context.Context, req *types.QueryVoteTargetsRequest) (*types.QueryVoteTargetsResponse, error) {
+func (q querier) VoteTargets(c context.Context, _ *types.QueryVoteTargetsRequest) (*types.QueryVoteTargetsResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 	return &types.QueryVoteTargetsResponse{VoteTargets: q.GetVoteTargets(ctx)}, nil
 }
 
-func (q querier) PriceSnapshotHistory(c context.Context, req *types.QueryPriceSnapshotHistoryRequest) (*types.QueryPriceSnapshotHistoryResponse, error) {
+func (q querier) PriceSnapshotHistory(c context.Context, _ *types.QueryPriceSnapshotHistoryRequest) (*types.QueryPriceSnapshotHistoryResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 	priceSnapshots := types.PriceSnapshots{}
 	q.IteratePriceSnapshots(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
@@ -145,7 +145,7 @@ func (q querier) VotePenaltyCounter(c context.Context, req *types.QueryVotePenal
 
 func (q querier) SlashWindow(
 	goCtx context.Context,
-	req *types.QuerySlashWindowRequest,
+	_ *types.QuerySlashWindowRequest,
 ) (*types.QuerySlashWindowResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	params := q.GetParams(ctx)

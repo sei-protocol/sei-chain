@@ -289,11 +289,7 @@ func (p *CoinbaseProvider) subscribe(cps ...types.CurrencyPair) error {
 	}
 
 	tickerMsg := newCoinbaseSubscription(topics...)
-	if err := p.subscribePairs(tickerMsg); err != nil {
-		return err
-	}
-
-	return nil
+	return p.subscribePairs(tickerMsg)
 }
 
 // subscribedPairsToSlice returns the map of subscribed pairs as a slice.
@@ -520,7 +516,7 @@ func (p *CoinbaseProvider) ping() error {
 	return p.wsClient.WriteMessage(websocket.PingMessage, ping)
 }
 
-func (p *CoinbaseProvider) pongHandler(appData string) error {
+func (p *CoinbaseProvider) pongHandler(_ string) error {
 	p.resetReconnectTimer()
 	return nil
 }

@@ -53,7 +53,7 @@ func (c *CachedSortedOrderBookEntries) load(ctx sdk.Context) {
 // Also remove/reduce allocations of the order book entry in FIFO order. If the order book entry
 // does not have enough quantity to settle against, the returned `settled` value will equal to
 // the quantity of the order book entry; otherwise it will equal to the specified quantity.
-func (c *CachedSortedOrderBookEntries) SettleQuantity(ctx sdk.Context, quantity sdk.Dec) (res []ToSettle, settled sdk.Dec) {
+func (c *CachedSortedOrderBookEntries) SettleQuantity(_ sdk.Context, quantity sdk.Dec) (res []ToSettle, settled sdk.Dec) {
 	if quantity.IsZero() {
 		return []ToSettle{}, quantity
 	}
@@ -65,7 +65,7 @@ func (c *CachedSortedOrderBookEntries) SettleQuantity(ctx sdk.Context, quantity 
 		settled = currentEntry.Quantity
 		currentEntry.Quantity = sdk.ZeroDec()
 		currentEntry.Allocations = []*Allocation{}
-		return
+		return res, settled
 	}
 
 	settled = sdk.ZeroDec()
