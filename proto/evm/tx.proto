@@ -1,0 +1,21 @@
+syntax = "proto3";
+package seiprotocol.seichain.evm;
+
+import "google/protobuf/any.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
+
+service Msg {
+  rpc EVMTransaction(MsgEVMTransaction) returns (MsgEVMTransactionResponse);
+}
+
+message MsgEVMTransaction {
+  google.protobuf.Any data = 1;
+}
+
+message MsgEVMTransactionResponse {
+  uint64 gas_used = 1;
+  string vm_error = 2;
+  bytes return_data = 3;
+  string hash = 4;
+}
