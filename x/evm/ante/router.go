@@ -8,14 +8,14 @@ import (
 )
 
 type EVMRouterDecorator struct {
-	defaultRoute sdk.AnteHandler
-	evmRoute     sdk.AnteHandler
+	defaultAnteHandler sdk.AnteHandler
+	evmAnteHandler     sdk.AnteHandler
 }
 
-func NewEVMRouterDecorator(defaultRoute sdk.AnteHandler, evmRoute sdk.AnteHandler) *EVMRouterDecorator {
+func NewEVMRouterDecorator(defaultAnteHandler sdk.AnteHandler, evmAnteHandler sdk.AnteHandler) *EVMRouterDecorator {
 	return &EVMRouterDecorator{
-		defaultRoute: defaultRoute,
-		evmRoute:     evmRoute,
+		defaultAnteHandler: defaultAnteHandler,
+		evmAnteHandler:     evmAnteHandler,
 	}
 }
 
@@ -33,7 +33,7 @@ func (r EVMRouterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	}
 
 	if !hasEVMMsg {
-		return r.defaultRoute(ctx, tx, simulate)
+		return r.defaultAnteHandler(ctx, tx, simulate)
 	}
 
 	// A tx that has EVM message must have exactly one message
@@ -41,5 +41,5 @@ func (r EVMRouterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 		return ctx, errors.New("EVM tx must have exactly one message")
 	}
 
-	return r.evmRoute(ctx, tx, simulate)
+	return r.evmAnteHandler(ctx, tx, simulate)
 }

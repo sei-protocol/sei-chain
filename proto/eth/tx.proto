@@ -131,14 +131,7 @@ string blob_fee_cap = 10 [
 ];
 repeated bytes blob_hashes = 11;
 BlobTxSidecar sidecar = 12;
-<<<<<<< HEAD
-<<<<<<< HEAD
 // signature values
-=======
->>>>>>> 07e890ac (Create EVM module and add types/keeper)
-=======
-// signature values
->>>>>>> f3d80657 (add tests)
 bytes v = 13;
 bytes r = 14;
 bytes s = 15;
