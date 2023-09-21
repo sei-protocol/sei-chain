@@ -1,0 +1,120 @@
+package ethtx
+
+import (
+	"math"
+	"math/big"
+	"testing"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/stretchr/testify/require"
+)
+
+func mockAccessListTransaction(value *big.Int) *ethtypes.Transaction {
+	inner := &ethtypes.AccessListTx{
+		ChainID:    big.NewInt(1),
+		GasPrice:   big.NewInt(100),
+		Gas:        1000,
+		To:         &common.Address{'a'},
+		Value:      value,
+		Data:       []byte{'b'},
+		AccessList: mockAccessList(),
+		V:          big.NewInt(3),
+		R:          big.NewInt(5),
+		S:          big.NewInt(7),
+	}
+	return ethtypes.NewTx(inner)
+}
+
+func TestAccessListTransaction(t *testing.T) {
+	ethTx := mockAccessListTransaction(big.NewInt(20))
+	tx, err := NewAccessListTx(ethTx)
+	require.Nil(t, err)
+
+	require.Equal(t, uint8(ethtypes.AccessListTxType), tx.TxType())
+	copy := tx.Copy()
+	require.Equal(t, tx, copy)
+	cached := tx.ChainID
+	tx.ChainID = nil
+	require.Nil(t, tx.GetChainID())
+	tx.ChainID = cached
+	require.Equal(t, cached.BigInt(), tx.GetChainID())
+	al := tx.Accesses
+	tx.Accesses = nil
+	require.Nil(t, tx.GetAccessList())
+	tx.Accesses = al
+	require.Equal(t, *al.ToEthAccessList(), tx.GetAccessList())
+	require.Equal(t, common.CopyBytes(tx.Data), tx.GetData())
+	require.Equal(t, tx.GasLimit, tx.GetGas())
+	gp := tx.GasPrice
+	tx.GasPrice = nil
+	require.Nil(t, tx.GetGasPrice())
+	tx.GasPrice = gp
+	require.Equal(t, gp.BigInt(), tx.GetGasPrice())
+	require.Equal(t, gp.BigInt(), tx.GetGasTipCap())
+	require.Equal(t, gp.BigInt(), tx.GetGasFeeCap())
+	amt := tx.Amount
+	tx.Amount = nil
+	require.Nil(t, tx.GetValue())
+	tx.Amount = amt
+	require.Equal(t, amt.BigInt(), tx.GetValue())
+	require.Equal(t, tx.Nonce, tx.GetNonce())
+	to := tx.To
+	tx.To = ""
+	require.Nil(t, tx.GetTo())
+	tx.To = to
+	require.Equal(t, common.HexToAddress(to), *tx.GetTo())
+	require.Equal(t, ethTx.Hash(), ethtypes.NewTx(tx.AsEthereumData()).Hash())
+	v, s, r := tx.GetRawSignatureValues()
+	V, S, R := ethTx.RawSignatureValues()
+	require.Equal(t, *v, *V)
+	require.Equal(t, *s, *S)
+	require.Equal(t, *r, *R)
+	tx.SetSignatureValues(cached.BigInt(), v, s, r)
+	require.Equal(t, fee(tx.GasPrice.BigInt(), tx.GasLimit), tx.Fee())
+	require.Equal(t, cost(fee(tx.GasPrice.BigInt(), tx.GasLimit), tx.Amount.BigInt()), tx.Cost())
+	require.Equal(t, tx.GasPrice.BigInt(), tx.EffectiveGasPrice(nil))
+	require.Equal(t, fee(tx.GasPrice.BigInt(), tx.GasLimit), tx.EffectiveFee(nil))
+	require.Equal(t, cost(fee(tx.GasPrice.BigInt(), tx.GasLimit), tx.Amount.BigInt()), tx.EffectiveCost(nil))
+}
+
+func TestInvalidAccessListTransaction(t *testing.T) {
+	maxInt64 := big.NewInt(math.MaxInt64)
+	overflowed := &big.Int{}
+	// (2^64)^5 > 2^256
+	ethTx := mockAccessListTransaction(overflowed.Exp(maxInt64, big.NewInt(5), nil))
+	_, err := NewAccessListTx(ethTx)
+	require.NotNil(t, err)
+}
+
+func TestValidateAccessListTransaction(t *testing.T) {
+	ethTx := mockAccessListTransaction(big.NewInt(20))
+	tx, err := NewAccessListTx(ethTx)
+	require.Nil(t, err)
+	gp := tx.GasPrice
+	tx.GasPrice = nil
+	require.NotNil(t, tx.Validate())
+	ngp := gp.Neg()
+	tx.GasPrice = &ngp
+	require.NotNil(t, tx.Validate())
+	tx.GasPrice = gp
+	amt := tx.Amount
+	namt := amt.Neg()
+	tx.Amount = &namt
+	require.NotNil(t, tx.Validate())
+	tx.Amount = amt
+	overflowed := &big.Int{}
+	sdkOverflowed := sdk.NewIntFromBigInt(overflowed.Exp(big.NewInt(math.MaxInt64), big.NewInt(4), nil))
+	tx.GasPrice = &sdkOverflowed
+	require.NotNil(t, tx.Validate())
+	tx.GasPrice = gp
+	to := tx.To
+	tx.To = "xyz"
+	require.NotNil(t, tx.Validate())
+	tx.To = to
+	chainID := tx.ChainID
+	tx.ChainID = nil
+	require.NotNil(t, tx.Validate())
+	tx.ChainID = chainID
+}

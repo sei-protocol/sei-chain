@@ -19,6 +19,7 @@ require (
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
+	github.com/holiman/uint256 v1.2.4
 	github.com/justinas/alice v1.2.0
 	github.com/k0kubun/pp/v3 v3.2.0
 	github.com/mitchellh/mapstructure v1.5.0
@@ -174,7 +175,6 @@ require (
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/hdevalence/ed25519consensus v0.0.0-20220222234857-c00d1f31bab3 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
-	github.com/holiman/uint256 v1.2.4 // indirect
 	github.com/improbable-eng/grpc-web v0.14.1 // indirect
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect
 	github.com/jgautheron/goconst v1.5.1 // indirect
