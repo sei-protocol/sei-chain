@@ -1,10 +1,9 @@
-package oracle_test
+package oracle
 
 import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
-	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -69,12 +68,104 @@ func TestComputeVWAP(t *testing.T) {
 		tc := tc
 
 		t.Run(name, func(t *testing.T) {
-			vwap, err := oracle.ComputeVWAP(tc.prices)
+			vwap, err := ComputeVWAP(tc.prices)
 			require.NoError(t, err)
 			require.Len(t, vwap, len(tc.expected))
 
 			for k, v := range tc.expected {
 				require.Equalf(t, v, vwap[k], "unexpected VWAP for %s", k)
+			}
+		})
+	}
+}
+
+func TestComputeTVWAP(t *testing.T) {
+	now := provider.PastUnixTime(0)
+	testCases := []struct {
+		name     string
+		prices   provider.AggregatedProviderCandles
+		expected map[string]sdk.Dec
+		now      int64
+	}{
+		{
+			name:     "empty candles",
+			prices:   make(provider.AggregatedProviderCandles),
+			expected: make(map[string]sdk.Dec),
+		},
+		{
+			name:     "nil candles",
+			prices:   nil,
+			expected: make(map[string]sdk.Dec),
+		},
+		{
+			name: "non-empty candles",
+			prices: provider.AggregatedProviderCandles{
+				config.ProviderBinance: {
+					"ATOM": []provider.CandlePrice{
+						{TimeStamp: provider.PastUnixTime(600), Price: sdk.MustNewDecFromStr("28.21000000"), Volume: sdk.MustNewDecFromStr("1000")},
+						{TimeStamp: provider.PastUnixTime(300), Price: sdk.MustNewDecFromStr("28.23000000"), Volume: sdk.MustNewDecFromStr("1000")},
+					},
+					"UMEE": []provider.CandlePrice{
+						{TimeStamp: provider.PastUnixTime(600), Price: sdk.MustNewDecFromStr("1.13000000"), Volume: sdk.MustNewDecFromStr("500")},
+					},
+				},
+			},
+			expected: map[string]sdk.Dec{
+				"ATOM": sdk.MustNewDecFromStr("28.22000000"), // Adjust this after checking the expected result of TVWAP
+				"UMEE": sdk.MustNewDecFromStr("1.13000000"),
+			},
+		},
+		{
+			name: "non-empty candles",
+			prices: provider.AggregatedProviderCandles{
+				config.ProviderBinance: {
+					"ATOM": []provider.CandlePrice{
+						{TimeStamp: provider.PastUnixTime(600), Price: sdk.MustNewDecFromStr("28.21000000"), Volume: sdk.MustNewDecFromStr("1000")},
+						{TimeStamp: provider.PastUnixTime(300), Price: sdk.MustNewDecFromStr("28.23000000"), Volume: sdk.MustNewDecFromStr("1000")},
+					},
+					"UMEE": []provider.CandlePrice{
+						{TimeStamp: provider.PastUnixTime(600), Price: sdk.MustNewDecFromStr("1.13000000"), Volume: sdk.MustNewDecFromStr("500")},
+					},
+				},
+			},
+			expected: map[string]sdk.Dec{
+				"ATOM": sdk.MustNewDecFromStr("28.22000000"),
+				"UMEE": sdk.MustNewDecFromStr("1.13000000"),
+			},
+		},
+		{
+			name: "candles with same time as now",
+			now:  now,
+			prices: provider.AggregatedProviderCandles{
+				config.ProviderBinance: {
+					"ATOM": []provider.CandlePrice{
+						{TimeStamp: now, Price: sdk.MustNewDecFromStr("28.50000000"), Volume: sdk.MustNewDecFromStr("1000")},
+					},
+					"UMEE": []provider.CandlePrice{
+						{TimeStamp: now, Price: sdk.MustNewDecFromStr("1.25000000"), Volume: sdk.MustNewDecFromStr("500")},
+					},
+				},
+			},
+			expected: map[string]sdk.Dec{
+				"ATOM": sdk.MustNewDecFromStr("28.50000000"),
+				"UMEE": sdk.MustNewDecFromStr("1.25000000"),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.now > 0 {
+				mockNow = tc.now
+			} else {
+				mockNow = 0
+			}
+			tvwap, err := ComputeTVWAP(tc.prices)
+			require.NoError(t, err)
+			require.Len(t, tvwap, len(tc.expected))
+
+			for k, v := range tc.expected {
+				require.Equalf(t, v, tvwap[k], "unexpected TVWAP for %s", k)
 			}
 		})
 	}
@@ -181,7 +272,7 @@ func TestStandardDeviation(t *testing.T) {
 		tc := tc
 
 		t.Run(name, func(t *testing.T) {
-			deviation, mean, err := oracle.StandardDeviation(tc.prices)
+			deviation, mean, err := StandardDeviation(tc.prices)
 			require.NoError(t, err)
 			require.Len(t, deviation, len(tc.expected))
 			require.Len(t, mean, len(tc.expected))

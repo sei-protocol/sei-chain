@@ -469,7 +469,7 @@ func (p *OkxProvider) ping() error {
 	return p.wsClient.WriteMessage(websocket.PingMessage, ping)
 }
 
-func (p *OkxProvider) pongHandler(appData string) error {
+func (p *OkxProvider) pongHandler(_ string) error {
 	p.resetReconnectTimer()
 	return nil
 }
