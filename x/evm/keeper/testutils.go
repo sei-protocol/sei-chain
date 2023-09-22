@@ -6,6 +6,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -54,12 +55,7 @@ func MockEVMKeeper() (*Keeper, sdk.Context) {
 }
 
 func MockAddressPair() (sdk.AccAddress, common.Address) {
-	// Generate a new Sei private key
-	entropySeed, _ := bip39.NewEntropy(256)
-	mnemonic, _ := bip39.NewMnemonic(entropySeed)
-	algo := hd.Secp256k1
-	derivedPriv, _ := algo.Derive()(mnemonic, "", "")
-	privKey := algo.Generate()(derivedPriv)
+	privKey := MockPrivateKey()
 
 	// Encode the private key to hex (i.e. what wallets do behind the scene when users reveal private keys)
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
@@ -74,4 +70,13 @@ func MockAddressPair() (sdk.AccAddress, common.Address) {
 	pubKey, _ := crypto.UnmarshalPubkey(recoveredPub)
 
 	return sdk.AccAddress(privKey.PubKey().Address()), crypto.PubkeyToAddress(*pubKey)
+}
+
+func MockPrivateKey() cryptotypes.PrivKey {
+	// Generate a new Sei private key
+	entropySeed, _ := bip39.NewEntropy(256)
+	mnemonic, _ := bip39.NewMnemonic(entropySeed)
+	algo := hd.Secp256k1
+	derivedPriv, _ := algo.Derive()(mnemonic, "", "")
+	return algo.Generate()(derivedPriv)
 }
