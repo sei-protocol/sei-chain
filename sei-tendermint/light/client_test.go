@@ -722,6 +722,32 @@ func TestClient(t *testing.T) {
 		mockDeadNode.AssertExpectations(t)
 		mockFullNode.AssertExpectations(t)
 	})
+	t.Run("TerminatesWitnessSearchAfterContextDeadlineExpires", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(1*time.Second))
+		defer cancel()
+
+		mockDeadNode := &provider_mocks.Provider{}
+		mockDeadNode.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrNoResponse)
+		mockSlowNode := &provider_mocks.Provider{}
+		mockSlowNode.On("LightBlock", mock.Anything, mock.Anything).Return(nil, context.DeadlineExceeded)
+
+		logger := log.NewNopLogger()
+
+		_, err := light.NewClient(
+			ctx,
+			chainID,
+			trustOptions,
+			mockDeadNode,
+			[]provider.Provider{mockDeadNode, mockSlowNode},
+			dbs.New(dbm.NewMemDB()),
+			light.Logger(logger),
+		)
+		require.Error(t, err)
+		require.Equal(t, context.DeadlineExceeded, err)
+
+		mockDeadNode.AssertExpectations(t)
+		mockSlowNode.AssertExpectations(t)
+	})
 	t.Run("ReplacesPrimaryWithWitnessIfPrimaryDoesntHaveBlock", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
