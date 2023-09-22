@@ -6,6 +6,7 @@ on:
       - "**.go"
     branches:
       - main
+      - evm
       - release/**
 
 jobs:
