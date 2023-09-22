@@ -1,8 +1,10 @@
 package types
 
 import (
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
@@ -10,8 +12,12 @@ const TypeMsgEVMTransaction = "evm_transaction"
 
 var _ sdk.Msg = &MsgEVMTransaction{}
 
-func NewMsgEVMTransaction() *MsgEVMTransaction {
-	return &MsgEVMTransaction{}
+func NewMsgEVMTransaction(txData proto.Message) (*MsgEVMTransaction, error) {
+	txDataAny, err := codectypes.NewAnyWithValue(txData)
+	if err != nil {
+		return nil, err
+	}
+	return &MsgEVMTransaction{Data: txDataAny}, nil
 }
 
 func (msg *MsgEVMTransaction) Route() string {

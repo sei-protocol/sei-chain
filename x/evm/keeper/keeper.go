@@ -38,3 +38,11 @@ func NewKeeper(
 func (k *Keeper) ChainID() *big.Int {
 	return k.evmChainID
 }
+
+func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
+	return k.accountKeeper
+}
+
+func (k *Keeper) BankKeeper() bankkeeper.Keeper {
+	return k.bankKeeper
+}
