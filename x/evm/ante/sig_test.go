@@ -4,29 +4,27 @@ import (
 	"encoding/hex"
 	"math/big"
 	"testing"
-	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
 
-func TestPreprocessAnteHandler(t *testing.T) {
+func TestEVMSigVerifyDecorator(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	handler := NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	handler := NewEVMSigVerifyDecorator(k)
 	privKey := keeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	to := new(common.Address)
 	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
 	txData := ethtypes.LegacyTx{
-		Nonce:    1,
+		Nonce:    10,
 		GasPrice: big.NewInt(10),
 		Gas:      1000,
 		To:       to,
@@ -45,39 +43,37 @@ func TestPreprocessAnteHandler(t *testing.T) {
 	require.Nil(t, err)
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+
+	preprocessor := NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	setAddr, found := types.GetContextSeiAddress(ctx)
-	require.True(t, found)
-	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), setAddr)
-}
 
-func TestGetVersion(t *testing.T) {
-	ethCfg := &params.ChainConfig{}
-	ctx := sdk.Context{}.WithBlockHeight(10).WithBlockTime(time.Now())
-	zero := uint64(0)
+	// should return error because nonce is incorrect
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NotNil(t, err)
 
-	ethCfg.LondonBlock = big.NewInt(0)
-	ethCfg.CancunTime = &zero
-	require.Equal(t, types.Cancun, getVersion(ctx, ethCfg))
+	txData.Nonce = 0
+	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	typedTx, err = ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	msg, err = types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
 
-	ethCfg.CancunTime = nil
-	require.Equal(t, types.London, getVersion(ctx, ethCfg))
-
-	ethCfg.LondonBlock = nil
-	ethCfg.BerlinBlock = big.NewInt(0)
-	require.Equal(t, types.Berlin, getVersion(ctx, ethCfg))
-
-	ethCfg.BerlinBlock = nil
-	ethCfg.EIP155Block = big.NewInt(0)
-	require.Equal(t, types.EIP155, getVersion(ctx, ethCfg))
-
-	ethCfg.EIP155Block = nil
-	ethCfg.HomesteadBlock = big.NewInt(0)
-	require.Equal(t, types.Homestead, getVersion(ctx, ethCfg))
-
-	ethCfg.HomesteadBlock = nil
-	require.Equal(t, types.Frontier, getVersion(ctx, ethCfg))
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	seiAddr, ok := types.GetContextSeiAddress(ctx)
+	require.True(t, ok)
+	seq, _ := k.AccountKeeper().GetSequence(ctx, seiAddr)
+	require.Equal(t, uint64(1), seq)
 }

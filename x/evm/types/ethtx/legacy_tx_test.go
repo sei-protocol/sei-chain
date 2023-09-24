@@ -76,6 +76,8 @@ func TestLegacyTransaction(t *testing.T) {
 	require.Equal(t, tx.GasPrice.BigInt(), tx.EffectiveGasPrice(nil))
 	require.Equal(t, fee(tx.GasPrice.BigInt(), tx.GasLimit), tx.EffectiveFee(nil))
 	require.Equal(t, cost(fee(tx.GasPrice.BigInt(), tx.GasLimit), tx.Amount.BigInt()), tx.EffectiveCost(nil))
+	require.Nil(t, tx.GetBlobFeeCap())
+	require.Nil(t, tx.GetBlobHashes())
 }
 
 func TestInvalidLegacyTransaction(t *testing.T) {
