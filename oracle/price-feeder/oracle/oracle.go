@@ -267,7 +267,7 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 				if err != nil {
 					o.logger.Debug().Err(err).Msg("failed to get candle prices from provider")
 				}
-				reportPriceErrMetrics(providerName, "candle", prices, currencyPairs)
+				reportPriceErrMetrics(providerName, "candle", candles, currencyPairs)
 			}()
 
 			select {
