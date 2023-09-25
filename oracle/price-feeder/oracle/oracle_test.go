@@ -97,7 +97,8 @@ func (mt *mockTelemetry) AssertContains(t *testing.T, keys []string, val float32
 }
 
 type mockProvider struct {
-	prices map[string]provider.TickerPrice
+	prices    map[string]provider.TickerPrice
+	candleErr error
 }
 
 func (m mockProvider) GetTickerPrices(_ ...types.CurrencyPair) (map[string]provider.TickerPrice, error) {
@@ -105,6 +106,9 @@ func (m mockProvider) GetTickerPrices(_ ...types.CurrencyPair) (map[string]provi
 }
 
 func (m mockProvider) GetCandlePrices(_ ...types.CurrencyPair) (map[string][]provider.CandlePrice, error) {
+	if m.candleErr != nil {
+		return nil, m.candleErr
+	}
 	candles := make(map[string][]provider.CandlePrice)
 	for pair, price := range m.prices {
 		candles[pair] = []provider.CandlePrice{
@@ -433,6 +437,7 @@ func (ots *OracleTestSuite) TestPrices() {
 					Volume: sdk.MustNewDecFromStr("1994674.34000000"),
 				},
 			},
+			candleErr: fmt.Errorf("test error"),
 		},
 		config.ProviderHuobi: mockProvider{
 			prices: map[string]provider.TickerPrice{
@@ -461,9 +466,10 @@ func (ots *OracleTestSuite) TestPrices() {
 	}
 	telemetryMock = resetMockTelemetry()
 	ots.Require().NoError(ots.oracle.SetPrices(context.TODO()))
-	ots.Require().Equal(2, telemetryMock.Len())
+	ots.Require().Equal(3, telemetryMock.Len())
 	telemetryMock.AssertProviderError(ots.T(), config.ProviderBinance, "UMEE", "error", "ticker")
 	telemetryMock.AssertProviderError(ots.T(), config.ProviderBinance, "UMEE", "error", "candle")
+	telemetryMock.AssertProviderError(ots.T(), config.ProviderKraken, "UMEE", "error", "candle")
 
 	prices = ots.oracle.GetPrices()
 	ots.Require().Len(prices, 4)
