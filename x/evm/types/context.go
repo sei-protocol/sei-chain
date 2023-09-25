@@ -53,6 +53,7 @@ func SetContextEVMVersion(ctx sdk.Context, version SignerVersion) sdk.Context {
 func GetContextEthCfg(ctx sdk.Context) (*params.ChainConfig, bool) {
 	if ctx.Context() == nil {
 		return nil, false
+	}
 	cfg := ctx.Context().Value(ContextEthCfgKey)
 	return cfg.(*params.ChainConfig), true
 }
