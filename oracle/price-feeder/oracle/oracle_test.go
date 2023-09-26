@@ -566,6 +566,7 @@ func TestTickScenarios(t *testing.T) {
 		blockHeight        int64
 		previousVotePeriod float64
 		votePeriod         uint64
+		mockBroadcastErr   error
 
 		// expectations
 		expectedVoteMsg *oracletypes.MsgAggregateExchangeRateVote
@@ -616,6 +617,31 @@ func TestTickScenarios(t *testing.T) {
 				Feeder:        feederAddr,
 				Validator:     validatorAddr,
 			},
+		},
+		{
+			name:               "Should not crash if broadcast returns nil response with error",
+			isJailed:           false,
+			blockHeight:        1,
+			previousVotePeriod: 0,
+			votePeriod:         1,
+			pairs: []config.CurrencyPair{
+				{Base: "USDT", ChainDenom: "uusdt", Quote: "USD"},
+				{Base: "BTC", ChainDenom: "ubtc", Quote: "USD"},
+				{Base: "ETH", ChainDenom: "ueth", Quote: "USD"},
+			},
+			prices: map[string]sdk.Dec{
+				"USDT": sdk.MustNewDecFromStr("1.1"),
+				"BTC":  sdk.MustNewDecFromStr("2.2"),
+				"ETH":  sdk.MustNewDecFromStr("3.3"),
+			},
+			whitelist: denomList("uusdt", "ubtc", "ueth"),
+			expectedVoteMsg: &oracletypes.MsgAggregateExchangeRateVote{
+				ExchangeRates: "2.200000000000000000ubtc,3.300000000000000000ueth,1.100000000000000000uusdt",
+				Feeder:        feederAddr,
+				Validator:     validatorAddr,
+			},
+			mockBroadcastErr: fmt.Errorf("test error"),
+			expectedErr:      fmt.Errorf("test error"),
 		},
 		{
 			name:               "Same voting period should avoid broadcasting without error",
@@ -682,6 +708,11 @@ func TestTickScenarios(t *testing.T) {
 						require.Equal(t, test.expectedVoteMsg.Validator, voteMsg.Validator, test.name)
 
 						broadcastCount++
+
+						if test.mockBroadcastErr != nil {
+							return nil, test.mockBroadcastErr
+						}
+
 						return &sdk.TxResponse{TxHash: "0xhash", Code: 200}, nil
 					},
 				},

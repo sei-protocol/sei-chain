@@ -701,15 +701,11 @@ func (o *Oracle) tick(
 
 	resp, err := o.oracleClient.BroadcastTx(clientCtx, voteMsg)
 	if err != nil {
-		o.logger.Error().Err(err).
-			Str("status", "failure").
-			Uint32("response_code", resp.Code).
-			Str("tx_hash", resp.TxHash).
-			Int64("tick_duration", time.Since(startTime).Milliseconds()).
-			Msg(fmt.Sprintf("broadcasted for height %d", blockHeight))
+		o.logResponseError(err, resp, startTime, blockHeight)
 		telemetry.IncrCounter(1, "failure", "broadcast")
 		return err
 	}
+
 	o.logger.Info().
 		Str("status", "success").
 		Uint32("response_code", resp.Code).
@@ -722,6 +718,23 @@ func (o *Oracle) tick(
 	o.healthchecksPing()
 
 	return nil
+}
+
+func (o *Oracle) logResponseError(err error, resp *sdk.TxResponse, startTime time.Time, blockHeight int64) {
+	responseCode := -1 // success is 0
+	var txHash string
+
+	if resp != nil {
+		responseCode = int(resp.Code)
+		txHash = resp.TxHash
+	}
+
+	o.logger.Error().Err(err).
+		Str("status", "failure").
+		Int("response_code", responseCode).
+		Str("tx_hash", txHash).
+		Int64("tick_duration", time.Since(startTime).Milliseconds()).
+		Msg(fmt.Sprintf("broadcasted for height %d", blockHeight))
 }
 
 func (o *Oracle) healthchecksPing() {
