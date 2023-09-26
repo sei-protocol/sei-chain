@@ -721,17 +721,17 @@ func (o *Oracle) tick(
 }
 
 func (o *Oracle) logResponseError(err error, resp *sdk.TxResponse, startTime time.Time, blockHeight int64) {
-	var responseCode uint32
+	responseCode := -1 // success is 0
 	var txHash string
 
 	if resp != nil {
-		responseCode = resp.Code
+		responseCode = int(resp.Code)
 		txHash = resp.TxHash
 	}
 
 	o.logger.Error().Err(err).
 		Str("status", "failure").
-		Uint32("response_code", responseCode).
+		Int("response_code", responseCode).
 		Str("tx_hash", txHash).
 		Int64("tick_duration", time.Since(startTime).Milliseconds()).
 		Msg(fmt.Sprintf("broadcasted for height %d", blockHeight))
