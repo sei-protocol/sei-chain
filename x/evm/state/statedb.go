@@ -15,6 +15,10 @@ type StateDBImpl struct {
 	err error
 
 	k *keeper.Keeper
+
+	transientStorage   map[string]map[string][]byte
+	created            map[string]struct{}
+	selfDestructedAccs map[string]struct{}
 }
 
 func NewStateDBImpl(ctx sdk.Context, k *keeper.Keeper) *StateDBImpl {
