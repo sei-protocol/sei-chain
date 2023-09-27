@@ -34,13 +34,14 @@ func TestMigrate2to3(t *testing.T) {
 	m.Migrate2to3(input.Ctx)
 
 	// Get rate
-	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
+	rate, lastUpdate, lastUpdateTimestamp, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
 	require.NoError(t, err)
 	require.Equal(t, exchangeRate, rate)
 	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+	require.Equal(t, int64(0), lastUpdateTimestamp)
 
 	input.OracleKeeper.DeleteBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
-	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	numExchangeRates := 0
@@ -83,7 +84,6 @@ func TestMigrate3to4(t *testing.T) {
 	require.Equal(t, types.VotePenaltyCounter{MissCount: missCounter, AbstainCount: 0}, votePenaltyCounter)
 
 	input.OracleKeeper.DeleteVotePenaltyCounter(input.Ctx, addr)
-	votePenaltyCounter = input.OracleKeeper.GetVotePenaltyCounter(input.Ctx, addr) //nolint:staticcheck // no need to use this.
 
 	numPenaltyCounters := 0
 	handler := func(operators sdk.ValAddress, votePenaltyCounter types.VotePenaltyCounter) (stop bool) {
