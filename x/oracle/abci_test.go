@@ -596,6 +596,7 @@ func TestOraclePriceSnapshot(t *testing.T) {
 	require.Equal(t, randomExchangeRate, rate)
 	// The value should have a stale height
 	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+	ts := input.Ctx.BlockTime().UnixMilli()
 
 	snapshot := input.OracleKeeper.GetPriceSnapshot(input.Ctx, 100)
 	require.NoError(t, err)
@@ -605,8 +606,9 @@ func TestOraclePriceSnapshot(t *testing.T) {
 			{
 				Denom: utils.MicroAtomDenom,
 				OracleExchangeRate: types.OracleExchangeRate{
-					ExchangeRate: randomExchangeRate,
-					LastUpdate:   sdk.NewInt(input.Ctx.BlockHeight()),
+					ExchangeRate:        randomExchangeRate,
+					LastUpdate:          sdk.NewInt(input.Ctx.BlockHeight()),
+					LastUpdateTimestamp: ts,
 				},
 			},
 		},
@@ -622,8 +624,9 @@ func TestOraclePriceSnapshot(t *testing.T) {
 			{
 				Denom: utils.MicroAtomDenom,
 				OracleExchangeRate: types.OracleExchangeRate{
-					ExchangeRate: randomExchangeRate,
-					LastUpdate:   sdk.NewInt(input.Ctx.BlockHeight()),
+					ExchangeRate:        randomExchangeRate,
+					LastUpdate:          sdk.NewInt(input.Ctx.BlockHeight()),
+					LastUpdateTimestamp: ts,
 				},
 			},
 		},
