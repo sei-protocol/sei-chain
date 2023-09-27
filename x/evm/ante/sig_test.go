@@ -56,6 +56,22 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	})
 	require.NotNil(t, err)
 
+	// should return error if acc is not found (i.e. preprocess not called)
+	txData.Nonce = 0
+	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	typedTx, err = ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	msg, err = types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+
+	require.Nil(t, err)
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NotNil(t, err)
+
+	// should succeed
 	txData.Nonce = 0
 	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)

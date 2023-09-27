@@ -65,19 +65,4 @@ func TestGetVersion(t *testing.T) {
 
 	ethCfg.CancunTime = nil
 	require.Equal(t, types.London, getVersion(ctx, ethCfg))
-
-	ethCfg.LondonBlock = nil
-	ethCfg.BerlinBlock = big.NewInt(0)
-	require.Equal(t, types.Berlin, getVersion(ctx, ethCfg))
-
-	ethCfg.BerlinBlock = nil
-	ethCfg.EIP155Block = big.NewInt(0)
-	require.Equal(t, types.EIP155, getVersion(ctx, ethCfg))
-
-	ethCfg.EIP155Block = nil
-	ethCfg.HomesteadBlock = big.NewInt(0)
-	require.Equal(t, types.Homestead, getVersion(ctx, ethCfg))
-
-	ethCfg.HomesteadBlock = nil
-	require.Equal(t, types.Frontier, getVersion(ctx, ethCfg))
 }

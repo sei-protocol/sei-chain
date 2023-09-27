@@ -10,14 +10,10 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
-type Version int
+type SignerVersion int
 
 const (
-	Frontier Version = iota
-	Homestead
-	EIP155
-	Berlin
-	London
+	London SignerVersion = iota
 	Cancun
 )
 
@@ -50,7 +46,7 @@ func SetContextSeiAddress(ctx sdk.Context, addr sdk.AccAddress) sdk.Context {
 	return ctx.WithContext(context.WithValue(ctx.Context(), ContextSeiAddressKey, addr))
 }
 
-func SetContextEVMVersion(ctx sdk.Context, version Version) sdk.Context {
+func SetContextEVMVersion(ctx sdk.Context, version SignerVersion) sdk.Context {
 	return ctx.WithContext(context.WithValue(ctx.Context(), ContextEVMVersionKey, version))
 }
 
@@ -109,7 +105,7 @@ func GetContextSeiAddress(ctx sdk.Context) (sdk.AccAddress, bool) {
 	return addr.(sdk.AccAddress), true
 }
 
-func GetContextEVMVersion(ctx sdk.Context) (Version, bool) {
+func GetContextEVMVersion(ctx sdk.Context) (SignerVersion, bool) {
 	if ctx.Context() == nil {
 		return 0, false
 	}
@@ -117,5 +113,5 @@ func GetContextEVMVersion(ctx sdk.Context) (Version, bool) {
 	if ver == nil {
 		return 0, false
 	}
-	return ver.(Version), true
+	return ver.(SignerVersion), true
 }

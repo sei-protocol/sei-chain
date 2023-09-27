@@ -2,7 +2,6 @@ package ante
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -49,11 +48,9 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	// if EVM version is London or later, gas fee cap will be used to cap the overall fee consumption,
 	// so we need to make sure that cap is at least as large as the required base fee
 	if ver >= evmtypes.London && txData.GetGasFeeCap().Cmp(fc.getBaseFee(ctx, txData.GetGas())) < 0 {
-		fmt.Println(txData.GetGasFeeCap())
-		fmt.Println(fc.getBaseFee(ctx, txData.GetGas()))
 		return ctx, errors.New("provided gas fee cap is smaller than required base fee")
 	}
-	// if EVM version is Cancun or later, and the transaction contains at least one block, we need to
+	// if EVM version is Cancun or later, and the transaction contains at least one blob, we need to
 	// make sure the transaction carries a non-zero blob fee cap.
 	if ver >= evmtypes.Cancun && len(txData.GetBlobHashes()) > 0 {
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
