@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -89,6 +90,9 @@ func (s *StateDBImpl) GetBalance(evmAddr common.Address) *big.Int {
 }
 
 func (s *StateDBImpl) CheckBalance() error {
+	if s.err != nil {
+		return errors.New("should not call CheckBalance if there is already an error during execution")
+	}
 	currentModuleBalance := s.k.GetModuleBalance(s.ctx)
 	effectiveCurrentModuleBalance := new(big.Int).Sub(currentModuleBalance, s.minted)
 	expectedCurrentModuleBalance := new(big.Int).Sub(s.initialModuleBalance, s.deficit)
