@@ -50,3 +50,7 @@ func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 func (k *Keeper) GetModuleBalance(ctx sdk.Context) *big.Int {
 	return k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), k.GetBaseDenom(ctx)).Amount.BigInt()
 }
+
+func (k *Keeper) GetStoreKey() sdk.StoreKey {
+	return k.storeKey
+}

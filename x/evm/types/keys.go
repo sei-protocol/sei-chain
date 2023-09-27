@@ -21,7 +21,8 @@ const (
 var (
 	BalanceKeyPrefix                = []byte{0x01}
 	EVMAddressToSeiAddressKeyPrefix = []byte{0x02}
-	SeiAddressToEVMAddressKeyPrefix = []byte{0x02}
+	SeiAddressToEVMAddressKeyPrefix = []byte{0x03}
+	StateKeyPrefix                  = []byte{0x04}
 )
 
 func BalanceKey(addr common.Address) []byte {
@@ -34,4 +35,8 @@ func EVMAddressToSeiAddressKey(evmAddress common.Address) []byte {
 
 func SeiAddressToEVMAddressKey(seiAddress sdk.AccAddress) []byte {
 	return append(SeiAddressToEVMAddressKeyPrefix, seiAddress...)
+}
+
+func StateKey(evmAddress common.Address) []byte {
+	return append(StateKeyPrefix, evmAddress[:]...)
 }

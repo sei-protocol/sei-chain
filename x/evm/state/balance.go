@@ -11,12 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func (s *StateDBImpl) CreateAccount(common.Address) {
-	// noop
-	// EVM account creation is handled in ante handlers.
-	// State initialization is handled in Get/SetState
-}
-
 func (s *StateDBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 	if amt.Sign() == 0 {
 		return

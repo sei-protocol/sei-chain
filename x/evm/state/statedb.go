@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
+// Initialized for each transaction individually
 type StateDBImpl struct {
 	ctx sdk.Context
 	// If err is not nil at the end of the execution, the transaction will be rolled
@@ -24,6 +25,10 @@ type StateDBImpl struct {
 	initialModuleBalance *big.Int
 
 	k *keeper.Keeper
+
+	transientStorage   map[string]map[string][]byte
+	created            map[string]struct{}
+	selfDestructedAccs map[string]struct{}
 }
 
 func NewStateDBImpl(ctx sdk.Context, k *keeper.Keeper) *StateDBImpl {
@@ -33,5 +38,8 @@ func NewStateDBImpl(ctx sdk.Context, k *keeper.Keeper) *StateDBImpl {
 		deficit:              big.NewInt(0),
 		minted:               big.NewInt(0),
 		initialModuleBalance: k.GetModuleBalance(ctx),
+		transientStorage:     map[string]map[string][]byte{},
+		created:              map[string]struct{}{},
+		selfDestructedAccs:   map[string]struct{}{},
 	}
 }
