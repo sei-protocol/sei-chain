@@ -111,7 +111,7 @@ func TestWasmGetOracleExchangeRates(t *testing.T) {
 	var parsedRes2 oracletypes.QueryExchangeRatesResponse
 	err = json.Unmarshal(res, &parsedRes2)
 	require.NoError(t, err)
-	require.Equal(t, oracletypes.QueryExchangeRatesResponse{DenomOracleExchangeRatePairs: oracletypes.DenomOracleExchangeRatePairs{oracletypes.NewDenomOracleExchangeRatePair(oracleutils.MicroAtomDenom, sdk.NewDec(12), sdk.NewInt(11))}}, parsedRes2)
+	require.Equal(t, oracletypes.QueryExchangeRatesResponse{DenomOracleExchangeRatePairs: oracletypes.DenomOracleExchangeRatePairs{oracletypes.NewDenomOracleExchangeRatePair(oracleutils.MicroAtomDenom, sdk.NewDec(12), sdk.NewInt(11), testWrapper.Ctx.BlockTime().UnixMilli())}}, parsedRes2)
 }
 
 func TestWasmGetOracleTwaps(t *testing.T) {

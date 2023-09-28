@@ -25,27 +25,33 @@ func TestExchangeRate(t *testing.T) {
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
-	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
+	rate, lastUpdate, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
 	require.NoError(t, err)
 	require.Equal(t, cnyExchangeRate, rate)
 	require.Equal(t, sdk.ZeroInt(), lastUpdate)
 
 	input.Ctx = input.Ctx.WithBlockHeight(3)
+	ts := time.Now()
+	input.Ctx = input.Ctx.WithBlockTime(ts)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, gbpExchangeRate)
-	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	rate, lastUpdate, lastUpdateTimestamp, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.NoError(t, err)
 	require.Equal(t, gbpExchangeRate, rate)
 	require.Equal(t, sdk.NewInt(3), lastUpdate)
+	require.Equal(t, ts.UnixMilli(), lastUpdateTimestamp)
 
 	input.Ctx = input.Ctx.WithBlockHeight(15)
+	laterTS := ts.Add(time.Hour)
+	input.Ctx = input.Ctx.WithBlockTime(laterTS)
 
 	// verify behavior works with event too
 	input.OracleKeeper.SetBaseExchangeRateWithEvent(input.Ctx, utils.MicroAtomDenom, krwExchangeRate)
-	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, lastUpdateTimestamp, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, krwExchangeRate, rate)
 	require.Equal(t, sdk.NewInt(15), lastUpdate)
+	require.Equal(t, laterTS.UnixMilli(), lastUpdateTimestamp)
 	require.True(t, func() bool {
 		expectedEvent := sdk.NewEvent(types.EventTypeExchangeRateUpdate,
 			sdk.NewAttribute(types.AttributeKeyDenom, utils.MicroAtomDenom),
@@ -67,7 +73,7 @@ func TestExchangeRate(t *testing.T) {
 	}())
 
 	input.OracleKeeper.DeleteBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
-	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	numExchangeRates := 0
