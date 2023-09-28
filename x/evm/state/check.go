@@ -23,7 +23,7 @@ func (s *StateDBImpl) Exist(addr common.Address) bool {
 	}
 
 	// go-ethereum impl considers just-deleted accounts as "exist" as well
-	return s.destructed(addr)
+	return s.HasSelfDestructed(addr)
 }
 
 // Empty returns whether the given account is empty. Empty
