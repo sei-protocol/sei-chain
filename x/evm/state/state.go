@@ -127,6 +127,10 @@ func (s *StateDBImpl) markAccount(acc common.Address, status []byte) {
 	} else {
 		store.Set(acc[:], status)
 	}
+
+	s.k.PrefixStore(s.ctx, types.CodeKeyPrefix).Delete(acc[:])
+	s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix).Delete(acc[:])
+	s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix).Delete(acc[:])
 }
 
 func (s *StateDBImpl) created(acc common.Address) bool {
