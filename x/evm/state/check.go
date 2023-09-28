@@ -4,13 +4,14 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Exist reports whether the given account exists in state.
 // Notably this should also return true for self-destructed accounts.
 func (s *StateDBImpl) Exist(addr common.Address) bool {
 	// if there is any entry under addr, it exists
-	store := s.prefixStore(addr)
+	store := s.k.PrefixStore(s.ctx, types.StateKey(addr))
 	iter := store.Iterator(nil, nil)
 	if iter.Valid() {
 		return true
@@ -22,11 +23,7 @@ func (s *StateDBImpl) Exist(addr common.Address) bool {
 	}
 
 	// go-ethereum impl considers just-deleted accounts as "exist" as well
-	if _, ok := s.selfDestructedAccs[addr.String()]; ok {
-		return true
-	}
-
-	return false
+	return s.destructed(addr)
 }
 
 // Empty returns whether the given account is empty. Empty

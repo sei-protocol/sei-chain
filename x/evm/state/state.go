@@ -8,11 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-var (
-	AccountCreated = []byte{0x01}
-	AccountDeleted = []byte{0x02}
-)
-
 func (s *StateDBImpl) CreateAccount(acc common.Address) {
 	// clear any existing state but keep balance untouched
 	s.clearAccountState(acc)
@@ -118,6 +113,10 @@ func (s *StateDBImpl) RevertToSnapshot(rev int) {
 
 func (s *StateDBImpl) clearAccountState(acc common.Address) {
 	s.k.PurgePrefix(s.ctx, types.StateKey(acc))
+	s.k.PrefixStore(s.ctx, types.CodeKeyPrefix).Delete(acc[:])
+	s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix).Delete(acc[:])
+	s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix).Delete(acc[:])
+	s.k.PrefixStore(s.ctx, types.NonceKeyPrefix).Delete(acc[:])
 }
 
 func (s *StateDBImpl) markAccount(acc common.Address, status []byte) {
@@ -127,10 +126,6 @@ func (s *StateDBImpl) markAccount(acc common.Address, status []byte) {
 	} else {
 		store.Set(acc[:], status)
 	}
-
-	s.k.PrefixStore(s.ctx, types.CodeKeyPrefix).Delete(acc[:])
-	s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix).Delete(acc[:])
-	s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix).Delete(acc[:])
 }
 
 func (s *StateDBImpl) created(acc common.Address) bool {
