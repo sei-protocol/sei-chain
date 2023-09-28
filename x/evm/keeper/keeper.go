@@ -3,6 +3,7 @@ package keeper
 import (
 	"math/big"
 
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
@@ -53,4 +54,22 @@ func (k *Keeper) GetModuleBalance(ctx sdk.Context) *big.Int {
 
 func (k *Keeper) GetStoreKey() sdk.StoreKey {
 	return k.storeKey
+}
+
+func (k *Keeper) PrefixStore(ctx sdk.Context, pref []byte) sdk.KVStore {
+	store := ctx.KVStore(k.GetStoreKey())
+	return prefix.NewStore(store, pref)
+}
+
+func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
+	store := k.PrefixStore(ctx, pref)
+	iter := store.Iterator(nil, nil)
+	keys := [][]byte{}
+	for ; iter.Valid(); iter.Next() {
+		keys = append(keys, iter.Key())
+	}
+	iter.Close()
+	for _, key := range keys {
+		store.Delete(key)
+	}
 }
