@@ -15,15 +15,16 @@ const (
 type MultiVersionValue interface {
 	GetLatest() (value MultiVersionValueItem, found bool)
 	GetLatestBeforeIndex(index int) (value MultiVersionValueItem, found bool)
-	Set(index int, value []byte)
-	SetEstimate(index int)
-	Delete(index int)
+	Set(index int, incarnation int, value []byte)
+	SetEstimate(index int, incarnation int)
+	Delete(index int, incarnation int)
 }
 
 type MultiVersionValueItem interface {
 	IsDeleted() bool
 	IsEstimate() bool
 	Value() []byte
+	Incarnation() int
 	Index() int
 }
 
@@ -63,7 +64,7 @@ func (item *multiVersionItem) GetLatestBeforeIndex(index int) (MultiVersionValue
 	defer item.mtx.RUnlock()
 
 	// we want to find the value at the index that is LESS than the current index
-	pivot := NewDeletedItem(index - 1)
+	pivot := &valueItem{index: index - 1}
 
 	var vItem *valueItem
 	var found bool
@@ -77,35 +78,36 @@ func (item *multiVersionItem) GetLatestBeforeIndex(index int) (MultiVersionValue
 	return vItem, found
 }
 
-func (item *multiVersionItem) Set(index int, value []byte) {
+func (item *multiVersionItem) Set(index int, incarnation int, value []byte) {
 	types.AssertValidValue(value)
 	item.mtx.Lock()
 	defer item.mtx.Unlock()
 
-	valueItem := NewValueItem(index, value)
+	valueItem := NewValueItem(index, incarnation, value)
 	item.valueTree.ReplaceOrInsert(valueItem)
 }
 
-func (item *multiVersionItem) Delete(index int) {
+func (item *multiVersionItem) Delete(index int, incarnation int) {
 	item.mtx.Lock()
 	defer item.mtx.Unlock()
 
-	deletedItem := NewDeletedItem(index)
+	deletedItem := NewDeletedItem(index, incarnation)
 	item.valueTree.ReplaceOrInsert(deletedItem)
 }
 
-func (item *multiVersionItem) SetEstimate(index int) {
+func (item *multiVersionItem) SetEstimate(index int, incarnation int) {
 	item.mtx.Lock()
 	defer item.mtx.Unlock()
 
-	estimateItem := NewEstimateItem(index)
+	estimateItem := NewEstimateItem(index, incarnation)
 	item.valueTree.ReplaceOrInsert(estimateItem)
 }
 
 type valueItem struct {
-	index    int
-	value    []byte
-	estimate bool
+	index       int
+	incarnation int
+	value       []byte
+	estimate    bool
 }
 
 var _ MultiVersionValueItem = (*valueItem)(nil)
@@ -113,6 +115,11 @@ var _ MultiVersionValueItem = (*valueItem)(nil)
 // Index implements MultiVersionValueItem.
 func (v *valueItem) Index() int {
 	return v.index
+}
+
+// Incarnation implements MultiVersionValueItem.
+func (v *valueItem) Incarnation() int {
+	return v.incarnation
 }
 
 // IsDeleted implements MultiVersionValueItem.
@@ -135,26 +142,29 @@ func (i *valueItem) Less(other btree.Item) bool {
 	return i.index < other.(*valueItem).index
 }
 
-func NewValueItem(index int, value []byte) *valueItem {
+func NewValueItem(index int, incarnation int, value []byte) *valueItem {
 	return &valueItem{
-		index:    index,
-		value:    value,
-		estimate: false,
+		index:       index,
+		incarnation: incarnation,
+		value:       value,
+		estimate:    false,
 	}
 }
 
-func NewEstimateItem(index int) *valueItem {
+func NewEstimateItem(index int, incarnation int) *valueItem {
 	return &valueItem{
-		index:    index,
-		value:    nil,
-		estimate: true,
+		index:       index,
+		incarnation: incarnation,
+		value:       nil,
+		estimate:    true,
 	}
 }
 
-func NewDeletedItem(index int) *valueItem {
+func NewDeletedItem(index int, incarnation int) *valueItem {
 	return &valueItem{
-		index:    index,
-		value:    nil,
-		estimate: false,
+		index:       index,
+		incarnation: incarnation,
+		value:       nil,
+		estimate:    false,
 	}
 }
