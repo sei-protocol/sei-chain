@@ -12,6 +12,12 @@ func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, e
 	store.Set(types.SeiAddressToEVMAddressKey(seiAddress), evmAddress[:])
 }
 
+func (k *Keeper) DeleteAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
+	store := ctx.KVStore(k.storeKey)
+	store.Delete(types.EVMAddressToSeiAddressKey(evmAddress))
+	store.Delete(types.SeiAddressToEVMAddressKey(seiAddress))
+}
+
 func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (common.Address, bool) {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.SeiAddressToEVMAddressKey(seiAddress))
