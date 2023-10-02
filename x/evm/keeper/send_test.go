@@ -10,7 +10,7 @@ import (
 )
 
 func TestEVMToEVMSend(t *testing.T) {
-	k, ctx := MockEVMKeeper()
+	k, _, ctx := MockEVMKeeper()
 	_, evmAddr1 := MockAddressPair()
 	_, evmAddr2 := MockAddressPair()
 	require.NotNil(t, k.EVMToEVMSend(ctx, evmAddr1, evmAddr2, 10))
@@ -21,7 +21,7 @@ func TestEVMToEVMSend(t *testing.T) {
 }
 
 func TestEVMToBankSend(t *testing.T) {
-	k, ctx := MockEVMKeeper()
+	k, _, ctx := MockEVMKeeper()
 	_, evmAddr1 := MockAddressPair()
 	seiAddr2, _ := MockAddressPair()
 	require.NotNil(t, k.EVMToBankSend(ctx, evmAddr1, seiAddr2, 10))
@@ -33,7 +33,7 @@ func TestEVMToBankSend(t *testing.T) {
 }
 
 func TestBankToEVMSend(t *testing.T) {
-	k, ctx := MockEVMKeeper()
+	k, _, ctx := MockEVMKeeper()
 	seiAddr1, _ := MockAddressPair()
 	_, evmAddr2 := MockAddressPair()
 	require.NotNil(t, k.BankToEVMSend(ctx, seiAddr1, evmAddr2, 10))
@@ -45,14 +45,14 @@ func TestBankToEVMSend(t *testing.T) {
 }
 
 func TestCreditAddress(t *testing.T) {
-	k, ctx := MockEVMKeeper()
+	k, _, ctx := MockEVMKeeper()
 	_, evmAddr1 := MockAddressPair()
 	require.Nil(t, k.CreditAddress(ctx, evmAddr1, math.MaxUint64))
 	require.NotNil(t, k.CreditAddress(ctx, evmAddr1, 1))
 }
 
 func TestDebitAddress(t *testing.T) {
-	k, ctx := MockEVMKeeper()
+	k, _, ctx := MockEVMKeeper()
 	_, evmAddr1 := MockAddressPair()
 	require.NotNil(t, k.DebitAddress(ctx, evmAddr1, 1))
 }

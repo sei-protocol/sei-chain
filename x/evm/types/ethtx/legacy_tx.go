@@ -136,7 +136,15 @@ func (tx *LegacyTx) SetSignatureValues(_, v, r, s *big.Int) {
 	}
 }
 
-func (tx LegacyTx) Validate() error {
+func (tx *LegacyTx) GetBlobFeeCap() *big.Int {
+	return nil
+}
+
+func (tx *LegacyTx) GetBlobHashes() []common.Hash {
+	return nil
+}
+
+func (tx *LegacyTx) Validate() error {
 	gasPrice := tx.GetGasPrice()
 	if gasPrice == nil {
 		return errors.New("gas price cannot be nil")

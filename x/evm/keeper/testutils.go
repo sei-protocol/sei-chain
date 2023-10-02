@@ -26,7 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func MockEVMKeeper() (*Keeper, sdk.Context) {
+func MockEVMKeeper() (*Keeper, *paramskeeper.Keeper, sdk.Context) {
 	evmStoreKey := sdk.NewKVStoreKey(types.StoreKey)
 	authStoreKey := sdk.NewKVStoreKey(authtypes.StoreKey)
 	bankStoreKey := sdk.NewKVStoreKey(banktypes.StoreKey)
@@ -51,7 +51,7 @@ func MockEVMKeeper() (*Keeper, sdk.Context) {
 	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
 	k := NewKeeper(evmStoreKey, paramsKeeper.Subspace(types.ModuleName), big.NewInt(1), bankKeeper, &accountKeeper)
 	k.SetParams(ctx, types.DefaultParams())
-	return k, ctx
+	return k, &paramsKeeper, ctx
 }
 
 func MockAddressPair() (sdk.AccAddress, common.Address) {

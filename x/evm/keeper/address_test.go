@@ -7,7 +7,7 @@ import (
 )
 
 func TestSetGetAddressMapping(t *testing.T) {
-	k, ctx := MockEVMKeeper()
+	k, _, ctx := MockEVMKeeper()
 	seiAddr, evmAddr := MockAddressPair()
 	foundEVM, ok := k.GetEVMAddress(ctx, seiAddr)
 	require.False(t, ok)

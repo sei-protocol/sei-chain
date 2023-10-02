@@ -93,6 +93,9 @@ func TestBlobTransaction(t *testing.T) {
 	require.Equal(t, EffectiveGasPrice(baseFee, tx.GasFeeCap.BigInt(), tx.GasTipCap.BigInt()), tx.EffectiveGasPrice(baseFee))
 	require.Equal(t, new(big.Int).Add(fee(EffectiveGasPrice(baseFee, tx.GasFeeCap.BigInt(), tx.GasTipCap.BigInt()), tx.GasLimit), fee(tx.BlobFeeCap.BigInt(), tx.BlobGas())), tx.EffectiveFee(baseFee))
 	require.Equal(t, cost(new(big.Int).Add(fee(EffectiveGasPrice(baseFee, tx.GasFeeCap.BigInt(), tx.GasTipCap.BigInt()), tx.GasLimit), fee(tx.BlobFeeCap.BigInt(), tx.BlobGas())), tx.Amount.BigInt()), tx.EffectiveCost(baseFee))
+
+	require.Equal(t, big.NewInt(30), tx.GetBlobFeeCap())
+	require.Equal(t, []common.Hash{{'c', 'd'}}, tx.GetBlobHashes())
 }
 
 func TestValidateBlobTransaction(t *testing.T) {
