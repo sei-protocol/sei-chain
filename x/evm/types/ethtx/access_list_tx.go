@@ -147,6 +147,14 @@ func (tx *AccessListTx) SetSignatureValues(chainID, v, r, s *big.Int) {
 	}
 }
 
+func (tx *AccessListTx) GetBlobFeeCap() *big.Int {
+	return nil
+}
+
+func (tx *AccessListTx) GetBlobHashes() []common.Hash {
+	return nil
+}
+
 func (tx AccessListTx) Validate() error {
 	gasPrice := tx.GetGasPrice()
 	if gasPrice == nil {

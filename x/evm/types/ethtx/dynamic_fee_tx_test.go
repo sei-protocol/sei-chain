@@ -84,6 +84,9 @@ func TestDynamicFeeTransaction(t *testing.T) {
 	require.Equal(t, EffectiveGasPrice(baseFee, tx.GasFeeCap.BigInt(), tx.GasTipCap.BigInt()), tx.EffectiveGasPrice(baseFee))
 	require.Equal(t, fee(EffectiveGasPrice(baseFee, tx.GasFeeCap.BigInt(), tx.GasTipCap.BigInt()), tx.GasLimit), tx.EffectiveFee(baseFee))
 	require.Equal(t, cost(fee(EffectiveGasPrice(baseFee, tx.GasFeeCap.BigInt(), tx.GasTipCap.BigInt()), tx.GasLimit), tx.Amount.BigInt()), tx.EffectiveCost(baseFee))
+
+	require.Nil(t, tx.GetBlobFeeCap())
+	require.Nil(t, tx.GetBlobHashes())
 }
 
 func TestInvalidDynamicFeeTransaction(t *testing.T) {
