@@ -7,6 +7,6 @@ import (
 )
 
 func TestGetChainID(t *testing.T) {
-	k, _ := MockEVMKeeper()
+	k, _, _ := MockEVMKeeper()
 	require.Equal(t, int64(1), k.ChainID().Int64())
 }
