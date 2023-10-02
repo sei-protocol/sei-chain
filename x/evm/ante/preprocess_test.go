@@ -4,11 +4,13 @@ import (
 	"encoding/hex"
 	"math/big"
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -16,7 +18,7 @@ import (
 )
 
 func TestPreprocessAnteHandler(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k, _, ctx := keeper.MockEVMKeeper()
 	handler := NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	privKey := keeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
@@ -50,4 +52,17 @@ func TestPreprocessAnteHandler(t *testing.T) {
 	setAddr, found := types.GetContextSeiAddress(ctx)
 	require.True(t, found)
 	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), setAddr)
+}
+
+func TestGetVersion(t *testing.T) {
+	ethCfg := &params.ChainConfig{}
+	ctx := sdk.Context{}.WithBlockHeight(10).WithBlockTime(time.Now())
+	zero := uint64(0)
+
+	ethCfg.LondonBlock = big.NewInt(0)
+	ethCfg.CancunTime = &zero
+	require.Equal(t, types.Cancun, getVersion(ctx, ethCfg))
+
+	ethCfg.CancunTime = nil
+	require.Equal(t, types.London, getVersion(ctx, ethCfg))
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -16,32 +17,13 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-type Version int
-
-const (
-	Frontier Version = iota
-	Homestead
-	EIP155
-	Berlin
-	London
-	Cancun
-)
-
-var SignerMap = map[Version]func(*big.Int) ethtypes.Signer{
-	Frontier:  func(_ *big.Int) ethtypes.Signer { return ethtypes.FrontierSigner{} },
-	Homestead: func(_ *big.Int) ethtypes.Signer { return ethtypes.HomesteadSigner{} },
-	EIP155:    func(i *big.Int) ethtypes.Signer { return ethtypes.NewEIP155Signer(i) },
-	Berlin:    ethtypes.NewEIP2930Signer,
-	London:    ethtypes.NewLondonSigner,
-	Cancun:    ethtypes.NewCancunSigner,
+var SignerMap = map[evmtypes.SignerVersion]func(*big.Int) ethtypes.Signer{
+	evmtypes.London: ethtypes.NewLondonSigner,
+	evmtypes.Cancun: ethtypes.NewCancunSigner,
 }
-var AllowedTxTypes = map[Version][]uint8{
-	Frontier:  {ethtypes.LegacyTxType},
-	Homestead: {ethtypes.LegacyTxType},
-	EIP155:    {ethtypes.LegacyTxType},
-	Berlin:    {ethtypes.LegacyTxType, ethtypes.AccessListTxType},
-	London:    {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType},
-	Cancun:    {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType, ethtypes.BlobTxType},
+var AllowedTxTypes = map[evmtypes.SignerVersion][]uint8{
+	evmtypes.London: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType},
+	evmtypes.Cancun: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType, ethtypes.BlobTxType},
 }
 
 type EVMPreprocessDecorator struct {
@@ -61,6 +43,7 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 	ethTx, txData := tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction).AsTransaction()
 	ctx = evmtypes.SetContextEthTx(ctx, ethTx)
 	ctx = evmtypes.SetContextTxData(ctx, txData)
+	ctx = authante.SetGasMeter(simulate, ctx, getNativeGasLimit(ctx, txData.GetGas(), p.evmKeeper.GetGasMultiplier(ctx)).Uint64(), nil)
 
 	V, R, S := ethTx.RawSignatureValues()
 	chainID := p.evmKeeper.ChainID()
@@ -72,6 +55,7 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 	if !isTxTypeAllowed(version, ethTx.Type()) {
 		return ctx, ethtypes.ErrInvalidChainId
 	}
+	ctx = evmtypes.SetContextEVMVersion(ctx, version)
 	V = adjustV(V, version, ethTx.Type(), ethCfg.ChainID)
 	signer := SignerMap[version](ethCfg.ChainID)
 	pubkey, err := recoverPubkey(signer.Hash(ethTx), R, S, V, true)
@@ -144,7 +128,7 @@ func pubkeyBytesToSeiPubKey(pub []byte) secp256k1.PubKey {
 	return secp256k1.PubKey{Key: pubkeyObj.SerializeCompressed()}
 }
 
-func isTxTypeAllowed(version Version, txType uint8) bool {
+func isTxTypeAllowed(version evmtypes.SignerVersion, txType uint8) bool {
 	for _, t := range AllowedTxTypes[version] {
 		if t == txType {
 			return true
@@ -153,12 +137,7 @@ func isTxTypeAllowed(version Version, txType uint8) bool {
 	return false
 }
 
-func adjustV(V *big.Int, version Version, txType uint8, chainID *big.Int) *big.Int {
-	// no need to adjust for Frontier or Homestead
-	if version == Frontier || version == Homestead {
-		return V
-	}
-
+func adjustV(V *big.Int, version evmtypes.SignerVersion, txType uint8, chainID *big.Int) *big.Int {
 	// Non-legacy TX always needs to be bumped by 27
 	if txType != ethtypes.LegacyTxType {
 		return new(big.Int).Add(V, big.NewInt(27))
@@ -169,21 +148,13 @@ func adjustV(V *big.Int, version Version, txType uint8, chainID *big.Int) *big.I
 	return V.Sub(V, big.NewInt(8))
 }
 
-func getVersion(ctx sdk.Context, ethCfg *params.ChainConfig) Version {
+func getVersion(ctx sdk.Context, ethCfg *params.ChainConfig) evmtypes.SignerVersion {
 	blockNum := big.NewInt(ctx.BlockHeight())
 	ts := uint64(ctx.BlockTime().Unix())
 	switch {
 	case ethCfg.IsCancun(blockNum, ts):
-		return Cancun
-	case ethCfg.IsLondon(blockNum):
-		return London
-	case ethCfg.IsBerlin(blockNum):
-		return Berlin
-	case ethCfg.IsEIP155(blockNum):
-		return EIP155
-	case ethCfg.IsHomestead(blockNum):
-		return Homestead
+		return evmtypes.Cancun
 	default:
-		return Frontier
+		return evmtypes.London
 	}
 }

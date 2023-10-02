@@ -7,90 +7,19 @@ option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
 /*
 *
-XXBlock/Time fields indicate upgrade heights/timestamps. For example, a BerlinBlock
-of 123 means the chain upgraded to the Berlin version at height 123; a ShanghaiTime
+XXTime fields indicate upgrade timestamps. For example, a ShanghaiTime
 of 42198537129 means the chain upgraded to the Shanghai version at timestamp 42198537129.
-A value of 0 means the upgrade is included in the genesis of the EVM, which will be the
-case on Sei for all versions up to Cancun. Still, we want to keep these fields in the
-config for backward compatibility with the official EVM lib.
+A value of 0 means the upgrade is included in the genesis of the EVM on Sei.
+-1 means upgrade not reached yet.
 */
 message ChainConfig {
-    string homestead_block = 1 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"homestead_block\""
-    ];
-    string dao_fork_block = 2 [
-      (gogoproto.customname) = "DAOForkBlock",
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"dao_fork_block\""
-    ];
-    bool dao_fork_support = 3
-        [(gogoproto.customname) = "DAOForkSupport", (gogoproto.moretags) = "yaml:\"dao_fork_support\""];
-    string eip150_block = 4 [
-      (gogoproto.customname) = "EIP150Block",
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"eip150_block\""
-    ];
-    string eip155_block = 5 [
-      (gogoproto.customname) = "EIP155Block",
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"eip155_block\""
-    ];
-    string eip158_block = 6 [
-      (gogoproto.customname) = "EIP158Block",
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"eip158_block\""
-    ];
-    string byzantium_block = 7 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"byzantium_block\""
-    ];
-    string constantinople_block = 8 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"constantinople_block\""
-    ];
-    string petersburg_block = 9 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"petersburg_block\""
-    ];
-    string istanbul_block = 10 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"istanbul_block\""
-    ];
-    string muir_glacier_block = 11 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"muir_glacier_block\""
-    ];
-    string berlin_block = 12 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"berlin_block\""
-    ];
-    string london_block = 13 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"london_block\""
-    ];
-    string arrow_glacier_block = 14 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"arrow_glacier_block\""
-    ];
-    string gray_glacier_block = 15 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"gray_glacier_block\""
-    ];
-    string merge_netsplit_block = 16 [
-      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-      (gogoproto.moretags) = "yaml:\"merge_netsplit_block\""
-    ];
-    uint64 shanghai_time = 17 [
-      (gogoproto.moretags) = "yaml:\"shanghai_block\""
-    ];
-    uint64 cancun_time = 18 [
+    int64 cancun_time = 1 [
       (gogoproto.moretags) = "yaml:\"cancun_time\""
     ];
-    uint64 prague_time = 19 [
+    int64 prague_time = 2 [
       (gogoproto.moretags) = "yaml:\"prague_time\""
     ];
-    uint64 verkle_time = 20 [
+    int64 verkle_time = 3 [
       (gogoproto.moretags) = "yaml:\"verkle_time\""
     ];
   }
