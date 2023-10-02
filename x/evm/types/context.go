@@ -10,6 +10,13 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
+type SignerVersion int
+
+const (
+	London SignerVersion = iota
+	Cancun
+)
+
 type ContextKeyType string
 
 const ContextEthCfgKey = ContextKeyType("eth_cfg")
@@ -17,6 +24,7 @@ const ContextEthTxKey = ContextKeyType("eth_tx")
 const ContextTxDataKey = ContextKeyType("tx_data")
 const ContextEVMAddressKey = ContextKeyType("evm_addr")
 const ContextSeiAddressKey = ContextKeyType("sei_addr")
+const ContextEVMVersionKey = ContextKeyType("evm_ver")
 
 func SetContextEtCfg(ctx sdk.Context, cfg *params.ChainConfig) sdk.Context {
 	return ctx.WithContext(context.WithValue(ctx.Context(), ContextEthCfgKey, cfg))
@@ -36,6 +44,10 @@ func SetContextEVMAddress(ctx sdk.Context, addr common.Address) sdk.Context {
 
 func SetContextSeiAddress(ctx sdk.Context, addr sdk.AccAddress) sdk.Context {
 	return ctx.WithContext(context.WithValue(ctx.Context(), ContextSeiAddressKey, addr))
+}
+
+func SetContextEVMVersion(ctx sdk.Context, version SignerVersion) sdk.Context {
+	return ctx.WithContext(context.WithValue(ctx.Context(), ContextEVMVersionKey, version))
 }
 
 func GetContextEthCfg(ctx sdk.Context) (*params.ChainConfig, bool) {
@@ -91,4 +103,15 @@ func GetContextSeiAddress(ctx sdk.Context) (sdk.AccAddress, bool) {
 		return nil, false
 	}
 	return addr.(sdk.AccAddress), true
+}
+
+func GetContextEVMVersion(ctx sdk.Context) (SignerVersion, bool) {
+	if ctx.Context() == nil {
+		return 0, false
+	}
+	ver := ctx.Context().Value(ContextEVMVersionKey)
+	if ver == nil {
+		return 0, false
+	}
+	return ver.(SignerVersion), true
 }

@@ -42,6 +42,9 @@ type TxData interface {
 	EffectiveGasPrice(baseFee *big.Int) *big.Int
 	EffectiveFee(baseFee *big.Int) *big.Int
 	EffectiveCost(baseFee *big.Int) *big.Int
+
+	GetBlobHashes() []common.Hash
+	GetBlobFeeCap() *big.Int
 }
 
 func NewTxDataFromTx(tx *ethtypes.Transaction) (TxData, error) {
