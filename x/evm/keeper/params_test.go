@@ -8,7 +8,7 @@ import (
 )
 
 func TestParams(t *testing.T) {
-	k, ctx := MockEVMKeeper()
+	k, _, ctx := MockEVMKeeper()
 	require.Equal(t, types.DefaultChainConfig(), k.GetChainConfig(ctx))
 	require.Equal(t, types.DefaultGasMultiplier, k.GetGasMultiplier(ctx))
 }

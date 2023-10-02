@@ -150,6 +150,14 @@ func (tx *DynamicFeeTx) SetSignatureValues(chainID, v, r, s *big.Int) {
 	}
 }
 
+func (tx *DynamicFeeTx) GetBlobFeeCap() *big.Int {
+	return nil
+}
+
+func (tx *DynamicFeeTx) GetBlobHashes() []common.Hash {
+	return nil
+}
+
 func (tx DynamicFeeTx) Validate() error {
 	if tx.GasTipCap == nil {
 		return errors.New("gas tip cap cannot nil")
