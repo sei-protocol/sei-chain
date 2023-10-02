@@ -2,6 +2,7 @@ package state
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -26,6 +27,12 @@ func NewStateDBImpl(ctx sdk.Context, k *keeper.Keeper) *StateDBImpl {
 	s.Snapshot() // take an initial snapshot for GetCommitted
 	return s
 }
+
+// AddPreimage records a SHA3 preimage seen by the VM.
+// AddPreimage performs a no-op since the EnablePreimageRecording flag is disabled
+// on the vm.Config during state transitions. No store trie preimages are written
+// to the database.
+func (s *StateDBImpl) AddPreimage(_ common.Hash, _ []byte) {}
 
 func (s *StateDBImpl) Finalize() error {
 	if s.err != nil {

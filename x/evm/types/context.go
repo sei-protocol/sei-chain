@@ -55,9 +55,6 @@ func GetContextEthCfg(ctx sdk.Context) (*params.ChainConfig, bool) {
 		return nil, false
 	}
 	cfg := ctx.Context().Value(ContextEthCfgKey)
-	if cfg == nil {
-		return nil, false
-	}
 	return cfg.(*params.ChainConfig), true
 }
 

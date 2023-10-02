@@ -11,16 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-var (
-	// changes to EVM module balance because of balance movements. If this value
-	// does not equal to the change in EVM module account balance minus the minted
-	// amount at the end of the execution, the transaction should fail.
-	DeficitKey = []byte{0x01}
-	// the number of base tokens minted to temporarily facilitate balance movements.
-	// At the end of execution, `minted` number of base tokens will be burnt.
-	MintedKey = []byte{0x02}
-)
-
 func (s *StateDBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 	if amt.Sign() == 0 {
 		return
