@@ -33,6 +33,7 @@ func (s *StateDBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (a
 
 func (s *StateDBImpl) AddAddressToAccessList(addr common.Address) {
 	al := s.getAccessList()
+	defer s.saveAccessList(al)
 	if _, present := al.Addresses[addr]; present {
 		return
 	}
@@ -41,6 +42,7 @@ func (s *StateDBImpl) AddAddressToAccessList(addr common.Address) {
 
 func (s *StateDBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 	al := s.getAccessList()
+	defer s.saveAccessList(al)
 	idx, addrPresent := al.Addresses[addr]
 	if !addrPresent || idx == -1 {
 		// Address not present, or addr present but no slots there
@@ -77,7 +79,7 @@ func (s *StateDBImpl) Prepare(rules params.Rules, sender, coinbase common.Addres
 func (s *StateDBImpl) getAccessList() *accessList {
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	bz := store.Get(AccessListKey)
-	al := accessList{}
+	al := accessList{Addresses: make(map[common.Address]int)}
 	if bz == nil {
 		return &al
 	}
@@ -85,4 +87,14 @@ func (s *StateDBImpl) getAccessList() *accessList {
 		panic(err)
 	}
 	return &al
+}
+
+func (s *StateDBImpl) saveAccessList(al *accessList) {
+	albz, err := json.Marshal(al)
+	if err != nil {
+		s.err = err
+		return
+	}
+	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
+	store.Set(AccessListKey, albz)
 }
