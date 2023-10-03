@@ -50,7 +50,7 @@ jobs:
           go-version: 1.18
 
       - name: Start node cluster at a specific version
-        run: ./integration_test/upgrade_module/launch_cluster.sh v1.0.0,v1.0.1,v1.0.2
+        run: ./integration_test/upgrade_module/scripts/launch_cluster.sh v1.0.0,v1.0.1,v1.0.2
 
       - name: Copy upgrade script files to all sei-nodes
         run: ./integration_test/upgrade_module/sync_scripts.sh
