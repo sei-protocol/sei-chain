@@ -92,8 +92,7 @@ func (s *StateDBImpl) getAccessList() *accessList {
 func (s *StateDBImpl) saveAccessList(al *accessList) {
 	albz, err := json.Marshal(al)
 	if err != nil {
-		s.err = err
-		return
+		panic(err)
 	}
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	store.Set(AccessListKey, albz)

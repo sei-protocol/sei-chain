@@ -19,6 +19,11 @@ func TestAddAddressToAccessList(t *testing.T) {
 	statedb.AddAddressToAccessList(addr)
 	require.Nil(t, statedb.err)
 	require.True(t, statedb.AddressInAccessList(addr))
+
+	// add same address again
+	statedb.AddAddressToAccessList(addr)
+	require.Nil(t, statedb.err)
+	require.True(t, statedb.AddressInAccessList(addr))
 }
 
 func TestAddSlotToAccessList(t *testing.T) {
