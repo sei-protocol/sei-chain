@@ -1,0 +1,90 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Upgrade Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  upgrade-tests:
+    name: "Upgrade Test: (${{ matrix.test.name }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      INVARIANT_CHECK_INTERVAL: 10
+      UPGRADE_VERSION_LIST: v1.0.0,v1.0.1,v1.0.2
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    strategy:
+      # other jobs should run even if one integration test fails
+      fail-fast: false
+      matrix:
+        test: [
+          {
+            name: "Minor Upgrade",
+            script: "minor_upgrade_test.yml"
+          }
+        ]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Setup Dependencies
+        run: |
+          pip3 install pyyaml
+          sudo apt-get install -y jq
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.18
+
+      - name: Start node cluster at a specific version
+        run: ./integration_test/upgrade_module/launch_cluster.sh v1.0.0,v1.0.1,v1.0.2
+
+      - name: Copy upgrade script files to all sei-nodes
+        run: ./integration_test/upgrade_module/sync_scripts.sh
+
+      - name: ${{ matrix.test.name }}
+        run: |
+          IFS=$'\n'   # change the internal field separator to newline
+          bash -c "python3 integration_test/scripts/runner.py integration_test/upgrade_module/${matrix.test.script}"
+          unset IFS  # revert the internal field separator back to default
+
+  upgrade-test-check:
+    name: Upgrade Test Check
+    runs-on: ubuntu-latest
+    needs: upgrade-tests
+    if: always()
+    steps:
+      - name: Get workflow conclusion
+        id: workflow_conclusion
+        uses: nick-fields/retry@v2
+        with:
+          max_attempts: 2
+          retry_on: error
+          timeout_seconds: 30
+          command: |
+            jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+            
+            for status in $job_statuses
+            do
+              echo "Status: $status"
+              if [[ "$status" == "failure" ]]; then
+                echo "Some or all tests have failed!"
+                exit 1
+              fi
+            done
+            
+            echo "All tests have passed!"

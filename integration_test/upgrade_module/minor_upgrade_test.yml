@@ -1,0 +1,99 @@
+- name: Test Minor Release Upgrade
+  inputs:
+    # PASS PROPOSAL FOR MINOR UPGRADE
+    # Get block for 30s from now
+    - cmd: proposal_target_height.sh 30
+      env: TARGET_HEIGHT
+      node: sei-node-0
+
+    # Submit the software upgrade proposal
+    - cmd: proposal_submit.sh $TARGET_HEIGHT minor v1.0.3
+      env: PROPOSAL_ID
+      node: sei-node-0
+
+    # Vote with all nodes
+    - cmd: proposal_vote.sh $PROPOSAL_ID
+      node: sei-node-0
+    - cmd: proposal_vote.sh $PROPOSAL_ID
+      node: sei-node-1
+    - cmd:  proposal_vote.sh $PROPOSAL_ID
+      node: sei-node-2
+    - cmd:  proposal_vote.sh $PROPOSAL_ID
+      node: sei-node-3
+
+    # Wait for the proposal to pass
+    - cmd: proposal_wait_for_pass.sh $PROPOSAL_ID
+      node: sei-node-0
+
+    # EXECUTE UPGRADE SCENARIOS
+    # Confirm no panic before upgrade and block height
+    - cmd: verify_running.sh
+      node: sei-node-0
+      env: RUNNING_BEFORE_UPGRADE_NODE_0
+    - cmd: verify_running.sh
+      node: sei-node-1
+      env: RUNNING_BEFORE_UPGRADE_NODE_1
+    - cmd: verify_running.sh
+      node: sei-node-2
+      env: RUNNING_BEFORE_UPGRADE_NODE_2
+
+    # Upgrade to minor release (nodes 0 & 1) (upgrading 2 to have a peer)
+    - cmd: upgrade_seid.sh v1.0.3
+      node: sei-node-0
+    - cmd: upgrade_seid.sh v1.0.3
+      node: sei-node-1
+
+    # Confirm no panic after upgrade for upgraded nodes (minor release is ahead)
+    - cmd: verify_running.sh
+      node: sei-node-0
+      env: RUNNING_AFTER_UPGRADE_NODE_0
+    - cmd: verify_running.sh
+      node: sei-node-1
+      env: RUNNING_AFTER_UPGRADE_NODE_1
+
+    # Wait for the target height (or service crash)
+    - cmd: wait_for_height.sh $TARGET_HEIGHT
+      node: sei-node-0
+
+    # Confirm no panic at block height for upgraded nodes
+    - cmd: verify_running.sh
+      node: sei-node-0
+      env: RUNNING_AT_BLOCK_HEIGHT_NODE_0
+    - cmd: verify_running.sh
+      node: sei-node-1
+      env: RUNNING_AT_BLOCK_HEIGHT_NODE_1
+
+    # Confirm panic and UPGRADE NEEDED log message for non-upgraded node
+    - cmd: verify_panic.sh $TARGET_HEIGHT v1.0.3
+      node: sei-node-2
+      env: PANIC_AT_BLOCK_HEIGHT_NODE_2
+    - cmd: verify_panic.sh $TARGET_HEIGHT v1.0.3
+      node: sei-node-3
+      env: PANIC_AT_BLOCK_HEIGHT_NODE_3
+
+  verifiers:
+    # Nodes are running before upgrade
+    - type: eval
+      expr: RUNNING_BEFORE_UPGRADE_NODE_0 == "PASS"
+    - type: eval
+      expr: RUNNING_BEFORE_UPGRADE_NODE_1 == "PASS"
+    - type: eval
+      expr: RUNNING_BEFORE_UPGRADE_NODE_2 == "PASS"
+
+    # Upgraded node does not panic when upgraded (before block height)
+    - type: eval
+      expr: RUNNING_AFTER_UPGRADE_NODE_0 == "PASS"
+    - type: eval
+      expr: RUNNING_AFTER_UPGRADE_NODE_1 == "PASS"
+
+    # Upgraded node does not panic at block height (already upgraded)
+    - type: eval
+      expr: RUNNING_AT_BLOCK_HEIGHT_NODE_0 == "PASS"
+    - type: eval
+      expr: RUNNING_AT_BLOCK_HEIGHT_NODE_1 == "PASS"
+
+    # Non-upgraded node panics at block height
+    - type: eval
+      expr: PANIC_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
+    - type: eval
+      expr: PANIC_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
