@@ -22,7 +22,6 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     strategy:
-      # other jobs should run even if one integration test fails
       fail-fast: false
       matrix:
         test: [
@@ -53,10 +52,7 @@ jobs:
           ./integration_test/upgrade_module/scripts/sync_scripts.sh
 
       - name: "Test: ${{ matrix.test.name }}"
-        run: |
-          IFS=$'\n'   # change the internal field separator to newline
-          bash -c "python3 integration_test/scripts/runner.py integration_test/upgrade_module/${matrix.test.script}"
-          unset IFS  # revert the internal field separator back to default
+        run: python3 integration_test/scripts/runner.py integration_test/upgrade_module/${{ matrix.test.script }}
 
   upgrade-test-check:
     name: Upgrade Test Check
