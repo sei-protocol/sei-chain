@@ -40,9 +40,9 @@
       env: RUNNING_BEFORE_UPGRADE_NODE_2
 
     # Upgrade to minor release (nodes 0 & 1) (upgrading 2 to have a peer)
-    - cmd: upgrade_seid.sh $VERSION
+    - cmd: seid_upgrade.sh $VERSION
       node: sei-node-0
-    - cmd: upgrade_seid.sh $VERSION
+    - cmd: seid_upgrade.sh $VERSION
       node: sei-node-1
 
     # Confirm no panic after upgrade for upgraded nodes (minor release is ahead)
@@ -56,9 +56,15 @@
     # Wait for the target height (or service crash)
     - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-0
+    - cmd: wait_for_height.sh $TARGET_HEIGHT
+      node: sei-node-1
+    - cmd: wait_for_height.sh $TARGET_HEIGHT
+      node: sei-node-2
+    - cmd: wait_for_height.sh $TARGET_HEIGHT
+      node: sei-node-3
 
     # Wait to allow time for nodes to react to block height
-    - cmd: sleep 20
+    - cmd: sleep 10
 
     # Confirm no panic at block height for upgraded nodes
     - cmd: verify_running.sh
@@ -81,6 +87,21 @@
     - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
       node: sei-node-3
       env: LOG_AT_BLOCK_HEIGHT_NODE_3
+
+    # Upgrade node 2 and 3 to minor release
+    - cmd: seid_upgrade.sh $VERSION
+      node: sei-node-2
+    - cmd: seid_upgrade.sh $VERSION
+      node: sei-node-3
+    - cmd: sleep 5
+
+    # Verify node 2 and 3 are running
+    - cmd: verify_running.sh
+      node: sei-node-2
+      env: RUNNING_AT_BLOCK_HEIGHT_NODE_2
+    - cmd: verify_running.sh
+      node: sei-node-3
+      env: RUNNING_AT_BLOCK_HEIGHT_NODE_3
 
   verifiers:
     # Nodes are running before upgrade
@@ -112,3 +133,9 @@
       expr: LOG_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
     - type: eval
       expr: LOG_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
+
+    # Newly-upgraded nodes are now running
+    - type: eval
+      expr: RUNNING_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
+    - type: eval
+      expr: RUNNING_AT_BLOCK_HEIGHT_NODE_3 == "PASS"

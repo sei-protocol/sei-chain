@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# This upgrades the binary by appending a version to the UPGRADE_VERSION_LIST
+# UPGRADE_VERSION_LIST is an ENV var that is the default version for upgrade tests
+
 NODE_ID=${ID:-0}
 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL:-0}
 LOG_DIR="build/generated/logs"
