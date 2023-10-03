@@ -59,7 +59,7 @@ jobs:
           ./integration_test/upgrade_module/scripts/sync_scripts.sh
 
       - name: "Test: ${{ matrix.test.name }}"
-        run: python3 integration_test/scripts/runner.py integration_test/upgrade_module/${{ matrix.test.script }}
+        run: python3 -u integration_test/scripts/runner.py integration_test/upgrade_module/${{ matrix.test.script }}
 
   upgrade-test-check:
     name: Upgrade Test Check

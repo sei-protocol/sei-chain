@@ -28,5 +28,7 @@ while true; do
        break
    fi
 
+   echo "Waiting for block $TARGET_BLOCK_HEIGHT (current: $CURRENT_BLOCK_HEIGHT), sei-node-${NODE_ID}"
+
    sleep 1
 done
