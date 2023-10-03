@@ -28,6 +28,10 @@ jobs:
           {
             name: "Minor Upgrade",
             script: "minor_upgrade_test.yml"
+          },
+          {
+            name: "Major Upgrade",
+            script: "major_upgrade_test.yml"
           }
         ]
     steps:

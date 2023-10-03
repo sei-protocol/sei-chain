@@ -1,15 +1,15 @@
-- name: Test Minor Release Upgrade
+- name: Test Major Release Upgrade
   inputs:
-    - cmd: echo "v1.0.3"
+    - cmd: echo "v2.0.0"
       env: VERSION
-    # PASS PROPOSAL FOR MINOR UPGRADE
+    # PASS PROPOSAL FOR MAJOR UPGRADE
     # Get block for 30s from now
     - cmd: proposal_target_height.sh 30
       env: TARGET_HEIGHT
       node: sei-node-0
 
     # Submit the software upgrade proposal
-    - cmd: proposal_submit.sh $TARGET_HEIGHT minor $VERSION
+    - cmd: proposal_submit.sh $TARGET_HEIGHT major $VERSION
       env: PROPOSAL_ID
       node: sei-node-0
 
@@ -38,32 +38,22 @@
     - cmd: verify_running.sh
       node: sei-node-2
       env: RUNNING_BEFORE_UPGRADE_NODE_2
+    - cmd: verify_running.sh
+      node: sei-node-3
+      env: RUNNING_BEFORE_UPGRADE_NODE_3
 
-    # Upgrade to minor release (nodes 0 & 1) (upgrading 2 to have a peer)
+    # Upgrade to major release (node 0)
     - cmd: upgrade_seid.sh $VERSION
       node: sei-node-0
-    - cmd: upgrade_seid.sh $VERSION
-      node: sei-node-1
 
-    # Confirm no panic after upgrade for upgraded nodes (minor release is ahead)
-    - cmd: verify_running.sh
+    # Confirm both nodes are not running because they upgraded too early
+    - cmd: verify_panic.sh
       node: sei-node-0
-      env: RUNNING_AFTER_UPGRADE_NODE_0
-    - cmd: verify_running.sh
-      node: sei-node-1
-      env: RUNNING_AFTER_UPGRADE_NODE_1
+      env: PANIC_AFTER_EARLY_UPGRADE_NODE_0
 
-    # Wait for the target height (or service crash)
+    # Wait for the target height (using live node)
     - cmd: wait_for_height.sh $TARGET_HEIGHT
-      node: sei-node-0
-
-    # Confirm no panic at block height for upgraded nodes
-    - cmd: verify_running.sh
-      node: sei-node-0
-      env: RUNNING_AT_BLOCK_HEIGHT_NODE_0
-    - cmd: verify_running.sh
-      node: sei-node-1
-      env: RUNNING_AT_BLOCK_HEIGHT_NODE_1
+      node: sei-node-2
 
     # Confirm panic and UPGRADE NEEDED log message for non-upgraded node
     - cmd: verify_panic.sh
@@ -79,6 +69,30 @@
       node: sei-node-3
       env: LOG_AT_BLOCK_HEIGHT_NODE_3
 
+    # Upgrade all nodes to major release
+    - cmd: upgrade_seid.sh $VERSION
+      node: sei-node-0
+    - cmd: upgrade_seid.sh $VERSION
+      node: sei-node-1
+    - cmd: upgrade_seid.sh $VERSION
+      node: sei-node-2
+    - cmd: upgrade_seid.sh $VERSION
+      node: sei-node-3
+
+    # Confirm all nodes are running after upgrade
+    - cmd: verify_running.sh
+      node: sei-node-0
+      env: RUNNING_UPGRADED_NODE_0
+    - cmd: verify_running.sh
+      node: sei-node-1
+      env: RUNNING_UPGRADED_NODE_1
+    - cmd: verify_running.sh
+      node: sei-node-2
+      env: RUNNING_UPGRADED_NODE_2
+    - cmd: verify_running.sh
+      node: sei-node-3
+      env: RUNNING_UPGRADED_NODE_3
+
   verifiers:
     # Nodes are running before upgrade
     - type: eval
@@ -87,20 +101,14 @@
       expr: RUNNING_BEFORE_UPGRADE_NODE_1 == "PASS"
     - type: eval
       expr: RUNNING_BEFORE_UPGRADE_NODE_2 == "PASS"
+    - type: eval
+      expr: RUNNING_BEFORE_UPGRADE_NODE_3 == "PASS"
 
-    # Upgraded node does not panic when upgraded (before block height)
+    # Upgraded nodes panic because they were upgraded too early
     - type: eval
-      expr: RUNNING_AFTER_UPGRADE_NODE_0 == "PASS"
-    - type: eval
-      expr: RUNNING_AFTER_UPGRADE_NODE_1 == "PASS"
+      expr: PANIC_AFTER_EARLY_UPGRADE_NODE_0 == "PASS"
 
-    # Upgraded node does not panic at block height (already upgraded)
-    - type: eval
-      expr: RUNNING_AT_BLOCK_HEIGHT_NODE_0 == "PASS"
-    - type: eval
-      expr: RUNNING_AT_BLOCK_HEIGHT_NODE_1 == "PASS"
-
-    # Non-upgraded node panics at block height
+    # Non-Upgraded nodes panic after the block height
     - type: eval
       expr: PANIC_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
     - type: eval
@@ -109,3 +117,13 @@
       expr: LOG_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
     - type: eval
       expr: LOG_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
+
+    # After upgrade, all nodes are running
+    - type: eval
+      expr: RUNNING_UPGRADED_NODE_0 == "PASS"
+    - type: eval
+      expr: RUNNING_UPGRADED_NODE_1 == "PASS"
+    - type: eval
+      expr: RUNNING_UPGRADED_NODE_2 == "PASS"
+    - type: eval
+      expr: RUNNING_UPGRADED_NODE_3 == "PASS"
