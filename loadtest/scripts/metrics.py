@@ -82,6 +82,7 @@ def get_best_block_stats(block_info_list):
         block = block_info_list[i]
         next_block_time = get_block_time(block["height"] + 1)
         block_time = (next_block_time - block["timestamp"]) // timedelta(milliseconds=1)
+        max_throughput, max_block_height, max_block_time = -1, -1, -1
         throughput = block["number_of_txs"] / block_time
         if throughput > max_throughput:
             max_throughput = throughput
