@@ -16,7 +16,7 @@ jobs:
   upgrade-tests:
     name: "Upgrade Test: (${{ matrix.test.name }})"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -25,13 +25,13 @@ jobs:
       matrix:
         test: [
           {
+            name: "Major Upgrade",
+            script: "major_upgrade_test.yml"
+          },
+          {
             name: "Minor Upgrade",
             script: "minor_upgrade_test.yml"
           },
-          {
-            name: "Major Upgrade",
-            script: "major_upgrade_test.yml"
-          }
         ]
     steps:
       - uses: actions/checkout@v3
