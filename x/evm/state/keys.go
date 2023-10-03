@@ -11,9 +11,10 @@ var (
 	DeficitKey = []byte{0x01}
 	// the number of base tokens minted to temporarily facilitate balance movements.
 	// At the end of execution, `minted` number of base tokens will be burnt.
-	MintedKey    = []byte{0x02}
-	GasRefundKey = []byte{0x03}
-	LogsKey      = []byte{0x04}
+	MintedKey     = []byte{0x02}
+	GasRefundKey  = []byte{0x03}
+	LogsKey       = []byte{0x04}
+	AccessListKey = []byte{0x05}
 )
 
 /*
