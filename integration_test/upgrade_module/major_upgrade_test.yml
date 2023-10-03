@@ -55,6 +55,9 @@
     - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-2
 
+    # Wait to allow time for things to die
+    - cmd: sleep 20
+
     # Confirm panic and UPGRADE NEEDED log message for non-upgraded node
     - cmd: verify_panic.sh
       node: sei-node-2
@@ -78,6 +81,9 @@
       node: sei-node-2
     - cmd: upgrade_seid.sh $VERSION
       node: sei-node-3
+
+    # Wait to allow time for node to start
+    - cmd: sleep 10
 
     # Confirm all nodes are running after upgrade
     - cmd: verify_running.sh

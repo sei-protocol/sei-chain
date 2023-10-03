@@ -30,6 +30,3 @@ while true; do
 
    sleep 1
 done
-
-# wait a sec just so relevant nodes have a chance to panic with log
-sleep 5

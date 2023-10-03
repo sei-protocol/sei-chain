@@ -57,6 +57,9 @@
     - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-0
 
+    # Wait to allow time for nodes to react to block height
+    - cmd: sleep 20
+
     # Confirm no panic at block height for upgraded nodes
     - cmd: verify_running.sh
       node: sei-node-0

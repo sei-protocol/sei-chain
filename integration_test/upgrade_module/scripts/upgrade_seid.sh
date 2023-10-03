@@ -19,6 +19,4 @@ pkill -f "seid start"
 UPGRADE_VERSION_LIST=$NEW_LIST seid start --chain-id sei --inv-check-period ${INVARIANT_CHECK_INTERVAL} > "$LOG_DIR/seid-$NODE_ID.log" 2>&1 &
 
 echo "PASS"
-
-# sleep to give a chance to panic and log if needed
-sleep 5
+exit 0

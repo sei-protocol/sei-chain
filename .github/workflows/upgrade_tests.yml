@@ -1,5 +1,4 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+# This workflow will verify that nodes handle upgrades as expected
 
 name: Upgrade Test
 

@@ -103,12 +103,12 @@ clean:
 ###############################################################################
 ###                       Local testing using docker container              ###
 ###############################################################################
-# To start a 4-node upgrade from scratch:
-# make clean && make docker-upgrade-start
+# To start a 4-node cluster from scratch:
+# make clean && make docker-cluster-start
 # To stop the 4-node upgrade:
-# make docker-upgrade-stop
+# make docker-cluster-stop
 # If you have already built the binary, you can skip the build:
-# make docker-upgrade-start-skipbuild
+# make docker-cluster-start-skipbuild
 ###############################################################################
 
 
