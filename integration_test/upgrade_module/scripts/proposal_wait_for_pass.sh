@@ -1,8 +1,8 @@
 #!/bin/bash
 
 PROPOSAL_ID=$1
-TIMEOUT=60  # total wait time in seconds
-INTERVAL=10  # time between checks in seconds
+TIMEOUT=300  # total wait time in seconds
+INTERVAL=1  # time between checks in seconds
 TRIES=$((TIMEOUT / INTERVAL))  # number of tries
 
 # Loop until the proposal status is PROPOSAL_STATUS_PASSED or we timeout

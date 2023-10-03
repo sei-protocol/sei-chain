@@ -16,7 +16,7 @@ jobs:
   upgrade-tests:
     name: "Upgrade Test: (${{ matrix.test.name }})"
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -31,6 +31,10 @@ jobs:
           {
             name: "Minor Upgrade",
             script: "minor_upgrade_test.yml"
+          },
+          {
+            name: "Fake Upgrade",
+            script: "fake_upgrade_test.yml"
           },
         ]
     steps:

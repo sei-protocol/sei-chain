@@ -47,7 +47,7 @@
       node: sei-node-0
 
     # Wait to allow time for node to try and fail to start
-    - cmd: sleep 10
+    - cmd: sleep 20
 
     # Confirm the node is not running because it upgraded too early
     - cmd: verify_panic.sh
@@ -63,7 +63,7 @@
       node: sei-node-3
 
     # Wait to allow time for things to die after the block height
-    - cmd: sleep 5
+    - cmd: sleep 20
 
     # Confirm panic and UPGRADE NEEDED log message for non-upgraded node
     - cmd: verify_panic.sh
@@ -93,7 +93,7 @@
       node: sei-node-0
 
     # Wait to allow time for nodes to start
-    - cmd: sleep 5
+    - cmd: sleep 20
 
     # Confirm nodes are running after upgrade
     - cmd: verify_running.sh
@@ -111,7 +111,7 @@
       node: sei-node-0
 
     # Wait to allow time for node 0 to panic+log
-    - cmd: sleep 5
+    - cmd: sleep 20
 
     # Confirm node 0 has now panicked and logged
     - cmd: verify_panic.sh
@@ -126,7 +126,7 @@
       node: sei-node-0
 
     # Wait to allow time for node 0 to start
-    - cmd: sleep 5
+    - cmd: sleep 20
 
     # node 0 should be running now
     - cmd: verify_running.sh

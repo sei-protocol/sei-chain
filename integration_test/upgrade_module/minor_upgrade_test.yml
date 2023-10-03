@@ -44,6 +44,7 @@
       node: sei-node-0
     - cmd: seid_upgrade.sh $VERSION
       node: sei-node-1
+    - cmd: sleep 10
 
     # Confirm no panic after upgrade for upgraded nodes (minor release is ahead)
     - cmd: verify_running.sh
@@ -62,9 +63,7 @@
       node: sei-node-2
     - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-3
-
-    # Wait to allow time for nodes to react to block height
-    - cmd: sleep 10
+    - cmd: sleep 20
 
     # Confirm no panic at block height for upgraded nodes
     - cmd: verify_running.sh
@@ -93,7 +92,7 @@
       node: sei-node-2
     - cmd: seid_upgrade.sh $VERSION
       node: sei-node-3
-    - cmd: sleep 5
+    - cmd: sleep 20
 
     # Verify node 2 and 3 are running
     - cmd: verify_running.sh
