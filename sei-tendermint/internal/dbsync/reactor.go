@@ -208,7 +208,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			providers[idx] = light.NewBlockProvider(p, r.chainID, r.dispatcher)
 		}
 
-		stateProvider, err := light.NewP2PStateProvider(ctx, r.chainID, r.initialHeight, r.config.VerifyLightBlockTimeout, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"), func(height uint64) proto.Message {
+		stateProvider, err := light.NewP2PStateProvider(ctx, r.chainID, r.initialHeight, r.config.VerifyLightBlockTimeout, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"), r.config.BlacklistTTL, func(height uint64) proto.Message {
 			return &dstypes.ParamsRequest{
 				Height: height,
 			}

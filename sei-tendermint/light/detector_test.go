@@ -3,9 +3,10 @@ package light_test
 import (
 	"bytes"
 	"context"
-	provider_mocks "github.com/tendermint/tendermint/light/provider/mocks"
 	"testing"
 	"time"
+
+	provider_mocks "github.com/tendermint/tendermint/light/provider/mocks"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -93,6 +94,7 @@ func TestLightClientAttackEvidence_Lunatic(t *testing.T) {
 		mockPrimary,
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
+		5*time.Minute,
 		light.Logger(logger),
 	)
 	require.NoError(t, err)
@@ -213,6 +215,7 @@ func TestLightClientAttackEvidence_Equivocation(t *testing.T) {
 				mockPrimary,
 				[]provider.Provider{mockWitness},
 				dbs.New(dbm.NewMemDB()),
+				5*time.Minute,
 				light.Logger(logger),
 				testCase.lightOption,
 			)
@@ -283,6 +286,7 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 	lastBlock, _ = mockWitness.LightBlock(ctx, latestHeight)
 	mockWitness.On("LightBlock", mock.Anything, int64(0)).Return(lastBlock, nil).Once()
 	mockWitness.On("LightBlock", mock.Anything, int64(12)).Return(nil, provider.ErrHeightTooHigh)
+	mockWitness.On("ID", mock.Anything, mock.Anything).Return("mockWitness", nil)
 
 	mockWitness.On("ReportEvidence", mock.Anything, mock.MatchedBy(func(evidence types.Evidence) bool {
 		// Check evidence was sent to the witness against the full node
@@ -311,6 +315,7 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 		mockPrimary,
 		[]provider.Provider{mockWitness, accomplice},
 		dbs.New(dbm.NewMemDB()),
+		5*time.Minute,
 		light.Logger(logger),
 		light.MaxClockDrift(1*time.Second),
 		light.MaxBlockLag(1*time.Second),
@@ -358,6 +363,7 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 	// in enough time
 	mockLaggingWitness := mockNodeFromHeadersAndVals(witnessHeaders, witnessValidators)
 	mockLaggingWitness.On("LightBlock", mock.Anything, int64(12)).Return(nil, provider.ErrHeightTooHigh)
+	mockLaggingWitness.On("ID", mock.Anything, mock.Anything).Return("mockLaggingWitness", nil)
 	lastBlock, _ = mockLaggingWitness.LightBlock(ctx, latestHeight)
 	mockLaggingWitness.On("LightBlock", mock.Anything, int64(0)).Return(lastBlock, nil)
 	c, err = light.NewClient(
@@ -371,6 +377,7 @@ func TestLightClientAttackEvidence_ForwardLunatic(t *testing.T) {
 		mockPrimary,
 		[]provider.Provider{mockLaggingWitness, accomplice},
 		dbs.New(dbm.NewMemDB()),
+		5*time.Minute,
 		light.Logger(logger),
 		light.MaxClockDrift(1*time.Second),
 		light.MaxBlockLag(1*time.Second),
@@ -410,6 +417,7 @@ func TestClientDivergentTraces1(t *testing.T) {
 		mockPrimary,
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
+		5*time.Minute,
 		light.Logger(logger),
 	)
 	require.Error(t, err)
@@ -419,7 +427,7 @@ func TestClientDivergentTraces1(t *testing.T) {
 }
 
 // 2. Two out of three nodes don't respond but the third has a header that matches
-// => verification should be successful and all the witnesses should remain
+// => verification should be successful but two unresponsive witnesses should be blacklisted
 func TestClientDivergentTraces2(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -442,13 +450,15 @@ func TestClientDivergentTraces2(t *testing.T) {
 		mockPrimaryNode,
 		[]provider.Provider{mockDeadNode, mockDeadNode, mockPrimaryNode},
 		dbs.New(dbm.NewMemDB()),
+		5*time.Minute,
 		light.Logger(logger),
 	)
 	require.NoError(t, err)
 
 	_, err = c.VerifyLightBlockAtHeight(ctx, 2, bTime.Add(1*time.Hour))
 	assert.NoError(t, err)
-	assert.Equal(t, 3, len(c.Witnesses()))
+	// The unreponsive witnesses have been removed and blacklisted
+	assert.Equal(t, 1, len(c.Witnesses()))
 	mockDeadNode.AssertExpectations(t)
 	mockPrimaryNode.AssertExpectations(t)
 }
@@ -485,6 +495,7 @@ func TestClientDivergentTraces3(t *testing.T) {
 		mockPrimary,
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
+		5*time.Minute,
 		light.Logger(logger),
 	)
 	require.NoError(t, err)
@@ -528,6 +539,7 @@ func TestClientDivergentTraces4(t *testing.T) {
 		mockPrimary,
 		[]provider.Provider{mockWitness},
 		dbs.New(dbm.NewMemDB()),
+		5*time.Minute,
 		light.Logger(logger),
 	)
 	require.NoError(t, err)

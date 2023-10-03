@@ -912,6 +912,9 @@ type StateSyncConfig struct {
 
 	// Timeout before considering light block verification failed
 	VerifyLightBlockTimeout time.Duration `mapstructure:"verify-light-block-timeout"`
+
+	// Time before which a blacklisted witness can not be added back as a provider
+	BlacklistTTL time.Duration `mapstructure:"blacklist-ttl"`
 }
 
 func (cfg *StateSyncConfig) TrustHashBytes() []byte {
@@ -933,6 +936,7 @@ func DefaultStateSyncConfig() *StateSyncConfig {
 		BackfillBlocks:          0,
 		BackfillDuration:        0 * time.Second,
 		VerifyLightBlockTimeout: 60 * time.Second,
+		BlacklistTTL:            5 * time.Minute,
 	}
 }
 
@@ -1292,6 +1296,7 @@ type DBSyncConfig struct {
 	TrustHash               string        `mapstructure:"trust-hash"`
 	TrustPeriod             time.Duration `mapstructure:"trust-period"`
 	VerifyLightBlockTimeout time.Duration `mapstructure:"verify-light-block-timeout"`
+	BlacklistTTL            time.Duration `mapstructure:"blacklist-ttl"`
 }
 
 func DefaultDBSyncConfig() *DBSyncConfig {
@@ -1308,6 +1313,7 @@ func DefaultDBSyncConfig() *DBSyncConfig {
 		TrustHash:               "",
 		TrustPeriod:             86400 * time.Second,
 		VerifyLightBlockTimeout: 60 * time.Second,
+		BlacklistTTL:            5 * time.Minute,
 	}
 }
 

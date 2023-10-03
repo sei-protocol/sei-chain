@@ -60,6 +60,7 @@ func NewRPCStateProvider(
 	servers []string,
 	trustOptions TrustOptions,
 	logger log.Logger,
+	blacklistTTL time.Duration,
 ) (StateProvider, error) {
 	if len(servers) < 2 {
 		return nil, fmt.Errorf("at least 2 RPC servers are required, got %d", len(servers))
@@ -80,7 +81,7 @@ func NewRPCStateProvider(
 	}
 
 	lc, err := NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), Logger(logger))
+		lightdb.New(dbm.NewMemDB()), blacklistTTL, Logger(logger))
 	if err != nil {
 		return nil, err
 	}
@@ -231,6 +232,7 @@ func NewP2PStateProvider(
 	trustOptions TrustOptions,
 	paramsSendCh *p2p.Channel,
 	logger log.Logger,
+	blacklistTTL time.Duration,
 	paramsReqCreator func(uint64) proto.Message,
 ) (StateProvider, error) {
 	if len(providers) < 2 {
@@ -238,7 +240,7 @@ func NewP2PStateProvider(
 	}
 
 	lc, err := NewClient(ctx, chainID, trustOptions, providers[0], providers[1:],
-		lightdb.New(dbm.NewMemDB()), Logger(logger))
+		lightdb.New(dbm.NewMemDB()), blacklistTTL, Logger(logger))
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +357,7 @@ func (s *StateProviderP2P) State(ctx context.Context, height uint64) (sm.State, 
 	return state, nil
 }
 
-// addProvider dynamically adds a peer as a new witness. A limit of 6 providers is kept as a
+// AddProvider dynamically adds a peer as a new witness. A limit of 6 providers is kept as a
 // heuristic. Too many overburdens the network and too little compromises the second layer of security.
 func (s *StateProviderP2P) AddProvider(p lightprovider.Provider) {
 	if len(s.lc.Witnesses()) < 6 {
@@ -363,86 +365,70 @@ func (s *StateProviderP2P) AddProvider(p lightprovider.Provider) {
 	}
 }
 
+// RemoveProviderByID removes a peer from the light client's witness list.
+func (s *StateProviderP2P) RemoveProviderByID(ID types.NodeID) error {
+	return s.lc.RemoveProviderByID(ID)
+}
+
+// Providers returns the list of providers (useful for tests)
+func (s *StateProviderP2P) Providers() []lightprovider.Provider {
+	return s.lc.Witnesses()
+}
+
 func (s *StateProviderP2P) ParamsRecvCh() chan types.ConsensusParams {
 	return s.paramsRecvCh
 }
 
-// consensusParams sends out a request for consensus params blocking
-// until one is returned.
+// consensusParams sends requests for consensus parameters to all witnesses
+// in parallel, retrying with increasing backoff until a response is
+// received or the context is canceled.
 //
-// It attempts to send requests to all witnesses in parallel, but if
-// none responds it will retry them all sometime later until it
-// receives some response. This operation will block until it receives
-// a response or the context is canceled.
+// For each witness, a goroutine sends a parameter request, retrying periodically
+// if no response is obtained, with increasing intervals. It returns the
+// consensus parameters upon receiving a response, or an error if the context is canceled.
 func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (types.ConsensusParams, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	out := make(chan types.ConsensusParams)
 
-	retryAll := func() (<-chan struct{}, error) {
-		wg := &sync.WaitGroup{}
-
+	retryAll := func(childCtx context.Context) error {
 		for _, provider := range s.lc.Witnesses() {
 			p, ok := provider.(*BlockProvider)
 			if !ok {
-				return nil, fmt.Errorf("witness is not BlockProvider [%T]", provider)
+				return fmt.Errorf("witness is not BlockProvider [%T]", provider)
 			}
 
 			peer, err := types.NewNodeID(p.String())
 			if err != nil {
-				return nil, fmt.Errorf("invalid provider (%s) node id: %w", p.String(), err)
+				return fmt.Errorf("invalid provider (%s) node id: %w", p.String(), err)
 			}
 
-			wg.Add(1)
 			go func(peer types.NodeID) {
-				defer wg.Done()
-
-				timer := time.NewTimer(0)
-				defer timer.Stop()
-				var iterCount int64
-
-				for {
-					iterCount++
-					if err := s.paramsSendCh.Send(ctx, p2p.Envelope{
-						To:      peer,
-						Message: s.paramsReqCreator(uint64(height)),
-					}); err != nil {
-						// this only errors if
-						// the context is
-						// canceled which we
-						// don't need to
-						// propagate here
-						return
-					}
-
-					// jitter+backoff the retry loop
-					timer.Reset(time.Duration(iterCount)*consensusParamsResponseTimeout +
-						time.Duration(100*rand.Int63n(iterCount))*time.Millisecond) // nolint:gosec
-
-					select {
-					case <-timer.C:
-						continue
-					case <-ctx.Done():
-						return
-					case params, ok := <-s.paramsRecvCh:
-						if !ok {
-							return
-						}
-						select {
-						case <-ctx.Done():
-							return
-						case out <- params:
-							return
-						}
-					}
+				if err := s.paramsSendCh.Send(childCtx, p2p.Envelope{
+					To:      peer,
+					Message: s.paramsReqCreator(uint64(height)),
+				}); err != nil {
+					return
 				}
 
+				select {
+				case <-childCtx.Done():
+					return
+				case params, ok := <-s.paramsRecvCh:
+					if !ok {
+						return
+					}
+					select {
+					case <-childCtx.Done():
+						return
+					case out <- params:
+						return
+					}
+				}
 			}(peer)
 		}
-		sig := make(chan struct{})
-		go func() { wg.Wait(); close(sig) }()
-		return sig, nil
+		return nil
 	}
 
 	timer := time.NewTimer(0)
@@ -451,27 +437,28 @@ func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 	var iterCount int64
 	for {
 		iterCount++
-		sig, err := retryAll()
+
+		childCtx, childCancel := context.WithCancel(ctx)
+
+		err := retryAll(childCtx)
 		if err != nil {
+			childCancel()
 			return types.ConsensusParams{}, err
 		}
+
+		// jitter+backoff the retry loop
+		timer.Reset(time.Duration(iterCount)*consensusParamsResponseTimeout +
+			time.Duration(100*rand.Int63n(iterCount))*time.Millisecond) // nolint:gosec
+
 		select {
-		case <-sig:
-			// jitter+backoff the retry loop
-			timer.Reset(time.Duration(iterCount)*consensusParamsResponseTimeout +
-				time.Duration(100*rand.Int63n(iterCount))*time.Millisecond) // nolint:gosec
-			select {
-			case param := <-out:
-				return param, nil
-			case <-ctx.Done():
-				return types.ConsensusParams{}, ctx.Err()
-			case <-timer.C:
-			}
-		case <-ctx.Done():
-			return types.ConsensusParams{}, ctx.Err()
 		case param := <-out:
+			childCancel()
 			return param, nil
+		case <-ctx.Done():
+			childCancel()
+			return types.ConsensusParams{}, ctx.Err()
+		case <-timer.C:
+			childCancel()
 		}
 	}
-
 }

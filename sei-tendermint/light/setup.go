@@ -2,6 +2,7 @@ package light
 
 import (
 	"context"
+	"time"
 
 	"github.com/tendermint/tendermint/light/provider"
 	"github.com/tendermint/tendermint/light/provider/http"
@@ -21,6 +22,7 @@ func NewHTTPClient(
 	primaryAddress string,
 	witnessesAddresses []string,
 	trustedStore store.Store,
+	blacklistTTL time.Duration,
 	options ...Option) (*Client, error) {
 
 	providers, err := providersFromAddresses(append(witnessesAddresses, primaryAddress), chainID)
@@ -35,6 +37,7 @@ func NewHTTPClient(
 		providers[len(providers)-1],
 		providers[:len(providers)-1],
 		trustedStore,
+		blacklistTTL,
 		options...)
 }
 

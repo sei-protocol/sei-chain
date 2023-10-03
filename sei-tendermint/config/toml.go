@@ -460,6 +460,8 @@ fetchers = "{{ .StateSync.Fetchers }}"
 
 verify-light-block-timeout = "{{ .StateSync.VerifyLightBlockTimeout }}"
 
+blacklist-ttl = "{{ .StateSync.BlacklistTTL }}"
+
 #######################################################
 ###         Consensus Configuration Options         ###
 #######################################################
@@ -608,6 +610,7 @@ trust-height = "{{ .DBSync.TrustHeight }}"
 trust-hash = "{{ .DBSync.TrustHash }}"
 trust-period = "{{ .DBSync.TrustPeriod }}"
 verify-light-block-timeout = "{{ .DBSync.VerifyLightBlockTimeout }}"
+blacklist-ttl = "{{ .DBSync.BlacklistTTL }}"
 `
 
 /****** these are for test settings ***********/

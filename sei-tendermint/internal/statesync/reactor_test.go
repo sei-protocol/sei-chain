@@ -540,17 +540,23 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	rts := setup(ctx, t, nil, nil, 2)
+	rts := setup(ctx, t, nil, nil, 3)
 	// make syncer non nil else test won't think we are state syncing
 	rts.reactor.syncer = rts.syncer
 	peerA := types.NodeID(strings.Repeat("a", 2*types.NodeIDByteLength))
 	peerB := types.NodeID(strings.Repeat("b", 2*types.NodeIDByteLength))
+	peerC := types.NodeID(strings.Repeat("c", 2*types.NodeIDByteLength))
+
 	rts.peerUpdateCh <- p2p.PeerUpdate{
 		NodeID: peerA,
 		Status: p2p.PeerStatusUp,
 	}
 	rts.peerUpdateCh <- p2p.PeerUpdate{
 		NodeID: peerB,
+		Status: p2p.PeerStatusUp,
+	}
+	rts.peerUpdateCh <- p2p.PeerUpdate{
+		NodeID: peerC,
 		Status: p2p.PeerStatusUp,
 	}
 
@@ -565,7 +571,7 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	rts.reactor.cfg.TrustHeight = 1
 	rts.reactor.cfg.TrustHash = fmt.Sprintf("%X", chain[1].Hash())
 
-	for _, p := range []types.NodeID{peerA, peerB} {
+	for _, p := range []types.NodeID{peerA, peerB, peerC} {
 		if !rts.reactor.peers.Contains(p) {
 			rts.reactor.peers.Append(p)
 		}
@@ -602,6 +608,28 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, added)
+
+	// verify that the state provider is a p2p provider
+	sp, ok := rts.reactor.stateProvider.(*light.StateProviderP2P)
+	require.True(t, ok)
+
+	// verify that a status-down peer starts in the list
+	require.Len(t, sp.Providers(), 2)
+
+	// notify that peer C is down
+	rts.peerUpdateCh <- p2p.PeerUpdate{
+		NodeID: peerC,
+		Status: p2p.PeerStatusDown,
+	}
+
+	// removal is async, so we need to wait for the reactor to update
+	require.Eventually(t, func() bool {
+		return len(sp.Providers()) == 1
+	}, 5*time.Second, 100*time.Millisecond)
+
+	// should now have 1 witness (peer B)
+	require.Len(t, sp.Providers(), 1)
+	require.Equal(t, string(peerB), sp.Providers()[0].ID())
 }
 
 func TestReactor_Backfill(t *testing.T) {

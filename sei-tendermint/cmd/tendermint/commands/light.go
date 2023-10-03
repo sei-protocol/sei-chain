@@ -39,6 +39,7 @@ func MakeLightCommand(conf *config.Config, logger log.Logger) *cobra.Command {
 		trustedHeight  int64
 		trustedHash    []byte
 		trustLevelStr  string
+		blacklistTTL   time.Duration
 
 		logLevel  string
 		logFormat string
@@ -158,6 +159,7 @@ for applications built w/ Cosmos SDK).
 				primaryAddr,
 				witnessesAddrs,
 				dbs.New(db),
+				blacklistTTL,
 				options...,
 			)
 			if err != nil {

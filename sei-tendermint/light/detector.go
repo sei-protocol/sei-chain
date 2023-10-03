@@ -30,9 +30,10 @@ func (c *Client) detectDivergence(ctx context.Context, primaryTrace []*types.Lig
 		return errors.New("nil or single block primary trace")
 	}
 	var (
-		headerMatched      bool
-		lastVerifiedHeader = primaryTrace[len(primaryTrace)-1].SignedHeader
-		witnessesToRemove  = make([]int, 0)
+		headerMatched        bool
+		lastVerifiedHeader   = primaryTrace[len(primaryTrace)-1].SignedHeader
+		witnessesToRemove    = make([]int, 0)
+		witnessesToBlacklist = make([]provider.Provider, 0)
 	)
 	c.logger.Debug("running detector against trace", "finalizeBlockHeight", lastVerifiedHeader.Height,
 		"finalizeBlockHash", lastVerifiedHeader.Hash, "length", len(primaryTrace))
@@ -71,11 +72,13 @@ func (c *Client) detectDivergence(ctx context.Context, primaryTrace []*types.Lig
 			}
 			// if attempt to generate conflicting headers failed then remove witness
 			witnessesToRemove = append(witnessesToRemove, e.WitnessIndex)
+			witnessesToBlacklist = append(witnessesToBlacklist, c.witnesses[e.WitnessIndex])
 
 		case errBadWitness:
 			c.logger.Info("witness returned an error during header comparison, removing...",
 				"witness", c.witnesses[e.WitnessIndex], "err", err)
 			witnessesToRemove = append(witnessesToRemove, e.WitnessIndex)
+			witnessesToBlacklist = append(witnessesToBlacklist, c.witnesses[e.WitnessIndex])
 		default:
 			if errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) {
 				return e
@@ -88,6 +91,9 @@ func (c *Client) detectDivergence(ctx context.Context, primaryTrace []*types.Lig
 	if err := c.removeWitnesses(witnessesToRemove); err != nil {
 		return err
 	}
+
+	// blacklist removed witnesses
+	c.addWitnessesToBlacklist(witnessesToBlacklist)
 
 	// 1. If we had at least one witness that returned the same header then we
 	// conclude that we can trust the header
@@ -119,7 +125,7 @@ func (c *Client) compareNewHeaderWithWitness(ctx context.Context, errc chan erro
 
 	// the witness hasn't been helpful in comparing headers, we mark the response and continue
 	// comparing with the rest of the witnesses
-	case provider.ErrNoResponse, provider.ErrLightBlockNotFound, context.DeadlineExceeded, context.Canceled:
+	case context.DeadlineExceeded, context.Canceled:
 		errc <- err
 		return
 
@@ -189,7 +195,7 @@ func (c *Client) compareNewHeaderWithWitness(ctx context.Context, errc chan erro
 		return
 
 	default:
-		// all other errors (i.e. invalid block, closed connection or unreliable provider) we mark the
+		// all other errors (i.e. no response, light block not found, invalid block, closed connection or unreliable provider) we mark the
 		// witness as bad and remove it
 		errc <- errBadWitness{Reason: err, WitnessIndex: witnessIndex}
 		return

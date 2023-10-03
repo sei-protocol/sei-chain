@@ -70,6 +70,7 @@ func TestExampleClient(t *testing.T) {
 		primary,
 		[]provider.Provider{primary},
 		dbs.New(db),
+		5*time.Minute,
 		light.Logger(logger),
 	)
 	if err != nil {

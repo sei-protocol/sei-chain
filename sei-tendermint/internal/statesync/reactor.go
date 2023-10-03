@@ -307,7 +307,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 				providers[idx] = light.NewBlockProvider(p, chainID, r.dispatcher)
 			}
 
-			stateProvider, err := light.NewP2PStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"), func(height uint64) proto.Message {
+			stateProvider, err := light.NewP2PStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, providers, to, r.paramsChannel, r.logger.With("module", "stateprovider"), r.cfg.BlacklistTTL, func(height uint64) proto.Message {
 				return &ssproto.ParamsRequest{
 					Height: height,
 				}
@@ -319,7 +319,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			return nil
 		}
 
-		stateProvider, err := light.NewRPCStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, r.cfg.RPCServers, to, spLogger)
+		stateProvider, err := light.NewRPCStateProvider(ctx, chainID, initialHeight, r.cfg.VerifyLightBlockTimeout, r.cfg.RPCServers, to, spLogger, r.cfg.BlacklistTTL)
 		if err != nil {
 			return fmt.Errorf("failed to initialize RPC state provider: %w", err)
 		}
@@ -1032,6 +1032,11 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 	case p2p.PeerStatusDown:
 		delete(r.providers, peerUpdate.NodeID)
 		r.syncer.RemovePeer(peerUpdate.NodeID)
+		if sp, ok := r.stateProvider.(*light.StateProviderP2P); ok {
+			if err := sp.RemoveProviderByID(peerUpdate.NodeID); err != nil {
+				r.logger.Error("failed to remove peer witness", "peer", peerUpdate.NodeID, "error", err)
+			}
+		}
 	}
 	r.logger.Debug("processed peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 }

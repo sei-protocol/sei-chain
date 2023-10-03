@@ -123,6 +123,7 @@ type Client struct {
 	trustLevel       tmmath.Fraction
 	maxClockDrift    time.Duration
 	maxBlockLag      time.Duration
+	blacklistTTL     time.Duration
 
 	// Mutex for locking during changes of the light clients providers
 	providerMutex sync.Mutex
@@ -130,6 +131,11 @@ type Client struct {
 	primary provider.Provider
 	// Providers used to "witness" new headers.
 	witnesses []provider.Provider
+
+	// Map of witnesses, who have been removed
+	// and not allowed to be added back as a provider,
+	// to the timadd they were added to the blacklist
+	blacklist map[string]time.Time
 
 	// Where trusted light blocks are stored.
 	trustedStore store.Store
@@ -160,6 +166,7 @@ func NewClient(
 	primary provider.Provider,
 	witnesses []provider.Provider,
 	trustedStore store.Store,
+	blacklistTTL time.Duration,
 	options ...Option,
 ) (*Client, error) {
 
@@ -171,7 +178,7 @@ func NewClient(
 	}
 	if lastHeight > 0 {
 		return NewClientFromTrustedStore(
-			chainID, trustOptions.Period, primary, witnesses, trustedStore, options...,
+			chainID, trustOptions.Period, primary, witnesses, trustedStore, blacklistTTL, options...,
 		)
 	}
 
@@ -191,10 +198,12 @@ func NewClient(
 		verificationMode: skipping,
 		primary:          primary,
 		witnesses:        witnesses,
+		blacklist:        make(map[string]time.Time),
 		trustedStore:     trustedStore,
 		trustLevel:       DefaultTrustLevel,
 		maxClockDrift:    defaultMaxClockDrift,
 		maxBlockLag:      defaultMaxBlockLag,
+		blacklistTTL:     blacklistTTL,
 		pruningSize:      defaultPruningSize,
 		logger:           log.NewNopLogger(),
 	}
@@ -225,6 +234,7 @@ func NewClientFromTrustedStore(
 	primary provider.Provider,
 	witnesses []provider.Provider,
 	trustedStore store.Store,
+	blacklistTTL time.Duration,
 	options ...Option) (*Client, error) {
 
 	c := &Client{
@@ -234,6 +244,7 @@ func NewClientFromTrustedStore(
 		trustLevel:       DefaultTrustLevel,
 		maxClockDrift:    defaultMaxClockDrift,
 		maxBlockLag:      defaultMaxBlockLag,
+		blacklistTTL:     blacklistTTL,
 		primary:          primary,
 		witnesses:        witnesses,
 		trustedStore:     trustedStore,
@@ -256,6 +267,24 @@ func NewClientFromTrustedStore(
 	}
 
 	return c, nil
+}
+
+// isBlacklisted checks whether provider is black listed
+// NOTE: requires a providerMutex lock
+func (c *Client) isBlacklisted(p provider.Provider) bool {
+	timestamp, exists := c.blacklist[p.ID()]
+	if !exists {
+		return false
+	}
+
+	// If the provider is found, check the TTL
+	if time.Since(timestamp) > c.blacklistTTL {
+		// Remove from blacklist if TTL expired
+		delete(c.blacklist, p.ID())
+		return false
+	}
+
+	return true
 }
 
 // restoreTrustedLightBlock loads the latest trusted light block from the store
@@ -821,12 +850,35 @@ func (c *Client) Witnesses() []provider.Provider {
 	return c.witnesses
 }
 
+// BlacklistedWitnessIDS returns the blacklisted witness IDs.
+//
+// NOTE: providers may be not safe for concurrent access.
+func (c *Client) BlacklistedWitnessIDs() []string {
+	c.providerMutex.Lock()
+	defer c.providerMutex.Unlock()
+
+	witnessIds := make([]string, 0, len(c.blacklist))
+	for w := range c.blacklist {
+		witnessIds = append(witnessIds, w)
+	}
+
+	sort.Strings(witnessIds)
+
+	return witnessIds
+}
+
 // AddProvider adds a providers to the light clients set
 //
 // NOTE: The light client does not check for uniqueness
 func (c *Client) AddProvider(p provider.Provider) {
 	c.providerMutex.Lock()
 	defer c.providerMutex.Unlock()
+
+	// If the provider is blacklisted, don't add it
+	if c.isBlacklisted(p) {
+		return
+	}
+
 	c.witnesses = append(c.witnesses, p)
 }
 
@@ -954,6 +1006,38 @@ func (c *Client) getLightBlock(ctx context.Context, p provider.Provider, height 
 		return nil, provider.ErrNoResponse
 	}
 	return l, err
+}
+
+// addWitnessToBlacklist adds a witness to the blacklist
+// NOTE: requires a providerMutex lock
+func (c *Client) addWitnessesToBlacklist(providers []provider.Provider) {
+	if len(providers) == 0 {
+		return
+	}
+
+	for _, provider := range providers {
+		c.blacklist[provider.ID()] = time.Now()
+	}
+}
+
+func (c *Client) findIndexForWitness(ID types.NodeID) (int, bool) {
+	for i, w := range c.witnesses {
+		if w.ID() == string(ID) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// RemoveProviderByID removes a witness from the light client.
+func (c *Client) RemoveProviderByID(ID types.NodeID) error {
+	c.providerMutex.Lock()
+	defer c.providerMutex.Unlock()
+
+	if idx, ok := c.findIndexForWitness(ID); ok {
+		return c.removeWitnesses([]int{idx})
+	}
+	return nil
 }
 
 // NOTE: requires a providerMutex lock
