@@ -12,6 +12,9 @@ fi
 # Fetch the node ID from the environment or default to 0
 NODE_ID=${ID:-0}
 
+# Reset the SECONDS counter
+SECONDS=0
+
 # Loop until the target block height is reached or the service dies
 while true; do
    # Check if the service is running (it might panic at the height and not let us reach it)
@@ -26,6 +29,11 @@ while true; do
    if [[ "$CURRENT_BLOCK_HEIGHT" -ge "$TARGET_BLOCK_HEIGHT" ]]; then
        echo "Reached target block height."
        break
+   fi
+
+   if [ $SECONDS -ge 300 ]; then
+        echo "Timeout after 5 minutes."
+        exit 1
    fi
 
    echo "Waiting for block $TARGET_BLOCK_HEIGHT (current: $CURRENT_BLOCK_HEIGHT), sei-node-${NODE_ID}"

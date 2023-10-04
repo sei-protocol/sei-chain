@@ -54,7 +54,7 @@
       node: sei-node-0
       env: PANIC_AFTER_EARLY_UPGRADE_NODE_0
 
-    # Wait for the target height (using live node)
+    # Wait for the target height (non-panicked nodes)
     - cmd: wait_for_height.sh $TARGET_HEIGHT
       node: sei-node-1
     - cmd: wait_for_height.sh $TARGET_HEIGHT
