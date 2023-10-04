@@ -32,10 +32,6 @@ jobs:
             name: "Minor Upgrade",
             script: "minor_upgrade_test.yml"
           },
-          {
-            name: "Fake Upgrade",
-            script: "fake_upgrade_test.yml"
-          },
         ]
     steps:
       - uses: actions/checkout@v3

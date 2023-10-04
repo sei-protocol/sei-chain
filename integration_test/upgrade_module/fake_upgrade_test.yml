@@ -1,8 +1,0 @@
-- name: Test Fake Release Upgrade
-  inputs:
-    - cmd: echo "PASS"
-      env: RESULT
-
-  verifiers:
-    - type: eval
-      expr: RESULT == "PASS"
