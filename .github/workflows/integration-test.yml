@@ -88,14 +88,14 @@ jobs:
             name: "Upgrade Module (Major)",
             env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
             ]
           },
           {
             name: "Upgrade Module (Minor)",
             env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
             ]
           },
         ]
@@ -141,6 +141,8 @@ jobs:
           echo $scripts
           for script in $scripts
           do
+            echo $(ls)
+            echo $(ls integration_test/)
             bash -c "${script}"
           done
           unset IFS  # revert the internal field separator back to default
