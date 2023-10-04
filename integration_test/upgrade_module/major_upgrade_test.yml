@@ -1,3 +1,27 @@
+# Major Release Upgrade Scenarios:
+# 1. Proposal & Voting:
+#    - A major release upgrade is proposed for a future block height.
+#    - All nodes vote in favor of the proposal.
+
+# 2. Early Upgrade:
+#    - Node 0 is prematurely upgraded to the major release.
+#    - It's verified that this node panics due to the early upgrade.
+
+# 3. Target Block Height:
+#    - The network reaches the proposed upgrade block height.
+#    - Non-upgraded nodes (1, 2, and 3) panic, indicating the need for the upgrade.
+#    - An "UPGRADE NEEDED" log message is expected on these nodes.
+
+# 4. Post-Upgrade Behavior:
+#    - Nodes 1, 2, and 3 are upgraded to the major release and resume normal operation.
+#    - Node 0, which was prematurely upgraded, is downgraded to sync with the network.
+#    - Once synced, Node 0 also panics at the upgrade height and logs the "UPGRADE NEEDED" message.
+#    - Finally, Node 0 is upgraded to the major release and resumes normal operation.
+
+# 5. Final State:
+#    - All nodes are verified to be running smoothly post-upgrade.
+
+
 - name: Test Major Release Upgrade
   inputs:
     - cmd: echo "v2.0.0"
