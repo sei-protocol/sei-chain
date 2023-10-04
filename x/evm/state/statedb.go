@@ -68,17 +68,20 @@ func (s *StateDBImpl) Finalize() error {
 	}
 
 	// remove transient states
-	s.k.PurgePrefix(s.ctx, types.TransientStateKeyPrefix)
-	s.k.PurgePrefix(s.ctx, types.AccountTransientStateKeyPrefix)
-	s.k.PurgePrefix(s.ctx, types.TransientModuleStateKeyPrefix)
-
 	// write cache to underlying
-	s.ctx.MultiStore().(sdk.CacheMultiStore).Write()
+	s.flushCtx(s.ctx)
 	// write all snapshotted caches in reverse order, except the very first one (base) which will be written by baseapp::runTx
 	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
-		s.snapshottedCtxs[i].MultiStore().(sdk.CacheMultiStore).Write()
+		s.flushCtx(s.snapshottedCtxs[i])
 	}
 	return nil
+}
+
+func (s *StateDBImpl) flushCtx(ctx sdk.Context) {
+	s.k.PurgePrefix(ctx, types.TransientStateKeyPrefix)
+	s.k.PurgePrefix(ctx, types.AccountTransientStateKeyPrefix)
+	s.k.PurgePrefix(ctx, types.TransientModuleStateKeyPrefix)
+	ctx.MultiStore().(sdk.CacheMultiStore).Write()
 }
 
 // ** TEST ONLY FUNCTIONS **//
