@@ -9,7 +9,7 @@ if pgrep -f "seid start --chain-id sei" > /dev/null; then
    # If it's stuck on block-1, then that's okay (last one to panic can get stuck without peers)
    if [[ "$BLOCK" -eq "$((TARGET_BLOCK_HEIGHT - 1))" ]]; then
       echo "PASS"
-      exit 1
+      exit 0
    fi
    echo "FAIL"
    exit 1
