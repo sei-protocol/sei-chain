@@ -385,7 +385,7 @@ func (k Keeper) DumpUpgradeInfoToDisk(height int64, name string) error {
 
 // Deprecated: DumpUpgradeInfoWithInfoToDisk writes upgrade information to UpgradeInfoFileName.
 // `info` should be provided and contain Plan.Info data in order to support
-// auto download functionality by cosmovisor and other tools using upgarde-info.json
+// auto download functionality by cosmovisor and other tools using upgrade-info.json
 // (GetUpgradeInfoPath()) file.
 func (k Keeper) DumpUpgradeInfoWithInfoToDisk(height int64, name string, info string) error {
 	upgradeInfoFilePath, err := k.GetUpgradeInfoPath()
@@ -457,7 +457,7 @@ type upgradeInfo struct {
 	Name string `json:"name,omitempty"`
 	// Height has types.Plan.Height value
 	Height int64 `json:"height,omitempty"`
-	// Height has types.Plan.Height value
+	// Info has types.Plan.Info value
 	Info string `json:"info,omitempty"`
 }
 

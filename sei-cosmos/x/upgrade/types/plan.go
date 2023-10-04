@@ -1,7 +1,9 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -44,4 +46,29 @@ func (p Plan) ShouldExecute(ctx sdk.Context) bool {
 // DueAt is a string representation of when this plan is due to be executed
 func (p Plan) DueAt() string {
 	return fmt.Sprintf("height: %d", p.Height)
+}
+
+// UpgradeDetails is a struct that represents the details of an upgrade
+// This is held in the Info object of an upgrade Plan
+type UpgradeDetails struct {
+	UpgradeType string `json:"upgradeType"`
+}
+
+// UpgradeDetails parses and returns a details struct from the Info field of a Plan
+// The upgrade.pb.go is generated from proto, so this is separated here
+func (p Plan) UpgradeDetails() (UpgradeDetails, error) {
+	if p.Info == "" {
+		return UpgradeDetails{}, nil
+	}
+	var details UpgradeDetails
+	if err := json.Unmarshal([]byte(p.Info), &details); err != nil {
+		// invalid json, assume no upgrade details
+		return UpgradeDetails{}, err
+	}
+	return details, nil
+}
+
+// IsMinorRelease returns true if the upgrade is a minor release
+func (ud UpgradeDetails) IsMinorRelease() bool {
+	return strings.EqualFold(ud.UpgradeType, "minor")
 }
