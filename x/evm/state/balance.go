@@ -19,14 +19,12 @@ func (s *StateDBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 		s.AddBalance(evmAddr, new(big.Int).Neg(amt))
 		return
 	}
-	defer func() {
-		s.AddBigIntTransientModuleState(new(big.Int).Neg(amt), DeficitKey)
-	}()
 
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, evmAddr); ok {
 		// debit seiAddr's bank balance and credit EVM module account
 		coins := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(amt)))
 		s.err = s.k.BankKeeper().SendCoinsFromAccountToModule(s.ctx, seiAddr, types.ModuleName, coins)
+		s.AddBigIntTransientModuleState(new(big.Int).Neg(amt), DeficitKey)
 		return
 	}
 
@@ -47,9 +45,6 @@ func (s *StateDBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 		s.SubBalance(evmAddr, new(big.Int).Neg(amt))
 		return
 	}
-	defer func() {
-		s.AddBigIntTransientModuleState(amt, DeficitKey)
-	}()
 
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, evmAddr); ok {
 		// credit seiAddr's bank balance and debit EVM module account, mint if needed
@@ -64,6 +59,7 @@ func (s *StateDBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 			s.AddBigIntTransientModuleState(amt, MintedKey)
 		}
 		s.err = s.k.BankKeeper().SendCoinsFromModuleToAccount(s.ctx, types.ModuleName, seiAddr, coins)
+		s.AddBigIntTransientModuleState(amt, DeficitKey)
 		return
 	}
 

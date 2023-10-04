@@ -2,6 +2,7 @@ package state
 
 import (
 	"bytes"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -11,7 +12,7 @@ import (
 func (s *StateDBImpl) CreateAccount(acc common.Address) {
 	// clear any existing state but keep balance untouched
 	s.clearAccountState(acc)
-	s.markAccount(acc, AccountCreated)
+	s.MarkAccount(acc, AccountCreated)
 }
 
 func (s *StateDBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
@@ -31,6 +32,7 @@ func (s *StateDBImpl) getState(ctx sdk.Context, addr common.Address, hash common
 }
 
 func (s *StateDBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) {
+	fmt.Println(key.Hex())
 	s.k.PrefixStore(s.ctx, types.StateKey(addr)).Set(key[:], val[:])
 }
 
@@ -81,12 +83,12 @@ func (s *StateDBImpl) SelfDestruct(acc common.Address) {
 	s.clearAccountState(acc)
 
 	// mark account as self-destructed
-	s.markAccount(acc, AccountDeleted)
+	s.MarkAccount(acc, AccountDeleted)
 }
 
-func (s *StateDBImpl) SelfDestruct6780(acc common.Address) {
+func (s *StateDBImpl) Selfdestruct6780(acc common.Address) {
 	// only self-destruct if acc is newly created in the same block
-	if s.created(acc) {
+	if s.Created(acc) {
 		s.SelfDestruct(acc)
 	}
 }
@@ -119,7 +121,7 @@ func (s *StateDBImpl) clearAccountState(acc common.Address) {
 	s.k.PrefixStore(s.ctx, types.NonceKeyPrefix).Delete(acc[:])
 }
 
-func (s *StateDBImpl) markAccount(acc common.Address, status []byte) {
+func (s *StateDBImpl) MarkAccount(acc common.Address, status []byte) {
 	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
 	if status == nil {
 		store.Delete(acc[:])
@@ -128,7 +130,7 @@ func (s *StateDBImpl) markAccount(acc common.Address, status []byte) {
 	}
 }
 
-func (s *StateDBImpl) created(acc common.Address) bool {
+func (s *StateDBImpl) Created(acc common.Address) bool {
 	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
 	return bytes.Equal(store.Get(acc[:]), AccountCreated)
 }

@@ -1,9 +1,12 @@
 package state
 
 import (
+	"fmt"
+	"strings"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -15,10 +18,10 @@ type StateDBImpl struct {
 	// back.
 	err error
 
-	k *keeper.Keeper
+	k EVMKeeper
 }
 
-func NewStateDBImpl(ctx sdk.Context, k *keeper.Keeper) *StateDBImpl {
+func NewStateDBImpl(ctx sdk.Context, k EVMKeeper) *StateDBImpl {
 	s := &StateDBImpl{
 		ctx:             ctx,
 		k:               k,
@@ -53,5 +56,43 @@ func (s *StateDBImpl) Finalize() error {
 		s.snapshottedCtxs[i].MultiStore().(sdk.CacheMultiStore).Write()
 	}
 
+	if logs, err := s.GetLogs(); err != nil {
+		return err
+	} else {
+		for _, l := range logs {
+			s.ctx.EventManager().EmitEvent(sdk.NewEvent(
+				types.EventTypeEVMLog,
+				sdk.NewAttribute(types.AttributeTypeContractAddress, l.Address.Hex()),
+				sdk.NewAttribute(types.AttributeTypeTopics, strings.Join(
+					utils.Map(l.Topics, func(h common.Hash) string { return h.Hex() }), ",",
+				)),
+				sdk.NewAttribute(types.AttributeTypeData, string(l.Data)),
+				sdk.NewAttribute(types.AttributeTypeBlockHash, l.BlockHash.Hex()),
+				sdk.NewAttribute(types.AttributeTypeBlockNumber, fmt.Sprintf("%d", l.BlockNumber)),
+				sdk.NewAttribute(types.AttributeTypeTxHash, l.TxHash.Hex()),
+				sdk.NewAttribute(types.AttributeTypeTxIndex, fmt.Sprintf("%d", l.TxIndex)),
+				sdk.NewAttribute(types.AttributeTypeIndex, fmt.Sprintf("%d", l.Index)),
+				sdk.NewAttribute(types.AttributeTypeRemoved, fmt.Sprintf("%t", l.Removed)),
+			))
+		}
+	}
+
 	return nil
+}
+
+// ** TEST ONLY FUNCTIONS **//
+func (s *StateDBImpl) Err() error {
+	return s.err
+}
+
+func (s *StateDBImpl) WithErr(err error) {
+	s.err = err
+}
+
+func (s *StateDBImpl) Ctx() sdk.Context {
+	return s.ctx
+}
+
+func (s *StateDBImpl) WithCtx(ctx sdk.Context) {
+	s.ctx = ctx
 }
