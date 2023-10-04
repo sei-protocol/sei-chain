@@ -320,7 +320,7 @@ func NewPeerManager(
 
 	options.optimize()
 
-	store, err := newPeerStore(peerDB)
+	store, err := newPeerStore(peerDB, metrics)
 	if err != nil {
 		return nil, err
 	}
@@ -876,7 +876,6 @@ func (m *PeerManager) Advertise(peerID types.NodeID, limit uint16) []NodeAddress
 	}
 
 	for _, peer := range m.store.Ranked() {
-		m.metrics.PeerScore.With("peer_id", string(peerID)).Set(float64(int(peer.Score())))
 		if peer.ID == peerID {
 			continue
 		}
@@ -1152,18 +1151,19 @@ func (m *PeerManager) retryDelay(failures uint32, persistent bool) time.Duration
 // from disk on initialization, and any changes are written back to disk
 // (without fsync, since we can afford to lose recent writes).
 type peerStore struct {
-	db     dbm.DB
-	peers  map[types.NodeID]*peerInfo
-	ranked []*peerInfo // cache for Ranked(), nil invalidates cache
+	db      dbm.DB
+	peers   map[types.NodeID]*peerInfo
+	ranked  []*peerInfo // cache for Ranked(), nil invalidates cache
+	metrics *Metrics
 }
 
 // newPeerStore creates a new peer store, loading all persisted peers from the
 // database into memory.
-func newPeerStore(db dbm.DB) (*peerStore, error) {
+func newPeerStore(db dbm.DB, metrics *Metrics) (*peerStore, error) {
 	if db == nil {
 		return nil, errors.New("no database provided")
 	}
-	store := &peerStore{db: db}
+	store := &peerStore{db: db, metrics: metrics}
 	if err := store.loadPeers(); err != nil {
 		return nil, err
 	}
@@ -1289,6 +1289,10 @@ func (s *peerStore) Ranked() []*peerInfo {
 		// to reduce the number of Score() calls.
 		return s.ranked[i].Score() > s.ranked[j].Score()
 	})
+	for _, peer := range s.ranked {
+		s.metrics.PeerScore.With("peer_id", string(peer.ID)).Set(float64(int(peer.Score())))
+	}
+
 	return s.ranked
 }
 
