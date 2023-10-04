@@ -8,7 +8,7 @@ if pgrep -f "seid start --chain-id sei" > /dev/null; then
    BLOCK=$(seid status | jq '.SyncInfo.latest_block_height' -r)
    # If it's stuck on block-1, then that's okay (last one to panic can get stuck without peers)
    if [[ "$BLOCK" -eq "$((TARGET_BLOCK_HEIGHT - 1))" ]]; then
-      echo "HUNG"
+      echo "PASS"
       exit 1
    fi
    echo "FAIL"

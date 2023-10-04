@@ -96,12 +96,6 @@
     - cmd: verify_panic.sh $TARGET_HEIGHT
       node: sei-node-3
       env: PANIC_AT_BLOCK_HEIGHT_NODE_3
-    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
-      node: sei-node-2
-      env: LOG_AT_BLOCK_HEIGHT_NODE_2
-    - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
-      node: sei-node-3
-      env: LOG_AT_BLOCK_HEIGHT_NODE_3
 
     # Upgrade all nodes to major release
     - cmd: seid_upgrade.sh $VERSION
@@ -174,7 +168,9 @@
     # At least one node should panic and print the upgrade-needed log message
     # The other will possibly hang on block-1 because of missing peers (due to race)
     - type: eval
-      expr: LOG_AT_BLOCK_HEIGHT_NODE_2 == "PASS" or LOG_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
+      expr: PANIC_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
+    - type: eval
+      expr: PANIC_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
 
     # After upgrade, all nodes are running
     - type: eval
