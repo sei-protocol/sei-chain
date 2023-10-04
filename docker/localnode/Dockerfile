@@ -24,4 +24,4 @@ COPY scripts/step3_add_validator_to_genesis.sh /usr/bin/add_validator_to_gensis.
 COPY scripts/step4_config_override.sh /usr/bin/config_override.sh
 COPY scripts/step5_start_sei.sh /usr/bin/start_sei.sh
 COPY scripts/step6_start_price_feeder.sh /usr/bin/start_price_feeder.sh
-ENV PATH "$PATH:$HOME/go/bin:$HOME/integration_tests/upgrade_module/scripts/"
+ENV PATH "$PATH:$HOME/go/bin:$HOME/integration_test/upgrade_module/scripts/"
