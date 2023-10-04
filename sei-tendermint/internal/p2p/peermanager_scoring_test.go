@@ -21,7 +21,7 @@ func TestPeerScoring(t *testing.T) {
 
 	// create a mock peer manager
 	db := dbm.NewMemDB()
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, db, PeerManagerOptions{})
+	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, db, PeerManagerOptions{}, NopMetrics())
 	require.NoError(t, err)
 
 	// create a fake node

@@ -80,7 +80,7 @@ func makeSeedNode(
 	}
 
 	// Setup Transport and Switch.
-	peerManager, peerCloser, err := createPeerManager(logger, cfg, dbProvider, nodeKey.ID)
+	peerManager, peerCloser, err := createPeerManager(logger, cfg, dbProvider, nodeKey.ID, nodeMetrics.p2p)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create peer manager: %w", err),

@@ -102,7 +102,7 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	defer cancel()
 
 	// Set up a router with no transports (so no peers).
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 	require.NoError(t, err)
 
 	testnet := p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: 1})
@@ -402,7 +402,7 @@ func TestRouter_AcceptPeers(t *testing.T) {
 			mockTransport.On("Listen", mock.Anything).Return(nil)
 
 			// Set up and start the router.
-			peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+			peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 			require.NoError(t, err)
 
 			sub := peerManager.Subscribe(ctx)
@@ -462,7 +462,7 @@ func TestRouter_AcceptPeers_Errors(t *testing.T) {
 			mockTransport.On("Listen", mock.Anything).Return(nil)
 
 			// Set up and start the router.
-			peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+			peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 			require.NoError(t, err)
 
 			router, err := p2p.NewRouter(
@@ -518,7 +518,7 @@ func TestRouter_AcceptPeers_HeadOfLineBlocking(t *testing.T) {
 	mockTransport.On("Listen", mock.Anything).Return(nil)
 
 	// Set up and start the router.
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 	require.NoError(t, err)
 
 	router, err := p2p.NewRouter(
@@ -617,7 +617,7 @@ func TestRouter_DialPeers(t *testing.T) {
 			}
 
 			// Set up and start the router.
-			peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+			peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 			require.NoError(t, err)
 
 			added, err := peerManager.Add(address)
@@ -696,7 +696,7 @@ func TestRouter_DialPeers_Parallel(t *testing.T) {
 	}
 
 	// Set up and start the router.
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 	require.NoError(t, err)
 
 	added, err := peerManager.Add(a)
@@ -781,7 +781,7 @@ func TestRouter_EvictPeers(t *testing.T) {
 	mockTransport.On("Listen", mock.Anything).Return(nil)
 
 	// Set up and start the router.
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 	require.NoError(t, err)
 
 	sub := peerManager.Subscribe(ctx)
@@ -846,7 +846,7 @@ func TestRouter_ChannelCompatability(t *testing.T) {
 	mockTransport.On("Listen", mock.Anything).Return(nil)
 
 	// Set up and start the router.
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 	require.NoError(t, err)
 
 	router, err := p2p.NewRouter(
@@ -900,7 +900,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 	mockTransport.On("Listen", mock.Anything).Return(nil)
 
 	// Set up and start the router.
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 	require.NoError(t, err)
 
 	sub := peerManager.Subscribe(ctx)
@@ -966,7 +966,7 @@ func TestRouter_Channel_FilterByID(t *testing.T) {
 	mockTransport.On("Accept", mock.Anything).Maybe().Return(nil, io.EOF)
 	mockTransport.On("Listen", mock.Anything).Return(nil)
 
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 	require.NoError(t, err)
 
 	// no filter
@@ -990,7 +990,7 @@ func TestRouter_Channel_FilterByID(t *testing.T) {
 
 	require.Equal(t, 1, len(peerManager.Peers()))
 
-	peerManager, err = p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{})
+	peerManager, err = p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 	require.NoError(t, err)
 
 	// with filter

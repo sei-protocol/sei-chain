@@ -300,6 +300,7 @@ type PeerManager struct {
 	ready         map[types.NodeID]bool         // ready peers (Ready → Disconnected)
 	evict         map[types.NodeID]bool         // peers scheduled for eviction (Connected → EvictNext)
 	evicting      map[types.NodeID]bool         // peers being evicted (EvictNext → Disconnected)
+	metrics       *Metrics
 }
 
 // NewPeerManager creates a new peer manager.
@@ -308,6 +309,7 @@ func NewPeerManager(
 	selfID types.NodeID,
 	peerDB dbm.DB,
 	options PeerManagerOptions,
+	metrics *Metrics,
 ) (*PeerManager, error) {
 	if selfID == "" {
 		return nil, errors.New("self ID not given")
@@ -339,6 +341,7 @@ func NewPeerManager(
 		evict:         map[types.NodeID]bool{},
 		evicting:      map[types.NodeID]bool{},
 		subscriptions: map[*PeerUpdates]*PeerUpdates{},
+		metrics:       metrics,
 	}
 	if err = peerManager.configurePeers(); err != nil {
 		return nil, err
@@ -873,6 +876,7 @@ func (m *PeerManager) Advertise(peerID types.NodeID, limit uint16) []NodeAddress
 	}
 
 	for _, peer := range m.store.Ranked() {
+		m.metrics.PeerScore.With("peer_id", string(peerID)).Set(float64(int(peer.Score())))
 		if peer.ID == peerID {
 			continue
 		}

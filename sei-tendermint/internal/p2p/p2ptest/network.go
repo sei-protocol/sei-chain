@@ -263,7 +263,7 @@ func (n *Network) MakeNode(ctx context.Context, t *testing.T, opts NodeOptions) 
 		RetryTimeJitter: time.Millisecond,
 		MaxPeers:        opts.MaxPeers,
 		MaxConnected:    opts.MaxConnected,
-	})
+	}, p2p.NopMetrics())
 	require.NoError(t, err)
 
 	router, err := p2p.NewRouter(
