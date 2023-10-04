@@ -141,8 +141,6 @@ jobs:
           echo $scripts
           for script in $scripts
           do
-            echo $(ls)
-            echo $(ls integration_test/)
             bash -c "${script}"
           done
           unset IFS  # revert the internal field separator back to default
