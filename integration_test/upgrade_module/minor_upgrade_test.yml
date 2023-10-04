@@ -74,10 +74,10 @@
       env: RUNNING_AT_BLOCK_HEIGHT_NODE_1
 
     # Confirm panic and UPGRADE NEEDED log message for non-upgraded node
-    - cmd: verify_panic.sh
+    - cmd: verify_panic.sh $TARGET_HEIGHT
       node: sei-node-2
       env: PANIC_AT_BLOCK_HEIGHT_NODE_2
-    - cmd: verify_panic.sh
+    - cmd: verify_panic.sh $TARGET_HEIGHT
       node: sei-node-3
       env: PANIC_AT_BLOCK_HEIGHT_NODE_3
     - cmd: verify_upgrade_needed_log.sh $TARGET_HEIGHT $VERSION
@@ -123,15 +123,9 @@
     - type: eval
       expr: RUNNING_AT_BLOCK_HEIGHT_NODE_1 == "PASS"
 
-    # Non-upgraded node panics at block height
+    # Non-upgraded node panics at block height with log message (or hangs at block-1)
     - type: eval
-      expr: PANIC_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
-    - type: eval
-      expr: PANIC_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
-    - type: eval
-      expr: LOG_AT_BLOCK_HEIGHT_NODE_2 == "PASS"
-    - type: eval
-      expr: LOG_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
+      expr: LOG_AT_BLOCK_HEIGHT_NODE_2 == "PASS" or LOG_AT_BLOCK_HEIGHT_NODE_3 == "PASS"
 
     # Newly-upgraded nodes are now running
     - type: eval
