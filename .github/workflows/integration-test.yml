@@ -84,6 +84,20 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
             ]
           },
+          {
+            name: "Upgrade Module (Major)",
+            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
+            ]
+          },
+          {
+            name: "Upgrade Module (Minor)",
+            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
@@ -104,7 +118,7 @@ jobs:
           go-version: 1.18
 
       - name: Start 4 node docker cluster
-        run: make clean && INVARIANT_CHECK_INTERVAL=10 make docker-cluster-start &
+        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
 
       - name: Wait for docker cluster to start
         run: |

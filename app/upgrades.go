@@ -2,7 +2,9 @@ package app
 
 import (
 	"log"
+	"os"
 	"sort"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
@@ -62,12 +64,24 @@ var upgradesList = []string{
 	"v3.1.1",
 }
 
+// if there is an override list, use that instead, for integration tests
+func overrideList() {
+	// if there is an override list, use that instead, for integration tests
+	envList := os.Getenv("UPGRADE_VERSION_LIST")
+	if envList != "" {
+		upgradesList = strings.Split(envList, ",")
+	}
+}
+
 func (app App) RegisterUpgradeHandlers() {
 	// Upgrades names must be in alphabetical order
 	// https://github.com/cosmos/cosmos-sdk/issues/11707
 	if !sort.StringsAreSorted(upgradesList) {
 		log.Fatal("New upgrades must be appended to 'upgradesList' in alphabetical order")
 	}
+
+	// if there is an override list, use that instead, for integration tests
+	overrideList()
 	for _, upgradeName := range upgradesList {
 		app.UpgradeKeeper.SetUpgradeHandler(upgradeName, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 			// Set params to Distribution here when migrating
