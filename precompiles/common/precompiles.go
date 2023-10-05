@@ -33,7 +33,7 @@ func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method
 		return sdk.Context{}, nil, nil, errors.New("cannot get context from EVM")
 	}
 	methodID := input[:4]
-	method, err := p.MethodById(methodID)
+	method, err := p.ABI.MethodById(methodID)
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}

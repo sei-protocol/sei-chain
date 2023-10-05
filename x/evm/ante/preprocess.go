@@ -81,7 +81,9 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 	// set pubkey in acc object if not exist. Not doing it in the above block in case an account is created
 	// as a recipient of a send
 	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
-		acc.SetPubKey(&seiPubkey)
+		if err := acc.SetPubKey(&seiPubkey); err != nil {
+			return ctx, err
+		}
 		p.accountKeeper.SetAccount(ctx, acc)
 	}
 

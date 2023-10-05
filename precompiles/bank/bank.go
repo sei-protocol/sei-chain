@@ -38,7 +38,7 @@ type Precompile struct {
 func (p Precompile) RequiredGas(input []byte) uint64 {
 	methodID := input[:4]
 
-	method, err := p.MethodById(methodID)
+	method, err := p.ABI.MethodById(methodID)
 	if err != nil {
 		// This should never happen since this method is going to fail during Run
 		return 0
