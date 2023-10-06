@@ -2,7 +2,6 @@ package state
 
 import (
 	"bytes"
-	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -32,7 +31,6 @@ func (s *StateDBImpl) getState(ctx sdk.Context, addr common.Address, hash common
 }
 
 func (s *StateDBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) {
-	fmt.Println(key.Hex())
 	s.k.PrefixStore(s.ctx, types.StateKey(addr)).Set(key[:], val[:])
 }
 

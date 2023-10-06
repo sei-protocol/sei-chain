@@ -88,21 +88,18 @@ func (s *StateDBImpl) CheckBalance() error {
 	}
 	toBeBurned := new(big.Int).Sub(currentModuleBalance, totalUnassociatedBalance)
 	// burn any minted token. If the function errors before, the state would be rolled back anyway
-	if err := s.k.BankKeeper().BurnCoins(s.ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(toBeBurned)))); err != nil {
-		return err
-	}
-	return nil
+	return s.k.BankKeeper().BurnCoins(s.ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(toBeBurned))))
 }
 
 func (s *StateDBImpl) AddBigIntTransientModuleState(delta *big.Int, key []byte) {
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	old := s.GetBigIntTransientModuleState(key)
-	new := new(big.Int).Add(old, delta)
+	newVal := new(big.Int).Add(old, delta)
 	sign := []byte{0}
-	if new.Sign() < 0 {
+	if newVal.Sign() < 0 {
 		sign = []byte{1}
 	}
-	store.Set(key, append(sign, new.Bytes()...))
+	store.Set(key, append(sign, newVal.Bytes()...))
 }
 
 func (s *StateDBImpl) GetBigIntTransientModuleState(key []byte) *big.Int {

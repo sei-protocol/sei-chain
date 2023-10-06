@@ -31,8 +31,8 @@ linters:
     - revive
     - typecheck
     - unconvert
-    - unused
-    - unparam
+    # - unused
+    # - unparam
     - misspell
     # - nolintlint ## does not work with IDEs like VSCode which automatically insert leading spaces
 

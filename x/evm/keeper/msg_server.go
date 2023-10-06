@@ -76,9 +76,8 @@ func (server msgServer) getGasPool(ctx sdk.Context) (sdk.Context, core.GasPool) 
 	if ctx.BlockGasMeter().Limit() == 0 {
 		// infinite gas meter
 		return ctx, math.MaxUint64
-	} else {
-		return ctx, core.GasPool(ctx.BlockGasMeter().Limit() - ctx.BlockGasMeter().GasConsumedToLimit())
 	}
+	return ctx, core.GasPool(ctx.BlockGasMeter().Limit() - ctx.BlockGasMeter().GasConsumedToLimit())
 }
 
 func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction) (*core.Message, error) {
