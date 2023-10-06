@@ -29,40 +29,44 @@ func NewMsgServerImpl(keeper Keeper) types.MsgServer {
 
 var _ types.MsgServer = msgServer{}
 
-func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (*types.MsgEVMTransactionResponse, error) {
+func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	stateDB := state.NewStateDBImpl(ctx, &server)
 	tx, _ := msg.AsTransaction()
 	ctx, gp := server.getGasPool(ctx)
 	emsg, err := server.getEVMMessage(ctx, tx)
 	if err != nil {
-		return &types.MsgEVMTransactionResponse{}, err
+		return
 	}
 
-	res, err := server.applyEVMMessage(ctx, emsg, stateDB, gp)
-	if err != nil {
-		return &types.MsgEVMTransactionResponse{}, err
+	success := true
+	defer func() {
+		err = server.writeReceipt(ctx, tx, emsg, serverRes.GasUsed, success)
+		if err != nil {
+			return
+		}
+		err = stateDB.Finalize()
+	}()
+
+	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)
+	serverRes = &types.MsgEVMTransactionResponse{
+		Hash: tx.Hash().Hex(),
+	}
+	if applyErr != nil {
+		success = false
+		serverRes.VmError = applyErr.Error()
+		serverRes.GasUsed = tx.Gas() // all gas will be considered as used
+	} else {
+		// if applyErr is nil then res must be non-nil
+		if res.Err != nil {
+			serverRes.VmError = res.Err.Error()
+			success = false
+		}
+		serverRes.GasUsed = res.UsedGas
+		serverRes.ReturnData = res.ReturnData
 	}
 
-	if err := server.writeReceipt(ctx, tx, emsg, res); err != nil {
-		return &types.MsgEVMTransactionResponse{}, err
-	}
-
-	if err := stateDB.Finalize(); err != nil {
-		return &types.MsgEVMTransactionResponse{}, err
-	}
-
-	errStr := ""
-	if res.Err != nil {
-		errStr = res.Err.Error()
-	}
-
-	return &types.MsgEVMTransactionResponse{
-		GasUsed:    res.UsedGas,
-		ReturnData: res.ReturnData,
-		VmError:    errStr,
-		Hash:       tx.Hash().Hex(),
-	}, nil
+	return
 }
 
 func (server msgServer) getGasPool(ctx sdk.Context) (sdk.Context, core.GasPool) {
@@ -80,7 +84,7 @@ func (server msgServer) getGasPool(ctx sdk.Context) (sdk.Context, core.GasPool) 
 func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction) (*core.Message, error) {
 	cfg := server.GetChainConfig(ctx).EthereumConfig(server.ChainID())
 	signer := ethtypes.MakeSigner(cfg, big.NewInt(ctx.BlockHeight()), uint64(ctx.BlockTime().Unix()))
-	return core.TransactionToMessage(tx, signer, server.getBaseFee())
+	return core.TransactionToMessage(tx, signer, nil)
 }
 
 func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB vm.StateDB, gp core.GasPool) (*core.ExecutionResult, error) {
@@ -107,7 +111,7 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	return st.TransitionDb()
 }
 
-func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, res *core.ExecutionResult) error {
+func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, usedGas uint64, success bool) error {
 	var contractAddr common.Address
 	if msg.To == nil {
 		contractAddr = crypto.CreateAddress(msg.From, msg.Nonce)
@@ -115,7 +119,7 @@ func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, 
 		contractAddr = *msg.To
 	}
 
-	cumulativeGasUsed := res.UsedGas
+	cumulativeGasUsed := usedGas
 	if ctx.BlockGasMeter() != nil {
 		limit := ctx.BlockGasMeter().Limit()
 		cumulativeGasUsed += ctx.BlockGasMeter().GasConsumed()
@@ -129,13 +133,13 @@ func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, 
 		CumulativeGasUsed: cumulativeGasUsed,
 		TxHashHex:         tx.Hash().Hex(),
 		ContractAddress:   contractAddr.Hex(),
-		GasUsed:           res.UsedGas,
+		GasUsed:           usedGas,
 		BlockNumber:       uint64(ctx.BlockHeight()),
 		TransactionIndex:  uint32(ctx.TxIndex()),
 		EffectiveGasPrice: tx.GasPrice().Uint64(),
 	}
 
-	if res.Err == nil {
+	if success {
 		receipt.Status = uint32(ethtypes.ReceiptStatusSuccessful)
 	} else {
 		receipt.Status = uint32(ethtypes.ReceiptStatusFailed)

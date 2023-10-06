@@ -68,6 +68,7 @@ func TestCreate(t *testing.T) {
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 	// recreate a destructed (in the same tx) account should clear its selfDestructed flag
 	statedb.SelfDestruct(evmAddr)
+	require.Nil(t, statedb.Err())
 	require.True(t, statedb.HasSelfDestructed(evmAddr))
 	require.Equal(t, big.NewInt(0), statedb.GetBalance(evmAddr))
 	statedb.CreateAccount(evmAddr)

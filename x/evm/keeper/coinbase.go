@@ -6,15 +6,21 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
-const FeeCollectorAddress = "41cc5d9842746c69d689c8379f7f5662b8701393"
+const CoinbaseSeedAddress = "0000000000000000000000000000000000000001"
+const CoinbaseNonce = 42
 
-func (server msgServer) GetFeeCollectorAddress(ctx sdk.Context) (common.Address, error) {
-	moduleAddr := server.accountKeeper.GetModuleAddress(authtypes.FeeCollectorName)
-	if evmAddr, ok := server.GetEVMAddress(ctx, moduleAddr); !ok {
+func (k Keeper) GetFeeCollectorAddress(ctx sdk.Context) (common.Address, error) {
+	moduleAddr := k.accountKeeper.GetModuleAddress(authtypes.FeeCollectorName)
+	if evmAddr, ok := k.GetEVMAddress(ctx, moduleAddr); !ok {
 		return common.Address{}, errors.New("fee collector's EVM address not found")
 	} else {
 		return evmAddr, nil
 	}
+}
+
+func GetCoinbaseAddress() common.Address {
+	return crypto.CreateAddress(common.HexToAddress(CoinbaseSeedAddress), CoinbaseNonce)
 }

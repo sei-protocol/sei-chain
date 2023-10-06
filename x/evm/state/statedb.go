@@ -27,7 +27,8 @@ func NewStateDBImpl(ctx sdk.Context, k EVMKeeper) *StateDBImpl {
 		k:               k,
 		snapshottedCtxs: []sdk.Context{},
 	}
-	s.Snapshot() // take an initial snapshot for GetCommitted
+	s.Snapshot()                                                                            // take an initial snapshot for GetCommitted
+	s.AddBigIntTransientModuleState(k.GetModuleBalance(s.ctx), TotalUnassociatedBalanceKey) // set total unassociated balance to be current module balance
 	return s
 }
 
@@ -44,23 +45,12 @@ func (s *StateDBImpl) Finalize() error {
 	if err := s.CheckBalance(); err != nil {
 		return err
 	}
-	// remove transient states
-	s.k.PurgePrefix(s.ctx, types.TransientStateKeyPrefix)
-	s.k.PurgePrefix(s.ctx, types.AccountTransientStateKeyPrefix)
-	s.k.PurgePrefix(s.ctx, types.TransientModuleStateKeyPrefix)
-
-	// write cache to underlying
-	s.ctx.MultiStore().(sdk.CacheMultiStore).Write()
-	// write all snapshotted caches in reverse order, except the very first one
-	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
-		s.snapshottedCtxs[i].MultiStore().(sdk.CacheMultiStore).Write()
-	}
 
 	if logs, err := s.GetLogs(); err != nil {
 		return err
 	} else {
 		for _, l := range logs {
-			s.ctx.EventManager().EmitEvent(sdk.NewEvent(
+			s.snapshottedCtxs[0].EventManager().EmitEvent(sdk.NewEvent(
 				types.EventTypeEVMLog,
 				sdk.NewAttribute(types.AttributeTypeContractAddress, l.Address.Hex()),
 				sdk.NewAttribute(types.AttributeTypeTopics, strings.Join(
@@ -77,6 +67,17 @@ func (s *StateDBImpl) Finalize() error {
 		}
 	}
 
+	// remove transient states
+	s.k.PurgePrefix(s.ctx, types.TransientStateKeyPrefix)
+	s.k.PurgePrefix(s.ctx, types.AccountTransientStateKeyPrefix)
+	s.k.PurgePrefix(s.ctx, types.TransientModuleStateKeyPrefix)
+
+	// write cache to underlying
+	s.ctx.MultiStore().(sdk.CacheMultiStore).Write()
+	// write all snapshotted caches in reverse order, except the very first one (base) which will be written by baseapp::runTx
+	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
+		s.snapshottedCtxs[i].MultiStore().(sdk.CacheMultiStore).Write()
+	}
 	return nil
 }
 
