@@ -1,4 +1,4 @@
-package state
+package state_test
 
 import (
 	"testing"
@@ -6,13 +6,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCode(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	_, addr := keeper.MockAddressPair()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 
 	require.Equal(t, common.Hash{}, statedb.GetCodeHash(addr))
 	require.Nil(t, statedb.GetCode(addr))

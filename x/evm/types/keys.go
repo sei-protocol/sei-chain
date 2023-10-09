@@ -30,6 +30,7 @@ var (
 	CodeHashKeyPrefix               = []byte{0x09}
 	CodeSizeKeyPrefix               = []byte{0x0a}
 	NonceKeyPrefix                  = []byte{0x0b}
+	ReceiptKeyPrefix                = []byte{0x0c}
 )
 
 func BalanceKey(addr common.Address) []byte {
@@ -50,4 +51,8 @@ func StateKey(evmAddress common.Address) []byte {
 
 func TransientStateKey(evmAddress common.Address) []byte {
 	return append(TransientStateKeyPrefix, evmAddress[:]...)
+}
+
+func ReceiptKey(txHash common.Hash) []byte {
+	return append(ReceiptKeyPrefix, txHash[:]...)
 }
