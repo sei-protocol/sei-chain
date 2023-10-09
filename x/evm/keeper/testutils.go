@@ -15,6 +15,8 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	typesparams "github.com/cosmos/cosmos-sdk/x/params/types"
+	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -30,6 +32,7 @@ func MockEVMKeeper() (*Keeper, *paramskeeper.Keeper, sdk.Context) {
 	evmStoreKey := sdk.NewKVStoreKey(types.StoreKey)
 	authStoreKey := sdk.NewKVStoreKey(authtypes.StoreKey)
 	bankStoreKey := sdk.NewKVStoreKey(banktypes.StoreKey)
+	stakingStoreKey := sdk.NewKVStoreKey(stakingtypes.StoreKey)
 	keyParams := sdk.NewKVStoreKey(typesparams.StoreKey)
 	tKeyParams := sdk.NewTransientStoreKey(typesparams.TStoreKey)
 
@@ -38,6 +41,7 @@ func MockEVMKeeper() (*Keeper, *paramskeeper.Keeper, sdk.Context) {
 	stateStore.MountStoreWithDB(evmStoreKey, sdk.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(authStoreKey, sdk.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(bankStoreKey, sdk.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(stakingStoreKey, sdk.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(tKeyParams, sdk.StoreTypeTransient, db)
 	stateStore.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
 	_ = stateStore.LoadLatestVersion()
@@ -45,18 +49,35 @@ func MockEVMKeeper() (*Keeper, *paramskeeper.Keeper, sdk.Context) {
 	cdc := codec.NewProtoCodec(app.MakeEncodingConfig().InterfaceRegistry)
 
 	paramsKeeper := paramskeeper.NewKeeper(cdc, codec.NewLegacyAmino(), keyParams, tKeyParams)
-	accountKeeper := authkeeper.NewAccountKeeper(cdc, authStoreKey, paramsKeeper.Subspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, map[string][]string{types.ModuleName: {authtypes.Minter, authtypes.Burner}})
+	accountKeeper := authkeeper.NewAccountKeeper(cdc, authStoreKey, paramsKeeper.Subspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, map[string][]string{
+		types.ModuleName:               {authtypes.Minter, authtypes.Burner},
+		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
+		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
+		authtypes.FeeCollectorName:     nil,
+	})
 	bankKeeper := bankkeeper.NewBaseKeeper(cdc, bankStoreKey, accountKeeper, paramsKeeper.Subspace(banktypes.ModuleName), map[string]bool{})
+	stakingKeeper := stakingkeeper.NewKeeper(cdc, stakingStoreKey, accountKeeper, bankKeeper, paramsKeeper.Subspace(stakingtypes.ModuleName))
 
 	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
-	k := NewKeeper(evmStoreKey, paramsKeeper.Subspace(types.ModuleName), big.NewInt(1), bankKeeper, &accountKeeper)
-	k.SetParams(ctx, types.DefaultParams())
+	k := NewKeeper(evmStoreKey, paramsKeeper.Subspace(types.ModuleName), big.NewInt(1), bankKeeper, &accountKeeper, &stakingKeeper)
+	k.InitGenesis(ctx)
 	return k, &paramsKeeper, ctx
 }
 
 func MockAddressPair() (sdk.AccAddress, common.Address) {
-	privKey := MockPrivateKey()
+	return PrivateKeyToAddresses(MockPrivateKey())
+}
 
+func MockPrivateKey() cryptotypes.PrivKey {
+	// Generate a new Sei private key
+	entropySeed, _ := bip39.NewEntropy(256)
+	mnemonic, _ := bip39.NewMnemonic(entropySeed)
+	algo := hd.Secp256k1
+	derivedPriv, _ := algo.Derive()(mnemonic, "", "")
+	return algo.Generate()(derivedPriv)
+}
+
+func PrivateKeyToAddresses(privKey cryptotypes.PrivKey) (sdk.AccAddress, common.Address) {
 	// Encode the private key to hex (i.e. what wallets do behind the scene when users reveal private keys)
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 
@@ -70,13 +91,4 @@ func MockAddressPair() (sdk.AccAddress, common.Address) {
 	pubKey, _ := crypto.UnmarshalPubkey(recoveredPub)
 
 	return sdk.AccAddress(privKey.PubKey().Address()), crypto.PubkeyToAddress(*pubKey)
-}
-
-func MockPrivateKey() cryptotypes.PrivKey {
-	// Generate a new Sei private key
-	entropySeed, _ := bip39.NewEntropy(256)
-	mnemonic, _ := bip39.NewMnemonic(entropySeed)
-	algo := hd.Secp256k1
-	derivedPriv, _ := algo.Derive()(mnemonic, "", "")
-	return algo.Generate()(derivedPriv)
 }

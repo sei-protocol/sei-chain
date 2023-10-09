@@ -1,0 +1,17 @@
+# Install solc (on Mac)
+brew update
+brew tap ethereum/ethereum
+brew install solidity
+
+# Install abigen
+go get -u github.com/ethereum/go-ethereum
+cd $GOPATH/src/github.com/ethereum/go-ethereum/
+make
+make devtools
+
+# Compile sol
+solc --bin -o SimpleStorage SimpleStorage.sol
+
+# Generate ABI in Go
+solc --abi -o abi SimpleStorage.sol
+abigen --abi=abi/SimpleStorage.abi --pkg=testdata --out=SimpleStorage.go
