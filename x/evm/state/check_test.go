@@ -1,4 +1,4 @@
-package state
+package state_test
 
 import (
 	"math/big"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,7 +14,7 @@ func TestExist(t *testing.T) {
 	// not exist
 	k, _, ctx := keeper.MockEVMKeeper()
 	_, addr := keeper.MockAddressPair()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 	require.False(t, statedb.Exist(addr))
 
 	// has state
@@ -35,7 +36,7 @@ func TestEmpty(t *testing.T) {
 	// empty
 	k, _, ctx := keeper.MockEVMKeeper()
 	_, addr := keeper.MockAddressPair()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 	require.True(t, statedb.Empty(addr))
 
 	// has balance

@@ -1,15 +1,16 @@
-package state
+package state_test
 
 import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGasRefund(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 
 	require.Equal(t, uint64(0), statedb.GetRefund())
 	statedb.AddRefund(2)
