@@ -1,4 +1,4 @@
-package state
+package state_test
 
 import (
 	"testing"
@@ -7,28 +7,29 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAddAddressToAccessList(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 
 	_, addr := keeper.MockAddressPair()
 	require.False(t, statedb.AddressInAccessList(addr))
 	statedb.AddAddressToAccessList(addr)
-	require.Nil(t, statedb.err)
+	require.Nil(t, statedb.Err())
 	require.True(t, statedb.AddressInAccessList(addr))
 
 	// add same address again
 	statedb.AddAddressToAccessList(addr)
-	require.Nil(t, statedb.err)
+	require.Nil(t, statedb.Err())
 	require.True(t, statedb.AddressInAccessList(addr))
 }
 
 func TestAddSlotToAccessList(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 
 	_, addr := keeper.MockAddressPair()
 	statedb.AddAddressToAccessList(addr)
@@ -45,7 +46,7 @@ func TestAddSlotToAccessList(t *testing.T) {
 
 func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 
 	_, addr := keeper.MockAddressPair()
 
@@ -55,7 +56,7 @@ func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
 
 func TestPrepare(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 
 	_, sender := keeper.MockAddressPair()
 	_, coinbase := keeper.MockAddressPair()
@@ -99,13 +100,13 @@ func TestPrepare(t *testing.T) {
 	}
 }
 
-func addAndCheckSlot(t *testing.T, statedb *StateDBImpl, addr common.Address, addrInAl bool, slot common.Hash, slotInAl bool) {
+func addAndCheckSlot(t *testing.T, statedb *state.StateDBImpl, addr common.Address, addrInAl bool, slot common.Hash, slotInAl bool) {
 	addrOk, slotOk := statedb.SlotInAccessList(addr, slot)
 	require.Equal(t, addrOk, addrInAl)
 	require.Equal(t, slotOk, slotInAl)
 	statedb.AddSlotToAccessList(addr, slot)
 	addrOk, slotOk = statedb.SlotInAccessList(addr, slot)
 	require.True(t, addrOk)
-	require.Nil(t, statedb.err)
+	require.Nil(t, statedb.Err())
 	require.True(t, slotOk)
 }
