@@ -1,4 +1,4 @@
-package state
+package state_test
 
 import (
 	"math/big"
@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -14,12 +15,12 @@ import (
 func TestState(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	_, evmAddr := keeper.MockAddressPair()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
-	require.True(t, statedb.created(evmAddr))
+	require.True(t, statedb.Created(evmAddr))
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 	statedb.AddBalance(evmAddr, big.NewInt(10))
-	k.BankKeeper().MintCoins(statedb.ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10))))
+	k.BankKeeper().MintCoins(statedb.Ctx(), types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10))))
 	key := common.BytesToHash([]byte("abc"))
 	val := common.BytesToHash([]byte("def"))
 	statedb.SetState(evmAddr, key, val)
@@ -47,7 +48,7 @@ func TestState(t *testing.T) {
 func TestCreate(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	_, evmAddr := keeper.MockAddressPair()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 	key := common.BytesToHash([]byte("abc"))
@@ -63,17 +64,18 @@ func TestCreate(t *testing.T) {
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
 	require.Equal(t, big.NewInt(10), statedb.GetBalance(evmAddr))
-	require.True(t, statedb.created(evmAddr))
+	require.True(t, statedb.Created(evmAddr))
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 	// recreate a destructed (in the same tx) account should clear its selfDestructed flag
 	statedb.SelfDestruct(evmAddr)
+	require.Nil(t, statedb.Err())
 	require.True(t, statedb.HasSelfDestructed(evmAddr))
 	require.Equal(t, big.NewInt(0), statedb.GetBalance(evmAddr))
 	statedb.CreateAccount(evmAddr)
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
 	require.Equal(t, big.NewInt(0), statedb.GetBalance(evmAddr)) // cleared during SelfDestruct
-	require.True(t, statedb.created(evmAddr))
+	require.True(t, statedb.Created(evmAddr))
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 }
 
@@ -81,7 +83,7 @@ func TestSelfDestructAssociated(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
 	key := common.BytesToHash([]byte("abc"))
 	val := common.BytesToHash([]byte("def"))
@@ -90,26 +92,26 @@ func TestSelfDestructAssociated(t *testing.T) {
 	statedb.SetState(evmAddr, key, val)
 	statedb.SetTransientState(evmAddr, tkey, tval)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10)))
-	k.BankKeeper().MintCoins(statedb.ctx, types.ModuleName, amt)
-	k.BankKeeper().SendCoinsFromModuleToAccount(statedb.ctx, types.ModuleName, seiAddr, amt)
+	k.BankKeeper().MintCoins(statedb.Ctx(), types.ModuleName, amt)
+	k.BankKeeper().SendCoinsFromModuleToAccount(statedb.Ctx(), types.ModuleName, seiAddr, amt)
 
-	// SelfDestruct6780 should only act if the account is created in the same block
-	statedb.markAccount(evmAddr, nil)
-	statedb.SelfDestruct6780(evmAddr)
+	// Selfdestruct6780 should only act if the account is created in the same block
+	statedb.MarkAccount(evmAddr, nil)
+	statedb.Selfdestruct6780(evmAddr)
 	require.Equal(t, val, statedb.GetState(evmAddr, key))
-	statedb.markAccount(evmAddr, AccountCreated)
+	statedb.MarkAccount(evmAddr, state.AccountCreated)
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 
-	// SelfDestruct6780 is equivalent to SelfDestruct if account is created in the same block
-	statedb.SelfDestruct6780(evmAddr)
+	// Selfdestruct6780 is equivalent to SelfDestruct if account is created in the same block
+	statedb.Selfdestruct6780(evmAddr)
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
 	require.Equal(t, big.NewInt(0), statedb.GetBalance(evmAddr))
 	require.Equal(t, big.NewInt(0), k.BankKeeper().GetBalance(ctx, seiAddr, k.GetBaseDenom(ctx)).Amount.BigInt())
 	require.True(t, statedb.HasSelfDestructed(evmAddr))
-	require.False(t, statedb.created(evmAddr))
+	require.False(t, statedb.Created(evmAddr))
 	// association should also be removed
-	_, ok := k.GetSeiAddress(statedb.ctx, evmAddr)
+	_, ok := k.GetSeiAddress(statedb.Ctx(), evmAddr)
 	require.False(t, ok)
 }
 
@@ -117,7 +119,7 @@ func TestSnapshot(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
 	key := common.BytesToHash([]byte("abc"))
 	val := common.BytesToHash([]byte("def"))
@@ -138,13 +140,13 @@ func TestSnapshot(t *testing.T) {
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
 	require.Equal(t, val, statedb.GetState(evmAddr, key))
 
-	newStateDB := NewStateDBImpl(ctx, k)
+	newStateDB := state.NewStateDBImpl(ctx, k)
 	// prev state DB not committed yet
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, common.Hash{}, newStateDB.GetState(evmAddr, key))
 
 	require.Nil(t, statedb.Finalize())
-	newStateDB = NewStateDBImpl(ctx, k)
+	newStateDB = state.NewStateDBImpl(ctx, k)
 	// prev state DB committed except for transient states
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, val, newStateDB.GetState(evmAddr, key))

@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -43,7 +42,8 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 	ethTx, txData := tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction).AsTransaction()
 	ctx = evmtypes.SetContextEthTx(ctx, ethTx)
 	ctx = evmtypes.SetContextTxData(ctx, txData)
-	ctx = authante.SetGasMeter(simulate, ctx, getNativeGasLimit(ctx, txData.GetGas(), p.evmKeeper.GetGasMultiplier(ctx)).Uint64(), nil)
+	// use infinite gas meter for EVM transaction because EVM handles gas checking from within
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 
 	V, R, S := ethTx.RawSignatureValues()
 	chainID := p.evmKeeper.ChainID()

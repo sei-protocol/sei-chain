@@ -8,6 +8,7 @@ import (
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -19,11 +20,12 @@ type Keeper struct {
 
 	bankKeeper    bankkeeper.Keeper
 	accountKeeper *authkeeper.AccountKeeper
+	stakingKeeper *stakingkeeper.Keeper
 }
 
 func NewKeeper(
 	storeKey sdk.StoreKey, paramstore paramtypes.Subspace, evmChainID *big.Int,
-	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper) *Keeper {
+	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -33,6 +35,7 @@ func NewKeeper(
 		evmChainID:    evmChainID,
 		bankKeeper:    bankKeeper,
 		accountKeeper: accountKeeper,
+		stakingKeeper: stakingKeeper,
 	}
 }
 

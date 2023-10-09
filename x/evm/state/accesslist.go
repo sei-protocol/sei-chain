@@ -59,6 +59,7 @@ func (s *StateDBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash)
 }
 
 func (s *StateDBImpl) Prepare(rules params.Rules, sender, coinbase common.Address, dest *common.Address, precompiles []common.Address, txAccesses ethtypes.AccessList) {
+	s.Snapshot()
 	s.AddAddressToAccessList(sender)
 	if dest != nil {
 		s.AddAddressToAccessList(*dest)

@@ -1,4 +1,4 @@
-package state
+package state_test
 
 import (
 	"testing"
@@ -6,12 +6,13 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAddLog(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := NewStateDBImpl(ctx, k)
+	statedb := state.NewStateDBImpl(ctx, k)
 
 	logs, err := statedb.GetLogs()
 	require.Nil(t, err)
@@ -19,7 +20,7 @@ func TestAddLog(t *testing.T) {
 
 	log1 := ethtypes.Log{Address: common.BytesToAddress([]byte{1}), Topics: []common.Hash{}, Data: []byte{}}
 	statedb.AddLog(&log1)
-	require.Nil(t, statedb.err)
+	require.Nil(t, statedb.Err())
 	logs, err = statedb.GetLogs()
 	require.Nil(t, err)
 	require.Equal(t, 1, len(logs))
@@ -27,7 +28,7 @@ func TestAddLog(t *testing.T) {
 
 	log2 := ethtypes.Log{Address: common.BytesToAddress([]byte{2}), Topics: []common.Hash{}, Data: []byte{3}}
 	statedb.AddLog(&log2)
-	require.Nil(t, statedb.err)
+	require.Nil(t, statedb.Err())
 	logs, err = statedb.GetLogs()
 	require.Nil(t, err)
 	require.Equal(t, 2, len(logs))
