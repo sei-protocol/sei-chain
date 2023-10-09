@@ -243,9 +243,7 @@ func checkPath(r *http.Request, path string) bool {
 func (h *httpServer) stop() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	fmt.Println("stopping")
 	h.doStop()
-	fmt.Println("stopped")
 }
 
 func (h *httpServer) doStop() {
