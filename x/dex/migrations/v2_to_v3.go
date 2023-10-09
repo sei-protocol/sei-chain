@@ -10,7 +10,7 @@ import (
  * Any new chain (including local ones) should be based on a Sei version newer than this update
  * and therefore doesn't need this migration
  */
-func DataTypeUpdate(ctx sdk.Context, storeKey sdk.StoreKey, cdc codec.BinaryCodec) error {
+func DataTypeUpdate(ctx sdk.Context, storeKey sdk.StoreKey, _ codec.BinaryCodec) error {
 	ClearStore(ctx, storeKey)
 	return nil
 }
