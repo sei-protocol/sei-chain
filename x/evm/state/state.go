@@ -11,7 +11,7 @@ import (
 func (s *StateDBImpl) CreateAccount(acc common.Address) {
 	// clear any existing state but keep balance untouched
 	s.clearAccountState(acc)
-	s.markAccount(acc, AccountCreated)
+	s.MarkAccount(acc, AccountCreated)
 }
 
 func (s *StateDBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
@@ -54,39 +54,25 @@ func (s *StateDBImpl) SelfDestruct(acc common.Address) {
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// send all useis from seiAddr to the EVM module
 		balance = s.k.BankKeeper().GetBalance(s.ctx, seiAddr, s.k.GetBaseDenom(s.ctx))
-		if balance.Amount.Int64() != 0 {
-			if err := s.k.BankKeeper().SendCoinsFromAccountToModule(s.ctx, seiAddr, types.ModuleName, sdk.NewCoins(balance)); err != nil {
-				s.err = err
-				return
-			}
-		}
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
 	} else {
 		// get old EVM balance
 		balance = sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromUint64(s.k.GetBalance(s.ctx, acc)))
-		// set EVM balance to 0
-		s.k.SetOrDeleteBalance(s.ctx, acc, 0)
 	}
 
-	// burn all useis from the destructed account
-	if balance.Amount.Int64() != 0 {
-		if err := s.k.BankKeeper().BurnCoins(s.ctx, types.ModuleName, sdk.NewCoins(balance)); err != nil {
-			s.err = err
-			return
-		}
-	}
+	s.SubBalance(acc, balance.Amount.BigInt())
 
 	// clear account state
 	s.clearAccountState(acc)
 
 	// mark account as self-destructed
-	s.markAccount(acc, AccountDeleted)
+	s.MarkAccount(acc, AccountDeleted)
 }
 
-func (s *StateDBImpl) SelfDestruct6780(acc common.Address) {
+func (s *StateDBImpl) Selfdestruct6780(acc common.Address) {
 	// only self-destruct if acc is newly created in the same block
-	if s.created(acc) {
+	if s.Created(acc) {
 		s.SelfDestruct(acc)
 	}
 }
@@ -119,7 +105,7 @@ func (s *StateDBImpl) clearAccountState(acc common.Address) {
 	s.k.PrefixStore(s.ctx, types.NonceKeyPrefix).Delete(acc[:])
 }
 
-func (s *StateDBImpl) markAccount(acc common.Address, status []byte) {
+func (s *StateDBImpl) MarkAccount(acc common.Address, status []byte) {
 	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
 	if status == nil {
 		store.Delete(acc[:])
@@ -128,7 +114,7 @@ func (s *StateDBImpl) markAccount(acc common.Address, status []byte) {
 	}
 }
 
-func (s *StateDBImpl) created(acc common.Address) bool {
+func (s *StateDBImpl) Created(acc common.Address) bool {
 	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
 	return bytes.Equal(store.Get(acc[:]), AccountCreated)
 }
