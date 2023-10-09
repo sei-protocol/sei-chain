@@ -82,6 +82,10 @@ func SetSnapshotInterval(interval uint64) func(*BaseApp) {
 	return func(app *BaseApp) { app.SetSnapshotInterval(interval) }
 }
 
+func SetConcurrencyWorkers(workers int) func(*BaseApp) {
+	return func(app *BaseApp) { app.SetConcurrencyWorkers(workers) }
+}
+
 // SetSnapshotKeepRecent sets the recent snapshots to keep.
 func SetSnapshotKeepRecent(keepRecent uint32) func(*BaseApp) {
 	return func(app *BaseApp) { app.SetSnapshotKeepRecent(keepRecent) }
@@ -288,6 +292,13 @@ func (app *BaseApp) SetSnapshotInterval(snapshotInterval uint64) {
 		panic("SetSnapshotInterval() on sealed BaseApp")
 	}
 	app.snapshotInterval = snapshotInterval
+}
+
+func (app *BaseApp) SetConcurrencyWorkers(workers int) {
+	if app.sealed {
+		panic("SetConcurrencyWorkers() on sealed BaseApp")
+	}
+	app.concurrencyWorkers = workers
 }
 
 // SetSnapshotKeepRecent sets the number of recent snapshots to keep.

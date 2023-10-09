@@ -70,6 +70,7 @@ const (
 	FlagSeparateOrphanVersionsToKeep = "separate-orphan-versions-to-keep"
 	FlagNumOrphanPerFile             = "num-orphan-per-file"
 	FlagOrphanDirectory              = "orphan-dir"
+	FlagConcurrencyWorkers           = "concurrency-workers"
 
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
@@ -252,6 +253,7 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 	cmd.Flags().Int64(FlagSeparateOrphanVersionsToKeep, 2, "Number of versions to keep if storing orphans separately")
 	cmd.Flags().Int(FlagNumOrphanPerFile, 100000, "Number of orphans to store on each file if storing orphans separately")
 	cmd.Flags().String(FlagOrphanDirectory, path.Join(defaultNodeHome, "orphans"), "Directory to store orphan files if storing orphans separately")
+	cmd.Flags().Int(FlagConcurrencyWorkers, config.DefaultConcurrencyWorkers, "Number of workers to process concurrent transactions")
 
 	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
 	cmd.Flags().Bool(flagGRPCEnable, true, "Define if the gRPC server should be enabled")

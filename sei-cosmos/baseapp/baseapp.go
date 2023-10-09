@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/armon/go-metrics"
+	"github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/gogo/protobuf/proto"
 	sdbm "github.com/sei-protocol/sei-tm-db/backends"
@@ -57,7 +58,8 @@ const (
 	FlagArchivalArweaveIndexDBFullPath = "archival-arweave-index-db-full-path"
 	FlagArchivalArweaveNodeURL         = "archival-arweave-node-url"
 
-	FlagChainID = "chain-id"
+	FlagChainID            = "chain-id"
+	FlagConcurrencyWorkers = "concurrency-workers"
 )
 
 var (
@@ -163,6 +165,8 @@ type BaseApp struct { //nolint: maligned
 	TmConfig *tmcfg.Config
 
 	TracingInfo *tracing.Info
+
+	concurrencyWorkers int
 }
 
 type appStore struct {
@@ -286,6 +290,16 @@ func NewBaseApp(
 	}
 	app.startCompactionRoutine(db)
 
+	// if no option overrode already, initialize to the flags value
+	// this avoids forcing every implementation to pass an option, but allows it
+	if app.concurrencyWorkers == 0 {
+		app.concurrencyWorkers = cast.ToInt(appOpts.Get(FlagConcurrencyWorkers))
+	}
+	// safely default this to the default value if 0
+	if app.concurrencyWorkers == 0 {
+		app.concurrencyWorkers = config.DefaultConcurrencyWorkers
+	}
+
 	return app
 }
 
@@ -297,6 +311,11 @@ func (app *BaseApp) Name() string {
 // AppVersion returns the application's protocol version.
 func (app *BaseApp) AppVersion() uint64 {
 	return app.appVersion
+}
+
+// ConcurrencyWorkers returns the number of concurrent workers for the BaseApp.
+func (app *BaseApp) ConcurrencyWorkers() int {
+	return app.concurrencyWorkers
 }
 
 // Version returns the application's version string.
