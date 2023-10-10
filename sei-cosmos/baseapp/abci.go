@@ -236,9 +236,23 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 	}, nil
 }
 
+// DeliverTxBatch executes multiple txs
+// TODO: support occ logic with scheduling
+func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (res sdk.DeliverTxBatchResponse) {
+	// TODO: replace with actual scheduler logic
+	// This is stubbed so that it does something sensible
+	responses := make([]*sdk.DeliverTxResult, 0, len(req.TxEntries))
+	for _, tx := range req.TxEntries {
+		responses = append(responses, &sdk.DeliverTxResult{
+			Response: app.DeliverTx(ctx, tx.Request),
+		})
+	}
+	return sdk.DeliverTxBatchResponse{Results: responses}
+}
+
 // DeliverTx implements the ABCI interface and executes a tx in DeliverTx mode.
 // State only gets persisted if all messages are valid and get executed successfully.
-// Otherwise, the ResponseDeliverTx will contain releveant error information.
+// Otherwise, the ResponseDeliverTx will contain relevant error information.
 // Regardless of tx execution outcome, the ResponseDeliverTx will contain relevant
 // gas execution context.
 // TODO: (occ) this is the function called from sei-chain to perform execution of a transaction.
