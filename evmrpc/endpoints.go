@@ -17,6 +17,7 @@
 package evmrpc
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -47,7 +48,7 @@ func StartHTTPEndpoint(endpoint string, timeouts rpc.HTTPTimeouts, handler http.
 	}
 	go func() {
 		if err := httpSrv.Serve(listener); err != nil {
-			panic(err)
+			fmt.Printf("server exiting due to %s\n", err)
 		}
 	}()
 	return httpSrv, listener.Addr(), err

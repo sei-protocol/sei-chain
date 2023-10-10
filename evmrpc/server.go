@@ -9,7 +9,7 @@ type EVMServer interface {
 	Start() error
 }
 
-func NewEVMRpcServer(
+func NewEVMHTTPServer(
 	logger log.Logger,
 	addr string,
 	port int,

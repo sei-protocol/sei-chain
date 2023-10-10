@@ -158,7 +158,7 @@ func (h *httpServer) Start() error {
 	h.listener = listener
 	go func() {
 		if err := h.server.Serve(listener); err != nil {
-			panic(err)
+			h.log.Error(fmt.Sprintf("server existing due to %s\n", err))
 		}
 	}()
 
@@ -243,7 +243,9 @@ func checkPath(r *http.Request, path string) bool {
 func (h *httpServer) stop() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	fmt.Println("stopping")
 	h.doStop()
+	fmt.Println("stopped")
 }
 
 func (h *httpServer) doStop() {
