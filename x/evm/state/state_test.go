@@ -15,7 +15,7 @@ import (
 func TestState(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	_, evmAddr := keeper.MockAddressPair()
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
 	require.True(t, statedb.Created(evmAddr))
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
@@ -48,7 +48,7 @@ func TestState(t *testing.T) {
 func TestCreate(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	_, evmAddr := keeper.MockAddressPair()
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 	key := common.BytesToHash([]byte("abc"))
@@ -83,7 +83,7 @@ func TestSelfDestructAssociated(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
 	key := common.BytesToHash([]byte("abc"))
 	val := common.BytesToHash([]byte("def"))
@@ -119,7 +119,7 @@ func TestSnapshot(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
 	key := common.BytesToHash([]byte("abc"))
 	val := common.BytesToHash([]byte("def"))
@@ -140,13 +140,13 @@ func TestSnapshot(t *testing.T) {
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
 	require.Equal(t, val, statedb.GetState(evmAddr, key))
 
-	newStateDB := state.NewStateDBImpl(ctx, k)
+	newStateDB := state.NewDBImpl(ctx, k)
 	// prev state DB not committed yet
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, common.Hash{}, newStateDB.GetState(evmAddr, key))
 
 	require.Nil(t, statedb.Finalize())
-	newStateDB = state.NewStateDBImpl(ctx, k)
+	newStateDB = state.NewDBImpl(ctx, k)
 	// prev state DB committed except for transient states
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, val, newStateDB.GetState(evmAddr, key))

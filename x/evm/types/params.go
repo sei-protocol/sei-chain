@@ -50,10 +50,7 @@ func (p Params) Validate() error {
 	if err := validateGasMultiplier(p.GasMultiplier); err != nil {
 		return err
 	}
-	if err := validateChainConfig(p.ChainConfig); err != nil {
-		return err
-	}
-	return nil
+	return validateChainConfig(p.ChainConfig)
 }
 
 func (p Params) String() string {

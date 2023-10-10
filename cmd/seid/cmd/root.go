@@ -392,8 +392,8 @@ func initAppConfig() (string, interface{}) {
 	//   - random: if everyone has the same value, the block that everyone prunes will be slow
 	//   - prime: no overlap
 	primes := getPrimeNums(2500, 4000)
-	rand.Seed(time.Now().Unix())
-	pruningInterval := primes[rand.Intn(len(primes))]
+	r := rand.New(rand.NewSource(time.Now().Unix()))
+	pruningInterval := primes[r.Intn(len(primes))]
 	srvCfg.PruningInterval = fmt.Sprintf("%d", pruningInterval)
 
 	// Metrics

@@ -2,10 +2,7 @@ package types
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/ethereum/go-ethereum/params"
 )
@@ -65,19 +62,5 @@ func (cc ChainConfig) Validate() error {
 	if err := cc.EthereumConfig(nil).CheckConfigForkOrder(); err != nil {
 		return errors.New("invalid config fork order")
 	}
-	return nil
-}
-
-func validateBlock(block *sdk.Int) error {
-	if block == nil {
-		return nil
-	}
-
-	if block.IsNegative() {
-		return fmt.Errorf(
-			"block value cannot be negative: %s", block,
-		)
-	}
-
 	return nil
 }

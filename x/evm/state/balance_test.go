@@ -17,7 +17,7 @@ func TestAddBalance(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(15)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
-	db := state.NewStateDBImpl(ctx, k)
+	db := state.NewDBImpl(ctx, k)
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))
 	db.AddBalance(evmAddr, big.NewInt(0))
@@ -44,7 +44,7 @@ func TestAddBalance(t *testing.T) {
 
 func TestSubBalance(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	db := state.NewStateDBImpl(ctx, k)
+	db := state.NewDBImpl(ctx, k)
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))
 	db.SubBalance(evmAddr, big.NewInt(0))
@@ -73,7 +73,7 @@ func TestSubBalance(t *testing.T) {
 
 func TestCheckBalance(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	db := state.NewStateDBImpl(ctx, k)
+	db := state.NewDBImpl(ctx, k)
 	require.Nil(t, db.CheckBalance())
 
 	db.WithErr(errors.New("test"))
@@ -86,7 +86,7 @@ func TestCheckBalance(t *testing.T) {
 	k.SetOrDeleteBalance(ctx, evmAddr, 1000)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
-	db = state.NewStateDBImpl(ctx, k)
+	db = state.NewDBImpl(ctx, k)
 	db.SubBalance(evmAddr, big.NewInt(500))
 	require.Nil(t, db.Finalize())
 	require.Equal(t, uint64(500), k.GetBalance(ctx, evmAddr))
@@ -99,7 +99,7 @@ func TestCheckBalance(t *testing.T) {
 	amt = sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, amt)
-	db = state.NewStateDBImpl(ctx, k)
+	db = state.NewDBImpl(ctx, k)
 	db.SubBalance(evmAddr, big.NewInt(500))
 	require.Nil(t, db.Finalize())
 	require.Equal(t, uint64(500), k.BankKeeper().GetBalance(ctx, seiAddr, k.GetBaseDenom(ctx)).Amount.Uint64())
@@ -111,7 +111,7 @@ func TestCheckBalance(t *testing.T) {
 	k.SetOrDeleteBalance(ctx, evmAddr, 1000)
 	amt = sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
-	db = state.NewStateDBImpl(ctx, k)
+	db = state.NewDBImpl(ctx, k)
 	db.AddBalance(evmAddr, big.NewInt(500))
 	require.NotNil(t, db.Finalize())
 	require.Equal(t, uint64(1000), k.GetBalance(ctx, evmAddr))                                                                                                // should remain unchanged
@@ -124,7 +124,7 @@ func TestCheckBalance(t *testing.T) {
 	amt = sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, amt)
-	db = state.NewStateDBImpl(ctx, k)
+	db = state.NewDBImpl(ctx, k)
 	db.AddBalance(evmAddr, big.NewInt(500))
 	require.NotNil(t, db.Finalize())
 	require.Equal(t, uint64(1000), k.BankKeeper().GetBalance(ctx, seiAddr, k.GetBaseDenom(ctx)).Amount.Uint64())

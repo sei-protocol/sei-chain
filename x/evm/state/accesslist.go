@@ -16,12 +16,12 @@ type accessList struct {
 	Slots     []map[common.Hash]struct{} `json:"slots"`
 }
 
-func (s *StateDBImpl) AddressInAccessList(addr common.Address) bool {
+func (s *DBImpl) AddressInAccessList(addr common.Address) bool {
 	_, ok := s.getAccessList().Addresses[addr]
 	return ok
 }
 
-func (s *StateDBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (addressOk bool, slotOk bool) {
+func (s *DBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (addressOk bool, slotOk bool) {
 	al := s.getAccessList()
 	idx, ok := al.Addresses[addr]
 	if ok && idx != -1 {
@@ -31,7 +31,7 @@ func (s *StateDBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (a
 	return ok, false
 }
 
-func (s *StateDBImpl) AddAddressToAccessList(addr common.Address) {
+func (s *DBImpl) AddAddressToAccessList(addr common.Address) {
 	al := s.getAccessList()
 	defer s.saveAccessList(al)
 	if _, present := al.Addresses[addr]; present {
@@ -40,7 +40,7 @@ func (s *StateDBImpl) AddAddressToAccessList(addr common.Address) {
 	al.Addresses[addr] = -1
 }
 
-func (s *StateDBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
+func (s *DBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 	al := s.getAccessList()
 	defer s.saveAccessList(al)
 	idx, addrPresent := al.Addresses[addr]
@@ -58,7 +58,7 @@ func (s *StateDBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash)
 	}
 }
 
-func (s *StateDBImpl) Prepare(rules params.Rules, sender, coinbase common.Address, dest *common.Address, precompiles []common.Address, txAccesses ethtypes.AccessList) {
+func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *common.Address, precompiles []common.Address, txAccesses ethtypes.AccessList) {
 	s.Snapshot()
 	s.AddAddressToAccessList(sender)
 	if dest != nil {
@@ -77,7 +77,7 @@ func (s *StateDBImpl) Prepare(rules params.Rules, sender, coinbase common.Addres
 	s.AddAddressToAccessList(coinbase)
 }
 
-func (s *StateDBImpl) getAccessList() *accessList {
+func (s *DBImpl) getAccessList() *accessList {
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	bz := store.Get(AccessListKey)
 	al := accessList{Addresses: make(map[common.Address]int)}
@@ -90,7 +90,7 @@ func (s *StateDBImpl) getAccessList() *accessList {
 	return &al
 }
 
-func (s *StateDBImpl) saveAccessList(al *accessList) {
+func (s *DBImpl) saveAccessList(al *accessList) {
 	albz, err := json.Marshal(al)
 	if err != nil {
 		panic(err)

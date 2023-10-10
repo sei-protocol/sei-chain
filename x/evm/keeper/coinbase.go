@@ -14,11 +14,11 @@ const CoinbaseNonce = 42
 
 func (k Keeper) GetFeeCollectorAddress(ctx sdk.Context) (common.Address, error) {
 	moduleAddr := k.accountKeeper.GetModuleAddress(authtypes.FeeCollectorName)
-	if evmAddr, ok := k.GetEVMAddress(ctx, moduleAddr); !ok {
+	evmAddr, ok := k.GetEVMAddress(ctx, moduleAddr)
+	if !ok {
 		return common.Address{}, errors.New("fee collector's EVM address not found")
-	} else {
-		return evmAddr, nil
 	}
+	return evmAddr, nil
 }
 
 func GetCoinbaseAddress() common.Address {

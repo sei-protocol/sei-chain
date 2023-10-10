@@ -8,7 +8,6 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 type EVMSigVerifyDecorator struct {
@@ -20,7 +19,7 @@ func NewEVMSigVerifyDecorator(evmKeeper *evmkeeper.Keeper) *EVMSigVerifyDecorato
 }
 
 func (svd EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	ethTx, found := evmtypes.GetContextEthTx(ctx)
+	ethTx, found := types.GetContextEthTx(ctx)
 	if !found {
 		return ctx, errors.New("EVM transaction is not found in EVM ante route")
 	}
@@ -28,7 +27,7 @@ func (svd EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		return ctx, errors.New("EVM transaction is not replay protected")
 	}
 
-	evmAddr, found := evmtypes.GetContextEVMAddress(ctx)
+	evmAddr, found := types.GetContextEVMAddress(ctx)
 	if !found {
 		return ctx, errors.New("failed to get sender from EVM tx")
 	}
@@ -43,5 +42,5 @@ func (svd EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 
-	return ctx, nil
+	return next(ctx, tx, simulate)
 }

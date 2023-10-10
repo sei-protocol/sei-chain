@@ -7,7 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func (s *StateDBImpl) AddRefund(gas uint64) {
+func (s *DBImpl) AddRefund(gas uint64) {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, s.GetRefund()+gas)
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
@@ -17,7 +17,7 @@ func (s *StateDBImpl) AddRefund(gas uint64) {
 // Copied from go-ethereum as-is
 // SubRefund removes gas from the refund counter.
 // This method will panic if the refund counter goes below zero
-func (s *StateDBImpl) SubRefund(gas uint64) {
+func (s *DBImpl) SubRefund(gas uint64) {
 	refund := s.GetRefund()
 	if gas > refund {
 		panic(fmt.Sprintf("Refund counter below zero (gas: %d > refund: %d)", gas, refund))
@@ -28,7 +28,7 @@ func (s *StateDBImpl) SubRefund(gas uint64) {
 	store.Set(GasRefundKey, bz)
 }
 
-func (s *StateDBImpl) GetRefund() uint64 {
+func (s *DBImpl) GetRefund() uint64 {
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	bz := store.Get(GasRefundKey)
 	if bz == nil {

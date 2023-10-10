@@ -13,7 +13,7 @@ import (
 func TestCode(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	_, addr := keeper.MockAddressPair()
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 
 	require.Equal(t, common.Hash{}, statedb.GetCodeHash(addr))
 	require.Nil(t, statedb.GetCode(addr))
