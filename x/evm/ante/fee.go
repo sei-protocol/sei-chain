@@ -47,7 +47,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 	// if EVM version is London or later, gas fee cap will be used to cap the overall fee consumption,
 	// so we need to make sure that cap is at least as large as the required base fee
-	if ver >= evmtypes.London && txData.GetGasFeeCap().Cmp(fc.getBaseFee(ctx, txData.GetGas())) < 0 {
+	if ver >= evmtypes.London && txData.GetGasFeeCap().Cmp(fc.getBaseFee(ctx)) < 0 {
 		return ctx, errors.New("provided gas fee cap is smaller than required base fee")
 	}
 	// if EVM version is Cancun or later, and the transaction contains at least one blob, we need to
@@ -74,15 +74,15 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	}
 
 	// calculate the priority by dividing the total fee with the native gas limit (i.e. the effective native gas price)
-	priority := new(big.Int).Quo(anteCharge, getNativeGasLimit(ctx, txData.GetGas(), fc.evmKeeper.GetGasMultiplier(ctx)))
+	priority := new(big.Int).Quo(anteCharge, getNativeGasLimit(txData.GetGas(), fc.evmKeeper.GetGasMultiplier(ctx)))
 	ctx = ctx.WithPriority(priority.Int64())
 
-	return ctx, nil
+	return next(ctx, tx, simulate)
 }
 
 // currently using a static base fee = min gas price * evm gas multiplier.
 // potentially change this to be dynamically determined based on block congestion
-func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context, gasLimit uint64) *big.Int {
+func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context) *big.Int {
 	// Get Sei's native gas price
 	baseDenomMinGasPrice := sdk.ZeroDec()
 	baseDenom := fc.evmKeeper.GetBaseDenom(ctx)
@@ -101,7 +101,7 @@ func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context, gasLimit uint64) *big
 }
 
 // convert EVM gas limit into Sei's native gas limit
-func getNativeGasLimit(ctx sdk.Context, gasLimit uint64, multiplier sdk.Dec) *big.Int {
+func getNativeGasLimit(gasLimit uint64, multiplier sdk.Dec) *big.Int {
 	// Mutiply gas limit with EVM multiplier to get the true gas limit
 	return new(big.Int).Mul(new(big.Int).SetUint64(gasLimit), multiplier.BigInt())
 }

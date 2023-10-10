@@ -11,16 +11,16 @@ type Logs struct {
 	Ls []*ethtypes.Log `json:"logs"`
 }
 
-func (s *StateDBImpl) AddLog(l *ethtypes.Log) {
+func (s *DBImpl) AddLog(l *ethtypes.Log) {
 	// TODO: potentially decorate log with block/tx metadata
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	logs := Logs{Ls: []*ethtypes.Log{}}
-	if ls, err := s.GetLogs(); err != nil {
+	ls, err := s.GetLogs()
+	if err != nil {
 		s.err = err
 		return
-	} else {
-		logs.Ls = append(ls, l)
 	}
+	logs.Ls = append(ls, l)
 	logsbz, err := json.Marshal(&logs)
 	if err != nil {
 		s.err = err
@@ -29,7 +29,7 @@ func (s *StateDBImpl) AddLog(l *ethtypes.Log) {
 	store.Set(LogsKey, logsbz)
 }
 
-func (s *StateDBImpl) GetLogs() ([]*ethtypes.Log, error) {
+func (s *DBImpl) GetLogs() ([]*ethtypes.Log, error) {
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	logsbz := store.Get(LogsKey)
 	logs := Logs{Ls: []*ethtypes.Log{}}

@@ -103,10 +103,10 @@ func runOnce(config Config) {
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors
 func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
-	rand.Seed(time.Now().UnixNano())
-	messageType := messageTypes[rand.Intn(len(messageTypes))]
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	messageType := messageTypes[r.Intn(len(messageTypes))]
 	for c.generatedAdminMessageForBlock && c.isAdminMessageMapping[messageType] {
-		messageType = messageTypes[rand.Intn(len(messageTypes))]
+		messageType = messageTypes[r.Intn(len(messageTypes))]
 	}
 
 	if c.isAdminMessageMapping[messageType] {
@@ -119,6 +119,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	var msgs []sdk.Msg
 	messageTypes := strings.Split(config.MessageType, ",")
 	messageType := c.getRandomMessageType(messageTypes)
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	fmt.Printf("Message type: %s\n", messageType)
 
 	defer IncrTxMessageType(messageType)
@@ -195,7 +196,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	case CollectRewards:
 		adminKey := c.SignerClient.GetAdminKey()
 		delegatorAddr := sdk.AccAddress(adminKey.PubKey().Address())
-		operatorAddress := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
+		operatorAddress := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
 		randomValidatorAddr, err := sdk.ValAddressFromBech32(operatorAddress)
 		if err != nil {
 			panic(err.Error())
@@ -225,7 +226,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		}}
 	case Staking:
 		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
-		chosenValidator := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
+		chosenValidator := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
 		// Randomly pick someone to redelegate / unbond from
 		srcAddr := ""
 		for k := range c.DelegationMap[delegatorAddr] {
@@ -239,7 +240,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	case Tokenfactory:
 		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
 		// No denoms, let's mint
-		randNum := rand.Float64()
+		randNum := r.Float64()
 		denom, ok := c.TokenFactoryDenomOwner[denomCreatorAddr]
 		switch {
 		case !ok || randNum <= 0.33:
@@ -263,7 +264,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		}
 	case FailureBankMalformed:
 		var denom string
-		if rand.Float64() < 0.5 {
+		if r.Float64() < 0.5 {
 			denom = "unknown"
 		} else {
 			denom = "other"
@@ -308,7 +309,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		contract := config.ContractDistr.Sample()
 		orderPlacements := generateDexOrderPlacements(config, key, msgPerTx, price, quantity)
 		var amountUsei int64
-		if rand.Float64() < 0.5 {
+		if r.Float64() < 0.5 {
 			amountUsei = 10000 * price.Mul(quantity).Ceil().RoundInt64()
 		} else {
 			amountUsei = 0
@@ -354,8 +355,9 @@ func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
 func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx uint64, price sdk.Dec, quantity sdk.Dec) (orderPlacements []*dextypes.Order) {
 	orderType := sampleDexOrderType(config)
 
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	var direction dextypes.PositionDirection
-	if rand.Float64() < 0.5 {
+	if r.Float64() < 0.5 {
 		direction = dextypes.PositionDirection_LONG
 	} else {
 		direction = dextypes.PositionDirection_SHORT
@@ -432,9 +434,10 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 	var msgs []sdk.Msg
 	contract := config.WasmMsgTypes.Vortex.ContractAddr
 
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	// Randomly select Position Direction
 	var direction dextypes.PositionDirection
-	if rand.Float64() < 0.5 {
+	if r.Float64() < 0.5 {
 		direction = dextypes.PositionDirection_LONG
 	} else {
 		direction = dextypes.PositionDirection_SHORT
