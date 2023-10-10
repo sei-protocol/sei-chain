@@ -1,9 +1,9 @@
 module github.com/sei-protocol/sei-chain
 
-go 1.19
+go 1.20
 
 require (
-	github.com/BurntSushi/toml v1.1.0
+	github.com/BurntSushi/toml v1.3.2
 	github.com/CosmWasm/wasmd v0.27.0
 	github.com/CosmWasm/wasmvm v1.0.1
 	github.com/armon/go-metrics v0.4.1
@@ -12,7 +12,7 @@ require (
 	github.com/cosmos/go-bip39 v1.0.0
 	github.com/cosmos/iavl v0.21.0-alpha.1.0.20230904092046-df3db2d96583
 	github.com/cosmos/ibc-go/v3 v3.0.0
-	github.com/ethereum/go-ethereum v1.13.0
+	github.com/ethereum/go-ethereum v1.13.2
 	github.com/go-playground/validator/v10 v10.4.1
 	github.com/gogo/protobuf v1.3.3
 	github.com/golang/protobuf v1.5.3
@@ -85,9 +85,10 @@ require (
 	github.com/chavacava/garif v0.0.0-20220316182200-5cad0b5181d4 // indirect
 	github.com/cockroachdb/errors v1.8.1 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20190617123548-eb05cc24525f // indirect
-	github.com/cockroachdb/pebble v0.0.0-20230906160148-46873a6a7a06 // indirect
+	github.com/cockroachdb/pebble v0.0.0-20230928194634-aa077af62593 // indirect
 	github.com/cockroachdb/redact v1.0.8 // indirect
 	github.com/cockroachdb/sentry-go v0.6.1-cockroachdb.2 // indirect
+	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
 	github.com/coinbase/rosetta-sdk-go v0.7.0 // indirect
 	github.com/confio/ics23/go v0.9.0 // indirect
 	github.com/consensys/bavard v0.1.13 // indirect
@@ -327,9 +328,10 @@ require (
 replace (
 	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.0.4
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.69
-	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.8
-	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.0
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.61
+	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.7
+	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.2.0
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.2-sei
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.24
 	// Latest goleveldb is broken, we have to stick to this version

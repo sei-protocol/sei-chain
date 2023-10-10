@@ -13,7 +13,7 @@ import (
 
 func TestAddAddressToAccessList(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 
 	_, addr := keeper.MockAddressPair()
 	require.False(t, statedb.AddressInAccessList(addr))
@@ -29,7 +29,7 @@ func TestAddAddressToAccessList(t *testing.T) {
 
 func TestAddSlotToAccessList(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 
 	_, addr := keeper.MockAddressPair()
 	statedb.AddAddressToAccessList(addr)
@@ -46,7 +46,7 @@ func TestAddSlotToAccessList(t *testing.T) {
 
 func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 
 	_, addr := keeper.MockAddressPair()
 
@@ -56,7 +56,7 @@ func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
 
 func TestPrepare(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 
 	_, sender := keeper.MockAddressPair()
 	_, coinbase := keeper.MockAddressPair()
@@ -100,7 +100,7 @@ func TestPrepare(t *testing.T) {
 	}
 }
 
-func addAndCheckSlot(t *testing.T, statedb *state.StateDBImpl, addr common.Address, addrInAl bool, slot common.Hash, slotInAl bool) {
+func addAndCheckSlot(t *testing.T, statedb *state.DBImpl, addr common.Address, addrInAl bool, slot common.Hash, slotInAl bool) {
 	addrOk, slotOk := statedb.SlotInAccessList(addr, slot)
 	require.Equal(t, addrOk, addrInAl)
 	require.Equal(t, slotOk, slotInAl)
