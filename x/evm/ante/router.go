@@ -26,7 +26,6 @@ func (r EVMRouterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 		switch msg.(type) {
 		case *types.MsgEVMTransaction:
 			hasEVMMsg = true
-			break
 		default:
 			continue
 		}
