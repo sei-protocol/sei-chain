@@ -198,3 +198,31 @@ func TestMultiversionItemEstimate(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, one, value.Value())
 }
+
+func TestMultiversionItemRemove(t *testing.T) {
+	mvItem := mv.NewMultiVersionItem()
+
+	mvItem.Set(1, 0, []byte("one"))
+	mvItem.Set(2, 0, []byte("two"))
+
+	mvItem.Remove(2)
+	value, found := mvItem.GetLatest()
+	require.True(t, found)
+	require.Equal(t, []byte("one"), value.Value())
+}
+
+func TestMultiversionItemGetLatestNonEstimate(t *testing.T) {
+	mvItem := mv.NewMultiVersionItem()
+
+	mvItem.SetEstimate(3, 0)
+
+	value, found := mvItem.GetLatestNonEstimate()
+	require.False(t, found)
+	require.Nil(t, value)
+
+	mvItem.Set(1, 0, []byte("one"))
+	value, found = mvItem.GetLatestNonEstimate()
+	require.True(t, found)
+	require.Equal(t, []byte("one"), value.Value())
+
+}
