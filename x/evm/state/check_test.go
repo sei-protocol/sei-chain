@@ -14,7 +14,7 @@ func TestExist(t *testing.T) {
 	// not exist
 	k, _, ctx := keeper.MockEVMKeeper()
 	_, addr := keeper.MockAddressPair()
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 	require.False(t, statedb.Exist(addr))
 
 	// has state
@@ -36,7 +36,7 @@ func TestEmpty(t *testing.T) {
 	// empty
 	k, _, ctx := keeper.MockEVMKeeper()
 	_, addr := keeper.MockAddressPair()
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 	require.True(t, statedb.Empty(addr))
 
 	// has balance
