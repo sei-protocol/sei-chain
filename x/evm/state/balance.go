@@ -11,7 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func (s *StateDBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
+func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 	if amt.Sign() == 0 {
 		return
 	}
@@ -37,7 +37,7 @@ func (s *StateDBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 	s.k.SetOrDeleteBalance(s.ctx, evmAddr, balance-amt.Uint64())
 }
 
-func (s *StateDBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
+func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 	if amt.Sign() == 0 {
 		return
 	}
@@ -69,14 +69,14 @@ func (s *StateDBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 	s.k.SetOrDeleteBalance(s.ctx, evmAddr, balance+amt.Uint64())
 }
 
-func (s *StateDBImpl) GetBalance(evmAddr common.Address) *big.Int {
+func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, evmAddr); ok {
 		return s.k.BankKeeper().GetBalance(s.ctx, seiAddr, s.k.GetBaseDenom(s.ctx)).Amount.BigInt()
 	}
 	return big.NewInt(int64(s.k.GetBalance(s.ctx, evmAddr)))
 }
 
-func (s *StateDBImpl) CheckBalance() error {
+func (s *DBImpl) CheckBalance() error {
 	if s.err != nil {
 		return errors.New("should not call CheckBalance if there is already an error during execution")
 	}
@@ -91,7 +91,7 @@ func (s *StateDBImpl) CheckBalance() error {
 	return s.k.BankKeeper().BurnCoins(s.ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(toBeBurned))))
 }
 
-func (s *StateDBImpl) AddBigIntTransientModuleState(delta *big.Int, key []byte) {
+func (s *DBImpl) AddBigIntTransientModuleState(delta *big.Int, key []byte) {
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	old := s.GetBigIntTransientModuleState(key)
 	newVal := new(big.Int).Add(old, delta)
@@ -102,7 +102,7 @@ func (s *StateDBImpl) AddBigIntTransientModuleState(delta *big.Int, key []byte) 
 	store.Set(key, append(sign, newVal.Bytes()...))
 }
 
-func (s *StateDBImpl) GetBigIntTransientModuleState(key []byte) *big.Int {
+func (s *DBImpl) GetBigIntTransientModuleState(key []byte) *big.Int {
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	bz := store.Get(key)
 	if bz == nil {

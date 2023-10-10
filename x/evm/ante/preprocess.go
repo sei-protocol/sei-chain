@@ -56,7 +56,7 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 		return ctx, ethtypes.ErrInvalidChainId
 	}
 	ctx = evmtypes.SetContextEVMVersion(ctx, version)
-	V = adjustV(V, version, ethTx.Type(), ethCfg.ChainID)
+	V = adjustV(V, ethTx.Type(), ethCfg.ChainID)
 	signer := SignerMap[version](ethCfg.ChainID)
 	pubkey, err := recoverPubkey(signer.Hash(ethTx), R, S, V, true)
 	if err != nil {
@@ -92,7 +92,7 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 			return ctx, err
 		}
 	}
-	return ctx, nil
+	return next(ctx, tx, simulate)
 }
 
 // first half of go-ethereum/core/types/transaction_signing.go:recoverPlain
@@ -139,7 +139,7 @@ func isTxTypeAllowed(version evmtypes.SignerVersion, txType uint8) bool {
 	return false
 }
 
-func adjustV(V *big.Int, version evmtypes.SignerVersion, txType uint8, chainID *big.Int) *big.Int {
+func adjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
 	// Non-legacy TX always needs to be bumped by 27
 	if txType != ethtypes.LegacyTxType {
 		return new(big.Int).Add(V, big.NewInt(27))

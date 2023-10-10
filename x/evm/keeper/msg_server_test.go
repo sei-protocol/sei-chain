@@ -106,7 +106,7 @@ func TestEVMTransaction(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-	stateDB := state.NewStateDBImpl(ctx, k)
+	stateDB := state.NewDBImpl(ctx, k)
 	val := hex.EncodeToString(bytes.Trim(stateDB.GetState(contractAddr, common.Hash{}).Bytes(), "\x00")) // key is 0x0 since the contract only has one variable
 	require.Equal(t, "14", val)                                                                          // value is 0x14 = 20
 }
@@ -152,7 +152,7 @@ func TestEVMTransactionError(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
 	// yet there should be no contract state
-	stateDB := state.NewStateDBImpl(ctx, k)
+	stateDB := state.NewDBImpl(ctx, k)
 	require.Empty(t, stateDB.GetState(common.HexToAddress(receipt.ContractAddress), common.Hash{}))
 }
 

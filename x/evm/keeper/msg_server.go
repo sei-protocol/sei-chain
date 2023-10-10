@@ -31,7 +31,7 @@ var _ types.MsgServer = msgServer{}
 
 func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	stateDB := state.NewStateDBImpl(ctx, &server)
+	stateDB := state.NewDBImpl(ctx, &server)
 	tx, _ := msg.AsTransaction()
 	ctx, gp := server.getGasPool(ctx)
 	emsg, err := server.getEVMMessage(ctx, tx)

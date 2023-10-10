@@ -21,6 +21,10 @@ const (
 	BalanceMethod = "balance"
 )
 
+const (
+	BankAddress = "0x0000000000000000000000000000000000001001"
+)
+
 var _ vm.PrecompiledContract = &Precompile{}
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
@@ -32,6 +36,7 @@ type Precompile struct {
 	pcommon.Precompile
 	bankKeeper pcommon.BankKeeper
 	evmKeeper  pcommon.EVMKeeper
+	address    common.Address
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
@@ -62,11 +67,12 @@ func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (
 		Precompile: pcommon.Precompile{ABI: newAbi},
 		bankKeeper: bankKeeper,
 		evmKeeper:  evmKeeper,
+		address:    common.HexToAddress(BankAddress),
 	}, nil
 }
 
-func (Precompile) Address() common.Address {
-	return common.HexToAddress("0x0000000000000000000000000000000000001001")
+func (p Precompile) Address() common.Address {
+	return p.address
 }
 
 func (p Precompile) Run(evm *vm.EVM, input []byte) (bz []byte, err error) {

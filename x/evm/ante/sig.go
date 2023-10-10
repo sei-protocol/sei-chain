@@ -42,5 +42,5 @@ func (svd EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 
-	return ctx, nil
+	return next(ctx, tx, simulate)
 }
