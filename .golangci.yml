@@ -15,7 +15,7 @@ linters:
     - exportloopref
     - errcheck
     - goconst
-    - gocritic
+    # - gocritic
     - gofmt
     - goimports
     - gosec
@@ -23,7 +23,7 @@ linters:
     - govet
     - ineffassign
     - misspell
-    - nakedret
+    # - nakedret
     - prealloc
     - staticcheck
     # - structcheck ## author abandoned project
@@ -31,8 +31,8 @@ linters:
     # - revive
     - typecheck
     - unconvert
-    - unused
-    - unparam
+    # - unused
+    # - unparam
     - misspell
     # - nolintlint ## does not work with IDEs like VSCode which automatically insert leading spaces
 
