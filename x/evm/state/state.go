@@ -8,21 +8,21 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func (s *StateDBImpl) CreateAccount(acc common.Address) {
+func (s *DBImpl) CreateAccount(acc common.Address) {
 	// clear any existing state but keep balance untouched
 	s.clearAccountState(acc)
 	s.MarkAccount(acc, AccountCreated)
 }
 
-func (s *StateDBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
+func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
 	return s.getState(s.snapshottedCtxs[0], addr, hash)
 }
 
-func (s *StateDBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
+func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
 	return s.getState(s.ctx, addr, hash)
 }
 
-func (s *StateDBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
+func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
 	val := s.k.PrefixStore(ctx, types.StateKey(addr)).Get(hash[:])
 	if val == nil {
 		return common.Hash{}
@@ -30,11 +30,11 @@ func (s *StateDBImpl) getState(ctx sdk.Context, addr common.Address, hash common
 	return common.BytesToHash(val)
 }
 
-func (s *StateDBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) {
+func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) {
 	s.k.PrefixStore(s.ctx, types.StateKey(addr)).Set(key[:], val[:])
 }
 
-func (s *StateDBImpl) GetTransientState(addr common.Address, key common.Hash) common.Hash {
+func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.Hash {
 	val := s.k.PrefixStore(s.ctx, types.TransientStateKey(addr)).Get(key[:])
 	if val == nil {
 		return common.Hash{}
@@ -42,14 +42,14 @@ func (s *StateDBImpl) GetTransientState(addr common.Address, key common.Hash) co
 	return common.BytesToHash(val)
 }
 
-func (s *StateDBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
+func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 	s.k.PrefixStore(s.ctx, types.TransientStateKey(addr)).Set(key[:], val[:])
 }
 
 // burns account's balance
 // clear account's state except the transient state (in Ethereum transient states are
 // still available even after self destruction in the same tx)
-func (s *StateDBImpl) SelfDestruct(acc common.Address) {
+func (s *DBImpl) SelfDestruct(acc common.Address) {
 	var balance sdk.Coin
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// send all useis from seiAddr to the EVM module
@@ -70,7 +70,7 @@ func (s *StateDBImpl) SelfDestruct(acc common.Address) {
 	s.MarkAccount(acc, AccountDeleted)
 }
 
-func (s *StateDBImpl) Selfdestruct6780(acc common.Address) {
+func (s *DBImpl) Selfdestruct6780(acc common.Address) {
 	// only self-destruct if acc is newly created in the same block
 	if s.Created(acc) {
 		s.SelfDestruct(acc)
@@ -79,25 +79,25 @@ func (s *StateDBImpl) Selfdestruct6780(acc common.Address) {
 
 // the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
 // **CURRENT** block
-func (s *StateDBImpl) HasSelfDestructed(acc common.Address) bool {
+func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
 	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
 	return bytes.Equal(store.Get(acc[:]), AccountDeleted)
 }
 
-func (s *StateDBImpl) Snapshot() int {
+func (s *DBImpl) Snapshot() int {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore())
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
 	return len(s.snapshottedCtxs) - 1
 }
 
-func (s *StateDBImpl) RevertToSnapshot(rev int) {
+func (s *DBImpl) RevertToSnapshot(rev int) {
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
 	s.Snapshot()
 }
 
-func (s *StateDBImpl) clearAccountState(acc common.Address) {
+func (s *DBImpl) clearAccountState(acc common.Address) {
 	s.k.PurgePrefix(s.ctx, types.StateKey(acc))
 	s.k.PrefixStore(s.ctx, types.CodeKeyPrefix).Delete(acc[:])
 	s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix).Delete(acc[:])
@@ -105,7 +105,7 @@ func (s *StateDBImpl) clearAccountState(acc common.Address) {
 	s.k.PrefixStore(s.ctx, types.NonceKeyPrefix).Delete(acc[:])
 }
 
-func (s *StateDBImpl) MarkAccount(acc common.Address, status []byte) {
+func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
 	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
 	if status == nil {
 		store.Delete(acc[:])
@@ -114,7 +114,7 @@ func (s *StateDBImpl) MarkAccount(acc common.Address, status []byte) {
 	}
 }
 
-func (s *StateDBImpl) Created(acc common.Address) bool {
+func (s *DBImpl) Created(acc common.Address) bool {
 	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
 	return bytes.Equal(store.Get(acc[:]), AccountCreated)
 }

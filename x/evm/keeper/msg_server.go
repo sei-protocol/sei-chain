@@ -31,7 +31,7 @@ var _ types.MsgServer = msgServer{}
 
 func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	stateDB := state.NewStateDBImpl(ctx, &server)
+	stateDB := state.NewDBImpl(ctx, &server)
 	tx, _ := msg.AsTransaction()
 	ctx, gp := server.getGasPool(ctx)
 	emsg, err := server.getEVMMessage(ctx, tx)
@@ -76,9 +76,8 @@ func (server msgServer) getGasPool(ctx sdk.Context) (sdk.Context, core.GasPool) 
 	if ctx.BlockGasMeter().Limit() == 0 {
 		// infinite gas meter
 		return ctx, math.MaxUint64
-	} else {
-		return ctx, core.GasPool(ctx.BlockGasMeter().Limit() - ctx.BlockGasMeter().GasConsumedToLimit())
 	}
+	return ctx, core.GasPool(ctx.BlockGasMeter().Limit() - ctx.BlockGasMeter().GasConsumedToLimit())
 }
 
 func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction) (*core.Message, error) {

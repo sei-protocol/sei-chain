@@ -12,7 +12,7 @@ import (
 
 func TestAddLog(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	statedb := state.NewStateDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k)
 
 	logs, err := statedb.GetLogs()
 	require.Nil(t, err)
