@@ -121,10 +121,10 @@ func BenchmarkWrite(dbDir string, modules []string, outputDir string, dbBackend 
 	}
 	// Iterate over files in directory
 	for _, module := range modules {
-		exportedKVFile := fmt.Sprintf("%s/%s.kv", outputDir, module)
+		exportedKVFile := fmt.Sprintf("%s/%s.kv", dbDir, module)
 		fmt.Printf("Reading Raw Keys and Values from %s\n", exportedKVFile)
 
-		if dbBackend == "rocksDBBackend" {
+		if dbBackend == rocksDBBackend {
 			backend := dbbackend.RocksDBBackend{}
 			backend.BenchmarkDBWrite(exportedKVFile, outputDir, concurrency, maxRetries)
 		}

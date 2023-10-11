@@ -2,7 +2,6 @@ package dbbackend
 
 import (
 	"fmt"
-	"log"
 	"runtime"
 	"sort"
 	"sync"
@@ -42,7 +41,7 @@ func writeToRocksDBConcurrently(db *grocksdb.DB, kvEntries []utils.KeyValuePair,
 					if err != nil {
 						retries++
 						if retries > maxRetries {
-							log.Printf("Failed to write key after %d attempts: %v", maxRetries, err)
+							fmt.Printf("Failed to write key after %d attempts: %v", maxRetries, err)
 							break
 						}
 						// TODO: Add a sleep or back-off before retrying
@@ -99,8 +98,10 @@ func (rocksDB RocksDBBackend) BenchmarkDBWrite(inputKVDir string, outputDBPath s
 	totalTime := endTime.Sub(startTime)
 
 	// Log throughput
-	log.Printf("Total Time taken: %v", totalTime)
-	log.Printf("Throughput: %f ops/sec", float64(len(kvEntries))/totalTime.Seconds())
+	fmt.Printf("Total KV Entries %d, Total Successfully Written %d\n", len(kvEntries), len(latencies))
+	fmt.Printf("Total Time taken: %v\n", totalTime)
+	fmt.Printf("Throughput: %f writes/sec\n", float64(len(latencies))/totalTime.Seconds())
+	fmt.Printf("Total records written %d\n", len(latencies))
 
 	// Sort latencies for percentile calculations
 	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
@@ -112,10 +113,10 @@ func (rocksDB RocksDBBackend) BenchmarkDBWrite(inputKVDir string, outputDBPath s
 	}
 	avgLatency := totalLatency / time.Duration(len(latencies))
 
-	log.Printf("Average Latency: %v", avgLatency)
-	log.Printf("P50 Latency: %v", utils.CalculatePercentile(latencies, 50))
-	log.Printf("P75 Latency: %v", utils.CalculatePercentile(latencies, 75))
-	log.Printf("P99 Latency: %v", utils.CalculatePercentile(latencies, 99))
+	fmt.Printf("Average Latency: %v\n", avgLatency)
+	fmt.Printf("P50 Latency: %v\n", utils.CalculatePercentile(latencies, 50))
+	fmt.Printf("P75 Latency: %v\n", utils.CalculatePercentile(latencies, 75))
+	fmt.Printf("P99 Latency: %v\n", utils.CalculatePercentile(latencies, 99))
 
 }
 
