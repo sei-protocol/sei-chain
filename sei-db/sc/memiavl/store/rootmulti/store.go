@@ -14,7 +14,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/cosmos-sdk/store/transient"
 	"github.com/cosmos/cosmos-sdk/store/types"
-	pruningtypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
@@ -163,11 +162,11 @@ func (rs *Store) LastCommitID() types.CommitID {
 }
 
 // Implements interface Committer
-func (rs *Store) SetPruning(pruningtypes.PruningOptions) {
+func (rs *Store) SetPruning(types.PruningOptions) {
 }
 
 // Implements interface Committer
-func (rs *Store) GetPruning() pruningtypes.PruningOptions {
+func (rs *Store) GetPruning() types.PruningOptions {
 	return types.PruneDefault
 }
 
@@ -270,12 +269,12 @@ func (rs *Store) LatestVersion() int64 {
 
 // Implements interface Snapshotter
 // not needed, memiavl manage its own snapshot/pruning strategy
-func (rs *Store) PruneSnapshotHeight(height int64) {
+func (rs *Store) PruneSnapshotHeight(_ int64) {
 }
 
 // Implements interface Snapshotter
 // not needed, memiavl manage its own snapshot/pruning strategy
-func (rs *Store) SetSnapshotInterval(snapshotInterval uint64) {
+func (rs *Store) SetSnapshotInterval(_ uint64) {
 }
 
 // Implements interface CommitMultiStore
@@ -423,7 +422,7 @@ func (rs *Store) LoadVersion(ver int64) error {
 }
 
 // SetInterBlockCache is a noop here because memiavl do caching on it's own, which works well with zero-copy.
-func (rs *Store) SetInterBlockCache(c types.MultiStorePersistentCache) {}
+func (rs *Store) SetInterBlockCache(_ types.MultiStorePersistentCache) {}
 
 // Implements interface CommitMultiStore
 // used by InitChain when the initial height is bigger than 1
@@ -432,15 +431,15 @@ func (rs *Store) SetInitialVersion(version int64) error {
 }
 
 // Implements interface CommitMultiStore
-func (rs *Store) SetIAVLCacheSize(size int) {
+func (rs *Store) SetIAVLCacheSize(_ int) {
 }
 
 // Implements interface CommitMultiStore
-func (rs *Store) SetIAVLDisableFastNode(disable bool) {
+func (rs *Store) SetIAVLDisableFastNode(_ bool) {
 }
 
 // Implements interface CommitMultiStore
-func (rs *Store) SetLazyLoading(lazyLoading bool) {
+func (rs *Store) SetLazyLoading(_ bool) {
 }
 
 func (rs *Store) SetMemIAVLOptions(opts memiavl.Options) {

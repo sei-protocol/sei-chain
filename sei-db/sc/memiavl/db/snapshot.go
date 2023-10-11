@@ -353,12 +353,11 @@ func (t *Tree) WriteSnapshot(snapshotDir string) error {
 	return writeSnapshot(snapshotDir, t.version, func(w *snapshotWriter) (uint32, error) {
 		if t.root == nil {
 			return 0, nil
-		} else {
-			if err := w.writeRecursive(t.root); err != nil {
-				return 0, err
-			}
-			return w.leafCounter, nil
 		}
+		if err := w.writeRecursive(t.root); err != nil {
+			return 0, err
+		}
+		return w.leafCounter, nil
 	})
 }
 

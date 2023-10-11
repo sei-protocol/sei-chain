@@ -3,21 +3,20 @@ package memiavlstore
 import (
 	"cosmossdk.io/errors"
 	"fmt"
-	ics23 "github.com/confio/ics23/go"
-	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"io"
 
+	ics23 "github.com/confio/ics23/go"
+	"github.com/cosmos/cosmos-sdk/store/cachekv"
+	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
+	"github.com/cosmos/cosmos-sdk/store/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/cosmos/cosmos-sdk/types/kv"
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/memiavl/db"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
-
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/kv"
 )
 
 var (
@@ -124,7 +123,7 @@ func (st *Store) ReverseIterator(start, end []byte) types.Iterator {
 // SetInitialVersion sets the initial version of the IAVL tree. It is used when
 // starting a new chain at an arbitrary height.
 // implements interface StoreWithInitialVersion
-func (st *Store) SetInitialVersion(version int64) {
+func (st *Store) SetInitialVersion(_ int64) {
 	panic("memiavl store's SetInitialVersion is not supposed to be called directly")
 }
 

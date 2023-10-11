@@ -33,7 +33,7 @@ func (rs *Store) Restore(
 }
 
 func (rs *Store) restore(
-	height uint64, format uint32, protoReader protoio.Reader,
+	height uint64, _ uint32, protoReader protoio.Reader,
 ) (snapshottypes.SnapshotItem, error) {
 	importer, err := memiavl.NewMultiTreeImporter(rs.dir, height)
 	if err != nil {
