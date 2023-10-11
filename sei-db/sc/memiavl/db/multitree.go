@@ -288,7 +288,7 @@ func (t *MultiTree) SaveVersion(updateCommitInfo bool) (int64, error) {
 }
 
 func (t *MultiTree) buildCommitInfo(version int64) *CommitInfo {
-	var infos []StoreInfo
+	var infos = make([]StoreInfo, 0, len(t.trees))
 	for _, entry := range t.trees {
 		infos = append(infos, StoreInfo{
 			Name: entry.Name,
