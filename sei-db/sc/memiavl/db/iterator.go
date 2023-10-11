@@ -2,7 +2,7 @@ package memiavl
 
 import (
 	"bytes"
-	"github.com/sei-protocol/sei-db/memiavl/utils"
+	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 )
 
 type Iterator struct {

@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sei-protocol/sei-db/memiavl/utils"
+	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 )
 
 const (

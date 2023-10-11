@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"sort"
 
-	"github.com/sei-protocol/sei-db/memiavl/utils"
+	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 )
 
 const (

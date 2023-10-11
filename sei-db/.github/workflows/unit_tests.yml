@@ -1,14 +1,16 @@
 name: Unit Test
 on:
-  pull_request:
   push:
-    paths:
-      - "**.go"
+    tags:
+      - v*
     branches:
       - main
+  pull_request:
+permissions:
+  contents: read
 
 jobs:
-  unit-tests:
+  tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-go@v3

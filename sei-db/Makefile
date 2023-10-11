@@ -55,12 +55,8 @@ ldflags := $(strip $(ldflags))
 BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
 
 
-test-all: test-memiavl
+test-all:
+	go test -v -mod=readonly ./... -coverprofile=$(COVERAGE) -covermode=atomic
 
-test-memiavl:
-	@cd sc/memiavl; go test -v -mod=readonly ./... -coverprofile=$(COVERAGE) -covermode=atomic
-
-lint-all: lint-memiavl
-
-lint-memiavl:
-	golangci-lint run --config=.golangci.yml ./sc/memiavl/...
+lint-all:
+	golangci-lint run --config=.golangci.yml

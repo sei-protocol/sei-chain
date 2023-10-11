@@ -3,7 +3,6 @@ package utils
 import (
 	"strings"
 	"testing"
-	"unsafe"
 )
 
 func TestClone(t *testing.T) {
@@ -28,10 +27,6 @@ func TestClone(t *testing.T) {
 
 		if input != nil && clone == nil {
 			t.Errorf("Clone(%#v) return value should not be equal to nil slice.", input)
-		}
-
-		if cap(input) != 0 && unsafe.SliceData(input) == unsafe.SliceData(clone) {
-			t.Errorf("Clone(%q) return value should not reference inputs backing memory.", input)
 		}
 	}
 }

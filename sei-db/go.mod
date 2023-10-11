@@ -1,4 +1,4 @@
-module github.com/sei-protocol/sei-db/memiavl
+module github.com/sei-protocol/sei-db
 
 go 1.19
 

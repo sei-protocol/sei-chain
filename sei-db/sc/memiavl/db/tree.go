@@ -8,7 +8,7 @@ import (
 
 	"github.com/cosmos/iavl"
 	"github.com/cosmos/iavl/cache"
-	"github.com/sei-protocol/sei-db/memiavl/utils"
+	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 )
 
 var emptyHash = sha256.New().Sum(nil)

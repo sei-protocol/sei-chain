@@ -1,6 +1,6 @@
 package memiavl
 
-import fmt "fmt"
+import "fmt"
 
 // Logger is what any CometBFT library should take.
 type Logger interface {

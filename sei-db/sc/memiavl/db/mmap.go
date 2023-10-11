@@ -4,7 +4,7 @@ import (
 	"os"
 
 	"github.com/ledgerwatch/erigon-lib/mmap"
-	"github.com/sei-protocol/sei-db/memiavl/utils"
+	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 )
 
 // MmapFile manage the resources of a mmap-ed file
