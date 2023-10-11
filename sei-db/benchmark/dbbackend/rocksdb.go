@@ -82,6 +82,7 @@ func (rocksDB RocksDBBackend) BenchmarkDBWrite(inputKVDir string, outputDBPath s
 	}
 
 	// Shuffle the entries
+	// NOTE: Adding in chunking so that it will shuffle across files
 	utils.RandomShuffle(kvEntries)
 
 	// Write shuffled entries to RocksDB concurrently
