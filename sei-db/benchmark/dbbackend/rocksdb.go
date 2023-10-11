@@ -3,6 +3,7 @@ package dbbackend
 import (
 	"fmt"
 	"log"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -67,6 +68,11 @@ func writeToRocksDBConcurrently(db *grocksdb.DB, kvEntries []utils.KeyValuePair,
 
 func (rocksDB RocksDBBackend) BenchmarkDBWrite(inputKVDir string, outputDBPath string, concurrency int, maxRetries int) {
 	opts := grocksdb.NewDefaultOptions()
+	// Configs taken from implementations
+	opts.IncreaseParallelism(runtime.NumCPU())
+	opts.OptimizeLevelStyleCompaction(512 * 1024 * 1024)
+	opts.SetTargetFileSizeMultiplier(2)
+	opts.SetOptimizeFiltersForHits(true)
 	opts.SetCreateIfMissing(true)
 
 	db, err := grocksdb.OpenDb(opts, outputDBPath)
