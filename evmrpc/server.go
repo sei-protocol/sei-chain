@@ -1,8 +1,11 @@
 package evmrpc
 
 import (
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/tendermint/tendermint/libs/log"
+	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
 type EVMServer interface {
@@ -14,6 +17,10 @@ func NewEVMHTTPServer(
 	addr string,
 	port int,
 	timeouts rpc.HTTPTimeouts,
+	tmClient rpcclient.Client,
+	k *keeper.Keeper,
+	ctxProvider func() sdk.Context,
+	txDecoder sdk.TxDecoder,
 ) (EVMServer, error) {
 	httpServer := newHTTPServer(logger, timeouts)
 	if err := httpServer.setListenAddr(addr, port); err != nil {
@@ -23,6 +30,10 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "echo",
 			Service:   NewEchoAPI(),
+		},
+		{
+			Namespace: "eth",
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txDecoder),
 		},
 	}
 	if err := httpServer.enableRPC(apis, httpConfig{
