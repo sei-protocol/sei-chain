@@ -412,10 +412,8 @@ github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQD
 github.com/sasha-s/go-deadlock v0.3.1 h1:sqv7fDNShgjcaxkO0JNcOAlr8B9+cV5Ey/OB71efZx0=
 github.com/sasha-s/go-deadlock v0.3.1/go.mod h1:F73l+cr82YSh10GxyRI6qZiCgK64VaZjwesgfQ1/iLM=
 github.com/savaki/jq v0.0.0-20161209013833-0e6baecebbf8 h1:ajJQhvqPSQFJJ4aV5mDAMx8F7iFi6Dxfo6y62wymLNs=
-github.com/sei-protocol/mmap-iavl v1.0.8 h1:dmH/d7lJ0fhxLxUuiuJyYtYxY5qTesSBswJIRRb8cAM=
-github.com/sei-protocol/mmap-iavl v1.0.8/go.mod h1:5uOWyJn9Kome19Q3tfL3zuP950mEOWrRd9eMVVZUbZs=
-github.com/sei-protocol/sei-cosmos v0.2.61-0.20230902071955-518544a18bab h1:CmNvhGY6dkNG0WDdW86+MD9GQKwfsTRAREalt2tLyig=
-github.com/sei-protocol/sei-cosmos v0.2.61-0.20230902071955-518544a18bab/go.mod h1:fAI6mTwF3fDMJlMM6bkfV1AQXA073CvV83NhEaT7pyk=
+github.com/sei-protocol/sei-cosmos v0.2.62-0.20231011202137-ec9638ac3574 h1:pBOd/+FSUII6k8VpmpE1g0Ey2JkoVLOQYiIA8S9PAdI=
+github.com/sei-protocol/sei-cosmos v0.2.62-0.20231011202137-ec9638ac3574/go.mod h1:VaJkVw2/KPg0AkN+cDbrZLypiOH5tkaiz2XIAxy1GH4=
 github.com/sei-protocol/sei-iavl v0.1.8-0.20230726213826-031d03d26f2d h1:FWWK/dxqrurTRR3SBlpk0v/FgXef+Ev7/d3X1KBPrTo=
 github.com/sei-protocol/sei-iavl v0.1.8-0.20230726213826-031d03d26f2d/go.mod h1:7PfkEVT5dcoQE+s/9KWdoXJ8VVVP1QpYYPLdxlkSXFk=
 github.com/sei-protocol/sei-tendermint v0.2.28 h1:5PB1a/zu6H2iDbxIMnXgDtB4QwV5PZRikguX8gASLGI=
@@ -631,7 +629,6 @@ golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208/go.mod h1:RxMgew5VJxzue5/jJ
 golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.0.0-20201207232520-09787c993a3a/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.1.0 h1:wsuoTGHzEhffawBOhz5CYhcrV4IdKZbEyZjBMuTp12o=
-golang.org/x/sync v0.1.0/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sys v0.0.0-20180830151530-49385e6e1522/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20180905080454-ebe1bf3edb33/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20180909124046-d0be0721c37e/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
