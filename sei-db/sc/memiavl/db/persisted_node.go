@@ -3,8 +3,9 @@ package memiavl
 import (
 	"bytes"
 	"crypto/sha256"
-	"github.com/sei-protocol/sei-db/memiavl/utils"
 	"sort"
+
+	"github.com/sei-protocol/sei-db/memiavl/utils"
 )
 
 const (
