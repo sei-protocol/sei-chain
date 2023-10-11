@@ -68,7 +68,7 @@ func main() {
 			panic("Must provide db backend when benchmarking")
 		}
 
-		if rawKVInputDir != "" {
+		if rawKVInputDir == "" {
 			panic("Must provide raw kv input dir when benchmarking")
 		}
 
