@@ -68,6 +68,26 @@ func UnpackTxData(any *codectypes.Any) (ethtx.TxData, error) {
 
 	txData, ok := any.GetCachedValue().(ethtx.TxData)
 	if !ok {
+		ltx := ethtx.LegacyTx{}
+		if proto.Unmarshal(any.Value, &ltx) == nil {
+			// value is a legacy tx
+			return &ltx, nil
+		}
+		atx := ethtx.AccessListTx{}
+		if proto.Unmarshal(any.Value, &atx) == nil {
+			// value is a accesslist tx
+			return &atx, nil
+		}
+		dtx := ethtx.DynamicFeeTx{}
+		if proto.Unmarshal(any.Value, &dtx) == nil {
+			// value is a dynamic fee tx
+			return &dtx, nil
+		}
+		btx := ethtx.BlobTx{}
+		if proto.Unmarshal(any.Value, &btx) == nil {
+			// value is a blob tx
+			return &btx, nil
+		}
 		return nil, fmt.Errorf("cannot unpack Any into TxData %T", any)
 	}
 
