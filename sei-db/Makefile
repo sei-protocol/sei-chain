@@ -56,7 +56,7 @@ BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
 
 
 test-all:
-	go test -v -mod=readonly ./... -coverprofile=$(COVERAGE) -covermode=atomic
+	go test -v -mod=readonly ./... -covermode=atomic
 
 lint-all:
 	golangci-lint run --config=.golangci.yml

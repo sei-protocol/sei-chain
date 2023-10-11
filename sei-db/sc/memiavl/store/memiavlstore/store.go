@@ -1,9 +1,10 @@
 package memiavlstore
 
 import (
-	"cosmossdk.io/errors"
 	"fmt"
 	"io"
+
+	"cosmossdk.io/errors"
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
@@ -13,7 +14,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/kv"
 	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/sc/memiavl/db"
+	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"

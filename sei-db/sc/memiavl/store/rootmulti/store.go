@@ -15,7 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/transient"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/sei-protocol/sei-db/sc/memiavl/db"
+	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/cachemulti"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/memiavlstore"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -176,7 +176,7 @@ func (rs *Store) GetStoreType() types.StoreType {
 
 // Implements interface CacheWrapper
 func (rs *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
-	return rs.CacheMultiStore().CacheWrap(storeKey).(types.CacheWrap)
+	return rs.CacheMultiStore().CacheWrap(storeKey)
 }
 
 // Implements interface CacheWrapper
@@ -185,7 +185,7 @@ func (rs *Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ type
 }
 
 func (rs *Store) CacheWrapWithListeners(k types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return rs.CacheMultiStore().CacheWrapWithListeners(k, listeners).(types.CacheWrap)
+	return rs.CacheMultiStore().CacheWrapWithListeners(k, listeners)
 }
 
 // Implements interface MultiStore
@@ -252,7 +252,7 @@ func (rs *Store) TracingEnabled() bool {
 }
 
 // Implements interface MultiStore
-func (rs *Store) SetTracer(w io.Writer) types.MultiStore {
+func (rs *Store) SetTracer(_ io.Writer) types.MultiStore {
 	return nil
 }
 

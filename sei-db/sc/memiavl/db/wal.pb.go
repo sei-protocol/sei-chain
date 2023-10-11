@@ -5,12 +5,13 @@ package memiavl
 
 import (
 	fmt "fmt"
-	_ "github.com/cosmos/gogoproto/gogoproto"
-	proto "github.com/cosmos/gogoproto/proto"
-	proto1 "github.com/cosmos/iavl/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	_ "github.com/cosmos/gogoproto/gogoproto"
+	proto "github.com/cosmos/gogoproto/proto"
+	proto1 "github.com/cosmos/iavl/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.

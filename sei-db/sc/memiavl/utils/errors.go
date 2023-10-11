@@ -22,10 +22,11 @@ func Join(errs ...error) error {
 			}
 		}
 	}
+
 	if numErrs <= 0 {
 		return nil
-	} else {
-		return errors.New(strings.Join(errStrs, "\n"))
 	}
+
+	return errors.New(strings.Join(errStrs, "\n"))
 
 }
