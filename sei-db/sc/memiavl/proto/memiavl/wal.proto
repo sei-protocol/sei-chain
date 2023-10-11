@@ -1,5 +1,4 @@
 syntax = "proto3";
-package memiavl;
 
 option go_package = "github.com/sei-protocol/sei-db/memiavl";
 

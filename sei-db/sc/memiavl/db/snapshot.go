@@ -3,11 +3,12 @@ package memiavl
 import (
 	"bufio"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 )
 
 const (
@@ -88,7 +89,7 @@ func OpenSnapshot(snapshotDir string) (*Snapshot, error) {
 		if kvsMap != nil {
 			errs = append(errs, kvsMap.Close())
 		}
-		return errors.Join(errs...)
+		return utils.Join(errs...)
 	}
 
 	if nodesMap, err = NewMmap(filepath.Join(snapshotDir, FileNameNodes)); err != nil {
@@ -184,7 +185,7 @@ func (snapshot *Snapshot) Close() error {
 
 	// reset to an empty tree
 	*snapshot = *NewEmptySnapshot(snapshot.version)
-	return errors.Join(errs...)
+	return utils.Join(errs...)
 }
 
 // IsEmpty returns if the snapshot is an empty tree.
@@ -352,12 +353,11 @@ func (t *Tree) WriteSnapshot(snapshotDir string) error {
 	return writeSnapshot(snapshotDir, t.version, func(w *snapshotWriter) (uint32, error) {
 		if t.root == nil {
 			return 0, nil
-		} else {
-			if err := w.writeRecursive(t.root); err != nil {
-				return 0, err
-			}
-			return w.leafCounter, nil
 		}
+		if err := w.writeRecursive(t.root); err != nil {
+			return 0, err
+		}
+		return w.leafCounter, nil
 	})
 }
 

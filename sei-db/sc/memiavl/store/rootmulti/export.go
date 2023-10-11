@@ -6,7 +6,7 @@ import (
 
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	protoio "github.com/gogo/protobuf/io"
-	memiavl "github.com/sei-protocol/sei-db/memiavl/db"
+	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 )
 
 // Implements interface Snapshotter

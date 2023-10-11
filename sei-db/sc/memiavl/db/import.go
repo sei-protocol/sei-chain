@@ -6,6 +6,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+
+	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 )
 
 type MultiTreeImporter struct {
@@ -90,7 +92,7 @@ func (mti *MultiTreeImporter) Close() error {
 	if mti.importer != nil {
 		err = mti.importer.Close()
 	}
-	return errors.Join(err, mti.fileLock.Unlock())
+	return utils.Join(err, mti.fileLock.Unlock())
 }
 
 // TreeImporter import a single memiavl tree from state-sync snapshot

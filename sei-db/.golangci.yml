@@ -1,0 +1,49 @@
+run:
+  tests: false
+  #   # timeout for analysis, e.g. 30s, 5m, default is 1m
+  timeout: 10m
+  build-tags:
+    - codeanalysis
+
+linters:
+  disable-all: true
+  enable:
+    - bodyclose
+    - dogsled
+    - exportloopref
+    - errcheck
+    - goconst
+    - gocritic
+    - gofmt
+    - goimports
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    - misspell
+    - nakedret
+    - prealloc
+    - staticcheck
+    # - structcheck ## author abandoned project
+    - stylecheck
+    - revive
+    - typecheck
+    - unconvert
+    - unused
+    - unparam
+    - misspell
+    # - nolintlint ## does not work with IDEs like VSCode which automatically insert leading spaces
+
+issues:
+  exclude-rules:
+    - text: "Use of weak random number generator"
+      linters:
+        - gosec
+    - text: "ST1003:"
+      linters:
+        - stylecheck
+    # FIXME: Disabled until golangci-lint updates stylecheck with this fix:
+    # https://github.com/dominikh/go-tools/issues/389
+    - text: "ST1016:"
+      linters:
+        - stylecheck

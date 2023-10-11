@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"sort"
+
+	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 )
 
 const (
@@ -132,7 +134,7 @@ func (node PersistedNode) Right() Node {
 }
 
 func (node PersistedNode) SafeHash() []byte {
-	return bytes.Clone(node.Hash())
+	return utils.Clone(node.Hash())
 }
 
 func (node PersistedNode) Hash() []byte {

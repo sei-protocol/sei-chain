@@ -13,6 +13,7 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 	"github.com/tidwall/wal"
 )
 
@@ -187,7 +188,7 @@ func Load(dir string, opts Options) (*DB, error) {
 
 	if opts.TargetVersion == 0 || int64(opts.TargetVersion) > mtree.Version() {
 		if err := mtree.CatchupWAL(wal, int64(opts.TargetVersion)); err != nil {
-			return nil, errors.Join(err, wal.Close())
+			return nil, utils.Join(err, wal.Close())
 		}
 	}
 
@@ -251,7 +252,7 @@ func Load(dir string, opts Options) (*DB, error) {
 			upgrades = append(upgrades, &TreeNameUpgrade{Name: name})
 		}
 		if err := db.ApplyUpgrades(upgrades); err != nil {
-			return nil, errors.Join(err, db.Close())
+			return nil, utils.Join(err, db.Close())
 		}
 	}
 
@@ -377,7 +378,7 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 
 // checkAsyncTasks checks the status of background tasks non-blocking-ly and process the result
 func (db *DB) checkAsyncTasks() error {
-	return errors.Join(
+	return utils.Join(
 		db.checkAsyncCommit(),
 		db.checkBackgroundSnapshotRewrite(),
 	)
@@ -639,7 +640,7 @@ func (db *DB) RewriteSnapshot() error {
 	tmpDir := snapshotDir + "-tmp"
 	path := filepath.Join(db.dir, tmpDir)
 	if err := db.MultiTree.WriteSnapshot(path, db.snapshotWriterPool); err != nil {
-		return errors.Join(err, os.RemoveAll(path))
+		return utils.Join(err, os.RemoveAll(path))
 	}
 	if err := os.Rename(path, filepath.Join(db.dir, snapshotDir)); err != nil {
 		return err
@@ -754,7 +755,7 @@ func (db *DB) Close() error {
 		db.fileLock = nil
 	}
 
-	return errors.Join(errs...)
+	return utils.Join(errs...)
 }
 
 // TreeByName wraps MultiTree.TreeByName to add a lock.

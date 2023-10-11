@@ -2,7 +2,6 @@ package memiavl
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 	"github.com/tidwall/wal"
 	"golang.org/x/exp/slices"
 )
@@ -288,7 +288,7 @@ func (t *MultiTree) SaveVersion(updateCommitInfo bool) (int64, error) {
 }
 
 func (t *MultiTree) buildCommitInfo(version int64) *CommitInfo {
-	var infos []StoreInfo
+	var infos = make([]StoreInfo, 0, len(t.trees))
 	for _, entry := range t.trees {
 		infos = append(infos, StoreInfo{
 			Name: entry.Name,
@@ -412,7 +412,7 @@ func (t *MultiTree) Close() error {
 	t.trees = nil
 	t.treesByName = nil
 	t.lastCommitInfo = CommitInfo{}
-	return errors.Join(errs...)
+	return utils.Join(errs...)
 }
 
 func nextVersion(v int64, initialVersion uint32) int64 {
