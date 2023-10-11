@@ -120,6 +120,87 @@ func (rocksDB RocksDBBackend) BenchmarkDBWrite(inputKVDir string, outputDBPath s
 
 }
 
+func readFromRocksDBConcurrently(db *grocksdb.DB, kvEntries []utils.KeyValuePair, concurrency int) []time.Duration {
+	// Channel to collect read latencies
+	latencies := make(chan time.Duration, len(kvEntries))
+	wg := &sync.WaitGroup{}
+	chunks := len(kvEntries) / concurrency
+	for i := 0; i < concurrency; i++ {
+		start := i * chunks
+		end := start + chunks
+		if i == concurrency-1 {
+			end = len(kvEntries)
+		}
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			ro := grocksdb.NewDefaultReadOptions()
+			for j := start; j < end; j++ {
+				startTime := time.Now()
+				_, err := db.Get(ro, kvEntries[j].Key)
+				latency := time.Since(startTime)
+
+				// Only record latencies of successful reads
+				if err == nil {
+					latencies <- latency
+				}
+			}
+		}(start, end)
+	}
+	wg.Wait()
+	close(latencies)
+
+	var latencySlice []time.Duration
+	for l := range latencies {
+		latencySlice = append(latencySlice, l)
+	}
+
+	return latencySlice
+}
+
 func (rocksDB RocksDBBackend) BenchmarkDBRead(inputKVDir string, outputDBPath string, concurrency int) {
-	return
+	// Open the DB with default options
+	opts := grocksdb.NewDefaultOptions()
+	db, err := grocksdb.OpenDb(opts, outputDBPath)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to open the DB: %v", err))
+	}
+	defer db.Close()
+
+	// Read key-value entries from the file
+	kvEntries, err := utils.ReadKVEntriesFromFile(inputKVDir)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to read KV entries: %v", err))
+	}
+
+	// Shuffle the entries to randomize read patterns
+	utils.RandomShuffle(kvEntries)
+
+	// Read entries from RocksDB concurrently
+	startTime := time.Now()
+	latencies := readFromRocksDBConcurrently(db, kvEntries, concurrency)
+	endTime := time.Now()
+
+	totalTime := endTime.Sub(startTime)
+
+	// Log throughput
+	fmt.Printf("Total KV Entries %d, Total Successfully Read %d\n", len(kvEntries), len(latencies))
+	fmt.Printf("Total Time taken: %v\n", totalTime)
+	fmt.Printf("Throughput: %f reads/sec\n", float64(len(latencies))/totalTime.Seconds())
+	fmt.Printf("Total records read %d\n", len(latencies))
+
+	// Sort latencies for percentile calculations
+	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+
+	// Calculate average latency
+	var totalLatency time.Duration
+	for _, l := range latencies {
+		totalLatency += l
+	}
+	avgLatency := totalLatency / time.Duration(len(latencies))
+
+	fmt.Printf("Average Latency: %v\n", avgLatency)
+	fmt.Printf("P50 Latency: %v\n", utils.CalculatePercentile(latencies, 50))
+	fmt.Printf("P75 Latency: %v\n", utils.CalculatePercentile(latencies, 75))
+	fmt.Printf("P99 Latency: %v\n", utils.CalculatePercentile(latencies, 99))
 }
