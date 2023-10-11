@@ -2,7 +2,6 @@ package memiavl
 
 import (
 	"encoding/hex"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/memiavl/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -301,7 +301,7 @@ func TestZeroCopy(t *testing.T) {
 	}))
 	_, err = db.Commit()
 	require.NoError(t, err)
-	require.NoError(t, errors.Join(
+	require.NoError(t, utils.Join(
 		db.RewriteSnapshot(),
 		db.Reload(),
 	))
