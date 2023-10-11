@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -61,7 +60,6 @@ func encodeTmBlock(
 		gasWanted += txRes.GasUsed
 		decoded, err := txDecoder(txRes.Data)
 		if err != nil {
-			fmt.Println(err)
 			return nil, errors.New("failed to decode transaction")
 		}
 		if len(decoded.GetMsgs()) != 1 {

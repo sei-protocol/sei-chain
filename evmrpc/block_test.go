@@ -137,7 +137,7 @@ func TestGetBlockByHash(t *testing.T) {
 
 	time.Sleep(1)
 	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getBlockByHash\",\"params\":[\"0x0000000000000000000000000000000000000000000000000000000000000001\",true],\"id\":\"test\"}"
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, BlockTestPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
