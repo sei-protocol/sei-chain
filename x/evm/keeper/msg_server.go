@@ -144,6 +144,12 @@ func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, 
 		receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
 	}
 
+	if sender, found := types.GetContextEVMAddress(ctx); found {
+		receipt.From = sender.Hex()
+	} else {
+		ctx.Logger().Error("sender cannot be found for EVM transaction")
+	}
+
 	return server.SetReceipt(ctx, tx.Hash(), receipt)
 }
 

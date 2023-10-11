@@ -20,7 +20,7 @@ const TestWSPort = 7778
 
 func TestEcho(t *testing.T) {
 	// Test HTTP server
-	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts)
+	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, nil, nil, nil, nil)
 	require.Nil(t, err)
 	require.Nil(t, httpServer.Start())
 	// wait for a second in case the actual server goroutine isn't ready yet
