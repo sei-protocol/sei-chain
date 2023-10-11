@@ -23,6 +23,7 @@ var (
 	version       int
 	concurrency   int
 	maxRetries    int
+	chunkSize     int
 	exportModules = []string{
 		"dex", "wasm", "accesscontrol", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
 	}
@@ -55,6 +56,7 @@ func init() {
 	generateCmd.Flags().StringVar(&outputDir, "output-dir", "", "Output Directory")
 	generateCmd.Flags().StringVar(&modules, "modules", "", "Modules to export")
 	generateCmd.Flags().IntVar(&version, "version", 0, "db version")
+	generateCmd.Flags().IntVar(&chunkSize, "chunkSize", 100, "chunk size for each kv file")
 
 	benchmarkCmd.Flags().StringVar(&dbBackend, "db-backend", "", "DB Backend")
 	benchmarkCmd.Flags().StringVar(&rawKVInputDir, "raw-kv-input-dir", "", "Input Directory for benchmark which contains the raw kv data")
@@ -81,7 +83,7 @@ func generate(cmd *cobra.Command, args []string) {
 	if modules != "" {
 		exportModules = strings.Split(modules, ",")
 	}
-	GenerateData(levelDBDir, exportModules, outputDir, version)
+	GenerateData(levelDBDir, exportModules, outputDir, version, chunkSize)
 }
 
 func benchmark(cmd *cobra.Command, args []string) {
@@ -110,7 +112,7 @@ func benchmark(cmd *cobra.Command, args []string) {
 }
 
 // Outputs the raw keys and values for all modules at a height to a file
-func GenerateData(dbDir string, modules []string, outputDir string, version int) {
+func GenerateData(dbDir string, modules []string, outputDir string, version int, chunkSize int) {
 	// Create output directory
 	err := os.MkdirAll(outputDir, fs.ModePerm)
 	if err != nil {
@@ -138,8 +140,8 @@ func GenerateData(dbDir string, modules []string, outputDir string, version int)
 
 		fmt.Printf("Tree hash is %X, tree size is %d\n", treeHash, tree.ImmutableTree().Size())
 
-		outputFileName := fmt.Sprintf("%s/%s.kv", outputDir, module)
-		utils.WriteTreeDataToFile(tree, outputFileName)
+		outputFileNamePattern := fmt.Sprintf("%s/%s", outputDir, module)
+		utils.WriteTreeDataToFile(tree, outputFileNamePattern, chunkSize)
 	}
 }
 

@@ -63,22 +63,52 @@ func ReadTree(db dbm.DB, version int, prefix []byte) (*iavl.MutableTree, error) 
 }
 
 // Writes raw key / values from a tree to a file
-func WriteTreeDataToFile(tree *iavl.MutableTree, filename string) {
-	f, err := os.Create(filename)
-	if err != nil {
-		panic(err)
+// Writes a chunkSize number of keys/values to separate files per module
+func WriteTreeDataToFile(tree *iavl.MutableTree, filenamePattern string, chunkSize int) {
+	var currentChunk, currentCount int
+	var currentFile *os.File
+
+	createNewFile := func() {
+		if currentFile != nil {
+			currentFile.Close()
+		}
+
+		filename := fmt.Sprintf("%s_chunk_%d.kv", filenamePattern, currentChunk)
+		var err error
+		currentFile, err = os.Create(filename)
+		if err != nil {
+			panic(err)
+		}
+
+		currentChunk++
 	}
 
-	defer f.Close()
+	// Open first chunk file
+	createNewFile()
+
 	tree.Iterate(func(key []byte, value []byte) bool {
-		if err := writeByteSlice(f, key); err != nil {
+		// If we've reached chunkSize, close current file and open a new one
+		if currentCount >= chunkSize {
+			createNewFile()
+			currentCount = 0
+		}
+
+		if err := writeByteSlice(currentFile, key); err != nil {
+			currentFile.Close()
 			panic(err)
 		}
-		if err := writeByteSlice(f, value); err != nil {
+		if err := writeByteSlice(currentFile, value); err != nil {
+			currentFile.Close()
 			panic(err)
 		}
+
+		currentCount++
 		return false
 	})
+
+	if currentFile != nil {
+		currentFile.Close()
+	}
 }
 
 // Writes raw bytes to file
