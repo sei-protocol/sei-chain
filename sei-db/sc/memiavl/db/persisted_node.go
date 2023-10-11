@@ -3,6 +3,7 @@ package memiavl
 import (
 	"bytes"
 	"crypto/sha256"
+	"github.com/sei-protocol/sei-db/memiavl/utils"
 	"sort"
 )
 
@@ -132,7 +133,7 @@ func (node PersistedNode) Right() Node {
 }
 
 func (node PersistedNode) SafeHash() []byte {
-	return bytes.Clone(node.Hash())
+	return utils.Clone(node.Hash())
 }
 
 func (node PersistedNode) Hash() []byte {

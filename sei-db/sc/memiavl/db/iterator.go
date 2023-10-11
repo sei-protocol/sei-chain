@@ -1,6 +1,9 @@
 package memiavl
 
-import "bytes"
+import (
+	"bytes"
+	"github.com/sei-protocol/sei-db/memiavl/utils"
+)
 
 type Iterator struct {
 	// domain of iteration, end is exclusive
@@ -51,7 +54,7 @@ func (iter *Iterator) Error() error {
 // Key implements dbm.Iterator
 func (iter *Iterator) Key() []byte {
 	if !iter.zeroCopy {
-		return bytes.Clone(iter.key)
+		return utils.Clone(iter.key)
 	}
 	return iter.key
 }
@@ -59,7 +62,7 @@ func (iter *Iterator) Key() []byte {
 // Value implements dbm.Iterator
 func (iter *Iterator) Value() []byte {
 	if !iter.zeroCopy {
-		return bytes.Clone(iter.value)
+		return utils.Clone(iter.value)
 	}
 	return iter.value
 }

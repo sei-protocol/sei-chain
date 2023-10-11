@@ -1,7 +1,6 @@
 package memiavl
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -184,7 +183,7 @@ func (t *Tree) GetWithIndex(key []byte) (int64, []byte) {
 
 	value, index := t.root.Get(key)
 	if !t.zeroCopy {
-		value = bytes.Clone(value)
+		value = utils.Clone(value)
 	}
 	return int64(index), value
 }
@@ -199,8 +198,8 @@ func (t *Tree) GetByIndex(index int64) ([]byte, []byte) {
 
 	key, value := t.root.GetByIndex(uint32(index))
 	if !t.zeroCopy {
-		key = bytes.Clone(key)
-		value = bytes.Clone(value)
+		key = utils.Clone(key)
+		value = utils.Clone(value)
 	}
 	return key, value
 }
