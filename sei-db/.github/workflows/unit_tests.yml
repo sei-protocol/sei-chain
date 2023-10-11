@@ -1,4 +1,4 @@
-name: Test
+name: Unit Test
 on:
   pull_request:
   push:
@@ -15,22 +15,6 @@ jobs:
         with:
           go-version: '1.19'
       - uses: actions/checkout@v3
-      - uses: technote-space/get-diff-action@v6
-        with:
-          PATTERNS: |
-            **/**.go
-            "!test/"
-            go.mod
-            go.sum
-            Makefile
-      - name: Get data from Go build cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/golangci-lint
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
       - name: Run Go Tests
         run: |
           make test-all
