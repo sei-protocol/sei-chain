@@ -89,6 +89,11 @@ func main() {
 
 // Outputs the raw keys and values for all modules at a height to a file
 func GenerateData(dbDir string, modules []string, outputDir string, version int) {
+	// Create output directory
+	err := os.MkdirAll(outputDir, fs.ModePerm)
+	if err != nil {
+		panic(err)
+	}
 	// Generate raw kv data for each module
 	for _, module := range modules {
 		fmt.Printf("Generating Raw Keys and Values for %s module at version %d\n", module, version)
