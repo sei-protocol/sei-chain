@@ -49,11 +49,7 @@ func OpenDB(dir string) (dbm.DB, error) {
 // ReadTree loads an iavl tree from the directory
 // If version is 0, load latest, otherwise, load named version
 // The prefix represents which iavl tree you want to read. The iaviwer will always set a prefix.
-func ReadTree(dir string, version int, prefix []byte) (*iavl.MutableTree, error) {
-	db, err := OpenDB(dir)
-	if err != nil {
-		return nil, err
-	}
+func ReadTree(db dbm.DB, version int, prefix []byte) (*iavl.MutableTree, error) {
 	if len(prefix) != 0 {
 		db = dbm.NewPrefixDB(db, prefix)
 	}

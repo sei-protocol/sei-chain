@@ -95,11 +95,15 @@ func GenerateData(dbDir string, modules []string, outputDir string, version int)
 		panic(err)
 	}
 	// Generate raw kv data for each module
+	db, err := utils.OpenDB(dbDir)
+	if err != nil {
+		panic(err)
+	}
 	for _, module := range modules {
 		fmt.Printf("Generating Raw Keys and Values for %s module at version %d\n", module, version)
 
 		modulePrefix := fmt.Sprintf("s/k:%s/", module)
-		tree, err := utils.ReadTree(dbDir, version, []byte(modulePrefix))
+		tree, err := utils.ReadTree(db, version, []byte(modulePrefix))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading data: %s\n", err)
 			return
