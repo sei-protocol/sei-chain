@@ -22,6 +22,4 @@ jobs:
       - uses: golangci/golangci-lint-action@v3
         with:
           version: v1.49
-      - name: lint
-        run: |
-          make lint-all
+          args: --config=.golangci.yml --timeout=10m ./... ./sc/memiavl/...
