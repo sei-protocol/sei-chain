@@ -33,4 +33,7 @@ message Receipt {
       uint32 status = 9 [
         (gogoproto.moretags) = "yaml:\"status\""
       ];
+      string from = 10 [
+        (gogoproto.moretags) = "yaml:\"from\""
+      ];
 }
