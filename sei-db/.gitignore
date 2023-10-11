@@ -19,3 +19,12 @@
 
 # Go workspace file
 go.work
+.DS_Store
+*.swp
+*.swo
+*.swl
+*.swm
+*.swn
+*.pyc
+.dccache
+.idea

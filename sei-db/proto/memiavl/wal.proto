@@ -1,0 +1,36 @@
+syntax = "proto3";
+package memiavl;
+
+option go_package = "github.com/sei-protocol/sei-db/memiavl";
+
+import "gogoproto/gogo.proto";
+import "iavl/changeset.proto";
+import "memiavl/commit_info.proto";
+
+// NamedChangeSet combine a tree name with the changeset
+message NamedChangeSet {
+  iavl.ChangeSet changeset = 1 [(gogoproto.nullable) = false];
+  string         name      = 2;
+}
+
+// TreeNameUpgrade defines upgrade of tree names:
+// - New tree: { name: "tree" }
+// - Delete tree: { name: "tree", delete: true }
+// - Rename tree: { name: "new-tree", rename_from: "old-tree" }
+message TreeNameUpgrade {
+  string name        = 1;
+  string rename_from = 2;
+  bool delete        = 3;
+}
+
+// WALEntry is a single Write-Ahead-Log entry
+message WALEntry {
+  repeated NamedChangeSet  changesets = 1;
+  repeated TreeNameUpgrade upgrades   = 2;
+}
+
+// MultiTreeMetadata stores the metadata for MultiTree
+message MultiTreeMetadata {
+  CommitInfo commit_info     = 1;
+  int64      initial_version = 2;
+}
