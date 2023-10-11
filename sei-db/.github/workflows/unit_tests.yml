@@ -34,6 +34,7 @@ jobs:
       - name: Run Go Tests
         run: |
           make test-all
+
   upload-coverage-report:
     needs: tests
     runs-on: ubuntu-latest
