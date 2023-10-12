@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -31,6 +32,7 @@ import (
 )
 
 const BlockTestPort = 7779
+const BadBlockTestPort = 7780
 
 var EncodingConfig = app.MakeEncodingConfig()
 var TxConfig = EncodingConfig.TxConfig
@@ -102,9 +104,24 @@ func (c *MockClient) BlockResults(ctx context.Context, height *int64) (*coretype
 	}, nil
 }
 
+type MockBadClient struct {
+	MockClient
+}
+
+func (m *MockBadClient) Block(ctx context.Context, height *int64) (*coretypes.ResultBlock, error) {
+	return nil, errors.New("error block")
+}
+
+func (m *MockBadClient) BlockByHash(ctx context.Context, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
+	return nil, errors.New("error block")
+}
+
+func (m *MockBadClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) {
+	return nil, errors.New("error genesis")
+}
+
 var EVMKeeper *keeper.Keeper
 var Ctx sdk.Context
-var BlockServer EVMServer
 
 func init() {
 	EVMKeeper, _, Ctx = keeper.MockEVMKeeper()
@@ -113,6 +130,13 @@ func init() {
 		panic(err)
 	}
 	if err := httpServer.Start(); err != nil {
+		panic(err)
+	}
+	badHttpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, BadBlockTestPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func() sdk.Context { return Ctx }, Decoder)
+	if err != nil {
+		panic(err)
+	}
+	if err := badHttpServer.Start(); err != nil {
 		panic(err)
 	}
 	time.Sleep(1 * time.Second)
@@ -221,4 +245,91 @@ func TestGetBlockByNumber(t *testing.T) {
 	resBody, err := io.ReadAll(res.Body)
 	require.Nil(t, err)
 	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"error\":{\"code\":-32602,\"message\":\"invalid argument 0: hex string without 0x prefix\"}}\n", string(resBody))
+}
+
+func TestGetBlockTransactionCount(t *testing.T) {
+	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
+
+	to := common.HexToAddress("010203")
+	txData := ethtypes.DynamicFeeTx{
+		Nonce:     1,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   big.NewInt(1),
+	}
+	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
+	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
+	privKey := hd.Secp256k1.Generate()(derivedPriv)
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	evmParams := EVMKeeper.GetParams(Ctx)
+	ethCfg := evmParams.GetChainConfig().EthereumConfig(big.NewInt(1))
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
+	tx := ethtypes.NewTx(&txData)
+	tx, err := ethtypes.SignTx(tx, signer, key)
+	require.Nil(t, err)
+	typedTx, err := ethtx.NewDynamicFeeTx(tx)
+	require.Nil(t, err)
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+	b := TxConfig.NewTxBuilder()
+	b.SetMsgs(msg)
+	Tx = b.GetTx()
+	require.Nil(t, EVMKeeper.SetReceipt(Ctx, tx.Hash(), &types.Receipt{
+		From:             "56789",
+		TransactionIndex: 5,
+	}))
+
+	// get by block number
+	for _, num := range []string{"0x8", "earliest", "latest", "pending", "finalized", "safe"} {
+		body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getBlockTransactionCountByNumber\",\"params\":[\"%s\"],\"id\":\"test\"}", num)
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, BlockTestPort), strings.NewReader(body))
+		require.Nil(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		require.Nil(t, err)
+		resBody, err := io.ReadAll(res.Body)
+		require.Nil(t, err)
+		require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"0x1\"}\n", string(resBody))
+	}
+
+	// get error returns null
+	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getBlockTransactionCountByNumber\",\"params\":[\"0x8\"],\"id\":\"test\"}"
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, BadBlockTestPort), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err := io.ReadAll(res.Body)
+	require.Nil(t, err)
+	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":null}\n", string(resBody))
+	body = "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getBlockTransactionCountByNumber\",\"params\":[\"earliest\"],\"id\":\"test\"}"
+	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, BadBlockTestPort), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err = io.ReadAll(res.Body)
+	require.Nil(t, err)
+	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":null}\n", string(resBody))
+	body = "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getBlockTransactionCountByHash\",\"params\":[\"0x0000000000000000000000000000000000000000000000000000000000000001\"],\"id\":\"test\"}"
+	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, BadBlockTestPort), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err = io.ReadAll(res.Body)
+	require.Nil(t, err)
+	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":null}\n", string(resBody))
+
+	// get by hash
+	body = "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getBlockTransactionCountByHash\",\"params\":[\"0x0000000000000000000000000000000000000000000000000000000000000001\"],\"id\":\"test\"}"
+	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, BlockTestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err = io.ReadAll(res.Body)
+	require.Nil(t, err)
+	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"0x1\"}\n", string(resBody))
 }
