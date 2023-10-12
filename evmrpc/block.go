@@ -27,6 +27,28 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func()
 	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
 }
 
+func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) *hexutil.Uint {
+	numberPtr, err := a.getBlockNumber(ctx, number)
+	if err != nil {
+		return nil
+	}
+	block, err := a.tmClient.Block(ctx, numberPtr)
+	if err != nil {
+		return nil
+	}
+	cnt := hexutil.Uint(len(block.Block.Txs))
+	return &cnt
+}
+
+func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) *hexutil.Uint {
+	block, err := a.tmClient.BlockByHash(ctx, blockHash[:])
+	if err != nil {
+		return nil
+	}
+	cnt := hexutil.Uint(len(block.Block.Txs))
+	return &cnt
+}
+
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (map[string]interface{}, error) {
 	block, err := a.tmClient.BlockByHash(ctx, blockHash[:])
 	if err != nil {
@@ -40,6 +62,22 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
+	numberPtr, err := a.getBlockNumber(ctx, number)
+	if err != nil {
+		return nil, err
+	}
+	block, err := a.tmClient.Block(ctx, numberPtr)
+	if err != nil {
+		return nil, err
+	}
+	blockRes, err := a.tmClient.BlockResults(ctx, &block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	return encodeTmBlock(a.ctxProvider(), block, blockRes, a.keeper, a.txDecoder, fullTx)
+}
+
+func (a *BlockAPI) getBlockNumber(ctx context.Context, number rpc.BlockNumber) (*int64, error) {
 	var numberPtr *int64
 	switch number {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
@@ -54,15 +92,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 		numberI64 := number.Int64()
 		numberPtr = &numberI64
 	}
-	block, err := a.tmClient.Block(ctx, numberPtr)
-	if err != nil {
-		return nil, err
-	}
-	blockRes, err := a.tmClient.BlockResults(ctx, &block.Block.Height)
-	if err != nil {
-		return nil, err
-	}
-	return encodeTmBlock(a.ctxProvider(), block, blockRes, a.keeper, a.txDecoder, fullTx)
+	return numberPtr, nil
 }
 
 func encodeTmBlock(
