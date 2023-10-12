@@ -40,11 +40,6 @@ var Encoder = TxConfig.TxEncoder()
 var Decoder = TxConfig.TxDecoder()
 var Tx sdk.Tx
 
-type TestTx struct{ msg sdk.Msg }
-
-func (t TestTx) ValidateBasic() error { return nil }
-func (t TestTx) GetMsgs() []sdk.Msg   { return []sdk.Msg{t.msg} }
-
 type MockClient struct {
 	mock.Client
 }
@@ -99,6 +94,37 @@ func (c *MockClient) BlockResults(ctx context.Context, height *int64) (*coretype
 				}(),
 				GasWanted: 10,
 				GasUsed:   5,
+				Events: []abci.Event{{
+					Type: types.EventTypeEVMLog,
+					Attributes: []abci.EventAttribute{{
+						Key:   []byte(types.AttributeTypeContractAddress),
+						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111"),
+					}, {
+						Key:   []byte(types.AttributeTypeBlockHash),
+						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111"),
+					}, {
+						Key:   []byte(types.AttributeTypeBlockNumber),
+						Value: []byte("8"),
+					}, {
+						Key:   []byte(types.AttributeTypeData),
+						Value: []byte("xyz"),
+					}, {
+						Key:   []byte(types.AttributeTypeIndex),
+						Value: []byte("1"),
+					}, {
+						Key:   []byte(types.AttributeTypeTxIndex),
+						Value: []byte("2"),
+					}, {
+						Key:   []byte(types.AttributeTypeRemoved),
+						Value: []byte("true"),
+					}, {
+						Key:   []byte(types.AttributeTypeTopics),
+						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111,0x1111111111111111111111111111111111111111111111111111111111111112"),
+					}, {
+						Key:   []byte(types.AttributeTypeTxHash),
+						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111113"),
+					}},
+				}},
 			},
 		},
 	}, nil
