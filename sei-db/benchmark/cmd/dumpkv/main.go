@@ -52,7 +52,7 @@ var (
 func init() {
 	rootCmd.AddCommand(generateCmd, benchmarkCmd)
 
-	generateCmd.Flags().StringVar(&levelDBDir, "leveldb-dir", "", "level db dir")
+	generateCmd.Flags().StringVar(&levelDBDir, "leveldb-dir", "/root/.sei/data/application.db", "level db dir")
 	generateCmd.Flags().StringVar(&outputDir, "output-dir", "", "Output Directory")
 	generateCmd.Flags().StringVar(&modules, "modules", "", "Modules to export")
 	generateCmd.Flags().IntVar(&version, "version", 0, "db version")
@@ -73,10 +73,6 @@ func main() {
 }
 
 func generate(cmd *cobra.Command, args []string) {
-	if levelDBDir == "" {
-		panic("Must provide leveldb dir when generating raw kv data")
-	}
-
 	if outputDir == "" {
 		panic("Must provide output dir when generating raw kv data")
 	}
