@@ -1599,7 +1599,7 @@ func (cs *State) enterPrevote(ctx context.Context, height int64, round int32, en
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.roundState.Height() != height || round < cs.roundState.Round() || (cs.roundState.Round() == round && cstypes.RoundStepPrevote <= cs.roundState.Step()) {
-		logger.Info(
+		logger.Debug(
 			"entering prevote step with invalid args",
 			"current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()),
 			"time", time.Now().UnixMilli(),
@@ -1613,7 +1613,7 @@ func (cs *State) enterPrevote(ctx context.Context, height int64, round int32, en
 		cs.newStep()
 	}()
 
-	logger.Info("entering prevote step", "current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()), "time", time.Now().UnixMilli())
+	logger.Debug("entering prevote step", "current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()), "time", time.Now().UnixMilli())
 
 	// Sign and broadcast vote as necessary
 	cs.doPrevote(ctx, height, round)
@@ -1804,7 +1804,7 @@ func (cs *State) enterPrevoteWait(height int64, round int32) {
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.roundState.Height() != height || round < cs.roundState.Round() || (cs.roundState.Round() == round && cstypes.RoundStepPrevoteWait <= cs.roundState.Step()) {
-		logger.Info(
+		logger.Debug(
 			"entering prevote wait step with invalid args",
 			"current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()),
 			"time", time.Now().UnixMilli(),
@@ -1819,7 +1819,7 @@ func (cs *State) enterPrevoteWait(height int64, round int32) {
 		))
 	}
 
-	logger.Info("entering prevote wait step", "current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()), "time", time.Now().UnixMilli())
+	logger.Debug("entering prevote wait step", "current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()), "time", time.Now().UnixMilli())
 
 	defer func() {
 		// Done enterPrevoteWait:
@@ -1845,7 +1845,7 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.roundState.Height() != height || round < cs.roundState.Round() || (cs.roundState.Round() == round && cstypes.RoundStepPrecommit <= cs.roundState.Step()) {
-		logger.Info(
+		logger.Debug(
 			"entering precommit step with invalid args",
 			"current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()),
 			"time", time.Now().UnixMilli(),
@@ -1855,7 +1855,7 @@ func (cs *State) enterPrecommit(ctx context.Context, height int64, round int32, 
 		return
 	}
 
-	logger.Info("entering precommit step", "current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()), "time", time.Now().UnixMilli())
+	logger.Debug("entering precommit step", "current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()), "time", time.Now().UnixMilli())
 
 	defer func() {
 		// Done enterPrecommit:
@@ -1965,7 +1965,7 @@ func (cs *State) enterPrecommitWait(height int64, round int32) {
 	logger := cs.logger.With("height", height, "round", round)
 
 	if cs.roundState.Height() != height || round < cs.roundState.Round() || (cs.roundState.Round() == round && cs.roundState.TriggeredTimeoutPrecommit()) {
-		logger.Info(
+		logger.Debug(
 			"entering precommit wait step with invalid args",
 			"triggered_timeout", cs.roundState.TriggeredTimeoutPrecommit(),
 			"current", fmt.Sprintf("%v/%v", cs.roundState.Height(), cs.roundState.Round()),
@@ -1981,7 +1981,7 @@ func (cs *State) enterPrecommitWait(height int64, round int32) {
 		))
 	}
 
-	logger.Info("entering precommit wait step", "current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()), "time", time.Now().UnixMilli())
+	logger.Debug("entering precommit wait step", "current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()), "time", time.Now().UnixMilli())
 
 	defer func() {
 		// Done enterPrecommitWait:
@@ -2003,7 +2003,7 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 	logger := cs.logger.With("height", height, "commit_round", commitRound)
 
 	if cs.roundState.Height() != height || cstypes.RoundStepCommit <= cs.roundState.Step() {
-		logger.Info(
+		logger.Debug(
 			"entering commit step with invalid args",
 			"current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()),
 			"time", time.Now().UnixMilli(),
@@ -2011,7 +2011,7 @@ func (cs *State) enterCommit(ctx context.Context, height int64, commitRound int3
 		return
 	}
 
-	logger.Info("entering commit step", "current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()), "time", time.Now().UnixMilli())
+	logger.Debug("entering commit step", "current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()), "time", time.Now().UnixMilli())
 
 	defer func() {
 		// Done enterCommit:
@@ -2100,7 +2100,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 	logger := cs.logger.With("height", height)
 
 	if cs.roundState.Height() != height || cs.roundState.Step() != cstypes.RoundStepCommit {
-		logger.Info(
+		logger.Debug(
 			"entering finalize commit step",
 			"current", fmt.Sprintf("%v/%v/%v", cs.roundState.Height(), cs.roundState.Round(), cs.roundState.Step()),
 			"time", time.Now().UnixMilli(),
