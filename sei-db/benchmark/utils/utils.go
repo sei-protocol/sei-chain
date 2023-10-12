@@ -4,9 +4,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	dbm "github.com/tendermint/tm-db"
@@ -186,4 +188,24 @@ func CalculatePercentile(latencies []time.Duration, percentile float64) time.Dur
 	}
 	index := int(float64(len(latencies)-1) * percentile / 100.0)
 	return latencies[index]
+}
+
+// Picks random file from input kv dir and updates processedFiles Map with it
+func PickRandomKVFile(inputKVDir string, processedFiles *sync.Map) string {
+	files, _ := ioutil.ReadDir(inputKVDir)
+	var availableFiles []string
+
+	for _, file := range files {
+		if _, processed := processedFiles.Load(file.Name()); !processed && strings.HasSuffix(file.Name(), ".kv") {
+			availableFiles = append(availableFiles, file.Name())
+		}
+	}
+
+	if len(availableFiles) == 0 {
+		return ""
+	}
+
+	selected := availableFiles[rand.Intn(len(availableFiles))]
+	processedFiles.Store(selected, true)
+	return selected
 }

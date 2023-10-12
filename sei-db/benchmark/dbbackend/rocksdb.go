@@ -2,6 +2,8 @@ package dbbackend
 
 import (
 	"fmt"
+	"io/ioutil"
+	"path"
 	"runtime"
 	"sort"
 	"sync"
@@ -11,48 +13,54 @@ import (
 	"github.com/sei-protocol/sei-db/benchmark/utils"
 )
 
-func writeToRocksDBConcurrently(db *grocksdb.DB, kvEntries []utils.KeyValuePair, concurrency int, maxRetries int) []time.Duration {
-	// Channel to collect write latencies
-	latencies := make(chan time.Duration, len(kvEntries))
+func writeToRocksDBConcurrently(db *grocksdb.DB, inputKVDir string, concurrency int, maxRetries int, chunkSize int) []time.Duration {
+	// Create buffered channel with num kv entries
+	files, err := ioutil.ReadDir(inputKVDir)
+	if err != nil {
+		panic(err)
+	}
+	latencies := make(chan time.Duration, len(files)*chunkSize)
+
 	wg := &sync.WaitGroup{}
-	chunks := len(kvEntries) / concurrency
+	processedFiles := &sync.Map{}
+
 	for i := 0; i < concurrency; i++ {
-		start := i * chunks
-		end := start + chunks
-		if i == concurrency-1 {
-			end = len(kvEntries)
-		}
 		wg.Add(1)
-		go func(start, end int) {
+		// Each goroutine will randomly select some available file, read its kv data and write to db
+		go func() {
 			defer wg.Done()
 			wo := grocksdb.NewDefaultWriteOptions()
-			for j := start; j < end; j++ {
-				retries := 0
-				for {
-					startTime := time.Now()
-					err := db.Put(wo, kvEntries[j].Key, kvEntries[j].Value)
-					latency := time.Since(startTime)
-
-					// Only record latencies of successful writes
-					if err == nil {
-						latencies <- latency
-					}
-
-					if err != nil {
-						retries++
-						if retries > maxRetries {
-							fmt.Printf("Failed to write key after %d attempts: %v", maxRetries, err)
+			for {
+				filename := utils.PickRandomKVFile(inputKVDir, processedFiles)
+				if filename == "" {
+					break
+				}
+				kvEntries, err := utils.ReadKVEntriesFromFile(path.Join(inputKVDir, filename))
+				if err != nil {
+					panic(err)
+				}
+				utils.RandomShuffle(kvEntries)
+				for _, kv := range kvEntries {
+					retries := 0
+					for {
+						startTime := time.Now()
+						err := db.Put(wo, kv.Key, kv.Value)
+						latency := time.Since(startTime)
+						if err == nil {
+							latencies <- latency
 							break
 						}
-						// TODO: Add a sleep or back-off before retrying
-						// time.Sleep(time.Second * time.Duration(retries))
-					} else {
-						// Success, so break the retry loop
-						break
+						if err != nil {
+							panic(err)
+						}
+						retries++
+						if retries > maxRetries {
+							break
+						}
 					}
 				}
 			}
-		}(start, end)
+		}()
 	}
 	wg.Wait()
 	close(latencies)
@@ -61,11 +69,10 @@ func writeToRocksDBConcurrently(db *grocksdb.DB, kvEntries []utils.KeyValuePair,
 	for l := range latencies {
 		latencySlice = append(latencySlice, l)
 	}
-
 	return latencySlice
 }
 
-func (rocksDB RocksDBBackend) BenchmarkDBWrite(inputKVDir string, outputDBPath string, concurrency int, maxRetries int) {
+func (rocksDB RocksDBBackend) BenchmarkDBWrite(inputKVDir string, outputDBPath string, concurrency int, maxRetries int, chunkSize int) {
 	opts := grocksdb.NewDefaultOptions()
 	// Configs taken from implementations
 	opts.IncreaseParallelism(runtime.NumCPU())
@@ -80,25 +87,15 @@ func (rocksDB RocksDBBackend) BenchmarkDBWrite(inputKVDir string, outputDBPath s
 	}
 	defer db.Close()
 
-	// Read key-value entries from the file
-	kvEntries, err := utils.ReadKVEntriesFromFile(inputKVDir)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to read KV entries: %v", err))
-	}
-
-	// Shuffle the entries
-	// NOTE: Adding in chunking so that it will shuffle across files
-	utils.RandomShuffle(kvEntries)
-
 	// Write shuffled entries to RocksDB concurrently
 	startTime := time.Now()
-	latencies := writeToRocksDBConcurrently(db, kvEntries, concurrency, maxRetries)
+	latencies := writeToRocksDBConcurrently(db, inputKVDir, concurrency, maxRetries, chunkSize)
 	endTime := time.Now()
 
 	totalTime := endTime.Sub(startTime)
 
 	// Log throughput
-	fmt.Printf("Total KV Entries %d, Total Successfully Written %d\n", len(kvEntries), len(latencies))
+	fmt.Printf("Total Successfully Written %d\n", len(latencies))
 	fmt.Printf("Total Time taken: %v\n", totalTime)
 	fmt.Printf("Throughput: %f writes/sec\n", float64(len(latencies))/totalTime.Seconds())
 	fmt.Printf("Total records written %d\n", len(latencies))
@@ -120,32 +117,34 @@ func (rocksDB RocksDBBackend) BenchmarkDBWrite(inputKVDir string, outputDBPath s
 
 }
 
-func readFromRocksDBConcurrently(db *grocksdb.DB, kvEntries []utils.KeyValuePair, concurrency int) []time.Duration {
+func readFromRocksDBConcurrently(db *grocksdb.DB, inputKVDir string, concurrency int, processedFiles *sync.Map) []time.Duration {
 	// Channel to collect read latencies
-	latencies := make(chan time.Duration, len(kvEntries))
+	latencies := make(chan time.Duration)
 	wg := &sync.WaitGroup{}
-	chunks := len(kvEntries) / concurrency
+
 	for i := 0; i < concurrency; i++ {
-		start := i * chunks
-		end := start + chunks
-		if i == concurrency-1 {
-			end = len(kvEntries)
-		}
 		wg.Add(1)
-		go func(start, end int) {
+		go func() {
 			defer wg.Done()
 			ro := grocksdb.NewDefaultReadOptions()
-			for j := start; j < end; j++ {
-				startTime := time.Now()
-				_, err := db.Get(ro, kvEntries[j].Key)
-				latency := time.Since(startTime)
+			for {
+				filename := utils.PickRandomKVFile(inputKVDir, processedFiles)
+				if filename == "" { // no more files to process
+					break
+				}
+				kvEntries, _ := utils.ReadKVEntriesFromFile(path.Join(inputKVDir, filename))
+				utils.RandomShuffle(kvEntries)
 
-				// Only record latencies of successful reads
-				if err == nil {
-					latencies <- latency
+				for _, kv := range kvEntries {
+					startTime := time.Now()
+					_, err := db.Get(ro, kv.Key)
+					latency := time.Since(startTime)
+					if err == nil {
+						latencies <- latency
+					}
 				}
 			}
-		}(start, end)
+		}()
 	}
 	wg.Wait()
 	close(latencies)
@@ -154,7 +153,6 @@ func readFromRocksDBConcurrently(db *grocksdb.DB, kvEntries []utils.KeyValuePair
 	for l := range latencies {
 		latencySlice = append(latencySlice, l)
 	}
-
 	return latencySlice
 }
 
@@ -167,24 +165,16 @@ func (rocksDB RocksDBBackend) BenchmarkDBRead(inputKVDir string, outputDBPath st
 	}
 	defer db.Close()
 
-	// Read key-value entries from the file
-	kvEntries, err := utils.ReadKVEntriesFromFile(inputKVDir)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to read KV entries: %v", err))
-	}
+	processedFiles := &sync.Map{}
 
-	// Shuffle the entries to randomize read patterns
-	utils.RandomShuffle(kvEntries)
-
-	// Read entries from RocksDB concurrently
 	startTime := time.Now()
-	latencies := readFromRocksDBConcurrently(db, kvEntries, concurrency)
+	latencies := readFromRocksDBConcurrently(db, inputKVDir, concurrency, processedFiles)
 	endTime := time.Now()
 
 	totalTime := endTime.Sub(startTime)
 
 	// Log throughput
-	fmt.Printf("Total KV Entries %d, Total Successfully Read %d\n", len(kvEntries), len(latencies))
+	fmt.Printf("Total Successfully Read %d\n", len(latencies))
 	fmt.Printf("Total Time taken: %v\n", totalTime)
 	fmt.Printf("Throughput: %f reads/sec\n", float64(len(latencies))/totalTime.Seconds())
 	fmt.Printf("Total records read %d\n", len(latencies))

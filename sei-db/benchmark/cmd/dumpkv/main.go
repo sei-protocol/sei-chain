@@ -63,6 +63,7 @@ func init() {
 	benchmarkCmd.Flags().StringVar(&outputDir, "output-dir", "", "Output Directory")
 	benchmarkCmd.Flags().IntVar(&concurrency, "concurrency", 1, "Concurrency while writing to db")
 	benchmarkCmd.Flags().IntVar(&maxRetries, "max-retries", 0, "Max Retries while writing to db")
+	benchmarkCmd.Flags().IntVar(&chunkSize, "chunkSize", 100, "chunk size for each kv file")
 }
 
 func main() {
@@ -108,7 +109,7 @@ func benchmark(cmd *cobra.Command, args []string) {
 		exportModules = strings.Split(modules, ",")
 	}
 
-	BenchmarkWrite(rawKVInputDir, exportModules, outputDir, dbBackend, concurrency, maxRetries)
+	BenchmarkWrite(rawKVInputDir, exportModules, outputDir, dbBackend, concurrency, maxRetries, chunkSize)
 }
 
 // Outputs the raw keys and values for all modules at a height to a file
@@ -146,21 +147,19 @@ func GenerateData(dbDir string, modules []string, outputDir string, version int,
 }
 
 // Benchmark write latencies and throughput of db backend
-func BenchmarkWrite(dbDir string, modules []string, outputDir string, dbBackend string, concurrency int, maxRetries int) {
+func BenchmarkWrite(dbDir string, modules []string, outputDir string, dbBackend string, concurrency int, maxRetries int, chunkSize int) {
 	// Create output directory
 	err := os.MkdirAll(outputDir, fs.ModePerm)
 	if err != nil {
 		panic(err)
 	}
 	// Iterate over files in directory
-	for _, module := range modules {
-		exportedKVFile := fmt.Sprintf("%s/%s.kv", dbDir, module)
-		fmt.Printf("Reading Raw Keys and Values from %s\n", exportedKVFile)
+	fmt.Printf("Reading Raw Keys and Values from %s\n", dbDir)
 
-		if dbBackend == rocksDBBackend {
-			backend := dbbackend.RocksDBBackend{}
-			backend.BenchmarkDBWrite(exportedKVFile, outputDir, concurrency, maxRetries)
-		}
+	if dbBackend == rocksDBBackend {
+		backend := dbbackend.RocksDBBackend{}
+		backend.BenchmarkDBWrite(dbDir, outputDir, concurrency, maxRetries, chunkSize)
 	}
+
 	return
 }
