@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -28,6 +29,32 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func()
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (map[string]interface{}, error) {
 	block, err := a.tmClient.BlockByHash(ctx, blockHash[:])
+	if err != nil {
+		return nil, err
+	}
+	blockRes, err := a.tmClient.BlockResults(ctx, &block.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	return encodeTmBlock(a.ctxProvider(), block, blockRes, a.keeper, a.txDecoder, fullTx)
+}
+
+func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
+	var numberPtr *int64
+	switch number {
+	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
+		numberPtr = nil // requesting Block with nil means the latest block
+	case rpc.EarliestBlockNumber:
+		genesisRes, err := a.tmClient.Genesis(ctx)
+		if err != nil {
+			return nil, err
+		}
+		numberPtr = &genesisRes.Genesis.InitialHeight
+	default:
+		numberI64 := number.Int64()
+		numberPtr = &numberI64
+	}
+	block, err := a.tmClient.Block(ctx, numberPtr)
 	if err != nil {
 		return nil, err
 	}
