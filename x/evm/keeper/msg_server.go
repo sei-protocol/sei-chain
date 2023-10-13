@@ -111,13 +111,6 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 }
 
 func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, usedGas uint64, success bool) error {
-	var contractAddr common.Address
-	if msg.To == nil {
-		contractAddr = crypto.CreateAddress(msg.From, msg.Nonce)
-	} else if len(msg.Data) > 0 {
-		contractAddr = *msg.To
-	}
-
 	cumulativeGasUsed := usedGas
 	if ctx.BlockGasMeter() != nil {
 		limit := ctx.BlockGasMeter().Limit()
@@ -131,11 +124,19 @@ func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, 
 		TxType:            uint32(tx.Type()),
 		CumulativeGasUsed: cumulativeGasUsed,
 		TxHashHex:         tx.Hash().Hex(),
-		ContractAddress:   contractAddr.Hex(),
 		GasUsed:           usedGas,
 		BlockNumber:       uint64(ctx.BlockHeight()),
 		TransactionIndex:  uint32(ctx.TxIndex()),
 		EffectiveGasPrice: tx.GasPrice().Uint64(),
+	}
+
+	if msg.To == nil {
+		receipt.ContractAddress = crypto.CreateAddress(msg.From, msg.Nonce).Hex()
+	} else {
+		receipt.To = msg.To.Hex()
+		if len(msg.Data) > 0 {
+			receipt.ContractAddress = msg.To.Hex()
+		}
 	}
 
 	if success {
