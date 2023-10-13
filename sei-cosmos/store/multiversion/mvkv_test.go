@@ -15,7 +15,7 @@ import (
 func TestVersionIndexedStoreGetters(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore()
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
 	// initialize a new VersionIndexedStore
 	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort))
 
@@ -41,16 +41,25 @@ func TestVersionIndexedStoreGetters(t *testing.T) {
 	require.Equal(t, []byte("value1"), val3)
 
 	// test deleted value written to MVS but not parent store
-	mvs.Delete(0, 2, []byte("delKey"))
+	mvs.SetWriteset(0, 2, map[string][]byte{
+		"delKey": nil,
+	})
 	parentKVStore.Set([]byte("delKey"), []byte("value4"))
 	valDel := vis.Get([]byte("delKey"))
 	require.Nil(t, valDel)
 	require.False(t, vis.Has([]byte("delKey")))
 
 	// set different key in MVS - for various indices
-	mvs.Set(0, 2, []byte("key3"), []byte("value3"))
-	mvs.Set(2, 1, []byte("key3"), []byte("value4"))
-	mvs.SetEstimate(5, 0, []byte("key3"))
+	mvs.SetWriteset(0, 2, map[string][]byte{
+		"delKey": nil,
+		"key3":   []byte("value3"),
+	})
+	mvs.SetWriteset(2, 1, map[string][]byte{
+		"key3": []byte("value4"),
+	})
+	mvs.SetEstimatedWriteset(5, 0, map[string][]byte{
+		"key3": nil,
+	})
 
 	// read the key that falls down to MVS
 	val4 := vis.Get([]byte("key3"))
@@ -89,7 +98,7 @@ func TestVersionIndexedStoreGetters(t *testing.T) {
 func TestVersionIndexedStoreSetters(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore()
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
 	// initialize a new VersionIndexedStore
 	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort))
 
@@ -97,7 +106,9 @@ func TestVersionIndexedStoreSetters(t *testing.T) {
 	vis.Set([]byte("key1"), []byte("value1"))
 	require.Equal(t, []byte("value1"), vis.GetWriteset()["key1"])
 
-	mvs.Set(0, 1, []byte("key2"), []byte("value2"))
+	mvs.SetWriteset(0, 1, map[string][]byte{
+		"key2": []byte("value2"),
+	})
 	vis.Delete([]byte("key2"))
 	require.Nil(t, vis.Get([]byte("key2")))
 	// because the delete should be at the writeset level, we should not have populated the readset
@@ -112,7 +123,7 @@ func TestVersionIndexedStoreSetters(t *testing.T) {
 func TestVersionIndexedStoreBoilerplateFunctions(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore()
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
 	// initialize a new VersionIndexedStore
 	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort))
 
@@ -129,11 +140,13 @@ func TestVersionIndexedStoreBoilerplateFunctions(t *testing.T) {
 func TestVersionIndexedStoreWrite(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore()
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
 	// initialize a new VersionIndexedStore
 	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort))
 
-	mvs.Set(0, 1, []byte("key3"), []byte("value3"))
+	mvs.SetWriteset(0, 1, map[string][]byte{
+		"key3": []byte("value3"),
+	})
 
 	require.False(t, mvs.Has(3, []byte("key1")))
 	require.False(t, mvs.Has(3, []byte("key2")))
@@ -154,11 +167,13 @@ func TestVersionIndexedStoreWrite(t *testing.T) {
 func TestVersionIndexedStoreWriteEstimates(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore()
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
 	// initialize a new VersionIndexedStore
 	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort))
 
-	mvs.Set(0, 1, []byte("key3"), []byte("value3"))
+	mvs.SetWriteset(0, 1, map[string][]byte{
+		"key3": []byte("value3"),
+	})
 
 	require.False(t, mvs.Has(3, []byte("key1")))
 	require.False(t, mvs.Has(3, []byte("key2")))
@@ -179,7 +194,7 @@ func TestVersionIndexedStoreWriteEstimates(t *testing.T) {
 func TestVersionIndexedStoreValidation(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
-	mvs := multiversion.NewMultiVersionStore()
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
 	// initialize a new VersionIndexedStore
 	abortC := make(chan scheduler.Abort)
 	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 2, abortC)
@@ -187,9 +202,12 @@ func TestVersionIndexedStoreValidation(t *testing.T) {
 	parentKVStore.Set([]byte("key4"), []byte("value4"))
 	parentKVStore.Set([]byte("key5"), []byte("value5"))
 	parentKVStore.Set([]byte("deletedKey"), []byte("foo"))
-	mvs.Set(0, 1, []byte("key1"), []byte("value1"))
-	mvs.Set(0, 1, []byte("key2"), []byte("value2"))
-	mvs.Delete(0, 1, []byte("deletedKey"))
+
+	mvs.SetWriteset(0, 1, map[string][]byte{
+		"key1":       []byte("value1"),
+		"key2":       []byte("value2"),
+		"deletedKey": nil,
+	})
 
 	// load those into readset
 	vis.Get([]byte("key1"))
@@ -202,32 +220,52 @@ func TestVersionIndexedStoreValidation(t *testing.T) {
 	// everything checks out, so we should be able to validate successfully
 	require.True(t, vis.ValidateReadset())
 	// modify underlying transaction key that is unrelated
-	mvs.Set(1, 1, []byte("key3"), []byte("value3"))
+	mvs.SetWriteset(1, 1, map[string][]byte{
+		"key3": []byte("value3"),
+	})
 	// should still have valid readset
 	require.True(t, vis.ValidateReadset())
 
 	// modify underlying transaction key that is related
-	mvs.Set(1, 1, []byte("key1"), []byte("value1_b"))
+	mvs.SetWriteset(1, 1, map[string][]byte{
+		"key3": []byte("value3"),
+		"key1": []byte("value1_b"),
+	})
 	// should now have invalid readset
 	require.False(t, vis.ValidateReadset())
 	// reset so readset is valid again
-	mvs.Set(1, 1, []byte("key1"), []byte("value1"))
+	mvs.SetWriteset(1, 1, map[string][]byte{
+		"key3": []byte("value3"),
+		"key1": []byte("value1"),
+	})
 	require.True(t, vis.ValidateReadset())
 
 	// mvs has a value that was initially read from parent
-	mvs.Set(1, 2, []byte("key4"), []byte("value4_b"))
+	mvs.SetWriteset(1, 1, map[string][]byte{
+		"key3": []byte("value3"),
+		"key1": []byte("value1"),
+		"key4": []byte("value4_b"),
+	})
 	require.False(t, vis.ValidateReadset())
 	// reset key
-	mvs.Set(1, 2, []byte("key4"), []byte("value4"))
+	mvs.SetWriteset(1, 1, map[string][]byte{
+		"key3": []byte("value3"),
+		"key1": []byte("value1"),
+		"key4": []byte("value4"),
+	})
 	require.True(t, vis.ValidateReadset())
 
 	// mvs has a value that was initially read from parent - BUT in a later tx index
-	mvs.Set(4, 2, []byte("key4"), []byte("value4_c"))
+	mvs.SetWriteset(4, 2, map[string][]byte{
+		"key4": []byte("value4_c"),
+	})
 	// readset should remain valid
 	require.True(t, vis.ValidateReadset())
 
 	// mvs has an estimate
-	mvs.SetEstimate(1, 2, []byte("key2"))
+	mvs.SetEstimatedWriteset(1, 1, map[string][]byte{
+		"key2": nil,
+	})
 	// readset should be invalid now - but via abort channel write
 	go func() {
 		vis.ValidateReadset()
@@ -236,10 +274,20 @@ func TestVersionIndexedStoreValidation(t *testing.T) {
 	require.Equal(t, 1, abort.DependentTxIdx)
 
 	// test key deleted later
-	mvs.Delete(1, 1, []byte("key2"))
+	mvs.SetWriteset(1, 1, map[string][]byte{
+		"key3": []byte("value3"),
+		"key1": []byte("value1"),
+		"key4": []byte("value4"),
+		"key2": nil,
+	})
 	require.False(t, vis.ValidateReadset())
 	// reset key2
-	mvs.Set(1, 1, []byte("key2"), []byte("value2"))
+	mvs.SetWriteset(1, 1, map[string][]byte{
+		"key3": []byte("value3"),
+		"key1": []byte("value1"),
+		"key4": []byte("value4"),
+		"key2": []byte("value2"),
+	})
 
 	// lastly verify panic if parent kvstore has a conflict - this shouldn't happen but lets assert that it would panic
 	parentKVStore.Set([]byte("keyDNE"), []byte("foobar"))

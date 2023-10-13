@@ -10,25 +10,38 @@ import (
 )
 
 func TestMultiVersionStore(t *testing.T) {
-	store := multiversion.NewMultiVersionStore()
+	store := multiversion.NewMultiVersionStore(nil)
 
 	// Test Set and GetLatest
-	store.Set(1, 1, []byte("key1"), []byte("value1"))
-	store.Set(2, 1, []byte("key1"), []byte("value2"))
-	store.Set(3, 1, []byte("key2"), []byte("value3"))
+	store.SetWriteset(1, 1, map[string][]byte{
+		"key1": []byte("value1"),
+	})
+	store.SetWriteset(2, 1, map[string][]byte{
+		"key1": []byte("value2"),
+	})
+	store.SetWriteset(3, 1, map[string][]byte{
+		"key2": []byte("value3"),
+	})
+
 	require.Equal(t, []byte("value2"), store.GetLatest([]byte("key1")).Value())
 	require.Equal(t, []byte("value3"), store.GetLatest([]byte("key2")).Value())
 
 	// Test SetEstimate
-	store.SetEstimate(4, 1, []byte("key1"))
+	store.SetEstimatedWriteset(4, 1, map[string][]byte{
+		"key1": nil,
+	})
 	require.True(t, store.GetLatest([]byte("key1")).IsEstimate())
 
 	// Test Delete
-	store.Delete(5, 1, []byte("key1"))
+	store.SetWriteset(5, 1, map[string][]byte{
+		"key1": nil,
+	})
 	require.True(t, store.GetLatest([]byte("key1")).IsDeleted())
 
 	// Test GetLatestBeforeIndex
-	store.Set(6, 1, []byte("key1"), []byte("value4"))
+	store.SetWriteset(6, 1, map[string][]byte{
+		"key1": []byte("value4"),
+	})
 	require.True(t, store.GetLatestBeforeIndex(5, []byte("key1")).IsEstimate())
 	require.Equal(t, []byte("value4"), store.GetLatestBeforeIndex(7, []byte("key1")).Value())
 
@@ -39,16 +52,18 @@ func TestMultiVersionStore(t *testing.T) {
 }
 
 func TestMultiVersionStoreHasLaterValue(t *testing.T) {
-	store := multiversion.NewMultiVersionStore()
+	store := multiversion.NewMultiVersionStore(nil)
 
-	store.Set(5, 1, []byte("key1"), []byte("value2"))
+	store.SetWriteset(5, 1, map[string][]byte{
+		"key1": []byte("value2"),
+	})
 
 	require.Nil(t, store.GetLatestBeforeIndex(4, []byte("key1")))
 	require.Equal(t, []byte("value2"), store.GetLatestBeforeIndex(6, []byte("key1")).Value())
 }
 
 func TestMultiVersionStoreKeyDNE(t *testing.T) {
-	store := multiversion.NewMultiVersionStore()
+	store := multiversion.NewMultiVersionStore(nil)
 
 	require.Nil(t, store.GetLatest([]byte("key1")))
 	require.Nil(t, store.GetLatestBeforeIndex(0, []byte("key1")))
@@ -58,18 +73,24 @@ func TestMultiVersionStoreKeyDNE(t *testing.T) {
 func TestMultiVersionStoreWriteToParent(t *testing.T) {
 	// initialize cachekv store
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
-	mvs := multiversion.NewMultiVersionStore()
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
 
 	parentKVStore.Set([]byte("key2"), []byte("value0"))
 	parentKVStore.Set([]byte("key4"), []byte("value4"))
 
-	mvs.Set(1, 1, []byte("key1"), []byte("value1"))
-	mvs.Set(2, 1, []byte("key1"), []byte("value2"))
-	mvs.Set(3, 1, []byte("key2"), []byte("value3"))
-	mvs.Delete(1, 1, []byte("key3"))
-	mvs.Delete(1, 1, []byte("key4"))
+	mvs.SetWriteset(1, 1, map[string][]byte{
+		"key1": []byte("value1"),
+		"key3": nil,
+		"key4": nil,
+	})
+	mvs.SetWriteset(2, 1, map[string][]byte{
+		"key1": []byte("value2"),
+	})
+	mvs.SetWriteset(3, 1, map[string][]byte{
+		"key2": []byte("value3"),
+	})
 
-	mvs.WriteLatestToStore(parentKVStore)
+	mvs.WriteLatestToStore()
 
 	// assert state in parent store
 	require.Equal(t, []byte("value2"), parentKVStore.Get([]byte("key1")))
@@ -78,13 +99,18 @@ func TestMultiVersionStoreWriteToParent(t *testing.T) {
 	require.False(t, parentKVStore.Has([]byte("key4")))
 
 	// verify no-op if mvs contains ESTIMATE
-	mvs.SetEstimate(1, 2, []byte("key5"))
-	mvs.WriteLatestToStore(parentKVStore)
+	mvs.SetEstimatedWriteset(1, 2, map[string][]byte{
+		"key1": []byte("value1"),
+		"key3": nil,
+		"key4": nil,
+		"key5": nil,
+	})
+	mvs.WriteLatestToStore()
 	require.False(t, parentKVStore.Has([]byte("key5")))
 }
 
 func TestMultiVersionStoreWritesetSetAndInvalidate(t *testing.T) {
-	mvs := multiversion.NewMultiVersionStore()
+	mvs := multiversion.NewMultiVersionStore(nil)
 
 	writeset := make(map[string][]byte)
 	writeset["key1"] = []byte("value1")
@@ -139,4 +165,67 @@ func TestMultiVersionStoreWritesetSetAndInvalidate(t *testing.T) {
 	require.Equal(t, []string{"key1"}, writesetKeys[2])
 	require.Equal(t, []string{"key4", "key5"}, writesetKeys[3])
 
+}
+
+func TestMultiVersionStoreValidateState(t *testing.T) {
+	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+
+	parentKVStore.Set([]byte("key2"), []byte("value0"))
+	parentKVStore.Set([]byte("key3"), []byte("value3"))
+	parentKVStore.Set([]byte("key4"), []byte("value4"))
+	parentKVStore.Set([]byte("key5"), []byte("value5"))
+
+	writeset := make(multiversion.WriteSet)
+	writeset["key1"] = []byte("value1")
+	writeset["key2"] = []byte("value2")
+	writeset["key3"] = nil
+	mvs.SetWriteset(1, 2, writeset)
+
+	readset := make(multiversion.ReadSet)
+	readset["key1"] = []byte("value1")
+	readset["key2"] = []byte("value2")
+	readset["key3"] = nil
+	readset["key4"] = []byte("value4")
+	readset["key5"] = []byte("value5")
+	mvs.SetReadset(5, readset)
+
+	// assert no readset is valid
+	conflicts := mvs.ValidateTransactionState(4)
+	require.Empty(t, conflicts)
+
+	// assert readset index 5 is valid
+	conflicts = mvs.ValidateTransactionState(5)
+	require.Empty(t, conflicts)
+
+	// introduce conflict
+	mvs.SetWriteset(2, 1, map[string][]byte{
+		"key3": []byte("value6"),
+	})
+
+	// expect index 2 to be returned
+	conflicts = mvs.ValidateTransactionState(5)
+	require.Equal(t, []int{2}, conflicts)
+
+	// add a conflict due to deletion
+	mvs.SetWriteset(3, 1, map[string][]byte{
+		"key1": nil,
+	})
+
+	// expect indices 2 and 3 to be returned
+	conflicts = mvs.ValidateTransactionState(5)
+	require.Equal(t, []int{2, 3}, conflicts)
+
+	// add a conflict due to estimate
+	mvs.SetEstimatedWriteset(4, 1, map[string][]byte{
+		"key2": []byte("test"),
+	})
+
+	// expect indices 2, 3, and 4to be returned
+	conflicts = mvs.ValidateTransactionState(5)
+	require.Equal(t, []int{2, 3, 4}, conflicts)
+
+	// assert panic for parent store mismatch
+	parentKVStore.Set([]byte("key5"), []byte("value6"))
+	require.Panics(t, func() { mvs.ValidateTransactionState(5) })
 }

@@ -1,27 +1,31 @@
 package multiversion
 
 import (
+	"bytes"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 )
 
 type MultiVersionStore interface {
 	GetLatest(key []byte) (value MultiVersionValueItem)
 	GetLatestBeforeIndex(index int, key []byte) (value MultiVersionValueItem)
-	Set(index int, incarnation int, key []byte, value []byte) // TODO: maybe we don't need these if all writes are coming from writesets
-	SetEstimate(index int, incarnation int, key []byte)       // TODO: maybe we don't need these if all writes are coming from writesets
-	Delete(index int, incarnation int, key []byte)            // TODO: maybe we don't need these if all writes are coming from writesets
 	Has(index int, key []byte) bool
-	WriteLatestToStore(parentStore types.KVStore)
+	WriteLatestToStore()
 	SetWriteset(index int, incarnation int, writeset WriteSet)
 	InvalidateWriteset(index int, incarnation int)
 	SetEstimatedWriteset(index int, incarnation int, writeset WriteSet)
 	GetAllWritesetKeys() map[int][]string
+	SetReadset(index int, readset ReadSet)
+	GetReadset(index int) ReadSet
+	ValidateTransactionState(index int) []int
 }
 
 type WriteSet map[string][]byte
+type ReadSet map[string][]byte
 
 var _ MultiVersionStore = (*Store)(nil)
 
@@ -32,12 +36,17 @@ type Store struct {
 	// TODO: do we need to support iterators as well similar to how cachekv does it - yes
 
 	txWritesetKeys map[int][]string // map of tx index -> writeset keys
+	txReadSets     map[int]ReadSet
+
+	parentStore types.KVStore
 }
 
-func NewMultiVersionStore() *Store {
+func NewMultiVersionStore(parentStore types.KVStore) *Store {
 	return &Store{
 		multiVersionMap: make(map[string]MultiVersionValue),
 		txWritesetKeys:  make(map[int][]string),
+		txReadSets:      make(map[int]ReadSet),
+		parentStore:     parentStore,
 	}
 }
 
@@ -99,16 +108,6 @@ func (s *Store) tryInitMultiVersionItem(keyString string) {
 	}
 }
 
-// Set implements MultiVersionStore.
-func (s *Store) Set(index int, incarnation int, key []byte, value []byte) {
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
-
-	keyString := string(key)
-	s.tryInitMultiVersionItem(keyString)
-	s.multiVersionMap[keyString].Set(index, incarnation, value)
-}
-
 func (s *Store) removeOldWriteset(index int, newWriteSet WriteSet) {
 	writeset := make(map[string][]byte)
 	if newWriteSet != nil {
@@ -135,6 +134,7 @@ func (s *Store) removeOldWriteset(index int, newWriteSet WriteSet) {
 }
 
 // SetWriteset sets a writeset for a transaction index, and also writes all of the multiversion items in the writeset to the multiversion store.
+// TODO: returns a list of NEW keys added
 func (s *Store) SetWriteset(index int, incarnation int, writeset WriteSet) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
@@ -153,7 +153,7 @@ func (s *Store) SetWriteset(index int, incarnation int, writeset WriteSet) {
 			s.multiVersionMap[key].Set(index, incarnation, value)
 		}
 	}
-	sort.Strings(writeSetKeys)
+	sort.Strings(writeSetKeys) // TODO: if we're sorting here anyways, maybe we just put it into a btree instead of a slice
 	s.txWritesetKeys[index] = writeSetKeys
 }
 
@@ -198,27 +198,63 @@ func (s *Store) GetAllWritesetKeys() map[int][]string {
 	return s.txWritesetKeys
 }
 
-// SetEstimate implements MultiVersionStore.
-func (s *Store) SetEstimate(index int, incarnation int, key []byte) {
+func (s *Store) SetReadset(index int, readset ReadSet) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
-	keyString := string(key)
-	s.tryInitMultiVersionItem(keyString)
-	s.multiVersionMap[keyString].SetEstimate(index, incarnation)
+	s.txReadSets[index] = readset
 }
 
-// Delete implements MultiVersionStore.
-func (s *Store) Delete(index int, incarnation int, key []byte) {
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
+func (s *Store) GetReadset(index int) ReadSet {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
 
-	keyString := string(key)
-	s.tryInitMultiVersionItem(keyString)
-	s.multiVersionMap[keyString].Delete(index, incarnation)
+	return s.txReadSets[index]
 }
 
-func (s *Store) WriteLatestToStore(parentStore types.KVStore) {
+func (s *Store) ValidateTransactionState(index int) []int {
+	defer telemetry.MeasureSince(time.Now(), "store", "mvs", "validate")
+	conflictSet := map[int]struct{}{}
+
+	// validate readset
+	readset := s.GetReadset(index)
+	// iterate over readset and check if the value is the same as the latest value relateive to txIndex in the multiversion store
+	for key, value := range readset {
+		// get the latest value from the multiversion store
+		latestValue := s.GetLatestBeforeIndex(index, []byte(key))
+		if latestValue == nil {
+			// TODO: maybe we don't even do this check?
+			parentVal := s.parentStore.Get([]byte(key))
+			if !bytes.Equal(parentVal, value) {
+				panic("there shouldn't be readset conflicts with parent kv store, since it shouldn't change")
+			}
+		} else {
+			// if estimate, mark as conflict index
+			if latestValue.IsEstimate() {
+				conflictSet[latestValue.Index()] = struct{}{}
+			} else if latestValue.IsDeleted() {
+				if value != nil {
+					// conflict
+					conflictSet[latestValue.Index()] = struct{}{}
+				}
+			} else if !bytes.Equal(latestValue.Value(), value) {
+				conflictSet[latestValue.Index()] = struct{}{}
+			}
+		}
+	}
+	// TODO: validate iterateset
+
+	// convert conflictset into sorted indices
+	conflictIndices := make([]int, 0, len(conflictSet))
+	for index := range conflictSet {
+		conflictIndices = append(conflictIndices, index)
+	}
+
+	sort.Ints(conflictIndices)
+	return conflictIndices
+}
+
+func (s *Store) WriteLatestToStore() {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
@@ -245,11 +281,11 @@ func (s *Store) WriteLatestToStore(parentStore types.KVStore) {
 			// be sure if the underlying store might do a save with the byteslice or
 			// not. Once we get confirmation that .Delete is guaranteed not to
 			// save the byteslice, then we can assume only a read-only copy is sufficient.
-			parentStore.Delete([]byte(key))
+			s.parentStore.Delete([]byte(key))
 			continue
 		}
 		if mvValue.Value() != nil {
-			parentStore.Set([]byte(key), mvValue.Value())
+			s.parentStore.Set([]byte(key), mvValue.Value())
 		}
 	}
 }
