@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 
 	"github.com/cosmos/iavl"
 	"github.com/cosmos/iavl/cache"
@@ -34,6 +35,9 @@ type Tree struct {
 
 	// when true, the get and iterator methods could return a slice pointing to mmaped blob files.
 	zeroCopy bool
+
+	// sync.RWMutex is used to protect the cache for thread safety
+	mtx *sync.RWMutex
 }
 
 type cacheNode struct {
@@ -60,6 +64,7 @@ func NewEmptyTree(version uint64, initialVersion uint32, cacheSize int) *Tree {
 		// no need to copy if the tree is not backed by snapshot
 		zeroCopy: true,
 		cache:    NewCache(cacheSize),
+		mtx:      &sync.RWMutex{},
 	}
 }
 
@@ -81,6 +86,7 @@ func NewFromSnapshot(snapshot *Snapshot, zeroCopy bool, cacheSize int) *Tree {
 		snapshot: snapshot,
 		zeroCopy: zeroCopy,
 		cache:    NewCache(cacheSize),
+		mtx:      &sync.RWMutex{},
 	}
 
 	if !snapshot.IsEmpty() {
@@ -131,6 +137,8 @@ func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
 }
 
 func (t *Tree) set(key, value []byte) {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
 	if value == nil {
 		// the value could be nil when replaying changes from write-ahead-log because of protobuf decoding
 		value = []byte{}
@@ -142,6 +150,8 @@ func (t *Tree) set(key, value []byte) {
 }
 
 func (t *Tree) remove(key []byte) {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
 	_, t.root, _ = removeRecursive(t.root, key, t.version+1, t.cowVersion)
 	if t.cache != nil {
 		t.cache.Remove(key)
@@ -206,6 +216,8 @@ func (t *Tree) GetByIndex(index int64) ([]byte, []byte) {
 }
 
 func (t *Tree) Get(key []byte) []byte {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
 	if t.cache != nil {
 		if node := t.cache.Get(key); node != nil {
 			return node.(*cacheNode).value
