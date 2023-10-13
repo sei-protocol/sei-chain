@@ -2,6 +2,7 @@ package rootmulti
 
 import (
 	"fmt"
+	"github.com/sei-protocol/sei-db/proto"
 	"io"
 	"math"
 	"sort"
@@ -52,12 +53,12 @@ type Store struct {
 	supportExportNonSnapshotVersion bool
 }
 
-func NewStore(dir string, logger log.Logger, sdk46Compact bool, supportExportNonSnapshotVersion bool) *Store {
+func NewStore(dir string, logger log.Logger, opts memiavl.Options) *Store {
 	return &Store{
 		dir:                             dir,
 		logger:                          logger,
-		sdk46Compact:                    sdk46Compact,
-		supportExportNonSnapshotVersion: supportExportNonSnapshotVersion,
+		sdk46Compact:                    opts.SdkBackwardCompatible,
+		supportExportNonSnapshotVersion: opts.ExportNonSnapshotVersion,
 
 		storesParams: make(map[types.StoreKey]storeParams),
 		keysByName:   make(map[string]types.StoreKey),
@@ -68,14 +69,14 @@ func NewStore(dir string, logger log.Logger, sdk46Compact bool, supportExportNon
 
 // flush writes all the pending change sets to memiavl tree.
 func (rs *Store) flush() error {
-	var changeSets []*memiavl.NamedChangeSet
+	var changeSets []*proto.NamedChangeSet
 	for key := range rs.stores {
 		// it'll unwrap the inter-block cache
 		store := rs.GetCommitKVStore(key)
 		if memiavlStore, ok := store.(*memiavlstore.Store); ok {
 			cs := memiavlStore.PopChangeSet()
 			if len(cs.Pairs) > 0 {
-				changeSets = append(changeSets, &memiavl.NamedChangeSet{
+				changeSets = append(changeSets, &proto.NamedChangeSet{
 					Name:      key.Name(),
 					Changeset: cs,
 				})
@@ -103,7 +104,7 @@ func (rs *Store) WorkingHash() []byte {
 	return commitInfo.Hash()
 }
 
-// Implements interface Committer
+// Commit implements interface Committer
 func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	if !bumpVersion {
 		return rs.lastCommitInfo.CommitID()
@@ -346,13 +347,13 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 		return errors.Wrapf(err, "fail to load memiavl at %s", rs.dir)
 	}
 
-	var treeUpgrades []*memiavl.TreeNameUpgrade
+	var treeUpgrades []*proto.TreeNameUpgrade
 	for _, key := range storesKeys {
 		switch {
 		case upgrades.IsDeleted(key.Name()):
-			treeUpgrades = append(treeUpgrades, &memiavl.TreeNameUpgrade{Name: key.Name(), Delete: true})
+			treeUpgrades = append(treeUpgrades, &proto.TreeNameUpgrade{Name: key.Name(), Delete: true})
 		case upgrades.IsAdded(key.Name()) || upgrades.RenamedFrom(key.Name()) != "":
-			treeUpgrades = append(treeUpgrades, &memiavl.TreeNameUpgrade{Name: key.Name(), RenameFrom: upgrades.RenamedFrom(key.Name())})
+			treeUpgrades = append(treeUpgrades, &proto.TreeNameUpgrade{Name: key.Name(), RenameFrom: upgrades.RenamedFrom(key.Name())})
 		}
 	}
 
@@ -623,7 +624,7 @@ func amendCommitInfo(commitInfo *types.CommitInfo, storeParams map[types.StoreKe
 	return mergeStoreInfos(commitInfo, extraStoreInfos)
 }
 
-func convertCommitInfo(commitInfo *memiavl.CommitInfo) *types.CommitInfo {
+func convertCommitInfo(commitInfo *proto.CommitInfo) *types.CommitInfo {
 	storeInfos := make([]types.StoreInfo, len(commitInfo.StoreInfos))
 	for i, storeInfo := range commitInfo.StoreInfos {
 		storeInfos[i] = types.StoreInfo{
