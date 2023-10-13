@@ -35,6 +35,10 @@ func NewEVMHTTPServer(
 			Namespace: "eth",
 			Service:   NewBlockAPI(tmClient, k, ctxProvider, txDecoder),
 		},
+		{
+			Namespace: "eth",
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txDecoder),
+		},
 	}
 	if err := httpServer.enableRPC(apis, httpConfig{
 		// TODO: add CORS configs and virtual host configs
