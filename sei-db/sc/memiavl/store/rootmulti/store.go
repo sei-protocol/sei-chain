@@ -211,6 +211,8 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	if version == 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		return rs.CacheMultiStore(), nil
 	}
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
 	opts := rs.opts
 	opts.TargetVersion = uint32(version)
 	opts.ReadOnly = true
@@ -368,6 +370,8 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 		}
 	}
 
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
 	rs.db = db
 	rs.stores = newStores
 	// to keep the root hash compatible with cosmos-sdk 0.46
