@@ -1,7 +1,6 @@
 package memiavl
 
 import (
-	"github.com/cosmos/cosmos-sdk/store"
 	"path/filepath"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -38,28 +37,22 @@ func SetupMemIAVL(logger log.Logger, homePath string, appOpts servertypes.AppOpt
 			SdkBackwardCompatible:    cast.ToBool(appOpts.Get(FlagSDKBackwardCompatible)),
 			ExportNonSnapshotVersion: cast.ToBool(appOpts.Get(FlagExportNonSnapshotVersion)),
 		}
-		cms := rootmulti.NewStore(filepath.Join(homePath, "data", "memiavl.db"), logger, opts)
-		cms.SetMemIAVLOptions(opts)
 
 		// cms must be overridden before the other options, because they may use the cms,
 		// make sure the cms aren't be overridden by the other options later on.
-		baseAppOptions = append([]func(*baseapp.BaseApp){setMemIAVL(cms, logger, opts)}, baseAppOptions...)
+		baseAppOptions = append([]func(*baseapp.BaseApp){
+			func(baseApp *baseapp.BaseApp) {
+				cms := rootmulti.NewStore(filepath.Join(homePath, "data", "memiavl.db"), logger, opts)
+				cms.SetMemIAVLOptions(opts)
+				// trigger state-sync snapshot creation by memiavl
+				opts.TriggerStateSyncExport = func(height int64) {
+					logger.Info("Triggering memIAVL state snapshot creation")
+					baseApp.SnapshotIfApplicable(uint64(height))
+				}
+				baseApp.SetCMS(cms)
+			},
+		}, baseAppOptions...)
 	}
 
 	return baseAppOptions
-}
-
-func setMemIAVL(
-	cms store.CommitMultiStore,
-	logger log.Logger,
-	opts memiavl.Options,
-) func(*baseapp.BaseApp) {
-	return func(bapp *baseapp.BaseApp) {
-		// trigger state-sync snapshot creation by memiavl
-		opts.TriggerStateSyncExport = func(height int64) {
-			logger.Info("Triggering memIAVL state snapshot creation")
-			bapp.SnapshotIfApplicable(uint64(height))
-		}
-		bapp.SetCMS(cms)
-	}
 }

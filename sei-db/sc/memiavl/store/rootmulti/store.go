@@ -2,7 +2,6 @@ package rootmulti
 
 import (
 	"fmt"
-	"github.com/sei-protocol/sei-db/proto"
 	"io"
 	"math"
 	"sort"
@@ -16,6 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/transient"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-db/proto"
 	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/cachemulti"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/memiavlstore"
