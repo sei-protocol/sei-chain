@@ -148,21 +148,25 @@ var Ctx sdk.Context
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	EVMKeeper, _, Ctx = keeper.MockEVMKeeper()
-	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func() sdk.Context { return Ctx }, Decoder)
+	debugLogger, err := log.NewDefaultLogger("plain", "debug")
+	if err != nil {
+		panic(err)
+	}
+	httpServer, err := NewEVMHTTPServer(debugLogger, TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func() sdk.Context { return Ctx }, Decoder)
 	if err != nil {
 		panic(err)
 	}
 	if err := httpServer.Start(); err != nil {
 		panic(err)
 	}
-	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func() sdk.Context { return Ctx }, Decoder)
+	badHTTPServer, err := NewEVMHTTPServer(debugLogger, TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func() sdk.Context { return Ctx }, Decoder)
 	if err != nil {
 		panic(err)
 	}
 	if err := badHTTPServer.Start(); err != nil {
 		panic(err)
 	}
-	wsServer, err := NewEVMWebSocketServer(log.NewNopLogger(), TestAddr, TestWSPort, []string{"localhost"}, rpc.DefaultHTTPTimeouts)
+	wsServer, err := NewEVMWebSocketServer(debugLogger, TestAddr, TestWSPort, []string{"localhost"}, rpc.DefaultHTTPTimeouts)
 	if err != nil {
 		panic(err)
 	}
@@ -222,4 +226,12 @@ func init() {
 	}); err != nil {
 		panic(err)
 	}
+	EVMKeeper.SetOrDeleteBalance(Ctx, common.HexToAddress("0x1234567890123456789023456789012345678901"), 1000)
+	EVMKeeper.SetCode(Ctx, common.HexToAddress("0x1234567890123456789023456789012345678901"), []byte("abc"))
+	EVMKeeper.SetState(
+		Ctx,
+		common.HexToAddress("0x1234567890123456789023456789012345678901"),
+		common.BytesToHash([]byte("key")),
+		common.BytesToHash([]byte("value")),
+	)
 }
