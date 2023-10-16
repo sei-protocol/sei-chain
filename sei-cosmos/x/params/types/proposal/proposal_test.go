@@ -1,6 +1,8 @@
 package proposal
 
 import (
+	"fmt"
+	"github.com/tendermint/tendermint/types"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,5 +25,16 @@ func TestParameterChangeProposal(t *testing.T) {
 
 	pc4 := NewParamChange("sub", "", "cat")
 	pcp = NewParameterChangeProposal("test title", "test description", []ParamChange{pc4}, true)
+	require.Error(t, pcp.ValidateBasic())
+}
+
+func TestConsensusParameterChangeProposal(t *testing.T) {
+	// Valid block max_bytes (
+	pc1 := NewParamChange("baseapp", "BlockParams", fmt.Sprintf("{\"max_bytes\":\"%d\"}", types.MaxBlockSizeBytes))
+	pcp := NewParameterChangeProposal("test title", "test description", []ParamChange{pc1}, true)
+	require.Nil(t, pcp.ValidateBasic())
+
+	pc1 = NewParamChange("baseapp", "BlockParams", fmt.Sprintf("{\"max_bytes\":\"%d\"}", types.MaxBlockSizeBytes+1))
+	pcp = NewParameterChangeProposal("test title", "test description", []ParamChange{pc1}, true)
 	require.Error(t, pcp.ValidateBasic())
 }
