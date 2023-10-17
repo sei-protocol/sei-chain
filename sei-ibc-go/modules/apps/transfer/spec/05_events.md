@@ -22,6 +22,7 @@ order: 5
 | fungible_token_packet | denom         | {denom}         |
 | fungible_token_packet | amount        | {amount}        |
 | fungible_token_packet | success       | {ackSuccess}    |
+| fungible_token_packet | memo          | {memo}          |
 | denomination_trace    | trace_hash    | {hex_hash}      |
 
 ## OnAcknowledgePacket callback
@@ -32,6 +33,8 @@ order: 5
 | fungible_token_packet | receiver        | {receiver}        |
 | fungible_token_packet | denom           | {denom}           |
 | fungible_token_packet | amount          | {amount}          |
+| fungible_token_packet | memo            | {memo}            |
+| fungible_token_packet | acknowledgement | {ack.String()}    |
 | fungible_token_packet | success | error | {ack.Response}    |
 
 ## OnTimeoutPacket callback
@@ -42,3 +45,4 @@ order: 5
 | fungible_token_packet | refund_receiver | {receiver}      |
 | fungible_token_packet | denom           | {denom}         |
 | fungible_token_packet | amount          | {amount}        |
+| fungible_token_packet | memo            | {memo}          |

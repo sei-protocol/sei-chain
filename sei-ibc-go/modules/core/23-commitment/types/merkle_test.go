@@ -72,7 +72,6 @@ func (suite *MerkleTestSuite) TestVerifyMembership() {
 			}
 		})
 	}
-
 }
 
 func (suite *MerkleTestSuite) TestVerifyNonMembership() {
@@ -136,7 +135,6 @@ func (suite *MerkleTestSuite) TestVerifyNonMembership() {
 			}
 		})
 	}
-
 }
 
 func TestApplyPrefix(t *testing.T) {

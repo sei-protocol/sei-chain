@@ -24,7 +24,6 @@ func (q Keeper) DenomTrace(c context.Context, req *types.QueryDenomTraceRequest)
 	}
 
 	hash, err := types.ParseHexHash(strings.TrimPrefix(req.Hash, "ibc/"))
-
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid denom trace hash: %s, error: %s", hash.String(), err))
 	}
@@ -63,7 +62,6 @@ func (q Keeper) DenomTraces(c context.Context, req *types.QueryDenomTracesReques
 		traces = append(traces, result)
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}

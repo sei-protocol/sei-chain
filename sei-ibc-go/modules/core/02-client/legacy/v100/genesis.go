@@ -123,13 +123,11 @@ func MigrateGenesis(cdc codec.BinaryCodec, clientGenState *types.GenesisState, g
 												Key:   ibctmtypes.IterationKey(height),
 												Value: host.ConsensusStateKey(height),
 											})
-
 									}
 								}
 
 							}
 						}
-
 					}
 
 					// if we have metadata for unexipred consensus states, add it to consensusMetadata

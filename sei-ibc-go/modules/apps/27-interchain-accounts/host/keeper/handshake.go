@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"fmt"
-	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -33,10 +32,6 @@ func (k Keeper) OnChanOpenTry(
 
 	if portID != icatypes.PortID {
 		return "", sdkerrors.Wrapf(icatypes.ErrInvalidHostPort, "expected %s, got %s", icatypes.PortID, portID)
-	}
-
-	if !strings.HasPrefix(counterparty.PortId, icatypes.PortPrefix) {
-		return "", sdkerrors.Wrapf(icatypes.ErrInvalidControllerPort, "expected %s{owner-account-address}, got %s", icatypes.PortPrefix, counterparty.PortId)
 	}
 
 	var metadata icatypes.Metadata
@@ -70,10 +65,25 @@ func (k Keeper) OnChanOpenTry(
 		return "", sdkerrors.Wrapf(err, "failed to claim capability for channel %s on port %s", channelID, portID)
 	}
 
-	accAddress := icatypes.GenerateAddress(k.accountKeeper.GetModuleAddress(icatypes.ModuleName), metadata.HostConnectionId, counterparty.PortId)
+	var (
+		accAddress sdk.AccAddress
+		err        error
+	)
 
-	// Register interchain account if it does not already exist
-	k.RegisterInterchainAccount(ctx, metadata.HostConnectionId, counterparty.PortId, accAddress)
+	interchainAccAddr, found := k.GetInterchainAccountAddress(ctx, metadata.HostConnectionId, counterparty.PortId)
+	if found {
+		// reopening an interchain account
+		accAddress = sdk.MustAccAddressFromBech32(interchainAccAddr)
+		if _, ok := k.accountKeeper.GetAccount(ctx, accAddress).(*icatypes.InterchainAccount); !ok {
+			return "", sdkerrors.Wrapf(icatypes.ErrInvalidAccountReopening, "existing account address %s, does not have interchain account type", accAddress)
+		}
+
+	} else {
+		accAddress, err = k.createInterchainAccount(ctx, metadata.HostConnectionId, counterparty.PortId)
+		if err != nil {
+			return "", err
+		}
+	}
 
 	metadata.Address = accAddress.String()
 	versionBytes, err := icatypes.ModuleCdc.MarshalJSON(&metadata)
@@ -110,6 +120,5 @@ func (k Keeper) OnChanCloseConfirm(
 	portID,
 	channelID string,
 ) error {
-
 	return nil
 }

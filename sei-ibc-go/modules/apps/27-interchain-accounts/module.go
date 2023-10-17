@@ -73,8 +73,15 @@ func (AppModuleBasic) RegisterRESTRoutes(ctx client.Context, rtr *mux.Router) {
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the interchain accounts module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
-	controllertypes.RegisterQueryHandlerClient(context.Background(), mux, controllertypes.NewQueryClient(clientCtx))
-	hosttypes.RegisterQueryHandlerClient(context.Background(), mux, hosttypes.NewQueryClient(clientCtx))
+	err := controllertypes.RegisterQueryHandlerClient(context.Background(), mux, controllertypes.NewQueryClient(clientCtx))
+	if err != nil {
+		panic(err)
+	}
+
+	err = hosttypes.RegisterQueryHandlerClient(context.Background(), mux, hosttypes.NewQueryClient(clientCtx))
+	if err != nil {
+		panic(err)
+	}
 }
 
 // GetTxCmd implements AppModuleBasic interface
@@ -145,8 +152,13 @@ func (am AppModule) LegacyQuerierHandler(legacyQuerierCdc *codec.LegacyAmino) sd
 
 // RegisterServices registers module services
 func (am AppModule) RegisterServices(cfg module.Configurator) {
-	controllertypes.RegisterQueryServer(cfg.QueryServer(), am.controllerKeeper)
-	hosttypes.RegisterQueryServer(cfg.QueryServer(), am.hostKeeper)
+	if am.controllerKeeper != nil {
+		controllertypes.RegisterQueryServer(cfg.QueryServer(), am.controllerKeeper)
+	}
+
+	if am.hostKeeper != nil {
+		hosttypes.RegisterQueryServer(cfg.QueryServer(), am.hostKeeper)
+	}
 }
 
 // InitGenesis performs genesis initialization for the interchain accounts module.

@@ -26,19 +26,22 @@ func (suite *KeeperTestSuite) TestQueryClientState() {
 		malleate func()
 		expPass  bool
 	}{
-		{"req is nil",
+		{
+			"req is nil",
 			func() {
 				req = nil
 			},
 			false,
 		},
-		{"invalid clientID",
+		{
+			"invalid clientID",
 			func() {
 				req = &types.QueryClientStateRequest{}
 			},
 			false,
 		},
-		{"client not found",
+		{
+			"client not found",
 			func() {
 				req = &types.QueryClientStateRequest{
 					ClientId: testClientID,
@@ -98,7 +101,8 @@ func (suite *KeeperTestSuite) TestQueryClientStates() {
 		malleate func()
 		expPass  bool
 	}{
-		{"req is nil",
+		{
+			"req is nil",
 			func() {
 				req = nil
 			},
@@ -188,7 +192,8 @@ func (suite *KeeperTestSuite) TestQueryConsensusState() {
 		malleate func()
 		expPass  bool
 	}{
-		{"req is nil",
+		{
+			"req is nil",
 			func() {
 				req = nil
 			},
@@ -482,9 +487,7 @@ func (suite *KeeperTestSuite) TestQueryConsensusStateHeights() {
 }
 
 func (suite *KeeperTestSuite) TestQueryClientStatus() {
-	var (
-		req *types.QueryClientStatusRequest
-	)
+	var req *types.QueryClientStatusRequest
 
 	testCases := []struct {
 		msg       string
@@ -492,19 +495,22 @@ func (suite *KeeperTestSuite) TestQueryClientStatus() {
 		expPass   bool
 		expStatus string
 	}{
-		{"req is nil",
+		{
+			"req is nil",
 			func() {
 				req = nil
 			},
 			false, "",
 		},
-		{"invalid clientID",
+		{
+			"invalid clientID",
 			func() {
 				req = &types.QueryClientStatusRequest{}
 			},
 			false, "",
 		},
-		{"client not found",
+		{
+			"client not found",
 			func() {
 				req = &types.QueryClientStatusRequest{
 					ClientId: ibctesting.InvalidID,
@@ -589,7 +595,8 @@ func (suite *KeeperTestSuite) TestQueryUpgradedConsensusStates() {
 		malleate func()
 		expPass  bool
 	}{
-		{"req is nil",
+		{
+			"req is nil",
 			func() {
 				req = nil
 			},

@@ -8,13 +8,11 @@ import (
 )
 
 func (suite *KeeperTestSuite) TestMigratorMigrateTraces() {
-
 	testCases := []struct {
 		msg            string
 		malleate       func()
 		expectedTraces transfertypes.Traces
 	}{
-
 		{
 			"success: two slashes in base denom",
 			func() {

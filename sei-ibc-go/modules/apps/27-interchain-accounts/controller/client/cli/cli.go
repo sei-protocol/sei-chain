@@ -14,6 +14,7 @@ func GetQueryCmd() *cobra.Command {
 	}
 
 	queryCmd.AddCommand(
+		GetCmdQueryInterchainAccount(),
 		GetCmdParams(),
 	)
 

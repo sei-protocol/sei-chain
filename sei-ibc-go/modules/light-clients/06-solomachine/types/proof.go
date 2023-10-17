@@ -55,7 +55,8 @@ func MisbehaviourSignBytes(
 	sequence, timestamp uint64,
 	diversifier string,
 	dataType DataType,
-	data []byte) ([]byte, error) {
+	data []byte,
+) ([]byte, error) {
 	signBytes := &SignBytes{
 		Sequence:    sequence,
 		Timestamp:   timestamp,

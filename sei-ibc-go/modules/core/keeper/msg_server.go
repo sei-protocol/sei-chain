@@ -16,9 +16,11 @@ import (
 	coretypes "github.com/cosmos/ibc-go/v3/modules/core/types"
 )
 
-var _ clienttypes.MsgServer = Keeper{}
-var _ connectiontypes.MsgServer = Keeper{}
-var _ channeltypes.MsgServer = Keeper{}
+var (
+	_ clienttypes.MsgServer     = Keeper{}
+	_ connectiontypes.MsgServer = Keeper{}
+	_ channeltypes.MsgServer    = Keeper{}
+)
 
 // CreateClient defines a rpc handler method for MsgCreateClient.
 func (k Keeper) CreateClient(goCtx context.Context, msg *clienttypes.MsgCreateClient) (*clienttypes.MsgCreateClientResponse, error) {
@@ -408,12 +410,12 @@ func (k Keeper) RecvPacket(goCtx context.Context, msg *channeltypes.MsgRecvPacke
 	// Cache context so that we may discard state changes from callback if the acknowledgement is unsuccessful.
 	cacheCtx, writeFn = ctx.CacheContext()
 	ack := cbs.OnRecvPacket(cacheCtx, msg.Packet, relayer)
+	// NOTE: The context returned by CacheContext() refers to a new EventManager, so it needs to explicitly set events to the original context.
+	// Events from callback are emitted regardless of acknowledgement success
+	ctx.EventManager().EmitEvents(cacheCtx.EventManager().Events())
 	if ack == nil || ack.Success() {
 		// write application state changes for asynchronous and successful acknowledgements
 		writeFn()
-		// NOTE: The context returned by CacheContext() refers to a new EventManager, so it needs to explicitly set events to the original context.
-		// Events from callback are emitted regardless of acknowledgement success
-		ctx.EventManager().EmitEvents(cacheCtx.EventManager().Events())
 	}
 
 	// Set packet acknowledgement only if the acknowledgement is not nil.

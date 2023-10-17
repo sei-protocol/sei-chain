@@ -73,7 +73,8 @@ func TestAddGenesisAccountCmd(t *testing.T) {
 			cmd.SetArgs([]string{
 				tc.addr,
 				tc.denom,
-				fmt.Sprintf("--%s=home", flags.FlagHome)})
+				fmt.Sprintf("--%s=home", flags.FlagHome),
+			})
 
 			if tc.expectErr {
 				require.Error(t, cmd.ExecuteContext(ctx))

@@ -280,7 +280,7 @@ func (suite *KeeperTestSuite) TestModelBasedRelay() {
 		panic(fmt.Errorf("Failed to read model-based test files: %w", err))
 	}
 	for _, file_info := range files {
-		var tlaTestCases = []TlaOnRecvPacketTestCase{}
+		tlaTestCases := []TlaOnRecvPacketTestCase{}
 		if !strings.HasSuffix(file_info.Name(), ".json") {
 			continue
 		}

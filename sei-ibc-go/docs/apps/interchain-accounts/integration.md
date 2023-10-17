@@ -76,7 +76,7 @@ app.ICAControllerKeeper = icacontrollerkeeper.NewKeeper(
 		appCodec, keys[icacontrollertypes.StoreKey], app.GetSubspace(icacontrollertypes.SubModuleName),
 		app.IBCKeeper.ChannelKeeper, // may be replaced with middleware such as ics29 fee
 		app.IBCKeeper.ChannelKeeper, &app.IBCKeeper.PortKeeper,
-		app.AccountKeeper, scopedICAControllerKeeper, app.MsgServiceRouter(),
+		scopedICAControllerKeeper, app.MsgServiceRouter(),
 )
 app.ICAHostKeeper = icahostkeeper.NewKeeper(
 		appCodec, keys[icahosttypes.StoreKey], app.GetSubspace(icahosttypes.SubModuleName),
@@ -122,6 +122,13 @@ app.mm.SetOrderInitGenesis(
     icatypes.ModuleName,
     ...
 )
+
+// initParamsKeeper init params keeper and its subspaces
+func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey sdk.StoreKey) paramskeeper.Keeper {
+    ...
+    paramsKeeper.Subspace(icahosttypes.SubModuleName)
+    paramsKeeper.Subspace(icacontrollertypes.SubModuleName)
+    ...
 ```
 
 ### Using submodules exclusively

@@ -96,7 +96,6 @@ func IterateConsensusMetadata(store sdk.KVStore, cb func(key, val []byte) bool) 
 		if len(keySplit) != 3 {
 			// ignore all consensus state keys
 			continue
-
 		}
 
 		if keySplit[2] != "processedTime" && keySplit[2] != "processedHeight" {

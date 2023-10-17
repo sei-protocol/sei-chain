@@ -183,9 +183,7 @@ func (suite *KeeperTestSuite) TestSendTx() {
 }
 
 func (suite *KeeperTestSuite) TestOnTimeoutPacket() {
-	var (
-		path *ibctesting.Path
-	)
+	var path *ibctesting.Path
 
 	testCases := []struct {
 		msg      string

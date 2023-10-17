@@ -7,7 +7,7 @@ order: 6
 ## Pre-requisites Readings
 
 - [IBC Overview](./overview.md) {prereq}
-- [Events](https://github.com/cosmos/cosmos-sdk/blob/master/docs/core/events.md) {prereq}
+- [Events](https://github.com/cosmos/cosmos-sdk/blob/main/docs/docs/core/08-events.md) {prereq}
 
 ## Events
 
@@ -27,7 +27,7 @@ a module event emission with the attribute value `ibc_<submodulename>` (02-clien
 
 ### Subscribing with Tendermint 
 
-Calling the Tendermint RPC method `Subscribe` via [Tendermint's Websocket](https://docs.tendermint.com/v0.35/rpc/) will return events using
+Calling the Tendermint RPC method `Subscribe` via [Tendermint's Websocket](https://docs.tendermint.com/main/rpc/) will return events using
 Tendermint's internal representation of them. Instead of receiving back a list of events as they
 were emitted, Tendermint will return the type `map[string][]string` which maps a string in the
 form `<event_type>.<attribute_key>` to `attribute_value`. This causes extraction of the event 
@@ -42,5 +42,5 @@ piece of information needed to relay a packet.
 
 ## Example Implementations
 
-- [Golang Relayer](https://github.com/iqlusioninc/relayer)
-- [Hermes](https://github.com/informalsystems/ibc-rs/tree/master/relayer)
+- [Golang Relayer](https://github.com/cosmos/relayer)
+- [Hermes](https://github.com/informalsystems/ibc-rs/tree/master/crates/relayer)
