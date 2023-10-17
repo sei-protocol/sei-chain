@@ -116,3 +116,58 @@ func TestGetTransaction(t *testing.T) {
 		require.Nil(t, resObj["result"])
 	}
 }
+
+func TestGetTransactionCount(t *testing.T) {
+	// happy path
+	bodyByNumber := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"0x8\"],\"id\":\"test\"}"
+	bodyByHash := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"0x3030303030303030303030303030303030303030303030303030303030303031\"],\"id\":\"test\"}"
+
+	for _, body := range []string{bodyByNumber, bodyByHash} {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+		require.Nil(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		require.Nil(t, err)
+		resBody, err := io.ReadAll(res.Body)
+		require.Nil(t, err)
+		resObj := map[string]interface{}{}
+		require.Nil(t, json.Unmarshal(resBody, &resObj))
+		count := resObj["result"].(string)
+		require.Equal(t, "0x1", count)
+	}
+
+	// address that doesn't have tx
+	strangerBody := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x0123456789012345678902345678901234567891\",\"0x8\"],\"id\":\"test\"}"
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(strangerBody))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err := io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj := map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	count := resObj["result"].(string)
+	require.Equal(t, "0x0", count) // no tx
+
+	// error cases
+	earliestBodyToBadPort := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"earliest\"],\"id\":\"test\"}"
+	for body, errStr := range map[string]string{
+		earliestBodyToBadPort: "error genesis",
+		bodyByNumber:          "error block",
+		bodyByHash:            "error block",
+	} {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestBadPort), strings.NewReader(body))
+		require.Nil(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		require.Nil(t, err)
+		resBody, err := io.ReadAll(res.Body)
+		require.Nil(t, err)
+		resObj := map[string]interface{}{}
+		require.Nil(t, json.Unmarshal(resBody, &resObj))
+		errMap := resObj["error"].(map[string]interface{})
+		errMsg := errMap["message"].(string)
+		require.Equal(t, errStr, errMsg)
+	}
+}
