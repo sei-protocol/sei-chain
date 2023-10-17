@@ -2,14 +2,21 @@ package evmrpc
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
+	"math/big"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/bytes"
 	"github.com/tendermint/tendermint/libs/log"
@@ -139,6 +146,7 @@ var EVMKeeper *keeper.Keeper
 var Ctx sdk.Context
 
 func init() {
+	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	EVMKeeper, _, Ctx = keeper.MockEVMKeeper()
 	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func() sdk.Context { return Ctx }, Decoder)
 	if err != nil {
@@ -162,4 +170,56 @@ func init() {
 		panic(err)
 	}
 	time.Sleep(1 * time.Second)
+
+	to := common.HexToAddress("010203")
+	txData := ethtypes.DynamicFeeTx{
+		Nonce:     1,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   big.NewInt(1),
+	}
+	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
+	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
+	privKey := hd.Secp256k1.Generate()(derivedPriv)
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	evmParams := EVMKeeper.GetParams(Ctx)
+	ethCfg := evmParams.GetChainConfig().EthereumConfig(big.NewInt(1))
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
+	tx := ethtypes.NewTx(&txData)
+	tx, err = ethtypes.SignTx(tx, signer, key)
+	if err != nil {
+		panic(err)
+	}
+	typedTx, err := ethtx.NewDynamicFeeTx(tx)
+	if err != nil {
+		panic(err)
+	}
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	if err != nil {
+		panic(err)
+	}
+	b := TxConfig.NewTxBuilder()
+	if err := b.SetMsgs(msg); err != nil {
+		panic(err)
+	}
+	Tx = b.GetTx()
+	if err := EVMKeeper.SetReceipt(Ctx, tx.Hash(), &types.Receipt{
+		From:              "0x1234567890123456789012345678901234567890",
+		To:                "0x1234567890123456789012345678901234567890",
+		TransactionIndex:  0,
+		BlockNumber:       8,
+		TxType:            1,
+		ContractAddress:   "0x1234567890123456789012345678901234567890",
+		CumulativeGasUsed: 123,
+		TxHashHex:         "0x123456789012345678902345678901234567890123456789012345678901234",
+		GasUsed:           55,
+		Status:            0,
+		EffectiveGasPrice: 10,
+	}); err != nil {
+		panic(err)
+	}
 }
