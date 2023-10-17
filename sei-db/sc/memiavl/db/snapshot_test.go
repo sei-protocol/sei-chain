@@ -3,6 +3,7 @@ package memiavl
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-db/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -139,7 +140,7 @@ func TestDBSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, changes := range ChangeSets {
-		cs := []*NamedChangeSet{
+		cs := []*proto.NamedChangeSet{
 			{
 				Name:      "test",
 				Changeset: changes,

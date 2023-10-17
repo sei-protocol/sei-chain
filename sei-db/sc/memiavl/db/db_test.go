@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -22,12 +23,13 @@ func TestRewriteSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	for i, changes := range ChangeSets {
-		cs := []*NamedChangeSet{
+		cs := []*proto.NamedChangeSet{
 			{
 				Name:      "test",
 				Changeset: changes,
 			},
 		}
+
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			require.NoError(t, db.ApplyChangeSets(cs))
 			v, err := db.Commit()
@@ -89,7 +91,7 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	require.NoError(t, err)
 
 	for i, changes := range ChangeSets {
-		cs := []*NamedChangeSet{
+		cs := []*proto.NamedChangeSet{
 			{
 				Name:      "test",
 				Changeset: changes,
@@ -115,17 +117,17 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	entries, err := os.ReadDir(db.dir)
 	require.NoError(t, err)
 
-	// three files: snapshot, current link, wal, LOCK
+	// three files: snapshot, current link, rlog, LOCK
 	require.Equal(t, 4, len(entries))
 }
 
-func TestWAL(t *testing.T) {
+func TestRlog(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Load(dir, Options{CreateIfMissing: true, InitialStores: []string{"test", "delete"}})
 	require.NoError(t, err)
 
 	for _, changes := range ChangeSets {
-		cs := []*NamedChangeSet{
+		cs := []*proto.NamedChangeSet{
 			{
 				Name:      "test",
 				Changeset: changes,
@@ -138,7 +140,7 @@ func TestWAL(t *testing.T) {
 
 	require.Equal(t, 2, len(db.lastCommitInfo.StoreInfos))
 
-	require.NoError(t, db.ApplyUpgrades([]*TreeNameUpgrade{
+	require.NoError(t, db.ApplyUpgrades([]*proto.TreeNameUpgrade{
 		{
 			Name:       "newtest",
 			RenameFrom: "test",
@@ -161,8 +163,8 @@ func TestWAL(t *testing.T) {
 	require.Equal(t, RefHashes[len(RefHashes)-1], db.lastCommitInfo.StoreInfos[0].CommitId.Hash)
 }
 
-func mockNameChangeSet(name, key, value string) []*NamedChangeSet {
-	return []*NamedChangeSet{
+func mockNameChangeSet(name, key, value string) []*proto.NamedChangeSet {
+	return []*proto.NamedChangeSet{
 		{
 			Name: name,
 			Changeset: iavl.ChangeSet{
@@ -215,7 +217,7 @@ func TestInitialVersion(t *testing.T) {
 		require.Equal(t, v, db.Version())
 		require.Equal(t, hex.EncodeToString(hash), hex.EncodeToString(db.LastCommitInfo().StoreInfos[0].CommitId.Hash))
 
-		db.ApplyUpgrades([]*TreeNameUpgrade{{Name: name1}})
+		db.ApplyUpgrades([]*proto.TreeNameUpgrade{{Name: name1}})
 		require.NoError(t, db.ApplyChangeSets(mockNameChangeSet(name1, key, value)))
 		v, err = db.Commit()
 		require.NoError(t, err)
@@ -235,7 +237,7 @@ func TestInitialVersion(t *testing.T) {
 		require.NoError(t, db.RewriteSnapshot())
 		require.NoError(t, db.Reload())
 
-		db.ApplyUpgrades([]*TreeNameUpgrade{{Name: name2}})
+		db.ApplyUpgrades([]*proto.TreeNameUpgrade{{Name: name2}})
 		require.NoError(t, db.ApplyChangeSets(mockNameChangeSet(name2, key, value)))
 		v, err = db.Commit()
 		require.NoError(t, err)
@@ -261,7 +263,7 @@ func TestLoadVersion(t *testing.T) {
 	require.NoError(t, err)
 
 	for i, changes := range ChangeSets {
-		cs := []*NamedChangeSet{
+		cs := []*proto.NamedChangeSet{
 			{
 				Name:      "test",
 				Changeset: changes,
@@ -296,7 +298,7 @@ func TestLoadVersion(t *testing.T) {
 func TestZeroCopy(t *testing.T) {
 	db, err := Load(t.TempDir(), Options{InitialStores: []string{"test", "test2"}, CreateIfMissing: true, ZeroCopy: true})
 	require.NoError(t, err)
-	require.NoError(t, db.ApplyChangeSets([]*NamedChangeSet{
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "test", Changeset: ChangeSets[0]},
 	}))
 	_, err = db.Commit()
@@ -307,7 +309,7 @@ func TestZeroCopy(t *testing.T) {
 	))
 
 	// the test tree's root hash will reference the zero-copy value
-	require.NoError(t, db.ApplyChangeSets([]*NamedChangeSet{
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "test2", Changeset: ChangeSets[0]},
 	}))
 	_, err = db.Commit()
@@ -339,7 +341,7 @@ func TestZeroCopy(t *testing.T) {
 	_ = commitInfo.StoreInfos[0].CommitId.Hash[0]
 }
 
-func TestWalIndexConversion(t *testing.T) {
+func TestRlogIndexConversion(t *testing.T) {
 	testCases := []struct {
 		index          uint64
 		version        int64
@@ -351,8 +353,8 @@ func TestWalIndexConversion(t *testing.T) {
 		{2, 11, 10},
 	}
 	for _, tc := range testCases {
-		require.Equal(t, tc.index, walIndex(tc.version, tc.initialVersion))
-		require.Equal(t, tc.version, walVersion(tc.index, tc.initialVersion))
+		require.Equal(t, tc.index, versionToIndex(tc.version, tc.initialVersion))
+		require.Equal(t, tc.version, indexToVersion(tc.index, tc.initialVersion))
 	}
 }
 
@@ -361,7 +363,7 @@ func TestEmptyValue(t *testing.T) {
 	db, err := Load(dir, Options{InitialStores: []string{"test"}, CreateIfMissing: true, ZeroCopy: true})
 	require.NoError(t, err)
 
-	require.NoError(t, db.ApplyChangeSets([]*NamedChangeSet{
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "test", Changeset: iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{
 				{Key: []byte("hello1"), Value: []byte("")},
@@ -373,7 +375,7 @@ func TestEmptyValue(t *testing.T) {
 	_, err = db.Commit()
 	require.NoError(t, err)
 
-	require.NoError(t, db.ApplyChangeSets([]*NamedChangeSet{
+	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "test", Changeset: iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{{Key: []byte("hello1"), Delete: true}},
 		}},
@@ -438,14 +440,15 @@ func TestFastCommit(t *testing.T) {
 		},
 	}
 
-	// the bug reproduce when the wal writing is slower than commit, that happens when wal segment is full and create a new one, the wal writing will slow down a little bit,
+	// the bug reproduce when the rlog writing is slower than commit,
+	// that happens when rlog segment is full and create a new one,
+	// the rlog writing will slow down a little bit,
 	// segment size is 20m, each change set is 1m, so we need a bit more than 20 commits to reproduce.
 	for i := 0; i < 30; i++ {
-		require.NoError(t, db.ApplyChangeSets([]*NamedChangeSet{{Name: "test", Changeset: cs}}))
+		require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test", Changeset: cs}}))
 		_, err := db.Commit()
 		require.NoError(t, err)
 	}
-
 	<-db.snapshotRewriteChan
 	require.NoError(t, db.Close())
 }
@@ -454,7 +457,7 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	db, err := Load(t.TempDir(), Options{CreateIfMissing: true, InitialStores: []string{"test1", "test2"}, SnapshotInterval: 3, AsyncCommitBuffer: 10})
 	require.NoError(t, err)
 
-	err = db.ApplyChangeSets([]*NamedChangeSet{
+	err = db.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "test1", Changeset: iavl.ChangeSet{
 			Pairs: []*iavl.KVPair{
 				{Key: []byte("hello1"), Value: []byte("world1")},
@@ -468,7 +471,7 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = db.ApplyChangeSets([]*NamedChangeSet{{Name: "test1"}})
+	err = db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test1"}})
 	require.Error(t, err)
 	err = db.ApplyChangeSet("test1", iavl.ChangeSet{
 		Pairs: []*iavl.KVPair{

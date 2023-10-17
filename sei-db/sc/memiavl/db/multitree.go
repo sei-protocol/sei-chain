@@ -10,8 +10,9 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
-	"github.com/tidwall/wal"
+	"github.com/sei-protocol/sei-db/stream/rlog"
 	"golang.org/x/exp/slices"
 )
 
@@ -39,7 +40,7 @@ type NamedTree struct {
 type MultiTree struct {
 	// if the tree is start from genesis, it's the initial version of the chain,
 	// if the tree is imported from snapshot, it's the imported version plus one,
-	// it always corresponds to the wal entry with index 1.
+	// it always corresponds to the rlog entry with index 1.
 	initialVersion uint32
 
 	zeroCopy  bool
@@ -47,10 +48,10 @@ type MultiTree struct {
 
 	trees          []NamedTree    // always ordered by tree name
 	treesByName    map[string]int // index of the trees by name
-	lastCommitInfo CommitInfo
+	lastCommitInfo proto.CommitInfo
 
 	// the initial metadata loaded from disk snapshot
-	metadata MultiTreeMetadata
+	metadata proto.MultiTreeMetadata
 }
 
 func NewEmptyMultiTree(initialVersion uint32, cacheSize int) *MultiTree {
@@ -106,7 +107,7 @@ func LoadMultiTree(dir string, zeroCopy bool, cacheSize int) (*MultiTree, error)
 		zeroCopy:       zeroCopy,
 		cacheSize:      cacheSize,
 	}
-	// initial version is nesserary for wal index conversion
+	// initial version is necessary for rlog index conversion
 	mtree.setInitialVersion(metadata.InitialVersion)
 	return mtree, nil
 }
@@ -181,11 +182,11 @@ func (t *MultiTree) SnapshotVersion() int64 {
 	return t.metadata.CommitInfo.Version
 }
 
-func (t *MultiTree) LastCommitInfo() *CommitInfo {
+func (t *MultiTree) LastCommitInfo() *proto.CommitInfo {
 	return &t.lastCommitInfo
 }
 
-func (t *MultiTree) applyWALEntry(entry WALEntry) error {
+func (t *MultiTree) applyRlogEntry(entry proto.ReplayLogEntry) error {
 	if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 		return err
 	}
@@ -193,7 +194,7 @@ func (t *MultiTree) applyWALEntry(entry WALEntry) error {
 }
 
 // ApplyUpgrades store name upgrades
-func (t *MultiTree) ApplyUpgrades(upgrades []*TreeNameUpgrade) error {
+func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	if len(upgrades) == 0 {
 		return nil
 	}
@@ -253,7 +254,7 @@ func (t *MultiTree) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error 
 }
 
 // ApplyChangeSets applies change sets for multiple trees.
-func (t *MultiTree) ApplyChangeSets(changeSets []*NamedChangeSet) error {
+func (t *MultiTree) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
 	for _, cs := range changeSets {
 		if err := t.ApplyChangeSet(cs.Name, cs.Changeset); err != nil {
 			return err
@@ -263,7 +264,7 @@ func (t *MultiTree) ApplyChangeSets(changeSets []*NamedChangeSet) error {
 }
 
 // WorkingCommitInfo returns the commit info for the working tree
-func (t *MultiTree) WorkingCommitInfo() *CommitInfo {
+func (t *MultiTree) WorkingCommitInfo() *proto.CommitInfo {
 	version := nextVersion(t.lastCommitInfo.Version, t.initialVersion)
 	return t.buildCommitInfo(version)
 }
@@ -281,25 +282,25 @@ func (t *MultiTree) SaveVersion(updateCommitInfo bool) (int64, error) {
 		t.UpdateCommitInfo()
 	} else {
 		// clear the dirty informaton
-		t.lastCommitInfo.StoreInfos = []StoreInfo{}
+		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 	}
 
 	return t.lastCommitInfo.Version, nil
 }
 
-func (t *MultiTree) buildCommitInfo(version int64) *CommitInfo {
-	var infos = make([]StoreInfo, 0, len(t.trees))
+func (t *MultiTree) buildCommitInfo(version int64) *proto.CommitInfo {
+	var infos = make([]proto.StoreInfo, 0, len(t.trees))
 	for _, entry := range t.trees {
-		infos = append(infos, StoreInfo{
+		infos = append(infos, proto.StoreInfo{
 			Name: entry.Name,
-			CommitId: CommitID{
+			CommitId: proto.CommitID{
 				Version: entry.Tree.Version(),
 				Hash:    entry.Tree.RootHash(),
 			},
 		})
 	}
 
-	return &CommitInfo{
+	return &proto.CommitInfo{
 		Version:    version,
 		StoreInfos: infos,
 	}
@@ -311,14 +312,14 @@ func (t *MultiTree) UpdateCommitInfo() {
 	t.lastCommitInfo = *t.buildCommitInfo(t.lastCommitInfo.Version)
 }
 
-// CatchupWAL replay the new entries in the WAL on the tree to catch-up to the target or latest version.
-func (t *MultiTree) CatchupWAL(wal *wal.Log, endVersion int64) error {
-	lastIndex, err := wal.LastIndex()
+// Catchup replay the new entries in the Rlog file on the tree to catch up to the target or latest version.
+func (t *MultiTree) Catchup(rlogManager *rlog.Manager, endVersion int64) error {
+	lastIndex, err := rlogManager.LastIndex()
 	if err != nil {
-		return fmt.Errorf("read wal last index failed, %w", err)
+		return fmt.Errorf("read rlog last index failed, %w", err)
 	}
 
-	firstIndex := walIndex(nextVersion(t.Version(), t.initialVersion), t.initialVersion)
+	firstIndex := versionToIndex(nextVersion(t.Version(), t.initialVersion), t.initialVersion)
 	if firstIndex > lastIndex {
 		// already up-to-date
 		return nil
@@ -326,7 +327,7 @@ func (t *MultiTree) CatchupWAL(wal *wal.Log, endVersion int64) error {
 
 	endIndex := lastIndex
 	if endVersion != 0 {
-		endIndex = walIndex(endVersion, t.initialVersion)
+		endIndex = versionToIndex(endVersion, t.initialVersion)
 	}
 
 	if endIndex < firstIndex {
@@ -337,22 +338,19 @@ func (t *MultiTree) CatchupWAL(wal *wal.Log, endVersion int64) error {
 		return fmt.Errorf("target index %d is in the future, latest index: %d", endIndex, lastIndex)
 	}
 
-	for i := firstIndex; i <= endIndex; i++ {
-		bz, err := wal.Read(i)
-		if err != nil {
-			return fmt.Errorf("read wal log failed, %w", err)
-		}
-		var entry WALEntry
-		if err := entry.Unmarshal(bz); err != nil {
-			return fmt.Errorf("unmarshal wal log failed, %w", err)
-		}
-		if err := t.applyWALEntry(entry); err != nil {
-			return fmt.Errorf("replay wal entry failed, %w", err)
+	err = rlogManager.Replay(firstIndex, endIndex, func(index uint64, entry proto.ReplayLogEntry) error {
+		if err := t.applyRlogEntry(entry); err != nil {
+			return fmt.Errorf("apply rlog entry failed, %w", err)
 		}
 		if _, err := t.SaveVersion(false); err != nil {
-			return fmt.Errorf("replay change set failed, %w", err)
+			return fmt.Errorf("replay changeset failed to save version, %w", err)
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
+
 	t.UpdateCommitInfo()
 	return nil
 }
@@ -377,7 +375,7 @@ func (t *MultiTree) WriteSnapshot(dir string, wp *pond.WorkerPool) error {
 	}
 
 	// write commit info
-	metadata := MultiTreeMetadata{
+	metadata := proto.MultiTreeMetadata{
 		CommitInfo:     &t.lastCommitInfo,
 		InitialVersion: int64(t.initialVersion),
 	}
@@ -411,7 +409,7 @@ func (t *MultiTree) Close() error {
 	}
 	t.trees = nil
 	t.treesByName = nil
-	t.lastCommitInfo = CommitInfo{}
+	t.lastCommitInfo = proto.CommitInfo{}
 	return utils.Join(errs...)
 }
 
@@ -422,29 +420,29 @@ func nextVersion(v int64, initialVersion uint32) int64 {
 	return v + 1
 }
 
-// walIndex converts version to wal index based on initial version
-func walIndex(v int64, initialVersion uint32) uint64 {
+// indexToVersion converts version to rlog index based on initial version
+func versionToIndex(version int64, initialVersion uint32) uint64 {
 	if initialVersion > 1 {
-		return uint64(v) - uint64(initialVersion) + 1
+		return uint64(version) - uint64(initialVersion) + 1
 	}
-	return uint64(v)
+	return uint64(version)
 }
 
-// walVersion converts wal index to version, reverse of walIndex
-func walVersion(index uint64, initialVersion uint32) int64 {
+// indexToVersion converts rlog index to version, reverse of versionToIndex
+func indexToVersion(index uint64, initialVersion uint32) int64 {
 	if initialVersion > 1 {
 		return int64(index) + int64(initialVersion) - 1
 	}
 	return int64(index)
 }
 
-func readMetadata(dir string) (*MultiTreeMetadata, error) {
+func readMetadata(dir string) (*proto.MultiTreeMetadata, error) {
 	// load commit info
 	bz, err := os.ReadFile(filepath.Join(dir, MetadataFileName))
 	if err != nil {
 		return nil, err
 	}
-	var metadata MultiTreeMetadata
+	var metadata proto.MultiTreeMetadata
 	if err := metadata.Unmarshal(bz); err != nil {
 		return nil, err
 	}

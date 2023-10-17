@@ -1,0 +1,13 @@
+syntax = "proto3";
+package iavl;
+
+
+message KVPair {
+  bool delete = 1;
+  bytes key = 2;
+  bytes value = 3;
+}
+
+message ChangeSet {
+  repeated KVPair pairs = 1;
+}

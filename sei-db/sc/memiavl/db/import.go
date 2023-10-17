@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 )
 
@@ -223,7 +224,7 @@ func updateMetadataFile(dir string, height int64) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	storeInfos := make([]StoreInfo, 0, len(entries))
+	storeInfos := make([]proto.StoreInfo, 0, len(entries))
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -238,20 +239,20 @@ func updateMetadataFile(dir string, height int64) (returnErr error) {
 				returnErr = err
 			}
 		}()
-		storeInfos = append(storeInfos, StoreInfo{
+		storeInfos = append(storeInfos, proto.StoreInfo{
 			Name: name,
-			CommitId: CommitID{
+			CommitId: proto.CommitID{
 				Version: height,
 				Hash:    snapshot.RootHash(),
 			},
 		})
 	}
-	metadata := MultiTreeMetadata{
-		CommitInfo: &CommitInfo{
+	metadata := proto.MultiTreeMetadata{
+		CommitInfo: &proto.CommitInfo{
 			Version:    height,
 			StoreInfos: storeInfos,
 		},
-		// initial version should correspond to the first wal entry
+		// initial version should correspond to the first rlog entry
 		InitialVersion: height + 1,
 	}
 	bz, err := metadata.Marshal()

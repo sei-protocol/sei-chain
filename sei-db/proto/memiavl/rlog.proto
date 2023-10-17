@@ -1,6 +1,5 @@
 syntax = "proto3";
-
-option go_package = "github.com/sei-protocol/sei-db/memiavl";
+package memiavl;
 
 import "gogoproto/gogo.proto";
 import "iavl/changeset.proto";
@@ -22,8 +21,8 @@ message TreeNameUpgrade {
   bool delete        = 3;
 }
 
-// WALEntry is a single Write-Ahead-Log entry
-message WALEntry {
+// ReplayEntry is a single Replay-Log entry
+message ReplayLogEntry {
   repeated NamedChangeSet  changesets = 1;
   repeated TreeNameUpgrade upgrades   = 2;
 }

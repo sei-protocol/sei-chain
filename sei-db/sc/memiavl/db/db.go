@@ -13,12 +13,13 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
-	"github.com/tidwall/wal"
+	"github.com/sei-protocol/sei-db/stream/rlog"
 )
 
 const (
-	DefaultSnapshotInterval    = 1000
+	DefaultSnapshotInterval    = 10000
 	LockFileName               = "LOCK"
 	DefaultSnapshotWriterLimit = 4
 )
@@ -39,7 +40,7 @@ var errReadOnly = errors.New("db is read-only")
 // >    metadata
 // >  acc
 // >  ... other stores
-// > wal
+// > rlog
 // ```
 type DB struct {
 	MultiTree
@@ -59,13 +60,10 @@ type DB struct {
 	triggerStateSyncExport func(height int64)
 
 	// invariant: the LastIndex always match the current version of MultiTree
-	wal         *wal.Log
-	walChanSize int
-	walChan     chan *walEntry
-	walQuit     chan error
+	rlogManager *rlog.Manager
 
-	// pending changes, will be written into WAL in next Commit call
-	pendingLog WALEntry
+	// pending change, will be written into rlog file in next Commit call
+	pendingLogEntry proto.ReplayLogEntry
 
 	// The assumptions to concurrency:
 	// - The methods on DB are protected by a mutex
@@ -103,7 +101,14 @@ type Options struct {
 	// it do nothing if the target version is `0`.
 	LoadForOverwriting bool
 
+	// Limit the number of concurrent snapshot writers
 	SnapshotWriterLimit int
+
+	// SDK46Compatible defines if the root hash is compatible with cosmos-sdk 0.46 and before.
+	SdkBackwardCompatible bool
+
+	// ExportNonSnapshotVersion if true, the state snapshot can be exported at any version
+	ExportNonSnapshotVersion bool
 }
 
 func (opts Options) Validate() error {
@@ -181,14 +186,19 @@ func Load(dir string, opts Options) (*DB, error) {
 		return nil, err
 	}
 
-	wal, err := OpenWAL(walPath(dir), &wal.Options{NoCopy: true, NoSync: true})
+	// Create rlog manager and open the rlog file
+	rlogManager, err := rlog.NewManager(rlogPath(dir), rlog.Config{
+		Fsync:            false,
+		ZeroCopy:         true,
+		WriteChannelSize: opts.AsyncCommitBuffer,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	if opts.TargetVersion == 0 || int64(opts.TargetVersion) > mtree.Version() {
-		if err := mtree.CatchupWAL(wal, int64(opts.TargetVersion)); err != nil {
-			return nil, utils.Join(err, wal.Close())
+		if err := mtree.Catchup(rlogManager, int64(opts.TargetVersion)); err != nil {
+			return nil, utils.Join(err, rlogManager.Close())
 		}
 	}
 
@@ -206,10 +216,11 @@ func Load(dir string, opts Options) (*DB, error) {
 			}
 		}
 
-		// truncate the WAL
-		opts.Logger.Info("truncate WAL from back, version: %d", opts.TargetVersion)
-		if err := wal.TruncateBack(walIndex(int64(opts.TargetVersion), mtree.initialVersion)); err != nil {
-			return nil, fmt.Errorf("fail to truncate wal logs: %w", err)
+		// truncate the rlog file
+		opts.Logger.Info("truncate rlog after version: %d", opts.TargetVersion)
+		truncateIndex := versionToIndex(int64(opts.TargetVersion), mtree.initialVersion)
+		if err := rlogManager.TruncateAfter(truncateIndex); err != nil {
+			return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
 		}
 
 		// prune snapshots that's larger than the target version
@@ -237,8 +248,7 @@ func Load(dir string, opts Options) (*DB, error) {
 		dir:                    dir,
 		fileLock:               fileLock,
 		readOnly:               opts.ReadOnly,
-		wal:                    wal,
-		walChanSize:            opts.AsyncCommitBuffer,
+		rlogManager:            rlogManager,
 		snapshotKeepRecent:     opts.SnapshotKeepRecent,
 		snapshotInterval:       opts.SnapshotInterval,
 		triggerStateSyncExport: opts.TriggerStateSyncExport,
@@ -247,9 +257,9 @@ func Load(dir string, opts Options) (*DB, error) {
 
 	if !db.readOnly && db.Version() == 0 && len(opts.InitialStores) > 0 {
 		// do the initial upgrade with the `opts.InitialStores`
-		var upgrades []*TreeNameUpgrade
+		var upgrades []*proto.TreeNameUpgrade
 		for _, name := range opts.InitialStores {
-			upgrades = append(upgrades, &TreeNameUpgrade{Name: name})
+			upgrades = append(upgrades, &proto.TreeNameUpgrade{Name: name})
 		}
 		if err := db.ApplyUpgrades(upgrades); err != nil {
 			return nil, utils.Join(err, db.Close())
@@ -284,8 +294,8 @@ func (db *DB) ReadOnly() bool {
 }
 
 // SetInitialVersion wraps `MultiTree.SetInitialVersion`.
-// it do an immediate snapshot rewrite, because we can't use wal log to record this change,
-// because we need it to convert versions to wal index in the first place.
+// it will do a snapshot rewrite, because we can't use rlog to record this change,
+// we need it to convert versions to rlog index in the first place.
 func (db *DB) SetInitialVersion(initialVersion int64) error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
@@ -305,9 +315,9 @@ func (db *DB) SetInitialVersion(initialVersion int64) error {
 	return initEmptyDB(db.dir, db.initialVersion)
 }
 
-// ApplyUpgrades wraps MultiTree.ApplyUpgrades, it also append the upgrades in a pending log,
-// which will be persisted to the WAL in next Commit call.
-func (db *DB) ApplyUpgrades(upgrades []*TreeNameUpgrade) error {
+// ApplyUpgrades wraps MultiTree.ApplyUpgrades, it also appends the upgrades in a pending log,
+// which will be persisted to the rlog in next Commit call.
+func (db *DB) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
@@ -319,13 +329,13 @@ func (db *DB) ApplyUpgrades(upgrades []*TreeNameUpgrade) error {
 		return err
 	}
 
-	db.pendingLog.Upgrades = append(db.pendingLog.Upgrades, upgrades...)
+	db.pendingLogEntry.Upgrades = append(db.pendingLogEntry.Upgrades, upgrades...)
 	return nil
 }
 
-// ApplyChangeSets wraps MultiTree.ApplyChangeSets, it also append the changesets in the pending log,
-// which will be persisted to the WAL in next Commit call.
-func (db *DB) ApplyChangeSets(changeSets []*NamedChangeSet) error {
+// ApplyChangeSets wraps MultiTree.ApplyChangeSets, it also appends the changesets in the pending log,
+// which will be persisted to the rlog in next Commit call.
+func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
 	if len(changeSets) == 0 {
 		return nil
 	}
@@ -337,16 +347,16 @@ func (db *DB) ApplyChangeSets(changeSets []*NamedChangeSet) error {
 		return errReadOnly
 	}
 
-	if len(db.pendingLog.Changesets) > 0 {
+	if len(db.pendingLogEntry.Changesets) > 0 {
 		return errors.New("don't support multiple ApplyChangeSets calls in the same version")
 	}
-	db.pendingLog.Changesets = changeSets
+	db.pendingLogEntry.Changesets = changeSets
 
 	return db.MultiTree.ApplyChangeSets(changeSets)
 }
 
-// ApplyChangeSet wraps MultiTree.ApplyChangeSet, it also append the changesets in the pending log,
-// which will be persisted to the WAL in next Commit call.
+// ApplyChangeSet wraps MultiTree.ApplyChangeSet, it also appends the changesets in the pending log,
+// which will be persisted to the rlog in next Commit call.
 func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 	if len(changeSet.Pairs) == 0 {
 		return nil
@@ -359,18 +369,18 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 		return errReadOnly
 	}
 
-	for _, cs := range db.pendingLog.Changesets {
+	for _, cs := range db.pendingLogEntry.Changesets {
 		if cs.Name == name {
 			return errors.New("don't support multiple ApplyChangeSet calls with the same name in the same version")
 		}
 	}
 
-	db.pendingLog.Changesets = append(db.pendingLog.Changesets, &NamedChangeSet{
+	db.pendingLogEntry.Changesets = append(db.pendingLogEntry.Changesets, &proto.NamedChangeSet{
 		Name:      name,
 		Changeset: changeSet,
 	})
-	sort.SliceStable(db.pendingLog.Changesets, func(i, j int) bool {
-		return db.pendingLog.Changesets[i].Name < db.pendingLog.Changesets[j].Name
+	sort.SliceStable(db.pendingLogEntry.Changesets, func(i, j int) bool {
+		return db.pendingLogEntry.Changesets[i].Name < db.pendingLogEntry.Changesets[j].Name
 	})
 
 	return db.MultiTree.ApplyChangeSet(name, changeSet)
@@ -379,33 +389,21 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 // checkAsyncTasks checks the status of background tasks non-blocking-ly and process the result
 func (db *DB) checkAsyncTasks() error {
 	return utils.Join(
-		db.checkAsyncCommit(),
+		db.rlogManager.CheckAsyncCommit(),
 		db.checkBackgroundSnapshotRewrite(),
 	)
 }
 
-// checkAsyncCommit check the quit signal of async wal writing
-func (db *DB) checkAsyncCommit() error {
-	select {
-	case err := <-db.walQuit:
-		// async wal writing failed, we need to abort the state machine
-		return fmt.Errorf("async wal writing goroutine quit unexpectedly: %w", err)
-	default:
-	}
-
-	return nil
-}
-
-// CommittedVersion returns the latest version written in wal, or snapshot version if wal is empty.
+// CommittedVersion returns the latest version written in rlog file, or snapshot version if rlog is empty.
 func (db *DB) CommittedVersion() (int64, error) {
-	lastIndex, err := db.wal.LastIndex()
+	lastIndex, err := db.rlogManager.LastIndex()
 	if err != nil {
 		return 0, err
 	}
 	if lastIndex == 0 {
 		return db.SnapshotVersion(), nil
 	}
-	return walVersion(lastIndex, db.initialVersion), nil
+	return indexToVersion(lastIndex, db.initialVersion), nil
 }
 
 // checkBackgroundSnapshotRewrite check the result of background snapshot rewrite, cleans up the old snapshots and switches to a new multitree
@@ -420,12 +418,12 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 			return fmt.Errorf("background snapshot rewriting failed: %w", result.err)
 		}
 
-		// wait for potential pending wal writings to finish, to make sure we catch up to latest state.
-		// in real world, block execution should be slower than wal writing, so this should not block for long.
+		// wait for potential pending rlog writings to finish, to make sure we catch up to latest state.
+		// in real world, block execution should be slower than rlog writing, so this should not block for long.
 		for {
 			committedVersion, err := db.CommittedVersion()
 			if err != nil {
-				return fmt.Errorf("get wal version failed: %w", err)
+				return fmt.Errorf("get committed version failed: %w", err)
 			}
 			if db.lastCommitInfo.Version == committedVersion {
 				break
@@ -433,8 +431,8 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 			time.Sleep(time.Nanosecond)
 		}
 
-		// catchup the remaining wal
-		if err := result.mtree.CatchupWAL(db.wal, 0); err != nil {
+		// catchup the remaining entries in rlog
+		if err := result.mtree.Catchup(db.rlogManager, 0); err != nil {
 			return fmt.Errorf("catchup failed: %w", err)
 		}
 
@@ -495,14 +493,14 @@ func (db *DB) pruneSnapshots() {
 			return
 		}
 
-		// truncate WAL until the earliest remaining snapshot
+		// truncate Rlog until the earliest remaining snapshot
 		earliestVersion, err := firstSnapshotVersion(db.dir)
 		if err != nil {
 			db.logger.Error("failed to find first snapshot", "err", err)
 		}
 
-		if err := db.wal.TruncateFront(walIndex(earliestVersion+1, db.initialVersion)); err != nil {
-			db.logger.Error("failed to truncate wal", "err", err, "version", earliestVersion+1)
+		if err := db.rlogManager.TruncateFront(versionToIndex(earliestVersion+1, db.initialVersion)); err != nil {
+			db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
 		}
 	}()
 }
@@ -522,91 +520,24 @@ func (db *DB) Commit() (int64, error) {
 	}
 
 	// write logs if enabled
-	if db.wal != nil {
-		entry := walEntry{index: walIndex(v, db.initialVersion), data: db.pendingLog}
-		if db.walChanSize >= 0 {
-			if db.walChan == nil {
-				db.initAsyncCommit()
-			}
-
-			// async wal writing
-			db.walChan <- &entry
-		} else {
-			bz, err := entry.data.Marshal()
-			if err != nil {
-				return 0, err
-			}
-			if err := db.wal.Write(entry.index, bz); err != nil {
-				return 0, err
-			}
+	if db.rlogManager != nil {
+		entry := rlog.LogEntry{Index: versionToIndex(v, db.initialVersion), Data: db.pendingLogEntry}
+		err := db.rlogManager.Write(entry)
+		if err != nil {
+			return 0, err
 		}
 	}
 
-	db.pendingLog = WALEntry{}
+	db.pendingLogEntry = proto.ReplayLogEntry{}
 
 	if err := db.checkAsyncTasks(); err != nil {
 		return 0, err
 	}
+
+	// Rewrite tree snapshot if applicable
 	db.rewriteIfApplicable(v)
 
 	return v, nil
-}
-
-func (db *DB) initAsyncCommit() {
-	walChan := make(chan *walEntry, db.walChanSize)
-	walQuit := make(chan error)
-
-	go func() {
-		defer close(walQuit)
-
-		batch := wal.Batch{}
-		for {
-			entries := channelBatchRecv(walChan)
-			if len(entries) == 0 {
-				// channel is closed
-				break
-			}
-
-			for _, entry := range entries {
-				bz, err := entry.data.Marshal()
-				if err != nil {
-					walQuit <- err
-					return
-				}
-				batch.Write(entry.index, bz)
-			}
-
-			if err := db.wal.WriteBatch(&batch); err != nil {
-				walQuit <- err
-				return
-			}
-			batch.Clear()
-		}
-	}()
-
-	db.walChan = walChan
-	db.walQuit = walQuit
-}
-
-// WaitAsyncCommit waits for the completion of async commit
-func (db *DB) WaitAsyncCommit() error {
-	db.mtx.Lock()
-	defer db.mtx.Unlock()
-
-	return db.waitAsyncCommit()
-}
-
-func (db *DB) waitAsyncCommit() error {
-	if db.walChan == nil {
-		return nil
-	}
-
-	close(db.walChan)
-	err := <-db.walQuit
-
-	db.walChan = nil
-	db.walQuit = nil
-	return err
 }
 
 func (db *DB) Copy() *DB {
@@ -670,7 +601,7 @@ func (db *DB) reloadMultiTree(mtree *MultiTree) error {
 
 	db.MultiTree = *mtree
 	// catch-up the pending changes
-	return db.MultiTree.applyWALEntry(db.pendingLog)
+	return db.MultiTree.applyRlogEntry(db.pendingLogEntry)
 }
 
 // rewriteIfApplicable execute the snapshot rewrite strategy according to current height
@@ -711,7 +642,6 @@ func (db *DB) rewriteSnapshotBackground() error {
 	db.snapshotRewriteChan = ch
 
 	cloned := db.copy(0)
-	wal := db.wal
 	go func() {
 		defer close(ch)
 
@@ -728,12 +658,12 @@ func (db *DB) rewriteSnapshotBackground() error {
 		}
 
 		// do a best effort catch-up, will do another final catch-up in main thread.
-		if err := mtree.CatchupWAL(wal, 0); err != nil {
+		if err := mtree.Catchup(db.rlogManager, 0); err != nil {
 			ch <- snapshotResult{err: err}
 			return
 		}
 
-		cloned.logger.Info("finished best-effort WAL catchup", "version", cloned.Version(), "latest", mtree.Version())
+		cloned.logger.Info("finished best-effort Rlog catchup", "version", cloned.Version(), "latest", mtree.Version())
 
 		ch <- snapshotResult{mtree: mtree}
 	}()
@@ -746,9 +676,9 @@ func (db *DB) Close() error {
 	defer db.mtx.Unlock()
 
 	errs := []error{
-		db.waitAsyncCommit(), db.MultiTree.Close(), db.wal.Close(),
+		db.rlogManager.WaitAsyncCommit(), db.MultiTree.Close(), db.rlogManager.Close(),
 	}
-	db.wal = nil
+	db.rlogManager = nil
 
 	if db.fileLock != nil {
 		errs = append(errs, db.fileLock.Unlock())
@@ -775,7 +705,7 @@ func (db *DB) Version() int64 {
 }
 
 // LastCommitInfo returns the last commit info.
-func (db *DB) LastCommitInfo() *CommitInfo {
+func (db *DB) LastCommitInfo() *proto.CommitInfo {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
@@ -793,7 +723,7 @@ func (db *DB) SaveVersion(updateCommitInfo bool) (int64, error) {
 	return db.MultiTree.SaveVersion(updateCommitInfo)
 }
 
-func (db *DB) WorkingCommitInfo() *CommitInfo {
+func (db *DB) WorkingCommitInfo() *proto.CommitInfo {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
@@ -901,8 +831,8 @@ func firstSnapshotVersion(root string) (int64, error) {
 	return found, nil
 }
 
-func walPath(root string) string {
-	return filepath.Join(root, "wal")
+func rlogPath(root string) string {
+	return filepath.Join(root, "rlog")
 }
 
 // init a empty memiavl db
@@ -996,18 +926,13 @@ func createDBIfNotExist(dir string, initialVersion uint32) error {
 	return nil
 }
 
-type walEntry struct {
-	index uint64
-	data  WALEntry
-}
-
 func isSnapshotName(name string) bool {
 	return strings.HasPrefix(name, SnapshotPrefix) && len(name) == SnapshotDirLen
 }
 
 // GetLatestVersion finds the latest version number without loading the whole db,
 // it's needed for upgrade module to check store upgrades,
-// it returns 0 if db don't exists or is empty.
+// it returns 0 if db doesn't exist or is empty.
 func GetLatestVersion(dir string) (int64, error) {
 	metadata, err := readMetadata(dir)
 	if err != nil {
@@ -1017,31 +942,13 @@ func GetLatestVersion(dir string) (int64, error) {
 		return 0, err
 	}
 
-	wal, err := OpenWAL(walPath(dir), &wal.Options{NoCopy: true})
+	rlogManager, err := rlog.NewManager(rlogPath(dir), rlog.Config{})
 	if err != nil {
 		return 0, err
 	}
-	lastIndex, err := wal.LastIndex()
+	lastIndex, err := rlogManager.LastIndex()
 	if err != nil {
 		return 0, err
 	}
-	return walVersion(lastIndex, uint32(metadata.InitialVersion)), nil
-}
-
-func channelBatchRecv[T any](ch <-chan *T) []*T {
-	// block if channel is empty
-	item := <-ch
-	if item == nil {
-		// channel is closed
-		return nil
-	}
-
-	remaining := len(ch)
-	result := make([]*T, 0, remaining+1)
-	result = append(result, item)
-	for i := 0; i < remaining; i++ {
-		result = append(result, <-ch)
-	}
-
-	return result
+	return indexToVersion(lastIndex, uint32(metadata.InitialVersion)), nil
 }

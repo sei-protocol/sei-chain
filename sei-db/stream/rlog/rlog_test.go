@@ -1,4 +1,4 @@
-package memiavl
+package rlog
 
 import (
 	"os"
@@ -34,7 +34,7 @@ func TestCorruptedTail(t *testing.T) {
 			_, err := wal.Open(dir, opts)
 			require.Equal(t, wal.ErrCorrupt, err)
 
-			log, err := OpenWAL(dir, opts)
+			log, err := OpenRlog(dir, opts)
 			require.NoError(t, err)
 
 			lastIndex, err := log.LastIndex()
