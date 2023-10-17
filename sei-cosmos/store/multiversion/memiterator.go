@@ -4,7 +4,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
-	scheduler "github.com/cosmos/cosmos-sdk/types/occ"
+	occtypes "github.com/cosmos/cosmos-sdk/types/occ"
 )
 
 // Iterates over iterKVCache items.
@@ -16,7 +16,7 @@ type memIterator struct {
 	mvStore      MultiVersionStore
 	writeset     map[string][]byte
 	index        int
-	abortChannel chan scheduler.Abort
+	abortChannel chan occtypes.Abort
 }
 
 func (store *VersionIndexedStore) newMemIterator(
@@ -63,7 +63,7 @@ func (mi *memIterator) Value() []byte {
 
 	// if we have an estiamte, write to abort channel
 	if val.IsEstimate() {
-		mi.abortChannel <- scheduler.NewEstimateAbort(val.Index())
+		mi.abortChannel <- occtypes.NewEstimateAbort(val.Index())
 	}
 
 	// if we have a deleted value, return nil
