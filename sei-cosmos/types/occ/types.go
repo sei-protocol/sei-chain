@@ -1,12 +1,14 @@
-package scheduler
+package occ
 
-import "errors"
+import (
+	"errors"
+)
 
 var (
 	ErrReadEstimate = errors.New("multiversion store value contains estimate, cannot read, aborting")
 )
 
-// define the return struct for abort due to conflict
+// Abort contains the information for a transaction's conflict
 type Abort struct {
 	DependentTxIdx int
 	Err            error

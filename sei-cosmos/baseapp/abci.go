@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/tasks"
 	"os"
 	"sort"
 	"strings"
@@ -239,13 +240,23 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 // DeliverTxBatch executes multiple txs
 // TODO: support occ logic with scheduling
 func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (res sdk.DeliverTxBatchResponse) {
-	// TODO: replace with actual scheduler logic
-	// This is stubbed so that it does something sensible
-	responses := make([]*sdk.DeliverTxResult, 0, len(req.TxEntries))
+	//TODO: inject multiversion store without import cycle (figure out right place for this)
+	// ctx = ctx.WithMultiVersionStore(multiversion.NewMultiVersionStore())
+
+	reqList := make([]abci.RequestDeliverTx, 0, len(req.TxEntries))
 	for _, tx := range req.TxEntries {
-		responses = append(responses, &sdk.DeliverTxResult{
-			Response: app.DeliverTx(ctx, tx.Request),
-		})
+		reqList = append(reqList, tx.Request)
+	}
+
+	scheduler := tasks.NewScheduler(app.concurrencyWorkers, app.DeliverTx)
+	txRes, err := scheduler.ProcessAll(ctx, reqList)
+	if err != nil {
+		//TODO: handle error
+	}
+
+	responses := make([]*sdk.DeliverTxResult, 0, len(req.TxEntries))
+	for _, tx := range txRes {
+		responses = append(responses, &sdk.DeliverTxResult{Response: tx})
 	}
 	return sdk.DeliverTxBatchResponse{Results: responses}
 }
@@ -256,7 +267,7 @@ func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchReques
 // Regardless of tx execution outcome, the ResponseDeliverTx will contain relevant
 // gas execution context.
 // TODO: (occ) this is the function called from sei-chain to perform execution of a transaction.
-// We'd likely replace this with an execution task that is scheduled by the OCC scheduler
+// We'd likely replace this with an execution tasks that is scheduled by the OCC scheduler
 func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) (res abci.ResponseDeliverTx) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
 	defer func() {
