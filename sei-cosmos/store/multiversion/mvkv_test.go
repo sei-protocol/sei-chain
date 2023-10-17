@@ -296,3 +296,77 @@ func TestVersionIndexedStoreValidation(t *testing.T) {
 		vis.ValidateReadset()
 	})
 }
+
+func TestIterator(t *testing.T) {
+	mem := dbadapter.Store{DB: dbm.NewMemDB()}
+	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	// initialize a new VersionIndexedStore
+	abortC := make(chan scheduler.Abort)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 2, abortC)
+
+	// set some initial values
+	parentKVStore.Set([]byte("key4"), []byte("value4"))
+	parentKVStore.Set([]byte("key5"), []byte("value5"))
+	parentKVStore.Set([]byte("deletedKey"), []byte("foo"))
+	mvs.SetWriteset(0, 1, map[string][]byte{
+		"key1":       []byte("value1"),
+		"key2":       []byte("value2"),
+		"deletedKey": nil,
+	})
+	// add an estimate to MVS
+	mvs.SetEstimatedWriteset(3, 1, map[string][]byte{
+		"key3": []byte("value1_b"),
+	})
+
+	// iterate over the keys - exclusive on key5
+	iter := vis.Iterator([]byte("000"), []byte("key5"))
+	vals := []string{}
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		vals = append(vals, string(iter.Value()))
+	}
+	require.Equal(t, []string{"value1", "value2", "value4"}, vals)
+	iter.Close()
+
+	// test reverse iteration
+	vals2 := []string{}
+	iter2 := vis.ReverseIterator([]byte("000"), []byte("key6"))
+	defer iter2.Close()
+	for ; iter2.Valid(); iter2.Next() {
+		vals2 = append(vals2, string(iter2.Value()))
+	}
+	// has value5 because of end being key6
+	require.Equal(t, []string{"value5", "value4", "value2", "value1"}, vals2)
+	iter2.Close()
+
+	// add items to writeset
+	vis.Set([]byte("key3"), []byte("value3"))
+	vis.Set([]byte("key4"), []byte("valueNew"))
+
+	// iterate over the keys - exclusive on key5
+	iter3 := vis.Iterator([]byte("000"), []byte("key5"))
+	vals3 := []string{}
+	defer iter3.Close()
+	for ; iter3.Valid(); iter3.Next() {
+		vals3 = append(vals3, string(iter3.Value()))
+	}
+	require.Equal(t, []string{"value1", "value2", "value3", "valueNew"}, vals3)
+	iter3.Close()
+
+	// add an estimate to MVS
+	mvs.SetEstimatedWriteset(1, 1, map[string][]byte{
+		"key2": []byte("value1_b"),
+	})
+
+	go func() {
+		// new iter
+		iter4 := vis.Iterator([]byte("000"), []byte("key5"))
+		defer iter4.Close()
+		for ; iter4.Valid(); iter4.Next() {
+		}
+	}()
+	abort := <-abortC // read the abort from the channel
+	require.Equal(t, 1, abort.DependentTxIdx)
+
+}

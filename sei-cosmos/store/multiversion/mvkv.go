@@ -20,8 +20,6 @@ type VersionIndexedStore struct {
 	writeset map[string][]byte // contains the key -> value mapping for all keys written to the store
 	// TODO: need to add iterateset here as well
 
-	// TODO: do we need this? - I think so? / maybe we just treat `nil` value in the writeset as a delete
-	deleted *sync.Map
 	// dirty keys that haven't been sorted yet for iteration
 	dirtySet map[string]struct{}
 	// used for iterators - populated at the time of iterator instantiation
@@ -43,7 +41,6 @@ func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersion
 	return &VersionIndexedStore{
 		readset:           make(map[string][]byte),
 		writeset:          make(map[string][]byte),
-		deleted:           &sync.Map{},
 		dirtySet:          make(map[string]struct{}),
 		sortedStore:       dbm.NewMemDB(),
 		parent:            parent,
@@ -191,12 +188,63 @@ func (store *VersionIndexedStore) Set(key []byte, value []byte) {
 
 // Iterator implements types.KVStore.
 func (v *VersionIndexedStore) Iterator(start []byte, end []byte) dbm.Iterator {
-	panic("unimplemented")
+	return v.iterator(start, end, true)
 }
 
 // ReverseIterator implements types.KVStore.
 func (v *VersionIndexedStore) ReverseIterator(start []byte, end []byte) dbm.Iterator {
-	panic("unimplemented")
+	return v.iterator(start, end, false)
+}
+
+// TODO: still needs iterateset tracking
+// Iterator implements types.KVStore.
+func (store *VersionIndexedStore) iterator(start []byte, end []byte, ascending bool) dbm.Iterator {
+	store.mtx.Lock()
+	defer store.mtx.Unlock()
+	// TODO: ideally we persist writeset keys into a sorted btree for later use
+	// make a set of total keys across mvkv and mvs to iterate
+	keysToIterate := make(map[string]struct{})
+	for key := range store.writeset {
+		keysToIterate[key] = struct{}{}
+	}
+
+	// TODO: ideally we take advantage of mvs keys already being sorted
+	// get the multiversion store sorted keys
+	writesetMap := store.multiVersionStore.GetAllWritesetKeys()
+	for i := 0; i < store.transactionIndex; i++ {
+		// add all the writesets keys up until current index
+		for _, key := range writesetMap[i] {
+			keysToIterate[key] = struct{}{}
+		}
+	}
+	// TODO: ideally merge btree and mvs keys into a single sorted btree
+
+	// TODO: this is horribly inefficient, fix this
+	sortedKeys := make([]string, len(keysToIterate))
+	for key := range keysToIterate {
+		sortedKeys = append(sortedKeys, key)
+	}
+	sort.Strings(sortedKeys)
+
+	memDB := dbm.NewMemDB()
+	for _, key := range sortedKeys {
+		memDB.Set([]byte(key), []byte{})
+	}
+
+	var parent, memIterator types.Iterator
+
+	// make a memIterator
+	memIterator = store.newMemIterator(start, end, memDB, ascending)
+
+	if ascending {
+		parent = store.parent.Iterator(start, end)
+	} else {
+		parent = store.parent.ReverseIterator(start, end)
+	}
+
+	// mergeIterator
+	return NewMVSMergeIterator(parent, memIterator, ascending)
+
 }
 
 // GetStoreType implements types.KVStore.
@@ -230,11 +278,6 @@ func (store *VersionIndexedStore) setValue(key, value []byte, deleted bool, dirt
 
 	keyStr := string(key)
 	store.writeset[keyStr] = value
-	if deleted {
-		store.deleted.Store(keyStr, struct{}{})
-	} else {
-		store.deleted.Delete(keyStr)
-	}
 	if dirty {
 		store.dirtySet[keyStr] = struct{}{}
 	}
@@ -260,9 +303,4 @@ func (store *VersionIndexedStore) updateReadSet(key []byte, value []byte) {
 	store.readset[keyStr] = value
 	// add to dirty set
 	store.dirtySet[keyStr] = struct{}{}
-}
-
-func (store *VersionIndexedStore) isDeleted(key string) bool {
-	_, ok := store.deleted.Load(key)
-	return ok
 }
