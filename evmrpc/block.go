@@ -28,7 +28,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func()
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) *hexutil.Uint {
-	numberPtr, err := a.getBlockNumber(ctx, number)
+	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil
 	}
@@ -62,7 +62,7 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
-	numberPtr, err := a.getBlockNumber(ctx, number)
+	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
 	}
@@ -77,13 +77,13 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	return encodeTmBlock(a.ctxProvider(), block, blockRes, a.keeper, a.txDecoder, fullTx)
 }
 
-func (a *BlockAPI) getBlockNumber(ctx context.Context, number rpc.BlockNumber) (*int64, error) {
+func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.BlockNumber) (*int64, error) {
 	var numberPtr *int64
 	switch number {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		numberPtr = nil // requesting Block with nil means the latest block
 	case rpc.EarliestBlockNumber:
-		genesisRes, err := a.tmClient.Genesis(ctx)
+		genesisRes, err := tmClient.Genesis(ctx)
 		if err != nil {
 			return nil, err
 		}

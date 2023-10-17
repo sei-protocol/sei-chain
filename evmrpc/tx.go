@@ -10,12 +10,14 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/bytes"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
+	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
 type TransactionAPI struct {
@@ -50,6 +52,60 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		return nil, err
 	}
 	return encodeReceipt(receipt, block.BlockID.Hash, blockRes.TxsResults[receipt.TransactionIndex])
+}
+
+func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) *RPCTransaction {
+	blockNumber, err := getBlockNumber(ctx, t.tmClient, blockNr)
+	if err != nil {
+		return nil
+	}
+	block, err := t.tmClient.Block(ctx, blockNumber)
+	if err != nil {
+		return nil
+	}
+	return t.getTransactionWithBlock(block, index)
+}
+
+func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) *RPCTransaction {
+	block, err := t.tmClient.BlockByHash(ctx, blockHash[:])
+	if err != nil {
+		return nil
+	}
+	return t.getTransactionWithBlock(block, index)
+}
+
+func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(), hash)
+	if err != nil {
+		return nil, err
+	}
+	return t.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), hexutil.Uint(receipt.TransactionIndex)), nil
+}
+
+func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint) *RPCTransaction {
+	if int(index) >= len(block.Block.Txs) {
+		return nil
+	}
+	decoded, err := t.txDecoder(block.Block.Txs[int(index)])
+	if err != nil {
+		return nil
+	}
+	if len(decoded.GetMsgs()) != 1 {
+		// not EVM tx since EVM tx will have exactly one msg
+		return nil
+	}
+	evmTx, ok := decoded.GetMsgs()[0].(*types.MsgEVMTransaction)
+	if !ok {
+		return nil
+	}
+	ethtx, _ := evmTx.AsTransaction()
+	hash := ethtx.Hash()
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(), hash)
+	if err != nil {
+		return nil
+	}
+	res := hydrateTransaction(ethtx, big.NewInt(block.Block.Height), common.HexToHash(string(block.BlockID.Hash)), receipt)
+	return &res
 }
 
 func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes, txRes *abci.ExecTxResult) (map[string]interface{}, error) {
