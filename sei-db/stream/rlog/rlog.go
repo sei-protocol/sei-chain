@@ -14,6 +14,10 @@ import (
 	"github.com/tidwall/wal"
 )
 
+// Manager manages the replay log operations for reads, writes and replay
+// On commit to SC, changeset will be written to rlog via rlogManager
+// Asynchronously, a streaming service will be reading from rlog to apply
+// changeset to SS store as.
 type Manager struct {
 	rlog         *wal.Log
 	writeChannel chan *LogEntry
@@ -32,6 +36,7 @@ type LogEntry struct {
 	Data  proto.ReplayLogEntry
 }
 
+// NewManager creates a new replay log manager
 func NewManager(dir string, config Config) (*Manager, error) {
 	rlog, err := OpenRlog(dir, &wal.Options{NoCopy: config.ZeroCopy, NoSync: !config.Fsync})
 	if err != nil {
