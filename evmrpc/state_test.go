@@ -15,45 +15,67 @@ import (
 
 func TestGetBalance(t *testing.T) {
 	tests := []struct {
-		name    string
-		blockNr string
-		wantErr bool
+		name       string
+		addr       string
+		blockNr    string
+		wantErr    bool
+		wantAmount float64
 	}{
 		{
-			name:    "latest block",
-			blockNr: "latest",
-			wantErr: false,
+			name:       "latest block",
+			addr:       "0x1234567890123456789023456789012345678901",
+			blockNr:    "latest",
+			wantErr:    false,
+			wantAmount: 1000,
 		},
 		{
-			name:    "safe block",
-			blockNr: "safe",
-			wantErr: false,
+			name:       "safe block",
+			addr:       "0x1234567890123456789023456789012345678901",
+			blockNr:    "safe",
+			wantErr:    false,
+			wantAmount: 1000,
 		},
 		{
-			name:    "finalized block",
-			blockNr: "finalized",
-			wantErr: false,
+			name:       "finalized block",
+			addr:       "0x1234567890123456789023456789012345678901",
+			blockNr:    "finalized",
+			wantErr:    false,
+			wantAmount: 1000,
 		},
 		{
-			name:    "pending block",
-			blockNr: "pending",
-			wantErr: false,
+			name:       "pending block",
+			addr:       "0x1234567890123456789023456789012345678901",
+			blockNr:    "pending",
+			wantErr:    false,
+			wantAmount: 1000,
 		},
 		{
-			name:    "err: earliest block",
-			blockNr: "earliest",
-			wantErr: true,
+			name:       "evm address with sei address mapping",
+			addr:       common.HexToAddress(common.Bytes2Hex([]byte("evmAddr"))).String(),
+			blockNr:    "latest",
+			wantErr:    false,
+			wantAmount: 10,
 		},
 		{
-			name:    "err: numbered block",
-			blockNr: "0x1",
-			wantErr: true,
+			name:       "err: earliest block",
+			addr:       "0x1234567890123456789023456789012345678901",
+			blockNr:    "earliest",
+			wantErr:    true,
+			wantAmount: -1,
+		},
+		{
+			name:       "err: numbered block",
+			addr:       "0x1234567890123456789023456789012345678901",
+			blockNr:    "0x1",
+			wantErr:    true,
+			wantAmount: -1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getBalance\",\"params\":[\"0x1234567890123456789023456789012345678901\",\"%s\"],\"id\":\"test\"}", tt.blockNr)
+			fmt.Println("addr = ", tt.addr)
+			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getBalance\",\"params\":[\"%s\",\"%s\"],\"id\":\"test\"}", tt.addr, tt.blockNr)
 			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 			require.Nil(t, err)
 			req.Header.Set("Content-Type", "application/json")
@@ -63,6 +85,7 @@ func TestGetBalance(t *testing.T) {
 			require.Nil(t, err)
 			resObj := map[string]interface{}{}
 			require.Nil(t, json.Unmarshal(resBody, &resObj))
+			fmt.Println("resObj", resObj)
 			if tt.wantErr {
 				_, ok := resObj["error"]
 				require.True(t, ok)
@@ -70,7 +93,7 @@ func TestGetBalance(t *testing.T) {
 				_, ok := resObj["error"]
 				require.False(t, ok)
 				got := resObj["result"].(float64)
-				require.Equal(t, float64(1000), got)
+				require.Equal(t, tt.wantAmount, got)
 			}
 		})
 	}
@@ -144,39 +167,39 @@ func TestGetStorageAt(t *testing.T) {
 	hexValue := common.BytesToHash([]byte("value"))
 	wantValue := base64.StdEncoding.EncodeToString(hexValue[:])
 	tests := []struct {
-		name      string
-		blockNr   string
-		wantErr   bool
+		name    string
+		blockNr string
+		wantErr bool
 	}{
 		{
-			name:      "latest block",
-			blockNr:   "latest",
-			wantErr:   false,
+			name:    "latest block",
+			blockNr: "latest",
+			wantErr: false,
 		},
 		{
-			name:      "safe block",
-			blockNr:   "safe",
-			wantErr:   false,
+			name:    "safe block",
+			blockNr: "safe",
+			wantErr: false,
 		},
 		{
-			name:      "finalized block",
-			blockNr:   "finalized",
-			wantErr:   false,
+			name:    "finalized block",
+			blockNr: "finalized",
+			wantErr: false,
 		},
 		{
-			name:      "pending block",
-			blockNr:   "pending",
-			wantErr:   false,
+			name:    "pending block",
+			blockNr: "pending",
+			wantErr: false,
 		},
 		{
-			name:      "err: earliest block",
-			blockNr:   "earliest",
-			wantErr:   true,
+			name:    "err: earliest block",
+			blockNr: "earliest",
+			wantErr: true,
 		},
 		{
-			name:      "err: numbered block",
-			blockNr:   "0x1",
-			wantErr:   true,
+			name:    "err: numbered block",
+			blockNr: "0x1",
+			wantErr: true,
 		},
 	}
 

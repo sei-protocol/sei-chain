@@ -32,9 +32,15 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	if block != nil {
 		return nil, errors.New("block number not safe, finalized, latest, or pending")
 	}
-
-	balance := a.keeper.GetBalance(a.ctxProvider(), address)
-	return &balance, nil
+	seiAddr, found := a.keeper.GetSeiAddress(a.ctxProvider(), address)
+	if found {
+		coin := a.keeper.BankKeeper().GetBalance(a.ctxProvider(), seiAddr, a.keeper.GetBaseDenom(a.ctxProvider()))
+		balance := coin.Amount.BigInt().Uint64()
+		return &balance, nil
+	} else {
+		balance := a.keeper.GetBalance(a.ctxProvider(), address)
+		return &balance, nil
+	}
 }
 
 func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNr rpc.BlockNumber) ([]byte, error) {

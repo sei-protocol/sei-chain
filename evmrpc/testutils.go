@@ -222,6 +222,12 @@ func init() {
 	}); err != nil {
 		panic(err)
 	}
+	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
+	if err != nil {
+		panic(err)
+	}
+	evmAddr := common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))
+	EVMKeeper.SetAddressMapping(Ctx, seiAddr, evmAddr)
 	EVMKeeper.SetOrDeleteBalance(Ctx, common.HexToAddress("0x1234567890123456789023456789012345678901"), 1000)
 	EVMKeeper.SetCode(Ctx, common.HexToAddress("0x1234567890123456789023456789012345678901"), []byte("abc"))
 	EVMKeeper.SetState(
