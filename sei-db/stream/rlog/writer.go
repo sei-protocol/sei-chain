@@ -25,7 +25,7 @@ func NewWriter(logger logger.Logger, rlog *wal.Log, config Config) (*RLWriter, e
 	return writer, nil
 }
 
-// Write will write a new entry appending the tail of the log.
+// Write will write a new entry to the log at specific index.
 // Whether the writes is in blocking or async manner depends on the buffer size.
 func (writer *RLWriter) Write(entry LogEntry) error {
 	channelBufferSize := writer.config.WriteBufferSize

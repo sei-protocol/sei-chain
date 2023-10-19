@@ -17,7 +17,7 @@ import (
 )
 
 type Writer interface {
-	// Write will write a new entry by appending to the tail of the log
+	// Write will write a new entry to the log at the given index.
 	Write(entry LogEntry) error
 
 	// CheckAsyncCommit check the error signal of async writes
