@@ -73,9 +73,8 @@ func sudoWithoutOutOfGasPanic(ctx sdk.Context, k *keeper.Keeper, contractAddress
 			// only propagate panic if the error is NOT out of gas
 			if _, ok := err.(sdk.ErrorOutOfGas); !ok {
 				panic(err)
-			} else {
-				ctx.Logger().Error(fmt.Sprintf("%s %s is out of gas", sdk.AccAddress(contractAddress).String(), logName))
 			}
+			ctx.Logger().Error(fmt.Sprintf("%s %s is out of gas", sdk.AccAddress(contractAddress).String(), logName))
 		}
 	}()
 	return logging.LogIfNotDoneAfter(ctx.Logger(), func() ([]byte, error) {
