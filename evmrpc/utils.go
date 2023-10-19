@@ -9,6 +9,13 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+const LatestCtxHeight int64 = -1
+
+// Since we use a static base fee, we want GasUsedRatio returned in RPC queries
+// to reflect the fact that base fee would never change, which is only true if
+// the block is exactly half-utilized.
+const GasUsedRatio float64 = 0.5
+
 type RPCTransaction struct {
 	BlockHash           *common.Hash         `json:"blockHash"`
 	BlockNumber         *hexutil.Big         `json:"blockNumber"`
