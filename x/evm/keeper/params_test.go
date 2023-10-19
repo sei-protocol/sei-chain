@@ -10,5 +10,8 @@ import (
 func TestParams(t *testing.T) {
 	k, _, ctx := MockEVMKeeper()
 	require.Equal(t, types.DefaultChainConfig(), k.GetChainConfig(ctx))
-	require.Equal(t, types.DefaultGasMultiplier, k.GetGasMultiplier(ctx))
+	require.Equal(t, types.DefaultBaseDenom, k.GetBaseDenom(ctx))
+	require.Equal(t, types.DefaultPriorityNormalizer, k.GetPriorityNormalizer(ctx))
+	require.Equal(t, types.DefaultBaseFeePerGas, k.GetBaseFeePerGas(ctx))
+	require.Equal(t, types.DefaultMinFeePerGas, k.GetMinimumFeePerGas(ctx))
 }

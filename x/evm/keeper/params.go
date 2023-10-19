@@ -23,6 +23,14 @@ func (k *Keeper) GetChainConfig(ctx sdk.Context) types.ChainConfig {
 	return k.GetParams(ctx).ChainConfig
 }
 
-func (k *Keeper) GetGasMultiplier(ctx sdk.Context) sdk.Dec {
-	return k.GetParams(ctx).GasMultiplier
+func (k *Keeper) GetPriorityNormalizer(ctx sdk.Context) sdk.Dec {
+	return k.GetParams(ctx).PriorityNormalizer
+}
+
+func (k *Keeper) GetBaseFeePerGas(ctx sdk.Context) sdk.Dec {
+	return k.GetParams(ctx).BaseFeePerGas
+}
+
+func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
+	return k.GetParams(ctx).MinimumFeePerGas
 }
