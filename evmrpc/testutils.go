@@ -148,14 +148,14 @@ var Ctx sdk.Context
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	EVMKeeper, _, Ctx = keeper.MockEVMKeeper()
-	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func() sdk.Context { return Ctx }, Decoder)
+	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, Decoder)
 	if err != nil {
 		panic(err)
 	}
 	if err := httpServer.Start(); err != nil {
 		panic(err)
 	}
-	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func() sdk.Context { return Ctx }, Decoder)
+	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, Decoder)
 	if err != nil {
 		panic(err)
 	}
