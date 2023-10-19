@@ -58,7 +58,7 @@ func MockEVMKeeper() (*Keeper, *paramskeeper.Keeper, sdk.Context) {
 	bankKeeper := bankkeeper.NewBaseKeeper(cdc, bankStoreKey, accountKeeper, paramsKeeper.Subspace(banktypes.ModuleName), map[string]bool{})
 	stakingKeeper := stakingkeeper.NewKeeper(cdc, stakingStoreKey, accountKeeper, bankKeeper, paramsKeeper.Subspace(stakingtypes.ModuleName))
 
-	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+	ctx := sdk.NewContext(stateStore, tmproto.Header{Height: 8}, false, log.NewNopLogger())
 	k := NewKeeper(evmStoreKey, paramsKeeper.Subspace(types.ModuleName), big.NewInt(1), bankKeeper, &accountKeeper, &stakingKeeper)
 	k.InitGenesis(ctx)
 	return k, &paramsKeeper, ctx

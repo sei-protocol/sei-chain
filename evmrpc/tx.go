@@ -24,16 +24,16 @@ import (
 type TransactionAPI struct {
 	tmClient    rpcclient.Client
 	keeper      *keeper.Keeper
-	ctxProvider func() sdk.Context
+	ctxProvider func(int64) sdk.Context
 	txDecoder   sdk.TxDecoder
 }
 
-func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func() sdk.Context, txDecoder sdk.TxDecoder) *TransactionAPI {
+func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder) *TransactionAPI {
 	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
 }
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(), hash)
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		// When the transaction doesn't exist, the RPC method should return JSON null
 		// as per specification.
@@ -76,7 +76,7 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 }
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(), hash)
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	result := hexutil.Uint64(0)
 	for _, tx := range block.Block.Txs {
 		if ethtx := getEthTxForTxBz(tx, t.txDecoder); ethtx != nil {
-			receipt, err := t.keeper.GetReceipt(t.ctxProvider(), ethtx.Hash())
+			receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
 			if err != nil {
 				continue
 			}
@@ -121,7 +121,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	if ethtx == nil {
 		return nil
 	}
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(), ethtx.Hash())
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
 	if err != nil {
 		return nil
 	}
