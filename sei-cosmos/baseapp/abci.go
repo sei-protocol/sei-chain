@@ -238,11 +238,7 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 }
 
 // DeliverTxBatch executes multiple txs
-// TODO: support occ logic with scheduling
 func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (res sdk.DeliverTxBatchResponse) {
-	//TODO: inject multiversion store without import cycle (figure out right place for this)
-	// ctx = ctx.WithMultiVersionStore(multiversion.NewMultiVersionStore())
-
 	reqList := make([]abci.RequestDeliverTx, 0, len(req.TxEntries))
 	for _, tx := range req.TxEntries {
 		reqList = append(reqList, tx.Request)

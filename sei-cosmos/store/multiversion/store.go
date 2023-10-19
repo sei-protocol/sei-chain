@@ -8,6 +8,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/cosmos/cosmos-sdk/types/occ"
 	occtypes "github.com/cosmos/cosmos-sdk/types/occ"
 	db "github.com/tendermint/tm-db"
 )
@@ -24,6 +25,7 @@ type MultiVersionStore interface {
 	CollectIteratorItems(index int) *db.MemDB
 	SetReadset(index int, readset ReadSet)
 	GetReadset(index int) ReadSet
+	VersionedIndexedStore(index int, incarnation int, abortChannel chan occ.Abort) *VersionIndexedStore
 	SetIterateset(index int, iterateset Iterateset)
 	GetIterateset(index int) Iterateset
 	ValidateTransactionState(index int) (bool, []int)
@@ -56,6 +58,11 @@ func NewMultiVersionStore(parentStore types.KVStore) *Store {
 		txIterateSets:   make(map[int]Iterateset),
 		parentStore:     parentStore,
 	}
+}
+
+// VersionedIndexedStore creates a new versioned index store for a given incarnation and transaction index
+func (s *Store) VersionedIndexedStore(index int, incarnation int, abortChannel chan occ.Abort) *VersionIndexedStore {
+	return NewVersionIndexedStore(s.parentStore, s, index, incarnation, abortChannel)
 }
 
 // GetLatest implements MultiVersionStore.

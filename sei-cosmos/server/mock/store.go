@@ -233,3 +233,11 @@ func NewCommitMultiStore() sdk.CommitMultiStore {
 func (ms multiStore) Close() error {
 	return nil
 }
+
+func (ms multiStore) SetKVStores(handler func(key store.StoreKey, s sdk.KVStore) store.CacheWrap) store.MultiStore {
+	panic("not implemented")
+}
+
+func (ms multiStore) StoreKeys() []sdk.StoreKey {
+	panic("not implemented")
+}

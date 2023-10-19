@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	abci "github.com/tendermint/tendermint/abci/types"
+
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	scheduler "github.com/cosmos/cosmos-sdk/types/occ"
@@ -354,6 +356,21 @@ func (store *VersionIndexedStore) UpdateReadSet(key []byte, value []byte) {
 	store.readset[keyStr] = value
 	// add to dirty set
 	store.dirtySet[keyStr] = struct{}{}
+}
+
+// Write implements types.CacheWrap so this store can exist on the cache multi store
+func (store *VersionIndexedStore) Write() {
+	panic("not implemented")
+}
+
+// GetEvents implements types.CacheWrap so this store can exist on the cache multi store
+func (store *VersionIndexedStore) GetEvents() []abci.Event {
+	panic("not implemented")
+}
+
+// ResetEvents implements types.CacheWrap so this store can exist on the cache multi store
+func (store *VersionIndexedStore) ResetEvents() {
+	panic("not implemented")
 }
 
 func (store *VersionIndexedStore) UpdateIterateSet(iterationTracker iterationTracker) {

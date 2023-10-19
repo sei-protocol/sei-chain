@@ -145,6 +145,12 @@ type MultiStore interface {
 
 	// Resets the tracked event list
 	ResetEvents()
+
+	// SetKVStores is a generalized wrapper method
+	SetKVStores(handler func(key StoreKey, s KVStore) CacheWrap) MultiStore
+
+	// StoreKeys returns a list of store keys
+	StoreKeys() []StoreKey
 }
 
 // From MultiStore.CacheMultiStore()....
