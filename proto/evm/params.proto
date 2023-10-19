@@ -14,11 +14,23 @@ message Params {
     (gogoproto.moretags)   = "yaml:\"base_denom\"",
     (gogoproto.jsontag) = "base_denom"
   ];
-  string gas_multiplier = 2 [
-      (gogoproto.moretags)   = "yaml:\"gas_multiplier\"",
+  string priority_normalizer = 2 [
+      (gogoproto.moretags)   = "yaml:\"priority_normalizer\"",
       (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
       (gogoproto.nullable)   = false,
-      (gogoproto.jsontag) = "gas_multiplier"
+      (gogoproto.jsontag) = "priority_normalizer"
   ];
-  ChainConfig chain_config = 3 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
+  string base_fee_per_gas = 3 [
+    (gogoproto.moretags)   = "yaml:\"base_fee_per_gas\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false,
+    (gogoproto.jsontag) = "base_fee_per_gas"
+];
+string minimum_fee_per_gas = 4 [
+  (gogoproto.moretags)   = "yaml:\"minimum_fee_per_gas\"",
+  (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+  (gogoproto.nullable)   = false,
+  (gogoproto.jsontag) = "minimum_fee_per_gas"
+];
+  ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
 }

@@ -10,16 +10,24 @@ import (
 )
 
 var (
-	KeyBaseDenom     = []byte("KeyBaseDenom")
-	KeyGasMultiplier = []byte("KeyGasMultiplier")
-	KeyChainConfig   = []byte("KeyChainConfig")
+	KeyBaseDenom          = []byte("KeyBaseDenom")
+	KeyPriorityNormalizer = []byte("KeyPriorityNormalizer")
+	KeyBaseFeePerGas      = []byte("KeyBaseFeePerGas")
+	KeyMinFeePerGas       = []byte("KeyMinFeePerGas")
+	KeyChainConfig        = []byte("KeyChainConfig")
 )
 
 const (
 	DefaultBaseDenom = "usei"
 )
 
-var DefaultGasMultiplier = sdk.NewDecWithPrec(1, 1)
+var DefaultPriorityNormalizer = sdk.NewDec(1)
+
+// DefaultBaseFeePerGas determines how much usei per gas spent is
+// burnt rather than go to validators (similar to base fee on
+// Ethereum).
+var DefaultBaseFeePerGas = sdk.NewDec(0)
+var DefaultMinFeePerGas = sdk.NewDec(1)
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -29,16 +37,20 @@ func ParamKeyTable() paramtypes.KeyTable {
 
 func DefaultParams() Params {
 	return Params{
-		BaseDenom:     DefaultBaseDenom,
-		GasMultiplier: DefaultGasMultiplier,
-		ChainConfig:   DefaultChainConfig(),
+		BaseDenom:          DefaultBaseDenom,
+		PriorityNormalizer: DefaultPriorityNormalizer,
+		BaseFeePerGas:      DefaultBaseFeePerGas,
+		MinimumFeePerGas:   DefaultMinFeePerGas,
+		ChainConfig:        DefaultChainConfig(),
 	}
 }
 
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyBaseDenom, &p.BaseDenom, validateBaseDenom),
-		paramtypes.NewParamSetPair(KeyGasMultiplier, &p.GasMultiplier, validateGasMultiplier),
+		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &p.PriorityNormalizer, validatePriorityNormalizer),
+		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &p.BaseFeePerGas, validateBaseFeePerGas),
+		paramtypes.NewParamSetPair(KeyMinFeePerGas, &p.MinimumFeePerGas, validateMinFeePerGas),
 		paramtypes.NewParamSetPair(KeyChainConfig, &p.ChainConfig, validateChainConfig),
 	}
 }
@@ -47,8 +59,17 @@ func (p Params) Validate() error {
 	if err := validateBaseDenom(p.BaseDenom); err != nil {
 		return err
 	}
-	if err := validateGasMultiplier(p.GasMultiplier); err != nil {
+	if err := validatePriorityNormalizer(p.PriorityNormalizer); err != nil {
 		return err
+	}
+	if err := validateBaseFeePerGas(p.BaseFeePerGas); err != nil {
+		return err
+	}
+	if err := validateMinFeePerGas(p.MinimumFeePerGas); err != nil {
+		return err
+	}
+	if p.MinimumFeePerGas.LT(p.BaseFeePerGas) {
+		return errors.New("minimum fee cannot be lower than base fee")
 	}
 	return validateChainConfig(p.ChainConfig)
 }
@@ -71,14 +92,40 @@ func validateBaseDenom(i interface{}) error {
 	return nil
 }
 
-func validateGasMultiplier(i interface{}) error {
+func validatePriorityNormalizer(i interface{}) error {
 	v, ok := i.(sdk.Dec)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
 	if !v.IsPositive() {
-		return fmt.Errorf("gas multiplier: %d", v)
+		return fmt.Errorf("nonpositive priority normalizer: %d", v)
+	}
+
+	return nil
+}
+
+func validateBaseFeePerGas(i interface{}) error {
+	v, ok := i.(sdk.Dec)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	if v.IsNegative() {
+		return fmt.Errorf("negative base fee per gas: %d", v)
+	}
+
+	return nil
+}
+
+func validateMinFeePerGas(i interface{}) error {
+	v, ok := i.(sdk.Dec)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	if v.IsNegative() {
+		return fmt.Errorf("negative min fee per gas: %d", v)
 	}
 
 	return nil
