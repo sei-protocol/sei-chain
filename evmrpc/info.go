@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -31,6 +32,35 @@ type FeeHistoryResult struct {
 	Reward       [][]*hexutil.Big `json:"reward,omitempty"`
 	BaseFee      []*hexutil.Big   `json:"baseFeePerGas,omitempty"`
 	GasUsedRatio []float64        `json:"gasUsedRatio"`
+}
+
+func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
+	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight).BlockHeight())
+}
+
+//nolint:revive
+func (i *InfoAPI) ChainId() *hexutil.Big {
+	return (*hexutil.Big)(i.keeper.ChainID())
+}
+
+func (i *InfoAPI) Coinbase() (common.Address, error) {
+	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
+}
+
+func (i *InfoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
+	// get fee history of the most recent block with 50% reward percentile
+	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
+	if err != nil {
+		return nil, err
+	}
+	if len(feeHist.Reward) == 0 || len(feeHist.Reward[0]) == 0 {
+		// if there is no EVM tx in the most recent block, return the minimum fee param
+		return (*hexutil.Big)(i.keeper.GetMinimumFeePerGas(i.ctxProvider(LatestCtxHeight)).RoundInt().BigInt()), nil
+	}
+	return (*hexutil.Big)(new(big.Int).Add(
+		feeHist.Reward[0][0].ToInt(),
+		i.keeper.GetBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).RoundInt().BigInt(),
+	)), nil
 }
 
 // lastBlock is inclusive
