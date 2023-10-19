@@ -61,6 +61,20 @@ func MockEVMKeeper() (*Keeper, *paramskeeper.Keeper, sdk.Context) {
 	ctx := sdk.NewContext(stateStore, tmproto.Header{Height: 8}, false, log.NewNopLogger())
 	k := NewKeeper(evmStoreKey, paramsKeeper.Subspace(types.ModuleName), big.NewInt(1), bankKeeper, &accountKeeper, &stakingKeeper)
 	k.InitGenesis(ctx)
+
+	// mint some coins to a sei address
+	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
+	if err != nil {
+		panic(err)
+	}
+	err = bankKeeper.MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	err = bankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
 	return k, &paramsKeeper, ctx
 }
 
