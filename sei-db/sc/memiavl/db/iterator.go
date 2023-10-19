@@ -2,6 +2,7 @@ package memiavl
 
 import (
 	"bytes"
+
 	"github.com/sei-protocol/sei-db/common/utils"
 )
 

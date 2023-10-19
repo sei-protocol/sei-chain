@@ -2,6 +2,7 @@ package rlog
 
 import (
 	"fmt"
+
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/tidwall/wal"
