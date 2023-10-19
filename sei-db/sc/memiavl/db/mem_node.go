@@ -14,8 +14,7 @@ type MemNode struct {
 	value   []byte
 	left    Node
 	right   Node
-
-	hash []byte
+	hash    []byte
 }
 
 var _ Node = (*MemNode)(nil)

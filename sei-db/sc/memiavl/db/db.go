@@ -13,8 +13,9 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 	"github.com/sei-protocol/sei-db/stream/rlog"
 )
 
@@ -45,7 +46,7 @@ var errReadOnly = errors.New("db is read-only")
 type DB struct {
 	MultiTree
 	dir      string
-	logger   Logger
+	logger   logger.Logger
 	fileLock FileLock
 	readOnly bool
 
@@ -59,7 +60,7 @@ type DB struct {
 	pruneSnapshotLock      sync.Mutex
 	triggerStateSyncExport func(height int64)
 
-	// invariant: the LastIndex always match the current version of MultiTree
+	// the LastIndex always match the current version of MultiTree
 	rlogManager *rlog.Manager
 
 	// pending change, will be written into rlog file in next Commit call
@@ -78,7 +79,7 @@ type DB struct {
 }
 
 type Options struct {
-	Logger          Logger
+	Logger          logger.Logger
 	CreateIfMissing bool
 	InitialVersion  uint32
 	ReadOnly        bool
@@ -125,7 +126,7 @@ func (opts Options) Validate() error {
 
 func (opts *Options) FillDefaults() {
 	if opts.Logger == nil {
-		opts.Logger = NewNopLogger()
+		opts.Logger = logger.NewNopLogger()
 	}
 
 	if opts.SnapshotInterval == 0 {
@@ -187,10 +188,10 @@ func Load(dir string, opts Options) (*DB, error) {
 	}
 
 	// Create rlog manager and open the rlog file
-	rlogManager, err := rlog.NewManager(rlogPath(dir), rlog.Config{
-		Fsync:            false,
-		ZeroCopy:         true,
-		WriteChannelSize: opts.AsyncCommitBuffer,
+	rlogManager, err := rlog.NewManager(opts.Logger, rlogPath(dir), rlog.Config{
+		DisableFsync:    true,
+		ZeroCopy:        true,
+		WriteBufferSize: opts.AsyncCommitBuffer,
 	})
 	if err != nil {
 		return nil, err
@@ -219,7 +220,7 @@ func Load(dir string, opts Options) (*DB, error) {
 		// truncate the rlog file
 		opts.Logger.Info("truncate rlog after version: %d", opts.TargetVersion)
 		truncateIndex := versionToIndex(int64(opts.TargetVersion), mtree.initialVersion)
-		if err := rlogManager.TruncateAfter(truncateIndex); err != nil {
+		if err := rlogManager.Writer().TruncateAfter(truncateIndex); err != nil {
 			return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
 		}
 
@@ -389,7 +390,7 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 // checkAsyncTasks checks the status of background tasks non-blocking-ly and process the result
 func (db *DB) checkAsyncTasks() error {
 	return utils.Join(
-		db.rlogManager.CheckAsyncCommit(),
+		db.rlogManager.Writer().CheckAsyncCommit(),
 		db.checkBackgroundSnapshotRewrite(),
 	)
 }
@@ -499,7 +500,7 @@ func (db *DB) pruneSnapshots() {
 			db.logger.Error("failed to find first snapshot", "err", err)
 		}
 
-		if err := db.rlogManager.TruncateFront(versionToIndex(earliestVersion+1, db.initialVersion)); err != nil {
+		if err := db.rlogManager.Writer().TruncateBefore(versionToIndex(earliestVersion+1, db.initialVersion)); err != nil {
 			db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
 		}
 	}()
@@ -522,7 +523,7 @@ func (db *DB) Commit() (int64, error) {
 	// write logs if enabled
 	if db.rlogManager != nil {
 		entry := rlog.LogEntry{Index: versionToIndex(v, db.initialVersion), Data: db.pendingLogEntry}
-		err := db.rlogManager.Write(entry)
+		err := db.rlogManager.Writer().Write(entry)
 		if err != nil {
 			return 0, err
 		}
@@ -676,7 +677,7 @@ func (db *DB) Close() error {
 	defer db.mtx.Unlock()
 
 	errs := []error{
-		db.rlogManager.WaitAsyncCommit(), db.MultiTree.Close(), db.rlogManager.Close(),
+		db.rlogManager.Close(), db.MultiTree.Close(),
 	}
 	db.rlogManager = nil
 
@@ -941,12 +942,7 @@ func GetLatestVersion(dir string) (int64, error) {
 		}
 		return 0, err
 	}
-
-	rlogManager, err := rlog.NewManager(rlogPath(dir), rlog.Config{})
-	if err != nil {
-		return 0, err
-	}
-	lastIndex, err := rlogManager.LastIndex()
+	lastIndex, err := rlog.GetLastIndex(rlogPath(dir))
 	if err != nil {
 		return 0, err
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/transient"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/proto"
 	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/cachemulti"
@@ -448,7 +449,7 @@ func (rs *Store) SetLazyLoading(_ bool) {
 
 func (rs *Store) SetMemIAVLOptions(opts memiavl.Options) {
 	if opts.Logger == nil {
-		opts.Logger = memiavl.Logger(rs.logger.With("module", "memiavl"))
+		opts.Logger = logger.Logger(rs.logger.With("module", "memiavl"))
 	}
 	rs.opts = opts
 }

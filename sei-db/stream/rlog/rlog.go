@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"os"
 	"path/filepath"
 	"unsafe"
@@ -14,21 +16,26 @@ import (
 	"github.com/tidwall/wal"
 )
 
-// Manager manages the replay log operations for reads, writes and replay
-// On commit to SC, changeset will be written to rlog via rlogManager
-// Asynchronously, a streaming service will be reading from rlog to apply
-// changeset to SS store as.
-type Manager struct {
-	rlog         *wal.Log
-	writeChannel chan *LogEntry
-	quitSignal   chan error
-	config       Config
+type Writer interface {
+	// Write will write a new entry by appending to the tail of the log
+	Write(entry LogEntry) error
+
+	// CheckAsyncCommit check the error signal of async writes
+	CheckAsyncCommit() error
+
+	// WaitAsyncCommit will block and wait for async writes to complete
+	WaitAsyncCommit() error
+
+	// TruncateBefore will remove all entries that are before the provided `index`
+	TruncateBefore(index uint64) error
+
+	// TruncateAfter will remove all entries that are after the provided `index`
+	TruncateAfter(index uint64) error
 }
 
-type Config struct {
-	Fsync            bool
-	ZeroCopy         bool
-	WriteChannelSize int
+type Reader interface {
+	// Replay will read the replay log and process each log entry with the provided function
+	Replay(start uint64, end uint64, processFn func(index uint64, entry proto.ReplayLogEntry) error) error
 }
 
 type LogEntry struct {
@@ -36,24 +43,64 @@ type LogEntry struct {
 	Data  proto.ReplayLogEntry
 }
 
-// NewManager creates a new replay log manager
-func NewManager(dir string, config Config) (*Manager, error) {
-	rlog, err := OpenRlog(dir, &wal.Options{NoCopy: config.ZeroCopy, NoSync: !config.Fsync})
+type Config struct {
+	DisableFsync    bool
+	ZeroCopy        bool
+	WriteBufferSize int
+}
+
+// Manager manages the replay log operations for reads and writes.
+// Replay Log is an append-only log which persists all changesets.
+type Manager struct {
+	rlog   *wal.Log
+	writer Writer
+	reader Reader
+}
+
+func (m *Manager) Writer() Writer {
+	return m.writer
+}
+
+func (m *Manager) Reader() Reader {
+	return m.reader
+}
+
+func NewManager(logger logger.Logger, dir string, config Config) (*Manager, error) {
+	rlog, err := openRlog(dir, &wal.Options{
+		NoSync: config.DisableFsync,
+		NoCopy: config.ZeroCopy,
+	})
 	if err != nil {
 		return nil, err
 	}
-	manager := &Manager{rlog: rlog, config: config}
-	if config.WriteChannelSize > 0 {
-		// async write is enabled
-
-		go manager.startAsyncWrite()
+	writer, err := NewWriter(logger, rlog, config)
+	if err != nil {
+		return nil, err
 	}
+	reader, err := NewReader(logger, rlog, config)
+	if err != nil {
+		return nil, err
+	}
+	return &Manager{
+		rlog:   rlog,
+		writer: writer,
+		reader: reader,
+	}, nil
+}
 
-	return manager, nil
+// LastIndex returns the last written index of the replay log
+func (m *Manager) LastIndex() (index uint64, err error) {
+	return m.rlog.LastIndex()
+}
+
+func (m *Manager) Close() error {
+	err := m.writer.WaitAsyncCommit()
+	errClose := m.rlog.Close()
+	return utils.Join(err, errClose)
 }
 
 // OpenRlog opens the replay log, try to truncate the corrupted tail if there's any
-func OpenRlog(dir string, opts *wal.Options) (*wal.Log, error) {
+func openRlog(dir string, opts *wal.Options) (*wal.Log, error) {
 	rlog, err := wal.Open(dir, opts)
 	if errors.Is(err, wal.ErrCorrupt) {
 		// try to truncate corrupted tail
@@ -139,127 +186,12 @@ func loadNextBinaryEntry(data []byte) (n int, err error) {
 	return n + int(size), nil
 }
 
-// LastIndex returns the last written index of the replay log
-func (m *Manager) LastIndex() (index uint64, err error) {
-	return m.rlog.LastIndex()
-}
-
-func (m *Manager) Replay(start uint64, end uint64, processFn func(index uint64, entry proto.ReplayLogEntry) error) error {
-	for i := start; i <= end; i++ {
-		var entry proto.ReplayLogEntry
-		bz, err := m.rlog.Read(i)
-		if err != nil {
-			return fmt.Errorf("read rlog failed, %w", err)
-		}
-		if err := entry.Unmarshal(bz); err != nil {
-			return fmt.Errorf("unmarshal rlog failed, %w", err)
-		}
-		err = processFn(i, entry)
-		if err != nil {
-			return err
-		}
+// GetLastIndex returns the last written index of the replay log
+func GetLastIndex(dir string) (index uint64, err error) {
+	rlog, err := openRlog(dir, nil)
+	if err != nil {
+		return 0, err
 	}
-	return nil
-}
-
-func (m *Manager) Write(entry LogEntry) error {
-	if m.config.WriteChannelSize > 0 && m.writeChannel != nil {
-		// async write
-		m.writeChannel <- &entry
-	} else {
-		// synchronous write
-		bz, err := entry.Data.Marshal()
-		if err != nil {
-			return err
-		}
-		if err := m.rlog.Write(entry.Index, bz); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// TruncateAfter will remove all entries that are after the provided `index`.
-// In other words the entry at `index` becomes the last entry in the log.
-func (m *Manager) TruncateAfter(index uint64) error {
-	return m.rlog.TruncateBack(index)
-}
-
-// TruncateFront will remove all entries that are before the provided `index`.
-// In other words the entry at `index` becomes the first entry in the log.
-func (m *Manager) TruncateFront(index uint64) error {
-	return m.rlog.TruncateFront(index)
-}
-
-// Close will close the underline replay log file
-func (m *Manager) Close() error {
-	return m.rlog.Close()
-}
-
-func (m *Manager) startAsyncWrite() {
-	m.writeChannel = make(chan *LogEntry, m.config.WriteChannelSize)
-	m.quitSignal = make(chan error)
-	batch := wal.Batch{}
-	defer close(m.quitSignal)
-	for {
-		entries := channelBatchRecv(m.writeChannel)
-		if len(entries) == 0 {
-			// channel is closed
-			break
-		}
-
-		for _, entry := range entries {
-			bz, err := entry.Data.Marshal()
-			if err != nil {
-				m.quitSignal <- err
-				return
-			}
-			batch.Write(entry.Index, bz)
-		}
-
-		if err := m.rlog.WriteBatch(&batch); err != nil {
-			m.quitSignal <- err
-			return
-		}
-		batch.Clear()
-	}
-}
-
-func channelBatchRecv[T any](ch <-chan *T) []*T {
-	// block if channel is empty
-	item := <-ch
-	if item == nil {
-		// channel is closed
-		return nil
-	}
-
-	remaining := len(ch)
-	result := make([]*T, 0, remaining+1)
-	result = append(result, item)
-	for i := 0; i < remaining; i++ {
-		result = append(result, <-ch)
-	}
-	return result
-}
-
-// checkAsyncCommit check the quit signal of async rlog writing
-func (m *Manager) CheckAsyncCommit() error {
-	select {
-	case err := <-m.quitSignal:
-		// async wal writing failed, we need to abort the state machine
-		return fmt.Errorf("async wal writing goroutine quit unexpectedly: %w", err)
-	default:
-	}
-	return nil
-}
-
-func (m *Manager) WaitAsyncCommit() error {
-	if m.writeChannel == nil {
-		return nil
-	}
-	close(m.writeChannel)
-	err := <-m.quitSignal
-	m.writeChannel = nil
-	m.quitSignal = nil
-	return err
+	defer rlog.Close()
+	return rlog.LastIndex()
 }

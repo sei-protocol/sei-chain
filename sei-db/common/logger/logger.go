@@ -1,4 +1,4 @@
-package memiavl
+package logger
 
 // Logger is what any CometBFT library should take.
 type Logger interface {
@@ -18,11 +18,3 @@ func NewNopLogger() Logger { return &nopLogger{} }
 func (nopLogger) Info(string, ...interface{})  {}
 func (nopLogger) Debug(string, ...interface{}) {}
 func (nopLogger) Error(string, ...interface{}) {}
-
-// ExportNode contains exported node data.
-type ExportNode struct {
-	Key     []byte
-	Value   []byte
-	Version int64
-	Height  int8
-}

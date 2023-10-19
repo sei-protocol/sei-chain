@@ -9,7 +9,7 @@ import (
 	"github.com/tidwall/wal"
 )
 
-func TestCorruptedTail(t *testing.T) {
+func TestOpenAndCorruptedTail(t *testing.T) {
 	opts := &wal.Options{
 		LogFormat: wal.JSON,
 	}
@@ -34,7 +34,7 @@ func TestCorruptedTail(t *testing.T) {
 			_, err := wal.Open(dir, opts)
 			require.Equal(t, wal.ErrCorrupt, err)
 
-			log, err := OpenRlog(dir, opts)
+			log, err := openRlog(dir, opts)
 			require.NoError(t, err)
 
 			lastIndex, err := log.LastIndex()

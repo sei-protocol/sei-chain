@@ -10,8 +10,8 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 	"github.com/sei-protocol/sei-db/stream/rlog"
 	"golang.org/x/exp/slices"
 )
@@ -338,7 +338,7 @@ func (t *MultiTree) Catchup(rlogManager *rlog.Manager, endVersion int64) error {
 		return fmt.Errorf("target index %d is in the future, latest index: %d", endIndex, lastIndex)
 	}
 
-	err = rlogManager.Replay(firstIndex, endIndex, func(index uint64, entry proto.ReplayLogEntry) error {
+	err = rlogManager.Reader().Replay(firstIndex, endIndex, func(index uint64, entry proto.ReplayLogEntry) error {
 		if err := t.applyRlogEntry(entry); err != nil {
 			return fmt.Errorf("apply rlog entry failed, %w", err)
 		}
