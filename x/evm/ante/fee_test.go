@@ -61,7 +61,7 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	})
 	require.NotNil(t, err)
 
-	txData.GasFeeCap = new(big.Int).Mul(p.GetFeesParams(ctx).GlobalMinimumGasPrices[0].Amount.BigInt(), k.GetGasMultiplier(ctx).BigInt())
+	txData.GasFeeCap = k.GetMinimumFeePerGas(ctx).RoundInt().BigInt()
 	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
 	typedTx, err = ethtx.NewDynamicFeeTx(tx)
@@ -79,7 +79,7 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	})
 	require.NotNil(t, err)
 
-	amt := new(big.Int).Mul(typedTx.Fee(), k.GetGasMultiplier(ctx).BigInt())
+	amt := typedTx.Fee()
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
 	seiAddr, ok := types.GetContextSeiAddress(ctx)
@@ -140,7 +140,7 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	require.NotNil(t, err)
 
 	// should succeed
-	amt = new(big.Int).Mul(new(big.Int).Mul(typedBlobTx.GetBlobFeeCap(), new(big.Int).SetUint64(typedBlobTx.BlobGas())), k.GetGasMultiplier(ctx).BigInt())
+	amt = new(big.Int).Mul(typedBlobTx.GetBlobFeeCap(), new(big.Int).SetUint64(typedBlobTx.BlobGas()))
 	coinsAmt = sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
 	require.True(t, ok)
@@ -154,6 +154,23 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
+
+	// should fail because of minimum fee
+	txData.GasFeeCap = big.NewInt(0)
+	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	typedTx, err = ethtx.NewDynamicFeeTx(tx)
+	require.Nil(t, err)
+	msg, err = types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NotNil(t, err)
 }
 
 func TestEVMFeeCheckDecoratorLondon(t *testing.T) {
@@ -199,7 +216,7 @@ func TestEVMFeeCheckDecoratorLondon(t *testing.T) {
 	})
 	require.NotNil(t, err)
 
-	txData.GasFeeCap = new(big.Int).Mul(p.GetFeesParams(ctx).GlobalMinimumGasPrices[0].Amount.BigInt(), k.GetGasMultiplier(ctx).BigInt())
+	txData.GasFeeCap = k.GetMinimumFeePerGas(ctx).RoundInt().BigInt()
 	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
 	typedTx, err = ethtx.NewDynamicFeeTx(tx)
@@ -217,7 +234,7 @@ func TestEVMFeeCheckDecoratorLondon(t *testing.T) {
 	})
 	require.NotNil(t, err)
 
-	amt := new(big.Int).Mul(typedTx.Fee(), k.GetGasMultiplier(ctx).BigInt())
+	amt := typedTx.Fee()
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
 	seiAddr, ok := types.GetContextSeiAddress(ctx)
