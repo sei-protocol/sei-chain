@@ -17,10 +17,10 @@ import (
 type StateAPI struct {
 	tmClient    rpcclient.Client
 	keeper      *keeper.Keeper
-	ctxProvider func() sdk.Context
+	ctxProvider func(int64) sdk.Context
 }
 
-func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func() sdk.Context) *StateAPI {
+func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context) *StateAPI {
 	return &StateAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider}
 }
 
@@ -32,13 +32,13 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	if block != nil {
 		return nil, errors.New("block number not safe, finalized, latest, or pending")
 	}
-	seiAddr, found := a.keeper.GetSeiAddress(a.ctxProvider(), address)
+	seiAddr, found := a.keeper.GetSeiAddress(a.ctxProvider(LatestCtxHeight), address)
 	if found {
-		coin := a.keeper.BankKeeper().GetBalance(a.ctxProvider(), seiAddr, a.keeper.GetBaseDenom(a.ctxProvider()))
+		coin := a.keeper.BankKeeper().GetBalance(a.ctxProvider(LatestCtxHeight), seiAddr, a.keeper.GetBaseDenom(a.ctxProvider(LatestCtxHeight)))
 		balance := coin.Amount.BigInt().Uint64()
 		return &balance, nil
 	}
-	balance := a.keeper.GetBalance(a.ctxProvider(), address)
+	balance := a.keeper.GetBalance(a.ctxProvider(LatestCtxHeight), address)
 	return &balance, nil
 }
 
@@ -50,7 +50,7 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNr 
 	if block != nil {
 		return nil, errors.New("block number not safe, finalized, latest, or pending")
 	}
-	code := a.keeper.GetCode(a.ctxProvider(), address)
+	code := a.keeper.GetCode(a.ctxProvider(LatestCtxHeight), address)
 	return code, nil
 }
 
@@ -66,7 +66,7 @@ func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hex
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode storage key: %s", err)
 	}
-	state := a.keeper.GetState(a.ctxProvider(), address, key)
+	state := a.keeper.GetState(a.ctxProvider(LatestCtxHeight), address, key)
 	return state[:], nil
 }
 

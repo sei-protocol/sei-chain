@@ -3,8 +3,14 @@ package evmrpc
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"math/big"
+	"net/http"
+	"strings"
+	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
@@ -14,9 +20,11 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/bytes"
 	"github.com/tendermint/tendermint/libs/log"
@@ -148,14 +156,14 @@ var Ctx sdk.Context
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	EVMKeeper, _, Ctx = keeper.MockEVMKeeper()
-	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func() sdk.Context { return Ctx }, Decoder)
+	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, Decoder)
 	if err != nil {
 		panic(err)
 	}
 	if err := httpServer.Start(); err != nil {
 		panic(err)
 	}
-	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func() sdk.Context { return Ctx }, Decoder)
+	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, Decoder)
 	if err != nil {
 		panic(err)
 	}
@@ -236,4 +244,48 @@ func init() {
 		common.BytesToHash([]byte("key")),
 		common.BytesToHash([]byte("value")),
 	)
+}
+
+//nolint:deadcode
+func sendRequestGood(t *testing.T, method string, params ...interface{}) map[string]interface{} {
+	return sendRequest(t, TestPort, method, params...)
+}
+
+//nolint:deadcode
+func sendRequestBad(t *testing.T, method string, params ...interface{}) map[string]interface{} {
+	return sendRequest(t, TestBadPort, method, params...)
+}
+
+func sendRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
+	paramsFormatted := ""
+	if len(params) > 0 {
+		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
+	}
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_%s\",\"params\":[%s],\"id\":\"test\"}", method, paramsFormatted)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	defer res.Body.Close()
+	resBody, err := io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj := map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	return resObj
+}
+
+func formatParam(p interface{}) string {
+	switch v := p.(type) {
+	case int:
+		return fmt.Sprintf("%d", v)
+	case float64:
+		return fmt.Sprintf("%f", v)
+	case string:
+		return fmt.Sprintf("\"%s\"", v)
+	case []interface{}:
+		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, formatParam), ","))
+	default:
+		return fmt.Sprintf("%s", p)
+	}
 }

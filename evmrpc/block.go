@@ -19,11 +19,11 @@ import (
 type BlockAPI struct {
 	tmClient    rpcclient.Client
 	keeper      *keeper.Keeper
-	ctxProvider func() sdk.Context
+	ctxProvider func(int64) sdk.Context
 	txDecoder   sdk.TxDecoder
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func() sdk.Context, txDecoder sdk.TxDecoder) *BlockAPI {
+func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder) *BlockAPI {
 	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
 }
 
@@ -58,7 +58,7 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	return encodeTmBlock(a.ctxProvider(), block, blockRes, a.keeper, a.txDecoder, fullTx)
+	return encodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txDecoder, fullTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
@@ -74,7 +74,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	if err != nil {
 		return nil, err
 	}
-	return encodeTmBlock(a.ctxProvider(), block, blockRes, a.keeper, a.txDecoder, fullTx)
+	return encodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txDecoder, fullTx)
 }
 
 func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.BlockNumber) (*int64, error) {

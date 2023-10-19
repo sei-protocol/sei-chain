@@ -19,7 +19,7 @@ func NewEVMHTTPServer(
 	timeouts rpc.HTTPTimeouts,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
-	ctxProvider func() sdk.Context,
+	ctxProvider func(int64) sdk.Context,
 	txDecoder sdk.TxDecoder,
 ) (EVMServer, error) {
 	httpServer := newHTTPServer(logger, timeouts)
@@ -42,6 +42,10 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "eth",
 			Service:   NewStateAPI(tmClient, k, ctxProvider),
+		},
+		{
+			Namespace: "eth",
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txDecoder),
 		},
 	}
 	if err := httpServer.enableRPC(apis, httpConfig{

@@ -85,7 +85,6 @@ func TestGetBalance(t *testing.T) {
 			require.Nil(t, err)
 			resObj := map[string]interface{}{}
 			require.Nil(t, json.Unmarshal(resBody, &resObj))
-			fmt.Println("resObj", resObj)
 			if tt.wantErr {
 				_, ok := resObj["error"]
 				require.True(t, ok)
