@@ -100,9 +100,9 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 		GasLimit:    gp.Gas(),
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
 		Time:        uint64(ctx.BlockHeader().Time.Unix()),
-		Difficulty:  big.NewInt(0),       // only needed for PoW
-		BaseFee:     server.getBaseFee(), // feemarket not enabled
-		Random:      nil,                 // not supported
+		Difficulty:  big.NewInt(0),                                    // only needed for PoW
+		BaseFee:     server.GetBaseFeePerGas(ctx).RoundInt().BigInt(), // feemarket not enabled
+		Random:      nil,                                              // not supported
 	}
 	txCtx := core.NewEVMTxContext(msg)
 	evmInstance := vm.NewEVM(blockCtx, txCtx, stateDB, cfg, vm.Config{})
@@ -189,9 +189,4 @@ func (server msgServer) getHistoricalHash(ctx sdk.Context, h int64) common.Hash 
 	}
 
 	return common.BytesToHash(header.Hash())
-}
-
-// fee market is not enabled for now, so returning 0
-func (server msgServer) getBaseFee() *big.Int {
-	return big.NewInt(0)
 }
