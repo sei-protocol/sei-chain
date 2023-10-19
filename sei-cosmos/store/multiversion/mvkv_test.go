@@ -321,6 +321,12 @@ func TestIterator(t *testing.T) {
 
 	// iterate over the keys - exclusive on key5
 	iter := vis.Iterator([]byte("000"), []byte("key5"))
+
+	// verify domain is superset
+	start, end := iter.Domain()
+	require.Equal(t, []byte("000"), start)
+	require.Equal(t, []byte("key5"), end)
+
 	vals := []string{}
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
@@ -353,6 +359,17 @@ func TestIterator(t *testing.T) {
 	}
 	require.Equal(t, []string{"value1", "value2", "value3", "valueNew"}, vals3)
 	iter3.Close()
+
+	vis.Set([]byte("key6"), []byte("value6"))
+	// iterate over the keys, writeset being the last of the iteration range
+	iter4 := vis.Iterator([]byte("000"), []byte("key7"))
+	vals4 := []string{}
+	defer iter4.Close()
+	for ; iter4.Valid(); iter4.Next() {
+		vals4 = append(vals4, string(iter4.Value()))
+	}
+	require.Equal(t, []string{"value1", "value2", "value3", "valueNew", "value5", "value6"}, vals4)
+	iter4.Close()
 
 	// add an estimate to MVS
 	mvs.SetEstimatedWriteset(1, 1, map[string][]byte{
