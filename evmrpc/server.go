@@ -41,6 +41,10 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
+			Service:   NewStateAPI(tmClient, k, ctxProvider),
+		},
+		{
+			Namespace: "eth",
 			Service:   NewInfoAPI(tmClient, k, ctxProvider, txDecoder),
 		},
 	}
