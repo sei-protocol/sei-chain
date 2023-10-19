@@ -18,9 +18,6 @@ type RLReader struct {
 	config Config
 }
 
-type ReaderConfig struct {
-}
-
 func NewReader(logger logger.Logger, rlog *wal.Log, config Config) (*RLReader, error) {
 	return &RLReader{rlog: rlog, logger: logger, config: config}, nil
 }
