@@ -19,6 +19,10 @@ func TestSubscribe(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 1, int(res))
 
+	res, err = manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
+	require.Nil(t, err)
+	require.Equal(t, 2, int(res))
+
 	badManager := NewSubscriptionManager(&MockBadClient{})
 	_, err = badManager.Subscribe(context.Background(), mockQueryBuilder(), 10)
 	require.NotNil(t, err)
