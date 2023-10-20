@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -11,7 +12,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -31,14 +31,16 @@ func requestList(n int) []types.RequestDeliverTx {
 	return tasks
 }
 
-func initTestCtx() sdk.Context {
+func initTestCtx(injectStores bool) sdk.Context {
 	ctx := sdk.Context{}.WithContext(context.Background())
-	db := dbm.NewMemDB()
-	mem := dbadapter.Store{DB: db}
-	stores := make(map[sdk.StoreKey]sdk.CacheWrapper)
-	stores[testStoreKey] = cachekv.NewStore(mem, testStoreKey, 1000)
 	keys := make(map[string]sdk.StoreKey)
-	keys[testStoreKey.Name()] = testStoreKey
+	stores := make(map[sdk.StoreKey]sdk.CacheWrapper)
+	db := dbm.NewMemDB()
+	if injectStores {
+		mem := dbadapter.Store{DB: db}
+		stores[testStoreKey] = cachekv.NewStore(mem, testStoreKey, 1000)
+		keys[testStoreKey.Name()] = testStoreKey
+	}
 	store := cachemulti.NewStore(db, stores, keys, nil, nil, nil)
 	ctx = ctx.WithMultiStore(&store)
 	return ctx
@@ -51,13 +53,16 @@ func TestProcessAll(t *testing.T) {
 		runs          int
 		requests      []types.RequestDeliverTx
 		deliverTxFunc mockDeliverTxFunc
+		addStores     bool
 		expectedErr   error
+		assertions    func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx)
 	}{
 		{
-			name:     "Test for conflicts",
-			workers:  50,
-			runs:     25,
-			requests: requestList(50),
+			name:      "Test every tx accesses same key",
+			workers:   50,
+			runs:      25,
+			addStores: true,
+			requests:  requestList(50),
 			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) types.ResponseDeliverTx {
 				// all txs read and write to the same key to maximize conflicts
 				kv := ctx.MultiStore().GetKVStore(testStoreKey)
@@ -71,6 +76,38 @@ func TestProcessAll(t *testing.T) {
 					Info: val,
 				}
 			},
+			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+				for idx, response := range res {
+					if idx == 0 {
+						require.Equal(t, "", response.Info)
+					} else {
+						// the info is what was read from the kv store by the tx
+						// each tx writes its own index, so the info should be the index of the previous tx
+						require.Equal(t, fmt.Sprintf("%d", idx-1), response.Info)
+					}
+				}
+				// confirm last write made it to the parent store
+				latest := ctx.MultiStore().GetKVStore(testStoreKey).Get(itemKey)
+				require.Equal(t, []byte("49"), latest)
+			},
+			expectedErr: nil,
+		},
+		{
+			name:      "Test no stores on context should not panic",
+			workers:   50,
+			runs:      1,
+			addStores: false,
+			requests:  requestList(50),
+			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) types.ResponseDeliverTx {
+				return types.ResponseDeliverTx{
+					Info: fmt.Sprintf("%d", ctx.TxIndex()),
+				}
+			},
+			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+				for idx, response := range res {
+					require.Equal(t, fmt.Sprintf("%d", idx), response.Info)
+				}
+			},
 			expectedErr: nil,
 		},
 	}
@@ -79,25 +116,15 @@ func TestProcessAll(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			for i := 0; i < tt.runs; i++ {
 				s := NewScheduler(tt.workers, tt.deliverTxFunc)
-				ctx := initTestCtx()
+				ctx := initTestCtx(tt.addStores)
 
 				res, err := s.ProcessAll(ctx, tt.requests)
+				require.Len(t, res, len(tt.requests))
+
 				if !errors.Is(err, tt.expectedErr) {
 					t.Errorf("Expected error %v, got %v", tt.expectedErr, err)
 				} else {
-					require.Len(t, res, len(tt.requests))
-					for idx, response := range res {
-						if idx == 0 {
-							require.Equal(t, "", response.Info)
-						} else {
-							// the info is what was read from the kv store by the tx
-							// each tx writes its own index, so the info should be the index of the previous tx
-							require.Equal(t, fmt.Sprintf("%d", idx-1), response.Info)
-						}
-					}
-					// confirm last write made it to the parent store
-					res := ctx.MultiStore().GetKVStore(testStoreKey).Get(itemKey)
-					require.Equal(t, []byte(fmt.Sprintf("%d", len(tt.requests)-1)), res)
+					tt.assertions(t, ctx, res)
 				}
 			}
 		})

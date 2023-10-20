@@ -3,7 +3,6 @@ package baseapp
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,15 +11,27 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
-func toInt(b []byte) int {
-	r, _ := strconv.Atoi(string(b))
-	return r
-}
+func anteHandler(capKey sdk.StoreKey, storeKey []byte) sdk.AnteHandler {
+	return func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
+		store := ctx.KVStore(capKey)
+		txTest := tx.(txTest)
 
-func toByteArr(i int) []byte {
-	return []byte(fmt.Sprintf("%d", i))
+		if txTest.FailOnAnte {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "ante handler failure")
+		}
+
+		val := getIntFromStore(store, storeKey)
+		setIntOnStore(store, storeKey, val+1)
+
+		ctx.EventManager().EmitEvents(
+			counterEvent("ante-val", val+1),
+		)
+
+		return ctx, nil
+	}
 }
 
 func handlerKVStore(capKey sdk.StoreKey) sdk.Handler {
@@ -40,12 +51,12 @@ func handlerKVStore(capKey sdk.StoreKey) sdk.Handler {
 		store := ctx.KVStore(capKey)
 
 		// increment per-tx key (no conflict)
-		val := toInt(store.Get(txKey))
-		store.Set(txKey, toByteArr(val+1))
+		val := getIntFromStore(store, txKey)
+		setIntOnStore(store, txKey, val+1)
 
 		// increment shared key
-		sharedVal := toInt(store.Get(sharedKey))
-		store.Set(sharedKey, toByteArr(sharedVal+1))
+		sharedVal := getIntFromStore(store, sharedKey)
+		setIntOnStore(store, sharedKey, sharedVal+1)
 
 		// Emit an event with the incremented value and the unique ID
 		ctx.EventManager().EmitEvent(
@@ -75,8 +86,11 @@ func requireAttribute(t *testing.T, evts []abci.Event, name string, val string) 
 
 func TestDeliverTxBatch(t *testing.T) {
 	// test increments in the ante
-	//anteKey := []byte("ante-key")
-	anteOpt := func(bapp *BaseApp) {}
+	anteKey := []byte("ante-key")
+
+	anteOpt := func(bapp *BaseApp) {
+		bapp.SetAnteHandler(anteHandler(capKey1, anteKey))
+	}
 
 	// test increments in the handler
 	routerOpt := func(bapp *BaseApp) {

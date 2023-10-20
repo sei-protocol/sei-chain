@@ -272,24 +272,27 @@ func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
 		for _, task := range tasks {
 			// initialize the context
 			ctx = ctx.WithTxIndex(task.Index)
-
-			// non-blocking
-			cms := ctx.MultiStore().CacheMultiStore()
 			abortCh := make(chan occ.Abort, len(s.multiVersionStores))
 
-			// init version stores by store key
-			vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore)
-			for storeKey, mvs := range s.multiVersionStores {
-				vs[storeKey] = mvs.VersionedIndexedStore(task.Index, task.Incarnation, abortCh)
+			// if there are no stores, don't try to wrap, because there's nothing to wrap
+			if len(s.multiVersionStores) > 0 {
+				// non-blocking
+				cms := ctx.MultiStore().CacheMultiStore()
+
+				// init version stores by store key
+				vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore)
+				for storeKey, mvs := range s.multiVersionStores {
+					vs[storeKey] = mvs.VersionedIndexedStore(task.Index, task.Incarnation, abortCh)
+				}
+
+				// save off version store so we can ask it things later
+				task.VersionStores = vs
+				ms := cms.SetKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
+					return vs[k]
+				})
+
+				ctx = ctx.WithMultiStore(ms)
 			}
-
-			// save off version store so we can ask it things later
-			task.VersionStores = vs
-			ms := cms.SetKVStores(func(k store.StoreKey, kvs sdk.KVStore) store.CacheWrap {
-				return vs[k]
-			})
-
-			ctx = ctx.WithMultiStore(ms)
 
 			task.AbortCh = abortCh
 			task.Ctx = ctx
