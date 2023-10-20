@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
+	"github.com/sei-protocol/sei-db/common/utils"
 )
 
 const (
@@ -47,6 +47,14 @@ type Snapshot struct {
 
 	// nil means empty snapshot
 	root *PersistedNode
+}
+
+// ExportNode contains exported node data.
+type ExportNode struct {
+	Key     []byte
+	Value   []byte
+	Version int64
+	Height  int8
 }
 
 func NewEmptySnapshot(version uint32) *Snapshot {

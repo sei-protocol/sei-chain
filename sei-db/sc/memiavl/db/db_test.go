@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/sc/memiavl/utils"
 	"github.com/stretchr/testify/require"
 )
 
