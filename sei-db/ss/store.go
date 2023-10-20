@@ -44,7 +44,7 @@ func (st *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []typ
 
 func (st *Store) Get(key []byte) []byte {
 	defer telemetry.MeasureSince(time.Now(), "store", "state-store", "get")
-	value, err := st.store.GetAtVersion(st.storeKey.Name(), key, st.version)
+	value, err := st.store.Get(st.storeKey.Name(), key, st.version)
 	if err != nil {
 		panic(err)
 	}
@@ -53,7 +53,7 @@ func (st *Store) Get(key []byte) []byte {
 
 func (st *Store) Has(key []byte) bool {
 	defer telemetry.MeasureSince(time.Now(), "store", "state-store", "has")
-	has, err := st.store.HasAtVersion(st.storeKey.Name(), key, st.version)
+	has, err := st.store.Has(st.storeKey.Name(), key, st.version)
 	if err != nil {
 		panic(err)
 	}
