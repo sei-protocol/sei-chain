@@ -1,18 +1,19 @@
 package rlog
 
 import (
+	"testing"
+
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 var (
 	ChangeSets = []iavl.ChangeSet{
 		{Pairs: mockKVPairs("hello", "world")},
-		{Pairs: mockKVPairs("hello", "world1", "hello1", "world1")},
-		{Pairs: mockKVPairs("hello2", "world1", "hello3", "world1")},
+		{Pairs: mockKVPairs("hello1", "world1", "hello2", "world2")},
+		{Pairs: mockKVPairs("hello3", "world3")},
 	}
 )
 
