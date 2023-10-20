@@ -10,8 +10,8 @@ import (
 // StateStore is a versioned, embedded Key-Value Store,
 // which allows efficient reads, writes, iteration over a specific version
 type StateStore interface {
-	GetAtVersion(storeKey string, key []byte, version int64) ([]byte, error)
-	HasAtVersion(storeKey string, key []byte, version int64) (bool, error)
+	Get(storeKey string, key []byte, version int64) ([]byte, error)
+	Has(storeKey string, key []byte, version int64) (bool, error)
 	Iterator(storeKey string, start, end []byte, version int64) (types.Iterator, error)
 	ReverseIterator(storeKey string, start, end []byte, version int64) (types.Iterator, error)
 	GetLatestVersion() (int64, error)
