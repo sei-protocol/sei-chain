@@ -109,7 +109,7 @@ func (reader *RLReader) CheckSubscriber() error {
 	}
 	select {
 	case err := <-reader.errSignal:
-		// async wal writing failed, we need to abort the state machine
+		// we need to abort the state machine
 		return fmt.Errorf("reader subscribe goroutine quit unexpectedly: %w", err)
 	default:
 	}
