@@ -17,7 +17,7 @@ type StateStore interface {
 	GetLatestVersion() (int64, error)
 	SetLatestVersion(version uint64) error
 
-	// Persist the change set of a block,
+	// ApplyChangeset Persist the change set of a block,
 	// the `changeSet` should be ordered by (storeKey, key),
 	// the version should be latest version plus one.
 	ApplyChangeset(version int64, changeSets []proto.NamedChangeSet) error
@@ -30,7 +30,7 @@ type StateStore interface {
 	// returned upon failure.
 	Prune(version uint64) error
 
-	// Close releases associated resources. It should NOT be idempotent. It must
+	// Closer releases associated resources. It should NOT be idempotent. It must
 	// only be called once and any call after may panic.
 	io.Closer
 }
