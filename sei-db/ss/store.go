@@ -15,6 +15,7 @@ const StoreTypeSeiStateStore = 100
 
 var _ types.KVStore = (*Store)(nil)
 
+// Store wraps a SS store and implements a cosmos KVStore
 type Store struct {
 	store    StateStore
 	storeKey types.StoreKey
