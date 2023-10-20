@@ -19,7 +19,6 @@ type Config struct {
 	DisableFsync    bool
 	ZeroCopy        bool
 	WriteBufferSize int
-	ReadBufferSize  int
 }
 
 // Manager manages the replay log operations for reads and writes.
