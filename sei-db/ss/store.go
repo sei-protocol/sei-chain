@@ -52,7 +52,7 @@ func (st *Store) Get(key []byte) []byte {
 }
 
 func (st *Store) Has(key []byte) bool {
-	defer telemetry.MeasureSince(time.Now(), "store", "versiondb", "has")
+	defer telemetry.MeasureSince(time.Now(), "store", "state-store", "has")
 	has, err := st.store.HasAtVersion(st.storeKey.Name(), key, st.version)
 	if err != nil {
 		panic(err)
