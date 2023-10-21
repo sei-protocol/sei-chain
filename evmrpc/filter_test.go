@@ -1,6 +1,7 @@
 package evmrpc
 
 import (
+	// "context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -53,20 +54,20 @@ func TestNewFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			addrsStrs := []string{}
+			for _, addr := range tt.addrs {
+				addrsStrs = append(addrsStrs, "\""+addr.String()+"\"")
+			}
+			topicsStrs := []string{}
+			for _, topic := range tt.topics {
+				topicsStrs = append(topicsStrs, "\""+topic.String()+"\"")
+			}
+			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_newFilter\",\"params\":[\"%s\",\"%s\",%s,%s],\"id\":\"test\"}", tt.fromBlock, tt.toBlock, addrsStrs, topicsStrs)
+			fmt.Println("body = ", body)
+			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+			require.Nil(t, err)
+			req.Header.Set("Content-Type", "application/json")
 			f := func() map[string]interface{} {
-				addrsStrs := []string{}
-				for _, addr := range tt.addrs {
-					addrsStrs = append(addrsStrs, "\""+addr.String()+"\"")
-				}
-				topicsStrs := []string{}
-				for _, topic := range tt.topics {
-					topicsStrs = append(topicsStrs, "\""+topic.String()+"\"")
-				}
-				body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_newFilter\",\"params\":[\"%s\",\"%s\",%v,%s],\"id\":\"test\"}", tt.fromBlock, tt.toBlock, addrsStrs, topicsStrs)
-				fmt.Println("body = ", body)
-				req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
-				require.Nil(t, err)
-				req.Header.Set("Content-Type", "application/json")
 				res, err := http.DefaultClient.Do(req)
 				require.Nil(t, err)
 				resBody, err := io.ReadAll(res.Body)
@@ -89,4 +90,46 @@ func TestNewFilter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUninstallFilter(t *testing.T) {
+	// uninstall existing filter
+	emptyArr := []string{}
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_newFilter\",\"params\":[\"%s\",\"%s\",%s,%s],\"id\":\"test\"}", "0x1", "0xa", emptyArr, emptyArr)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err := io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj := map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	filterId := int(resObj["result"].(float64))
+	require.Equal(t, 1, filterId)
+	body = fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_uninstallFilter\",\"params\":[%d],\"id\":\"test\"}", filterId)
+	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err = io.ReadAll(res.Body)
+	require.Nil(t, err)
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	uninstallSuccess := resObj["result"].(bool)
+	require.True(t, uninstallSuccess)
+
+	// uninstall non-existing filter
+	nonExistingFilterId := 100
+	body = fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_uninstallFilter\",\"params\":[%d],\"id\":\"test\"}", nonExistingFilterId)
+	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err = io.ReadAll(res.Body)
+	require.Nil(t, err)
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	uninstallSuccess = resObj["result"].(bool)
+	require.False(t, uninstallSuccess)
 }

@@ -19,18 +19,17 @@ type filter struct {
 	// todo: expiration
 }
 
-type FilterId uint64
 
 type FilterAPI struct {
 	tmClient     rpcclient.Client
 	keeper       *keeper.Keeper
 	ctxProvider  func(int64) sdk.Context
-	nextFilterId FilterId
-	filters      map[FilterId]filter
+	nextFilterId uint64 
+	filters      map[uint64]filter
 }
 
 func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context) *FilterAPI {
-	filters := make(map[FilterId]filter)
+	filters := make(map[uint64]filter)
 	return &FilterAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, nextFilterId: 1, filters: filters}
 }
 
@@ -40,7 +39,7 @@ func (a *FilterAPI) NewFilter(
 	toBlock rpc.BlockNumber,
 	addresses []common.Address,
 	topics []string,
-) (*FilterId, error) {
+) (*uint64, error) {
 	fromBlockPtr, err := getBlockNumber(ctx, a.tmClient, fromBlock)
 	if err != nil {
 		return nil, err
@@ -79,7 +78,7 @@ func (a *FilterAPI) NewFilter(
 
 func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
-	filterId FilterId,
+	filterId  uint64,
 ) ([]common.Hash, error) {
 	return nil, nil
 }
@@ -104,8 +103,12 @@ func (a *FilterAPI) GetLogs(
 
 func (a *FilterAPI) UninstallFilter(
 	ctx context.Context,
-	filterId FilterId,
+	filterId uint64,
 ) (bool, error) {
-	
-	return false, nil
+	_, found := a.filters[filterId]
+	if !found {
+		return false, nil
+	}
+	delete(a.filters, filterId)
+	return true, nil
 }
