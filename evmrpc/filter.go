@@ -106,5 +106,6 @@ func (a *FilterAPI) UninstallFilter(
 	ctx context.Context,
 	filterId FilterId,
 ) (bool, error) {
+	
 	return false, nil
 }

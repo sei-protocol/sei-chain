@@ -27,16 +27,25 @@ func TestNewFilter(t *testing.T) {
 			fromBlock: "0x1",
 			toBlock:   "0x2",
 			addrs:     []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))},
-			topics:    []common.Hash{},
+			topics:    []common.Hash{common.HexToHash(common.Bytes2Hex([]byte("topic")))},
 			wantErr:   false,
 			wantId:    1,
 		},
 		{
 			name:      "from block after to block",
-			fromBlock: "2",
-			toBlock:   "1",
+			fromBlock: "0x2",
+			toBlock:   "0x1",
 			addrs:     []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))},
-			topics:    []common.Hash{},
+			topics:    []common.Hash{common.HexToHash(common.Bytes2Hex([]byte("topic")))},
+			wantErr:   true,
+			wantId:    0,
+		},
+		{
+			name:      "from block is latest but to block is not",
+			fromBlock: "latest",
+			toBlock:   "0x1",
+			addrs:     []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))},
+			topics:    []common.Hash{common.HexToHash(common.Bytes2Hex([]byte("topic")))},
 			wantErr:   true,
 			wantId:    0,
 		},
@@ -44,27 +53,39 @@ func TestNewFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			addrsStrs := []string{}
-			for _, addr := range tt.addrs {
-				addrsStrs = append(addrsStrs, "\""+addr.String()+"\"")
+			f := func() map[string]interface{} {
+				addrsStrs := []string{}
+				for _, addr := range tt.addrs {
+					addrsStrs = append(addrsStrs, "\""+addr.String()+"\"")
+				}
+				topicsStrs := []string{}
+				for _, topic := range tt.topics {
+					topicsStrs = append(topicsStrs, "\""+topic.String()+"\"")
+				}
+				body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_newFilter\",\"params\":[\"%s\",\"%s\",%v,%s],\"id\":\"test\"}", tt.fromBlock, tt.toBlock, addrsStrs, topicsStrs)
+				fmt.Println("body = ", body)
+				req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+				require.Nil(t, err)
+				req.Header.Set("Content-Type", "application/json")
+				res, err := http.DefaultClient.Do(req)
+				require.Nil(t, err)
+				resBody, err := io.ReadAll(res.Body)
+				require.Nil(t, err)
+				resObj := map[string]interface{}{}
+				require.Nil(t, json.Unmarshal(resBody, &resObj))
+				return resObj
 			}
-			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_newFilter\",\"params\":[\"%s\",\"%s\",%v,%s],\"id\":\"test\"}", tt.fromBlock, tt.toBlock, addrsStrs, tt.topics)
-			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
-			require.Nil(t, err)
-			req.Header.Set("Content-Type", "application/json")
-			res, err := http.DefaultClient.Do(req)
-			require.Nil(t, err)
-			resBody, err := io.ReadAll(res.Body)
-			require.Nil(t, err)
-			resObj := map[string]interface{}{}
-			require.Nil(t, json.Unmarshal(resBody, &resObj))
+			resObj := f()
 			if tt.wantErr {
 				_, ok := resObj["error"]
 				require.True(t, ok)
 			} else {
-				fmt.Println("resObj = ", resObj)
 				got := resObj["result"].(float64)
 				require.Equal(t, tt.wantId, got)
+				// check that filter id increments
+				resObj := f()
+				got2 := resObj["result"].(float64)
+				require.Equal(t, tt.wantId+1, got2)
 			}
 		})
 	}
