@@ -54,7 +54,6 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 		fmt.Printf("Migrating denom: %s\n", denom)
 		m.SetMetadata(&denomMetadata)
 		m.keeper.bankKeeper.SetDenomMetaData(ctx, denomMetadata)
-
 	}
 	return nil
 }
