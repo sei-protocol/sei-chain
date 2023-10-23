@@ -87,6 +87,7 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	height := int64(1)
 	chainid := "chainid"
 	ischeck := true
+	isOCC := true
 	txbytes := []byte("txbytes")
 	logger := mocks.NewMockLogger(ctrl)
 	voteinfos := []abci.VoteInfo{{}}
@@ -106,10 +107,13 @@ func (s *contextTestSuite) TestContextWithCustom() {
 		WithGasMeter(meter).
 		WithMinGasPrices(minGasPrices).
 		WithBlockGasMeter(blockGasMeter).
-		WithHeaderHash(headerHash)
+		WithHeaderHash(headerHash).
+		WithIsOCCEnabled(isOCC)
+
 	s.Require().Equal(height, ctx.BlockHeight())
 	s.Require().Equal(chainid, ctx.ChainID())
 	s.Require().Equal(ischeck, ctx.IsCheckTx())
+	s.Require().Equal(isOCC, ctx.IsOCCEnabled())
 	s.Require().Equal(txbytes, ctx.TxBytes())
 	s.Require().Equal(logger, ctx.Logger())
 	s.Require().Equal(voteinfos, ctx.VoteInfos())
