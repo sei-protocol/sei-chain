@@ -42,10 +42,10 @@ func (d *DepositInfo) Add(newItem *types.DepositInfoEntry) {
 			panic(err)
 		}
 		newItem.Amount = newItem.Amount.Add(existingItem.Amount)
-		if newVal, err := newItem.Marshal(); err != nil {
+		newVal, err := newItem.Marshal()
+		if err != nil {
 			panic(err)
-		} else {
-			d.store.Set(key, newVal)
 		}
+		d.store.Set(key, newVal)
 	}
 }
