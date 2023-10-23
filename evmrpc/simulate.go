@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -22,10 +23,7 @@ import (
 )
 
 type SimulationAPI struct {
-	ctxProvider func(int64) sdk.Context
-	keeper      *keeper.Keeper
-	tmClient    rpcclient.Client
-	config      *SimulateConfig
+	backend *Backend
 }
 
 func NewSimulationAPI(
@@ -35,10 +33,12 @@ func NewSimulationAPI(
 	config *SimulateConfig,
 ) *SimulationAPI {
 	return &SimulationAPI{
-		ctxProvider: ctxProvider,
-		keeper:      keeper,
-		tmClient:    tmClient,
-		config:      config,
+		backend: &Backend{
+			ctxProvider: ctxProvider,
+			keeper:      keeper,
+			tmClient:    tmClient,
+			config:      config,
+		},
 	}
 }
 
@@ -53,12 +53,7 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
 	}
-	acl, gasUsed, vmerr, err := ethapi.AccessList(ctx, &Backend{
-		ctxProvider: s.ctxProvider,
-		keeper:      s.keeper,
-		tmClient:    s.tmClient,
-		config:      s.config,
-	}, bNrOrHash, args)
+	acl, gasUsed, vmerr, err := ethapi.AccessList(ctx, s.backend, bNrOrHash, args)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +62,14 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 		result.Error = vmerr.Error()
 	}
 	return result, nil
+}
+
+func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (hexutil.Uint64, error) {
+	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+	if blockNrOrHash != nil {
+		bNrOrHash = *blockNrOrHash
+	}
+	return ethapi.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, s.backend.RPCGasCap())
 }
 
 type SimulateConfig struct {
@@ -86,21 +89,18 @@ func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmCl
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	var block *coretypes.ResultBlock
-	var err error
-	if blockNr, ok := blockNrOrHash.Number(); ok {
-		blockNumber, blockNumErr := getBlockNumber(ctx, b.tmClient, blockNr)
-		if blockNumErr != nil {
-			return nil, nil, blockNumErr
-		}
-		block, err = b.tmClient.Block(ctx, blockNumber)
-	} else {
-		block, err = b.tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
-	}
+	height, err := b.getBlockHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, nil, err
 	}
-	return state.NewDBImpl(b.ctxProvider(block.Block.Height), b.keeper), b.getHeader(), nil
+	return state.NewDBImpl(b.ctxProvider(height), b.keeper), b.getHeader(big.NewInt(height)), nil
+}
+
+// returns block header only
+func (b *Backend) BlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*ethtypes.Block, error) {
+	return ethtypes.NewBlock(&ethtypes.Header{
+		GasLimit: b.RPCGasCap(),
+	}, []*ethtypes.Transaction{}, []*ethtypes.Header{}, []*ethtypes.Receipt{}, nil), nil
 }
 
 func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
@@ -117,14 +117,15 @@ func (b *Backend) Engine() consensus.Engine {
 	return &Engine{ctxProvider: b.ctxProvider, keeper: b.keeper}
 }
 
-func (b *Backend) HeaderByNumber(context.Context, rpc.BlockNumber) (*ethtypes.Header, error) {
-	return b.getHeader(), nil
+func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Header, error) {
+	height, err := b.getBlockHeight(ctx, rpc.BlockNumberOrHashWithNumber(bn))
+	if err != nil {
+		return nil, err
+	}
+	return b.getHeader(big.NewInt(height)), nil
 }
 
 func (b *Backend) GetEVM(ctx context.Context, msg *core.Message, state vm.StateDB, header *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) (*vm.EVM, func() error) {
-	if vmConfig == nil {
-		panic("vmConfig should not be nil")
-	}
 	txContext := core.NewEVMTxContext(msg)
 	context, err := b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
 	if err != nil {
@@ -133,8 +134,38 @@ func (b *Backend) GetEVM(ctx context.Context, msg *core.Message, state vm.StateD
 	return vm.NewEVM(*context, txContext, state, b.ChainConfig(), *vmConfig), state.Error
 }
 
-func (b *Backend) getHeader() *ethtypes.Header {
-	return &ethtypes.Header{}
+func (b *Backend) CurrentHeader() *ethtypes.Header {
+	return b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()))
+}
+
+func (b *Backend) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
+	return big.NewInt(0), nil
+}
+
+func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
+	var block *coretypes.ResultBlock
+	var err error
+	if blockNr, ok := blockNrOrHash.Number(); ok {
+		blockNumber, blockNumErr := getBlockNumber(ctx, b.tmClient, blockNr)
+		if blockNumErr != nil {
+			return 0, blockNumErr
+		}
+		block, err = b.tmClient.Block(ctx, blockNumber)
+	} else {
+		block, err = b.tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
+	}
+	if err != nil {
+		return 0, err
+	}
+	return block.Block.Height, nil
+}
+
+func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
+	return &ethtypes.Header{
+		Difficulty: common.Big0,
+		Number:     blockNumber,
+		BaseFee:    b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
+	}
 }
 
 type Engine struct {

@@ -104,8 +104,8 @@ func (s *DBImpl) Copy() vm.StateDB {
 	}
 }
 
-func (s *DBImpl) Finalise(deleteEmptyObjects bool) {
-	panic("Finalise is not implemented and called unexpectedly")
+func (s *DBImpl) Finalise(bool) {
+	s.ctx.Logger().Info("Finalise should only be called during simulation and will no-op")
 }
 
 func (s *DBImpl) Commit(block uint64, deleteEmptyObjects bool) (common.Hash, error) {

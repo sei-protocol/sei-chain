@@ -294,6 +294,9 @@ func sendRequest(t *testing.T, port int, method string, params ...interface{}) m
 }
 
 func formatParam(p interface{}) string {
+	if p == nil {
+		return "null"
+	}
 	switch v := p.(type) {
 	case int:
 		return fmt.Sprintf("%d", v)
@@ -303,6 +306,12 @@ func formatParam(p interface{}) string {
 		return fmt.Sprintf("\"%s\"", v)
 	case []interface{}:
 		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, formatParam), ","))
+	case map[string]interface{}:
+		kvs := []string{}
+		for k, v := range v {
+			kvs = append(kvs, fmt.Sprintf("\"%s\":%s", k, formatParam(v)))
+		}
+		return fmt.Sprintf("{%s}", strings.Join(kvs, ","))
 	default:
 		return fmt.Sprintf("%s", p)
 	}
