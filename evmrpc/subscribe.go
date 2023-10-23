@@ -1,0 +1,94 @@
+package evmrpc
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/sei-protocol/sei-chain/x/evm/types"
+	rpcclient "github.com/tendermint/tendermint/rpc/client"
+	"github.com/tendermint/tendermint/rpc/coretypes"
+)
+
+const SubscriberPrefix = "evm.rpc."
+
+type SubscriberID uint64
+
+type SubscriptionManager struct {
+	NextID        SubscriberID
+	Subscriptions map[SubscriberID]<-chan coretypes.ResultEvent
+
+	tmClient rpcclient.Client
+}
+
+func NewSubscriptionManager(tmClient rpcclient.Client) *SubscriptionManager {
+	return &SubscriptionManager{
+		NextID:        1,
+		Subscriptions: map[SubscriberID]<-chan coretypes.ResultEvent{},
+		tmClient:      tmClient,
+	}
+}
+
+func (s *SubscriptionManager) Subscribe(ctx context.Context, q *QueryBuilder, limit int) (SubscriberID, error) {
+	id := s.NextID
+	// ignore deprecation here since the new endpoint does not support polling
+	//nolint:staticcheck
+	res, err := s.tmClient.Subscribe(ctx, fmt.Sprintf("%s%d", SubscriberPrefix, id), q.Build(), limit)
+	if err != nil {
+		return 0, err
+	}
+	s.Subscriptions[id] = res
+	s.NextID++
+	return id, nil
+}
+
+type QueryBuilder struct {
+	conditions []string
+}
+
+func NewQueryBuilder() *QueryBuilder {
+	return &QueryBuilder{
+		conditions: []string{
+			"tm.event = 'Tx'", // needed for all transaction-generated events
+		},
+	}
+}
+
+func (q *QueryBuilder) Build() string {
+	return strings.Join(q.conditions, " AND ")
+}
+
+func (q *QueryBuilder) FilterContractAddress(contractAddr string) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = '%s'", types.EventTypeEVMLog, types.AttributeTypeContractAddress, contractAddr))
+	return q
+}
+
+func (q *QueryBuilder) FilterTopic(topic string) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s CONTAINS '%s'", types.EventTypeEVMLog, types.AttributeTypeTopics, topic))
+	return q
+}
+
+func (q *QueryBuilder) FilterBlockNumber(blockNumber int64) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = '%d'", types.EventTypeEVMLog, types.AttributeTypeBlockNumber, blockNumber))
+	return q
+}
+
+func (q *QueryBuilder) FilterTxIndex(txIndex int64) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = '%d'", types.EventTypeEVMLog, types.AttributeTypeTxIndex, txIndex))
+	return q
+}
+
+func (q *QueryBuilder) FilterIndex(index int64) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = '%d'", types.EventTypeEVMLog, types.AttributeTypeIndex, index))
+	return q
+}
+
+func (q *QueryBuilder) FilterBlockHash(blockHash string) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = '%s'", types.EventTypeEVMLog, types.AttributeTypeBlockHash, blockHash))
+	return q
+}
+
+func (q *QueryBuilder) FilterTxHash(txHash string) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = '%s'", types.EventTypeEVMLog, types.AttributeTypeTxHash, txHash))
+	return q
+}
