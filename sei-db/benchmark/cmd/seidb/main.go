@@ -33,7 +33,7 @@ var (
 	validDBBackends = map[string]bool{}
 
 	rootCmd = &cobra.Command{
-		Use:   "dumpkv",
+		Use:   "seidb",
 		Short: "A tool to generate raw key value data from a node as well as benchmark different backends",
 	}
 
