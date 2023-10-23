@@ -14,14 +14,14 @@ func TestAddLog(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
-	logs, err := statedb.GetLogs()
+	logs, err := statedb.GetAllLogs()
 	require.Nil(t, err)
 	require.Empty(t, logs)
 
 	log1 := ethtypes.Log{Address: common.BytesToAddress([]byte{1}), Topics: []common.Hash{}, Data: []byte{}}
 	statedb.AddLog(&log1)
 	require.Nil(t, statedb.Err())
-	logs, err = statedb.GetLogs()
+	logs, err = statedb.GetAllLogs()
 	require.Nil(t, err)
 	require.Equal(t, 1, len(logs))
 	require.Equal(t, log1, *logs[0])
@@ -29,7 +29,7 @@ func TestAddLog(t *testing.T) {
 	log2 := ethtypes.Log{Address: common.BytesToAddress([]byte{2}), Topics: []common.Hash{}, Data: []byte{3}}
 	statedb.AddLog(&log2)
 	require.Nil(t, statedb.Err())
-	logs, err = statedb.GetLogs()
+	logs, err = statedb.GetAllLogs()
 	require.Nil(t, err)
 	require.Equal(t, 2, len(logs))
 	require.Equal(t, log1, *logs[0])
