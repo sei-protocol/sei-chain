@@ -33,22 +33,17 @@ func NewSimulationAPI(
 	config *SimulateConfig,
 ) *SimulationAPI {
 	return &SimulationAPI{
-		backend: &Backend{
-			ctxProvider: ctxProvider,
-			keeper:      keeper,
-			tmClient:    tmClient,
-			config:      config,
-		},
+		backend: NewBackend(ctxProvider, keeper, tmClient, config),
 	}
 }
 
-type accessListResult struct {
+type AccessListResult struct {
 	Accesslist *ethtypes.AccessList `json:"accessList"`
 	Error      string               `json:"error,omitempty"`
 	GasUsed    hexutil.Uint64       `json:"gasUsed"`
 }
 
-func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*accessListResult, error) {
+func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*AccessListResult, error) {
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -57,7 +52,7 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 	if err != nil {
 		return nil, err
 	}
-	result := &accessListResult{Accesslist: &acl, GasUsed: hexutil.Uint64(gasUsed)}
+	result := &AccessListResult{Accesslist: &acl, GasUsed: hexutil.Uint64(gasUsed)}
 	if vmerr != nil {
 		result.Error = vmerr.Error()
 	}
@@ -97,7 +92,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 }
 
 // returns block header only
-func (b *Backend) BlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*ethtypes.Block, error) {
+func (b *Backend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*ethtypes.Block, error) {
 	return ethtypes.NewBlock(&ethtypes.Header{
 		GasLimit: b.RPCGasCap(),
 	}, []*ethtypes.Transaction{}, []*ethtypes.Header{}, []*ethtypes.Receipt{}, nil), nil
@@ -109,7 +104,7 @@ func (b *Backend) ChainConfig() *params.ChainConfig {
 	return b.keeper.GetChainConfig(b.ctxProvider(LatestCtxHeight)).EthereumConfig(b.keeper.ChainID())
 }
 
-func (b *Backend) GetPoolNonce(ctx context.Context, addr common.Address) (uint64, error) {
+func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {
 	return state.NewDBImpl(b.ctxProvider(LatestCtxHeight), b.keeper).GetNonce(addr), nil
 }
 
@@ -125,12 +120,9 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	return b.getHeader(big.NewInt(height)), nil
 }
 
-func (b *Backend) GetEVM(ctx context.Context, msg *core.Message, state vm.StateDB, header *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) (*vm.EVM, func() error) {
+func (b *Backend) GetEVM(_ context.Context, msg *core.Message, state vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) (*vm.EVM, func() error) {
 	txContext := core.NewEVMTxContext(msg)
-	context, err := b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
-	if err != nil {
-		panic(err)
-	}
+	context, _ := b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
 	return vm.NewEVM(*context, txContext, state, b.ChainConfig(), *vmConfig), state.Error
 }
 
@@ -138,7 +130,7 @@ func (b *Backend) CurrentHeader() *ethtypes.Header {
 	return b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()))
 }
 
-func (b *Backend) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
+func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
 	return big.NewInt(0), nil
 }
 

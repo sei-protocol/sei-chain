@@ -108,15 +108,15 @@ func (s *DBImpl) Finalise(bool) {
 	s.ctx.Logger().Info("Finalise should only be called during simulation and will no-op")
 }
 
-func (s *DBImpl) Commit(block uint64, deleteEmptyObjects bool) (common.Hash, error) {
+func (s *DBImpl) Commit(uint64, bool) (common.Hash, error) {
 	panic("Commit is not implemented and called unexpectedly")
 }
 
-func (s *DBImpl) SetTxContext(thash common.Hash, ti int) {
+func (s *DBImpl) SetTxContext(common.Hash, int) {
 	//noop
 }
 
-func (s *DBImpl) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
+func (s *DBImpl) IntermediateRoot(bool) common.Hash {
 	panic("IntermediateRoot is not implemented and called unexpectedly")
 }
 

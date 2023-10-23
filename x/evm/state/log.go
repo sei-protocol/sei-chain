@@ -43,7 +43,7 @@ func (s *DBImpl) GetAllLogs() ([]*ethtypes.Log, error) {
 	return logs.Ls, nil
 }
 
-func (s *DBImpl) GetLogs(hash common.Hash, blockNumber uint64, blockHash common.Hash) []*ethtypes.Log {
+func (s *DBImpl) GetLogs(common.Hash, uint64, common.Hash) []*ethtypes.Log {
 	logs, err := s.GetAllLogs()
 	if err != nil {
 		s.err = err

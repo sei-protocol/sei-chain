@@ -30,6 +30,12 @@ func TestEstimateGas(t *testing.T) {
 	resObj := sendRequestGood(t, "estimateGas", txArgs, nil, map[string]interface{}{})
 	result := resObj["result"].(string)
 	require.Equal(t, "0x5208", result) // 21000
+	resObj = sendRequestGood(t, "estimateGas", txArgs, "latest", map[string]interface{}{})
+	result = resObj["result"].(string)
+	require.Equal(t, "0x5208", result) // 21000
+	resObj = sendRequestGood(t, "estimateGas", txArgs, "0x123456", map[string]interface{}{})
+	result = resObj["result"].(string)
+	require.Equal(t, "0x5208", result) // 21000
 
 	// contract call
 	_, contractAddr := keeper.MockAddressPair()
@@ -80,4 +86,8 @@ func TestCreateAccessList(t *testing.T) {
 	resObj := sendRequestGood(t, "createAccessList", txArgs, "latest")
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, []interface{}{}, result["accessList"]) // the code uses MSTORE which does not trace access list
+
+	resObj = sendRequestBad(t, "createAccessList", txArgs, "latest")
+	result = resObj["error"].(map[string]interface{})
+	require.Equal(t, "error block", result["message"])
 }
