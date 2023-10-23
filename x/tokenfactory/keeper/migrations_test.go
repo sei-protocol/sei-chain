@@ -1,9 +1,11 @@
 package keeper
 
 import (
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"strings"
 	"testing"
+
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -20,11 +22,13 @@ import (
 
 func TestMigrate2to3(t *testing.T) {
 	storeKey := sdk.NewKVStoreKey(types.StoreKey)
+	bankstorekey := sdk.NewKVStoreKey(banktypes.StoreKey)
 	memStoreKey := storetypes.NewMemoryStoreKey(types.MemStoreKey)
 
 	db := tmdb.NewMemDB()
 	stateStore := store.NewCommitMultiStore(db)
 	stateStore.MountStoreWithDB(storeKey, sdk.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(bankstorekey, sdk.StoreTypeIAVL, db)
 	stateStore.MountStoreWithDB(memStoreKey, sdk.StoreTypeMemory, nil)
 	require.NoError(t, stateStore.LoadLatestVersion())
 
@@ -55,7 +59,7 @@ func TestMigrate2to3(t *testing.T) {
 	store.Set(oldCreatorSpecificPrefix, []byte("garbage value whitelist creator"))
 	require.True(t, store.Has(oldCreateDenomFeeWhitelistPrefix))
 	require.True(t, store.Has(oldCreatorSpecificPrefix))
-	newKeeper := NewKeeper(cdc, storeKey, paramsSubspace, nil, nil, nil)
+	newKeeper := NewKeeper(cdc, storeKey, paramsSubspace, nil, bankkeeper.NewBaseKeeper(cdc, bankstorekey, nil, paramsSubspace, nil), nil)
 	m := NewMigrator(newKeeper)
 	err := m.Migrate2to3(ctx)
 	require.Nil(t, err)
@@ -66,6 +70,11 @@ func TestMigrate2to3(t *testing.T) {
 	params := types.Params{}
 	paramsSubspace.GetParamSet(ctx, &params)
 	require.Equal(t, types.Params{}, params)
+
+	m.keeper.addDenomFromCreator(ctx, "creator", "test_denom")
+	m.keeper.bankKeeper.SetDenomMetaData(ctx, banktypes.Metadata{Base: "test_denom", Name: "test_denom", Symbol: "test_denom"})
+	err = m.Migrate3to4(ctx)
+	require.Nil(t, err)
 }
 
 func TestMigrate3To4(t *testing.T) {
