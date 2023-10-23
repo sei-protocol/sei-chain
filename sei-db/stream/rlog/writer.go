@@ -12,7 +12,7 @@ type RLWriter struct {
 	config       Config
 	logger       logger.Logger
 	writeChannel chan *LogEntry
-	stopSignal   chan error
+	errSignal    chan error
 }
 
 var (
@@ -33,7 +33,7 @@ func (writer *RLWriter) Write(entry LogEntry) error {
 		if writer.writeChannel == nil {
 			writer.logger.Info(fmt.Sprintf("async write is enabled with buffer size %d", channelBufferSize))
 			writer.writeChannel = make(chan *LogEntry, writer.config.WriteBufferSize)
-			writer.stopSignal = make(chan error)
+			writer.errSignal = make(chan error)
 			go writer.startWriteGoroutine()
 		}
 		// async write
@@ -55,7 +55,7 @@ func (writer *RLWriter) Write(entry LogEntry) error {
 // This should only be called on initialization if async write is enabled
 func (writer *RLWriter) startWriteGoroutine() {
 	batch := wal.Batch{}
-	defer close(writer.stopSignal)
+	defer close(writer.errSignal)
 	for {
 		entries := channelBatchRecv(writer.writeChannel)
 		if len(entries) == 0 {
@@ -66,14 +66,14 @@ func (writer *RLWriter) startWriteGoroutine() {
 		for _, entry := range entries {
 			bz, err := entry.Data.Marshal()
 			if err != nil {
-				writer.stopSignal <- err
+				writer.errSignal <- err
 				return
 			}
 			batch.Write(entry.Index, bz)
 		}
 
 		if err := writer.rlog.WriteBatch(&batch); err != nil {
-			writer.stopSignal <- err
+			writer.errSignal <- err
 			return
 		}
 		batch.Clear()
@@ -112,7 +112,7 @@ func (writer *RLWriter) TruncateBefore(index uint64) error {
 // CheckAsyncCommit check the quit signal of async rlog writing
 func (writer *RLWriter) CheckAsyncCommit() error {
 	select {
-	case err := <-writer.stopSignal:
+	case err := <-writer.errSignal:
 		// async wal writing failed, we need to abort the state machine
 		return fmt.Errorf("async wal writing goroutine quit unexpectedly: %w", err)
 	default:
@@ -126,8 +126,8 @@ func (writer *RLWriter) WaitAsyncCommit() error {
 		return nil
 	}
 	close(writer.writeChannel)
-	err := <-writer.stopSignal
+	err := <-writer.errSignal
 	writer.writeChannel = nil
-	writer.stopSignal = nil
+	writer.errSignal = nil
 	return err
 }

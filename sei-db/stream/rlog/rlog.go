@@ -11,37 +11,9 @@ import (
 
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/proto"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/wal"
 )
-
-type Writer interface {
-	// Write will write a new entry to the log at the given index.
-	Write(entry LogEntry) error
-
-	// CheckAsyncCommit check the error signal of async writes
-	CheckAsyncCommit() error
-
-	// WaitAsyncCommit will block and wait for async writes to complete
-	WaitAsyncCommit() error
-
-	// TruncateBefore will remove all entries that are before the provided `index`
-	TruncateBefore(index uint64) error
-
-	// TruncateAfter will remove all entries that are after the provided `index`
-	TruncateAfter(index uint64) error
-}
-
-type Reader interface {
-	// Replay will read the replay log and process each log entry with the provided function
-	Replay(start uint64, end uint64, processFn func(index uint64, entry proto.ReplayLogEntry) error) error
-}
-
-type LogEntry struct {
-	Index uint64
-	Data  proto.ReplayLogEntry
-}
 
 type Config struct {
 	DisableFsync    bool
@@ -94,9 +66,10 @@ func (m *Manager) LastIndex() (index uint64, err error) {
 }
 
 func (m *Manager) Close() error {
-	err := m.writer.WaitAsyncCommit()
+	errWriter := m.writer.WaitAsyncCommit()
+	errReader := m.reader.StopSubscriber()
 	errClose := m.rlog.Close()
-	return utils.Join(err, errClose)
+	return utils.Join(errWriter, errReader, errClose)
 }
 
 // OpenRlog opens the replay log, try to truncate the corrupted tail if there's any
