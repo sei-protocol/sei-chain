@@ -1,6 +1,7 @@
 package evmrpc
 
 import (
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -20,7 +21,7 @@ func NewEVMHTTPServer(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
-	txDecoder sdk.TxDecoder,
+	txConfig client.TxConfig,
 ) (EVMServer, error) {
 	httpServer := newHTTPServer(logger, timeouts)
 	if err := httpServer.setListenAddr(addr, port); err != nil {
@@ -33,11 +34,11 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txDecoder),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txDecoder),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
 		},
 		{
 			Namespace: "eth",
@@ -45,7 +46,11 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txDecoder),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
+		},
+		{
+			Namespace: "eth",
+			Service:   NewSendAPI(tmClient, txConfig),
 		},
 	}
 	if err := httpServer.enableRPC(apis, httpConfig{

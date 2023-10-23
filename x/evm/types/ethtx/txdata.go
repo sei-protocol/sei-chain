@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	proto "github.com/gogo/protobuf/proto"
 )
 
 var (
@@ -17,6 +18,7 @@ var (
 // Unfortunately `TxData` interface in go-ethereum/core/types defines its functions
 // as private, so we have to define our own here.
 type TxData interface {
+	proto.Message
 	TxType() byte
 	Copy() TxData
 	GetChainID() *big.Int
