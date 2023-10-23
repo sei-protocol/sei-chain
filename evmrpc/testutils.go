@@ -134,6 +134,10 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 	}, nil
 }
 
+func (c *MockClient) Subscribe(context.Context, string, string, ...int) (<-chan coretypes.ResultEvent, error) {
+	return make(chan coretypes.ResultEvent, 1), nil
+}
+
 type MockBadClient struct {
 	MockClient
 }
@@ -148,6 +152,10 @@ func (m *MockBadClient) BlockByHash(context.Context, bytes.HexBytes) (*coretypes
 
 func (m *MockBadClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) {
 	return nil, errors.New("error genesis")
+}
+
+func (m *MockBadClient) Subscribe(context.Context, string, string, ...int) (<-chan coretypes.ResultEvent, error) {
+	return nil, errors.New("bad subscribe")
 }
 
 var EVMKeeper *keeper.Keeper
