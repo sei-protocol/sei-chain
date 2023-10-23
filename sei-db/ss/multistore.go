@@ -5,6 +5,8 @@ import (
 	"math"
 	"sync"
 
+	"github.com/cosmos/cosmos-sdk/store/mem"
+	"github.com/cosmos/cosmos-sdk/store/transient"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/cachemulti"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -111,6 +113,20 @@ func (s *MultiStore) getTracingContext() types.TraceContext {
 	}
 
 	return ctx
+}
+
+// MountTransientStores simulates the same behavior as sdk to support grpc query service.
+func (s *MultiStore) MountTransientStores(keys map[string]*types.TransientStoreKey) {
+	for _, key := range keys {
+		s.transientStores[key] = transient.NewStore()
+	}
+}
+
+// MountMemoryStores simulates the same behavior as sdk to support grpc query service.
+func (s *MultiStore) MountMemoryStores(keys map[string]*types.MemoryStoreKey) {
+	for _, key := range keys {
+		s.transientStores[key] = mem.NewStore()
+	}
 }
 
 func (s *MultiStore) ListeningEnabled(key types.StoreKey) bool {
