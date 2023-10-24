@@ -6,7 +6,6 @@ package rocksdb
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
@@ -189,11 +188,11 @@ func (db *Database) Prune(version uint64) error {
 
 func (db *Database) Iterator(storeKey string, version uint64, start, end []byte) (types.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, errors.New("Key Empty")
+		return nil, ss.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, errors.New("Start after end")
+		return nil, ss.ErrStartAfterEnd
 	}
 
 	prefix := storePrefix(storeKey)
@@ -205,11 +204,11 @@ func (db *Database) Iterator(storeKey string, version uint64, start, end []byte)
 
 func (db *Database) ReverseIterator(storeKey string, version uint64, start, end []byte) (types.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, errors.New("Key Empty")
+		return nil, ss.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, errors.New("Start after end")
+		return nil, ss.ErrStartAfterEnd
 	}
 
 	prefix := storePrefix(storeKey)
