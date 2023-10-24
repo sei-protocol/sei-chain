@@ -14,16 +14,16 @@ type StateStore interface {
 	Has(storeKey string, key []byte, version int64) (bool, error)
 	Iterator(storeKey string, start, end []byte, version int64) (types.Iterator, error)
 	ReverseIterator(storeKey string, start, end []byte, version int64) (types.Iterator, error)
-	GetLatestVersion() (int64, error)
+	GetLatestVersion() (uint64, error)
 	SetLatestVersion(version uint64) error
 
 	// ApplyChangeset Persist the change set of a block,
 	// the `changeSet` should be ordered by (storeKey, key),
 	// the version should be latest version plus one.
-	ApplyChangeset(version int64, changeSets []proto.NamedChangeSet) error
+	ApplyChangeset(version uint64, changeSets []proto.NamedChangeSet) error
 
 	// Import the initial state of the store
-	Import(version int64, ch <-chan ImportEntry) error
+	Import(version uint64, ch <-chan ImportEntry) error
 
 	// Prune attempts to prune all versions up to and including the provided
 	// version argument. The operation should be idempotent. An error should be
