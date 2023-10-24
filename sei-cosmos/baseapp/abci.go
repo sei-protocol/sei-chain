@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/tasks"
 	"os"
 	"sort"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/cosmos/cosmos-sdk/tasks"
 
 	"github.com/armon/go-metrics"
 	"github.com/gogo/protobuf/proto"
@@ -239,15 +240,13 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 
 // DeliverTxBatch executes multiple txs
 func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (res sdk.DeliverTxBatchResponse) {
-	reqList := make([]abci.RequestDeliverTx, 0, len(req.TxEntries))
-	for _, tx := range req.TxEntries {
-		reqList = append(reqList, tx.Request)
-	}
-
 	scheduler := tasks.NewScheduler(app.concurrencyWorkers, app.DeliverTx)
-	txRes, err := scheduler.ProcessAll(ctx, reqList)
+	// This will basically no-op the actual prefill if the metadata for the txs is empty
+
+	// process all txs, this will also initializes the MVS if prefill estimates was disabled
+	txRes, err := scheduler.ProcessAll(ctx, req.TxEntries)
 	if err != nil {
-		//TODO: handle error
+		// TODO: handle error
 	}
 
 	responses := make([]*sdk.DeliverTxResult, 0, len(req.TxEntries))

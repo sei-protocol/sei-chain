@@ -57,7 +57,7 @@ func (dt *deliverTxTask) Increment() {
 
 // Scheduler processes tasks concurrently
 type Scheduler interface {
-	ProcessAll(ctx sdk.Context, reqs []types.RequestDeliverTx) ([]types.ResponseDeliverTx, error)
+	ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]types.ResponseDeliverTx, error)
 }
 
 type scheduler struct {
@@ -99,11 +99,11 @@ func (s *scheduler) findConflicts(task *deliverTxTask) (bool, []int) {
 	return valid, conflicts
 }
 
-func toTasks(reqs []types.RequestDeliverTx) []*deliverTxTask {
+func toTasks(reqs []*sdk.DeliverTxEntry) []*deliverTxTask {
 	res := make([]*deliverTxTask, 0, len(reqs))
 	for idx, r := range reqs {
 		res = append(res, &deliverTxTask{
-			Request: r,
+			Request: r.Request,
 			Index:   idx,
 			Status:  statusPending,
 		})
@@ -119,7 +119,10 @@ func collectResponses(tasks []*deliverTxTask) []types.ResponseDeliverTx {
 	return res
 }
 
-func (s *scheduler) initMultiVersionStore(ctx sdk.Context) {
+func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context) {
+	if s.multiVersionStores != nil {
+		return
+	}
 	mvs := make(map[sdk.StoreKey]multiversion.MultiVersionStore)
 	keys := ctx.MultiStore().StoreKeys()
 	for _, sk := range keys {
@@ -146,8 +149,23 @@ func allValidated(tasks []*deliverTxTask) bool {
 	return true
 }
 
-func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []types.RequestDeliverTx) ([]types.ResponseDeliverTx, error) {
-	s.initMultiVersionStore(ctx)
+func (s *scheduler) PrefillEstimates(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) {
+	// iterate over TXs, update estimated writesets where applicable
+	for i, req := range reqs {
+		mappedWritesets := req.EstimatedWritesets
+		// order shouldnt matter for storeKeys because each storeKey partitioned MVS is independent
+		for storeKey, writeset := range mappedWritesets {
+			// we use `-1` to indicate a prefill incarnation
+			s.multiVersionStores[storeKey].SetEstimatedWriteset(i, -1, writeset)
+		}
+	}
+}
+
+func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]types.ResponseDeliverTx, error) {
+	// initialize mutli-version stores if they haven't been initialized yet
+	s.tryInitMultiVersionStore(ctx)
+	// prefill estimates
+	s.PrefillEstimates(ctx, reqs)
 	tasks := toTasks(reqs)
 	toExecute := tasks
 	for !allValidated(tasks) {

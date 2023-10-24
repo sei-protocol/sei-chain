@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"testing"
+
+	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/abci/types"
@@ -21,12 +22,15 @@ type mockDeliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTx) types.R
 var testStoreKey = sdk.NewKVStoreKey("mock")
 var itemKey = []byte("key")
 
-func requestList(n int) []types.RequestDeliverTx {
-	tasks := make([]types.RequestDeliverTx, n)
+func requestList(n int) []*sdk.DeliverTxEntry {
+	tasks := make([]*sdk.DeliverTxEntry, n)
 	for i := 0; i < n; i++ {
-		tasks[i] = types.RequestDeliverTx{
-			Tx: []byte(fmt.Sprintf("%d", i)),
+		tasks[i] = &sdk.DeliverTxEntry{
+			Request: types.RequestDeliverTx{
+				Tx: []byte(fmt.Sprintf("%d", i)),
+			},
 		}
+
 	}
 	return tasks
 }
@@ -51,7 +55,7 @@ func TestProcessAll(t *testing.T) {
 		name          string
 		workers       int
 		runs          int
-		requests      []types.RequestDeliverTx
+		requests      []*sdk.DeliverTxEntry
 		deliverTxFunc mockDeliverTxFunc
 		addStores     bool
 		expectedErr   error
