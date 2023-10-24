@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/sei-protocol/sei-db/sc/memiavl"

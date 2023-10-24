@@ -35,10 +35,10 @@ type StateCommitConfig struct {
 
 type StateStoreConfig struct {
 
-	//Enable defines if the state-store should be enabled for historical queries.
+	// Enable defines if the state-store should be enabled for historical queries.
 	Enable bool `mapstructure:"enable"`
 
-	//Backend defines the backend database used for state-store
+	// Backend defines the backend database used for state-store
 	// Supported backends: pebbledb, rocksdb
 	// defaults to pebbledb
 	Backend string `mapstructure:"backend"`
