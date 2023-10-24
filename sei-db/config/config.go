@@ -42,6 +42,11 @@ type StateStoreConfig struct {
 	// Supported backends: pebbledb, rocksdb
 	// defaults to pebbledb
 	Backend string `mapstructure:"backend"`
+
+	// AsyncFlush defines if committing the block should also wait for the data to be persisted in the StateStore.
+	// If true, data will be written to StateStore in async manner to reduce latency.
+	// defaults to true
+	AsyncFlush bool `mapstructure:"async-flush"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {
@@ -55,6 +60,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 
 func DefaultStateStoreConfig() StateStoreConfig {
 	return StateStoreConfig{
-		Backend: "pebbledb",
+		Backend:    "pebbledb",
+		AsyncFlush: true,
 	}
 }

@@ -41,4 +41,9 @@ enable = {{ .StateStore.Enable }}
 # defaults to pebbledb
 backend = "{{ .StateStore.Backend }}"
 
+# AsyncFlush defines if committing the block should also wait for the data to be persisted in the StateStore.
+# If true, data will be written to StateStore in a async manner to reduce latency.
+# default to true
+async-flush = {{ .StateStore.AsyncFlush }}
+
 `

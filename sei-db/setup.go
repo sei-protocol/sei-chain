@@ -21,6 +21,7 @@ const (
 	FlagSnapshotWriterLimit = "state-commit.snapshot-writer-limit"
 	FlagSSEnable            = "state-store.enable"
 	FlagSSBackend           = "state-store.backend"
+	FlagSSAsyncFlush        = "state-store.async-flush"
 )
 
 func SetupSeiDB(
