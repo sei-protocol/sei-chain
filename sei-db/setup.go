@@ -30,7 +30,7 @@ func SetupSeiDB(
 	baseAppOptions []func(*baseapp.BaseApp),
 ) []func(*baseapp.BaseApp) {
 	if cast.ToBool(appOpts.Get(FlagSCEnable)) {
-		logger.Info("Setting up seiDB...")
+		logger.Info("SeiDB is enabled")
 		opts := memiavlopts.Options{
 			AsyncCommitBuffer:        cast.ToInt(appOpts.Get(FlagAsyncCommitBuffer)),
 			ZeroCopy:                 cast.ToBool(appOpts.Get(FlagZeroCopy)),
