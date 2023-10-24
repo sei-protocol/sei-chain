@@ -1,6 +1,3 @@
-//go:build rocksdb
-// +build rocksdb
-
 package rocksdb
 
 import (
@@ -9,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/iavl"
 	"github.com/linxGnu/grocksdb"
+	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss"
 	"github.com/sei-protocol/sei-db/ss/util"
 	"golang.org/x/exp/slices"
@@ -146,16 +143,16 @@ func (db *Database) Get(storeKey string, version uint64, key []byte) ([]byte, er
 	return copyAndFreeSlice(slice), nil
 }
 
-func (db *Database) ApplyChangeset(version uint64, cs *iavl.Changeset) error {
+func (db *Database) ApplyChangeset(version uint64, cs *proto.NamedChangeSet) error {
 	b := NewBatch(db, version)
 
-	for _, kvPair := range cs.Pairs {
+	for _, kvPair := range cs.Changeset.Pairs {
 		if kvPair.Value == nil {
-			if err := b.Delete(kvPair.StoreKey, kvPair.Key); err != nil {
+			if err := b.Delete(cs.Name, kvPair.Key); err != nil {
 				return err
 			}
 		} else {
-			if err := b.Set(kvPair.StoreKey, kvPair.Key, kvPair.Value); err != nil {
+			if err := b.Set(cs.Name, kvPair.Key, kvPair.Value); err != nil {
 				return err
 			}
 		}
@@ -216,6 +213,10 @@ func (db *Database) ReverseIterator(storeKey string, version uint64, start, end 
 
 	itr := db.storage.NewIteratorCF(newTSReadOptions(version), db.cfHandle)
 	return NewRocksDBIterator(itr, prefix, start, end, true), nil
+}
+
+func (db *Database) Import(version uint64, ch <-chan ss.ImportEntry) error {
+	panic("Not Implemented")
 }
 
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.

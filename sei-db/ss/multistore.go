@@ -47,7 +47,7 @@ func (s *MultiStore) cacheMultiStore(version int64) types.CacheMultiStore {
 		stores[k] = v
 	}
 	for _, k := range s.storeKeys {
-		stores[k] = NewKVStore(s.stateStore, k, version)
+		stores[k] = NewKVStore(s.stateStore, k, uint64(version))
 	}
 	return cachemulti.NewStore(nil, stores, nil, s.traceWriter, s.getTracingContext(), nil, nil)
 }
