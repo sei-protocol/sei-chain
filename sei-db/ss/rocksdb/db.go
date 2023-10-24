@@ -7,6 +7,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/linxGnu/grocksdb"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss"
 	"github.com/sei-protocol/sei-db/ss/util"
@@ -185,11 +186,11 @@ func (db *Database) Prune(version uint64) error {
 
 func (db *Database) Iterator(storeKey string, version uint64, start, end []byte) (types.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, ss.ErrKeyEmpty
+		return nil, utils.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, ss.ErrStartAfterEnd
+		return nil, utils.ErrStartAfterEnd
 	}
 
 	prefix := storePrefix(storeKey)
@@ -201,11 +202,11 @@ func (db *Database) Iterator(storeKey string, version uint64, start, end []byte)
 
 func (db *Database) ReverseIterator(storeKey string, version uint64, start, end []byte) (types.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, ss.ErrKeyEmpty
+		return nil, utils.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, ss.ErrStartAfterEnd
+		return nil, utils.ErrStartAfterEnd
 	}
 
 	prefix := storePrefix(storeKey)
