@@ -73,6 +73,16 @@ func (q *QueryBuilder) FilterBlockNumber(blockNumber int64) *QueryBuilder {
 	return q
 }
 
+func (q *QueryBuilder) FilterBlockNumberStart(blockNumber int64) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s >= '%d'", types.EventTypeEVMLog, types.AttributeTypeBlockNumber, blockNumber))
+	return q
+}
+
+func (q *QueryBuilder) FilterBlockNumberEnd(blockNumber int64) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s <= '%d'", types.EventTypeEVMLog, types.AttributeTypeBlockNumber, blockNumber))
+	return q
+}
+
 func (q *QueryBuilder) FilterTxIndex(txIndex int64) *QueryBuilder {
 	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = '%d'", types.EventTypeEVMLog, types.AttributeTypeTxIndex, txIndex))
 	return q
