@@ -7,7 +7,7 @@ import (
 )
 
 type Batch struct {
-	version  uint64
+	version  int64
 	ts       [TimestampSize]byte
 	storage  *grocksdb.DB
 	cfHandle *grocksdb.ColumnFamilyHandle
@@ -17,7 +17,7 @@ type Batch struct {
 // NewBatch creates a new versioned batch used for batch writes. The caller
 // must ensure to call Write() on the returned batch to commit the changes and to
 // destroy the batch when done.
-func NewBatch(db *Database, version uint64) Batch {
+func NewBatch(db *Database, version int64) Batch {
 	var ts [TimestampSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 

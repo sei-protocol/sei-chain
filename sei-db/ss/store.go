@@ -19,10 +19,10 @@ var _ types.KVStore = (*Store)(nil)
 type Store struct {
 	store    StateStore
 	storeKey types.StoreKey
-	version  uint64
+	version  int64
 }
 
-func NewKVStore(store StateStore, storeKey types.StoreKey, version uint64) *Store {
+func NewKVStore(store StateStore, storeKey types.StoreKey, version int64) *Store {
 	return &Store{store, storeKey, version}
 }
 

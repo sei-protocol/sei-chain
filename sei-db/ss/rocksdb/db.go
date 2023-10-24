@@ -35,7 +35,7 @@ type Database struct {
 	// tsLow reflects the full_history_ts_low CF value. Since pruning is done in
 	// a lazy manner, we use this value to prevent reads for versions that will
 	// be purged in the next compaction.
-	tsLow uint64
+	tsLow int64
 }
 
 func New(dataDir string) (*Database, error) {
@@ -49,10 +49,10 @@ func New(dataDir string) (*Database, error) {
 		return nil, fmt.Errorf("failed to get full_history_ts_low: %w", err)
 	}
 
-	var tsLow uint64
+	var tsLow int64
 	tsLowBz := copyAndFreeSlice(slice)
 	if len(tsLowBz) > 0 {
-		tsLow = binary.LittleEndian.Uint64(tsLowBz)
+		tsLow = int64(binary.LittleEndian.Uint64(tsLowBz))
 	}
 
 	return &Database{
@@ -68,10 +68,10 @@ func NewWithDB(storage *grocksdb.DB, cfHandle *grocksdb.ColumnFamilyHandle) (*Da
 		return nil, fmt.Errorf("failed to get full_history_ts_low: %w", err)
 	}
 
-	var tsLow uint64
+	var tsLow int64
 	tsLowBz := copyAndFreeSlice(slice)
 	if len(tsLowBz) > 0 {
-		tsLow = binary.LittleEndian.Uint64(tsLowBz)
+		tsLow = int64(binary.LittleEndian.Uint64(tsLowBz))
 	}
 	return &Database{
 		storage:  storage,
@@ -89,7 +89,7 @@ func (db *Database) Close() error {
 	return nil
 }
 
-func (db *Database) getSlice(storeKey string, version uint64, key []byte) (*grocksdb.Slice, error) {
+func (db *Database) getSlice(storeKey string, version int64, key []byte) (*grocksdb.Slice, error) {
 	return db.storage.GetCF(
 		newTSReadOptions(version),
 		db.cfHandle,
@@ -97,14 +97,14 @@ func (db *Database) getSlice(storeKey string, version uint64, key []byte) (*groc
 	)
 }
 
-func (db *Database) SetLatestVersion(version uint64) error {
+func (db *Database) SetLatestVersion(version int64) error {
 	var ts [TimestampSize]byte
-	binary.LittleEndian.PutUint64(ts[:], version)
+	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 
 	return db.storage.Put(defaultWriteOpts, []byte(latestVersionKey), ts[:])
 }
 
-func (db *Database) GetLatestVersion() (uint64, error) {
+func (db *Database) GetLatestVersion() (int64, error) {
 	bz, err := db.storage.GetBytes(defaultReadOpts, []byte(latestVersionKey))
 	if err != nil {
 		return 0, err
@@ -115,10 +115,10 @@ func (db *Database) GetLatestVersion() (uint64, error) {
 		return 0, nil
 	}
 
-	return binary.LittleEndian.Uint64(bz), nil
+	return int64(binary.LittleEndian.Uint64(bz)), nil
 }
 
-func (db *Database) Has(storeKey string, version uint64, key []byte) (bool, error) {
+func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
 	if version < db.tsLow {
 		return false, nil
 	}
@@ -131,7 +131,7 @@ func (db *Database) Has(storeKey string, version uint64, key []byte) (bool, erro
 	return slice.Exists(), nil
 }
 
-func (db *Database) Get(storeKey string, version uint64, key []byte) ([]byte, error) {
+func (db *Database) Get(storeKey string, version int64, key []byte) ([]byte, error) {
 	if version < db.tsLow {
 		return nil, nil
 	}
@@ -144,7 +144,7 @@ func (db *Database) Get(storeKey string, version uint64, key []byte) ([]byte, er
 	return copyAndFreeSlice(slice), nil
 }
 
-func (db *Database) ApplyChangeset(version uint64, cs *proto.NamedChangeSet) error {
+func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) error {
 	b := NewBatch(db, version)
 
 	for _, kvPair := range cs.Changeset.Pairs {
@@ -170,11 +170,11 @@ func (db *Database) ApplyChangeset(version uint64, cs *proto.NamedChangeSet) err
 // Note, this does NOT incur an immediate full compaction, i.e. this performs a
 // lazy prune. Future compactions will honor the increased full_history_ts_low
 // and trim history when possible.
-func (db *Database) Prune(version uint64) error {
+func (db *Database) Prune(version int64) error {
 	tsLow := version + 1 // we increment by 1 to include the provided version
 
 	var ts [TimestampSize]byte
-	binary.LittleEndian.PutUint64(ts[:], tsLow)
+	binary.LittleEndian.PutUint64(ts[:], uint64(tsLow))
 
 	if err := db.storage.IncreaseFullHistoryTsLow(db.cfHandle, ts[:]); err != nil {
 		return fmt.Errorf("failed to update column family full_history_ts_low: %w", err)
@@ -184,7 +184,7 @@ func (db *Database) Prune(version uint64) error {
 	return nil
 }
 
-func (db *Database) Iterator(storeKey string, version uint64, start, end []byte) (types.Iterator, error) {
+func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, utils.ErrKeyEmpty
 	}
@@ -200,7 +200,7 @@ func (db *Database) Iterator(storeKey string, version uint64, start, end []byte)
 	return NewRocksDBIterator(itr, prefix, start, end, false), nil
 }
 
-func (db *Database) ReverseIterator(storeKey string, version uint64, start, end []byte) (types.Iterator, error) {
+func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, utils.ErrKeyEmpty
 	}
@@ -216,14 +216,14 @@ func (db *Database) ReverseIterator(storeKey string, version uint64, start, end 
 	return NewRocksDBIterator(itr, prefix, start, end, true), nil
 }
 
-func (db *Database) Import(version uint64, ch <-chan ss.ImportEntry) error {
+func (db *Database) Import(version int64, ch <-chan ss.ImportEntry) error {
 	panic("Not Implemented")
 }
 
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.
-func newTSReadOptions(version uint64) *grocksdb.ReadOptions {
+func newTSReadOptions(version int64) *grocksdb.ReadOptions {
 	var ts [TimestampSize]byte
-	binary.LittleEndian.PutUint64(ts[:], version)
+	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 
 	readOpts := grocksdb.NewDefaultReadOptions()
 	readOpts.SetTimestamp(ts[:])
