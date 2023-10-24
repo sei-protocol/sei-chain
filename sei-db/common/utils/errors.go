@@ -3,16 +3,11 @@ package utils
 import (
 	"errors"
 	"strings"
-
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
-// StoreCodespace defines the store package's unique error code space.
-const StoreCodespace = "store"
-
 var (
-	ErrKeyEmpty      = sdkerrors.Register(StoreCodespace, 1, "key empty")
-	ErrStartAfterEnd = sdkerrors.Register(StoreCodespace, 2, "start key after end key")
+	ErrKeyEmpty      = errors.New("key empty")
+	ErrStartAfterEnd = errors.New("start key after end key")
 )
 
 // Join returns an error that wraps the given errors.
