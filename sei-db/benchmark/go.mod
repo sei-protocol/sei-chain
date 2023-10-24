@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/cosmos/iavl v0.21.0-alpha.1.0.20230904092046-df3db2d96583
-	github.com/linxGnu/grocksdb v1.8.4
+	github.com/spf13/cobra v1.7.0
 	github.com/tendermint/tm-db v0.6.8-0.20220519162814-e24b96538a12
 )
 
@@ -32,8 +32,8 @@ require (
 	github.com/onsi/gomega v1.20.0 // indirect
 	github.com/petermattis/goid v0.0.0-20230317030725-371a4b8eda08 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/spf13/cobra v1.7.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/stretchr/testify v1.8.4 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
 	github.com/tendermint/tendermint v0.37.0-dev // indirect
 	go.etcd.io/bbolt v1.3.7 // indirect

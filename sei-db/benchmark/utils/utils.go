@@ -124,7 +124,6 @@ func writeByteSlice(w io.Writer, data []byte) error {
 }
 
 // Reads raw keys / values from a file
-// TODO: Adding in ability to chunk larger exported file (like for wasm dir)
 func ReadKVEntriesFromFile(filename string) ([]KeyValuePair, error) {
 	f, err := os.Open(filename)
 	if err != nil {
@@ -172,16 +171,8 @@ func RandomShuffle(kvPairs []KeyValuePair) {
 	})
 }
 
-// Add Random Bytes to keys / values
-func AddRandomBytes(data []byte, numBytes int) []byte {
-	randomBytes := make([]byte, numBytes)
-	if _, err := rand.Read(randomBytes); err != nil {
-		panic(fmt.Sprintf("Failed to generate random bytes: %v", err))
-	}
-	return append(data, randomBytes...)
-}
-
 // NOTE: Assumes latencies is sorted
+// CalculatePercentile calculates latencies percentile
 func CalculatePercentile(latencies []time.Duration, percentile float64) time.Duration {
 	if percentile < 0 || percentile > 100 {
 		panic(fmt.Sprintf("Invalid percentile: %f", percentile))

@@ -1,8 +1,8 @@
 package dbbackend
 
 type DBBackend interface {
-	BenchmarkDBWrite(inputKVDir string, outputDBPath string, concurrency int, maxRetries int)
-	BenchmarkDBRead(inputKVDir string, outputDBPath string, concurrency int)
+	BenchmarkDBWrite(inputKVDir string, numVersions int, outputDBPath string, concurrency int, batchSize int)
+	BenchmarkDBRead(inputKVDir string, numVersions int, outputDBPath string, concurrency int, maxOps int64)
+	BenchmarkDBForwardIteration(inputKVDir string, numVersions int, outputDBPath string, concurrency int, maxOps int64, iterationSteps int)
+	BenchmarkDBReverseIteration(inputKVDir string, numVersions int, outputDBPath string, concurrency int, maxOps int64, iterationSteps int)
 }
-
-type RocksDBBackend struct{}
