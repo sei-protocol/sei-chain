@@ -1,10 +1,10 @@
 package memiavl
 
 import (
-	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"path/filepath"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
+	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/rootmulti"
 	"github.com/tendermint/tendermint/libs/log"
 )

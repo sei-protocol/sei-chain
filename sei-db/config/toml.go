@@ -36,7 +36,9 @@ cache-size = {{ .StateCommit.CacheSize }}
 # In order to use state-store, you need to make sure to enable state-commit at the same time
 enable = {{ .StateStore.Enable }}
 
-# DBBackend defines the backend database used for state-store 
+# DBBackend defines the backend database used for state-store.
+# Supported backends: pebbledb, rocksdb
+# defaults to pebbledb
 backend = "{{ .StateStore.Backend }}"
 
 `

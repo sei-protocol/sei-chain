@@ -39,6 +39,8 @@ type StateStoreConfig struct {
 	Enable bool `mapstructure:"enable"`
 
 	//Backend defines the backend database used for state-store
+	// Supported backends: pebbledb, rocksdb
+	// defaults to pebbledb
 	Backend string `mapstructure:"backend"`
 }
 
