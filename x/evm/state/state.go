@@ -114,3 +114,10 @@ func (s *DBImpl) Created(acc common.Address) bool {
 	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
 	return bytes.Equal(store.Get(acc[:]), AccountCreated)
 }
+
+func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
+	s.clearAccountState(addr)
+	for key, val := range states {
+		s.SetState(addr, key, val)
+	}
+}
