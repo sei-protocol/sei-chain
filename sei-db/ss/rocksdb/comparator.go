@@ -1,3 +1,6 @@
+//go:build rocksdbBackend
+// +build rocksdbBackend
+
 package rocksdb
 
 import (
