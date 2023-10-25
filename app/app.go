@@ -973,6 +973,10 @@ func (app *App) ClearOptimisticProcessingInfo() {
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
+
+	//TODO: update with logic that asserts that occ is enabled
+	ctx = ctx.WithIsOCCEnabled(true)
+
 	if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
 		return &abci.ResponseProcessProposal{
@@ -1012,6 +1016,9 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	//TODO: update with logic that asserts that occ is enabled
+	ctx = ctx.WithIsOCCEnabled(true)
+
 	startTime := time.Now()
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
@@ -1031,9 +1038,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
 	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
-
-	//TODO: update with logic that asserts that occ is enabled
-	ctx = ctx.WithIsOCCEnabled(true)
 
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
