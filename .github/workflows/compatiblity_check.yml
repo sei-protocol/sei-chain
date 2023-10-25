@@ -22,8 +22,10 @@ jobs:
           git clone https://github.com/sei-protocol/sei-cosmos.git
           git clone https://github.com/sei-protocol/sei-tendermint.git
           git clone https://github.com/sei-protocol/sei-iavl.git
+          git clone https://github.com/sei-protocol/go-ethereum.git
           go mod edit -replace github.com/cosmos/iavl=./sei-iavl
           go mod edit -replace github.com/tendermint/tendermint=./sei-tendermint
           go mod edit -replace github.com/cosmos/cosmos-sdk=./sei-cosmos
+          go mod edit -replace github.com/ethereum/go-ethereum=./go-ethereum
           go mod tidy
           make install
