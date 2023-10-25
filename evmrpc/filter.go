@@ -19,11 +19,11 @@ import (
 type filter struct {
 	fromBlock rpc.BlockNumber
 	toBlock   rpc.BlockNumber
-	addresses []common.Address
+	address   common.Address
 	topics    []common.Hash
 
 	cursor string
-	// todo: expiration
+	// TODO: expiration
 }
 
 type FilterAPI struct {
@@ -43,7 +43,7 @@ func (a *FilterAPI) NewFilter(
 	ctx context.Context,
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
-	addresses []common.Address,
+	address common.Address,
 	topics []string,
 ) (*uint64, error) {
 	err := a.checkFromAndToBlock(ctx, fromBlock, toBlock)
@@ -63,7 +63,7 @@ func (a *FilterAPI) NewFilter(
 	f := filter{
 		fromBlock: fromBlock,
 		toBlock:   toBlock,
-		addresses: addresses,
+		address:   address,
 		topics:    topicsRes,
 	}
 	a.filters[curFilterId] = f
@@ -99,7 +99,7 @@ func (a *FilterAPI) GetFilterChanges(
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
-	res, cursor, err := a.getLogs(ctx, common.Hash{}, filter.fromBlock, filter.toBlock, filter.topics, filter.cursor)
+	res, cursor, err := a.getLogs(ctx, common.Hash{}, filter.address, filter.fromBlock, filter.toBlock, filter.topics, filter.cursor)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (a *FilterAPI) GetFilterLogs(
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
-	res, cursor, err := a.getLogs(ctx, common.Hash{}, filter.fromBlock, filter.toBlock, filter.topics, "")
+	res, cursor, err := a.getLogs(ctx, common.Hash{}, filter.address, filter.fromBlock, filter.toBlock, filter.topics, "")
 	if err != nil {
 		return nil, err
 	}
@@ -130,28 +130,29 @@ func (a *FilterAPI) GetFilterLogs(
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	blockHash common.Hash,
-	addresses []common.Address,
+	address common.Address, // only support 1 address at a time since OR not supported
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
 	topics []common.Hash,
 ) ([]*ethtypes.Log, error) {
-	fmt.Println("got addresses = ", addresses)
-	res, _, err := a.getLogs(ctx, blockHash, fromBlock, toBlock, topics, "")
+	res, _, err := a.getLogs(ctx, blockHash, address, fromBlock, toBlock, topics, "")
 	if err != nil {
 		return nil, err
 	}
 	return res, nil
 }
 
+// TODO: need to handle OR case (union together for multiple addresses and multiple topics)
 func (a *FilterAPI) getLogs(
 	ctx context.Context,
 	blockHash common.Hash,
+	address common.Address,
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
 	topics []common.Hash,
 	cursor string,
 ) ([]*ethtypes.Log, string, error) {
-	fmt.Println("getLogs", blockHash, fromBlock, toBlock, topics, cursor)
+	fmt.Println("getLogs", blockHash, address, fromBlock, toBlock, topics, cursor)
 	// only block hash or block number is supported, not both
 	if (blockHash != common.Hash{}) && (fromBlock > 0 || toBlock > 0) {
 		return nil, "", errors.New("block hash and block number cannot both be specified")
@@ -171,23 +172,22 @@ func (a *FilterAPI) getLogs(
 	if toBlock > 0 {
 		q = q.FilterBlockNumberEnd(toBlock.Int64())
 	}
+	if (address != common.Address{}) {
+		q = q.FilterContractAddress(address.Hex())
+	}
 	for _, t := range topics {
 		q = q.FilterTopic(t.Hex())
 	}
-	fmt.Println("here2")
 	hasMore := true
 	logs := []*ethtypes.Log{}
 	for hasMore {
-		fmt.Println("here2.5")
 		res, err := a.tmClient.Events(ctx, &coretypes.RequestEvents{
 			Filter: &coretypes.EventFilter{Query: q.Build()},
 			After:  cursor,
 		})
-		fmt.Println("got error = ", err)
 		if err != nil {
 			return nil, "", err
 		}
-		fmt.Println("here3")
 		hasMore = res.More
 		cursor = res.Newest
 		for _, log := range res.Items {
@@ -202,10 +202,6 @@ func (a *FilterAPI) getLogs(
 			}
 			logs = append(logs, ethLog)
 		}
-		fmt.Println("here4")
-	}
-	for _, log := range logs {
-		fmt.Printf("return log = %+v", log)
 	}
 	return logs, cursor, nil
 }

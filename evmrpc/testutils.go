@@ -46,7 +46,6 @@ var Tx sdk.Tx
 
 type MockClient struct {
 	mock.Client
-	eventCounter int
 }
 
 func (c *MockClient) mockBlock() *coretypes.ResultBlock {
@@ -100,7 +99,7 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 				GasWanted: 10,
 				GasUsed:   5,
 				Events: []abci.Event{
-					getABCIEvent("8"),
+					getABCIEvent(8),
 				},
 			},
 		},
@@ -112,20 +111,22 @@ func (c *MockClient) Subscribe(context.Context, string, string, ...int) (<-chan 
 }
 
 func (c *MockClient) Events(ctx context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
-	fmt.Printf("req = %+v\n", req)
-	fmt.Println("eventCounter = ", c.eventCounter)
-	if c.eventCounter == 0 {
-		c.eventCounter += 1
-		return getResultEvents("1", "cursor0", "event0"), nil
-	} else if c.eventCounter == 1 {
-		c.eventCounter += 1
-		return getResultEvents("2", "cursor1", "event1"), nil
-	} else {
-		return nil, errors.New("no more events")
+	fmt.Println("in Events, query = ", req.Filter.Query)
+	if strings.Contains(req.Filter.Query, "evm_log.block_hash = '0x1111111111111111111111111111111111111111111111111111111111111111'") {
+		return getResultEvents(1, false, "cursor1", "event1"), nil
+	} else if strings.Contains(req.Filter.Query, "evm_log.block_hash = '0x1111111111111111111111111111111111111111111111111111111111111112'") {
+		return getResultEvents(2, false, "cursor1", "event1"), nil
+	} else if strings.Contains(req.Filter.Query, " evm_log.block_number >= '1' AND evm_log.block_number <= '1'") {
+		return getResultEvents(1, false, "cursor1", "event1"), nil
+	} else if strings.Contains(req.Filter.Query, "evm_log.contract_address = '0x1111111111111111111111111111111111111112'") {
+		return getResultEvents(2, false, "cursor1", "event1"), nil
+	} else if strings.Contains(req.Filter.Query, "evm_log.topics CONTAINS '0x0000000000000000000000000000000000000000000000000000000000000123'") {
+		return getResultEvents(3, false, "cursor1", "event1"), nil
 	}
+	return nil, errors.New("bad query")
 }
 
-func getResultEvents(blockNum, cursor, event string) *coretypes.ResultEvents {
+func getResultEvents(blockNum int, more bool, cursor, event string) *coretypes.ResultEvents {
 	eventData, err := json.Marshal(getABCIEvent(blockNum))
 	if err != nil {
 		panic(err)
@@ -138,43 +139,9 @@ func getResultEvents(blockNum, cursor, event string) *coretypes.ResultEvents {
 				Data:   eventData,
 			},
 		},
-		More:   false,
+		More:   more,
 		Oldest: cursor,
 		Newest: cursor,
-	}
-}
-
-func getABCIEvent(blockNumberStr string) abci.Event {
-	return abci.Event{
-		Type: types.EventTypeEVMLog,
-		Attributes: []abci.EventAttribute{{
-			Key:   []byte(types.AttributeTypeContractAddress),
-			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111"),
-		}, {
-			Key:   []byte(types.AttributeTypeBlockHash),
-			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111"),
-		}, {
-			Key:   []byte(types.AttributeTypeBlockNumber),
-			Value: []byte(blockNumberStr),
-		}, {
-			Key:   []byte(types.AttributeTypeData),
-			Value: []byte("xyz"),
-		}, {
-			Key:   []byte(types.AttributeTypeIndex),
-			Value: []byte("1"),
-		}, {
-			Key:   []byte(types.AttributeTypeTxIndex),
-			Value: []byte("2"),
-		}, {
-			Key:   []byte(types.AttributeTypeRemoved),
-			Value: []byte("true"),
-		}, {
-			Key:   []byte(types.AttributeTypeTopics),
-			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111,0x1111111111111111111111111111111111111111111111111111111111111112"),
-		}, {
-			Key:   []byte(types.AttributeTypeTxHash),
-			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111113"),
-		}},
 	}
 }
 
@@ -321,5 +288,44 @@ func formatParam(p interface{}) string {
 		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, formatParam), ","))
 	default:
 		return fmt.Sprintf("%s", p)
+	}
+}
+
+func getABCIEvent(num int) abci.Event {
+	if num < 0 || num > 9 {
+		panic("bad num")
+	}
+	hash := fmt.Sprintf("0x111111111111111111111111111111111111111111111111111111111111111%d", num)
+	blockNum := fmt.Sprintf("%d", num)
+	return abci.Event{
+		Type: types.EventTypeEVMLog,
+		Attributes: []abci.EventAttribute{{
+			Key:   []byte(types.AttributeTypeContractAddress),
+			Value: []byte(hash),
+		}, {
+			Key:   []byte(types.AttributeTypeBlockHash),
+			Value: []byte(hash),
+		}, {
+			Key:   []byte(types.AttributeTypeBlockNumber),
+			Value: []byte(blockNum),
+		}, {
+			Key:   []byte(types.AttributeTypeData),
+			Value: []byte("xyz"),
+		}, {
+			Key:   []byte(types.AttributeTypeIndex),
+			Value: []byte("1"),
+		}, {
+			Key:   []byte(types.AttributeTypeTxIndex),
+			Value: []byte("2"),
+		}, {
+			Key:   []byte(types.AttributeTypeRemoved),
+			Value: []byte("true"),
+		}, {
+			Key:   []byte(types.AttributeTypeTopics),
+			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111,0x1111111111111111111111111111111111111111111111111111111111111112"),
+		}, {
+			Key:   []byte(types.AttributeTypeTxHash),
+			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111113"),
+		}},
 	}
 }
