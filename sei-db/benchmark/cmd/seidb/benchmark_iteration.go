@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-db/benchmark/dbbackend"
 	"github.com/spf13/cobra"
 )
 
@@ -55,5 +56,13 @@ func benchmarkForwardIteration(cmd *cobra.Command, args []string) {
 
 // Benchmark read latencies and throughput of db backend
 func BenchmarkDBIteration(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64, iterationSteps int) {
-	panic("Not Implemented")
+	// Iterate over db at directory
+	fmt.Printf("Iterating Over DB at  %s\n", outputDir)
+
+	if dbBackend == RocksDBBackendName {
+		backend := dbbackend.RocksDBBackend{}
+		backend.BenchmarkDBForwardIteration(inputKVDir, numVersions, outputDir, concurrency, maxOps, iterationSteps)
+	}
+
+	return
 }
