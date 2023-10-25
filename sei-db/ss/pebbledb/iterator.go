@@ -227,7 +227,7 @@ func (itr *iterator) DebugRawIterate() {
 			panic(fmt.Sprintf("invalid PebbleDB MVCC value: %s", itr.source.Value()))
 		}
 
-		var tombstone uint64
+		var tombstone int64
 		if len(tombBz) > 0 {
 			tombstone, err = decodeUint64Ascending(vBz)
 			if err != nil {

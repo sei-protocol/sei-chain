@@ -19,7 +19,7 @@ var MVCCComparer = &pebble.Comparer{
 
 	Compare: MVCCKeyCompare,
 
-	AbbreviatedKey: func(k []byte) int64 {
+	AbbreviatedKey: func(k []byte) uint64 {
 		key, _, ok := SplitMVCCKey(k)
 		if !ok {
 			return 0
