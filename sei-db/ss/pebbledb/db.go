@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/bloom"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
@@ -34,9 +35,35 @@ type Database struct {
 }
 
 func New(dataDir string) (*Database, error) {
+	cache := pebble.NewCache(1024 * 1024 * 32)
+	defer cache.Unref()
 	opts := &pebble.Options{
-		Comparer: MVCCComparer,
+		Cache:                       cache,
+		Comparer:                    MVCCComparer,
+		FormatMajorVersion:          pebble.FormatNewest,
+		L0CompactionThreshold:       2,
+		L0StopWritesThreshold:       1000,
+		LBaseMaxBytes:               64 << 20, // 64 MB
+		Levels:                      make([]pebble.LevelOptions, 7),
+		MaxConcurrentCompactions:    func() int { return 3 }, // TODO: Make Configurable
+		MemTableSize:                64 << 20,
+		MemTableStopWritesThreshold: 4,
 	}
+
+	for i := 0; i < len(opts.Levels); i++ {
+		l := &opts.Levels[i]
+		l.BlockSize = 32 << 10       // 32 KB
+		l.IndexBlockSize = 256 << 10 // 256 KB
+		l.FilterPolicy = bloom.FilterPolicy(10)
+		l.FilterType = pebble.TableFilter
+		if i > 0 {
+			l.TargetFileSize = opts.Levels[i-1].TargetFileSize * 2
+		}
+		l.EnsureDefaults()
+	}
+
+	opts.Levels[6].FilterPolicy = nil
+	opts.FlushSplitBytes = opts.Levels[0].TargetFileSize
 	opts = opts.EnsureDefaults()
 
 	db, err := pebble.Open(dataDir, opts)
