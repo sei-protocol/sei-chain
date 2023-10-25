@@ -71,6 +71,19 @@ func TestSubBalance(t *testing.T) {
 	require.NotNil(t, db.Err())
 }
 
+func TestSetBalance(t *testing.T) {
+	k, _, ctx := keeper.MockEVMKeeper()
+	db := state.NewDBImpl(ctx, k)
+	_, evmAddr := keeper.MockAddressPair()
+	db.SetBalance(evmAddr, big.NewInt(10))
+	require.Equal(t, big.NewInt(10), db.GetBalance(evmAddr))
+
+	seiAddr2, evmAddr2 := keeper.MockAddressPair()
+	k.SetAddressMapping(db.Ctx(), seiAddr2, evmAddr2)
+	db.SetBalance(evmAddr2, big.NewInt(10))
+	require.Equal(t, big.NewInt(10), db.GetBalance(evmAddr2))
+}
+
 func TestCheckBalance(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
 	db := state.NewDBImpl(ctx, k)

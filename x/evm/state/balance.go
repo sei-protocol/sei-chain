@@ -76,6 +76,25 @@ func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
 	return big.NewInt(int64(s.k.GetBalance(s.ctx, evmAddr)))
 }
 
+// should only be called during simulation
+func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int) {
+	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, evmAddr); ok {
+		balance := s.k.BankKeeper().GetBalance(s.ctx, seiAddr, s.k.GetBaseDenom(s.ctx))
+		if err := s.k.BankKeeper().SendCoinsFromAccountToModule(s.ctx, seiAddr, types.ModuleName, sdk.NewCoins(balance)); err != nil {
+			panic(err)
+		}
+		coinsAmt := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(amt)))
+		if err := s.k.BankKeeper().MintCoins(s.ctx, types.ModuleName, coinsAmt); err != nil {
+			panic(err)
+		}
+		if err := s.k.BankKeeper().SendCoinsFromModuleToAccount(s.ctx, types.ModuleName, seiAddr, coinsAmt); err != nil {
+			panic(err)
+		}
+		return
+	}
+	s.k.SetOrDeleteBalance(s.ctx, evmAddr, amt.Uint64())
+}
+
 func (s *DBImpl) CheckBalance() error {
 	if s.err != nil {
 		return errors.New("should not call CheckBalance if there is already an error during execution")

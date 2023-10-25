@@ -3,6 +3,7 @@ package state
 import (
 	"encoding/json"
 
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -15,7 +16,7 @@ func (s *DBImpl) AddLog(l *ethtypes.Log) {
 	// TODO: potentially decorate log with block/tx metadata
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	logs := Logs{Ls: []*ethtypes.Log{}}
-	ls, err := s.GetLogs()
+	ls, err := s.GetAllLogs()
 	if err != nil {
 		s.err = err
 		return
@@ -29,7 +30,7 @@ func (s *DBImpl) AddLog(l *ethtypes.Log) {
 	store.Set(LogsKey, logsbz)
 }
 
-func (s *DBImpl) GetLogs() ([]*ethtypes.Log, error) {
+func (s *DBImpl) GetAllLogs() ([]*ethtypes.Log, error) {
 	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
 	logsbz := store.Get(LogsKey)
 	logs := Logs{Ls: []*ethtypes.Log{}}
@@ -40,4 +41,13 @@ func (s *DBImpl) GetLogs() ([]*ethtypes.Log, error) {
 		return []*ethtypes.Log{}, err
 	}
 	return logs.Ls, nil
+}
+
+func (s *DBImpl) GetLogs(common.Hash, uint64, common.Hash) []*ethtypes.Log {
+	logs, err := s.GetAllLogs()
+	if err != nil {
+		s.err = err
+		return []*ethtypes.Log{}
+	}
+	return logs
 }

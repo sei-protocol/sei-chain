@@ -43,6 +43,9 @@ func TestState(t *testing.T) {
 	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, key))
 	require.Equal(t, big.NewInt(0), statedb.GetBalance(evmAddr))
 	require.True(t, statedb.HasSelfDestructed(evmAddr))
+	// set storage
+	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{{}: {}})
+	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, common.Hash{}))
 }
 
 func TestCreate(t *testing.T) {
