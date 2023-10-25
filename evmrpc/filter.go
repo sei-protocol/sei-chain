@@ -46,21 +46,9 @@ func (a *FilterAPI) NewFilter(
 	addresses []common.Address,
 	topics []string,
 ) (*uint64, error) {
-	fromBlockPtr, err := getBlockNumber(ctx, a.tmClient, fromBlock)
+	err := a.checkFromAndToBlock(ctx, fromBlock, toBlock)
 	if err != nil {
 		return nil, err
-	}
-	toBlockPtr, err := getBlockNumber(ctx, a.tmClient, toBlock)
-	if err != nil {
-		return nil, err
-	}
-	if fromBlockPtr == nil && toBlockPtr != nil {
-		return nil, errors.New("from block is after to block")
-	}
-	if toBlockPtr != nil {
-		if *fromBlockPtr > *toBlockPtr {
-			return nil, errors.New("from block is after to block")
-		}
 	}
 	var topicsRes []common.Hash
 	if topics == nil {
@@ -80,6 +68,27 @@ func (a *FilterAPI) NewFilter(
 	}
 	a.filters[curFilterId] = f
 	return &curFilterId, nil
+}
+
+// TODO: check if this is the same impl as: https://github.com/ethereum/go-ethereum/blob/58ae1df6840e512b263a4fc2e021e1ec5637ca21/ethclient/ethclient.go#L454
+func (a *FilterAPI) checkFromAndToBlock(ctx context.Context, fromBlock, toBlock rpc.BlockNumber) error {
+	fromBlockPtr, err := getBlockNumber(ctx, a.tmClient, fromBlock)
+	if err != nil {
+		return err
+	}
+	toBlockPtr, err := getBlockNumber(ctx, a.tmClient, toBlock)
+	if err != nil {
+		return err
+	}
+	if fromBlockPtr == nil && toBlockPtr != nil {
+		return errors.New("from block is after to block")
+	}
+	if toBlockPtr != nil {
+		if *fromBlockPtr > *toBlockPtr {
+			return errors.New("from block is after to block")
+		}
+	}
+	return nil
 }
 
 func (a *FilterAPI) GetFilterChanges(
@@ -121,10 +130,12 @@ func (a *FilterAPI) GetFilterLogs(
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	blockHash common.Hash,
+	addresses []common.Address,
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
 	topics []common.Hash,
 ) ([]*ethtypes.Log, error) {
+	fmt.Println("got addresses = ", addresses)
 	res, _, err := a.getLogs(ctx, blockHash, fromBlock, toBlock, topics, "")
 	if err != nil {
 		return nil, err
@@ -145,6 +156,11 @@ func (a *FilterAPI) getLogs(
 	if (blockHash != common.Hash{}) && (fromBlock > 0 || toBlock > 0) {
 		return nil, "", errors.New("block hash and block number cannot both be specified")
 	}
+	err := a.checkFromAndToBlock(ctx, fromBlock, toBlock)
+	if err != nil {
+		return nil, "", err
+	}
+
 	q := NewQueryBuilder()
 	if (blockHash != common.Hash{}) {
 		q = q.FilterBlockHash(blockHash.Hex())

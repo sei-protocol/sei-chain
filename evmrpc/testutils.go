@@ -100,7 +100,7 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 				GasWanted: 10,
 				GasUsed:   5,
 				Events: []abci.Event{
-					c.getABCIEvent("8"),
+					getABCIEvent("8"),
 				},
 			},
 		},
@@ -116,65 +116,35 @@ func (c *MockClient) Events(ctx context.Context, req *coretypes.RequestEvents) (
 	fmt.Println("eventCounter = ", c.eventCounter)
 	if c.eventCounter == 0 {
 		c.eventCounter += 1
-		eventData, err := json.Marshal(c.getABCIEvent("1"))
-		if err != nil {
-			return nil, err
-		}
-		return &coretypes.ResultEvents{
-			Items: []*coretypes.EventItem{
-				&coretypes.EventItem{
-					Cursor: "cursor0",
-					Event:  "event0",
-					Data:   eventData,
-				},
-			},
-			More:   true,
-			Oldest: "cursor0",
-			Newest: "cursor0",
-		}, nil
+		return getResultEvents("1", "cursor0", "event0"), nil
 	} else if c.eventCounter == 1 {
 		c.eventCounter += 1
-		eventData, err := json.Marshal(c.getABCIEvent("2"))
-		if err != nil {
-			return nil, err
-		}
-		return &coretypes.ResultEvents{
-			Items: []*coretypes.EventItem{
-				&coretypes.EventItem{
-					Cursor: "cursor1",
-					Event:  "event1",
-					Data:   eventData,
-				},
-			},
-			More:   false,
-			Oldest: "cursor1",
-			Newest: "cursor1",
-		}, nil
+		return getResultEvents("2", "cursor1", "event1"), nil
 	} else {
 		return nil, errors.New("no more events")
 	}
 }
 
-func (c *MockClient) getResultEvents(blockNum, cursor, eventName string) {
-	eventData, err := json.Marshal(c.getABCIEvent(blockNum))
+func getResultEvents(blockNum, cursor, event string) *coretypes.ResultEvents {
+	eventData, err := json.Marshal(getABCIEvent(blockNum))
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 	return &coretypes.ResultEvents{
 		Items: []*coretypes.EventItem{
 			&coretypes.EventItem{
-				Cursor: "cursor1",
-				Event:  "event1",
+				Cursor: cursor,
+				Event:  event,
 				Data:   eventData,
 			},
 		},
 		More:   false,
-		Oldest: "cursor1",
-		Newest: "cursor1",
+		Oldest: cursor,
+		Newest: cursor,
 	}
 }
 
-func (c *MockClient) getABCIEvent(blockNumberStr string) abci.Event {
+func getABCIEvent(blockNumberStr string) abci.Event {
 	return abci.Event{
 		Type: types.EventTypeEVMLog,
 		Attributes: []abci.EventAttribute{{
