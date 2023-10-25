@@ -89,7 +89,7 @@ func WriteTreeDataToFile(tree *iavl.MutableTree, filenamePattern string, chunkSi
 	// Open first chunk file
 	createNewFile()
 
-	tree.Iterate(func(key []byte, value []byte) bool {
+	_, err := tree.Iterate(func(key []byte, value []byte) bool {
 		// If we've reached chunkSize, close current file and open a new one
 		if currentCount >= chunkSize {
 			createNewFile()
@@ -108,6 +108,10 @@ func WriteTreeDataToFile(tree *iavl.MutableTree, filenamePattern string, chunkSi
 		currentCount++
 		return false
 	})
+
+	if err != nil {
+		panic(err)
+	}
 
 	if currentFile != nil {
 		currentFile.Close()
