@@ -6,7 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"slices"
+
+	"golang.org/x/exp/slices"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"

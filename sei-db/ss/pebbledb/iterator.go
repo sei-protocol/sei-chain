@@ -3,7 +3,8 @@ package pebbledb
 import (
 	"bytes"
 	"fmt"
-	"slices"
+
+	"golang.org/x/exp/slices"
 
 	"github.com/cockroachdb/pebble"
 
