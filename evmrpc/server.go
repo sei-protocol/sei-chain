@@ -22,6 +22,7 @@ func NewEVMHTTPServer(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfig client.TxConfig,
+	simulationConfig *SimulateConfig,
 ) (EVMServer, error) {
 	httpServer := newHTTPServer(logger, timeouts)
 	if err := httpServer.setListenAddr(addr, port); err != nil {
@@ -51,6 +52,10 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "eth",
 			Service:   NewSendAPI(tmClient, txConfig),
+		},
+		{
+			Namespace: "eth",
+			Service:   NewSimulationAPI(ctxProvider, k, tmClient, simulationConfig),
 		},
 	}
 	if err := httpServer.enableRPC(apis, httpConfig{
