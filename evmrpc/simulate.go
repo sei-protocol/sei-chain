@@ -1,0 +1,171 @@
+package evmrpc
+
+import (
+	"context"
+	"math/big"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
+	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
+	rpcclient "github.com/tendermint/tendermint/rpc/client"
+	"github.com/tendermint/tendermint/rpc/coretypes"
+)
+
+type SimulationAPI struct {
+	backend *Backend
+}
+
+func NewSimulationAPI(
+	ctxProvider func(int64) sdk.Context,
+	keeper *keeper.Keeper,
+	tmClient rpcclient.Client,
+	config *SimulateConfig,
+) *SimulationAPI {
+	return &SimulationAPI{
+		backend: NewBackend(ctxProvider, keeper, tmClient, config),
+	}
+}
+
+type AccessListResult struct {
+	Accesslist *ethtypes.AccessList `json:"accessList"`
+	Error      string               `json:"error,omitempty"`
+	GasUsed    hexutil.Uint64       `json:"gasUsed"`
+}
+
+func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*AccessListResult, error) {
+	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
+	if blockNrOrHash != nil {
+		bNrOrHash = *blockNrOrHash
+	}
+	acl, gasUsed, vmerr, err := ethapi.AccessList(ctx, s.backend, bNrOrHash, args)
+	if err != nil {
+		return nil, err
+	}
+	result := &AccessListResult{Accesslist: &acl, GasUsed: hexutil.Uint64(gasUsed)}
+	if vmerr != nil {
+		result.Error = vmerr.Error()
+	}
+	return result, nil
+}
+
+func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (hexutil.Uint64, error) {
+	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+	if blockNrOrHash != nil {
+		bNrOrHash = *blockNrOrHash
+	}
+	return ethapi.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, s.backend.RPCGasCap())
+}
+
+type SimulateConfig struct {
+	GasCap uint64
+}
+
+type Backend struct {
+	*eth.EthAPIBackend
+	ctxProvider func(int64) sdk.Context
+	keeper      *keeper.Keeper
+	tmClient    rpcclient.Client
+	config      *SimulateConfig
+}
+
+func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmClient rpcclient.Client, config *SimulateConfig) *Backend {
+	return &Backend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient, config: config}
+}
+
+func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
+	height, err := b.getBlockHeight(ctx, blockNrOrHash)
+	if err != nil {
+		return nil, nil, err
+	}
+	return state.NewDBImpl(b.ctxProvider(height), b.keeper), b.getHeader(big.NewInt(height)), nil
+}
+
+// returns block header only
+func (b *Backend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*ethtypes.Block, error) {
+	return ethtypes.NewBlock(&ethtypes.Header{
+		GasLimit: b.RPCGasCap(),
+	}, []*ethtypes.Transaction{}, []*ethtypes.Header{}, []*ethtypes.Receipt{}, nil), nil
+}
+
+func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
+
+func (b *Backend) ChainConfig() *params.ChainConfig {
+	return b.keeper.GetChainConfig(b.ctxProvider(LatestCtxHeight)).EthereumConfig(b.keeper.ChainID())
+}
+
+func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {
+	return state.NewDBImpl(b.ctxProvider(LatestCtxHeight), b.keeper).GetNonce(addr), nil
+}
+
+func (b *Backend) Engine() consensus.Engine {
+	return &Engine{ctxProvider: b.ctxProvider, keeper: b.keeper}
+}
+
+func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Header, error) {
+	height, err := b.getBlockHeight(ctx, rpc.BlockNumberOrHashWithNumber(bn))
+	if err != nil {
+		return nil, err
+	}
+	return b.getHeader(big.NewInt(height)), nil
+}
+
+func (b *Backend) GetEVM(_ context.Context, msg *core.Message, state vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) (*vm.EVM, func() error) {
+	txContext := core.NewEVMTxContext(msg)
+	context, _ := b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
+	return vm.NewEVM(*context, txContext, state, b.ChainConfig(), *vmConfig), state.Error
+}
+
+func (b *Backend) CurrentHeader() *ethtypes.Header {
+	return b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()))
+}
+
+func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
+	return big.NewInt(0), nil
+}
+
+func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
+	var block *coretypes.ResultBlock
+	var err error
+	if blockNr, ok := blockNrOrHash.Number(); ok {
+		blockNumber, blockNumErr := getBlockNumber(ctx, b.tmClient, blockNr)
+		if blockNumErr != nil {
+			return 0, blockNumErr
+		}
+		block, err = b.tmClient.Block(ctx, blockNumber)
+	} else {
+		block, err = b.tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
+	}
+	if err != nil {
+		return 0, err
+	}
+	return block.Block.Height, nil
+}
+
+func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
+	return &ethtypes.Header{
+		Difficulty: common.Big0,
+		Number:     blockNumber,
+		BaseFee:    b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
+	}
+}
+
+type Engine struct {
+	*ethash.Ethash
+	ctxProvider func(int64) sdk.Context
+	keeper      *keeper.Keeper
+}
+
+func (e *Engine) Author(*ethtypes.Header) (common.Address, error) {
+	return e.keeper.GetFeeCollectorAddress(e.ctxProvider(LatestCtxHeight))
+}
