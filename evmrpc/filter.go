@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -139,6 +140,11 @@ func (a *FilterAPI) getLogs(
 	topics []common.Hash,
 	cursor string,
 ) ([]*ethtypes.Log, string, error) {
+	fmt.Println("getLogs", blockHash, fromBlock, toBlock, topics, cursor)
+	// only block hash or block number is supported, not both
+	if (blockHash != common.Hash{}) && (fromBlock > 0 || toBlock > 0) {
+		return nil, "", errors.New("block hash and block number cannot both be specified")
+	}
 	q := NewQueryBuilder()
 	if (blockHash != common.Hash{}) {
 		q = q.FilterBlockHash(blockHash.Hex())
@@ -152,16 +158,20 @@ func (a *FilterAPI) getLogs(
 	for _, t := range topics {
 		q = q.FilterTopic(t.Hex())
 	}
+	fmt.Println("here2")
 	hasMore := true
 	logs := []*ethtypes.Log{}
 	for hasMore {
+		fmt.Println("here2.5")
 		res, err := a.tmClient.Events(ctx, &coretypes.RequestEvents{
 			Filter: &coretypes.EventFilter{Query: q.Build()},
 			After:  cursor,
 		})
+		fmt.Println("got error = ", err)
 		if err != nil {
 			return nil, "", err
 		}
+		fmt.Println("here3")
 		hasMore = res.More
 		cursor = res.Newest
 		for _, log := range res.Items {
@@ -176,6 +186,10 @@ func (a *FilterAPI) getLogs(
 			}
 			logs = append(logs, ethLog)
 		}
+		fmt.Println("here4")
+	}
+	for _, log := range logs {
+		fmt.Printf("return log = %+v", log)
 	}
 	return logs, cursor, nil
 }

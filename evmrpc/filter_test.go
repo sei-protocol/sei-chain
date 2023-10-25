@@ -133,3 +133,21 @@ func TestUninstallFilter(t *testing.T) {
 	uninstallSuccess = resObj["result"].(bool)
 	require.False(t, uninstallSuccess)
 }
+
+func TestGetLogs(t *testing.T) {
+	emptyArr := []string{}
+	// blockHash := "0x78b0bd7fe9ccc8ae8a61eae9315586cf2a406dacf129313e6c5769db7cd14372"
+	blockHash := "0x0000000000000000000000000000000000000000000000000000000000000000"
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getLogs\",\"params\":[\"%s\",\"%s\",\"%s\",%s],\"id\":\"test\"}", blockHash, "0x1", "0x2", emptyArr)
+	fmt.Println("body = ", body)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err := io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj := map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	fmt.Println("resObj = ", resObj)
+}

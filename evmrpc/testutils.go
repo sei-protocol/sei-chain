@@ -46,6 +46,7 @@ var Tx sdk.Tx
 
 type MockClient struct {
 	mock.Client
+	eventCounter int
 }
 
 func (c *MockClient) mockBlock() *coretypes.ResultBlock {
@@ -98,37 +99,9 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 				}(),
 				GasWanted: 10,
 				GasUsed:   5,
-				Events: []abci.Event{{
-					Type: types.EventTypeEVMLog,
-					Attributes: []abci.EventAttribute{{
-						Key:   []byte(types.AttributeTypeContractAddress),
-						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111"),
-					}, {
-						Key:   []byte(types.AttributeTypeBlockHash),
-						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111"),
-					}, {
-						Key:   []byte(types.AttributeTypeBlockNumber),
-						Value: []byte("8"),
-					}, {
-						Key:   []byte(types.AttributeTypeData),
-						Value: []byte("xyz"),
-					}, {
-						Key:   []byte(types.AttributeTypeIndex),
-						Value: []byte("1"),
-					}, {
-						Key:   []byte(types.AttributeTypeTxIndex),
-						Value: []byte("2"),
-					}, {
-						Key:   []byte(types.AttributeTypeRemoved),
-						Value: []byte("true"),
-					}, {
-						Key:   []byte(types.AttributeTypeTopics),
-						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111,0x1111111111111111111111111111111111111111111111111111111111111112"),
-					}, {
-						Key:   []byte(types.AttributeTypeTxHash),
-						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111113"),
-					}},
-				}},
+				Events: []abci.Event{
+					c.getABCIEvent("8"),
+				},
 			},
 		},
 	}, nil
@@ -136,6 +109,103 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 
 func (c *MockClient) Subscribe(context.Context, string, string, ...int) (<-chan coretypes.ResultEvent, error) {
 	return make(chan coretypes.ResultEvent, 1), nil
+}
+
+func (c *MockClient) Events(ctx context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
+	fmt.Printf("req = %+v\n", req)
+	fmt.Println("eventCounter = ", c.eventCounter)
+	if c.eventCounter == 0 {
+		c.eventCounter += 1
+		eventData, err := json.Marshal(c.getABCIEvent("1"))
+		if err != nil {
+			return nil, err
+		}
+		return &coretypes.ResultEvents{
+			Items: []*coretypes.EventItem{
+				&coretypes.EventItem{
+					Cursor: "cursor0",
+					Event:  "event0",
+					Data:   eventData,
+				},
+			},
+			More:   true,
+			Oldest: "cursor0",
+			Newest: "cursor0",
+		}, nil
+	} else if c.eventCounter == 1 {
+		c.eventCounter += 1
+		eventData, err := json.Marshal(c.getABCIEvent("2"))
+		if err != nil {
+			return nil, err
+		}
+		return &coretypes.ResultEvents{
+			Items: []*coretypes.EventItem{
+				&coretypes.EventItem{
+					Cursor: "cursor1",
+					Event:  "event1",
+					Data:   eventData,
+				},
+			},
+			More:   false,
+			Oldest: "cursor1",
+			Newest: "cursor1",
+		}, nil
+	} else {
+		return nil, errors.New("no more events")
+	}
+}
+
+func (c *MockClient) getResultEvents(blockNum, cursor, eventName string) {
+	eventData, err := json.Marshal(c.getABCIEvent(blockNum))
+	if err != nil {
+		return nil, err
+	}
+	return &coretypes.ResultEvents{
+		Items: []*coretypes.EventItem{
+			&coretypes.EventItem{
+				Cursor: "cursor1",
+				Event:  "event1",
+				Data:   eventData,
+			},
+		},
+		More:   false,
+		Oldest: "cursor1",
+		Newest: "cursor1",
+	}
+}
+
+func (c *MockClient) getABCIEvent(blockNumberStr string) abci.Event {
+	return abci.Event{
+		Type: types.EventTypeEVMLog,
+		Attributes: []abci.EventAttribute{{
+			Key:   []byte(types.AttributeTypeContractAddress),
+			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		}, {
+			Key:   []byte(types.AttributeTypeBlockHash),
+			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		}, {
+			Key:   []byte(types.AttributeTypeBlockNumber),
+			Value: []byte(blockNumberStr),
+		}, {
+			Key:   []byte(types.AttributeTypeData),
+			Value: []byte("xyz"),
+		}, {
+			Key:   []byte(types.AttributeTypeIndex),
+			Value: []byte("1"),
+		}, {
+			Key:   []byte(types.AttributeTypeTxIndex),
+			Value: []byte("2"),
+		}, {
+			Key:   []byte(types.AttributeTypeRemoved),
+			Value: []byte("true"),
+		}, {
+			Key:   []byte(types.AttributeTypeTopics),
+			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111,0x1111111111111111111111111111111111111111111111111111111111111112"),
+		}, {
+			Key:   []byte(types.AttributeTypeTxHash),
+			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111113"),
+		}},
+	}
 }
 
 type MockBadClient struct {
