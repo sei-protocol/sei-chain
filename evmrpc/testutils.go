@@ -44,6 +44,8 @@ var Encoder = TxConfig.TxEncoder()
 var Decoder = TxConfig.TxDecoder()
 var Tx sdk.Tx
 
+var SConfig = SimulateConfig{GasCap: 10000000}
+
 type MockClient struct {
 	mock.Client
 }
@@ -172,14 +174,14 @@ var Ctx sdk.Context
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	EVMKeeper, _, Ctx = keeper.MockEVMKeeper()
-	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
+	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig)
 	if err != nil {
 		panic(err)
 	}
 	if err := httpServer.Start(); err != nil {
 		panic(err)
 	}
-	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
+	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig)
 	if err != nil {
 		panic(err)
 	}
@@ -292,6 +294,9 @@ func sendRequest(t *testing.T, port int, method string, params ...interface{}) m
 }
 
 func formatParam(p interface{}) string {
+	if p == nil {
+		return "null"
+	}
 	switch v := p.(type) {
 	case int:
 		return fmt.Sprintf("%d", v)
@@ -301,6 +306,12 @@ func formatParam(p interface{}) string {
 		return fmt.Sprintf("\"%s\"", v)
 	case []interface{}:
 		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, formatParam), ","))
+	case map[string]interface{}:
+		kvs := []string{}
+		for k, v := range v {
+			kvs = append(kvs, fmt.Sprintf("\"%s\":%s", k, formatParam(v)))
+		}
+		return fmt.Sprintf("{%s}", strings.Join(kvs, ","))
 	default:
 		return fmt.Sprintf("%s", p)
 	}
