@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -185,7 +184,7 @@ func CalculatePercentile(latencies []time.Duration, percentile float64) time.Dur
 
 // Picks random file from input kv dir and updates processedFiles Map with it
 func PickRandomKVFile(inputKVDir string, processedFiles *sync.Map) string {
-	files, _ := ioutil.ReadDir(inputKVDir)
+	files, _ := os.ReadDir(inputKVDir)
 	var availableFiles []string
 
 	for _, file := range files {
@@ -204,12 +203,12 @@ func PickRandomKVFile(inputKVDir string, processedFiles *sync.Map) string {
 }
 
 func ListAllFiles(dir string) ([]string, error) {
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return []string{}, err
 	}
 	// Extract file nams from input KV dir
-	var fileNames []string
+	fileNames := make([]string, 0, len(files))
 	for _, file := range files {
 		fileNames = append(fileNames, file.Name())
 	}
