@@ -23,15 +23,11 @@ func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
 }
 
 func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
-	val := s.k.PrefixStore(ctx, types.StateKey(addr)).Get(hash[:])
-	if val == nil {
-		return common.Hash{}
-	}
-	return common.BytesToHash(val)
+	return s.k.GetState(ctx, addr, hash)
 }
 
 func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) {
-	s.k.PrefixStore(s.ctx, types.StateKey(addr)).Set(key[:], val[:])
+	s.k.SetState(s.ctx, addr, key, val)
 }
 
 func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.Hash {
@@ -117,4 +113,11 @@ func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
 func (s *DBImpl) Created(acc common.Address) bool {
 	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
 	return bytes.Equal(store.Get(acc[:]), AccountCreated)
+}
+
+func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
+	s.clearAccountState(addr)
+	for key, val := range states {
+		s.SetState(addr, key, val)
+	}
 }

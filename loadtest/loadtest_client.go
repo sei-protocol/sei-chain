@@ -88,11 +88,11 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 
 func (c *LoadTestClient) SetValidators() {
 	if strings.Contains(c.LoadTestConfig.MessageType, "staking") {
-		if resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{}); err != nil {
+		resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
+		if err != nil {
 			panic(err)
-		} else {
-			c.Validators = resp.Validators
 		}
+		c.Validators = resp.Validators
 	}
 }
 
