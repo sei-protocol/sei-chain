@@ -1,8 +1,12 @@
+//go:build rocksdbBackend
+// +build rocksdbBackend
+
 package main
 
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-db/benchmark/dbbackend"
 	"github.com/spf13/cobra"
 )
 
@@ -55,5 +59,13 @@ func benchmarkReverseIteration(cmd *cobra.Command, args []string) {
 
 // Benchmark reverse iteration performance of db backend
 func BenchmarkDBReverseIteration(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64, iterationSteps int) {
-	panic("Not Implemented")
+	// Reverse Iterate over db at directory
+	fmt.Printf("Iterating Over DB at  %s\n", outputDir)
+
+	if dbBackend == RocksDBBackendName {
+		backend := dbbackend.RocksDBBackend{}
+		backend.BenchmarkDBReverseIteration(inputKVDir, numVersions, outputDir, concurrency, maxOps, iterationSteps)
+	}
+
+	return
 }
