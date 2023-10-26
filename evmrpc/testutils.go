@@ -271,6 +271,7 @@ func sendRequest(t *testing.T, port int, method string, params ...interface{}) m
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
 	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_%s\",\"params\":[%s],\"id\":\"test\"}", method, paramsFormatted)
+	fmt.Println("body = ", body)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -292,9 +293,21 @@ func formatParam(p interface{}) string {
 		return fmt.Sprintf("%f", v)
 	case string:
 		return fmt.Sprintf("\"%s\"", v)
+	case common.Address:
+		return fmt.Sprintf("\"%s\"", v)
+	case common.Hash:
+		fmt.Println("in hash case")
+		return fmt.Sprintf("\"%s\"", v)
+	case []common.Hash:
+		hashesStrs := []string{}
+		for _, topic := range v {
+			hashesStrs = append(hashesStrs, "\""+topic.String()+"\"")
+		}
+		return fmt.Sprintf("%s", hashesStrs)
 	case []interface{}:
 		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, formatParam), ","))
 	default:
+		fmt.Println("in default case")
 		return fmt.Sprintf("%s", p)
 	}
 }

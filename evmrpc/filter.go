@@ -131,11 +131,12 @@ func (a *FilterAPI) GetFilterLogs(
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	blockHash common.Hash,
-	address common.Address, // only support 1 address at a time since OR not supported
+	address common.Address,
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
 	topics []common.Hash,
 ) ([]*ethtypes.Log, error) {
+	// TODO: fix this, should pass in multiple addresses
 	res, _, err := a.getLogs(ctx, blockHash, address, fromBlock, toBlock, topics, "")
 	if err != nil {
 		return nil, err
