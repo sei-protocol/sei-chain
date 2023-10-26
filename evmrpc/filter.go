@@ -105,6 +105,7 @@ func (a *FilterAPI) GetFilterChanges(
 	}
 	updatedFilter := a.filters[filterId]
 	updatedFilter.cursor = cursor
+	fmt.Println("cursor set to: ", cursor)
 	a.filters[filterId] = updatedFilter
 	return res, nil
 }

@@ -267,5 +267,123 @@ func TestGetLogs(t *testing.T) {
 			}
 		})
 	}
+}
 
+func TestGetFilterLogs(t *testing.T) {
+	fromBlock := "0x4"
+	toBlock := "0x4"
+	addr := common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))
+	emptyArr := []string{}
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_newFilter\",\"params\":[\"%s\",\"%s\",\"%s\",%s],\"id\":\"test\"}", fromBlock, toBlock, addr, emptyArr)
+	fmt.Println("body = ", body)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err := io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj := map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	filterId := int(resObj["result"].(float64))
+	fmt.Println("got filterId = ", filterId)
+
+	body = fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getFilterLogs\",\"params\":[%d],\"id\":\"test\"}", filterId)
+	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err = io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj = map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	logs := resObj["result"].([]interface{})
+	require.Equal(t, 1, len(logs))
+	for _, log := range logs {
+		logObj := log.(map[string]interface{})
+		require.Equal(t, "0x1111111111111111111111111111111111111111111111111111111111111114", logObj["blockHash"].(string))
+	}
+
+	// error: filter id does not exist
+	nonexistentFilterId := 1000
+	body = fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getFilterLogs\",\"params\":[%d],\"id\":\"test\"}", nonexistentFilterId)
+	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err = io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj = map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	_, ok := resObj["error"]
+	require.True(t, ok)
+}
+
+func TestGetFilterChanges(t *testing.T) {
+	// if first call to GetFilterChanges it needs to
+	fromBlock := "0x5"
+	toBlock := "latest"
+	addr := common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))
+	emptyArr := []string{}
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_newFilter\",\"params\":[\"%s\",\"%s\",\"%s\",%s],\"id\":\"test\"}", fromBlock, toBlock, addr, emptyArr)
+	fmt.Println("body = ", body)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err := io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj := map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	filterId := int(resObj["result"].(float64))
+	fmt.Println("got filterId = ", filterId)
+
+	body = fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getFilterChanges\",\"params\":[%d],\"id\":\"test\"}", filterId)
+	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err = io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj = map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	logs := resObj["result"].([]interface{})
+	require.Equal(t, 1, len(logs))
+	logObj := logs[0].(map[string]interface{})
+	require.Equal(t, "0x1111111111111111111111111111111111111111111111111111111111111115", logObj["blockHash"].(string))
+
+	// another query
+	body = fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getFilterChanges\",\"params\":[%d],\"id\":\"test\"}", filterId)
+	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err = io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj = map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	logs = resObj["result"].([]interface{})
+	require.Equal(t, 1, len(logs))
+	logObj = logs[0].(map[string]interface{})
+	require.Equal(t, "0x1111111111111111111111111111111111111111111111111111111111111116", logObj["blockHash"].(string))
+
+	// error: filter id does not exist
+	nonExistingFilterId := 1000
+	body = fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getFilterChanges\",\"params\":[%d],\"id\":\"test\"}", nonExistingFilterId)
+	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err = io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj = map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	_, ok := resObj["error"]
+	require.True(t, ok)
 }

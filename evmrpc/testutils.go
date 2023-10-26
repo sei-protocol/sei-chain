@@ -122,8 +122,16 @@ func (c *MockClient) Events(ctx context.Context, req *coretypes.RequestEvents) (
 		return getResultEvents(2, false, "cursor1", "event1"), nil
 	} else if strings.Contains(req.Filter.Query, "evm_log.topics CONTAINS '0x0000000000000000000000000000000000000000000000000000000000000123'") {
 		return getResultEvents(3, false, "cursor1", "event1"), nil
+	} else if strings.Contains(req.Filter.Query, " evm_log.block_number >= '4' AND evm_log.block_number <= '4'") {
+		return getResultEvents(4, false, "cursor1", "event1"), nil
+	} else if strings.Contains(req.Filter.Query, "evm_log.block_number >= '5'") {
+		if req.After == "" {
+			return getResultEvents(5, false, "cursor1", "event1"), nil
+		} else if req.After == "cursor1" {
+			return getResultEvents(6, false, "cursor2", "event2"), nil
+		}
 	}
-	return nil, errors.New("bad query")
+	return nil, errors.New("unknown query")
 }
 
 func getResultEvents(blockNum int, more bool, cursor, event string) *coretypes.ResultEvents {
