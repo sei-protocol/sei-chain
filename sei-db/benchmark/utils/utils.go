@@ -4,9 +4,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"log"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -88,7 +89,7 @@ func WriteTreeDataToFile(tree *iavl.MutableTree, filenamePattern string, chunkSi
 	// Open first chunk file
 	createNewFile()
 
-	tree.Iterate(func(key []byte, value []byte) bool {
+	_, err := tree.Iterate(func(key []byte, value []byte) bool {
 		// If we've reached chunkSize, close current file and open a new one
 		if currentCount >= chunkSize {
 			createNewFile()
@@ -107,6 +108,10 @@ func WriteTreeDataToFile(tree *iavl.MutableTree, filenamePattern string, chunkSi
 		currentCount++
 		return false
 	})
+
+	if err != nil {
+		panic(err)
+	}
 
 	if currentFile != nil {
 		currentFile.Close()
@@ -183,7 +188,7 @@ func CalculatePercentile(latencies []time.Duration, percentile float64) time.Dur
 
 // Picks random file from input kv dir and updates processedFiles Map with it
 func PickRandomKVFile(inputKVDir string, processedFiles *sync.Map) string {
-	files, _ := ioutil.ReadDir(inputKVDir)
+	files, _ := os.ReadDir(inputKVDir)
 	var availableFiles []string
 
 	for _, file := range files {
@@ -199,4 +204,54 @@ func PickRandomKVFile(inputKVDir string, processedFiles *sync.Map) string {
 	selected := availableFiles[rand.Intn(len(availableFiles))]
 	processedFiles.Store(selected, true)
 	return selected
+}
+
+func ListAllFiles(dir string) ([]string, error) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return []string{}, err
+	}
+	// Extract file nams from input KV dir
+	fileNames := make([]string, 0, len(files))
+	for _, file := range files {
+		fileNames = append(fileNames, file.Name())
+	}
+
+	return fileNames, nil
+}
+
+func LoadAndShuffleKV(inputDir string) ([]KeyValuePair, error) {
+	var allKVs []KeyValuePair
+	mu := &sync.Mutex{}
+	wg := &sync.WaitGroup{}
+
+	allFiles, err := ListAllFiles(inputDir)
+	if err != nil {
+		log.Fatalf("Failed to list all files: %v", err)
+	}
+
+	for _, file := range allFiles {
+		wg.Add(1)
+		go func(id string, selectedFile string) {
+			defer wg.Done()
+
+			kvEntries, err := ReadKVEntriesFromFile(filepath.Join(id, selectedFile))
+			if err != nil {
+				panic(err)
+			}
+
+			// Safely append the kvEntries to allKVs
+			mu.Lock()
+			allKVs = append(allKVs, kvEntries...)
+			fmt.Printf("Done processing file %+v\n", filepath.Join(id, selectedFile))
+			mu.Unlock()
+		}(inputDir, file)
+	}
+	wg.Wait()
+
+	rand.Shuffle(len(allKVs), func(i, j int) {
+		allKVs[i], allKVs[j] = allKVs[j], allKVs[i]
+	})
+
+	return allKVs, nil
 }

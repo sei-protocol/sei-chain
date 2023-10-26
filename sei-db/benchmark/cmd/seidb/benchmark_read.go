@@ -1,8 +1,14 @@
+//go:build rocksdbBackend
+// +build rocksdbBackend
+
 package main
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
 
+	"github.com/sei-protocol/sei-db/benchmark/dbbackend"
 	"github.com/spf13/cobra"
 )
 
@@ -53,5 +59,18 @@ func benchmarkRead(cmd *cobra.Command, args []string) {
 
 // Benchmark read latencies and throughput of db backend
 func BenchmarkRead(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64) {
-	panic("Not Implemented")
+	// Create output directory
+	err := os.MkdirAll(outputDir, fs.ModePerm)
+	if err != nil {
+		panic(err)
+	}
+	// Iterate over files in directory
+	fmt.Printf("Reading Raw Keys and Values from %s\n", inputKVDir)
+
+	if dbBackend == RocksDBBackendName {
+		backend := dbbackend.RocksDBBackend{}
+		backend.BenchmarkDBRead(inputKVDir, numVersions, outputDir, concurrency, maxOps)
+	}
+
+	return
 }

@@ -1,10 +1,3 @@
-GOTOOLS := github.com/golangci/golangci-lint/cmd/golangci-lint
-VERSION := $(shell echo $(shell git describe --tags) | sed 's/^v//')
-COMMIT := $(shell git log -1 --format='%H')
-BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
-DOCKER_BUF := docker run -v $(shell pwd):/workspace --workdir /workspace bufbuild/buf
-DOCKER := $(shell which docker)
-HTTPS_GIT := https://github.com/cosmos/iavl.git
 UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Darwin)
@@ -24,8 +17,8 @@ endif
 
 install:
 ifeq ($(COLORS_ON),)
-	CGO_CFLAGS="-I$(ROCKSDB_PATH)/include" CGO_LDFLAGS="-L$(ROCKSDB_PATH)/lib -L$(SNAPPY_PATH)/lib -L$(LZ4_PATH)/lib -L$(ZSTD_PATH)/lib -lrocksdb -lstdc++ -lm -lz -lsnappy -llz4 -lzstd" go install ./cmd/dumpkv
+	CGO_CFLAGS="-I$(ROCKSDB_PATH)/include" CGO_LDFLAGS="-L$(ROCKSDB_PATH)/lib -L$(SNAPPY_PATH)/lib -L$(LZ4_PATH)/lib -L$(ZSTD_PATH)/lib -lrocksdb -lstdc++ -lm -lz -lsnappy -llz4 -lzstd" go install -tags rocksdbBackend ./cmd/seidb
 else
-	CGO_CFLAGS="-I$(ROCKSDB_PATH)/include" CGO_LDFLAGS="-L$(ROCKSDB_PATH)/lib -L$(SNAPPY_PATH)/lib -L$(LZ4_PATH)/lib -L$(ZSTD_PATH)/lib -lrocksdb -lstdc++ -lm -lz -lsnappy -llz4 -lzstd" go install $(CMDFLAGS) ./cmd/dumpkv
+	CGO_CFLAGS="-I$(ROCKSDB_PATH)/include" CGO_LDFLAGS="-L$(ROCKSDB_PATH)/lib -L$(SNAPPY_PATH)/lib -L$(LZ4_PATH)/lib -L$(ZSTD_PATH)/lib -lrocksdb -lstdc++ -lm -lz -lsnappy -llz4 -lzstd" go install -tags rocksdbBackend $(CMDFLAGS) ./cmd/seidb
 endif
 .PHONY: install
