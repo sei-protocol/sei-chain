@@ -228,6 +228,9 @@ func storePrefix(storeKey string) []byte {
 }
 
 func prependStoreKey(storeKey string, key []byte) []byte {
+	if storeKey == "" {
+		return key
+	}
 	return append(storePrefix(storeKey), key...)
 }
 
