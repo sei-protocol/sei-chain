@@ -245,7 +245,7 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 	defer func() {
-		err = errors.Join(err, itr.Close())
+		err = utils.Join(err, itr.Close())
 	}()
 
 	if !itr.Last() {
