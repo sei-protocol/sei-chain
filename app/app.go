@@ -522,6 +522,7 @@ func New(
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
+	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
 	app.AccessControlKeeper = aclkeeper.NewKeeper(
 		appCodec,
 		app.keys[acltypes.StoreKey],
@@ -1303,8 +1304,15 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.E
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
-	for _, tx := range txs {
-		entries = append(entries, &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}})
+	for txIndex, tx := range txs {
+		deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
+		// get prefill estimate
+		estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.txDecoder, app.GetAnteDepGenerator(), txIndex, tx)
+		// if no error, then we assign the mapped writesets for prefill estimate
+		if err == nil {
+			deliverTxEntry.EstimatedWritesets = estimatedWritesets
+		}
+		entries = append(entries, deliverTxEntry)
 	}
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
@@ -1355,6 +1363,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
+	// enable OCC
+	ctx = ctx.WithIsOCCEnabled(true)
 
 	events := []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{
