@@ -108,17 +108,6 @@ func TestGetLogs(t *testing.T) {
 			toBlock:   "0x1",
 			wantErr:   true,
 		},
-		// / having a bit of trouble specifying block range not given
-		//
-		// 	name:      "error: neither block hash nor block range given",
-		// 	blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
-		// 	fromBlock: "0x0",
-		// 	toBlock:   "0x0",
-		// 	addrs:     []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))},
-		// 	topics:    []common.Hash{common.HexToHash(common.Bytes2Hex([]byte("topic")))},
-		// 	wantErr:   true,
-		// 	wantLen:   0,
-		// },
 		{
 			name:      "only block hash given 1",
 			blockHash: "0x1111111111111111111111111111111111111111111111111111111111111111",
@@ -194,6 +183,7 @@ func TestGetLogs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resObj := sendRequest(t, TestPort, "getLogs", tt.blockHash, tt.addrs, tt.fromBlock, tt.toBlock, tt.topics)
 			if tt.wantErr {
+				fmt.Println("resObj = ", resObj)
 				_, ok := resObj["error"]
 				require.True(t, ok)
 			} else {
