@@ -1,40 +1,52 @@
 package store
 
 import (
+	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/sei-protocol/sei-db/sc/memiavl"
+	memiavlopts "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/spf13/cast"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
 const (
-	FlagSeiDB = "seidb.enable"
+	FlagSCEnable            = "state-commit.enable"
+	FlagAsyncCommitBuffer   = "state-commit.async-commit-buffer"
+	FlagZeroCopy            = "state-commit.zero-copy"
+	FlagSnapshotKeepRecent  = "state-commit.snapshot-keep-recent"
+	FlagSnapshotInterval    = "state-commit.snapshot-interval"
+	FlagCacheSize           = "state-commit.cache-size"
+	FlagSnapshotWriterLimit = "state-commit.snapshot-writer-limit"
+	FlagSSEnable            = "state-store.enable"
+	FlagSSBackend           = "state-store.backend"
+	FlagSSAsyncFlush        = "state-store.async-flush"
 )
 
 func SetupSeiDB(
 	logger log.Logger,
+	homePath string,
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
 ) []func(*baseapp.BaseApp) {
-	if cast.ToBool(appOpts.Get(FlagSeiDB)) {
-		logger.Info("Setting up seiDB...")
-		// cms must be overridden before the other options, because they may use the cms,
-		// make sure the cms aren't be overridden by the other options later on.
-		baseAppOptions = append([]func(*baseapp.BaseApp){setupStateCommit()}, baseAppOptions...)
-		baseAppOptions = append([]func(*baseapp.BaseApp){setupStateStore()}, baseAppOptions...)
+	if cast.ToBool(appOpts.Get(FlagSCEnable)) {
+		logger.Info("SeiDB is enabled")
+		opts := memiavlopts.Options{
+			AsyncCommitBuffer:        cast.ToInt(appOpts.Get(FlagAsyncCommitBuffer)),
+			ZeroCopy:                 cast.ToBool(appOpts.Get(FlagZeroCopy)),
+			SnapshotKeepRecent:       cast.ToUint32(appOpts.Get(FlagSnapshotKeepRecent)),
+			SnapshotInterval:         cast.ToUint32(appOpts.Get(FlagSnapshotInterval)),
+			CacheSize:                cast.ToInt(appOpts.Get(FlagCacheSize)),
+			SnapshotWriterLimit:      cast.ToInt(appOpts.Get(FlagSnapshotWriterLimit)),
+			SdkBackwardCompatible:    true,
+			ExportNonSnapshotVersion: false,
+		}
+		baseAppOptions = append(memiavl.SetupMemIAVL(logger, homePath, opts, baseAppOptions), baseAppOptions...)
+		if cast.ToBool(appOpts.Get(FlagSSEnable)) {
+			backendOpt := appOpts.Get(FlagSSBackend)
+			logger.Info(fmt.Sprintf("Setting up state store, detected to use DB backend: %s", backendOpt))
+		}
 	}
-
 	return baseAppOptions
-}
-
-func setupStateCommit() func(*baseapp.BaseApp) {
-	return func(baseApp *baseapp.BaseApp) {
-		//TODO: Add sc setup
-	}
-}
-
-func setupStateStore() func(*baseapp.BaseApp) {
-	return func(baseApp *baseapp.BaseApp) {
-		//TODO: Add SS setup
-	}
 }
