@@ -1,12 +1,7 @@
 package evmrpc
 
 import (
-	// "context"
-	// "encoding/json"
 	"fmt"
-	// "io"
-	// "net/http"
-	// "strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -18,7 +13,7 @@ func TestNewFilter(t *testing.T) {
 		name      string
 		fromBlock string
 		toBlock   string
-		addr      common.Address
+		addrs     []common.Address
 		topics    []common.Hash
 		wantErr   bool
 		wantId    float64
@@ -27,7 +22,7 @@ func TestNewFilter(t *testing.T) {
 			name:      "happy path",
 			fromBlock: "0x1",
 			toBlock:   "0x2",
-			addr:      common.HexToAddress(common.Bytes2Hex([]byte("evmAddr"))),
+			addrs:     []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))},
 			topics:    []common.Hash{common.HexToHash(common.Bytes2Hex([]byte("topic")))},
 			wantErr:   false,
 			wantId:    1,
@@ -36,7 +31,7 @@ func TestNewFilter(t *testing.T) {
 			name:      "from block after to block",
 			fromBlock: "0x2",
 			toBlock:   "0x1",
-			addr:      common.HexToAddress(common.Bytes2Hex([]byte("evmAddr"))),
+			addrs:     []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))},
 			topics:    []common.Hash{common.HexToHash(common.Bytes2Hex([]byte("topic")))},
 			wantErr:   true,
 			wantId:    0,
@@ -45,7 +40,7 @@ func TestNewFilter(t *testing.T) {
 			name:      "from block is latest but to block is not",
 			fromBlock: "latest",
 			toBlock:   "0x1",
-			addr:      common.HexToAddress(common.Bytes2Hex([]byte("evmAddr"))),
+			addrs:     []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))},
 			topics:    []common.Hash{common.HexToHash(common.Bytes2Hex([]byte("topic")))},
 			wantErr:   true,
 			wantId:    0,
@@ -54,14 +49,14 @@ func TestNewFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resObj := sendRequest(t, TestPort, "newFilter", tt.fromBlock, tt.toBlock, tt.addr, tt.topics)
+			resObj := sendRequest(t, TestPort, "newFilter", tt.fromBlock, tt.toBlock, tt.addrs, tt.topics)
 			if tt.wantErr {
 				_, ok := resObj["error"]
 				require.True(t, ok)
 			} else {
 				got := resObj["result"].(float64)
 				require.Equal(t, tt.wantId, got)
-				resObj := sendRequest(t, TestPort, "newFilter", tt.fromBlock, tt.toBlock, tt.addr, tt.topics)
+				resObj := sendRequest(t, TestPort, "newFilter", tt.fromBlock, tt.toBlock, tt.addrs, tt.topics)
 				got2 := resObj["result"].(float64)
 				require.Equal(t, tt.wantId+1, got2)
 			}
@@ -72,7 +67,7 @@ func TestNewFilter(t *testing.T) {
 func TestUninstallFilter(t *testing.T) {
 	// uninstall existing filter
 	emptyArr := []string{}
-	resObj := sendRequest(t, TestPort, "newFilter", "0x1", "0xa", common.Address{}, emptyArr)
+	resObj := sendRequest(t, TestPort, "newFilter", "0x1", "0xa", []common.Address{}, emptyArr)
 	filterId := int(resObj["result"].(float64))
 	require.Equal(t, 1, filterId)
 
@@ -114,7 +109,7 @@ func TestGetLogs(t *testing.T) {
 			wantErr:   true,
 		},
 		// / having a bit of trouble specifying block range not given
-		// 
+		//
 		// 	name:      "error: neither block hash nor block range given",
 		// 	blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
 		// 	fromBlock: "0x0",
@@ -216,9 +211,9 @@ func TestGetLogs(t *testing.T) {
 func TestGetFilterLogs(t *testing.T) {
 	fromBlock := "0x4"
 	toBlock := "0x4"
-	addr := common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))
+	addrs := []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))}
 	emptyArr := []string{}
-	resObj := sendRequest(t, TestPort, "newFilter", fromBlock, toBlock, addr, emptyArr)
+	resObj := sendRequest(t, TestPort, "newFilter", fromBlock, toBlock, addrs, emptyArr)
 	filterId := int(resObj["result"].(float64))
 
 	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
@@ -240,11 +235,9 @@ func TestGetFilterChanges(t *testing.T) {
 	// if first call to GetFilterChanges it needs to
 	fromBlock := "0x5"
 	toBlock := "latest"
-	addr := common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))
+	addrs := []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))}
 	emptyArr := []string{}
-	resObj := sendRequest(t, TestPort, "newFilter", fromBlock, toBlock, addr, emptyArr)
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_newFilter\",\"params\":[\"%s\",\"%s\",\"%s\",%s],\"id\":\"test\"}", fromBlock, toBlock, addr, emptyArr)
-	fmt.Println("body 2 = ", body)
+	resObj := sendRequest(t, TestPort, "newFilter", fromBlock, toBlock, addrs, emptyArr)
 	filterId := int(resObj["result"].(float64))
 	fmt.Println("got filterId = ", filterId)
 

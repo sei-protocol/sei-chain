@@ -19,10 +19,10 @@ import (
 type filter struct {
 	fromBlock rpc.BlockNumber
 	toBlock   rpc.BlockNumber
-	address   common.Address
+	addresses []common.Address
 	topics    []common.Hash
 
-	cursor string
+	cursors map[common.Address]string
 	// TODO: expiration
 }
 
@@ -43,7 +43,7 @@ func (a *FilterAPI) NewFilter(
 	ctx context.Context,
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
-	address common.Address,
+	addresses []common.Address,
 	topics []string,
 ) (*uint64, error) {
 	err := a.checkFromAndToBlock(ctx, fromBlock, toBlock)
@@ -63,7 +63,7 @@ func (a *FilterAPI) NewFilter(
 	f := filter{
 		fromBlock: fromBlock,
 		toBlock:   toBlock,
-		address:   address,
+		addresses: addresses,
 		topics:    topicsRes,
 	}
 	a.filters[curFilterId] = f
@@ -99,13 +99,13 @@ func (a *FilterAPI) GetFilterChanges(
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
-	res, cursor, err := a.getLogs(ctx, common.Hash{}, filter.address, filter.fromBlock, filter.toBlock, filter.topics, filter.cursor)
+	res, cursors, err := a.getLogsOverAddresses(ctx, common.Hash{}, filter.addresses, filter.fromBlock, filter.toBlock, filter.topics, filter.cursors)
 	if err != nil {
 		return nil, err
 	}
 	updatedFilter := a.filters[filterId]
-	updatedFilter.cursor = cursor
-	fmt.Println("cursor set to: ", cursor)
+	updatedFilter.cursors = cursors
+	fmt.Println("cursors set to: ", cursors)
 	a.filters[filterId] = updatedFilter
 	return res, nil
 }
@@ -118,12 +118,13 @@ func (a *FilterAPI) GetFilterLogs(
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
-	res, cursor, err := a.getLogs(ctx, common.Hash{}, filter.address, filter.fromBlock, filter.toBlock, filter.topics, "")
+	noCursors := make(map[common.Address]string)
+	res, cursors, err := a.getLogsOverAddresses(ctx, common.Hash{}, filter.addresses, filter.fromBlock, filter.toBlock, filter.topics, noCursors)
 	if err != nil {
 		return nil, err
 	}
 	updatedFilter := a.filters[filterId]
-	updatedFilter.cursor = cursor
+	updatedFilter.cursors = cursors
 	a.filters[filterId] = updatedFilter
 	return res, nil
 }
@@ -136,18 +137,40 @@ func (a *FilterAPI) GetLogs(
 	toBlock rpc.BlockNumber,
 	topics []common.Hash,
 ) ([]*ethtypes.Log, error) {
+	noCursors := make(map[common.Address]string)
+	logs, _, err := a.getLogsOverAddresses(ctx, blockHash, addresses, fromBlock, toBlock, topics, noCursors)
+	return logs, err
+}
+
+func (a *FilterAPI) getLogsOverAddresses(
+	ctx context.Context,
+	blockHash common.Hash,
+	addresses []common.Address,
+	fromBlock rpc.BlockNumber,
+	toBlock rpc.BlockNumber,
+	topics []common.Hash,
+	cursors map[common.Address]string,
+) ([]*ethtypes.Log, map[common.Address]string, error) {
 	res := make([]*ethtypes.Log, 0)
 	if len(addresses) == 0 {
 		addresses = append(addresses, common.Address{})
 	}
+	updatedAddrToCursor := make(map[common.Address]string)
 	for _, address := range addresses {
-		resAddr, _, err := a.getLogs(ctx, blockHash, address, fromBlock, toBlock, topics, "")
+		var cursor string
+		if _, ok := cursors[address]; !ok {
+			cursor = ""
+		} else {
+			cursor = cursors[address]
+		}
+		resAddr, cursor, err := a.getLogs(ctx, blockHash, address, fromBlock, toBlock, topics, cursor)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		res = append(res, resAddr...)
+		updatedAddrToCursor[address] = cursor
 	}
-	return res, nil
+	return res, updatedAddrToCursor, nil
 }
 
 // TODO: need to handle OR case (union together for multiple addresses and multiple topics)
