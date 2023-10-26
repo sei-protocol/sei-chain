@@ -89,6 +89,7 @@ func (c *MockClient) BlockByHash(context.Context, bytes.HexBytes) (*coretypes.Re
 }
 
 func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlockResults, error) {
+	abciEvent := NewABCIEventBuilder().SetBlockNum(8).Build()
 	return &coretypes.ResultBlockResults{
 		TxsResults: []*abci.ExecTxResult{
 			{
@@ -99,7 +100,7 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 				GasWanted: 10,
 				GasUsed:   5,
 				Events: []abci.Event{
-					getABCIEvent(8),
+					abciEvent,
 				},
 			},
 		},
@@ -111,31 +112,42 @@ func (c *MockClient) Subscribe(context.Context, string, string, ...int) (<-chan 
 }
 
 func (c *MockClient) Events(ctx context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
-	fmt.Println("in Events, query = ", req.Filter.Query)
+	fmt.Println("in testutils.Events ('tmClient'), query = ", req.Filter.Query)
 	if strings.Contains(req.Filter.Query, "evm_log.block_hash = '0x1111111111111111111111111111111111111111111111111111111111111111'") {
-		return getResultEvents(1, false, "cursor1", "event1"), nil
+		eb := NewABCIEventBuilder().SetBlockHash("0x1111111111111111111111111111111111111111111111111111111111111111")
+		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
 	} else if strings.Contains(req.Filter.Query, "evm_log.block_hash = '0x1111111111111111111111111111111111111111111111111111111111111112'") {
-		return getResultEvents(2, false, "cursor1", "event1"), nil
+		eb := NewABCIEventBuilder().SetBlockHash("0x1111111111111111111111111111111111111111111111111111111111111112")
+		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
 	} else if strings.Contains(req.Filter.Query, " evm_log.block_number >= '1' AND evm_log.block_number <= '1'") {
-		return getResultEvents(1, false, "cursor1", "event1"), nil
+		eb := NewABCIEventBuilder().SetBlockHash("0x1111111111111111111111111111111111111111111111111111111111111111").SetBlockNum(1)
+		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
 	} else if strings.Contains(req.Filter.Query, "evm_log.contract_address = '0x1111111111111111111111111111111111111112'") {
-		return getResultEvents(2, false, "cursor1", "event1"), nil
+		eb := NewABCIEventBuilder().SetContractAddress("0x1111111111111111111111111111111111111111111111111111111111111112")
+		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
 	} else if strings.Contains(req.Filter.Query, "evm_log.topics CONTAINS '0x0000000000000000000000000000000000000000000000000000000000000123'") {
-		return getResultEvents(3, false, "cursor1", "event1"), nil
+		eb := NewABCIEventBuilder().SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123"})
+		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
 	} else if strings.Contains(req.Filter.Query, " evm_log.block_number >= '4' AND evm_log.block_number <= '4'") {
-		return getResultEvents(4, false, "cursor1", "event1"), nil
+		eb := NewABCIEventBuilder().SetBlockNum(4)
+		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
 	} else if strings.Contains(req.Filter.Query, "evm_log.block_number >= '5'") {
+		// for testing get filter changes
 		if req.After == "" {
-			return getResultEvents(5, false, "cursor1", "event1"), nil
+			return buildSingleResultEvent(NewABCIEventBuilder().SetBlockNum(5).Build(), false, "cursor1", "event1"), nil
 		} else if req.After == "cursor1" {
-			return getResultEvents(6, false, "cursor2", "event2"), nil
+			return buildSingleResultEvent(NewABCIEventBuilder().SetBlockNum(6).Build(), false, "cursor2", "event2"), nil
 		}
+	} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[0x0000000000000000000000000000000000000000000000000000000000000123\\,[^\\,]*\\,[^\\,]*\\,[^\\,]*^\\]'") {
+		fmt.Println("in the matches case")
+		eb := NewABCIEventBuilder().SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123"})
+		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
 	}
 	return nil, errors.New("unknown query")
 }
 
-func getResultEvents(blockNum int, more bool, cursor, event string) *coretypes.ResultEvents {
-	eventData, err := json.Marshal(getABCIEvent(blockNum))
+func buildSingleResultEvent(abciEvent abci.Event, more bool, cursor string, event string) *coretypes.ResultEvents {
+	eventData, err := json.Marshal(abciEvent)
 	if err != nil {
 		panic(err)
 	}
@@ -271,7 +283,7 @@ func sendRequest(t *testing.T, port int, method string, params ...interface{}) m
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
 	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_%s\",\"params\":[%s],\"id\":\"test\"}", method, paramsFormatted)
-	fmt.Println("body = ", body)
+	fmt.Println("in sendRequest, body = ", body)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -295,6 +307,12 @@ func formatParam(p interface{}) string {
 		return fmt.Sprintf("\"%s\"", v)
 	case common.Address:
 		return fmt.Sprintf("\"%s\"", v)
+	case []common.Address:
+		addressesStrs := []string{}
+		for _, topic := range v {
+			addressesStrs = append(addressesStrs, "\""+topic.String()+"\"")
+		}
+		return fmt.Sprintf("%s", addressesStrs)
 	case common.Hash:
 		fmt.Println("in hash case")
 		return fmt.Sprintf("\"%s\"", v)
@@ -304,49 +322,117 @@ func formatParam(p interface{}) string {
 			hashesStrs = append(hashesStrs, "\""+topic.String()+"\"")
 		}
 		return fmt.Sprintf("%s", hashesStrs)
+	case []string:
+		return fmt.Sprintf("[%s]", strings.Join(v, ","))
 	case []interface{}:
 		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, formatParam), ","))
 	default:
-		fmt.Println("in default case")
-		return fmt.Sprintf("%s", p)
+		panic("did not match on type")
 	}
 }
 
-func getABCIEvent(num int) abci.Event {
-	if num < 0 || num > 9 {
-		panic("bad num")
+type ABCIEventBuilder struct {
+	contractAddress string
+	blockHash       string
+	blockNum        int
+	data            string
+	index           int
+	txIndex         int
+	removed         bool
+	topics          []string
+	txHash          common.Hash
+}
+
+func NewABCIEventBuilder() *ABCIEventBuilder {
+	return &ABCIEventBuilder{
+		contractAddress: "0x1111111111111111111111111111111111111111111111111111111111111111",
+		blockHash:       "0x1111111111111111111111111111111111111111111111111111111111111111",
+		blockNum:        8,
+		data:            "xyz",
+		index:           1,
+		txIndex:         2,
+		removed:         true,
+		topics:          []string{"0x1111111111111111111111111111111111111111111111111111111111111111,0x1111111111111111111111111111111111111111111111111111111111111112"},
+		txHash:          common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111113"),
 	}
-	hash := fmt.Sprintf("0x111111111111111111111111111111111111111111111111111111111111111%d", num)
-	blockNum := fmt.Sprintf("%d", num)
+}
+
+func (b *ABCIEventBuilder) SetContractAddress(contractAddress string) *ABCIEventBuilder {
+	b.contractAddress = contractAddress
+	return b
+}
+
+func (b *ABCIEventBuilder) SetBlockHash(blockHash string) *ABCIEventBuilder {
+	b.blockHash = blockHash
+	return b
+}
+
+func (b *ABCIEventBuilder) SetBlockNum(blockNum int) *ABCIEventBuilder {
+	b.blockNum = blockNum
+	return b
+}
+
+func (b *ABCIEventBuilder) SetData(data string) *ABCIEventBuilder {
+	b.data = data
+	return b
+}
+
+func (b *ABCIEventBuilder) SetIndex(index int) *ABCIEventBuilder {
+	b.index = index
+	return b
+}
+
+func (b *ABCIEventBuilder) SetTxIndex(txIndex int) *ABCIEventBuilder {
+	b.txIndex = txIndex
+	return b
+}
+
+func (b *ABCIEventBuilder) SetRemoved(removed bool) *ABCIEventBuilder {
+	b.removed = removed
+	return b
+}
+
+func (b *ABCIEventBuilder) SetTopics(topics []string) *ABCIEventBuilder {
+	b.topics = topics
+	return b
+}
+
+func (b *ABCIEventBuilder) SetTxHash(txHash common.Hash) *ABCIEventBuilder {
+	b.txHash = txHash
+	return b
+}
+
+func (b *ABCIEventBuilder) Build() abci.Event {
+	fmt.Println("encodeded topics = ", fmt.Sprintf("%s", b.topics))
 	return abci.Event{
 		Type: types.EventTypeEVMLog,
 		Attributes: []abci.EventAttribute{{
 			Key:   []byte(types.AttributeTypeContractAddress),
-			Value: []byte(hash),
+			Value: []byte(b.contractAddress),
 		}, {
 			Key:   []byte(types.AttributeTypeBlockHash),
-			Value: []byte(hash),
+			Value: []byte(b.blockHash),
 		}, {
 			Key:   []byte(types.AttributeTypeBlockNumber),
-			Value: []byte(blockNum),
+			Value: []byte(fmt.Sprintf("%d", b.blockNum)),
 		}, {
 			Key:   []byte(types.AttributeTypeData),
-			Value: []byte("xyz"),
+			Value: []byte(b.data),
 		}, {
 			Key:   []byte(types.AttributeTypeIndex),
-			Value: []byte("1"),
+			Value: []byte(fmt.Sprintf("%d", b.index)),
 		}, {
 			Key:   []byte(types.AttributeTypeTxIndex),
-			Value: []byte("2"),
+			Value: []byte(fmt.Sprintf("%d", b.txIndex)),
 		}, {
 			Key:   []byte(types.AttributeTypeRemoved),
-			Value: []byte("true"),
+			Value: []byte(fmt.Sprintf("%t", b.removed)),
 		}, {
 			Key:   []byte(types.AttributeTypeTopics),
-			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111,0x1111111111111111111111111111111111111111111111111111111111111112"),
+			Value: []byte(fmt.Sprintf("%s", strings.Join(b.topics, ","))),
 		}, {
 			Key:   []byte(types.AttributeTypeTxHash),
-			Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111113"),
+			Value: []byte(b.txHash.Hex()),
 		}},
 	}
 }

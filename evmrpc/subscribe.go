@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -65,6 +66,33 @@ func (q *QueryBuilder) FilterContractAddress(contractAddr string) *QueryBuilder 
 
 func (q *QueryBuilder) FilterTopic(topic string) *QueryBuilder {
 	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s CONTAINS '%s'", types.EventTypeEVMLog, types.AttributeTypeTopics, topic))
+	return q
+}
+
+func (q *QueryBuilder) FilterTopics(topics []string) *QueryBuilder {
+	topicsLen4 := make([]string, 4)
+	if len(topics) > 4 {
+		panic("topics array must be at most length 4")
+	}
+	copy(topicsLen4, topics)
+
+	pattern := ""
+	pattern += "\\[" // match beginning "["
+	for i, topic := range topicsLen4 {
+		if i != 0 {
+			pattern += "\\," // match comma
+		}
+		if topic == "" {
+			pattern += "[^\\,]*" // match anything until the next comma
+		} else {
+			pattern += topic
+		}
+	}
+	pattern += "^\\]" // match ending "]"
+
+	regexp.MustCompile(pattern)
+
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = MATCHES '%s'", types.EventTypeEVMLog, types.AttributeTypeTopics, pattern))
 	return q
 }
 

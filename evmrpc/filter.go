@@ -131,15 +131,21 @@ func (a *FilterAPI) GetFilterLogs(
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	blockHash common.Hash,
-	address common.Address,
+	addresses []common.Address,
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
 	topics []common.Hash,
 ) ([]*ethtypes.Log, error) {
-	// TODO: fix this, should pass in multiple addresses
-	res, _, err := a.getLogs(ctx, blockHash, address, fromBlock, toBlock, topics, "")
-	if err != nil {
-		return nil, err
+	res := make([]*ethtypes.Log, 0)
+	if len(addresses) == 0 {
+		addresses = append(addresses, common.Address{})
+	}
+	for _, address := range addresses {
+		resAddr, _, err := a.getLogs(ctx, blockHash, address, fromBlock, toBlock, topics, "")
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, resAddr...)
 	}
 	return res, nil
 }
@@ -177,8 +183,12 @@ func (a *FilterAPI) getLogs(
 	if (address != common.Address{}) {
 		q = q.FilterContractAddress(address.Hex())
 	}
-	for _, t := range topics {
-		q = q.FilterTopic(t.Hex())
+	if len(topics) > 0 {
+		topicsStr := make([]string, len(topics))
+		for i, topic := range topics {
+			topicsStr[i] = topic.Hex()
+		}
+		q = q.FilterTopics(topicsStr)
 	}
 	hasMore := true
 	logs := []*ethtypes.Log{}

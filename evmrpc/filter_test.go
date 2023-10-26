@@ -93,7 +93,7 @@ func TestGetLogs(t *testing.T) {
 		blockHash string
 		fromBlock string
 		toBlock   string
-		addrs     common.Address
+		addrs     []common.Address
 		topics    []common.Hash
 		wantErr   bool
 		wantLen   int
@@ -113,8 +113,8 @@ func TestGetLogs(t *testing.T) {
 			toBlock:   "0x1",
 			wantErr:   true,
 		},
-		// having a bit of trouble specifying block range not given
-		// {
+		// / having a bit of trouble specifying block range not given
+		// 
 		// 	name:      "error: neither block hash nor block range given",
 		// 	blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
 		// 	fromBlock: "0x0",
@@ -158,11 +158,23 @@ func TestGetLogs(t *testing.T) {
 			wantLen: 1,
 		},
 		{
-			name:      "filter out by address",
+			name:      "filter out by single address",
 			blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
 			fromBlock: "0x2",
 			toBlock:   "0x2",
-			addrs:     common.HexToAddress("0x1111111111111111111111111111111111111112"),
+			addrs:     []common.Address{common.HexToAddress("0x1111111111111111111111111111111111111112")},
+			wantErr:   false,
+			check: func(t *testing.T, log map[string]interface{}) {
+				require.Equal(t, "0x1111111111111111111111111111111111111112", log["address"].(string))
+			},
+			wantLen: 1,
+		},
+		{
+			name:      "multiple addresses with nonoverlapping return values",
+			blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			fromBlock: "0x2",
+			toBlock:   "0x2",
+			addrs:     []common.Address{common.HexToAddress("0x1111111111111111111111111111111111111112")},
 			wantErr:   false,
 			check: func(t *testing.T, log map[string]interface{}) {
 				require.Equal(t, "0x1111111111111111111111111111111111111112", log["address"].(string))
@@ -174,10 +186,10 @@ func TestGetLogs(t *testing.T) {
 			blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
 			fromBlock: "0x3",
 			toBlock:   "0x3",
-			topics:    []common.Hash{common.HexToHash("0x123")},
+			topics:    []common.Hash{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")},
 			wantErr:   false,
 			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x3", log["blockNumber"].(string))
+				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", log["topics"].([]interface{})[0].(string))
 			},
 			wantLen: 1,
 		},
@@ -208,14 +220,13 @@ func TestGetFilterLogs(t *testing.T) {
 	emptyArr := []string{}
 	resObj := sendRequest(t, TestPort, "newFilter", fromBlock, toBlock, addr, emptyArr)
 	filterId := int(resObj["result"].(float64))
-	fmt.Println("got filterId = ", filterId)
 
 	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
 	logs := resObj["result"].([]interface{})
 	require.Equal(t, 1, len(logs))
 	for _, log := range logs {
 		logObj := log.(map[string]interface{})
-		require.Equal(t, "0x1111111111111111111111111111111111111111111111111111111111111114", logObj["blockHash"].(string))
+		require.Equal(t, "0x4", logObj["blockNumber"].(string))
 	}
 
 	// error: filter id does not exist
@@ -241,19 +252,19 @@ func TestGetFilterChanges(t *testing.T) {
 	logs := resObj["result"].([]interface{})
 	require.Equal(t, 1, len(logs))
 	logObj := logs[0].(map[string]interface{})
-	require.Equal(t, "0x1111111111111111111111111111111111111111111111111111111111111115", logObj["blockHash"].(string))
+	fmt.Println("logObj = ", logObj)
+	require.Equal(t, "0x5", logObj["blockNumber"].(string))
 
 	// another query
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	logs = resObj["result"].([]interface{})
 	require.Equal(t, 1, len(logs))
 	logObj = logs[0].(map[string]interface{})
-	require.Equal(t, "0x1111111111111111111111111111111111111111111111111111111111111116", logObj["blockHash"].(string))
+	require.Equal(t, "0x6", logObj["blockNumber"].(string))
 
 	// error: filter id does not exist
 	nonExistingFilterId := 1000
 	resObj = sendRequest(t, TestPort, "getFilterChanges", nonExistingFilterId)
-	// require.Nil(t, json.Unmarshal(resBody, &resObj))
 	_, ok := resObj["error"]
 	require.True(t, ok)
 }
