@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -23,7 +22,6 @@ type filter struct {
 	topics    []common.Hash
 
 	cursors map[common.Address]string
-	// TODO: expiration
 }
 
 type FilterAPI struct {
@@ -70,7 +68,6 @@ func (a *FilterAPI) NewFilter(
 	return &curFilterId, nil
 }
 
-// TODO: check if this is the same impl as: https://github.com/ethereum/go-ethereum/blob/58ae1df6840e512b263a4fc2e021e1ec5637ca21/ethclient/ethclient.go#L454
 func (a *FilterAPI) checkFromAndToBlock(ctx context.Context, fromBlock, toBlock rpc.BlockNumber) error {
 	fromBlockPtr, err := getBlockNumber(ctx, a.tmClient, fromBlock)
 	if err != nil {
@@ -105,7 +102,6 @@ func (a *FilterAPI) GetFilterChanges(
 	}
 	updatedFilter := a.filters[filterId]
 	updatedFilter.cursors = cursors
-	fmt.Println("cursors set to: ", cursors)
 	a.filters[filterId] = updatedFilter
 	return res, nil
 }
@@ -173,7 +169,6 @@ func (a *FilterAPI) getLogsOverAddresses(
 	return res, updatedAddrToCursor, nil
 }
 
-// TODO: need to handle OR case (union together for multiple addresses and multiple topics)
 func (a *FilterAPI) getLogs(
 	ctx context.Context,
 	blockHash common.Hash,
@@ -183,7 +178,6 @@ func (a *FilterAPI) getLogs(
 	topics []common.Hash,
 	cursor string,
 ) ([]*ethtypes.Log, string, error) {
-	fmt.Println("getLogs", blockHash, address, fromBlock, toBlock, topics, cursor)
 	// only block hash or block number is supported, not both
 	if (blockHash != common.Hash{}) && (fromBlock > 0 || toBlock > 0) {
 		return nil, "", errors.New("block hash and block number cannot both be specified")
@@ -209,6 +203,9 @@ func (a *FilterAPI) getLogs(
 	if len(topics) > 0 {
 		topicsStr := make([]string, len(topics))
 		for i, topic := range topics {
+			if (topic == common.Hash{}) {
+				continue
+			}
 			topicsStr[i] = topic.Hex()
 		}
 		q = q.FilterTopics(topicsStr)

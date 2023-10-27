@@ -2,8 +2,8 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -70,15 +70,33 @@ func (q *QueryBuilder) FilterTopic(topic string) *QueryBuilder {
 }
 
 func (q *QueryBuilder) FilterTopics(topics []string) *QueryBuilder {
-	topicsLen4 := make([]string, 4)
-	if len(topics) > 4 {
-		panic("topics array must be at most length 4")
+	if len(topics) == 0 {
+		return q
 	}
-	copy(topicsLen4, topics)
+	pattern, err := getTopicsRegex(topics)
+	if err != nil {
+		panic(err)
+	}
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = MATCHES '%s'", types.EventTypeEVMLog, types.AttributeTypeTopics, pattern))
+	return q
+}
+
+func getTopicsRegex(topics []string) (string, error) {
+	if len(topics) > 4 {
+		return "", errors.New("topics array must be at most length 4")
+	}
+	if len(topics) == 0 {
+		return "", errors.New("topics array must be at least length 1")
+	}
+
+	// make sure last topic is not a wildcard
+	if len(topics) > 0 && topics[len(topics)-1] == "" {
+		return "", errors.New("last topic must not be a wildcard")
+	}
 
 	pattern := ""
 	pattern += "\\[" // match beginning "["
-	for i, topic := range topicsLen4 {
+	for i, topic := range topics {
 		if i != 0 {
 			pattern += "\\," // match comma
 		}
@@ -88,12 +106,9 @@ func (q *QueryBuilder) FilterTopics(topics []string) *QueryBuilder {
 			pattern += topic
 		}
 	}
-	pattern += "^\\]" // match ending "]"
+	pattern += ".*\\]" // match until ending "]"
 
-	regexp.MustCompile(pattern)
-
-	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = MATCHES '%s'", types.EventTypeEVMLog, types.AttributeTypeTopics, pattern))
-	return q
+	return pattern, nil
 }
 
 func (q *QueryBuilder) FilterBlockNumber(blockNumber int64) *QueryBuilder {

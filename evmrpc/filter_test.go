@@ -142,7 +142,7 @@ func TestGetLogs(t *testing.T) {
 			wantLen: 1,
 		},
 		{
-			name:      "filter out by single address",
+			name:      "filter by single address",
 			blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
 			fromBlock: "0x2",
 			toBlock:   "0x2",
@@ -154,19 +154,7 @@ func TestGetLogs(t *testing.T) {
 			wantLen: 1,
 		},
 		{
-			name:      "multiple addresses with nonoverlapping return values",
-			blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
-			fromBlock: "0x2",
-			toBlock:   "0x2",
-			addrs:     []common.Address{common.HexToAddress("0x1111111111111111111111111111111111111112")},
-			wantErr:   false,
-			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x1111111111111111111111111111111111111112", log["address"].(string))
-			},
-			wantLen: 1,
-		},
-		{
-			name:      "filter by topic",
+			name:      "filter by single topic",
 			blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
 			fromBlock: "0x3",
 			toBlock:   "0x3",
@@ -177,13 +165,53 @@ func TestGetLogs(t *testing.T) {
 			},
 			wantLen: 1,
 		},
+		{
+			name:      "multiple addresses, multiple topics",
+			blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			fromBlock: "0x2",
+			toBlock:   "0x2",
+			addrs: []common.Address{
+				common.HexToAddress("0x1111111111111111111111111111111111111112"),
+				common.HexToAddress("0x1111111111111111111111111111111111111113"),
+			},
+			topics: []common.Hash{
+				common.Hash(common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")),
+				common.Hash(common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456")),
+			},
+			wantErr: false,
+			check: func(t *testing.T, log map[string]interface{}) {
+				if log["address"].(string) != "0x1111111111111111111111111111111111111112" && log["address"].(string) != "0x1111111111111111111111111111111111111113" {
+					t.Fatalf("address %s not in expected list", log["address"].(string))
+				}
+				firstTopic := log["topics"].([]interface{})[0].(string)
+				secondTopic := log["topics"].([]interface{})[1].(string)
+				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", firstTopic)
+				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000456", secondTopic)
+			},
+			wantLen: 2,
+		},
+		{
+			name:      "wildcard first topic",
+			blockHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+			fromBlock: "0x2",
+			toBlock:   "0x2",
+			topics: []common.Hash{
+				common.Hash{}, // wildcard
+				common.Hash(common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456")),
+			},
+			wantErr: false,
+			check: func(t *testing.T, log map[string]interface{}) {
+				secondTopic := log["topics"].([]interface{})[1].(string)
+				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000456", secondTopic)
+			},
+			wantLen: 1,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resObj := sendRequest(t, TestPort, "getLogs", tt.blockHash, tt.addrs, tt.fromBlock, tt.toBlock, tt.topics)
 			if tt.wantErr {
-				fmt.Println("resObj = ", resObj)
 				_, ok := resObj["error"]
 				require.True(t, ok)
 			} else {
@@ -229,13 +257,11 @@ func TestGetFilterChanges(t *testing.T) {
 	emptyArr := []string{}
 	resObj := sendRequest(t, TestPort, "newFilter", fromBlock, toBlock, addrs, emptyArr)
 	filterId := int(resObj["result"].(float64))
-	fmt.Println("got filterId = ", filterId)
 
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	logs := resObj["result"].([]interface{})
 	require.Equal(t, 1, len(logs))
 	logObj := logs[0].(map[string]interface{})
-	fmt.Println("logObj = ", logObj)
 	require.Equal(t, "0x5", logObj["blockNumber"].(string))
 
 	// another query

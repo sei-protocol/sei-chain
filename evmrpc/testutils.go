@@ -114,7 +114,6 @@ func (c *MockClient) Subscribe(context.Context, string, string, ...int) (<-chan 
 }
 
 func (c *MockClient) Events(ctx context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
-	fmt.Println("in testutils.Events ('tmClient'), query = ", req.Filter.Query)
 	if strings.Contains(req.Filter.Query, "evm_log.block_hash = '0x1111111111111111111111111111111111111111111111111111111111111111'") {
 		eb := NewABCIEventBuilder().SetBlockHash("0x1111111111111111111111111111111111111111111111111111111111111111")
 		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
@@ -126,9 +125,15 @@ func (c *MockClient) Events(ctx context.Context, req *coretypes.RequestEvents) (
 		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
 	} else if strings.Contains(req.Filter.Query, "evm_log.contract_address = '0x1111111111111111111111111111111111111112'") {
 		eb := NewABCIEventBuilder().SetContractAddress("0x1111111111111111111111111111111111111111111111111111111111111112")
+		if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[0x0000000000000000000000000000000000000000000000000000000000000123\\,0x0000000000000000000000000000000000000000000000000000000000000456.*\\]'") {
+			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
+		}
 		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
-	} else if strings.Contains(req.Filter.Query, "evm_log.topics CONTAINS '0x0000000000000000000000000000000000000000000000000000000000000123'") {
-		eb := NewABCIEventBuilder().SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123"})
+	} else if strings.Contains(req.Filter.Query, "evm_log.contract_address = '0x1111111111111111111111111111111111111113'") {
+		eb := NewABCIEventBuilder().SetContractAddress("0x1111111111111111111111111111111111111111111111111111111111111113")
+		if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[0x0000000000000000000000000000000000000000000000000000000000000123\\,0x0000000000000000000000000000000000000000000000000000000000000456.*\\]'") {
+			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
+		}
 		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
 	} else if strings.Contains(req.Filter.Query, " evm_log.block_number >= '4' AND evm_log.block_number <= '4'") {
 		eb := NewABCIEventBuilder().SetBlockNum(4)
@@ -140,9 +145,11 @@ func (c *MockClient) Events(ctx context.Context, req *coretypes.RequestEvents) (
 		} else if req.After == "cursor1" {
 			return buildSingleResultEvent(NewABCIEventBuilder().SetBlockNum(6).Build(), false, "cursor2", "event2"), nil
 		}
-	} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[0x0000000000000000000000000000000000000000000000000000000000000123\\,[^\\,]*\\,[^\\,]*\\,[^\\,]*^\\]'") {
-		fmt.Println("in the matches case")
+	} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[0x0000000000000000000000000000000000000000000000000000000000000123.*\\]'") {
 		eb := NewABCIEventBuilder().SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123"})
+		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
+	} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[[^\\,]*\\,0x0000000000000000000000000000000000000000000000000000000000000456.*\\]'") {
+		eb := NewABCIEventBuilder().SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
 		return buildSingleResultEvent(eb.Build(), false, "cursor1", "event1"), nil
 	}
 	return nil, errors.New("unknown query")
@@ -307,7 +314,6 @@ func sendRequest(t *testing.T, port int, method string, params ...interface{}) m
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
 	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_%s\",\"params\":[%s],\"id\":\"test\"}", method, paramsFormatted)
-	fmt.Println("in sendRequest, body = ", body)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -339,16 +345,15 @@ func formatParam(p interface{}) string {
 		for _, topic := range v {
 			addressesStrs = append(addressesStrs, "\""+topic.String()+"\"")
 		}
-		return fmt.Sprintf("%s", addressesStrs)
+		return fmt.Sprintf("[%s]", strings.Join(addressesStrs, ", "))
 	case common.Hash:
-		fmt.Println("in hash case")
 		return fmt.Sprintf("\"%s\"", v)
 	case []common.Hash:
 		hashesStrs := []string{}
 		for _, topic := range v {
 			hashesStrs = append(hashesStrs, "\""+topic.String()+"\"")
 		}
-		return fmt.Sprintf("%s", hashesStrs)
+		return fmt.Sprintf("[%s]", strings.Join(hashesStrs, ", "))
 	case []string:
 		return fmt.Sprintf("[%s]", strings.Join(v, ","))
 	case []interface{}:
@@ -436,7 +441,6 @@ func (b *ABCIEventBuilder) SetTxHash(txHash common.Hash) *ABCIEventBuilder {
 }
 
 func (b *ABCIEventBuilder) Build() abci.Event {
-	fmt.Println("encodeded topics = ", fmt.Sprintf("%s", b.topics))
 	return abci.Event{
 		Type: types.EventTypeEVMLog,
 		Attributes: []abci.EventAttribute{{
