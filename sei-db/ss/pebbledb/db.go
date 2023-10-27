@@ -31,6 +31,13 @@ var (
 	defaultWriteOpts = pebble.NoSync
 )
 
+func init() {
+	initializer := func(dir string) (ss.StateStore, error) {
+		return New(dir)
+	}
+	ss.RegisterBackend(ss.PebbleDBBackend, initializer)
+}
+
 type Database struct {
 	storage *pebble.DB
 }
