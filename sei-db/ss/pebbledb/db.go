@@ -5,16 +5,15 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
-
 	"golang.org/x/exp/slices"
+	"math"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/ss"
+	types2 "github.com/sei-protocol/sei-db/ss/types"
 )
 
 const (
@@ -26,17 +25,10 @@ const (
 )
 
 var (
-	_ ss.StateStore = (*Database)(nil)
+	_ types2.StateStore = (*Database)(nil)
 
 	defaultWriteOpts = pebble.NoSync
 )
-
-func init() {
-	initializer := func(dir string) (ss.StateStore, error) {
-		return New(dir)
-	}
-	ss.RegisterBackend(ss.PebbleDBBackend, initializer)
-}
 
 type Database struct {
 	storage *pebble.DB
@@ -226,7 +218,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	panic("not implemented!")
 }
 
-func (db *Database) Import(version int64, ch <-chan ss.ImportEntry) error {
+func (db *Database) Import(version int64, ch <-chan types2.ImportEntry) error {
 	panic("Not Implemented")
 }
 

@@ -17,7 +17,7 @@ type Options struct {
 	SnapshotKeepRecent     uint32
 	SnapshotInterval       uint32
 	TriggerStateSyncExport func(height int64)
-	CommitInterceptor      func(version int64, changesets []*proto.NamedChangeSet) error
+	CommitInterceptor      func(version int64, initialVersion uint32, changesets []*proto.NamedChangeSet) error
 	// load the target version instead of latest version
 	TargetVersion uint32
 	// Buffer size for the asynchronous commit queue, -1 means synchronous commit,

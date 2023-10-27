@@ -432,11 +432,3 @@ func readMetadata(dir string) (*proto.MultiTreeMetadata, error) {
 
 	return &metadata, nil
 }
-
-func GetInitialVersion(dir string) (uint32, error) {
-	metadata, err := readMetadata(dir)
-	if err != nil {
-		return 0, err
-	}
-	return uint32(metadata.InitialVersion), nil
-}

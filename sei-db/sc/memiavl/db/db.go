@@ -65,7 +65,7 @@ type DB struct {
 	streamHandler stream.Stream[proto.ChangelogEntry]
 
 	// the function to call during commit
-	commitInterceptor func(version int64, changesets []*proto.NamedChangeSet) error
+	commitInterceptor func(version int64, initialVersion uint32, changesets []*proto.NamedChangeSet) error
 
 	// pending change, will be written into rlog file in next Commit call
 	pendingLogEntry proto.ChangelogEntry
@@ -476,7 +476,7 @@ func (db *DB) Commit() (int64, error) {
 
 	// write to SS
 	if db.commitInterceptor != nil {
-		err := db.commitInterceptor(v, db.pendingLogEntry.Changesets)
+		err := db.commitInterceptor(v, db.initialVersion, db.pendingLogEntry.Changesets)
 		if err != nil {
 			return 0, err
 		}

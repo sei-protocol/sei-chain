@@ -7,6 +7,7 @@ import (
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/proto"
+	_ "github.com/sei-protocol/sei-db/ss"
 	"github.com/sei-protocol/sei-db/stream/changelog"
 	"github.com/stretchr/testify/require"
 )

@@ -73,26 +73,6 @@ func (subscriber *Subscriber) Start(startOffset uint64) {
 	}
 }
 
-// CatchupToLatest will replay the log and process each entry until the end of the log
-func (subscriber *Subscriber) CatchupToLatest(fromIndex uint64) error {
-	latestOffset, err := subscriber.logStream.LastOffset()
-	if err != nil {
-		return err
-	}
-	for fromIndex <= latestOffset {
-		entry, err := subscriber.logStream.ReadAt(fromIndex)
-		if err != nil {
-			return err
-		}
-		err = subscriber.processFn(fromIndex, *entry)
-		if err != nil {
-			return err
-		}
-		fromIndex++
-	}
-	return nil
-}
-
 // GetLatestOffset returns the end offset of the log
 func (subscriber *Subscriber) GetLatestOffset() (uint64, error) {
 	return subscriber.logStream.LastOffset()
