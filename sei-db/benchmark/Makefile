@@ -16,5 +16,5 @@ ifeq ($(UNAME_S),Linux)
 endif
 
 install:
-	CGO_CFLAGS="-I$(ROCKSDB_PATH)/include" CGO_LDFLAGS="-L$(ROCKSDB_PATH)/lib -L$(SNAPPY_PATH)/lib -L$(LZ4_PATH)/lib -L$(ZSTD_PATH)/lib -lrocksdb -lstdc++ -lm -lz -lsnappy -llz4 -lzstd" go install -tags "rocksdb sqlite"  ./cmd/seidb
+	CGO_CFLAGS="-I$(ROCKSDB_PATH)/include" CGO_LDFLAGS="-L$(ROCKSDB_PATH)/lib -L$(SNAPPY_PATH)/lib -L$(LZ4_PATH)/lib -L$(ZSTD_PATH)/lib -lrocksdb -lstdc++ -lm -lz -lsnappy -llz4 -lzstd" go install -tags "rocksdbBackend sqliteBackend" ./cmd/seidb
 .PHONY: install

@@ -1,5 +1,5 @@
-//go:build rocksdb
-// +build rocksdb
+//go:build rocksdbBackend
+// +build rocksdbBackend
 
 package rocksdb
 
