@@ -2,6 +2,7 @@ package seidb
 
 import (
 	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/sei-protocol/sei-db/common/logger"
@@ -36,6 +37,7 @@ func SetupSeiDB(
 	SCEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	SSEnabled := cast.ToBool(appOpts.Get(FlagSSEnable))
 	AsyncFlush := cast.ToBool(appOpts.Get(FlagSSAsyncFlush))
+	SSBackend := cast.ToString(appOpts.Get(FlagSSBackend))
 	opts := memiavldb.Options{
 		AsyncCommitBuffer:        cast.ToInt(appOpts.Get(FlagAsyncCommitBuffer)),
 		ZeroCopy:                 cast.ToBool(appOpts.Get(FlagZeroCopy)),
@@ -51,7 +53,7 @@ func SetupSeiDB(
 	}
 	if SSEnabled {
 		logger.Info(fmt.Sprintf("State Store is enabled for storing historical data"))
-		stateStore := ss.SetupStateStore(homePath, appOpts)
+		stateStore := ss.SetupStateStore(homePath, ss.BackendType(SSBackend))
 		if AsyncFlush {
 			_, err := startSubscriberService(logger, homePath, stateStore)
 			if err != nil {

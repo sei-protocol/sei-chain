@@ -3,12 +3,13 @@ package service
 import (
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream"
 	"github.com/sei-protocol/sei-db/stream/changelog"
-	"time"
 )
 
 type Subscriber struct {

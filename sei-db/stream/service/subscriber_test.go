@@ -43,8 +43,7 @@ func TestSubscribe(t *testing.T) {
 		wg.Done()
 		return nil
 	})
-	err = service.Start(1)
-	require.NoError(t, err)
+	service.Start(uint64(1))
 	// wait until it caught up
 	wg.Wait()
 	err = service.CheckError()

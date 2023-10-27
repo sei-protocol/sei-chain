@@ -3,12 +3,13 @@ package changelog
 import (
 	"bytes"
 	"encoding/binary"
-	"github.com/cosmos/iavl"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/wal"
 	"os"
 	"path/filepath"
 	"unsafe"
+
+	"github.com/cosmos/iavl"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/wal"
 )
 
 func LogPath(dir string) string {
