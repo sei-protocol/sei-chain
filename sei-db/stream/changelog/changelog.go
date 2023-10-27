@@ -151,7 +151,7 @@ func (stream *Stream) ReadAt(index uint64) (*proto.ChangelogEntry, error) {
 	var entry = &proto.ChangelogEntry{}
 	bz, err := stream.log.Read(index)
 	if err != nil {
-		return entry, fmt.Errorf("read rlog failed, %w", err)
+		return entry, fmt.Errorf("read log failed, %w", err)
 	}
 	if err := entry.Unmarshal(bz); err != nil {
 		return entry, fmt.Errorf("unmarshal rlog failed, %w", err)
@@ -165,7 +165,7 @@ func (stream *Stream) Replay(start uint64, end uint64, processFn func(index uint
 		var entry proto.ChangelogEntry
 		bz, err := stream.log.Read(i)
 		if err != nil {
-			return fmt.Errorf("read rlog failed, %w", err)
+			return fmt.Errorf("read log failed, %w", err)
 		}
 		if err := entry.Unmarshal(bz); err != nil {
 			return fmt.Errorf("unmarshal rlog failed, %w", err)

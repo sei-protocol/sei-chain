@@ -62,7 +62,11 @@ func SetupSeiDB(
 				return commitToStateStore(stateStore, entry.Version, entry.Changesets)
 			})
 			opts.CommitInterceptor = func(version int64, initialVersion uint32, changesets []*proto.NamedChangeSet) error {
-				startOffset := utils.VersionToIndex(version, initialVersion)
+				lastVersion, err := stateStore.GetLatestVersion()
+				if err != nil {
+					return err
+				}
+				startOffset := utils.VersionToIndex(lastVersion, initialVersion)
 				subscriber.Start(startOffset)
 				return nil
 			}

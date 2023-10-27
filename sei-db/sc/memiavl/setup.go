@@ -17,7 +17,7 @@ func SetupMemIAVL(
 	opts memiavlopts.Options,
 	baseAppOptions []func(*baseapp.BaseApp),
 ) []func(*baseapp.BaseApp) {
-	logger.Info("Setting up state commit with memiavl", "options", opts)
+	logger.Info("Setting up state commit with memiavl")
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
 	baseAppOptions = append([]func(*baseapp.BaseApp){

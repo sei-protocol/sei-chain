@@ -617,7 +617,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 			return
 		}
 
-		cloned.logger.Info("finished best-effort Rlog catchup", "version", cloned.Version(), "latest", mtree.Version())
+		cloned.logger.Info("finished best-effort catchup", "version", cloned.Version(), "latest", mtree.Version())
 
 		ch <- snapshotResult{mtree: mtree}
 	}()

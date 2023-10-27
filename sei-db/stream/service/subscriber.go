@@ -20,10 +20,11 @@ type Subscriber struct {
 // NewSubscriber creates a new subscriber service that will keep reading the log stream
 func NewSubscriber(
 	logger logger.Logger,
-	dir string,
+	homePath string,
 	processFn func(index uint64, entry proto.ChangelogEntry) error,
 ) *Subscriber {
-	logStream, err := changelog.NewStream(logger, dir, changelog.Config{ZeroCopy: true})
+	logDir := changelog.LogPath(homePath)
+	logStream, err := changelog.NewStream(logger, logDir, changelog.Config{ZeroCopy: true})
 	if err != nil {
 		panic(err)
 	}
