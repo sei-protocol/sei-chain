@@ -7,11 +7,16 @@ import (
 	"fmt"
 	"strings"
 
+	iavlstore "github.com/cosmos/cosmos-sdk/store/iavl"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
+	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/proto/tendermint/crypto"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
+	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
 type StateAPI struct {
@@ -68,6 +73,53 @@ func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hex
 	}
 	state := a.keeper.GetState(a.ctxProvider(LatestCtxHeight), address, key)
 	return state[:], nil
+}
+
+// Result structs for GetProof
+// This differs from go-ethereum AccountResult in two ways:
+// 1. Proof object is an iavl proof, not a trie proof
+// 2. Per-account fields are excluded because there is no per-account root
+type ProofResult struct {
+	Address      common.Address     `json:"address"`
+	HexValues    []string           `json:"hexValues"`
+	StorageProof []*crypto.ProofOps `json:"storageProof"`
+}
+
+func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storageKeys []string, blockNrOrHash rpc.BlockNumberOrHash) (*ProofResult, error) {
+	var block *coretypes.ResultBlock
+	var err error
+	if blockNr, ok := blockNrOrHash.Number(); ok {
+		blockNumber, blockNumErr := getBlockNumber(ctx, a.tmClient, blockNr)
+		if blockNumErr != nil {
+			return nil, blockNumErr
+		}
+		block, err = a.tmClient.Block(ctx, blockNumber)
+	} else {
+		block, err = a.tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
+	}
+	if err != nil {
+		return nil, err
+	}
+	sdkCtx := a.ctxProvider(block.Block.Height)
+	iavl, ok := sdkCtx.MultiStore().GetKVStore((a.keeper.GetStoreKey())).(*iavlstore.Store)
+	if !ok {
+		return nil, errors.New("cannot find EVM IAVL store")
+	}
+	result := ProofResult{Address: address}
+	for _, key := range storageKeys {
+		paddedKey := common.BytesToHash([]byte(key))
+		formattedKey := append(types.StateKey(address), paddedKey[:]...)
+		qres := iavl.Query(abci.RequestQuery{
+			Path:   "/key",
+			Data:   formattedKey,
+			Height: block.Block.Height,
+			Prove:  true,
+		})
+		result.HexValues = append(result.HexValues, hex.EncodeToString(qres.Value))
+		result.StorageProof = append(result.StorageProof, qres.ProofOps)
+	}
+
+	return &result, nil
 }
 
 // decodeHash parses a hex-encoded 32-byte hash. The input may optionally
