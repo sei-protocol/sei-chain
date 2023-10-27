@@ -6,8 +6,9 @@ import (
 )
 
 var (
-	ErrKeyEmpty      = errors.New("key empty")
-	ErrStartAfterEnd = errors.New("start key after end key")
+	ErrKeyEmpty       = errors.New("key empty")
+	ErrRecordNotFound = errors.New("record not found")
+	ErrStartAfterEnd  = errors.New("start key after end key")
 )
 
 // Join returns an error that wraps the given errors.
