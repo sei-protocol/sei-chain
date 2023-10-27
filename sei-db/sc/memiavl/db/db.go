@@ -16,7 +16,8 @@ import (
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/stream/rlog"
+	"github.com/sei-protocol/sei-db/stream"
+	"github.com/sei-protocol/sei-db/stream/changelog"
 )
 
 const (
@@ -60,11 +61,14 @@ type DB struct {
 	pruneSnapshotLock      sync.Mutex
 	triggerStateSyncExport func(height int64)
 
-	// the LastIndex always match the current version of MultiTree
-	rlogManager *rlog.Manager
+	// the changelog stream persists all the changesets
+	streamHandler stream.Stream[proto.ChangelogEntry]
+
+	// the function to call during commit
+	commitInterceptor func(version int64, changesets []*proto.NamedChangeSet) error
 
 	// pending change, will be written into rlog file in next Commit call
-	pendingLogEntry proto.ReplayLogEntry
+	pendingLogEntry proto.ChangelogEntry
 
 	// The assumptions to concurrency:
 	// - The methods on DB are protected by a mutex
@@ -76,66 +80,6 @@ type DB struct {
 	mtx sync.Mutex
 	// worker goroutine IdleTimeout = 5s
 	snapshotWriterPool *pond.WorkerPool
-}
-
-type Options struct {
-	Logger          logger.Logger
-	CreateIfMissing bool
-	InitialVersion  uint32
-	ReadOnly        bool
-	// the initial stores when initialize the empty instance
-	InitialStores          []string
-	SnapshotKeepRecent     uint32
-	SnapshotInterval       uint32
-	TriggerStateSyncExport func(height int64)
-	// load the target version instead of latest version
-	TargetVersion uint32
-	// Buffer size for the asynchronous commit queue, -1 means synchronous commit,
-	// default to 0.
-	AsyncCommitBuffer int
-	// ZeroCopy if true, the get and iterator methods could return a slice pointing to mmaped blob files.
-	ZeroCopy bool
-	// CacheSize defines the cache's max entry size for each memiavl store.
-	CacheSize int
-	// LoadForOverwriting if true rollbacks the state, specifically the Load method will
-	// truncate the versions after the `TargetVersion`, the `TargetVersion` becomes the latest version.
-	// it do nothing if the target version is `0`.
-	LoadForOverwriting bool
-
-	// Limit the number of concurrent snapshot writers
-	SnapshotWriterLimit int
-
-	// SDK46Compatible defines if the root hash is compatible with cosmos-sdk 0.46 and before.
-	SdkBackwardCompatible bool
-
-	// ExportNonSnapshotVersion if true, the state snapshot can be exported at any version
-	ExportNonSnapshotVersion bool
-}
-
-func (opts Options) Validate() error {
-	if opts.ReadOnly && opts.CreateIfMissing {
-		return errors.New("can't create db in read-only mode")
-	}
-
-	if opts.ReadOnly && opts.LoadForOverwriting {
-		return errors.New("can't rollback db in read-only mode")
-	}
-
-	return nil
-}
-
-func (opts *Options) FillDefaults() {
-	if opts.Logger == nil {
-		opts.Logger = logger.NewNopLogger()
-	}
-
-	if opts.SnapshotInterval == 0 {
-		opts.SnapshotInterval = DefaultSnapshotInterval
-	}
-
-	if opts.SnapshotWriterLimit <= 0 {
-		opts.SnapshotWriterLimit = DefaultSnapshotWriterLimit
-	}
 }
 
 const (
@@ -188,7 +132,7 @@ func Load(dir string, opts Options) (*DB, error) {
 	}
 
 	// Create rlog manager and open the rlog file
-	rlogManager, err := rlog.NewManager(opts.Logger, rlogPath(dir), rlog.Config{
+	streamHandler, err := changelog.NewStream(opts.Logger, changelog.LogPath(dir), changelog.Config{
 		DisableFsync:    true,
 		ZeroCopy:        true,
 		WriteBufferSize: opts.AsyncCommitBuffer,
@@ -198,8 +142,8 @@ func Load(dir string, opts Options) (*DB, error) {
 	}
 
 	if opts.TargetVersion == 0 || int64(opts.TargetVersion) > mtree.Version() {
-		if err := mtree.Catchup(rlogManager, int64(opts.TargetVersion)); err != nil {
-			return nil, utils.Join(err, rlogManager.Close())
+		if err := mtree.Catchup(streamHandler, int64(opts.TargetVersion)); err != nil {
+			return nil, utils.Join(err, streamHandler.Close())
 		}
 	}
 
@@ -219,8 +163,8 @@ func Load(dir string, opts Options) (*DB, error) {
 
 		// truncate the rlog file
 		opts.Logger.Info("truncate rlog after version: %d", opts.TargetVersion)
-		truncateIndex := versionToIndex(int64(opts.TargetVersion), mtree.initialVersion)
-		if err := rlogManager.Writer().TruncateAfter(truncateIndex); err != nil {
+		truncateIndex := utils.VersionToIndex(int64(opts.TargetVersion), mtree.initialVersion)
+		if err := streamHandler.TruncateAfter(truncateIndex); err != nil {
 			return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
 		}
 
@@ -249,10 +193,11 @@ func Load(dir string, opts Options) (*DB, error) {
 		dir:                    dir,
 		fileLock:               fileLock,
 		readOnly:               opts.ReadOnly,
-		rlogManager:            rlogManager,
+		streamHandler:          streamHandler,
 		snapshotKeepRecent:     opts.SnapshotKeepRecent,
 		snapshotInterval:       opts.SnapshotInterval,
 		triggerStateSyncExport: opts.TriggerStateSyncExport,
+		commitInterceptor:      opts.CommitInterceptor,
 		snapshotWriterPool:     workerPool,
 	}
 
@@ -390,21 +335,21 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 // checkAsyncTasks checks the status of background tasks non-blocking-ly and process the result
 func (db *DB) checkAsyncTasks() error {
 	return utils.Join(
-		db.rlogManager.Writer().CheckAsyncCommit(),
+		db.streamHandler.CheckAsyncCommit(),
 		db.checkBackgroundSnapshotRewrite(),
 	)
 }
 
 // CommittedVersion returns the latest version written in rlog file, or snapshot version if rlog is empty.
 func (db *DB) CommittedVersion() (int64, error) {
-	lastIndex, err := db.rlogManager.LastIndex()
+	lastIndex, err := db.streamHandler.LastOffset()
 	if err != nil {
 		return 0, err
 	}
 	if lastIndex == 0 {
 		return db.SnapshotVersion(), nil
 	}
-	return indexToVersion(lastIndex, db.initialVersion), nil
+	return utils.IndexToVersion(lastIndex, db.initialVersion), nil
 }
 
 // checkBackgroundSnapshotRewrite check the result of background snapshot rewrite, cleans up the old snapshots and switches to a new multitree
@@ -433,7 +378,7 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		}
 
 		// catchup the remaining entries in rlog
-		if err := result.mtree.Catchup(db.rlogManager, 0); err != nil {
+		if err := result.mtree.Catchup(db.streamHandler, 0); err != nil {
 			return fmt.Errorf("catchup failed: %w", err)
 		}
 
@@ -500,7 +445,7 @@ func (db *DB) pruneSnapshots() {
 			db.logger.Error("failed to find first snapshot", "err", err)
 		}
 
-		if err := db.rlogManager.Writer().TruncateBefore(versionToIndex(earliestVersion+1, db.initialVersion)); err != nil {
+		if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion)); err != nil {
 			db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
 		}
 	}()
@@ -520,16 +465,24 @@ func (db *DB) Commit() (int64, error) {
 		return 0, err
 	}
 
-	// write logs if enabled
-	if db.rlogManager != nil {
-		entry := rlog.LogEntry{Index: versionToIndex(v, db.initialVersion), Data: db.pendingLogEntry}
-		err := db.rlogManager.Writer().Write(entry)
+	// write to changelog
+	if db.streamHandler != nil {
+		db.pendingLogEntry.Version = v
+		err := db.streamHandler.Write(utils.VersionToIndex(v, db.initialVersion), db.pendingLogEntry)
 		if err != nil {
 			return 0, err
 		}
 	}
 
-	db.pendingLogEntry = proto.ReplayLogEntry{}
+	// write to SS
+	if db.commitInterceptor != nil {
+		err := db.commitInterceptor(v, db.pendingLogEntry.Changesets)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	db.pendingLogEntry = proto.ChangelogEntry{}
 
 	if err := db.checkAsyncTasks(); err != nil {
 		return 0, err
@@ -602,7 +555,7 @@ func (db *DB) reloadMultiTree(mtree *MultiTree) error {
 
 	db.MultiTree = *mtree
 	// catch-up the pending changes
-	return db.MultiTree.applyRlogEntry(db.pendingLogEntry)
+	return db.MultiTree.apply(db.pendingLogEntry)
 }
 
 // rewriteIfApplicable execute the snapshot rewrite strategy according to current height
@@ -659,7 +612,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 		}
 
 		// do a best effort catch-up, will do another final catch-up in main thread.
-		if err := mtree.Catchup(db.rlogManager, 0); err != nil {
+		if err := mtree.Catchup(db.streamHandler, 0); err != nil {
 			ch <- snapshotResult{err: err}
 			return
 		}
@@ -677,9 +630,9 @@ func (db *DB) Close() error {
 	defer db.mtx.Unlock()
 
 	errs := []error{
-		db.rlogManager.Close(), db.MultiTree.Close(),
+		db.streamHandler.Close(), db.MultiTree.Close(),
 	}
-	db.rlogManager = nil
+	db.streamHandler = nil
 
 	if db.fileLock != nil {
 		errs = append(errs, db.fileLock.Unlock())
@@ -832,10 +785,6 @@ func firstSnapshotVersion(root string) (int64, error) {
 	return found, nil
 }
 
-func rlogPath(root string) string {
-	return filepath.Join(root, "rlog")
-}
-
 // init a empty memiavl db
 //
 // ```
@@ -942,9 +891,9 @@ func GetLatestVersion(dir string) (int64, error) {
 		}
 		return 0, err
 	}
-	lastIndex, err := rlog.GetLastIndex(rlogPath(dir))
+	lastIndex, err := changelog.GetLastIndex(changelog.LogPath(dir))
 	if err != nil {
 		return 0, err
 	}
-	return indexToVersion(lastIndex, uint32(metadata.InitialVersion)), nil
+	return utils.IndexToVersion(lastIndex, uint32(metadata.InitialVersion)), nil
 }

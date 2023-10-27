@@ -1,6 +1,3 @@
-//go:build rocksdbBackend
-// +build rocksdbBackend
-
 package main
 
 import (
@@ -9,6 +6,7 @@ import (
 	"os"
 
 	"github.com/sei-protocol/sei-db/benchmark/dbbackend"
+	"github.com/sei-protocol/sei-db/ss"
 	"github.com/spf13/cobra"
 )
 
@@ -57,7 +55,7 @@ func benchmarkWrite(cmd *cobra.Command, args []string) {
 	BenchmarkWrite(rawKVInputDir, numVersions, outputDir, dbBackend, concurrency, batchSize)
 }
 
-// Benchmark write latencies and throughput of db backend
+// BenchmarkWrite write latencies and throughput of db backend
 func BenchmarkWrite(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, batchSize int) {
 	// Create output directory
 	err := os.MkdirAll(outputDir, fs.ModePerm)
@@ -67,10 +65,12 @@ func BenchmarkWrite(inputKVDir string, numVersions int, outputDir string, dbBack
 	// Iterate over files in directory
 	fmt.Printf("Reading Raw Keys and Values from %s\n", inputKVDir)
 
-	if dbBackend == RocksDBBackendName {
-		backend := dbbackend.RocksDBBackend{}
-		backend.BenchmarkDBWrite(inputKVDir, numVersions, outputDir, concurrency, batchSize)
+	backend, err := ss.NewStateStoreDB(outputDir, ss.BackendType(dbBackend))
+	if err != nil {
+		panic(err)
 	}
+	dbbackend.BenchmarkDBWrite(backend, inputKVDir, numVersions, concurrency, batchSize)
+	backend.Close()
 
 	return
 }

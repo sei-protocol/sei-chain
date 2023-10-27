@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
-	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
+	memiavlopts "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/rootmulti"
 	"github.com/tendermint/tendermint/libs/log"
 )
@@ -14,7 +14,7 @@ import (
 func SetupMemIAVL(
 	logger log.Logger,
 	homePath string,
-	opts memiavl.Options,
+	opts memiavlopts.Options,
 	baseAppOptions []func(*baseapp.BaseApp),
 ) []func(*baseapp.BaseApp) {
 	logger.Info("Setting up state commit with memiavl", "options", opts)

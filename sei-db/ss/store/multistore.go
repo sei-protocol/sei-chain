@@ -1,4 +1,4 @@
-package ss
+package store
 
 import (
 	"io"
@@ -9,6 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/transient"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/cachemulti"
+	"github.com/sei-protocol/sei-db/ss"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -16,7 +17,7 @@ var _ types.MultiStore = (*MultiStore)(nil)
 
 // MultiStore wraps `StateStore` to implement `MultiStore` interface.
 type MultiStore struct {
-	stateStore StateStore
+	stateStore ss.StateStore
 	storeKeys  []types.StoreKey
 
 	// transient or memory stores
@@ -28,7 +29,7 @@ type MultiStore struct {
 }
 
 // NewMultiStore returns a new state store `MultiStore`.
-func NewMultiStore(store StateStore, storeKeys []types.StoreKey) *MultiStore {
+func NewMultiStore(store ss.StateStore, storeKeys []types.StoreKey) *MultiStore {
 	return &MultiStore{
 		stateStore:      store,
 		storeKeys:       storeKeys,

@@ -12,9 +12,8 @@ import (
 	"sync"
 	"time"
 
-	dbm "github.com/tendermint/tm-db"
-
 	"github.com/cosmos/iavl"
+	dbm "github.com/tendermint/tm-db"
 )
 
 const (

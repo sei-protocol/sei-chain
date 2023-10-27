@@ -1,5 +1,5 @@
-//go:build rocksdbBackend
-// +build rocksdbBackend
+//go:build rocksdb
+// +build rocksdb
 
 package rocksdb
 
@@ -16,6 +16,13 @@ import (
 	"github.com/sei-protocol/sei-db/ss/util"
 	"golang.org/x/exp/slices"
 )
+
+func init() {
+	initializer := func(dir string) (ss.StateStore, error) {
+		return New(dir)
+	}
+	ss.RegisterBackend(ss.RocksDBBackend, initializer)
+}
 
 const (
 	TimestampSize = 8

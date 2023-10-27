@@ -1,4 +1,4 @@
-package ss
+package store
 
 import (
 	"io"
@@ -9,6 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/sei-protocol/sei-db/ss"
 )
 
 const StoreTypeSeiStateStore = 100
@@ -17,12 +18,12 @@ var _ types.KVStore = (*Store)(nil)
 
 // Store wraps a SS store and implements a cosmos KVStore
 type Store struct {
-	store    StateStore
+	store    ss.StateStore
 	storeKey types.StoreKey
 	version  int64
 }
 
-func NewKVStore(store StateStore, storeKey types.StoreKey, version int64) *Store {
+func NewKVStore(store ss.StateStore, storeKey types.StoreKey, version int64) *Store {
 	return &Store{store, storeKey, version}
 }
 

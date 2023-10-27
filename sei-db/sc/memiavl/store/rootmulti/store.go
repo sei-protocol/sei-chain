@@ -38,7 +38,7 @@ type Store struct {
 	logger log.Logger
 	mtx    sync.RWMutex
 
-	// to keep it comptaible with cosmos-sdk 0.46, merge the memstores into commit info
+	// to keep it compatible with cosmos-sdk 0.46, merge the memstores into commit info
 	lastCommitInfo *types.CommitInfo
 
 	storesParams map[types.StoreKey]storeParams
