@@ -1,7 +1,6 @@
 package evmrpc
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -250,7 +249,6 @@ func TestGetFilterLogs(t *testing.T) {
 }
 
 func TestGetFilterChanges(t *testing.T) {
-	// if first call to GetFilterChanges it needs to
 	fromBlock := "0x5"
 	toBlock := "latest"
 	addrs := []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))}
