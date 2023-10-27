@@ -12,8 +12,8 @@ import (
 	"github.com/tidwall/wal"
 )
 
-func LogPath(dir string) string {
-	return filepath.Join(dir, "clog")
+func LogPath(homePath string) string {
+	return filepath.Join(homePath, "data", "changelog")
 }
 
 // GetLastIndex returns the last written index of the replay log

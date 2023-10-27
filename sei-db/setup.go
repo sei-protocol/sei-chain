@@ -38,6 +38,7 @@ func SetupSeiDB(
 	AsyncFlush := cast.ToBool(appOpts.Get(FlagSSAsyncFlush))
 	SSBackend := cast.ToString(appOpts.Get(FlagSSBackend))
 	opts := memiavldb.Options{
+		HomePath:                 homePath,
 		AsyncCommitBuffer:        cast.ToInt(appOpts.Get(FlagAsyncCommitBuffer)),
 		ZeroCopy:                 cast.ToBool(appOpts.Get(FlagZeroCopy)),
 		SnapshotKeepRecent:       cast.ToUint32(appOpts.Get(FlagSnapshotKeepRecent)),

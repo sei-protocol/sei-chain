@@ -23,8 +23,7 @@ func NewSubscriber(
 	homePath string,
 	processFn func(index uint64, entry proto.ChangelogEntry) error,
 ) *Subscriber {
-	logDir := changelog.LogPath(homePath)
-	logStream, err := changelog.NewStream(logger, logDir, changelog.Config{ZeroCopy: true})
+	logStream, err := changelog.NewStream(logger, homePath, changelog.Config{ZeroCopy: true})
 	if err != nil {
 		panic(err)
 	}

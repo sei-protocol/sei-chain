@@ -35,8 +35,9 @@ type Config struct {
 }
 
 // NewStream creates a new changelog stream that persist the changesets in the log
-func NewStream(logger logger.Logger, dir string, config Config) (*Stream, error) {
-	log, err := open(dir, &wal.Options{
+func NewStream(logger logger.Logger, homePath string, config Config) (*Stream, error) {
+	logDir := LogPath(homePath)
+	log, err := open(logDir, &wal.Options{
 		NoSync: config.DisableFsync,
 		NoCopy: config.ZeroCopy,
 	})
