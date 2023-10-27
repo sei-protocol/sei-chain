@@ -38,12 +38,15 @@ func MockEVMKeeper() (*Keeper, *paramskeeper.Keeper, sdk.Context) {
 
 	db := tmdb.NewMemDB()
 	stateStore := store.NewCommitMultiStore(db)
-	stateStore.MountStoreWithDB(evmStoreKey, sdk.StoreTypeIAVL, db)
-	stateStore.MountStoreWithDB(authStoreKey, sdk.StoreTypeIAVL, db)
-	stateStore.MountStoreWithDB(bankStoreKey, sdk.StoreTypeIAVL, db)
-	stateStore.MountStoreWithDB(stakingStoreKey, sdk.StoreTypeIAVL, db)
-	stateStore.MountStoreWithDB(tKeyParams, sdk.StoreTypeTransient, db)
-	stateStore.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
+	getPref := func(name string) []byte {
+		return []byte("s/k:" + name + "/")
+	}
+	stateStore.MountStoreWithDB(evmStoreKey, sdk.StoreTypeIAVL, tmdb.NewPrefixDB(db, getPref(types.ModuleName)))
+	stateStore.MountStoreWithDB(authStoreKey, sdk.StoreTypeIAVL, tmdb.NewPrefixDB(db, getPref(authtypes.ModuleName)))
+	stateStore.MountStoreWithDB(bankStoreKey, sdk.StoreTypeIAVL, tmdb.NewPrefixDB(db, getPref(banktypes.ModuleName)))
+	stateStore.MountStoreWithDB(stakingStoreKey, sdk.StoreTypeIAVL, tmdb.NewPrefixDB(db, getPref(stakingtypes.ModuleName)))
+	stateStore.MountStoreWithDB(tKeyParams, sdk.StoreTypeTransient, tmdb.NewPrefixDB(db, getPref("tparams")))
+	stateStore.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, tmdb.NewPrefixDB(db, getPref("params")))
 	_ = stateStore.LoadLatestVersion()
 
 	cdc := codec.NewProtoCodec(app.MakeEncodingConfig().InterfaceRegistry)

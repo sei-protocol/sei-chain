@@ -38,6 +38,8 @@ const TestPort = 7777
 const TestWSPort = 7778
 const TestBadPort = 7779
 
+const MockHeight = 8
+
 var EncodingConfig = app.MakeEncodingConfig()
 var TxConfig = EncodingConfig.TxConfig
 var Encoder = TxConfig.TxEncoder()
@@ -58,7 +60,7 @@ func (c *MockClient) mockBlock() *coretypes.ResultBlock {
 		Block: &tmtypes.Block{
 			Header: tmtypes.Header{
 				ChainID:         "test",
-				Height:          8,
+				Height:          MockHeight,
 				Time:            time.Unix(1696941649, 0),
 				DataHash:        bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000002")),
 				AppHash:         bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000003")),
