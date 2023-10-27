@@ -151,7 +151,7 @@ func TestAsyncWrite(t *testing.T) {
 		require.Greater(t, uint64(3), lastIndex)
 	}
 	// Wait for all writes to be flushed
-	err = changelog.CheckAsyncCommit()
+	err = changelog.CheckError()
 	require.NoError(t, err)
 	err = changelog.Flush()
 	require.NoError(t, err)

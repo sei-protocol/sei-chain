@@ -335,7 +335,7 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 // checkAsyncTasks checks the status of background tasks non-blocking-ly and process the result
 func (db *DB) checkAsyncTasks() error {
 	return utils.Join(
-		db.streamHandler.CheckAsyncCommit(),
+		db.streamHandler.CheckError(),
 		db.checkBackgroundSnapshotRewrite(),
 	)
 }

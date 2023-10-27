@@ -34,6 +34,7 @@ type Config struct {
 	WriteBufferSize int
 }
 
+// NewStream creates a new changelog stream that persist the changesets in the log
 func NewStream(logger logger.Logger, dir string, config Config) (*Stream, error) {
 	log, err := open(dir, &wal.Options{
 		NoSync: config.DisableFsync,
@@ -50,6 +51,8 @@ func NewStream(logger logger.Logger, dir string, config Config) (*Stream, error)
 
 }
 
+// Write will write a new entry to the log at given index.
+// Whether the writes is in blocking or async manner depends on the buffer size.
 func (stream *Stream) Write(offset uint64, entry proto.ChangelogEntry) error {
 	channelBufferSize := stream.config.WriteBufferSize
 	if channelBufferSize > 0 {
@@ -73,9 +76,6 @@ func (stream *Stream) Write(offset uint64, entry proto.ChangelogEntry) error {
 	}
 	return nil
 }
-
-// Write will write a new entry to the log at specific index.
-// Whether the writes is in blocking or async manner depends on the buffer size.
 
 // startWriteGoroutine will start a goroutine to write entries to the log.
 // This should only be called on initialization if async write is enabled
@@ -118,8 +118,8 @@ func (stream *Stream) TruncateBefore(index uint64) error {
 	return stream.log.TruncateFront(index)
 }
 
-// CheckAsyncCommit check the quit signal of async rlog writing
-func (stream *Stream) CheckAsyncCommit() error {
+// CheckError check if there's any failed async writes or not
+func (stream *Stream) CheckError() error {
 	select {
 	case err := <-stream.writeErrSignal:
 		// async wal writing failed, we need to abort the state machine
@@ -141,7 +141,7 @@ func (stream *Stream) Flush() error {
 	return err
 }
 
-// LastOffset returns the last written offset of the streaming log
+// LastOffset returns the last written offset/index of the log
 func (stream *Stream) LastOffset() (index uint64, err error) {
 	return stream.log.LastIndex()
 }
@@ -184,7 +184,7 @@ func (stream *Stream) Close() error {
 	return utils.Join(errWriter, errClose)
 }
 
-// OpenRlog opens the replay log, try to truncate the corrupted tail if there's any
+// open opens the replay log, try to truncate the corrupted tail if there's any
 func open(dir string, opts *wal.Options) (*wal.Log, error) {
 	rlog, err := wal.Open(dir, opts)
 	if errors.Is(err, wal.ErrCorrupt) {

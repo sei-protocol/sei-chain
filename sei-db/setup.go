@@ -4,6 +4,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/memiavl"
 	memiavldb "github.com/sei-protocol/sei-db/sc/memiavl/db"
@@ -83,6 +84,8 @@ func commitToStateStore(stateStore ss.StateStore, version int64, changesets []*p
 	return nil
 }
 
+// startSubscriberService is a helper function to start subscriber service
+// and catchup till latest log after initialization
 func startSubscriberService(logger logger.Logger, homePath string, stateStore ss.StateStore) (*service.Subscriber, error) {
 	subscriber := service.NewSubscriber(logger, homePath, func(index uint64, entry proto.ChangelogEntry) error {
 		return commitToStateStore(stateStore, entry.Version, entry.Changesets)
@@ -95,7 +98,9 @@ func startSubscriberService(logger logger.Logger, homePath string, stateStore ss
 	if err != nil {
 		return nil, err
 	}
-	err = subscriber.Initialize(initialVersion, lastPersistedVersion)
+	// Trigger the catch-up process to backfill the data from the previous offset till the latest offset
+	startOffset := utils.VersionToIndex(lastPersistedVersion, initialVersion)
+	err = subscriber.CatchupToLatest(startOffset)
 	if err != nil {
 		return nil, err
 	}

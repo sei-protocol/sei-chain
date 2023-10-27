@@ -1,26 +1,23 @@
 package service
 
 import (
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream"
 	"github.com/sei-protocol/sei-db/stream/changelog"
 )
 
 type Subscriber struct {
-	logger        logger.Logger
-	logStream     stream.Stream[proto.ChangelogEntry]
-	processFn     func(index uint64, entry proto.ChangelogEntry) error
-	readErrSignal chan error
-	stopSignal    chan struct{}
-	currOffset    uint64
+	logger     logger.Logger
+	logStream  stream.Stream[proto.ChangelogEntry]
+	processFn  func(index uint64, entry proto.ChangelogEntry) error
+	stopSignal chan struct{}
+	currOffset uint64
 }
 
+// NewSubscriber creates a new subscriber service that will keep reading the log stream
 func NewSubscriber(
 	logger logger.Logger,
 	dir string,
@@ -37,15 +34,9 @@ func NewSubscriber(
 	}
 }
 
-func (subscriber *Subscriber) Initialize(initialVersion uint32, lastVersion int64) error {
-	startOffset := utils.VersionToIndex(lastVersion, initialVersion)
-	return subscriber.CatchupToLatest(startOffset)
-}
-
 // Start starts the underline subscriber goroutine to keep read the replay log from a given index
 func (subscriber *Subscriber) Start(startOffset uint64) {
 	if subscriber.stopSignal == nil {
-		subscriber.readErrSignal = make(chan error)
 		subscriber.stopSignal = make(chan struct{}, 1)
 		go func() {
 			subscriber.currOffset = startOffset
@@ -60,20 +51,17 @@ func (subscriber *Subscriber) Start(startOffset uint64) {
 				// Check the last written index of the log
 				lastIndex, err := subscriber.logStream.LastOffset()
 				if err != nil {
-					subscriber.readErrSignal <- err
-					break
+					panic(err)
 				}
 				if subscriber.currOffset <= lastIndex {
 					// if we are behind latest, read next entry and process it
 					entry, err := subscriber.logStream.ReadAt(subscriber.currOffset)
 					if err != nil {
-						subscriber.readErrSignal <- err
-						break
+						panic(err)
 					}
 					err = subscriber.processFn(subscriber.currOffset, *entry)
 					if err != nil {
-						subscriber.readErrSignal <- err
-						break
+						panic(err)
 					}
 					subscriber.currOffset++
 				} else {
@@ -85,6 +73,7 @@ func (subscriber *Subscriber) Start(startOffset uint64) {
 	}
 }
 
+// CatchupToLatest will replay the log and process each entry until the end of the log
 func (subscriber *Subscriber) CatchupToLatest(fromIndex uint64) error {
 	latestOffset, err := subscriber.logStream.LastOffset()
 	if err != nil {
@@ -104,22 +93,9 @@ func (subscriber *Subscriber) CatchupToLatest(fromIndex uint64) error {
 	return nil
 }
 
+// GetLatestOffset returns the end offset of the log
 func (subscriber *Subscriber) GetLatestOffset() (uint64, error) {
 	return subscriber.logStream.LastOffset()
-}
-
-// CheckError check the error signal of the subscriber
-func (subscriber *Subscriber) CheckError() error {
-	if subscriber.readErrSignal == nil {
-		return errors.New("subscriber is not started")
-	}
-	select {
-	case err := <-subscriber.readErrSignal:
-		// we need to abort the state machine
-		return fmt.Errorf("reader subscribe goroutine quit unexpectedly: %w", err)
-	default:
-	}
-	return nil
 }
 
 func (subscriber *Subscriber) Stop() error {
