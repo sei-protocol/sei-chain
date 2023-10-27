@@ -1,8 +1,6 @@
 package seidb
 
 import (
-	"fmt"
-
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/sei-protocol/sei-db/common/logger"
@@ -52,7 +50,7 @@ func SetupSeiDB(
 		return baseAppOptions
 	}
 	if SSEnabled {
-		logger.Info(fmt.Sprintf("State Store is enabled for storing historical data"))
+		logger.Info("State Store is enabled for storing historical data")
 		stateStore := ss.SetupStateStore(homePath, ss.BackendType(SSBackend))
 		if AsyncFlush {
 			_, err := startSubscriberService(logger, homePath, stateStore)

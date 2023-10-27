@@ -130,11 +130,11 @@ func (s *MultiStore) MountMemoryStores(keys map[string]*types.MemoryStoreKey) {
 	}
 }
 
-func (s *MultiStore) ListeningEnabled(key types.StoreKey) bool {
+func (s *MultiStore) ListeningEnabled(_ types.StoreKey) bool {
 	return false
 }
 
-func (s *MultiStore) AddListeners(key types.StoreKey, listeners []types.WriteListener) {
+func (s *MultiStore) AddListeners(_ types.StoreKey, _ []types.WriteListener) {
 	panic("not supported")
 }
 

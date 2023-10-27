@@ -104,7 +104,7 @@ func BenchmarkDBWrite(db ss.StateStore, inputKVDir string, numVersions int, conc
 		startTime := time.Now()
 		latencies := writeToDBConcurrently(db, kvData, concurrency, int64(v), batchSize)
 		endTime := time.Now()
-		totalTime = totalTime + endTime.Sub(startTime)
+		totalTime += endTime.Sub(startTime)
 		totalLatencies = append(totalLatencies, latencies...)
 		writeCount += len(latencies)
 

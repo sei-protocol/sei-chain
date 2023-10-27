@@ -61,11 +61,11 @@ func (st *Store) Has(key []byte) bool {
 	return has
 }
 
-func (st *Store) Set(key, value []byte) {
+func (st *Store) Set(_, _ []byte) {
 	panic("write operation is not supported")
 }
 
-func (st *Store) Delete(key []byte) {
+func (st *Store) Delete(_ []byte) {
 	panic("write operation is not supported")
 }
 

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	
+
 	"github.com/sei-protocol/sei-db/benchmark/dbbackend"
 	"github.com/sei-protocol/sei-db/ss"
 	"github.com/spf13/cobra"
@@ -65,5 +65,5 @@ func BenchmarkDBIteration(inputKVDir string, numVersions int, outputDir string, 
 		panic(err)
 	}
 	dbbackend.BenchmarkDBForwardIteration(backend, inputKVDir, numVersions, concurrency, maxOps, iterationSteps)
-	return
+	backend.Close()
 }

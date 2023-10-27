@@ -71,6 +71,4 @@ func BenchmarkWrite(inputKVDir string, numVersions int, outputDir string, dbBack
 	}
 	dbbackend.BenchmarkDBWrite(backend, inputKVDir, numVersions, concurrency, batchSize)
 	backend.Close()
-
-	return
 }

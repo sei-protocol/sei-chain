@@ -71,6 +71,4 @@ func BenchmarkRead(inputKVDir string, numVersions int, outputDir string, dbBacke
 	}
 	dbbackend.BenchmarkDBRead(backend, inputKVDir, numVersions, concurrency, maxOps)
 	backend.Close()
-
-	return
 }
