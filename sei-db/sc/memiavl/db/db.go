@@ -16,8 +16,8 @@ import (
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/stream"
 	"github.com/sei-protocol/sei-db/stream/changelog"
+	"github.com/sei-protocol/sei-db/stream/types"
 )
 
 const (
@@ -62,10 +62,10 @@ type DB struct {
 	triggerStateSyncExport func(height int64)
 
 	// the changelog stream persists all the changesets
-	streamHandler stream.Stream[proto.ChangelogEntry]
+	streamHandler types.Stream[proto.ChangelogEntry]
 
-	// the function to call during commit
-	commitInterceptor func(version int64, initialVersion uint32, changesets []*proto.NamedChangeSet) error
+	// subscriber that listens to each commit
+	commitSubscriber types.Subscriber[proto.ChangelogEntry]
 
 	// pending change, will be written into rlog file in next Commit call
 	pendingLogEntry proto.ChangelogEntry
@@ -197,7 +197,7 @@ func Load(dir string, opts Options) (*DB, error) {
 		snapshotKeepRecent:     opts.SnapshotKeepRecent,
 		snapshotInterval:       opts.SnapshotInterval,
 		triggerStateSyncExport: opts.TriggerStateSyncExport,
-		commitInterceptor:      opts.CommitInterceptor,
+		commitSubscriber:       opts.CommitSubscriber,
 		snapshotWriterPool:     workerPool,
 	}
 
@@ -474,9 +474,9 @@ func (db *DB) Commit() (int64, error) {
 		}
 	}
 
-	// write to SS
-	if db.commitInterceptor != nil {
-		err := db.commitInterceptor(v, db.initialVersion, db.pendingLogEntry.Changesets)
+	// broadcast to subscriber if there's any
+	if db.commitSubscriber != nil {
+		err := db.commitSubscriber.ProcessEntry(db.pendingLogEntry)
 		if err != nil {
 			return 0, err
 		}

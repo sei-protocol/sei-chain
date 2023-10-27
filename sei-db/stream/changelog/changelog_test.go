@@ -150,10 +150,9 @@ func TestAsyncWrite(t *testing.T) {
 		// Writes happen async, so lastIndex should not move yet
 		require.Greater(t, uint64(3), lastIndex)
 	}
-	// Wait for all writes to be flushed
-	err = changelog.CheckError()
+	err = changelog.Close()
 	require.NoError(t, err)
-	err = changelog.Flush()
+	changelog, err = NewStream(logger.NewNopLogger(), dir, Config{WriteBufferSize: 10})
 	require.NoError(t, err)
 	lastIndex, err := changelog.LastOffset()
 	require.NoError(t, err)

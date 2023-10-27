@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-db/stream/types"
 )
 
 type Options struct {
@@ -18,7 +19,7 @@ type Options struct {
 	SnapshotKeepRecent     uint32
 	SnapshotInterval       uint32
 	TriggerStateSyncExport func(height int64)
-	CommitInterceptor      func(version int64, initialVersion uint32, changesets []*proto.NamedChangeSet) error
+	CommitSubscriber       types.Subscriber[proto.ChangelogEntry]
 	// load the target version instead of latest version
 	TargetVersion uint32
 	// Buffer size for the asynchronous commit queue, -1 means synchronous commit,

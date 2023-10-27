@@ -2,6 +2,7 @@ package rootmulti
 
 import (
 	"fmt"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"io"
 	"math"
 	"sort"
@@ -47,20 +48,14 @@ type Store struct {
 	listeners    map[types.StoreKey][]types.WriteListener
 
 	opts memiavl.Options
-
-	// sdk46Compact defines if the root hash is compatible with cosmos-sdk 0.46 and before.
-	sdk46Compact bool
-	// it's more efficient to export snapshot versions, we can filter out the non-snapshot versions
-	supportExportNonSnapshotVersion bool
 }
 
 func NewStore(dir string, logger log.Logger, opts memiavl.Options) *Store {
+	logger.Info("Creating root multi store for memiavl")
 	return &Store{
-		dir:                             dir,
-		logger:                          logger,
-		sdk46Compact:                    opts.SdkBackwardCompatible,
-		supportExportNonSnapshotVersion: opts.ExportNonSnapshotVersion,
-
+		dir:          dir,
+		logger:       logger,
+		opts:         opts,
 		storesParams: make(map[types.StoreKey]storeParams),
 		keysByName:   make(map[string]types.StoreKey),
 		stores:       make(map[types.StoreKey]types.CommitKVStore),
@@ -99,7 +94,7 @@ func (rs *Store) WorkingHash() []byte {
 		panic(err)
 	}
 	commitInfo := convertCommitInfo(rs.db.WorkingCommitInfo())
-	if rs.sdk46Compact {
+	if rs.opts.SdkBackwardCompatible {
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}
 	return commitInfo.Hash()
@@ -139,14 +134,16 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	}
 
 	rs.lastCommitInfo = convertCommitInfo(rs.db.LastCommitInfo())
-	if rs.sdk46Compact {
+	if rs.opts.SdkBackwardCompatible {
 		rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
 	}
 	return rs.lastCommitInfo.CommitID()
 }
 
 func (rs *Store) Close() error {
-	return rs.db.Close()
+	errSub := rs.opts.CommitSubscriber.Close()
+	errDb := rs.db.Close()
+	return utils.Join(errSub, errDb)
 }
 
 // Implements interface Committer
@@ -379,7 +376,7 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	// to keep the root hash compatible with cosmos-sdk 0.46
 	if db.Version() != 0 {
 		rs.lastCommitInfo = convertCommitInfo(db.LastCommitInfo())
-		if rs.sdk46Compact {
+		if rs.opts.SdkBackwardCompatible {
 			rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
 		}
 	} else {
@@ -557,7 +554,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	}
 
 	commitInfo := convertCommitInfo(db.LastCommitInfo())
-	if rs.sdk46Compact {
+	if rs.opts.SdkBackwardCompatible {
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}
 

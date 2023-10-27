@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -16,7 +17,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	}
 	version := uint32(height)
 
-	exporter, err := memiavl.NewMultiTreeExporter(rs.dir, version, rs.supportExportNonSnapshotVersion)
+	exporter, err := memiavl.NewMultiTreeExporter(rs.dir, version, rs.opts.ExportNonSnapshotVersion)
 	if err != nil {
 		return err
 	}
@@ -26,7 +27,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 	for {
 		item, err := exporter.Next()
 		if err != nil {
-			if err == memiavl.ErrorExportDone {
+			if errors.Is(err, memiavl.ErrorExportDone) {
 				break
 			}
 

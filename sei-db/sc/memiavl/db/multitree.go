@@ -3,6 +3,7 @@ package memiavl
 import (
 	"context"
 	"fmt"
+	"golang.org/x/exp/slices"
 	"math"
 	"os"
 	"path/filepath"
@@ -12,8 +13,7 @@ import (
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/stream"
-	"golang.org/x/exp/slices"
+	"github.com/sei-protocol/sei-db/stream/types"
 )
 
 const MetadataFileName = "__metadata"
@@ -313,7 +313,7 @@ func (t *MultiTree) UpdateCommitInfo() {
 }
 
 // Catchup replay the new entries in the Rlog file on the tree to catch up to the target or latest version.
-func (t *MultiTree) Catchup(stream stream.Stream[proto.ChangelogEntry], endVersion int64) error {
+func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersion int64) error {
 	lastIndex, err := stream.LastOffset()
 	if err != nil {
 		return fmt.Errorf("read rlog last index failed, %w", err)

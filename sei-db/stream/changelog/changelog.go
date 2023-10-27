@@ -9,18 +9,18 @@ import (
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/stream"
+	"github.com/sei-protocol/sei-db/stream/types"
 	"github.com/tidwall/wal"
 )
 
-var _ stream.Stream[proto.ChangelogEntry] = (*Stream)(nil)
+var _ types.Stream[proto.ChangelogEntry] = (*Stream)(nil)
 
 type Stream struct {
-	log            *wal.Log
-	config         Config
-	logger         logger.Logger
-	writeChannel   chan *Message
-	writeErrSignal chan error
+	log          *wal.Log
+	config       Config
+	logger       logger.Logger
+	writeChannel chan *Message
+	errSignal    chan error
 }
 
 type Message struct {
@@ -59,9 +59,7 @@ func (stream *Stream) Write(offset uint64, entry proto.ChangelogEntry) error {
 	if channelBufferSize > 0 {
 		if stream.writeChannel == nil {
 			stream.logger.Info(fmt.Sprintf("async write is enabled with buffer size %d", channelBufferSize))
-			stream.writeChannel = make(chan *Message, channelBufferSize)
-			stream.writeErrSignal = make(chan error)
-			go stream.startWriteGoroutine()
+			stream.startWriteGoroutine()
 		}
 		// async write
 		stream.writeChannel <- &Message{Index: offset, Data: &entry}
@@ -81,30 +79,34 @@ func (stream *Stream) Write(offset uint64, entry proto.ChangelogEntry) error {
 // startWriteGoroutine will start a goroutine to write entries to the log.
 // This should only be called on initialization if async write is enabled
 func (stream *Stream) startWriteGoroutine() {
-	batch := wal.Batch{}
-	defer close(stream.writeErrSignal)
-	for {
-		entries := channelBatchRecv(stream.writeChannel)
-		if len(entries) == 0 {
-			// channel is closed
-			break
-		}
+	stream.writeChannel = make(chan *Message, stream.config.WriteBufferSize)
+	stream.errSignal = make(chan error)
+	go func() {
+		batch := wal.Batch{}
+		defer close(stream.errSignal)
+		for {
+			entries := channelBatchRecv(stream.writeChannel)
+			if len(entries) == 0 {
+				// channel is closed
+				break
+			}
 
-		for _, entry := range entries {
-			bz, err := entry.Data.Marshal()
-			if err != nil {
-				stream.writeErrSignal <- err
+			for _, entry := range entries {
+				bz, err := entry.Data.Marshal()
+				if err != nil {
+					stream.errSignal <- err
+					return
+				}
+				batch.Write(entry.Index, bz)
+			}
+
+			if err := stream.log.WriteBatch(&batch); err != nil {
+				stream.errSignal <- err
 				return
 			}
-			batch.Write(entry.Index, bz)
+			batch.Clear()
 		}
-
-		if err := stream.log.WriteBatch(&batch); err != nil {
-			stream.writeErrSignal <- err
-			return
-		}
-		batch.Clear()
-	}
+	}()
 }
 
 // TruncateAfter will remove all entries that are after the provided `index`.
@@ -122,7 +124,7 @@ func (stream *Stream) TruncateBefore(index uint64) error {
 // CheckError check if there's any failed async writes or not
 func (stream *Stream) CheckError() error {
 	select {
-	case err := <-stream.writeErrSignal:
+	case err := <-stream.errSignal:
 		// async wal writing failed, we need to abort the state machine
 		return fmt.Errorf("async wal writing goroutine quit unexpectedly: %w", err)
 	default:
@@ -130,16 +132,8 @@ func (stream *Stream) CheckError() error {
 	return nil
 }
 
-// Flush will block and wait for async writes to complete
-func (stream *Stream) Flush() error {
-	if stream.writeChannel == nil {
-		return nil
-	}
-	close(stream.writeChannel)
-	err := <-stream.writeErrSignal
-	stream.writeChannel = nil
-	stream.writeErrSignal = nil
-	return err
+func (stream *Stream) FirstOffset() (index uint64, err error) {
+	return stream.log.FirstIndex()
 }
 
 // LastOffset returns the last written offset/index of the log
@@ -180,9 +174,15 @@ func (stream *Stream) Replay(start uint64, end uint64, processFn func(index uint
 }
 
 func (stream *Stream) Close() error {
-	errWriter := stream.Flush()
+	if stream.writeChannel == nil {
+		return nil
+	}
+	close(stream.writeChannel)
+	err := <-stream.errSignal
+	stream.writeChannel = nil
+	stream.errSignal = nil
 	errClose := stream.log.Close()
-	return utils.Join(errWriter, errClose)
+	return utils.Join(err, errClose)
 }
 
 // open opens the replay log, try to truncate the corrupted tail if there's any
