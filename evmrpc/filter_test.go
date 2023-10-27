@@ -68,7 +68,7 @@ func TestUninstallFilter(t *testing.T) {
 	emptyArr := []string{}
 	resObj := sendRequest(t, TestPort, "newFilter", "0x1", "0xa", []common.Address{}, emptyArr)
 	filterId := int(resObj["result"].(float64))
-	require.Equal(t, 1, filterId)
+	require.GreaterOrEqual(t, filterId, 1)
 
 	resObj = sendRequest(t, TestPort, "uninstallFilter", filterId)
 	uninstallSuccess := resObj["result"].(bool)

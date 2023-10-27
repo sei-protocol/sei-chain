@@ -28,13 +28,13 @@ type FilterAPI struct {
 	tmClient     rpcclient.Client
 	keeper       *keeper.Keeper
 	ctxProvider  func(int64) sdk.Context
-	nextFilterId uint64
+	nextFilterID uint64
 	filters      map[uint64]filter
 }
 
 func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context) *FilterAPI {
 	filters := make(map[uint64]filter)
-	return &FilterAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, nextFilterId: 1, filters: filters}
+	return &FilterAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, nextFilterID: 1, filters: filters}
 }
 
 func (a *FilterAPI) NewFilter(
@@ -56,16 +56,16 @@ func (a *FilterAPI) NewFilter(
 			topicsRes = append(topicsRes, common.HexToHash(topic))
 		}
 	}
-	curFilterId := a.nextFilterId
-	a.nextFilterId++
+	curFilterID := a.nextFilterID
+	a.nextFilterID++
 	f := filter{
 		fromBlock: fromBlock,
 		toBlock:   toBlock,
 		addresses: addresses,
 		topics:    topicsRes,
 	}
-	a.filters[curFilterId] = f
-	return &curFilterId, nil
+	a.filters[curFilterID] = f
+	return &curFilterID, nil
 }
 
 func (a *FilterAPI) checkFromAndToBlock(ctx context.Context, fromBlock, toBlock rpc.BlockNumber) error {
@@ -90,9 +90,9 @@ func (a *FilterAPI) checkFromAndToBlock(ctx context.Context, fromBlock, toBlock 
 
 func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
-	filterId uint64,
+	filterID uint64,
 ) ([]*ethtypes.Log, error) {
-	filter, ok := a.filters[filterId]
+	filter, ok := a.filters[filterID]
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
@@ -100,17 +100,17 @@ func (a *FilterAPI) GetFilterChanges(
 	if err != nil {
 		return nil, err
 	}
-	updatedFilter := a.filters[filterId]
+	updatedFilter := a.filters[filterID]
 	updatedFilter.cursors = cursors
-	a.filters[filterId] = updatedFilter
+	a.filters[filterID] = updatedFilter
 	return res, nil
 }
 
 func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
-	filterId uint64,
+	filterID uint64,
 ) ([]*ethtypes.Log, error) {
-	filter, ok := a.filters[filterId]
+	filter, ok := a.filters[filterID]
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
@@ -119,9 +119,9 @@ func (a *FilterAPI) GetFilterLogs(
 	if err != nil {
 		return nil, err
 	}
-	updatedFilter := a.filters[filterId]
+	updatedFilter := a.filters[filterID]
 	updatedFilter.cursors = cursors
-	a.filters[filterId] = updatedFilter
+	a.filters[filterID] = updatedFilter
 	return res, nil
 }
 
@@ -240,12 +240,12 @@ func (a *FilterAPI) getLogs(
 
 func (a *FilterAPI) UninstallFilter(
 	ctx context.Context,
-	filterId uint64,
+	filterID uint64,
 ) (bool, error) {
-	_, found := a.filters[filterId]
+	_, found := a.filters[filterID]
 	if !found {
 		return false, nil
 	}
-	delete(a.filters, filterId)
+	delete(a.filters, filterID)
 	return true, nil
 }

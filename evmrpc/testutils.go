@@ -162,7 +162,7 @@ func buildSingleResultEvent(abciEvent abci.Event, more bool, cursor string, even
 	}
 	return &coretypes.ResultEvents{
 		Items: []*coretypes.EventItem{
-			&coretypes.EventItem{
+			{
 				Cursor: cursor,
 				Event:  event,
 				Data:   eventData,
@@ -466,7 +466,7 @@ func (b *ABCIEventBuilder) Build() abci.Event {
 			Value: []byte(fmt.Sprintf("%t", b.removed)),
 		}, {
 			Key:   []byte(types.AttributeTypeTopics),
-			Value: []byte(fmt.Sprintf("%s", strings.Join(b.topics, ","))),
+			Value: []byte(strings.Join(b.topics, ",")),
 		}, {
 			Key:   []byte(types.AttributeTypeTxHash),
 			Value: []byte(b.txHash.Hex()),
