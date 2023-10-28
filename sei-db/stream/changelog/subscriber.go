@@ -57,7 +57,6 @@ func (s *Subscriber) startAsyncProcessing() {
 					}
 				case <-s.stopSignal:
 					return
-				default:
 				}
 			}
 		}()

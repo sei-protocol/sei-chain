@@ -29,9 +29,12 @@ type Stream[T any] interface {
 }
 
 type Subscriber[T any] interface {
+	// Start starts the subscriber processing goroutine
 	Start()
 
+	// ProcessEntry will process a new entry either sync or async
 	ProcessEntry(entry T) error
 
+	// Close will close the subscriber and stop the goroutine
 	Close() error
 }

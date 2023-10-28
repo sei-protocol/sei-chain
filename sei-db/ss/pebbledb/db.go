@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"golang.org/x/exp/slices"
 	"math"
 
 	"github.com/cockroachdb/pebble"
@@ -14,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	types2 "github.com/sei-protocol/sei-db/ss/types"
+	"golang.org/x/exp/slices"
 )
 
 const (

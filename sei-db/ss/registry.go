@@ -2,6 +2,7 @@ package ss
 
 import (
 	"fmt"
+
 	"github.com/sei-protocol/sei-db/ss/types"
 )
 
