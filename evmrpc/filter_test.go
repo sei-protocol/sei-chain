@@ -1,11 +1,48 @@
 package evmrpc
 
 import (
+	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/stretchr/testify/require"
 )
+
+// TODO: delete this, this is just for experimenting
+func TestFilterCriteria(t *testing.T) {
+	filterCriteria := filters.FilterCriteria{
+		FromBlock: big.NewInt(1),
+		ToBlock:   big.NewInt(2),
+		Topics:    [][]common.Hash{},
+	}
+	fmt.Println("filterCriteria: ", filterCriteria)
+}
+
+// TODO: delete this, this is just for experimenting
+func TestFilterCriteriaMarshal(t *testing.T) {
+	filterCriteria := map[string]interface{}{
+		// NOTE: if you specify blockhash, you cannot specify
+		"blockHash": "0xa241003d969ada282a4fe554392ef921bbeeb427810cb5e976f9225495a10888",
+		"addresses": []common.Address{
+			common.HexToAddress("0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5"),
+			common.HexToAddress("0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326"),
+		},
+		"topics": [][]common.Hash{
+			{
+				common.BigToHash(big.NewInt(1)),
+				common.BigToHash(big.NewInt(2)),
+			},
+			{
+				common.BigToHash(big.NewInt(3)),
+				common.BigToHash(big.NewInt(4)),
+			},
+		},
+	}
+	resObj := sendRequestGood(t, "pocFilterCriteria", filterCriteria)
+	fmt.Println("resObj: ", resObj)
+}
 
 func TestNewFilter(t *testing.T) {
 	tests := []struct {

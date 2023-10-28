@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -35,6 +37,16 @@ type FilterAPI struct {
 func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context) *FilterAPI {
 	filters := make(map[uint64]filter)
 	return &FilterAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, nextFilterID: 1, filters: filters}
+}
+
+// TODO: delete this later, this is just for experimenting
+func (a *FilterAPI) PocFilterCriteria(
+	ctx context.Context,
+	args filters.FilterCriteria,
+) (*uint64, error) {
+	fmt.Println("PocFilterCriteria: ", args)
+	sumBlock := uint64(19)
+	return &sumBlock, nil
 }
 
 func (a *FilterAPI) NewFilter(

@@ -340,6 +340,7 @@ func formatParam(p interface{}) string {
 		return fmt.Sprintf("\"%s\"", v)
 	case common.Address:
 		return fmt.Sprintf("\"%s\"", v)
+	// TODO: use the wrapper() style below for []common.Address
 	case []common.Address:
 		addressesStrs := []string{}
 		for _, topic := range v {
@@ -348,12 +349,18 @@ func formatParam(p interface{}) string {
 		return fmt.Sprintf("[%s]", strings.Join(addressesStrs, ", "))
 	case common.Hash:
 		return fmt.Sprintf("\"%s\"", v)
+	// TODO: use the wrapper() style below for []common.Hash
 	case []common.Hash:
 		hashesStrs := []string{}
 		for _, topic := range v {
 			hashesStrs = append(hashesStrs, "\""+topic.String()+"\"")
 		}
 		return fmt.Sprintf("[%s]", strings.Join(hashesStrs, ", "))
+	case [][]common.Hash:
+		wrapper := func(i []common.Hash) string {
+			return formatParam(i)
+		}
+		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, wrapper), ","))
 	case []string:
 		return fmt.Sprintf("[%s]", strings.Join(v, ","))
 	case []interface{}:
