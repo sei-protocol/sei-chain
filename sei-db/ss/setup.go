@@ -1,8 +1,9 @@
 package ss
 
 import (
-	"github.com/sei-protocol/sei-db/ss/types"
 	"path/filepath"
+
+	"github.com/sei-protocol/sei-db/ss/types"
 )
 
 func SetupStateStore(homePath string, backendType BackendType) types.StateStore {
