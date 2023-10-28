@@ -3,6 +3,7 @@ package seidb
 import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/memiavl"
 	memiavldb "github.com/sei-protocol/sei-db/sc/memiavl/db"
@@ -37,7 +38,6 @@ func SetupSeiDB(
 	ssBuffer := cast.ToInt(appOpts.Get(FlagSSAsyncWriterBuffer))
 	ssBackend := cast.ToString(appOpts.Get(FlagSSBackend))
 	opts := memiavldb.Options{
-		HomePath:                 homePath,
 		AsyncCommitBuffer:        cast.ToInt(appOpts.Get(FlagAsyncCommitBuffer)),
 		ZeroCopy:                 cast.ToBool(appOpts.Get(FlagZeroCopy)),
 		SnapshotKeepRecent:       cast.ToUint32(appOpts.Get(FlagSnapshotKeepRecent)),
@@ -92,7 +92,11 @@ func recoverStateStore(stateStore types.StateStore, homePath string) error {
 	if ssLatestVersion <= 0 {
 		return nil
 	}
-	streamHandler, err := changelog.NewStream(log.NewNopLogger(), homePath, changelog.Config{})
+	streamHandler, err := changelog.NewStream(
+		log.NewNopLogger(),
+		utils.GetChangelogPath(utils.GetMemIavlDBPath(homePath)),
+		changelog.Config{},
+	)
 	if err != nil {
 		return err
 	}

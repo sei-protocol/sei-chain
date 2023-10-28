@@ -132,7 +132,7 @@ func Load(dir string, opts Options) (*DB, error) {
 	}
 
 	// Create rlog manager and open the rlog file
-	streamHandler, err := changelog.NewStream(opts.Logger, opts.HomePath, changelog.Config{
+	streamHandler, err := changelog.NewStream(opts.Logger, utils.GetChangelogPath(dir), changelog.Config{
 		DisableFsync:    true,
 		ZeroCopy:        true,
 		WriteBufferSize: opts.AsyncCommitBuffer,

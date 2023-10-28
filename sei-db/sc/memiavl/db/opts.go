@@ -10,7 +10,6 @@ import (
 
 type Options struct {
 	Logger          logger.Logger
-	HomePath        string
 	CreateIfMissing bool
 	InitialVersion  uint32
 	ReadOnly        bool

@@ -1,9 +1,8 @@
 package memiavl
 
 import (
-	"path/filepath"
-
 	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/sei-protocol/sei-db/common/utils"
 	memiavlopts "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/rootmulti"
 	"github.com/tendermint/tendermint/libs/log"
@@ -22,7 +21,7 @@ func SetupMemIAVL(
 	// make sure the cms aren't be overridden by the other options later on.
 	baseAppOptions = append([]func(*baseapp.BaseApp){
 		func(baseApp *baseapp.BaseApp) {
-			cms := rootmulti.NewStore(filepath.Join(homePath, "data", "memiavl.db"), logger, opts)
+			cms := rootmulti.NewStore(utils.GetMemIavlDBPath(homePath), logger, opts)
 			// trigger state-sync snapshot creation by memiavl
 			opts.TriggerStateSyncExport = func(height int64) {
 				logger.Info("Triggering memIAVL state snapshot creation")
