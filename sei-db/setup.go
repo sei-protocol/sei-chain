@@ -100,15 +100,18 @@ func recoverStateStore(stateStore types.StateStore, homePath string) error {
 	if err != nil {
 		return err
 	}
-	firstOffset, err := streamHandler.FirstOffset()
-	if firstOffset <= 0 || err != nil {
+	firstOffset, errFirst := streamHandler.FirstOffset()
+	if firstOffset <= 0 || errFirst != nil {
 		return err
 	}
-	lastOffset, err := streamHandler.LastOffset()
-	if lastOffset <= 0 || err != nil {
+	lastOffset, errLast := streamHandler.LastOffset()
+	if lastOffset <= 0 || errLast != nil {
 		return err
 	}
-	firstEntry, err := streamHandler.ReadAt(firstOffset)
+	firstEntry, errRead := streamHandler.ReadAt(firstOffset)
+	if errRead != nil {
+		return err
+	}
 	firstVersion := firstEntry.Version
 	delta := uint64(firstVersion) - firstOffset
 	targetStartOffset := uint64(ssLatestVersion) + delta

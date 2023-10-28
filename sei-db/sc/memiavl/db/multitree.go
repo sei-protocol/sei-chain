@@ -3,7 +3,6 @@ package memiavl
 import (
 	"context"
 	"fmt"
-	"golang.org/x/exp/slices"
 	"math"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/types"
+	"golang.org/x/exp/slices"
 )
 
 const MetadataFileName = "__metadata"
