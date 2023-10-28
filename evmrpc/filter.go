@@ -21,7 +21,7 @@ type filter struct {
 	fromBlock rpc.BlockNumber
 	toBlock   rpc.BlockNumber
 	addresses []common.Address
-	topics    []common.Hash
+	topics    [][]common.Hash
 
 	cursors map[common.Address]string
 }
@@ -54,19 +54,11 @@ func (a *FilterAPI) NewFilter(
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
 	addresses []common.Address,
-	topics []string,
+	topics [][]common.Hash,
 ) (*uint64, error) {
 	err := a.checkFromAndToBlock(ctx, fromBlock, toBlock)
 	if err != nil {
 		return nil, err
-	}
-	var topicsRes []common.Hash
-	if topics == nil {
-		topicsRes = make([]common.Hash, 0)
-	} else {
-		for _, topic := range topics {
-			topicsRes = append(topicsRes, common.HexToHash(topic))
-		}
 	}
 	curFilterID := a.nextFilterID
 	a.nextFilterID++
@@ -74,7 +66,7 @@ func (a *FilterAPI) NewFilter(
 		fromBlock: fromBlock,
 		toBlock:   toBlock,
 		addresses: addresses,
-		topics:    topicsRes,
+		topics:    topics,
 	}
 	a.filters[curFilterID] = f
 	return &curFilterID, nil
@@ -143,7 +135,7 @@ func (a *FilterAPI) GetLogs(
 	addresses []common.Address,
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
-	topics []common.Hash,
+	topics [][]common.Hash,
 ) ([]*ethtypes.Log, error) {
 	noCursors := make(map[common.Address]string)
 	logs, _, err := a.getLogsOverAddresses(ctx, blockHash, addresses, fromBlock, toBlock, topics, noCursors)
@@ -156,7 +148,7 @@ func (a *FilterAPI) getLogsOverAddresses(
 	addresses []common.Address,
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
-	topics []common.Hash,
+	topics [][]common.Hash,
 	cursors map[common.Address]string,
 ) ([]*ethtypes.Log, map[common.Address]string, error) {
 	res := make([]*ethtypes.Log, 0)
@@ -187,7 +179,7 @@ func (a *FilterAPI) getLogs(
 	address common.Address,
 	fromBlock rpc.BlockNumber,
 	toBlock rpc.BlockNumber,
-	topics []common.Hash,
+	topics [][]common.Hash,
 	cursor string,
 ) ([]*ethtypes.Log, string, error) {
 	// only block hash or block number is supported, not both
@@ -213,14 +205,14 @@ func (a *FilterAPI) getLogs(
 		q = q.FilterContractAddress(address.Hex())
 	}
 	if len(topics) > 0 {
-		topicsStr := make([]string, len(topics))
+		topicsStrs := make([][]string, len(topics))
 		for i, topic := range topics {
-			if (topic == common.Hash{}) {
-				continue
+			topicsStrs[i] = make([]string, len(topic))
+			for j, t := range topic {
+				topicsStrs[i][j] = t.Hex()
 			}
-			topicsStr[i] = topic.Hex()
 		}
-		q = q.FilterTopics(topicsStr)
+		q = q.FilterTopics(topicsStrs)
 	}
 	hasMore := true
 	logs := []*ethtypes.Log{}

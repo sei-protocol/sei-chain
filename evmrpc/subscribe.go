@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -69,7 +70,7 @@ func (q *QueryBuilder) FilterTopic(topic string) *QueryBuilder {
 	return q
 }
 
-func (q *QueryBuilder) FilterTopics(topics []string) *QueryBuilder {
+func (q *QueryBuilder) FilterTopics(topics [][]string) *QueryBuilder {
 	if len(topics) == 0 {
 		return q
 	}
@@ -81,34 +82,19 @@ func (q *QueryBuilder) FilterTopics(topics []string) *QueryBuilder {
 	return q
 }
 
-func getTopicsRegex(topics []string) (string, error) {
-	if len(topics) > 4 {
-		return "", errors.New("topics array must be at most length 4")
-	}
+func getTopicsRegex(topics [][]string) (string, error) {
 	if len(topics) == 0 {
 		return "", errors.New("topics array must be at least length 1")
 	}
 
-	// make sure last topic is not a wildcard
-	if len(topics) > 0 && topics[len(topics)-1] == "" {
-		return "", errors.New("last topic must not be a wildcard")
+	topicRegex := func(topic []string) string {
+		if len(topic) == 0 {
+			return ""
+		}
+		return fmt.Sprintf("(%s)", strings.Join(topic, "|"))
 	}
 
-	pattern := ""
-	pattern += "\\[" // match beginning "["
-	for i, topic := range topics {
-		if i != 0 {
-			pattern += "\\," // match comma
-		}
-		if topic == "" {
-			pattern += "[^\\,]*" // match anything until the next comma
-		} else {
-			pattern += topic
-		}
-	}
-	pattern += ".*\\]" // match until ending "]"
-
-	return pattern, nil
+	return fmt.Sprintf("\\[%s.*\\]", strings.Join(utils.Map(topics, topicRegex), "[^\\,]*,")), nil
 }
 
 func (q *QueryBuilder) FilterBlockNumber(blockNumber int64) *QueryBuilder {

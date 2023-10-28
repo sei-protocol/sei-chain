@@ -45,40 +45,42 @@ func mockQueryBuilder() *QueryBuilder {
 func TestGetTopicsRegex(t *testing.T) {
 	tests := []struct {
 		name         string
-		topics       []string
+		topics       [][]string
 		wantErr      bool
 		wantMatch    []string
 		wantNotMatch []string
 	}{
 		{
-			name:    "error: topics length longer than 4",
-			topics:  []string{"a", "b", "c", "d", "e"},
-			wantErr: true,
-		},
-		{
 			name:    "error: topics length 0",
-			topics:  []string{},
+			topics:  [][]string{},
 			wantErr: true,
 		},
 		{
 			name:         "match first topic",
-			topics:       []string{"a"},
+			topics:       [][]string{{"a"}},
 			wantErr:      false,
 			wantMatch:    []string{"[a]", "[a,b]", "[a,a,a,a]"},
 			wantNotMatch: []string{"b", "[b]", "[b,a]", "[a,b"},
 		},
 		{
+			name:         "match first topic with OR",
+			topics:       [][]string{{"a", "b"}}, // first topic can be a or b
+			wantErr:      false,
+			wantMatch:    []string{"[a]", "[a,b]", "[a,c,c,c]", "[b]", "[b,c]", "[b,c,c,c]"},
+			wantNotMatch: []string{"b", "[c]", "[c,a]", "[c,b"},
+		},
+		{
 			name:         "match second topic",
-			topics:       []string{"", "a"},
+			topics:       [][]string{{}, {"a"}},
 			wantErr:      false,
 			wantMatch:    []string{"[b,a]", "[c,a]", "[a,a,a]"},
 			wantNotMatch: []string{"b,a]", "[a,b,a]"},
 		},
 		{
 			name:         "match second and fourth topic",
-			topics:       []string{"", "a", "", "b"},
+			topics:       [][]string{{""}, {"a", "c"}, {""}, {"b", "d"}},
 			wantErr:      false,
-			wantMatch:    []string{"[d,a,c,b]", "[c,a,c,b,c]"},
+			wantMatch:    []string{"[d,a,c,b]", "[c,a,c,d,c]", "[a,c,b,d]"},
 			wantNotMatch: []string{"[a,a,a,a]", "[a,b]", "[c,a,b,c]"},
 		},
 	}
