@@ -3,14 +3,13 @@ package evmrpc
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	abci "github.com/tendermint/tendermint/abci/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -18,11 +17,7 @@ import (
 )
 
 type filter struct {
-	fromBlock rpc.BlockNumber
-	toBlock   rpc.BlockNumber
-	addresses []common.Address
-	topics    [][]common.Hash
-
+	filters.FilterCriteria
 	cursors map[common.Address]string
 }
 
@@ -51,119 +46,94 @@ func (a *FilterAPI) PocFilterCriteria(
 
 func (a *FilterAPI) NewFilter(
 	ctx context.Context,
-	fromBlock rpc.BlockNumber,
-	toBlock rpc.BlockNumber,
-	addresses []common.Address,
-	topics [][]common.Hash,
+	crit filters.FilterCriteria,
 ) (*uint64, error) {
-	err := a.checkFromAndToBlock(ctx, fromBlock, toBlock)
-	if err != nil {
-		return nil, err
-	}
 	curFilterID := a.nextFilterID
 	a.nextFilterID++
-	f := filter{
-		fromBlock: fromBlock,
-		toBlock:   toBlock,
-		addresses: addresses,
-		topics:    topics,
-	}
-	a.filters[curFilterID] = f
+	a.filters[curFilterID] = filter{crit, make(map[common.Address]string)}
 	return &curFilterID, nil
 }
 
-func (a *FilterAPI) checkFromAndToBlock(ctx context.Context, fromBlock, toBlock rpc.BlockNumber) error {
-	fromBlockPtr, err := getBlockNumber(ctx, a.tmClient, fromBlock)
-	if err != nil {
-		return err
-	}
-	toBlockPtr, err := getBlockNumber(ctx, a.tmClient, toBlock)
-	if err != nil {
-		return err
-	}
-	if fromBlockPtr == nil && toBlockPtr != nil {
-		return errors.New("from block is after to block")
-	}
-	if toBlockPtr != nil {
-		if *fromBlockPtr > *toBlockPtr {
-			return errors.New("from block is after to block")
-		}
-	}
-	return nil
-}
+// func (a *FilterAPI) GetFilterChanges(
+// 	ctx context.Context,
+// 	filterID uint64,
+// ) ([]*ethtypes.Log, error) {
+// 	filter, ok := a.filters[filterID]
+// 	if !ok {
+// 		return nil, errors.New("filter does not exist")
+// 	}
+// 	res, cursors, err := a.getLogsOverAddresses(ctx, common.Hash{}, filter.Addresses, filter.FromBlock, filter.toBlock, filter.topics, filter.cursors)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	updatedFilter := a.filters[filterID]
+// 	updatedFilter.cursors = cursors
+// 	a.filters[filterID] = updatedFilter
+// 	return res, nil
+// }
 
-func (a *FilterAPI) GetFilterChanges(
-	ctx context.Context,
-	filterID uint64,
-) ([]*ethtypes.Log, error) {
-	filter, ok := a.filters[filterID]
-	if !ok {
-		return nil, errors.New("filter does not exist")
-	}
-	res, cursors, err := a.getLogsOverAddresses(ctx, common.Hash{}, filter.addresses, filter.fromBlock, filter.toBlock, filter.topics, filter.cursors)
-	if err != nil {
-		return nil, err
-	}
-	updatedFilter := a.filters[filterID]
-	updatedFilter.cursors = cursors
-	a.filters[filterID] = updatedFilter
-	return res, nil
-}
-
-func (a *FilterAPI) GetFilterLogs(
-	ctx context.Context,
-	filterID uint64,
-) ([]*ethtypes.Log, error) {
-	filter, ok := a.filters[filterID]
-	if !ok {
-		return nil, errors.New("filter does not exist")
-	}
-	noCursors := make(map[common.Address]string)
-	res, cursors, err := a.getLogsOverAddresses(ctx, common.Hash{}, filter.addresses, filter.fromBlock, filter.toBlock, filter.topics, noCursors)
-	if err != nil {
-		return nil, err
-	}
-	updatedFilter := a.filters[filterID]
-	updatedFilter.cursors = cursors
-	a.filters[filterID] = updatedFilter
-	return res, nil
-}
+// func (a *FilterAPI) GetFilterLogs(
+// 	ctx context.Context,
+// 	filterID uint64,
+// ) ([]*ethtypes.Log, error) {
+// 	filter, ok := a.filters[filterID]
+// 	if !ok {
+// 		return nil, errors.New("filter does not exist")
+// 	}
+// 	noCursors := make(map[common.Address]string)
+// 	res, cursors, err := a.getLogsOverAddresses(ctx, common.Hash{}, filter.addresses, filter.fromBlock, filter.toBlock, filter.topics, noCursors)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	updatedFilter := a.filters[filterID]
+// 	updatedFilter.cursors = cursors
+// 	a.filters[filterID] = updatedFilter
+// 	return res, nil
+// }
 
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
-	blockHash common.Hash,
-	addresses []common.Address,
-	fromBlock rpc.BlockNumber,
-	toBlock rpc.BlockNumber,
-	topics [][]common.Hash,
+	crit filters.FilterCriteria,
 ) ([]*ethtypes.Log, error) {
-	noCursors := make(map[common.Address]string)
-	logs, _, err := a.getLogsOverAddresses(ctx, blockHash, addresses, fromBlock, toBlock, topics, noCursors)
+	fmt.Printf("In GetLogs: %+v\n", crit)
+	logs, _, err := a.getLogsOverAddresses(
+		ctx,
+		crit,
+		make(map[common.Address]string),
+	)
+	fmt.Printf("Got result back from getLogsOverAddresses: %+v\n", logs)
 	return logs, err
 }
 
+// pulls logs from tendermint client over multiple addresses.
 func (a *FilterAPI) getLogsOverAddresses(
 	ctx context.Context,
-	blockHash common.Hash,
-	addresses []common.Address,
-	fromBlock rpc.BlockNumber,
-	toBlock rpc.BlockNumber,
-	topics [][]common.Hash,
+	crit filters.FilterCriteria,
 	cursors map[common.Address]string,
 ) ([]*ethtypes.Log, map[common.Address]string, error) {
+	fmt.Printf("In getLogsOverAddresses, at top!, crit: %+v\n", crit)
 	res := make([]*ethtypes.Log, 0)
-	if len(addresses) == 0 {
-		addresses = append(addresses, common.Address{})
+	if len(crit.Addresses) == 0 {
+		crit.Addresses = append(crit.Addresses, common.Address{})
 	}
 	updatedAddrToCursor := make(map[common.Address]string)
-	for _, address := range addresses {
+	for _, address := range crit.Addresses {
 		var cursor string
 		if _, ok := cursors[address]; !ok {
 			cursor = ""
 		} else {
 			cursor = cursors[address]
 		}
-		resAddr, cursor, err := a.getLogs(ctx, blockHash, address, fromBlock, toBlock, topics, cursor)
+		fmt.Println("In getLogsOverAddresses, calling getLogs on address: ", address.Hex())
+		resAddr, cursor, err := a.getLogs(
+			ctx,
+			crit.BlockHash,
+			crit.FromBlock,
+			crit.ToBlock,
+			address,
+			crit.Topics,
+			cursor,
+		)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -173,32 +143,24 @@ func (a *FilterAPI) getLogsOverAddresses(
 	return res, updatedAddrToCursor, nil
 }
 
+// pulls logs from tendermint client for a single address.
 func (a *FilterAPI) getLogs(
 	ctx context.Context,
-	blockHash common.Hash,
+	blockHash *common.Hash,
+	fromBlock *big.Int,
+	toBlock *big.Int,
 	address common.Address,
-	fromBlock rpc.BlockNumber,
-	toBlock rpc.BlockNumber,
 	topics [][]common.Hash,
 	cursor string,
 ) ([]*ethtypes.Log, string, error) {
-	// only block hash or block number is supported, not both
-	if (blockHash != common.Hash{}) && (fromBlock > 0 || toBlock > 0) {
-		return nil, "", errors.New("block hash and block number cannot both be specified")
-	}
-	err := a.checkFromAndToBlock(ctx, fromBlock, toBlock)
-	if err != nil {
-		return nil, "", err
-	}
-
 	q := NewQueryBuilder()
-	if (blockHash != common.Hash{}) {
+	if blockHash != nil {
 		q = q.FilterBlockHash(blockHash.Hex())
 	}
-	if fromBlock > 0 {
+	if fromBlock != nil {
 		q = q.FilterBlockNumberStart(fromBlock.Int64())
 	}
-	if toBlock > 0 {
+	if toBlock != nil {
 		q = q.FilterBlockNumberEnd(toBlock.Int64())
 	}
 	if (address != common.Address{}) {
@@ -239,6 +201,7 @@ func (a *FilterAPI) getLogs(
 			logs = append(logs, ethLog)
 		}
 	}
+	fmt.Printf("len(logs): %v\n", len(logs))
 	return logs, cursor, nil
 }
 
