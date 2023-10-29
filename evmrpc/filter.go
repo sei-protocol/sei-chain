@@ -3,7 +3,7 @@ package evmrpc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -17,7 +17,7 @@ import (
 )
 
 type filter struct {
-	filters.FilterCriteria
+	fc      filters.FilterCriteria
 	cursors map[common.Address]string
 }
 
@@ -34,16 +34,6 @@ func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 	return &FilterAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, nextFilterID: 1, filters: filters}
 }
 
-// TODO: delete this later, this is just for experimenting
-func (a *FilterAPI) PocFilterCriteria(
-	ctx context.Context,
-	args filters.FilterCriteria,
-) (*uint64, error) {
-	fmt.Println("PocFilterCriteria: ", args)
-	sumBlock := uint64(19)
-	return &sumBlock, nil
-}
-
 func (a *FilterAPI) NewFilter(
 	ctx context.Context,
 	crit filters.FilterCriteria,
@@ -54,54 +44,52 @@ func (a *FilterAPI) NewFilter(
 	return &curFilterID, nil
 }
 
-// func (a *FilterAPI) GetFilterChanges(
-// 	ctx context.Context,
-// 	filterID uint64,
-// ) ([]*ethtypes.Log, error) {
-// 	filter, ok := a.filters[filterID]
-// 	if !ok {
-// 		return nil, errors.New("filter does not exist")
-// 	}
-// 	res, cursors, err := a.getLogsOverAddresses(ctx, common.Hash{}, filter.Addresses, filter.FromBlock, filter.toBlock, filter.topics, filter.cursors)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	updatedFilter := a.filters[filterID]
-// 	updatedFilter.cursors = cursors
-// 	a.filters[filterID] = updatedFilter
-// 	return res, nil
-// }
+func (a *FilterAPI) GetFilterChanges(
+	ctx context.Context,
+	filterID uint64,
+) ([]*ethtypes.Log, error) {
+	filter, ok := a.filters[filterID]
+	if !ok {
+		return nil, errors.New("filter does not exist")
+	}
+	res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, filter.cursors)
+	if err != nil {
+		return nil, err
+	}
+	updatedFilter := a.filters[filterID]
+	updatedFilter.cursors = cursors
+	a.filters[filterID] = updatedFilter
+	return res, nil
+}
 
-// func (a *FilterAPI) GetFilterLogs(
-// 	ctx context.Context,
-// 	filterID uint64,
-// ) ([]*ethtypes.Log, error) {
-// 	filter, ok := a.filters[filterID]
-// 	if !ok {
-// 		return nil, errors.New("filter does not exist")
-// 	}
-// 	noCursors := make(map[common.Address]string)
-// 	res, cursors, err := a.getLogsOverAddresses(ctx, common.Hash{}, filter.addresses, filter.fromBlock, filter.toBlock, filter.topics, noCursors)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	updatedFilter := a.filters[filterID]
-// 	updatedFilter.cursors = cursors
-// 	a.filters[filterID] = updatedFilter
-// 	return res, nil
-// }
+func (a *FilterAPI) GetFilterLogs(
+	ctx context.Context,
+	filterID uint64,
+) ([]*ethtypes.Log, error) {
+	filter, ok := a.filters[filterID]
+	if !ok {
+		return nil, errors.New("filter does not exist")
+	}
+	noCursors := make(map[common.Address]string)
+	res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, noCursors)
+	if err != nil {
+		return nil, err
+	}
+	updatedFilter := a.filters[filterID]
+	updatedFilter.cursors = cursors
+	a.filters[filterID] = updatedFilter
+	return res, nil
+}
 
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) ([]*ethtypes.Log, error) {
-	fmt.Printf("In GetLogs: %+v\n", crit)
 	logs, _, err := a.getLogsOverAddresses(
 		ctx,
 		crit,
 		make(map[common.Address]string),
 	)
-	fmt.Printf("Got result back from getLogsOverAddresses: %+v\n", logs)
 	return logs, err
 }
 
@@ -111,7 +99,6 @@ func (a *FilterAPI) getLogsOverAddresses(
 	crit filters.FilterCriteria,
 	cursors map[common.Address]string,
 ) ([]*ethtypes.Log, map[common.Address]string, error) {
-	fmt.Printf("In getLogsOverAddresses, at top!, crit: %+v\n", crit)
 	res := make([]*ethtypes.Log, 0)
 	if len(crit.Addresses) == 0 {
 		crit.Addresses = append(crit.Addresses, common.Address{})
@@ -124,7 +111,6 @@ func (a *FilterAPI) getLogsOverAddresses(
 		} else {
 			cursor = cursors[address]
 		}
-		fmt.Println("In getLogsOverAddresses, calling getLogs on address: ", address.Hex())
 		resAddr, cursor, err := a.getLogs(
 			ctx,
 			crit.BlockHash,
@@ -201,7 +187,6 @@ func (a *FilterAPI) getLogs(
 			logs = append(logs, ethLog)
 		}
 	}
-	fmt.Printf("len(logs): %v\n", len(logs))
 	return logs, cursor, nil
 }
 

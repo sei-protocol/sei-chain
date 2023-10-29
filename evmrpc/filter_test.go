@@ -1,37 +1,11 @@
 package evmrpc
 
 import (
-	"fmt"
-	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
-
-// TODO: delete this, this is just for experimenting
-func TestFilterCriteriaMarshal(t *testing.T) {
-	filterCriteria := map[string]interface{}{
-		// NOTE: if you specify blockhash, you cannot specify
-		"blockHash": "0xa241003d969ada282a4fe554392ef921bbeeb427810cb5e976f9225495a10888",
-		"address": []common.Address{
-			common.HexToAddress("0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5"),
-			common.HexToAddress("0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326"),
-		},
-		"topics": [][]common.Hash{
-			{
-				common.BigToHash(big.NewInt(1)),
-				common.BigToHash(big.NewInt(2)),
-			},
-			{
-				common.BigToHash(big.NewInt(3)),
-				common.BigToHash(big.NewInt(4)),
-			},
-		},
-	}
-	resObj := sendRequestGood(t, "pocFilterCriteria", filterCriteria)
-	fmt.Println("resObj: ", resObj)
-}
 
 func TestNewFilter(t *testing.T) {
 	tests := []struct {
@@ -95,8 +69,11 @@ func TestNewFilter(t *testing.T) {
 
 func TestUninstallFilter(t *testing.T) {
 	// uninstall existing filter
-	emptyArr := []string{}
-	resObj := sendRequest(t, TestPort, "newFilter", "0x1", "0xa", []common.Address{}, emptyArr)
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x1",
+		"toBlock":   "0xa",
+	}
+	resObj := sendRequestGood(t, "newFilter", filterCriteria)
 	filterId := int(resObj["result"].(float64))
 	require.GreaterOrEqual(t, filterId, 1)
 
@@ -204,9 +181,7 @@ func TestGetLogs(t *testing.T) {
 				filterCriteria["fromBlock"] = tt.fromBlock
 				filterCriteria["toBlock"] = tt.toBlock
 			}
-			fmt.Println("sending request, filterCriteria: ", filterCriteria)
 			resObj := sendRequestGood(t, "getLogs", filterCriteria)
-			fmt.Printf("got response: %+v\n", resObj)
 			if tt.wantErr {
 				_, ok := resObj["error"]
 				require.True(t, ok)
@@ -223,11 +198,11 @@ func TestGetLogs(t *testing.T) {
 }
 
 func TestGetFilterLogs(t *testing.T) {
-	fromBlock := "0x4"
-	toBlock := "0x4"
-	addrs := []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))}
-	emptyArr := []string{}
-	resObj := sendRequest(t, TestPort, "newFilter", fromBlock, toBlock, addrs, emptyArr)
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x4",
+		"toBlock":   "0x4",
+	}
+	resObj := sendRequestGood(t, "newFilter", filterCriteria)
 	filterId := int(resObj["result"].(float64))
 
 	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
@@ -246,11 +221,10 @@ func TestGetFilterLogs(t *testing.T) {
 }
 
 func TestGetFilterChanges(t *testing.T) {
-	fromBlock := "0x5"
-	toBlock := "latest"
-	addrs := []common.Address{common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))}
-	emptyArr := []string{}
-	resObj := sendRequest(t, TestPort, "newFilter", fromBlock, toBlock, addrs, emptyArr)
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x5",
+	}
+	resObj := sendRequest(t, TestPort, "newFilter", filterCriteria)
 	filterId := int(resObj["result"].(float64))
 
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
