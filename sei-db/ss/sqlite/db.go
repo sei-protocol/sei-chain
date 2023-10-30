@@ -14,7 +14,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/ss"
+	sstypes "github.com/sei-protocol/sei-db/ss/types"
 )
 
 const (
@@ -43,7 +43,7 @@ const (
 	`
 )
 
-var _ ss.StateStore = (*Database)(nil)
+var _ sstypes.StateStore = (*Database)(nil)
 
 type Database struct {
 	storage *sql.DB
@@ -213,7 +213,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return newIterator(db.storage, storeKey, version, start, end, true)
 }
 
-func (db *Database) Import(version int64, ch <-chan ss.ImportEntry) error {
+func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
 	panic("Not Implemented")
 }
 
