@@ -256,13 +256,13 @@ func (a *FilterAPI) getLogs(
 func (a *FilterAPI) UninstallFilter(
 	ctx context.Context,
 	filterID uint64,
-) (bool, error) {
+) bool {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	_, found := a.filters[filterID]
 	if !found {
-		return false, nil
+		return false
 	}
 	delete(a.filters, filterID)
-	return true, nil
+	return true
 }
