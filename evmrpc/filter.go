@@ -68,7 +68,7 @@ func (a *FilterAPI) timeoutLoop(timeout time.Duration) {
 }
 
 func (a *FilterAPI) NewFilter(
-	ctx context.Context,
+	_ context.Context,
 	crit filters.FilterCriteria,
 ) (*uint64, error) {
 	a.filtersMu.Lock()
@@ -254,7 +254,7 @@ func (a *FilterAPI) getLogs(
 }
 
 func (a *FilterAPI) UninstallFilter(
-	ctx context.Context,
+	_ context.Context,
 	filterID uint64,
 ) bool {
 	a.filtersMu.Lock()

@@ -118,7 +118,7 @@ func (c *MockClient) Subscribe(context.Context, string, string, ...int) (<-chan 
 	return make(chan coretypes.ResultEvent, 1), nil
 }
 
-func (c *MockClient) Events(ctx context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
+func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
 	eb := NewABCIEventBuilder()
 
 	// assume cursor is block number for testing purposes
