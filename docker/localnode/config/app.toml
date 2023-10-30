@@ -205,7 +205,7 @@ query_gas_limit = 300000
 # Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
 lru_size = 0
 
-[memiavl]
+[state-commit]
 
 # Enable defines if the memiavl should be enabled.
 enable = true
@@ -217,7 +217,7 @@ zero-copy = false
 
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
 # performance, -1 means synchronous commit.
-async-commit-buffer = 0
+async-commit-buffer = 10
 
 # SnapshotKeepRecent defines what many old snapshots (excluding the latest one) to keep after new snapshots are
 # taken, defaults to 1 to make sure ibc relayers work.
@@ -228,3 +228,11 @@ snapshot-interval = 200
 
 # CacheSize defines the size of the cache for each memiavl store, default to 1000.
 cache-size = 1000
+
+[state-store]
+
+enable = true
+
+backend = "pebbledb"
+
+async-writer-buffer = 10

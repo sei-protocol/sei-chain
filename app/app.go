@@ -12,18 +12,16 @@ import (
 	"sync"
 	"time"
 
-	memiavlstore "github.com/sei-protocol/mmap-iavl/store"
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
-
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	seidb "github.com/sei-protocol/sei-db"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -376,8 +374,8 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	// setup memiavl if it's enabled in config
-	baseAppOptions = memiavlstore.SetupMemIAVL(logger, homePath, appOpts, true, baseAppOptions)
+	// setup seiDB if it's enabled in config
+	baseAppOptions = seidb.SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
 
 	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
