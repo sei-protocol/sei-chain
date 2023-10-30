@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	// _ Import to register sqlite driver with database/sql.
 	_ "modernc.org/sqlite"
 
 	"github.com/cosmos/cosmos-sdk/store/types"

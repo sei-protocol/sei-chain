@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"golang.org/x/exp/slices"
+	// _ Import to register sqlite driver with database/sql.
 	_ "modernc.org/sqlite"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
