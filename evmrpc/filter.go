@@ -6,11 +6,9 @@ import (
 	"errors"
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	abci "github.com/tendermint/tendermint/abci/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -23,15 +21,13 @@ type filter struct {
 
 type FilterAPI struct {
 	tmClient     rpcclient.Client
-	keeper       *keeper.Keeper
-	ctxProvider  func(int64) sdk.Context
 	nextFilterID uint64
 	filters      map[uint64]filter
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context) *FilterAPI {
+func NewFilterAPI(tmClient rpcclient.Client) *FilterAPI {
 	filters := make(map[uint64]filter)
-	return &FilterAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, nextFilterID: 1, filters: filters}
+	return &FilterAPI{tmClient: tmClient, nextFilterID: 1, filters: filters}
 }
 
 func (a *FilterAPI) NewFilter(

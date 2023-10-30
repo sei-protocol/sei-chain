@@ -59,7 +59,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewFilterAPI(tmClient, k, ctxProvider),
+			Service:   NewFilterAPI(tmClient),
 		},
 	}
 	if err := httpServer.enableRPC(apis, httpConfig{
