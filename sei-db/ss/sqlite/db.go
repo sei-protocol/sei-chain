@@ -14,7 +14,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/ss"
+	ss "github.com/sei-protocol/sei-db/ss/types"
 )
 
 const (
