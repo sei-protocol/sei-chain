@@ -120,6 +120,14 @@ func TestBlockIndexer(t *testing.T) {
 			q:       query.MustCompile(`finalize_event1.proposer CONTAINS 'FCAA001'`),
 			results: []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
 		},
+		"finalize_event.proposer MATCHES '.*FF.*'": {
+			q:       query.MustCompile(`finalize_event1.proposer MATCHES '.*FF.*'`),
+			results: []int64{},
+		},
+		"finalize_event.proposer MATCHES '.*F.*'": {
+			q:       query.MustCompile(`finalize_event1.proposer MATCHES '.*F.*'`),
+			results: []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+		},
 	}
 
 	for name, tc := range testCases {

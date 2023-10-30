@@ -147,7 +147,7 @@ func (p *Parser) parseCond() (Condition, error) {
 		return cond, err
 	}
 	cond.Tag = p.scanner.Text()
-	if err := p.require(TLeq, TGeq, TLt, TGt, TEq, TContains, TExists); err != nil {
+	if err := p.require(TLeq, TGeq, TLt, TGt, TEq, TContains, TExists, TMatches); err != nil {
 		return cond, err
 	}
 	cond.Op = p.scanner.Token()
@@ -160,6 +160,8 @@ func (p *Parser) parseCond() (Condition, error) {
 	case TEq:
 		err = p.require(TNumber, TTime, TDate, TString)
 	case TContains:
+		err = p.require(TString)
+	case TMatches:
 		err = p.require(TString)
 	case TExists:
 		// no argument

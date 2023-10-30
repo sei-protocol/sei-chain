@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -347,6 +348,34 @@ func (txi *TxIndex) match(
 			select {
 			case <-ctx.Done():
 				break iterContains
+			default:
+			}
+		}
+		if err := it.Error(); err != nil {
+			panic(err)
+		}
+
+	case c.Op == syntax.TMatches:
+		it, err := dbm.IteratePrefix(txi.store, prefixFromCompositeKey(c.Tag))
+		if err != nil {
+			panic(err)
+		}
+		defer it.Close()
+
+	iterMatches:
+		for ; it.Valid(); it.Next() {
+			value, err := parseValueFromKey(it.Key())
+			if err != nil {
+				continue
+			}
+			if match, _ := regexp.MatchString(c.Arg.Value(), value); match {
+				tmpHashes[string(it.Value())] = it.Value()
+			}
+
+			// Potentially exit early.
+			select {
+			case <-ctx.Done():
+				break iterMatches
 			default:
 			}
 		}

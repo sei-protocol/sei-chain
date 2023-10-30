@@ -12,14 +12,14 @@ import (
 )
 
 // Example events from the OpenAPI documentation:
-//  https://github.com/tendermint/tendermint/blob/master/rpc/openapi/openapi.yaml
+//
+//	https://github.com/tendermint/tendermint/blob/master/rpc/openapi/openapi.yaml
 //
 // Redactions:
 //
 //   - Add an explicit "tm" event for the built-in attributes.
 //   - Remove Index fields (not relevant to tests).
 //   - Add explicit balance values (to use in tests).
-//
 var apiEvents = []types.Event{
 	{
 		Type: "tm",
@@ -126,6 +126,12 @@ func TestCompiledMatches(t *testing.T) {
 			newTestEvents(`abci|owner.name=Igor|owner.name=Ivan`),
 			true},
 		{`abci.owner.name CONTAINS 'Igor'`,
+			newTestEvents(`abci|owner.name=Pavel|owner.name=Ivan`),
+			false},
+		{`abci.owner.name MATCHES '.*or.*'`,
+			newTestEvents(`abci|owner.name=Igor|owner.name=Ivan`),
+			true},
+		{`abci.owner.name MATCHES '.*or.*'`,
 			newTestEvents(`abci|owner.name=Pavel|owner.name=Ivan`),
 			false},
 		{`abci.owner.name = 'Igor'`,

@@ -28,6 +28,7 @@ const (
 	TLeq             // operator: <=
 	TGt              // operator: >
 	TGeq             // operator: >=
+	TMatches         // operator: MATCHES
 
 	// Do not reorder these values without updating the scanner code.
 )
@@ -47,6 +48,7 @@ var tString = [...]string{
 	TLeq:      "<= operator",
 	TGt:       "> operator",
 	TGeq:      ">= operator",
+	TMatches:  "MATCHES operator",
 }
 
 func (t Token) String() string {
@@ -228,6 +230,8 @@ func (s *Scanner) scanTagLike(first rune) error {
 		s.tok = TExists
 	case "CONTAINS":
 		s.tok = TContains
+	case "MATCHES":
+		s.tok = TMatches
 	default:
 		s.tok = TTag
 	}

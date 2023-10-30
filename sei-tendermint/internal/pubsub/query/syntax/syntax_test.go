@@ -38,6 +38,7 @@ func TestScanner(t *testing.T) {
 		// Mixed values of various kinds.
 		{`x AND y`, []syntax.Token{syntax.TTag, syntax.TAnd, syntax.TTag}},
 		{`x.y CONTAINS 'z'`, []syntax.Token{syntax.TTag, syntax.TContains, syntax.TString}},
+		{`x.y MATCHES 'z'`, []syntax.Token{syntax.TTag, syntax.TMatches, syntax.TString}},
 		{`foo EXISTS`, []syntax.Token{syntax.TTag, syntax.TExists}},
 		{`and AND`, []syntax.Token{syntax.TTag, syntax.TAnd}},
 
@@ -128,6 +129,7 @@ func TestParseValid(t *testing.T) {
 		{"AND tm.events.type='NewBlock' ", false},
 
 		{"abci.account.name CONTAINS 'Igor'", true},
+		{"abci.account.name MATCHES '*go*'", true},
 
 		{"tx.date > DATE 2013-05-03", true},
 		{"tx.date < DATE 2013-05-03", true},

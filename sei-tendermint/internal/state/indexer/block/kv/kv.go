@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -407,6 +408,40 @@ func (idx *BlockerIndexer) match(
 			select {
 			case <-ctx.Done():
 				break iterContains
+
+			default:
+			}
+		}
+		if err := it.Error(); err != nil {
+			return nil, err
+		}
+
+	case c.Op == syntax.TMatches:
+		prefix, err := orderedcode.Append(nil, c.Tag)
+		if err != nil {
+			return nil, err
+		}
+
+		it, err := dbm.IteratePrefix(idx.store, prefix)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create prefix iterator: %w", err)
+		}
+		defer it.Close()
+
+	iterMatches:
+		for ; it.Valid(); it.Next() {
+			eventValue, err := parseValueFromEventKey(it.Key())
+			if err != nil {
+				continue
+			}
+
+			if match, _ := regexp.MatchString(c.Arg.Value(), eventValue); match {
+				tmpHeights[string(it.Value())] = it.Value()
+			}
+
+			select {
+			case <-ctx.Done():
+				break iterMatches
 
 			default:
 			}
