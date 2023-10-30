@@ -82,8 +82,8 @@ func writeToDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, con
 	return allLatencies
 }
 
-// BenchmarkDBWrite measures random write performance of db
-// Given an input dir containing all the raw kv data, it writes to db one version after another
+// BenchmarkDBWrite measures random write performance of the db
+// Given an input dir containing all the raw kv data, it writes to the db one version after another
 func BenchmarkDBWrite(db types.StateStore, inputKVDir string, numVersions int, concurrency int, batchSize int) {
 	startLoad := time.Now()
 	kvData, err := utils.LoadAndShuffleKV(inputKVDir)
