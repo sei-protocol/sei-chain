@@ -2,12 +2,14 @@ package evmrpc
 
 import (
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewFilter(t *testing.T) {
+func TestFilterNew(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		fromBlock string
@@ -16,7 +18,6 @@ func TestNewFilter(t *testing.T) {
 		addrs     []common.Address
 		topics    [][]common.Hash
 		wantErr   bool
-		wantId    float64
 	}{
 		{
 			name:      "happy path",
@@ -25,7 +26,6 @@ func TestNewFilter(t *testing.T) {
 			addrs:     []common.Address{common.HexToAddress("0x123")},
 			topics:    [][]common.Hash{{common.HexToHash("0x456")}},
 			wantErr:   false,
-			wantId:    1,
 		},
 		{
 			name:      "error: block hash and block range both given",
@@ -57,17 +57,17 @@ func TestNewFilter(t *testing.T) {
 				require.True(t, ok)
 			} else {
 				got := resObj["result"].(float64)
-				require.Equal(t, tt.wantId, got)
 				// make sure next filter id is not equal to this one
 				resObj := sendRequestGood(t, "newFilter", filterCriteria)
 				got2 := resObj["result"].(float64)
-				require.NotEqual(t, tt.wantId, got2)
+				require.NotEqual(t, got, got2)
 			}
 		})
 	}
 }
 
-func TestUninstallFilter(t *testing.T) {
+func TestFilterUninstall(t *testing.T) {
+	t.Parallel()
 	// uninstall existing filter
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x1",
@@ -88,7 +88,8 @@ func TestUninstallFilter(t *testing.T) {
 	require.False(t, uninstallSuccess)
 }
 
-func TestGetLogs(t *testing.T) {
+func TestFilterGetLogs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		blockHash common.Hash
@@ -197,7 +198,8 @@ func TestGetLogs(t *testing.T) {
 	}
 }
 
-func TestGetFilterLogs(t *testing.T) {
+func TestFilterGetFilterLogs(t *testing.T) {
+	t.Parallel()
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x4",
 		"toBlock":   "0x4",
@@ -220,7 +222,8 @@ func TestGetFilterLogs(t *testing.T) {
 	require.True(t, ok)
 }
 
-func TestGetFilterChanges(t *testing.T) {
+func TestFilterGetFilterChanges(t *testing.T) {
+	t.Parallel()
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x5",
 	}
@@ -245,4 +248,57 @@ func TestGetFilterChanges(t *testing.T) {
 	resObj = sendRequest(t, TestPort, "getFilterChanges", nonExistingFilterId)
 	_, ok := resObj["error"]
 	require.True(t, ok)
+}
+
+func TestFilterExpiration(t *testing.T) {
+	t.Parallel()
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x1",
+		"toBlock":   "0xa",
+	}
+	resObj := sendRequestGood(t, "newFilter", filterCriteria)
+	filterId := int(resObj["result"].(float64))
+
+	// wait for filter to expire
+	time.Sleep(2 * filterTimeoutDuration)
+
+	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
+	_, ok := resObj["error"]
+	require.True(t, ok)
+}
+
+func TestFilterGetFilterLogsKeepsFilterAlive(t *testing.T) {
+	t.Parallel()
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x1",
+		"toBlock":   "0xa",
+	}
+	resObj := sendRequestGood(t, "newFilter", filterCriteria)
+	filterId := int(resObj["result"].(float64))
+
+	for i := 0; i < 5; i++ {
+		// should keep filter alive
+		resObj = sendRequestGood(t, "getFilterLogs", filterId)
+		_, ok := resObj["error"]
+		require.False(t, ok)
+		time.Sleep(filterTimeoutDuration / 2)
+	}
+}
+
+func TestFilterGetFilterChangesKeepsFilterAlive(t *testing.T) {
+	t.Parallel()
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x1",
+		"toBlock":   "0xa",
+	}
+	resObj := sendRequestGood(t, "newFilter", filterCriteria)
+	filterId := int(resObj["result"].(float64))
+
+	for i := 0; i < 5; i++ {
+		// should keep filter alive
+		resObj = sendRequestGood(t, "getFilterChanges", filterId)
+		_, ok := resObj["error"]
+		require.False(t, ok)
+		time.Sleep(filterTimeoutDuration / 2)
+	}
 }

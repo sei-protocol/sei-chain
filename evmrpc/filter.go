@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -15,28 +17,69 @@ import (
 )
 
 type filter struct {
-	fc      filters.FilterCriteria
-	cursors map[common.Address]string
+	fc       filters.FilterCriteria
+	deadline *time.Timer
+	cursors  map[common.Address]string
 }
 
 type FilterAPI struct {
 	tmClient     rpcclient.Client
 	nextFilterID uint64
+	filtersMu    sync.Mutex
 	filters      map[uint64]filter
+	filterConfig *FilterConfig
 }
 
-func NewFilterAPI(tmClient rpcclient.Client) *FilterAPI {
+type FilterConfig struct {
+	timeout time.Duration
+}
+
+func NewFilterAPI(tmClient rpcclient.Client, filterConfig *FilterConfig) *FilterAPI {
 	filters := make(map[uint64]filter)
-	return &FilterAPI{tmClient: tmClient, nextFilterID: 1, filters: filters}
+	api := &FilterAPI{
+		tmClient:     tmClient,
+		nextFilterID: 1,
+		filtersMu:    sync.Mutex{},
+		filters:      filters,
+		filterConfig: filterConfig,
+	}
+
+	go api.timeoutLoop(filterConfig.timeout)
+
+	return api
+}
+
+func (a *FilterAPI) timeoutLoop(timeout time.Duration) {
+	ticker := time.NewTicker(timeout)
+	defer ticker.Stop()
+	for {
+		<-ticker.C
+		a.filtersMu.Lock()
+		for id, filter := range a.filters {
+			select {
+			case <-filter.deadline.C:
+				delete(a.filters, id)
+			default:
+				continue
+			}
+		}
+		a.filtersMu.Unlock()
+	}
 }
 
 func (a *FilterAPI) NewFilter(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) (*uint64, error) {
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
 	curFilterID := a.nextFilterID
 	a.nextFilterID++
-	a.filters[curFilterID] = filter{crit, make(map[common.Address]string)}
+	a.filters[curFilterID] = filter{
+		fc:       crit,
+		deadline: time.NewTimer(a.filterConfig.timeout),
+		cursors:  make(map[common.Address]string),
+	}
 	return &curFilterID, nil
 }
 
@@ -44,17 +87,29 @@ func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID uint64,
 ) ([]*ethtypes.Log, error) {
+	a.filtersMu.Lock()
 	filter, ok := a.filters[filterID]
+	a.filtersMu.Unlock()
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
+
+	if !filter.deadline.Stop() {
+		// timer expired but filter is not yet removed in timeout loop
+		// receive timer value and reset timer
+		<-filter.deadline.C
+	}
+	filter.deadline.Reset(a.filterConfig.timeout)
+
 	res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, filter.cursors)
 	if err != nil {
 		return nil, err
 	}
+	a.filtersMu.Lock()
 	updatedFilter := a.filters[filterID]
 	updatedFilter.cursors = cursors
 	a.filters[filterID] = updatedFilter
+	a.filtersMu.Unlock()
 	return res, nil
 }
 
@@ -62,18 +117,30 @@ func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
 	filterID uint64,
 ) ([]*ethtypes.Log, error) {
+	a.filtersMu.Lock()
 	filter, ok := a.filters[filterID]
+	a.filtersMu.Unlock()
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
+
+	if !filter.deadline.Stop() {
+		// timer expired but filter is not yet removed in timeout loop
+		// receive timer value and reset timer
+		<-filter.deadline.C
+	}
+	filter.deadline.Reset(a.filterConfig.timeout)
+
 	noCursors := make(map[common.Address]string)
 	res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, noCursors)
 	if err != nil {
 		return nil, err
 	}
+	a.filtersMu.Lock()
 	updatedFilter := a.filters[filterID]
 	updatedFilter.cursors = cursors
 	a.filters[filterID] = updatedFilter
+	a.filtersMu.Unlock()
 	return res, nil
 }
 
@@ -190,6 +257,8 @@ func (a *FilterAPI) UninstallFilter(
 	ctx context.Context,
 	filterID uint64,
 ) (bool, error) {
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
 	_, found := a.filters[filterID]
 	if !found {
 		return false, nil

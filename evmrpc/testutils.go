@@ -48,6 +48,9 @@ var Tx sdk.Tx
 
 var SConfig = SimulateConfig{GasCap: 10000000}
 
+var filterTimeoutDuration = 500 * time.Millisecond
+var FConfig = FilterConfig{timeout: filterTimeoutDuration}
+
 type MockClient struct {
 	mock.Client
 }
@@ -224,14 +227,14 @@ var Ctx sdk.Context
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	EVMKeeper, _, Ctx = keeper.MockEVMKeeper()
-	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig)
+	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig, &FConfig)
 	if err != nil {
 		panic(err)
 	}
 	if err := httpServer.Start(); err != nil {
 		panic(err)
 	}
-	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig)
+	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig, &FConfig)
 	if err != nil {
 		panic(err)
 	}
