@@ -353,8 +353,8 @@ func TestRlogIndexConversion(t *testing.T) {
 		{2, 11, 10},
 	}
 	for _, tc := range testCases {
-		require.Equal(t, tc.index, versionToIndex(tc.version, tc.initialVersion))
-		require.Equal(t, tc.version, indexToVersion(tc.index, tc.initialVersion))
+		require.Equal(t, tc.index, utils.VersionToIndex(tc.version, tc.initialVersion))
+		require.Equal(t, tc.version, utils.IndexToVersion(tc.index, tc.initialVersion))
 	}
 }
 

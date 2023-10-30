@@ -12,7 +12,7 @@ import (
 	"github.com/linxGnu/grocksdb"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/ss"
+	sstypes "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/sei-protocol/sei-db/ss/util"
 	"golang.org/x/exp/slices"
 )
@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	_ ss.StateStore = (*Database)(nil)
+	_ sstypes.StateStore = (*Database)(nil)
 
 	defaultWriteOpts = grocksdb.NewDefaultWriteOptions()
 	defaultReadOpts  = grocksdb.NewDefaultReadOptions()
@@ -219,7 +219,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return NewRocksDBIterator(itr, prefix, start, end, true), nil
 }
 
-func (db *Database) Import(version int64, ch <-chan ss.ImportEntry) error {
+func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
 	panic("Not Implemented")
 }
 

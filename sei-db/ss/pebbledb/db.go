@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"math"
 
-	"golang.org/x/exp/slices"
-
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/ss"
+	sstypes "github.com/sei-protocol/sei-db/ss/types"
+	"golang.org/x/exp/slices"
 )
 
 const (
@@ -26,7 +25,7 @@ const (
 )
 
 var (
-	_ ss.StateStore = (*Database)(nil)
+	_ sstypes.StateStore = (*Database)(nil)
 
 	defaultWriteOpts = pebble.NoSync
 )
@@ -219,7 +218,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	panic("not implemented!")
 }
 
-func (db *Database) Import(version int64, ch <-chan ss.ImportEntry) error {
+func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
 	panic("Not Implemented")
 }
 

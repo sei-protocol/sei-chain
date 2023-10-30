@@ -22,7 +22,6 @@ linters:
     - ineffassign
     - misspell
     - nakedret
-    - prealloc
     - staticcheck
     # - structcheck ## author abandoned project
     - stylecheck

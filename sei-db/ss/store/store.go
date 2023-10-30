@@ -1,4 +1,4 @@
-package ss
+package store
 
 import (
 	"io"
@@ -9,6 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	sstypes "github.com/sei-protocol/sei-db/ss/types"
 )
 
 const StoreTypeSeiStateStore = 100
@@ -17,12 +18,12 @@ var _ types.KVStore = (*Store)(nil)
 
 // Store wraps a SS store and implements a cosmos KVStore
 type Store struct {
-	store    StateStore
+	store    sstypes.StateStore
 	storeKey types.StoreKey
 	version  int64
 }
 
-func NewKVStore(store StateStore, storeKey types.StoreKey, version int64) *Store {
+func NewKVStore(store sstypes.StateStore, storeKey types.StoreKey, version int64) *Store {
 	return &Store{store, storeKey, version}
 }
 
@@ -60,11 +61,11 @@ func (st *Store) Has(key []byte) bool {
 	return has
 }
 
-func (st *Store) Set(key, value []byte) {
+func (st *Store) Set(_, _ []byte) {
 	panic("write operation is not supported")
 }
 
-func (st *Store) Delete(key []byte) {
+func (st *Store) Delete(_ []byte) {
 	panic("write operation is not supported")
 }
 

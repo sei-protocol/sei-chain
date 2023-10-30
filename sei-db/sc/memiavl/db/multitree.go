@@ -12,7 +12,7 @@ import (
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/stream/rlog"
+	"github.com/sei-protocol/sei-db/stream/types"
 	"golang.org/x/exp/slices"
 )
 
@@ -186,7 +186,7 @@ func (t *MultiTree) LastCommitInfo() *proto.CommitInfo {
 	return &t.lastCommitInfo
 }
 
-func (t *MultiTree) applyRlogEntry(entry proto.ReplayLogEntry) error {
+func (t *MultiTree) apply(entry proto.ChangelogEntry) error {
 	if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 		return err
 	}
@@ -224,7 +224,7 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 			t.trees[i].Name = upgrade.Name
 		default:
 			// add tree
-			tree := NewWithInitialVersion(uint32(nextVersion(t.Version(), t.initialVersion)), t.cacheSize)
+			tree := NewWithInitialVersion(uint32(utils.NextVersion(t.Version(), t.initialVersion)), t.cacheSize)
 			t.trees = append(t.trees, NamedTree{Tree: tree, Name: upgrade.Name})
 		}
 	}
@@ -265,13 +265,13 @@ func (t *MultiTree) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
 
 // WorkingCommitInfo returns the commit info for the working tree
 func (t *MultiTree) WorkingCommitInfo() *proto.CommitInfo {
-	version := nextVersion(t.lastCommitInfo.Version, t.initialVersion)
+	version := utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
 	return t.buildCommitInfo(version)
 }
 
 // SaveVersion bumps the versions of all the stores and optionally returns the new app hash
 func (t *MultiTree) SaveVersion(updateCommitInfo bool) (int64, error) {
-	t.lastCommitInfo.Version = nextVersion(t.lastCommitInfo.Version, t.initialVersion)
+	t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
 	for _, entry := range t.trees {
 		if _, _, err := entry.Tree.SaveVersion(updateCommitInfo); err != nil {
 			return 0, err
@@ -313,13 +313,13 @@ func (t *MultiTree) UpdateCommitInfo() {
 }
 
 // Catchup replay the new entries in the Rlog file on the tree to catch up to the target or latest version.
-func (t *MultiTree) Catchup(rlogManager *rlog.Manager, endVersion int64) error {
-	lastIndex, err := rlogManager.LastIndex()
+func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersion int64) error {
+	lastIndex, err := stream.LastOffset()
 	if err != nil {
 		return fmt.Errorf("read rlog last index failed, %w", err)
 	}
 
-	firstIndex := versionToIndex(nextVersion(t.Version(), t.initialVersion), t.initialVersion)
+	firstIndex := utils.VersionToIndex(utils.NextVersion(t.Version(), t.initialVersion), t.initialVersion)
 	if firstIndex > lastIndex {
 		// already up-to-date
 		return nil
@@ -327,7 +327,7 @@ func (t *MultiTree) Catchup(rlogManager *rlog.Manager, endVersion int64) error {
 
 	endIndex := lastIndex
 	if endVersion != 0 {
-		endIndex = versionToIndex(endVersion, t.initialVersion)
+		endIndex = utils.VersionToIndex(endVersion, t.initialVersion)
 	}
 
 	if endIndex < firstIndex {
@@ -338,8 +338,8 @@ func (t *MultiTree) Catchup(rlogManager *rlog.Manager, endVersion int64) error {
 		return fmt.Errorf("target index %d is in the future, latest index: %d", endIndex, lastIndex)
 	}
 
-	err = rlogManager.Reader().Replay(firstIndex, endIndex, func(index uint64, entry proto.ReplayLogEntry) error {
-		if err := t.applyRlogEntry(entry); err != nil {
+	err = stream.Replay(firstIndex, endIndex, func(index uint64, entry proto.ChangelogEntry) error {
+		if err := t.apply(entry); err != nil {
 			return fmt.Errorf("apply rlog entry failed, %w", err)
 		}
 		if _, err := t.SaveVersion(false); err != nil {
@@ -411,29 +411,6 @@ func (t *MultiTree) Close() error {
 	t.treesByName = nil
 	t.lastCommitInfo = proto.CommitInfo{}
 	return utils.Join(errs...)
-}
-
-func nextVersion(v int64, initialVersion uint32) int64 {
-	if v == 0 && initialVersion > 1 {
-		return int64(initialVersion)
-	}
-	return v + 1
-}
-
-// indexToVersion converts version to rlog index based on initial version
-func versionToIndex(version int64, initialVersion uint32) uint64 {
-	if initialVersion > 1 {
-		return uint64(version) - uint64(initialVersion) + 1
-	}
-	return uint64(version)
-}
-
-// indexToVersion converts rlog index to version, reverse of versionToIndex
-func indexToVersion(index uint64, initialVersion uint32) int64 {
-	if initialVersion > 1 {
-		return int64(index) + int64(initialVersion) - 1
-	}
-	return int64(index)
 }
 
 func readMetadata(dir string) (*proto.MultiTreeMetadata, error) {

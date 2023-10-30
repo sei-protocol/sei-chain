@@ -17,8 +17,9 @@ type StateCommitConfig struct {
 	// defaults to false.
 	ZeroCopy bool `mapstructure:"zero-copy"`
 
-	// AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
-	// performance, -1 or 0 means synchronous commit.
+	// AsyncCommitBuffer defines the size of asynchronous commit queue
+	// this greatly improve block catching-up performance, <= 0 means synchronous commit.
+	// defaults to 100
 	AsyncCommitBuffer int `mapstructure:"async-commit-buffer"`
 
 	// SnapshotKeepRecent defines what many old snapshots (excluding the latest one) to keep
@@ -43,10 +44,10 @@ type StateStoreConfig struct {
 	// defaults to pebbledb
 	Backend string `mapstructure:"backend"`
 
-	// AsyncFlush defines if committing the block should also wait for the data to be persisted in the StateStore.
-	// If true, data will be written to StateStore in async manner to reduce latency.
-	// defaults to true
-	AsyncFlush bool `mapstructure:"async-flush"`
+	// AsyncWriteBuffer defines the async queue length for commits to be applied to State Store
+	// Set <= 0 for synchronous writes, which means commits also need to wait for data to be persisted in State Store.
+	// defaults to 100
+	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {
@@ -60,7 +61,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 
 func DefaultStateStoreConfig() StateStoreConfig {
 	return StateStoreConfig{
-		Backend:    "pebbledb",
-		AsyncFlush: true,
+		Backend:          "pebbledb",
+		AsyncWriteBuffer: 100,
 	}
 }

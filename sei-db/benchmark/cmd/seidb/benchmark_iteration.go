@@ -1,12 +1,10 @@
-//go:build rocksdbBackend
-// +build rocksdbBackend
-
 package main
 
 import (
 	"fmt"
 
 	"github.com/sei-protocol/sei-db/benchmark/dbbackend"
+	"github.com/sei-protocol/sei-db/ss"
 	"github.com/spf13/cobra"
 )
 
@@ -57,15 +55,15 @@ func benchmarkForwardIteration(cmd *cobra.Command, args []string) {
 	BenchmarkDBIteration(rawKVInputDir, numVersions, outputDir, dbBackend, concurrency, maxOps, iterationSteps)
 }
 
-// Benchmark read latencies and throughput of db backend
+// BenchmarkDBIteration read latencies and throughput of db backend
 func BenchmarkDBIteration(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64, iterationSteps int) {
 	// Iterate over db at directory
 	fmt.Printf("Iterating Over DB at  %s\n", outputDir)
 
-	if dbBackend == RocksDBBackendName {
-		backend := dbbackend.RocksDBBackend{}
-		backend.BenchmarkDBForwardIteration(inputKVDir, numVersions, outputDir, concurrency, maxOps, iterationSteps)
+	backend, err := ss.NewStateStoreDB(outputDir, ss.BackendType(dbBackend))
+	if err != nil {
+		panic(err)
 	}
-
-	return
+	dbbackend.BenchmarkDBForwardIteration(backend, inputKVDir, numVersions, concurrency, maxOps, iterationSteps)
+	backend.Close()
 }

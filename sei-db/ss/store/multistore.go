@@ -1,4 +1,4 @@
-package ss
+package store
 
 import (
 	"io"
@@ -9,6 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/transient"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/cachemulti"
+	sstypes "github.com/sei-protocol/sei-db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -16,7 +17,7 @@ var _ types.MultiStore = (*MultiStore)(nil)
 
 // MultiStore wraps `StateStore` to implement `MultiStore` interface.
 type MultiStore struct {
-	stateStore StateStore
+	stateStore sstypes.StateStore
 	storeKeys  []types.StoreKey
 
 	// transient or memory stores
@@ -28,7 +29,7 @@ type MultiStore struct {
 }
 
 // NewMultiStore returns a new state store `MultiStore`.
-func NewMultiStore(store StateStore, storeKeys []types.StoreKey) *MultiStore {
+func NewMultiStore(store sstypes.StateStore, storeKeys []types.StoreKey) *MultiStore {
 	return &MultiStore{
 		stateStore:      store,
 		storeKeys:       storeKeys,
@@ -129,11 +130,11 @@ func (s *MultiStore) MountMemoryStores(keys map[string]*types.MemoryStoreKey) {
 	}
 }
 
-func (s *MultiStore) ListeningEnabled(key types.StoreKey) bool {
+func (s *MultiStore) ListeningEnabled(_ types.StoreKey) bool {
 	return false
 }
 
-func (s *MultiStore) AddListeners(key types.StoreKey, listeners []types.WriteListener) {
+func (s *MultiStore) AddListeners(_ types.StoreKey, _ []types.WriteListener) {
 	panic("not supported")
 }
 

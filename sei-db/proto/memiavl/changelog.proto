@@ -16,15 +16,9 @@ message NamedChangeSet {
 // - Delete tree: { name: "tree", delete: true }
 // - Rename tree: { name: "new-tree", rename_from: "old-tree" }
 message TreeNameUpgrade {
-  string name        = 1;
-  string rename_from = 2;
-  bool delete        = 3;
-}
-
-// ReplayEntry is a single Replay-Log entry
-message ReplayLogEntry {
-  repeated NamedChangeSet  changesets = 1;
-  repeated TreeNameUpgrade upgrades   = 2;
+  string name          = 1;
+  string rename_from   = 2;
+  bool   delete        = 3;
 }
 
 // MultiTreeMetadata stores the metadata for MultiTree
@@ -32,3 +26,12 @@ message MultiTreeMetadata {
   CommitInfo commit_info     = 1;
   int64      initial_version = 2;
 }
+
+// ChangelogEntry is a single entry in the changelog
+message ChangelogEntry {
+  int64    version                    = 1;
+  repeated NamedChangeSet  changesets = 2;
+  repeated TreeNameUpgrade upgrades   = 3;
+}
+
+
