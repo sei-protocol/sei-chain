@@ -224,33 +224,28 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 
 // Import loads the initial version of the state
 func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
-	batch := grocksdb.NewWriteBatch()
-	defer batch.Destroy()
-
-	var ts [TimestampSize]byte
-	binary.LittleEndian.PutUint64(ts[:], uint64(version))
+	batch := NewBatch(db, version)
 
 	var counter int
 	for entry := range ch {
-		key := cloneAppend(storePrefix(entry.StoreKey), entry.Key)
-		batch.PutCFWithTS(db.cfHandle, key, ts[:], entry.Value)
+		batch.Set(entry.StoreKey, entry.Key, entry.Value)
 
 		counter++
 		if counter%ImportCommitBatchSize == 0 {
-			if err := db.storage.Write(defaultWriteOpts, batch); err != nil {
+			if err := batch.Write(); err != nil {
 				return err
 			}
-			batch.Clear()
+			batch = NewBatch(db, version)
 		}
 	}
 
-	if batch.Count() > 0 {
-		if err := db.storage.Write(defaultWriteOpts, batch); err != nil {
+	if batch.Size() > 0 {
+		if err := batch.Write(); err != nil {
 			return err
 		}
 	}
 
-	return db.SetLatestVersion(version)
+	return nil
 }
 
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.
