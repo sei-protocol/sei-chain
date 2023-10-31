@@ -2,9 +2,11 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -68,8 +70,45 @@ func (q *QueryBuilder) FilterTopic(topic string) *QueryBuilder {
 	return q
 }
 
+func (q *QueryBuilder) FilterTopics(topics [][]string) *QueryBuilder {
+	if len(topics) == 0 {
+		return q
+	}
+	pattern, err := getTopicsRegex(topics)
+	if err != nil {
+		panic(err)
+	}
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = MATCHES '%s'", types.EventTypeEVMLog, types.AttributeTypeTopics, pattern))
+	return q
+}
+
+func getTopicsRegex(topics [][]string) (string, error) {
+	if len(topics) == 0 {
+		return "", errors.New("topics array must be at least length 1")
+	}
+
+	topicRegex := func(topic []string) string {
+		if len(topic) == 0 {
+			return ""
+		}
+		return fmt.Sprintf("(%s)", strings.Join(topic, "|"))
+	}
+
+	return fmt.Sprintf("\\[%s.*\\]", strings.Join(utils.Map(topics, topicRegex), "[^\\,]*,")), nil
+}
+
 func (q *QueryBuilder) FilterBlockNumber(blockNumber int64) *QueryBuilder {
 	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = '%d'", types.EventTypeEVMLog, types.AttributeTypeBlockNumber, blockNumber))
+	return q
+}
+
+func (q *QueryBuilder) FilterBlockNumberStart(blockNumber int64) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s >= '%d'", types.EventTypeEVMLog, types.AttributeTypeBlockNumber, blockNumber))
+	return q
+}
+
+func (q *QueryBuilder) FilterBlockNumberEnd(blockNumber int64) *QueryBuilder {
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s <= '%d'", types.EventTypeEVMLog, types.AttributeTypeBlockNumber, blockNumber))
 	return q
 }
 

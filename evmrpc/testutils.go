@@ -9,6 +9,8 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +49,9 @@ var Decoder = TxConfig.TxDecoder()
 var Tx sdk.Tx
 
 var SConfig = SimulateConfig{GasCap: 10000000}
+
+var filterTimeoutDuration = 500 * time.Millisecond
+var FConfig = FilterConfig{timeout: filterTimeoutDuration}
 
 type MockClient struct {
 	mock.Client
@@ -93,6 +98,7 @@ func (c *MockClient) BlockByHash(context.Context, bytes.HexBytes) (*coretypes.Re
 }
 
 func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlockResults, error) {
+	abciEvent := NewABCIEventBuilder().SetBlockNum(8).Build()
 	return &coretypes.ResultBlockResults{
 		TxsResults: []*abci.ExecTxResult{
 			{
@@ -102,37 +108,9 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 				}(),
 				GasWanted: 10,
 				GasUsed:   5,
-				Events: []abci.Event{{
-					Type: types.EventTypeEVMLog,
-					Attributes: []abci.EventAttribute{{
-						Key:   []byte(types.AttributeTypeContractAddress),
-						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111"),
-					}, {
-						Key:   []byte(types.AttributeTypeBlockHash),
-						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111"),
-					}, {
-						Key:   []byte(types.AttributeTypeBlockNumber),
-						Value: []byte("8"),
-					}, {
-						Key:   []byte(types.AttributeTypeData),
-						Value: []byte("xyz"),
-					}, {
-						Key:   []byte(types.AttributeTypeIndex),
-						Value: []byte("1"),
-					}, {
-						Key:   []byte(types.AttributeTypeTxIndex),
-						Value: []byte("2"),
-					}, {
-						Key:   []byte(types.AttributeTypeRemoved),
-						Value: []byte("true"),
-					}, {
-						Key:   []byte(types.AttributeTypeTopics),
-						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111111,0x1111111111111111111111111111111111111111111111111111111111111112"),
-					}, {
-						Key:   []byte(types.AttributeTypeTxHash),
-						Value: []byte("0x1111111111111111111111111111111111111111111111111111111111111113"),
-					}},
-				}},
+				Events: []abci.Event{
+					abciEvent,
+				},
 			},
 		},
 	}, nil
@@ -140,6 +118,81 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 
 func (c *MockClient) Subscribe(context.Context, string, string, ...int) (<-chan coretypes.ResultEvent, error) {
 	return make(chan coretypes.ResultEvent, 1), nil
+}
+
+func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
+	eb := NewABCIEventBuilder()
+
+	// assume cursor is block number for testing purposes
+	var cursor string
+	if req.After != "" {
+		cursorAfter, err := strconv.Atoi(req.After)
+		if err != nil {
+			panic("invalid cursor")
+		}
+		nextBlockNum := cursorAfter + 1
+		eb = eb.SetBlockNum(nextBlockNum)
+		cursor = strconv.FormatInt(int64(nextBlockNum), 10)
+	} else {
+		var startBlock int
+		re := regexp.MustCompile(`evm_log.block_number >= '(\d+?)'`)
+		matches := re.FindStringSubmatch(req.Filter.Query)
+		if len(matches) == 2 {
+			var err error
+			startBlock, err = strconv.Atoi(matches[1])
+			if err != nil {
+				return nil, err
+			}
+			eb = eb.SetBlockNum(startBlock)
+			cursor = strconv.FormatInt(int64(startBlock), 10)
+		}
+	}
+
+	var blockHash string
+	re := regexp.MustCompile(`evm_log.block_hash = '(.+?)'`)
+	matches := re.FindStringSubmatch(req.Filter.Query)
+	if len(matches) == 2 {
+		blockHash = matches[1]
+		eb = eb.SetBlockHash(blockHash)
+	}
+
+	var contractAddress string
+	re = regexp.MustCompile(`evm_log.contract_address = '(.+?)'.*`)
+	matches = re.FindStringSubmatch(req.Filter.Query)
+	if len(matches) == 2 {
+		contractAddress = matches[1]
+		eb = eb.SetContractAddress(contractAddress)
+	}
+
+	// hardcode topic matches to match up with tests since doing the regex is too complicated
+	if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
+		eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123"})
+	} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123)[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
+		eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
+	} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
+		eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
+	}
+
+	return buildSingleResultEvent(eb.Build(), false, cursor, "event"), nil
+}
+
+func buildSingleResultEvent(abciEvent abci.Event, more bool, cursor string, event string) *coretypes.ResultEvents {
+	eventData, err := json.Marshal(abciEvent)
+	if err != nil {
+		panic(err)
+	}
+	return &coretypes.ResultEvents{
+		Items: []*coretypes.EventItem{
+			{
+				Cursor: cursor,
+				Event:  event,
+				Data:   eventData,
+			},
+		},
+		More:   more,
+		Oldest: cursor,
+		Newest: cursor,
+	}
 }
 
 func (c *MockClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
@@ -176,14 +229,14 @@ var Ctx sdk.Context
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	EVMKeeper, _, Ctx = keeper.MockEVMKeeper()
-	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig)
+	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig, &FConfig)
 	if err != nil {
 		panic(err)
 	}
 	if err := httpServer.Start(); err != nil {
 		panic(err)
 	}
-	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig)
+	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig, &FConfig)
 	if err != nil {
 		panic(err)
 	}
@@ -306,6 +359,27 @@ func formatParam(p interface{}) string {
 		return fmt.Sprintf("%f", v)
 	case string:
 		return fmt.Sprintf("\"%s\"", v)
+	case common.Address:
+		return fmt.Sprintf("\"%s\"", v)
+	case []common.Address:
+		wrapper := func(i common.Address) string {
+			return formatParam(i)
+		}
+		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, wrapper), ","))
+	case common.Hash:
+		return fmt.Sprintf("\"%s\"", v)
+	case []common.Hash:
+		wrapper := func(i common.Hash) string {
+			return formatParam(i)
+		}
+		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, wrapper), ","))
+	case [][]common.Hash:
+		wrapper := func(i []common.Hash) string {
+			return formatParam(i)
+		}
+		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, wrapper), ","))
+	case []string:
+		return fmt.Sprintf("[%s]", strings.Join(v, ","))
 	case []interface{}:
 		return fmt.Sprintf("[%s]", strings.Join(utils.Map(v, formatParam), ","))
 	case map[string]interface{}:
@@ -315,6 +389,111 @@ func formatParam(p interface{}) string {
 		}
 		return fmt.Sprintf("{%s}", strings.Join(kvs, ","))
 	default:
-		return fmt.Sprintf("%s", p)
+		panic("did not match on type")
+	}
+}
+
+type ABCIEventBuilder struct {
+	contractAddress string
+	blockHash       string
+	blockNum        int
+	data            string
+	index           int
+	txIndex         int
+	removed         bool
+	topics          []string
+	txHash          common.Hash
+}
+
+func NewABCIEventBuilder() *ABCIEventBuilder {
+	return &ABCIEventBuilder{
+		contractAddress: "0x1111111111111111111111111111111111111111111111111111111111111111",
+		blockHash:       "0x1111111111111111111111111111111111111111111111111111111111111111",
+		blockNum:        8,
+		data:            "xyz",
+		index:           1,
+		txIndex:         2,
+		removed:         true,
+		topics:          []string{"0x1111111111111111111111111111111111111111111111111111111111111111,0x1111111111111111111111111111111111111111111111111111111111111112"},
+		txHash:          common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111113"),
+	}
+}
+
+func (b *ABCIEventBuilder) SetContractAddress(contractAddress string) *ABCIEventBuilder {
+	b.contractAddress = contractAddress
+	return b
+}
+
+func (b *ABCIEventBuilder) SetBlockHash(blockHash string) *ABCIEventBuilder {
+	b.blockHash = blockHash
+	return b
+}
+
+func (b *ABCIEventBuilder) SetBlockNum(blockNum int) *ABCIEventBuilder {
+	b.blockNum = blockNum
+	return b
+}
+
+func (b *ABCIEventBuilder) SetData(data string) *ABCIEventBuilder {
+	b.data = data
+	return b
+}
+
+func (b *ABCIEventBuilder) SetIndex(index int) *ABCIEventBuilder {
+	b.index = index
+	return b
+}
+
+func (b *ABCIEventBuilder) SetTxIndex(txIndex int) *ABCIEventBuilder {
+	b.txIndex = txIndex
+	return b
+}
+
+func (b *ABCIEventBuilder) SetRemoved(removed bool) *ABCIEventBuilder {
+	b.removed = removed
+	return b
+}
+
+func (b *ABCIEventBuilder) SetTopics(topics []string) *ABCIEventBuilder {
+	b.topics = topics
+	return b
+}
+
+func (b *ABCIEventBuilder) SetTxHash(txHash common.Hash) *ABCIEventBuilder {
+	b.txHash = txHash
+	return b
+}
+
+func (b *ABCIEventBuilder) Build() abci.Event {
+	return abci.Event{
+		Type: types.EventTypeEVMLog,
+		Attributes: []abci.EventAttribute{{
+			Key:   []byte(types.AttributeTypeContractAddress),
+			Value: []byte(b.contractAddress),
+		}, {
+			Key:   []byte(types.AttributeTypeBlockHash),
+			Value: []byte(b.blockHash),
+		}, {
+			Key:   []byte(types.AttributeTypeBlockNumber),
+			Value: []byte(fmt.Sprintf("%d", b.blockNum)),
+		}, {
+			Key:   []byte(types.AttributeTypeData),
+			Value: []byte(b.data),
+		}, {
+			Key:   []byte(types.AttributeTypeIndex),
+			Value: []byte(fmt.Sprintf("%d", b.index)),
+		}, {
+			Key:   []byte(types.AttributeTypeTxIndex),
+			Value: []byte(fmt.Sprintf("%d", b.txIndex)),
+		}, {
+			Key:   []byte(types.AttributeTypeRemoved),
+			Value: []byte(fmt.Sprintf("%t", b.removed)),
+		}, {
+			Key:   []byte(types.AttributeTypeTopics),
+			Value: []byte(strings.Join(b.topics, ",")),
+		}, {
+			Key:   []byte(types.AttributeTypeTxHash),
+			Value: []byte(b.txHash.Hex()),
+		}},
 	}
 }
