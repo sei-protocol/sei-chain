@@ -116,7 +116,7 @@ func execute(cmd *cobra.Command, args []string) {
 
 // processBlock processes a single block to find missing transactions
 func processBlock(height int64) (bool, error) {
-	if height%10000 == 0 {
+	if height%1000 == 0 {
 		fmt.Printf("Processing block height %d\n", height)
 	}
 	// Query the block to get the number of TXs
