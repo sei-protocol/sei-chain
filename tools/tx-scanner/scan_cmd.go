@@ -15,7 +15,7 @@ import (
 
 func ScanCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "scan",
+		Use:   "scan-tx",
 		Short: "A tool to scan missing transactions",
 		Run:   execute,
 	}

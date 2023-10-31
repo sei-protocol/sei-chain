@@ -22,29 +22,26 @@ func InitializeGRPCClient(targetEndpoint string, port int) {
 		grpc.MaxCallSendMsgSize(20*1024*1024)),
 	)
 	dialOptions = append(dialOptions, grpc.WithBlock())
-
+	if GrpcConn == nil {
+		grpcConn, err := grpc.Dial(
+			fmt.Sprintf("%s:%d", targetEndpoint, port),
+			dialOptions...,
+		)
+		if err != nil {
+			fmt.Printf("Failed to connect to %s:%d: %s\n", targetEndpoint, port, err.Error())
+		}
+		GrpcConn = grpcConn
+	}
 	go func() {
 		for {
-			if GrpcConn == nil {
-				grpcConn, err := grpc.Dial(
-					fmt.Sprintf("%s:%d", targetEndpoint, port),
-					dialOptions...,
-				)
-				if err != nil {
-					fmt.Printf("Failed to connect to %s:%d: %s\n", targetEndpoint, port, err.Error())
-				} else {
-					GrpcConn = grpcConn
-				}
-			} else {
-				state := GrpcConn.GetState()
-				if state == connectivity.TransientFailure || state == connectivity.Shutdown {
-					fmt.Println("GRPC Connection lost, attempting to reconnect...")
-					for {
-						if GrpcConn.WaitForStateChange(context.Background(), state) {
-							break
-						}
-						time.Sleep(30 * time.Second)
+			state := GrpcConn.GetState()
+			if state == connectivity.TransientFailure || state == connectivity.Shutdown {
+				fmt.Println("GRPC Connection lost, attempting to reconnect...")
+				for {
+					if GrpcConn.WaitForStateChange(context.Background(), state) {
+						break
 					}
+					time.Sleep(30 * time.Second)
 				}
 			}
 			time.Sleep(10 * time.Second)
