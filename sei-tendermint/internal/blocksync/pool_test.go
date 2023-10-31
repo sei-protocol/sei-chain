@@ -2,16 +2,20 @@ package blocksync
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/tendermint/tendermint/internal/p2p"
+	dbm "github.com/tendermint/tm-db"
 	mrand "math/rand"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/tendermint/tendermint/libs/log"
-	tmrand "github.com/tendermint/tendermint/libs/rand"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -24,6 +28,7 @@ type testPeer struct {
 	base      int64
 	height    int64
 	inputChan chan inputData // make sure each peer's data is sequential
+	score     p2p.PeerScore
 }
 
 type inputData struct {
@@ -70,17 +75,42 @@ func (ps testPeers) stop() {
 func makePeers(numPeers int, minHeight, maxHeight int64) testPeers {
 	peers := make(testPeers, numPeers)
 	for i := 0; i < numPeers; i++ {
-		peerID := types.NodeID(tmrand.Str(12))
+		bytes := make([]byte, 20)
+		if _, err := rand.Read(bytes); err != nil {
+			panic(err)
+		}
+		peerID := types.NodeID(hex.EncodeToString(bytes))
 		height := minHeight + mrand.Int63n(maxHeight-minHeight)
 		base := minHeight + int64(i)
 		if base > height {
 			base = height
 		}
-		peers[peerID] = testPeer{peerID, base, height, make(chan inputData, 10)}
+		peers[peerID] = testPeer{peerID, base, height, make(chan inputData, 10), 1}
 	}
 	return peers
 }
 
+func makePeerManager(peers map[types.NodeID]testPeer) *p2p.PeerManager {
+	selfKey := ed25519.GenPrivKeyFromSecret([]byte{0xf9, 0x1b, 0x08, 0xaa, 0x38, 0xee, 0x34, 0xdd})
+	selfID := types.NodeIDFromPubKey(selfKey.PubKey())
+	peerScores := make(map[types.NodeID]p2p.PeerScore)
+	for nodeId, peer := range peers {
+		peerScores[nodeId] = peer.score
+
+	}
+	peerManager, _ := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+		PeerScores:          peerScores,
+		MaxConnected:        1,
+		MaxConnectedUpgrade: 2,
+	}, p2p.NopMetrics())
+	for nodeId, _ := range peers {
+		_, err := peerManager.Add(p2p.NodeAddress{Protocol: "memory", NodeID: nodeId})
+		if err != nil {
+			panic(err)
+		}
+	}
+	return peerManager
+}
 func TestBlockPoolBasic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -89,7 +119,7 @@ func TestBlockPoolBasic(t *testing.T) {
 	peers := makePeers(10, start+1, 1000)
 	errorsCh := make(chan peerError, 1000)
 	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(log.NewNopLogger(), start, requestsCh, errorsCh)
+	pool := NewBlockPool(log.NewNopLogger(), start, requestsCh, errorsCh, makePeerManager(peers))
 
 	if err := pool.Start(ctx); err != nil {
 		t.Error(err)
@@ -147,7 +177,7 @@ func TestBlockPoolTimeout(t *testing.T) {
 	peers := makePeers(10, start+1, 1000)
 	errorsCh := make(chan peerError, 1000)
 	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(logger, start, requestsCh, errorsCh)
+	pool := NewBlockPool(logger, start, requestsCh, errorsCh, makePeerManager(peers))
 	err := pool.Start(ctx)
 	if err != nil {
 		t.Error(err)
@@ -203,14 +233,19 @@ func TestBlockPoolRemovePeer(t *testing.T) {
 
 	peers := make(testPeers, 10)
 	for i := 0; i < 10; i++ {
-		peerID := types.NodeID(fmt.Sprintf("%d", i+1))
+		var peerID types.NodeID
+		if i+1 == 10 {
+			peerID = types.NodeID(strings.Repeat(fmt.Sprintf("%d", i+1), 20))
+		} else {
+			peerID = types.NodeID(strings.Repeat(fmt.Sprintf("%d", i+1), 40))
+		}
 		height := int64(i + 1)
-		peers[peerID] = testPeer{peerID, 0, height, make(chan inputData)}
+		peers[peerID] = testPeer{peerID, 0, height, make(chan inputData), 1}
 	}
 	requestsCh := make(chan BlockRequest)
 	errorsCh := make(chan peerError)
 
-	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh)
+	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makePeerManager(peers))
 	err := pool.Start(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() { cancel(); pool.Wait() })
@@ -225,7 +260,7 @@ func TestBlockPoolRemovePeer(t *testing.T) {
 	assert.NotPanics(t, func() { pool.RemovePeer(types.NodeID("Superman")) })
 
 	// remove peer with biggest height
-	pool.RemovePeer(types.NodeID("10"))
+	pool.RemovePeer(types.NodeID(strings.Repeat("10", 20)))
 	assert.EqualValues(t, 9, pool.MaxPeerHeight())
 
 	// remove all peers
@@ -234,4 +269,25 @@ func TestBlockPoolRemovePeer(t *testing.T) {
 	}
 
 	assert.EqualValues(t, 0, pool.MaxPeerHeight())
+}
+
+func TestSortedPeers(t *testing.T) {
+	peers := make(testPeers, 10)
+	peerIdA := types.NodeID(strings.Repeat("a", 40))
+	peerIdB := types.NodeID(strings.Repeat("b", 40))
+	peerIdC := types.NodeID(strings.Repeat("c", 40))
+
+	peers[peerIdA] = testPeer{peerIdA, 0, 1, make(chan inputData), 11}
+	peers[peerIdB] = testPeer{peerIdA, 0, 1, make(chan inputData), 10}
+	peers[peerIdC] = testPeer{peerIdA, 0, 1, make(chan inputData), 13}
+
+	requestsCh := make(chan BlockRequest)
+	errorsCh := make(chan peerError)
+	pool := NewBlockPool(log.NewNopLogger(), 1, requestsCh, errorsCh, makePeerManager(peers))
+	// add peers
+	for peerID, peer := range peers {
+		pool.SetPeerRange(peerID, peer.base, peer.height)
+	}
+	// Peers should be sorted by score via peerManager
+	assert.Equal(t, []types.NodeID{peerIdC, peerIdA, peerIdB}, pool.getSortedPeers(pool.peers))
 }

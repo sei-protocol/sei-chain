@@ -106,6 +106,7 @@ func makeReactor(
 	privVal types.PrivValidator,
 	channelCreator p2p.ChannelCreator,
 	peerEvents p2p.PeerEventSubscriber,
+	peerManager *p2p.PeerManager,
 	restartChan chan struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
@@ -158,6 +159,7 @@ func makeReactor(
 		blockStore,
 		nil,
 		peerEvents,
+		peerManager,
 		true,
 		consensus.NopMetrics(),
 		nil, // eventbus, can be nil
@@ -203,6 +205,7 @@ func (rts *reactorTestSuite) addNode(
 		privVal,
 		chCreator,
 		peerEvents,
+		rts.network.Nodes[nodeID].PeerManager,
 		restartChan,
 		config.DefaultSelfRemediationConfig(),
 	)
@@ -354,49 +357,49 @@ func (m *MockBlockStore) Height() int64 {
 func TestAutoRestartIfBehind(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name                   string
-		blocksBehindThreshold  uint64
+		name                      string
+		blocksBehindThreshold     uint64
 		blocksBehindCheckInterval time.Duration
-		selfHeight             int64
-		maxPeerHeight          int64
-		isBlockSync        	   bool
-		restartExpected        bool
+		selfHeight                int64
+		maxPeerHeight             int64
+		isBlockSync               bool
+		restartExpected           bool
 	}{
 		{
-			name: "Should not restart if blocksBehindThreshold is 0",
-			blocksBehindThreshold: 0,
+			name:                      "Should not restart if blocksBehindThreshold is 0",
+			blocksBehindThreshold:     0,
 			blocksBehindCheckInterval: 10 * time.Millisecond,
-			selfHeight:            100,
-			maxPeerHeight:         200,
-			isBlockSync:           false,
-			restartExpected:       false,
+			selfHeight:                100,
+			maxPeerHeight:             200,
+			isBlockSync:               false,
+			restartExpected:           false,
 		},
 		{
-			name: "Should not restart if behindHeight is less than threshold",
-			blocksBehindThreshold: 50,
-			selfHeight:            100,
+			name:                      "Should not restart if behindHeight is less than threshold",
+			blocksBehindThreshold:     50,
+			selfHeight:                100,
 			blocksBehindCheckInterval: 10 * time.Millisecond,
-			maxPeerHeight:         140,
-			isBlockSync:           false,
-			restartExpected:       false,
+			maxPeerHeight:             140,
+			isBlockSync:               false,
+			restartExpected:           false,
 		},
 		{
-			name: "Should restart if behindHeight is greater than or equal to threshold",
-			blocksBehindThreshold: 50,
-			selfHeight:            100,
+			name:                      "Should restart if behindHeight is greater than or equal to threshold",
+			blocksBehindThreshold:     50,
+			selfHeight:                100,
 			blocksBehindCheckInterval: 10 * time.Millisecond,
-			maxPeerHeight:         160,
-			isBlockSync:           false,
-			restartExpected:       true,
+			maxPeerHeight:             160,
+			isBlockSync:               false,
+			restartExpected:           true,
 		},
 		{
-			name: "Should not restart if blocksync",
-			blocksBehindThreshold: 50,
-			selfHeight:            100,
+			name:                      "Should not restart if blocksync",
+			blocksBehindThreshold:     50,
+			selfHeight:                100,
 			blocksBehindCheckInterval: 10 * time.Millisecond,
-			maxPeerHeight:         160,
-			isBlockSync:           true,
-			restartExpected:       false,
+			maxPeerHeight:             160,
+			isBlockSync:               true,
+			restartExpected:           false,
 		},
 	}
 
@@ -407,21 +410,20 @@ func TestAutoRestartIfBehind(t *testing.T) {
 			mockBlockStore.On("Height").Return(tt.selfHeight)
 
 			blockPool := &BlockPool{
-				logger:       log.TestingLogger(),
-				height:       tt.selfHeight,
+				logger:        log.TestingLogger(),
+				height:        tt.selfHeight,
 				maxPeerHeight: tt.maxPeerHeight,
-
 			}
 
 			restartChan := make(chan struct{}, 1)
 			r := &Reactor{
-				logger: 				 log.TestingLogger(),
-				store:                    mockBlockStore,
-				pool:                     blockPool,
-				blocksBehindThreshold:    tt.blocksBehindThreshold,
+				logger:                    log.TestingLogger(),
+				store:                     mockBlockStore,
+				pool:                      blockPool,
+				blocksBehindThreshold:     tt.blocksBehindThreshold,
 				blocksBehindCheckInterval: tt.blocksBehindCheckInterval,
-				restartCh:                restartChan,
-				blockSync:                newAtomicBool(tt.isBlockSync),
+				restartCh:                 restartChan,
+				blockSync:                 newAtomicBool(tt.isBlockSync),
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)

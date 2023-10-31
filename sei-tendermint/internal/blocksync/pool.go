@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/tendermint/tendermint/internal/p2p"
 	"math"
+	"math/rand"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -80,6 +83,7 @@ type BlockPool struct {
 	height     int64 // the lowest key in requesters.
 	// peers
 	peers         map[types.NodeID]*bpPeer
+	peerManager   *p2p.PeerManager
 	maxPeerHeight int64 // the biggest reported height
 
 	// atomic
@@ -101,8 +105,8 @@ func NewBlockPool(
 	start int64,
 	requestsCh chan<- BlockRequest,
 	errorsCh chan<- peerError,
+	peerManager *p2p.PeerManager,
 ) *BlockPool {
-
 	bp := &BlockPool{
 		logger:       logger,
 		peers:        make(map[types.NodeID]*bpPeer),
@@ -113,6 +117,7 @@ func NewBlockPool(
 		requestsCh:   requestsCh,
 		errorsCh:     errorsCh,
 		lastSyncRate: 0,
+		peerManager:  peerManager,
 	}
 	bp.BaseService = *service.NewBaseService(logger, "BlockPool", bp)
 	return bp
@@ -408,13 +413,44 @@ func (pool *BlockPool) updateMaxPeerHeight() {
 	pool.maxPeerHeight = max
 }
 
+func (pool *BlockPool) getSortedPeers(peers map[types.NodeID]*bpPeer) []types.NodeID {
+	// Generate a sorted list
+	sortedPeers := make([]types.NodeID, 0, len(peers))
+
+	for peer := range peers {
+		sortedPeers = append(sortedPeers, peer)
+	}
+	// Sort from high to low score
+	sort.Slice(sortedPeers, func(i, j int) bool {
+		return pool.peerManager.Score(sortedPeers[i]) > pool.peerManager.Score(sortedPeers[j])
+	})
+	return sortedPeers
+}
+
 // Pick an available peer with the given height available.
 // If no peers are available, returns nil.
 func (pool *BlockPool) pickIncrAvailablePeer(height int64) *bpPeer {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
-	for _, peer := range pool.peers {
+	// Generate a sorted list
+	sortedPeers := pool.getSortedPeers(pool.peers)
+	var goodPeers []types.NodeID
+	// Remove peers with 0 score and shuffle list
+	for _, peer := range sortedPeers {
+		// We only want to work with peers that are ready & connected (not dialing)
+		if pool.peerManager.State(peer) == "ready,connected" {
+			goodPeers = append(goodPeers, peer)
+		}
+		if pool.peerManager.Score(peer) == 0 {
+			break
+		}
+	}
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(goodPeers), func(i, j int) { goodPeers[i], goodPeers[j] = goodPeers[j], goodPeers[i] })
+
+	for _, nodeId := range sortedPeers {
+		peer := pool.peers[nodeId]
 		if peer.didTimeout {
 			pool.removePeer(peer.id)
 			continue

@@ -367,6 +367,7 @@ func makeNode(
 		blockStore,
 		csReactor,
 		peerManager.Subscribe,
+		peerManager,
 		blockSync && !stateSync && !shoulddbsync,
 		nodeMetrics.consensus,
 		eventBus,

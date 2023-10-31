@@ -81,8 +81,9 @@ type Reactor struct {
 	consReactor consensusReactor
 	blockSync   *atomicBool
 
-	peerEvents p2p.PeerEventSubscriber
-	channel    *p2p.Channel
+	peerEvents  p2p.PeerEventSubscriber
+	peerManager *p2p.PeerManager
+	channel     *p2p.Channel
 
 	requestsCh <-chan BlockRequest
 	errorsCh   <-chan peerError
@@ -105,6 +106,7 @@ func NewReactor(
 	store *store.BlockStore,
 	consReactor consensusReactor,
 	peerEvents p2p.PeerEventSubscriber,
+	peerManager *p2p.PeerManager,
 	blockSync bool,
 	metrics *consensus.Metrics,
 	eventBus *eventbus.EventBus,
@@ -119,6 +121,7 @@ func NewReactor(
 		consReactor:               consReactor,
 		blockSync:                 newAtomicBool(blockSync),
 		peerEvents:                peerEvents,
+		peerManager:               peerManager,
 		metrics:                   metrics,
 		eventBus:                  eventBus,
 		restartCh:                 restartCh,
@@ -159,7 +162,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 
 	requestsCh := make(chan BlockRequest, maxTotalRequesters)
 	errorsCh := make(chan peerError, maxPeerErrBuffer) // NOTE: The capacity should be larger than the peer count.
-	r.pool = NewBlockPool(r.logger, startHeight, requestsCh, errorsCh)
+	r.pool = NewBlockPool(r.logger, startHeight, requestsCh, errorsCh, r.peerManager)
 	r.requestsCh = requestsCh
 	r.errorsCh = errorsCh
 
