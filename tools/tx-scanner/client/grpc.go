@@ -42,7 +42,7 @@ func InitializeGRPCClient(targetEndpoint string, port int) {
 					if GrpcConn.WaitForStateChange(context.Background(), state) {
 						break
 					}
-					time.Sleep(30 * time.Second)
+					time.Sleep(10 * time.Second)
 				}
 			}
 			time.Sleep(10 * time.Second)

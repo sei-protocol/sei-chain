@@ -84,7 +84,6 @@ func execute(cmd *cobra.Command, _ []string) {
 				defer mtx.Unlock()
 				if err != nil {
 					errors = append(errors, err)
-					fmt.Println(err.Error())
 					return
 				}
 				if isBad {
