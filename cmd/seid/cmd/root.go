@@ -37,6 +37,7 @@ import (
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -134,6 +135,7 @@ func initRootCmd(
 		config.Cmd(),
 		pruning.PruningCmd(newApp),
 		CompactCmd(app.DefaultNodeHome),
+		tools.ToolCmd(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
