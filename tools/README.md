@@ -14,20 +14,20 @@ This tool helps to scan archive nodes to find out all the missing transactions s
 later on you can reindex all the missing transactions to make them queryable again.
 
 ### Usage
-It is recommended this tool as a background daemon process:
+It is recommended to run this tool as a background daemon process:
 ```
 # Run in the background
 seid tools scan-tx --start-height 1 --state-dir ./ > scan.log &
 ```
 The tool will keep scanning from the start height, if there's already
-some state file exist, it will instead start from the previous height.
+a state file exist in `state-dir`, it will instead start from the previous height.
 
 The tool won't stop until you manually stop it, once it hit latest
-block height, it will keep running as new blocks get produced it will
-keep scanning all the newly produced blocks.
+block height, it will keep running and waiting for new blocks to come,
+it keep scanning all the newly produced blocks once they are committed.
 
 ### State Format
-A typical state file would look like this:
+A typical state file (`tx-scanner-state.json`) would look like this:
 ```
 {
     "last_processed_height": 44394319,
