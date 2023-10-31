@@ -36,11 +36,18 @@ echo
 for GRANTEE in $(cat grantee.txt); do
     echo
     echo "generating MsgSubmitProposal, MsgVote, MsgUnjail for grantee: '$GRANTEE'"
-    seid tx authz grant $GRANTEE generic --from admin -b block -y --fees 20000usei --msg-type "/cosmos.gov.v1beta1.MsgSubmitProposal,/cosmos.gov.v1beta1.MsgVote,/cosmos.slashing.v1beta1.MsgUnjail" --generate-only | jq > /tmp/grant-authz-$GRANTEE.json
+    seid tx authz grant $GRANTEE generic --from admin -b block -y --fees 20000usei \
+        --msg-type "/cosmos.gov.v1beta1.MsgSubmitProposal" \
+        --msg-type "/cosmos.gov.v1beta1.MsgVote" \
+        --msg-type "/cosmos.slashing.v1beta1.MsgUnjail" \
+        --generate-only | jq > /tmp/grant-authz-$GRANTEE.json
 
     echo
     echo "generating feegrant for grantee: '$GRANTEE'"
-    seid tx feegrant grant admin $GRANTEE --allowed-messages "/cosmos.authz.v1beta1.MsgExec" --spend-limit 10sei -b block -y --fees 20000usei --from $GRANTER --generate-only | jq > /tmp/grant-feegrant-$GRANTEE.json
+    seid tx feegrant grant admin $GRANTEE \
+        --allowed-messages "/cosmos.authz.v1beta1.MsgExec" \
+        --spend-limit 10sei -b block -y --fees 20000usei --from $GRANTER \
+        --generate-only | jq > /tmp/grant-feegrant-$GRANTEE.json
 done
 
 echo
@@ -56,12 +63,12 @@ printf "12345678\n" | seid tx sign /tmp/combined_messages.json --from $GRANTER -
 echo
 echo "broadcasting signed tx"
 echo
-seid tx broadcast signed_tx.json --chain-id $CHAIN_ID -b block -y; done
+seid tx broadcast signed_tx.json --chain-id $CHAIN_ID -b block -y
 
-# remove grant* files so they don't get used in a separate run with different granters
-# for GRANTEE in $(cat grantee.txt); do
-#     rm /tmp/grant-authz-$GRANTEE.json
-#     rm /tmp/grant-feegrant-$GRANTEE.json
-# done
+remove grant* files so they don't get used in a separate run with different granters
+for GRANTEE in $(cat grantee.txt); do
+    rm /tmp/grant-authz-$GRANTEE.json
+    rm /tmp/grant-feegrant-$GRANTEE.json
+done
 
 
