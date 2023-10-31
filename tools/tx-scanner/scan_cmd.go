@@ -40,6 +40,9 @@ func execute(cmd *cobra.Command, args []string) {
 	if batchSize > bpsLimit {
 		batchSize = bpsLimit
 	}
+	if startHeight <= 0 {
+		startHeight = 1
+	}
 	if stateDir != "" {
 		scanState, err := state.ReadState(stateDir)
 		if err != nil {
