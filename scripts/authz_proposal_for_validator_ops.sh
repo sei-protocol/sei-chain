@@ -65,7 +65,7 @@ echo "broadcasting signed tx"
 echo
 seid tx broadcast signed_tx.json --chain-id $CHAIN_ID -b block -y
 
-remove grant* files so they don't get used in a separate run with different granters
+# remove grant* files so they don't get used in a separate run with different granters
 for GRANTEE in $(cat grantee.txt); do
     rm /tmp/grant-authz-$GRANTEE.json
     rm /tmp/grant-feegrant-$GRANTEE.json
