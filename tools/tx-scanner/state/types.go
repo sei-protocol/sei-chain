@@ -2,7 +2,6 @@ package state
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -39,13 +38,9 @@ func WriteState(dir string, s State) error {
 func ReadState(dir string) (State, error) {
 	state := State{}
 	filename := filepath.Join(dir, "tx-scanner-state.json")
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	file, err := os.Open(filename)
 	if err != nil {
-		if os.IsExist(err) {
-			fmt.Println("State file detected!")
-		} else {
-			return State{}, err
-		}
+		return State{}, err
 	}
 	defer file.Close()
 	data, err := io.ReadAll(file)

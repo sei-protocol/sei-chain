@@ -44,10 +44,7 @@ func execute(cmd *cobra.Command, args []string) {
 		startHeight = 1
 	}
 	if stateDir != "" {
-		scanState, err := state.ReadState(stateDir)
-		if err != nil {
-			panic(err)
-		}
+		scanState, _ := state.ReadState(stateDir)
 		if scanState.LastProcessedHeight > 0 {
 			fmt.Printf("Detected last processed height: %d\n", scanState.LastProcessedHeight)
 			currentState = scanState
