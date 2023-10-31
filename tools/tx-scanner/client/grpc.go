@@ -33,6 +33,7 @@ func InitializeGRPCClient(targetEndpoint string, port int) {
 		}
 		GrpcConn = grpcConn
 	}
+	// spin up goroutine for monitoring and reconnect purposes
 	go func() {
 		for {
 			state := GrpcConn.GetState()
