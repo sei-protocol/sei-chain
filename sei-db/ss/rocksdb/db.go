@@ -22,6 +22,9 @@ const (
 
 	StorePrefixTpl   = "s/k:%s/"
 	latestVersionKey = "s/latest"
+
+	// TODO: Make configurable
+	ImportCommitBatchSize = 10000
 )
 
 var (
@@ -219,8 +222,35 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return NewRocksDBIterator(itr, prefix, start, end, true), nil
 }
 
+// Import loads the initial version of the state
 func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
-	panic("Not Implemented")
+	batch := grocksdb.NewWriteBatch()
+	defer batch.Destroy()
+
+	var ts [TimestampSize]byte
+	binary.LittleEndian.PutUint64(ts[:], uint64(version))
+
+	var counter int
+	for entry := range ch {
+		key := cloneAppend(storePrefix(entry.StoreKey), entry.Key)
+		batch.PutCFWithTS(db.cfHandle, key, ts[:], entry.Value)
+
+		counter++
+		if counter%ImportCommitBatchSize == 0 {
+			if err := db.storage.Write(defaultWriteOpts, batch); err != nil {
+				return err
+			}
+			batch.Clear()
+		}
+	}
+
+	if batch.Count() > 0 {
+		if err := db.storage.Write(defaultWriteOpts, batch); err != nil {
+			return err
+		}
+	}
+
+	return db.SetLatestVersion(version)
 }
 
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.
@@ -262,4 +292,11 @@ func readOnlySlice(s *grocksdb.Slice) []byte {
 	}
 
 	return s.Data()
+}
+
+func cloneAppend(bz []byte, tail []byte) (res []byte) {
+	res = make([]byte, len(bz)+len(tail))
+	copy(res, bz)
+	copy(res[len(bz):], tail)
+	return
 }
