@@ -128,10 +128,11 @@ func (c *ContractInfo) SetExtension(ext ContractInfoExtension) error {
 
 // ReadExtension copies the extension value to the pointer passed as argument so that there is no need to cast
 // For example with a custom extension of type `MyContractDetails` it will look as following:
-// 		var d MyContractDetails
-//		if err := info.ReadExtension(&d); err != nil {
-//			return nil, sdkerrors.Wrap(err, "extension")
-//		}
+//
+//	var d MyContractDetails
+//	if err := info.ReadExtension(&d); err != nil {
+//		return nil, sdkerrors.Wrap(err, "extension")
+//	}
 func (c *ContractInfo) ReadExtension(e ContractInfoExtension) error {
 	rv := reflect.ValueOf(e)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
@@ -212,18 +213,14 @@ func (c *ContractInfo) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 // NewAbsoluteTxPosition gets a block position from the context
 func NewAbsoluteTxPosition(ctx sdk.Context) *AbsoluteTxPosition {
 	// we must safely handle nil gas meters
-	var index uint64
-	meter := ctx.BlockGasMeter()
-	if meter != nil {
-		index = meter.GasConsumed()
-	}
+	index := ctx.TxIndex()
 	height := ctx.BlockHeight()
 	if height < 0 {
 		panic(fmt.Sprintf("unsupported height: %d", height))
 	}
 	return &AbsoluteTxPosition{
 		BlockHeight: uint64(height),
-		TxIndex:     index,
+		TxIndex:     uint64(index),
 	}
 }
 

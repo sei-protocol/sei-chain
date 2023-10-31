@@ -32,6 +32,9 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteDepGenerat
 	if options.SignModeHandler == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "sign mode handler is required for ante builder")
 	}
+	if options.ParamsKeeper == nil {
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "params keeper is required for ante builder")
+	}
 	if options.WasmConfig == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "wasm config is required for ante builder")
 	}

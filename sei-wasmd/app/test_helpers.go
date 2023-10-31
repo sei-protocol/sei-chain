@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/testutil"
+
 	bam "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -144,12 +146,12 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 
 	// commit genesis changes
 	app.Commit(context.Background())
-	app.BeginBlock(app.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: tmproto.Header{
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Height:             app.LastBlockHeight() + 1,
-		AppHash:            app.LastCommitID().Hash,
+		Hash:               app.LastCommitID().Hash,
 		ValidatorsHash:     valSet.Hash(),
 		NextValidatorsHash: valSet.Hash(),
-	}})
+	})
 
 	return app
 }
@@ -438,12 +440,7 @@ func NewPubKeyFromHex(pk string) (res cryptotypes.PubKey) {
 }
 
 // EmptyBaseAppOptions is a stub implementing AppOptions
-type EmptyBaseAppOptions struct{}
-
-// Get implements AppOptions
-func (ao EmptyBaseAppOptions) Get(o string) interface{} {
-	return nil
-}
+type EmptyBaseAppOptions = testutil.TestAppOpts
 
 // FundAccount is a utility function that funds an account by minting and
 // sending the coins to the address. This should be used for testing purposes

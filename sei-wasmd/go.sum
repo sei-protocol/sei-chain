@@ -687,8 +687,8 @@ github.com/savaki/jq v0.0.0-20161209013833-0e6baecebbf8 h1:ajJQhvqPSQFJJ4aV5mDAM
 github.com/savaki/jq v0.0.0-20161209013833-0e6baecebbf8/go.mod h1:Nw/CCOXNyF5JDd6UpYxBwG5WWZ2FOJ/d5QnXL4KQ6vY=
 github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg65j358z/aeFdxmN0P9QXhEzd20vsDc=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
-github.com/sei-protocol/sei-cosmos v0.2.53 h1:MSH00lb3ahioaOnJNC4yvMNNPuC9rC0kBZcY30ay5QI=
-github.com/sei-protocol/sei-cosmos v0.2.53/go.mod h1:XSmrSNlBQ7OQrk6VZMgARWsnD+1JSnQeDEZ7LEmexbo=
+github.com/sei-protocol/sei-cosmos v0.2.64 h1:h2vBtRvpL4D2+scy407RLPJzAHCHn2ZkdSxzo/RT6z8=
+github.com/sei-protocol/sei-cosmos v0.2.64/go.mod h1:retCl6F8SWQ8ookwdQXIGkK56AHSKNUN2X3u9nVzo7g=
 github.com/sei-protocol/sei-iavl v0.1.7 h1:cUdHDBkxs0FF/kOt1qCVLm0K+Bqaw92/dbZSgn4kxiA=
 github.com/sei-protocol/sei-iavl v0.1.7/go.mod h1:7PfkEVT5dcoQE+s/9KWdoXJ8VVVP1QpYYPLdxlkSXFk=
 github.com/sei-protocol/sei-ibc-go/v3 v3.1.0 h1:rFHk2R/3vbG9iNr7cYtVclW/UyEDSRFjNVPz60zZswU=
