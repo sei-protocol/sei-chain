@@ -15,7 +15,7 @@ import (
 	"github.com/sei-protocol/sei-db/ss/types"
 )
 
-// writeToRocksDBConcurrently generates random write load against the rocksDB
+// writeToDBConcurrently generates random write load against the db
 // Given kv pairs (randomly shuffled), the version, batch size, it will spin up `concurrency` goroutines
 // each of which is assigned to a portion of the kv data and writes to db in `batchSize` batches.
 // It maintains a `latencies` channel which aggregates all the latencies
@@ -82,8 +82,8 @@ func writeToDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, con
 	return allLatencies
 }
 
-// BenchmarkDBWrite measures random write performance of rocksdb
-// Given an input dir containing all the raw kv data, it writes to rocksdb one version after another
+// BenchmarkDBWrite measures random write performance of the db
+// Given an input dir containing all the raw kv data, it writes to the db one version after another
 func BenchmarkDBWrite(db types.StateStore, inputKVDir string, numVersions int, concurrency int, batchSize int) {
 	startLoad := time.Now()
 	kvData, err := utils.LoadAndShuffleKV(inputKVDir)
@@ -126,11 +126,11 @@ func BenchmarkDBWrite(db types.StateStore, inputKVDir string, numVersions int, c
 	fmt.Printf("Total records written %d\n", writeCount)
 }
 
-// readFromRocksDBConcurrently generates random read load against the rocksDB
+// readFromDBConcurrently generates random read load against the db
 // Given kv pairs (randomly shuffled), numVersions, it will spin up `concurrency` goroutines
 // that randomly select a version, key and query the db.
 // It only performs `maxOps“ random reads and maintains a `latencies` channel which aggregates all the latencies.
-func readFromRocksDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, maxOps int64) []time.Duration {
+func readFromDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, maxOps int64) []time.Duration {
 	var allLatencies []time.Duration
 	latencies := make(chan time.Duration, maxOps)
 
@@ -177,7 +177,7 @@ func readFromRocksDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePai
 	return allLatencies
 }
 
-// BenchmarkDBRead measures random read performance of rocksdb
+// BenchmarkDBRead measures random read performance of the db
 // Given an input dir containing all the raw kv data, it generates random read load and measures performance.
 func BenchmarkDBRead(db types.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64) {
 	kvData, err := utils.LoadAndShuffleKV(inputKVDir)
@@ -185,7 +185,7 @@ func BenchmarkDBRead(db types.StateStore, inputKVDir string, numVersions int, co
 		panic(err)
 	}
 	startTime := time.Now()
-	latencies := readFromRocksDBConcurrently(db, kvData, numVersions, concurrency, maxOps)
+	latencies := readFromDBConcurrently(db, kvData, numVersions, concurrency, maxOps)
 	endTime := time.Now()
 
 	totalTime := endTime.Sub(startTime)
@@ -212,11 +212,11 @@ func BenchmarkDBRead(db types.StateStore, inputKVDir string, numVersions int, co
 	fmt.Printf("P99 Latency: %v\n", utils.CalculatePercentile(latencies, 99))
 }
 
-// forwardIterateRocksDBConcurrently generates forward iteration load against the rocksDB
+// forwardIterateDBConcurrently generates forward iteration load against the db
 // Given kv pairs (randomly shuffled), numVersions, it will spin up `concurrency` goroutines
 // that randomly select a version, key, seeks to that key and starts a forward iteration for at most `numIterationSteps` steps.
 // It only performs `maxOps“ forward iterations and maintains a `latencies` channel which aggregates all the latencies.
-func forwardIterateRocksDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
+func forwardIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
 	var allLatencies []time.Duration
 	var totalSteps int
 	latencies := make(chan time.Duration, maxOps)
@@ -276,7 +276,7 @@ func forwardIterateRocksDBConcurrently(db types.StateStore, allKVs []utils.KeyVa
 	return allLatencies, totalSteps
 }
 
-// BenchmarkDBForwardIteration measures forward iteration performance of rocksdb
+// BenchmarkDBForwardIteration measures forward iteration performance of the db
 // Given an input dir containing all the raw kv data, it selects a random key, forward iterates and measures performance.
 func BenchmarkDBForwardIteration(db types.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64, iterationSteps int) {
 	kvData, err := utils.LoadAndShuffleKV(inputKVDir)
@@ -284,7 +284,7 @@ func BenchmarkDBForwardIteration(db types.StateStore, inputKVDir string, numVers
 		panic(err)
 	}
 	startTime := time.Now()
-	latencies, totalCountIteration := forwardIterateRocksDBConcurrently(db, kvData, numVersions, concurrency, iterationSteps, maxOps)
+	latencies, totalCountIteration := forwardIterateDBConcurrently(db, kvData, numVersions, concurrency, iterationSteps, maxOps)
 	endTime := time.Now()
 
 	totalTime := endTime.Sub(startTime)
@@ -303,11 +303,11 @@ func BenchmarkDBForwardIteration(db types.StateStore, inputKVDir string, numVers
 	fmt.Printf("Average Per-Key Latency: %v\n", avgLatency)
 }
 
-// reverseIterateRocksDBConcurrently generates reverse iteration load against the rocksDB
+// reverseIterateDBConcurrently generates reverse iteration load against the db
 // Given kv pairs (randomly shuffled), numVersions, it will spin up `concurrency` goroutines
 // that randomly select a version, key, seeks to that key and starts a reverse iteration for at most `numIterationSteps` steps.
 // It only performs `maxOps“ reverse iterations and maintains a `latencies` channel which aggregates all the latencies.
-func reverseIterateRocksDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
+func reverseIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
 	var allLatencies []time.Duration
 	var totalSteps int
 	latencies := make(chan time.Duration, maxOps)
@@ -368,7 +368,7 @@ func reverseIterateRocksDBConcurrently(db types.StateStore, allKVs []utils.KeyVa
 	return allLatencies, totalSteps
 }
 
-// BenchmarkDBReverseIteration measures reverse iteration performance of rocksdb
+// BenchmarkDBReverseIteration measures reverse iteration performance of the db
 // Given an input dir containing all the raw kv data, it selects a random key, reverse iterates and measures performance.
 func BenchmarkDBReverseIteration(db types.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64, iterationSteps int) {
 	kvData, err := utils.LoadAndShuffleKV(inputKVDir)
@@ -377,7 +377,7 @@ func BenchmarkDBReverseIteration(db types.StateStore, inputKVDir string, numVers
 	}
 
 	startTime := time.Now()
-	latencies, totalCountIteration := reverseIterateRocksDBConcurrently(db, kvData, numVersions, concurrency, iterationSteps, maxOps)
+	latencies, totalCountIteration := reverseIterateDBConcurrently(db, kvData, numVersions, concurrency, iterationSteps, maxOps)
 	endTime := time.Now()
 
 	totalTime := endTime.Sub(startTime)
