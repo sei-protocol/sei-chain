@@ -3,11 +3,12 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/cosmos/cosmos-sdk/client/grpc/tmservice"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
-	"time"
 )
 
 var GrpcConn *grpc.ClientConn

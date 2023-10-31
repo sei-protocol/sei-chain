@@ -1,4 +1,4 @@
-package tx_scanner
+package cmd
 
 import (
 	"fmt"
@@ -28,7 +28,7 @@ func ScanCmd() *cobra.Command {
 	return cmd
 }
 
-func execute(cmd *cobra.Command, args []string) {
+func execute(cmd *cobra.Command, _ []string) {
 	endpoint, _ := cmd.Flags().GetString("endpoint")
 	port, _ := cmd.Flags().GetInt("port")
 	bpsLimit, _ := cmd.Flags().GetInt("bps-limit")
