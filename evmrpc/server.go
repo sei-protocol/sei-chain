@@ -23,6 +23,7 @@ func NewEVMHTTPServer(
 	ctxProvider func(int64) sdk.Context,
 	txConfig client.TxConfig,
 	simulationConfig *SimulateConfig,
+	filterConfig *FilterConfig,
 ) (EVMServer, error) {
 	httpServer := newHTTPServer(logger, timeouts)
 	if err := httpServer.setListenAddr(addr, port); err != nil {
@@ -56,6 +57,10 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "eth",
 			Service:   NewSimulationAPI(ctxProvider, k, tmClient, simulationConfig),
+		},
+		{
+			Namespace: "eth",
+			Service:   NewFilterAPI(tmClient, filterConfig),
 		},
 	}
 	if err := httpServer.enableRPC(apis, httpConfig{
