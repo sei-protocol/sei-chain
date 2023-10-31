@@ -223,6 +223,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 }
 
 // Import loads the initial version of the state
+// TODO: Parallelize Import
 func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
 	batch := NewBatch(db, version)
 
