@@ -28,6 +28,16 @@ var _ types.MsgServer = msgServer{}
 
 func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+	// EVM has a special case here, mainly because for an EVM transaction the gas limit is set on EVM payload level, not on top-level GasWanted field
+	// as normal transactions (because existing eth client can't). As a result EVM has its own dedicated ante handler chain. The full sequence is:
+
+	// 	1. At the beginning of the ante handler chain, gas meter is set to infinite so that the ante processing itself won't run out of gas (EVM ante is pretty light but it does read a parameter or two)
+	// 	2. At the end of the ante handler chain, gas meter is set based on the gas limit specified in the EVM payload; this is only to provide a GasWanted return value to tendermint mempool when CheckTx returns, and not used for anything else.
+	// 	3. At the beginning of message server (here), gas meter is set to infinite again, because EVM internal logic will then take over and manage out-of-gas scenarios.
+	// 	4. At the end of message server, gas consumed by EVM is adjusted to Sei's unit and counted in the original gas meter, because that original gas meter will be used to count towards block gas after message server returns
+	originalGasMeter := ctx.GasMeter()
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+
 	stateDB := state.NewDBImpl(ctx, &server)
 	tx, _ := msg.AsTransaction()
 	ctx, gp := server.getGasPool(ctx)
@@ -43,6 +53,14 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			return
 		}
 		err = stateDB.Finalize()
+
+		// GasUsed in serverRes is in EVM's gas unit, not Sei's gas unit.
+		// PriorityNormalizer is the coefficient that's used to adjust EVM
+		// transactions' priority, which is based on gas limit in EVM unit,
+		// to Sei transactions' priority, which is based on gas limit in
+		// Sei unit, so we use the same coefficient to convert gas unit here.
+		adjustedGasUsed := server.GetPriorityNormalizer(ctx).MulInt64(int64(serverRes.GasUsed))
+		originalGasMeter.ConsumeGas(adjustedGasUsed.RoundInt().Uint64(), "evm transaction")
 	}()
 
 	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)
