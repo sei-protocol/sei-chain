@@ -4,7 +4,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/sc/memiavl/db"
+	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/rootmulti"
 	"github.com/spf13/cast"
 	"github.com/tendermint/tendermint/libs/log"
