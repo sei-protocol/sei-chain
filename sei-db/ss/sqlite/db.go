@@ -238,6 +238,10 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
 			}
 
 			batch.Reset()
+			batch, err = NewBatch(db.storage, version)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
