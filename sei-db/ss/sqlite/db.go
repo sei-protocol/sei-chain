@@ -226,7 +226,10 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
 
 	var counter int
 	for entry := range ch {
-		batch.Set(entry.StoreKey, entry.Key, entry.Value)
+		err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
+		if err != nil {
+			return err
+		}
 
 		counter++
 		if counter%ImportCommitBatchSize == 0 {
@@ -234,10 +237,7 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
 				return err
 			}
 
-			batch, err = NewBatch(db.storage, version)
-			if err != nil {
-				return err
-			}
+			batch.Reset()
 		}
 	}
 
