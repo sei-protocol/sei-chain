@@ -152,7 +152,7 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 	},
 }
 
-// this maps between resource types and their respective storekey
+// ResourceTypeToStoreKeyMap this maps between resource types and their respective storekey
 var ResourceTypeToStoreKeyMap = aclsdktypes.ResourceTypeToStoreKeyMap{
 	// ANY, KV, and MEM are intentionally excluded because they don't map to a specific store key
 
