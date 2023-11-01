@@ -149,3 +149,12 @@ func (s *MultiStore) GetEvents() []abci.Event {
 func (s *MultiStore) ResetEvents() {
 	panic("not supported")
 }
+
+// LatestVersion returns the latest version saved in state store
+func (s *MultiStore) LatestVersion() int64 {
+	version, err := s.stateStore.GetLatestVersion()
+	if err != nil {
+		panic(err)
+	}
+	return version
+}

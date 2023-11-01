@@ -1,7 +1,7 @@
 package rootmulti
 
 import (
-	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
+	"github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/store/types"

@@ -21,6 +21,7 @@ import (
 	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/cachemulti"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/memiavlstore"
+	streamtypes "github.com/sei-protocol/sei-db/stream/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -449,6 +450,10 @@ func (rs *Store) SetMemIAVLOptions(opts memiavl.Options) {
 		opts.Logger = logger.Logger(rs.logger.With("module", "memiavl"))
 	}
 	rs.opts = opts
+}
+
+func (rs *Store) SetCommitSubscriber(subscriber streamtypes.Subscriber[proto.ChangelogEntry]) {
+	rs.opts.CommitSubscriber = subscriber
 }
 
 // RollbackToVersion delete the versions after `target` and update the latest version.
