@@ -41,6 +41,9 @@ const (
 		SELECT id FROM state_storage WHERE store_key = ? AND key = ? AND version <= ? ORDER BY version DESC LIMIT 1
 	) AND tombstone = 0;
 	`
+
+	// TODO: Make configurable
+	ImportCommitBatchSize = 10000
 )
 
 var _ sstypes.StateStore = (*Database)(nil)
@@ -213,8 +216,41 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return newIterator(db.storage, storeKey, version, start, end, true)
 }
 
+// Import loads the initial version of the state
+// TODO: Parallelize Import
 func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
-	panic("Not Implemented")
+	batch, err := NewBatch(db.storage, version)
+	if err != nil {
+		return err
+	}
+
+	var counter int
+	for entry := range ch {
+		err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
+		if err != nil {
+			return err
+		}
+
+		counter++
+		if counter%ImportCommitBatchSize == 0 {
+			if err := batch.Write(); err != nil {
+				return err
+			}
+
+			batch, err = NewBatch(db.storage, version)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if batch.Size() > 0 {
+		if err := batch.Write(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (db *Database) PrintRowsDebug() {

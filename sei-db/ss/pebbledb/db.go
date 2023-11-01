@@ -22,6 +22,9 @@ const (
 	StorePrefixTpl   = "s/k:%s/"   // s/k:<storeKey>
 	latestVersionKey = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
 	tombstoneVal     = "TOMBSTONE"
+
+	// TODO: Make configurable
+	ImportCommitBatchSize = 10000
 )
 
 var (
@@ -218,8 +221,41 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	panic("not implemented!")
 }
 
+// Import loads the initial version of the state
+// TODO: Parallelize Import
 func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
-	panic("Not Implemented")
+	batch, err := NewBatch(db.storage, version)
+	if err != nil {
+		return err
+	}
+
+	var counter int
+	for entry := range ch {
+		err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
+		if err != nil {
+			return err
+		}
+
+		counter++
+		if counter%ImportCommitBatchSize == 0 {
+			if err := batch.Write(); err != nil {
+				return err
+			}
+
+			batch, err = NewBatch(db.storage, version)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if batch.Size() > 0 {
+		if err := batch.Write(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func storePrefix(storeKey string) []byte {
