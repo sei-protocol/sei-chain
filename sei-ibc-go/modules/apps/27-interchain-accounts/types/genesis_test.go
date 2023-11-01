@@ -8,9 +8,7 @@ import (
 )
 
 func (suite *TypesTestSuite) TestValidateGenesisState() {
-	var (
-		genesisState types.GenesisState
-	)
+	var genesisState types.GenesisState
 
 	testCases := []struct {
 		name     string
@@ -63,9 +61,7 @@ func (suite *TypesTestSuite) TestValidateGenesisState() {
 }
 
 func (suite *TypesTestSuite) TestValidateControllerGenesisState() {
-	var (
-		genesisState types.ControllerGenesisState
-	)
+	var genesisState types.ControllerGenesisState
 
 	testCases := []struct {
 		name     string
@@ -188,9 +184,7 @@ func (suite *TypesTestSuite) TestValidateControllerGenesisState() {
 }
 
 func (suite *TypesTestSuite) TestValidateHostGenesisState() {
-	var (
-		genesisState types.HostGenesisState
-	)
+	var genesisState types.HostGenesisState
 
 	testCases := []struct {
 		name     string

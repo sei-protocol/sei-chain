@@ -11,10 +11,8 @@ const (
 	DefaultControllerEnabled = true
 )
 
-var (
-	// KeyControllerEnabled is the store key for ControllerEnabled Params
-	KeyControllerEnabled = []byte("ControllerEnabled")
-)
+// KeyControllerEnabled is the store key for ControllerEnabled Params
+var KeyControllerEnabled = []byte("ControllerEnabled")
 
 // ParamKeyTable type declaration for parameters
 func ParamKeyTable() paramtypes.KeyTable {

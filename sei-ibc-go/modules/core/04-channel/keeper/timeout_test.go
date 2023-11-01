@@ -430,5 +430,4 @@ func (suite *KeeperTestSuite) TestTimeoutOnClose() {
 			}
 		})
 	}
-
 }

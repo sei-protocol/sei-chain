@@ -9,9 +9,7 @@ import (
 	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 )
 
-var (
-	frozenHeight = clienttypes.NewHeight(0, 1)
-)
+var frozenHeight = clienttypes.NewHeight(0, 1)
 
 func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 	var (
@@ -45,7 +43,6 @@ func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 		tc := tc
 
 		suite.Run(tc.name, func() {
-
 			suite.SetupTest() // reset
 			subjectPath := ibctesting.NewPath(suite.chainA, suite.chainB)
 			substitutePath = ibctesting.NewPath(suite.chainA, suite.chainB)
@@ -73,40 +70,40 @@ func (suite *TendermintTestSuite) TestCheckSubstituteUpdateStateBasic() {
 // this is to prevent headers from failing when attempting to update later.
 func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 	testCases := []struct {
-		name                         string
-		FreezeClient                 bool
-		ExpireClient                 bool
-		expPass                      bool
+		name         string
+		FreezeClient bool
+		ExpireClient bool
+		expPass      bool
 	}{
 		{
-			name:                         "PASS: update checks are deprecated, client is frozen and expired",
-			FreezeClient:                 true,
-			ExpireClient:                 true,
-			expPass:                      true,
+			name:         "PASS: update checks are deprecated, client is frozen and expired",
+			FreezeClient: true,
+			ExpireClient: true,
+			expPass:      true,
 		},
 		{
-			name:                         "PASS: update checks are deprecated, not frozen or expired",
-			FreezeClient:                 false,
-			ExpireClient:                 false,
-			expPass:                      true,
+			name:         "PASS: update checks are deprecated, not frozen or expired",
+			FreezeClient: false,
+			ExpireClient: false,
+			expPass:      true,
 		},
 		{
-			name:                         "PASS: update checks are deprecated, not frozen or expired",
-			FreezeClient:                 false,
-			ExpireClient:                 false,
-			expPass:                      true,
+			name:         "PASS: update checks are deprecated, not frozen or expired",
+			FreezeClient: false,
+			ExpireClient: false,
+			expPass:      true,
 		},
 		{
-			name:                         "PASS: update checks are deprecated, client is frozen",
-			FreezeClient:                 true,
-			ExpireClient:                 false,
-			expPass:                      true,
+			name:         "PASS: update checks are deprecated, client is frozen",
+			FreezeClient: true,
+			ExpireClient: false,
+			expPass:      true,
 		},
 		{
-			name:                         "PASS: update checks are deprecated, client is expired",
-			FreezeClient:                 false,
-			ExpireClient:                 true,
-			expPass:                      true,
+			name:         "PASS: update checks are deprecated, client is expired",
+			FreezeClient: false,
+			ExpireClient: true,
+			expPass:      true,
 		},
 	}
 
@@ -117,7 +114,6 @@ func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 		// a client are each tested to ensure that unexpiry headers cannot update
 		// a client when a unfreezing header is required.
 		suite.Run(tc.name, func() {
-
 			// start by testing unexpiring the client
 			suite.SetupTest() // reset
 
@@ -202,7 +198,6 @@ func (suite *TendermintTestSuite) TestCheckSubstituteAndUpdateState() {
 				suite.Require().Error(err)
 				suite.Require().Nil(updatedClient)
 			}
-
 		})
 	}
 }
@@ -270,7 +265,6 @@ func (suite *TendermintTestSuite) TestIsMatchingClientState() {
 			tc.malleate()
 
 			suite.Require().Equal(tc.expPass, types.IsMatchingClientState(*subjectClientState, *substituteClientState))
-
 		})
 	}
 }

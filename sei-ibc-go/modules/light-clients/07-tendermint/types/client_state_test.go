@@ -27,9 +27,7 @@ const (
 	fiftyOneCharChainID = "123456789012345678901234567890123456789012345678901"
 )
 
-var (
-	invalidProof = []byte("invalid proof")
-)
+var invalidProof = []byte("invalid proof")
 
 func (suite *TendermintTestSuite) TestStatus() {
 	var (
@@ -166,7 +164,6 @@ func (suite *TendermintTestSuite) TestValidate() {
 }
 
 func (suite *TendermintTestSuite) TestInitialize() {
-
 	testCases := []struct {
 		name           string
 		consensusState exported.ConsensusState

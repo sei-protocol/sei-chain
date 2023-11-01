@@ -41,8 +41,22 @@ type interchainAccountPretty struct {
 
 // GenerateAddress returns an sdk.AccAddress derived using the provided module account address and connection and port identifiers.
 // The sdk.AccAddress returned is a sub-address of the module account, using the host chain connection ID and controller chain's port ID as the derivation key
+// Deprecated: this function is deprecated! Please use GenerateUniqueAddress in favour of GenerateAddress
 func GenerateAddress(moduleAccAddr sdk.AccAddress, connectionID, portID string) sdk.AccAddress {
 	return sdk.AccAddress(sdkaddress.Derive(moduleAccAddr, []byte(connectionID+portID)))
+}
+
+// GenerateUniqueAddress returns an sdk.AccAddress derived using a host module account address, host connection ID, the controller portID,
+// the current block app hash, and the current block data hash. The sdk.AccAddress returned is a sub-address of the host module account.
+func GenerateUniqueAddress(ctx sdk.Context, connectionID, portID string) sdk.AccAddress {
+	hostModuleAcc := sdkaddress.Module(ModuleName, []byte(hostAccountsKey))
+	header := ctx.BlockHeader()
+
+	buf := []byte(connectionID + portID)
+	buf = append(buf, header.AppHash...)
+	buf = append(buf, header.DataHash...)
+
+	return sdkaddress.Derive(hostModuleAcc, buf)
 }
 
 // ValidateAccountAddress performs basic validation of interchain account addresses, enforcing constraints
@@ -106,7 +120,6 @@ func (ia InterchainAccount) MarshalYAML() ([]byte, error) {
 		Sequence:      ia.Sequence,
 		AccountOwner:  ia.AccountOwner,
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +141,6 @@ func (ia InterchainAccount) MarshalJSON() ([]byte, error) {
 		Sequence:      ia.Sequence,
 		AccountOwner:  ia.AccountOwner,
 	})
-
 	if err != nil {
 		return nil, err
 	}

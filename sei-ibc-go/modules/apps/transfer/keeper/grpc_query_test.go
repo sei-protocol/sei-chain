@@ -157,7 +157,6 @@ func (suite *KeeperTestSuite) TestQueryParams() {
 }
 
 func (suite *KeeperTestSuite) TestQueryDenomHash() {
-
 	reqTrace := types.DenomTrace{
 		Path:      "transfer/channelToA/transfer/channelToB",
 		BaseDenom: "uatom",
@@ -224,9 +223,7 @@ func (suite *KeeperTestSuite) TestQueryDenomHash() {
 }
 
 func (suite *KeeperTestSuite) TestEscrowAddress() {
-	var (
-		req *types.QueryEscrowAddressRequest
-	)
+	var req *types.QueryEscrowAddressRequest
 
 	testCases := []struct {
 		msg      string

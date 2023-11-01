@@ -34,11 +34,39 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
-## [v0.1.0] 2023-09-18
-- Add in changes from ibc-go 3.2.0
+## [v3.4.0](https://github.com/cosmos/ibc-go/releases/tag/v3.4.0) - 2022-11-07
 
-## [v0.0.1] 2023-05-27
-- Huckleberry patch
+### Dependencies
+
+* [\#2589](https://github.com/cosmos/ibc-go/pull/2589) Bump SDK version to v0.45.10 and Tendermint to v0.34.22.
+
+### State Machine Breaking
+
+* (apps/transfer) [\#2651](https://github.com/cosmos/ibc-go/pull/2651) Introduce `mustProtoMarshalJSON` for ics20 packet data marshalling which will skip emission (marshalling) of the memo field if unpopulated (empty). 
+* (27-interchain-accounts) [\#2580](https://github.com/cosmos/ibc-go/issues/2580) Removing port prefix requirement from the ICA host channel handshake
+* (transfer) [\#2377](https://github.com/cosmos/ibc-go/pull/2377) Adding `sequence` to `MsgTransferResponse`.
+
+### Features
+
+* (apps/transfer) [\#2595](https://github.com/cosmos/ibc-go/pull/2595) Adding optional memo field to `FungibleTokenPacketData` and `MsgTransfer`.
+
+### Bug Fixes
+
+* (apps/transfer) [\#2672](https://github.com/cosmos/ibc-go/pull/2672) Check `x/bank` send enabled.
+
+## [v3.3.0](https://github.com/cosmos/ibc-go/releases/tag/v3.3.0) - 2022-09-20
+
+### Dependencies
+
+* [\#2286](https://github.com/cosmos/ibc-go/pull/2286) Bump SDK version to v0.45.8 and Tendermint to v0.34.21.
+
+### Features
+
+* (apps/27-interchain-accounts) [\#2193](https://github.com/cosmos/ibc-go/pull/2193) Adding `InterchainAccount` gRPC query endpont to ICS27 `controller` submodule to allow users to retrieve registered interchain account addresses.
+
+### Bug Fixes
+
+* (27-interchain-accounts) [\#2308](https://github.com/cosmos/ibc-go/pull/2308) Nil checks have been added to ensure services are not registered for nil host or controller keepers.
 
 ## [v3.2.0](https://github.com/cosmos/ibc-go/releases/tag/v3.2.0) - 2022-08-12
 
@@ -108,6 +136,9 @@ Ref: https://keepachangelog.com/en/1.0.0/
 ### Bug Fixes
 
 * (modules/core/04-channel) [\#1130](https://github.com/cosmos/ibc-go/pull/1130) Call `packet.GetSequence()` rather than passing func in `WriteAcknowledgement` log output
+
+## [v0.0.1] 2023-05-27
+- Huckleberry patch
 
 ## [v3.0.0](https://github.com/cosmos/ibc-go/releases/tag/v3.0.0) - 2022-03-15
 This was forked from `ibc-go@46e020640e66f9043c14c53a4d215a5b457d6703` in order to apply the huckleberry patch. We can revert back to the OSS ibc-go once we can upgrade to v4+. 

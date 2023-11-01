@@ -119,6 +119,5 @@ func (k Keeper) OnChanCloseConfirm(
 	portID,
 	channelID string,
 ) error {
-
 	return nil
 }

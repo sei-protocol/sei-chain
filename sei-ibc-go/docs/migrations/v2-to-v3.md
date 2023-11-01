@@ -69,7 +69,7 @@ For example, if a chain chooses not to integrate a controller submodule, it may 
 
 #### Add `StoreUpgrades` for ICS27 module
 
-For ICS27 it is also necessary to [manually add store upgrades](https://docs.cosmos.network/v0.44/core/upgrade.html#add-storeupgrades-for-new-modules) for the new ICS27 module and then configure the store loader to apply those upgrades in `app.go`:
+For ICS27 it is also necessary to [manually add store upgrades](https://docs.cosmos.network/v0.45/core/upgrade.html#add-storeupgrades-for-new-modules) for the new ICS27 module and then configure the store loader to apply those upgrades in `app.go`:
 
 ```go
 if upgradeInfo.Name == "v3" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {

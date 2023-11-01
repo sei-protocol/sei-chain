@@ -25,6 +25,9 @@ const (
 
 	// QuerierRoute is the querier route for interchain accounts
 	QuerierRoute = ModuleName
+
+	// hostAccountKey is the key used when generating a module address for the host submodule
+	hostAccountsKey = "icahost-accounts"
 )
 
 var (

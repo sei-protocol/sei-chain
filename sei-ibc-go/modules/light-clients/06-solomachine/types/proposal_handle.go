@@ -22,7 +22,6 @@ func (cs ClientState) CheckSubstituteAndUpdateState(
 	ctx sdk.Context, cdc codec.BinaryCodec, subjectClientStore,
 	_ sdk.KVStore, substituteClient exported.ClientState,
 ) (exported.ClientState, error) {
-
 	if !cs.AllowUpdateAfterProposal {
 		return nil, sdkerrors.Wrapf(
 			clienttypes.ErrUpdateClientFailed,

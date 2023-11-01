@@ -16,4 +16,6 @@ message FungibleTokenPacketData {
   string sender = 3;
   // the recipient address on the destination chain
   string receiver = 4;
+  // optional memo
+  string memo = 5;
 }

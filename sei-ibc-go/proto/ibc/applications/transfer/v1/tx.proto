@@ -38,7 +38,12 @@ message MsgTransfer {
   // Timeout timestamp in absolute nanoseconds since unix epoch.
   // The timeout is disabled when set to 0.
   uint64 timeout_timestamp = 7 [(gogoproto.moretags) = "yaml:\"timeout_timestamp\""];
+  // optional memo
+  string memo = 8;
 }
 
 // MsgTransferResponse defines the Msg/Transfer response type.
-message MsgTransferResponse {}
+message MsgTransferResponse {
+  // sequence number of the transfer packet sent
+  uint64 sequence = 1;
+}

@@ -24,6 +24,7 @@ type BankKeeper interface {
 	SendCoinsFromModuleToAccount(ctx sdk.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromAccountToModule(ctx sdk.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	BlockedAddr(addr sdk.AccAddress) bool
+	IsSendEnabledCoin(ctx sdk.Context, coin sdk.Coin) bool
 }
 
 // ICS4Wrapper defines the expected ICS4Wrapper for middleware

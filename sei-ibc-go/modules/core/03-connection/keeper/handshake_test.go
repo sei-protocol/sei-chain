@@ -370,7 +370,6 @@ func (suite *KeeperTestSuite) TestConnOpenAck() {
 			tmClient.ChainId = "wrongchainid"
 
 			suite.chainB.App.GetIBCKeeper().ClientKeeper.SetClientState(suite.chainB.GetContext(), path.EndpointB.ClientID, tmClient)
-
 		}, false},
 		{"consensus height >= latest height", func() {
 			err := path.EndpointA.ConnOpenInit()
@@ -554,7 +553,6 @@ func (suite *KeeperTestSuite) TestConnOpenAck() {
 
 			err = path.EndpointB.ConnOpenTry()
 			suite.Require().NoError(err)
-
 		}, false},
 	}
 

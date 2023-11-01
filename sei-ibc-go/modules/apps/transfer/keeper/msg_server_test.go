@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 )
@@ -20,6 +21,17 @@ func (suite *KeeperTestSuite) TestMsgTransfer() {
 			true,
 		},
 		{
+			"bank send enabled for denom",
+			func() {
+				suite.chainA.GetSimApp().BankKeeper.SetParams(suite.chainA.GetContext(),
+					banktypes.Params{
+						SendEnabled: []*banktypes.SendEnabled{{Denom: sdk.DefaultBondDenom, Enabled: true}},
+					},
+				)
+			},
+			true,
+		},
+		{
 			"invalid sender",
 			func() {
 				msg.Sender = "address"
@@ -30,6 +42,17 @@ func (suite *KeeperTestSuite) TestMsgTransfer() {
 			"sender is a blocked address",
 			func() {
 				msg.Sender = suite.chainA.GetSimApp().AccountKeeper.GetModuleAddress(types.ModuleName).String()
+			},
+			false,
+		},
+		{
+			"bank send disabled for denom",
+			func() {
+				suite.chainA.GetSimApp().BankKeeper.SetParams(suite.chainA.GetContext(),
+					banktypes.Params{
+						SendEnabled: []*banktypes.SendEnabled{{Denom: sdk.DefaultBondDenom, Enabled: false}},
+					},
+				)
 			},
 			false,
 		},
@@ -55,12 +78,14 @@ func (suite *KeeperTestSuite) TestMsgTransfer() {
 			coin, suite.chainA.SenderAccount.GetAddress().String(), suite.chainB.SenderAccount.GetAddress().String(),
 			suite.chainB.GetTimeoutHeight(), 0, // only use timeout height
 		)
+		msg.Memo = "memo"
 
 		tc.malleate()
 
 		res, err := suite.chainA.GetSimApp().TransferKeeper.Transfer(sdk.WrapSDKContext(suite.chainA.GetContext()), msg)
 
 		if tc.expPass {
+			suite.Require().NotEqual(res.Sequence, uint64(0))
 			suite.Require().NoError(err)
 			suite.Require().NotNil(res)
 		} else {
