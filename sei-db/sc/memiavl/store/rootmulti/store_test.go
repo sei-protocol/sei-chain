@@ -1,10 +1,10 @@
 package rootmulti
 
 import (
-	"github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/libs/log"
 )
