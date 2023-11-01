@@ -64,7 +64,7 @@ func execute(cmd *cobra.Command, _ []string) {
 			continue
 		}
 		if !rateLimiter.AllowN(time.Now(), batchSize) {
-			time.Sleep(1 * time.Millisecond)
+			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 
@@ -77,7 +77,7 @@ func execute(cmd *cobra.Command, _ []string) {
 		for i := 0; i < adjustedBatchSize; i++ {
 			height := currBlockHeight + int64(i)
 			wg.Add(1)
-			go func() {
+			go func(height int64) {
 				defer wg.Done()
 				isBad, err := processBlock(height)
 				mtx.Lock()
@@ -89,7 +89,7 @@ func execute(cmd *cobra.Command, _ []string) {
 				if isBad {
 					badBlocks = append(badBlocks, height)
 				}
-			}()
+			}(height)
 		}
 		// Wait for ALL queries in this batch to finish and then check any failures
 		wg.Wait()
@@ -103,7 +103,7 @@ func execute(cmd *cobra.Command, _ []string) {
 			if stateDir != "" {
 				err := state.WriteState(stateDir, currentState)
 				if err != nil {
-					fmt.Println(err.Error())
+					panic(err)
 				}
 			}
 		}
@@ -129,7 +129,7 @@ func processBlock(height int64) (bool, error) {
 	numTxIndexed := len(txResp.Txs)
 	// Check if the number matches
 	if numTxIndexed == 0 && numTxIndexed != numTxInBlock {
-		fmt.Printf("[Fatal] Missing TXs at blcok height %d\n", height)
+		fmt.Printf("[Fatal] Missing TXs at block height %d\n", height)
 		return true, nil
 	}
 	// Now make sure each TX does exist
