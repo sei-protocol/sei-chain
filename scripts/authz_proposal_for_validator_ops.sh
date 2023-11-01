@@ -1,6 +1,19 @@
 #!/bin/bash
 set -e
 
+# Instructions:
+#  - to run: ./authz_proposal_for_validator_ops.sh [grant/revoke]
+#  - put grantee addresses in grantee.txt
+
+if [[ -z "$1" ]]; then
+    operation="grant"
+else
+    operation=$1 # should be "revoke"
+fi
+
+rm /tmp/grant-*.json || true
+rm /tmp/revoke-*.json || true
+
 if [[ -z "${GRANTER}" ]]; then
     echo -n GRANTER:
     read granter 
@@ -31,44 +44,40 @@ for GRANTEE in $(cat grantee.txt); do
     echo " - $GRANTEE"
 done
 
-echo
+if [[ $operation == "enable" ]]
+then
+    for GRANTEE in $(cat grantee.txt); do
+        echo
+        echo "generating MsgSubmitProposal, MsgVote, MsgUnjail for grantee: '$GRANTEE'"
+        seid tx authz grant $GRANTEE generic --from $GRANTER -b block -y --fees 20000usei --msg-type "/cosmos.gov.v1beta1.MsgSubmitProposal" --generate-only | jq > /tmp/grant-authz-proposal-$GRANTEE.json
+        seid tx authz grant $GRANTEE generic --from $GRANTER -b block -y --fees 20000usei --msg-type "/cosmos.gov.v1beta1.MsgVote" --generate-only | jq > /tmp/grant-authz-vote-$GRANTEE.json
+        seid tx authz grant $GRANTEE generic --from $GRANTER -b block -y --fees 20000usei --msg-type "/cosmos.slashing.v1beta1.MsgUnjail" --generate-only | jq > /tmp/grant-authz-unjail-$GRANTEE.json
 
-for GRANTEE in $(cat grantee.txt); do
-    echo
-    echo "generating MsgSubmitProposal, MsgVote, MsgUnjail for grantee: '$GRANTEE'"
-    seid tx authz grant $GRANTEE generic --from admin -b block -y --fees 20000usei \
-        --msg-type "/cosmos.gov.v1beta1.MsgSubmitProposal" \
-        --msg-type "/cosmos.gov.v1beta1.MsgVote" \
-        --msg-type "/cosmos.slashing.v1beta1.MsgUnjail" \
-        --generate-only | jq > /tmp/grant-authz-$GRANTEE.json
+        echo
+        echo "generating feegrant for grantee: '$GRANTEE'"
+        seid tx feegrant grant $GRANTER $GRANTEE --allowed-messages "/cosmos.authz.v1beta1.MsgExec" --spend-limit 10sei -b block -y --fees 20000usei --from $GRANTER --generate-only | jq > /tmp/grant-feegrant-$GRANTEE.json
+    done
+else
+    for GRANTEE in $(cat grantee.txt); do
+        echo
+        echo "generating MsgSubmitProposal, MsgVote, MsgUnjail for grantee: '$GRANTEE'"
+        seid tx authz revoke $GRANTEE --from $GRANTER -b block -y --fees 20000usei "/cosmos.gov.v1beta1.MsgSubmitProposal" --generate-only | jq > /tmp/revoke-authz-proposal-$GRANTEE.json
+        seid tx authz revoke $GRANTEE --from $GRANTER -b block -y --fees 20000usei "/cosmos.gov.v1beta1.MsgVote" --generate-only | jq > /tmp/revoke-authz-vote-$GRANTEE.json
+        seid tx authz revoke $GRANTEE --from $GRANTER -b block -y --fees 20000usei "/cosmos.slashing.v1beta1.MsgUnjail" --generate-only | jq > /tmp/revoke-authz-unjail-$GRANTEE.json
 
-    echo
-    echo "generating feegrant for grantee: '$GRANTEE'"
-    seid tx feegrant grant admin $GRANTEE \
-        --allowed-messages "/cosmos.authz.v1beta1.MsgExec" \
-        --spend-limit 10sei -b block -y --fees 20000usei --from $GRANTER \
-        --generate-only | jq > /tmp/grant-feegrant-$GRANTEE.json
-done
+        echo
+        echo "generating feegrant for grantee: '$GRANTEE'"
+        seid tx feegrant revoke $GRANTER $GRANTEE --fees 20000usei --from $GRANTER -b block -y --generate-only | jq > /tmp/revoke-feegrant-$GRANTEE.json
+    done
+fi
 
 echo
 echo "aggregating messages for grants"
 echo
 jq -s 'reduce .[] as $item ({"body": {"messages": []}, "auth_info": .[0].auth_info, "signatures": .[0].signatures}; .body.messages += $item.body.messages)' /tmp/grant-*.json > /tmp/combined_messages.json
 
+echo "combined messages have been stored in /tmp/combined_messages.json, please sign and broadcast them manually"
+echo 
+echo "To sign messages: 'seid tx sign /tmp/combined_messages.json --from \$GRANTER --chain-id \$CHAIN_ID | jq > signed_tx.json'"
 echo
-echo "signing combined messages"
-echo
-printf "12345678\n" | seid tx sign /tmp/combined_messages.json --from $GRANTER --chain-id $CHAIN_ID | jq > signed_tx.json
-
-echo
-echo "broadcasting signed tx"
-echo
-seid tx broadcast signed_tx.json --chain-id $CHAIN_ID -b block -y
-
-# remove grant* files so they don't get used in a separate run with different granters
-for GRANTEE in $(cat grantee.txt); do
-    rm /tmp/grant-authz-$GRANTEE.json
-    rm /tmp/grant-feegrant-$GRANTEE.json
-done
-
-
+echo "To broadcast signed tx: 'seid tx broadcast signed_tx.json --chain-id \$CHAIN_ID -b block'"
