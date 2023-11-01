@@ -1,4 +1,4 @@
-package ante
+package ante_test
 
 import (
 	"encoding/hex"
@@ -9,16 +9,17 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
 
 func TestEVMSigVerifyDecorator(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
-	handler := NewEVMSigVerifyDecorator(k)
-	privKey := keeper.MockPrivateKey()
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	handler := ante.NewEVMSigVerifyDecorator(k)
+	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	to := new(common.Address)
@@ -30,7 +31,7 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 		Value:    big.NewInt(1000),
 		Data:     []byte("abc"),
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	evmParams := k.GetParams(ctx)
 	chainCfg := evmParams.GetChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
@@ -43,7 +44,7 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
 
-	preprocessor := NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
