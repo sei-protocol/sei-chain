@@ -3,12 +3,12 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"

@@ -3,16 +3,6 @@ package occ_tests
 import (
 	"context"
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	tx2 "github.com/cosmos/cosmos-sdk/client/tx"
-	types3 "github.com/cosmos/cosmos-sdk/codec/types"
-	types2 "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
-	txtype "github.com/cosmos/cosmos-sdk/types/tx"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	"github.com/cosmos/cosmos-sdk/x/auth/tx"
-	"github.com/sei-protocol/sei-chain/app"
 	"math/rand"
 	"os"
 	"reflect"
@@ -21,16 +11,26 @@ import (
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmxtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/cosmos/cosmos-sdk/baseapp"
+	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/store"
+	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	txtype "github.com/cosmos/cosmos-sdk/types/tx"
+	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/cosmos/cosmos-sdk/x/auth/tx"
+	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/abci/types"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+
+	"github.com/sei-protocol/sei-chain/app"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-
-	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 const INSTANTIATE = `{"whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"],
@@ -64,14 +64,14 @@ func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {
 	acct := testCtx.TestApp.AccountKeeper.GetAccount(testCtx.Ctx, testCtx.Signer.Sender)
 
 	for _, m := range msgs {
-		a, err := types3.NewAnyWithValue(m)
+		a, err := codectypes.NewAnyWithValue(m)
 		if err != nil {
 			panic(err)
 		}
 
 		tBuilder := tx.WrapTx(&txtype.Tx{
 			Body: &txtype.TxBody{
-				Messages: []*types3.Any{a},
+				Messages: []*codectypes.Any{a},
 			},
 			AuthInfo: &txtype.AuthInfo{
 				Fee: &txtype.Fee{
@@ -101,7 +101,7 @@ func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {
 			AccountNumber: acct.GetAccountNumber(),
 		}
 
-		sigV2, err := tx2.SignWithPrivKey(
+		sigV2, err := clienttx.SignWithPrivKey(
 			tc.SignModeHandler().DefaultMode(), signerData,
 			tBuilder, priv, tc, acct.GetSequence())
 
@@ -144,8 +144,8 @@ type TestContext struct {
 
 type Signer struct {
 	Sender     sdk.AccAddress
-	PrivateKey types2.PrivKey
-	PublicKey  types2.PubKey
+	PrivateKey cryptotypes.PrivKey
+	PublicKey  cryptotypes.PubKey
 }
 
 func initSigner() Signer {
