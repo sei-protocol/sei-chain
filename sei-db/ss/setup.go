@@ -25,12 +25,13 @@ const (
 func SetupStateStore(
 	logger logger.Logger,
 	homePath string,
+	cms storetypes.CommitMultiStore,
 	stateCommit *rootmulti.Store,
 	appOpts servertypes.AppOptions,
 	keys map[string]*storetypes.KVStoreKey,
 	tkeys map[string]*storetypes.TransientStoreKey,
 	memKeys map[string]*storetypes.MemoryStoreKey,
-) (storetypes.MultiStore, error) {
+) (storetypes.QueryMultiStore, error) {
 	ssEnabled := cast.ToBool(appOpts.Get(FlagSSEnable))
 	if !ssEnabled {
 		return nil, nil
@@ -45,9 +46,9 @@ func SetupStateStore(
 	}
 
 	// default to exposing all
-	exposeStoreKeys := make([]storetypes.StoreKey, 0, len(keys))
-	for _, storeKey := range keys {
-		exposeStoreKeys = append(exposeStoreKeys, storeKey)
+	exposeStoreKeys := make(map[string]storetypes.StoreKey, len(keys))
+	for k, storeKey := range keys {
+		exposeStoreKeys[k] = storeKey
 	}
 
 	// Setup Commit Subscriber
@@ -63,7 +64,7 @@ func SetupStateStore(
 	}
 
 	// Setup QueryMultiStore
-	qms := store.NewMultiStore(ss, exposeStoreKeys)
+	qms := store.NewMultiStore(cms, ss, exposeStoreKeys)
 	qms.MountTransientStores(tkeys)
 	qms.MountMemoryStores(memKeys)
 	return qms, nil

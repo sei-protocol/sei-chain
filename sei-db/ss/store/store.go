@@ -2,17 +2,15 @@ package store
 
 import (
 	"io"
-	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sstypes "github.com/sei-protocol/sei-db/ss/types"
 )
 
-const StoreTypeSeiStateStore = 100
+const StoreTypeSSStore = 100
 
 var _ types.KVStore = (*Store)(nil)
 
@@ -28,7 +26,7 @@ func NewKVStore(store sstypes.StateStore, storeKey types.StoreKey, version int64
 }
 
 func (st *Store) GetStoreType() types.StoreType {
-	return StoreTypeSeiStateStore
+	return StoreTypeSSStore
 }
 
 func (st *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
@@ -44,7 +42,6 @@ func (st *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []typ
 }
 
 func (st *Store) Get(key []byte) []byte {
-	defer telemetry.MeasureSince(time.Now(), "store", "state-store", "get")
 	value, err := st.store.Get(st.storeKey.Name(), st.version, key)
 	if err != nil {
 		panic(err)
@@ -53,7 +50,6 @@ func (st *Store) Get(key []byte) []byte {
 }
 
 func (st *Store) Has(key []byte) bool {
-	defer telemetry.MeasureSince(time.Now(), "store", "state-store", "has")
 	has, err := st.store.Has(st.storeKey.Name(), st.version, key)
 	if err != nil {
 		panic(err)

@@ -202,7 +202,7 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 		}
 		stores[k] = store
 	}
-	return cachemulti.NewStore(nil, stores, rs.keysByName, nil, nil, nil, nil)
+	return cachemulti.NewStore(nil, stores, rs.keysByName, nil, nil, rs.listeners, nil)
 }
 
 // Implements interface MultiStore
@@ -238,14 +238,14 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	return cachemulti.NewStore(nil, stores, rs.keysByName, nil, nil, nil, db), nil
 }
 
-// Implements interface MultiStore
+// GetStore Implements interface MultiStore
 func (rs *Store) GetStore(key types.StoreKey) types.Store {
-	return rs.CacheMultiStore().GetStore(key)
+	return rs.stores[key]
 }
 
-// Implements interface MultiStore
+// GetKVStore Implements interface MultiStore
 func (rs *Store) GetKVStore(key types.StoreKey) types.KVStore {
-	return rs.CacheMultiStore().GetKVStore(key)
+	return rs.stores[key]
 }
 
 // Implements interface MultiStore

@@ -219,7 +219,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 }
 
 func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
-	panic("Not Implemented")
+	panic("not implemented!")
 }
 
 func storePrefix(storeKey string) []byte {
