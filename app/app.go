@@ -240,7 +240,7 @@ var (
 	EmittedSeidVersionMetric = false
 	// EmptyAclmOpts defines a type alias for a list of wasm options.
 	EmptyACLOpts []aclkeeper.Option
-
+	// EnableOCC allows tests to override default OCC enablement behavior
 	EnableOCC = true
 )
 
