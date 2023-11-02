@@ -1,11 +1,12 @@
 package occ_tests
 
 import (
+	"testing"
+	"time"
+
 	"github.com/cosmos/cosmos-sdk/server/config"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
-	"testing"
-	"time"
 )
 
 // TestParallelTransactions verifies that the store state is equivalent
