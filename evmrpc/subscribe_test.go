@@ -30,7 +30,7 @@ func TestSubscribe(t *testing.T) {
 }
 
 func mockQueryBuilder() *QueryBuilder {
-	q := NewQueryBuilder()
+	q := NewTxQueryBuilder()
 	q.FilterContractAddress("test contract")
 	q.FilterBlockHash("block hash")
 	q.FilterBlockNumber(1)

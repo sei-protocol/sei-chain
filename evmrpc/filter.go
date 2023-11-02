@@ -14,6 +14,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
+	"github.com/tendermint/tendermint/types"
 )
 
 // Type determines the kind of filter and is used to put the filter in to
@@ -30,10 +31,10 @@ const (
 )
 
 type filter struct {
-	typ      Type
-	fc       filters.FilterCriteria
-	deadline *time.Timer
-	logsCursors  map[common.Address]string
+	typ         Type
+	fc          filters.FilterCriteria
+	deadline    *time.Timer
+	logsCursors map[common.Address]string
 	blockCursor uint64 // last block number returned
 }
 
@@ -91,10 +92,10 @@ func (a *FilterAPI) NewFilter(
 	curFilterID := a.nextFilterID
 	a.nextFilterID++
 	a.filters[curFilterID] = filter{
-		typ:      LogsSubscription,
-		fc:       crit,
-		deadline: time.NewTimer(a.filterConfig.timeout),
-		logsCursors:  make(map[common.Address]string),
+		typ:         LogsSubscription,
+		fc:          crit,
+		deadline:    time.NewTimer(a.filterConfig.timeout),
+		logsCursors: make(map[common.Address]string),
 	}
 	return &curFilterID, nil
 }
@@ -102,6 +103,8 @@ func (a *FilterAPI) NewFilter(
 func (a *FilterAPI) NewBlockFilter(
 	ctx context.Context,
 ) (*uint64, error) {
+	// get latest cursor
+
 	status, err := a.tmClient.Status(ctx)
 	if err != nil {
 		return nil, err
@@ -113,8 +116,8 @@ func (a *FilterAPI) NewBlockFilter(
 	curFilterID := a.nextFilterID
 	a.nextFilterID++
 	a.filters[curFilterID] = filter{
-		typ:      BlocksSubscription,
-		deadline: time.NewTimer(a.filterConfig.timeout),
+		typ:         BlocksSubscription,
+		deadline:    time.NewTimer(a.filterConfig.timeout),
 		blockCursor: latestBlockHeight,
 	}
 	return &curFilterID, nil
@@ -138,16 +141,25 @@ func (a *FilterAPI) GetFilterChanges(
 	}
 	filter.deadline.Reset(a.filterConfig.timeout)
 
-	res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, filter.logsCursors)
-	if err != nil {
-		return nil, err
+	switch filter.typ {
+	case BlocksSubscription:
+		q := NewBlockQueryBuilder()
+
+		return nil, errors.New("not implemented")
+	case LogsSubscription:
+		res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, filter.logsCursors)
+		if err != nil {
+			return nil, err
+		}
+		a.filtersMu.Lock()
+		updatedFilter := a.filters[filterID]
+		updatedFilter.logsCursors = cursors
+		a.filters[filterID] = updatedFilter
+		a.filtersMu.Unlock()
+		return res, nil
+	default:
+		return nil, errors.New("unknown filter type")
 	}
-	a.filtersMu.Lock()
-	updatedFilter := a.filters[filterID]
-	updatedFilter.logsCursors = cursors
-	a.filters[filterID] = updatedFilter
-	a.filtersMu.Unlock()
-	return res, nil
 }
 
 func (a *FilterAPI) GetFilterLogs(
@@ -229,6 +241,41 @@ func (a *FilterAPI) getLogsOverAddresses(
 	return res, updatedAddrToCursor, nil
 }
 
+// get block headers after a certain cursor. Can use an empty string cursor
+// to get the latest block header.
+func (a *FilterAPI) getBlockHeadersAfter(
+	ctx context.Context,
+	cursor string,
+) ([]common.Hash, string, error) {
+	q := NewBlockQueryBuilder()
+	builtQuery := q.Build()
+	hasMore := true
+	headers := []common.Hash{}
+	for hasMore {
+		res, err := a.tmClient.Events(ctx, &coretypes.RequestEvents{
+			Filter: &coretypes.EventFilter{Query: builtQuery},
+			After:  cursor,
+		})
+		if err != nil {
+			return nil, "", err
+		}
+		hasMore = res.More
+		cursor = res.Newest
+
+		// should get back this: https://github.com/sei-protocol/sei-tendermint/blob/main/types/events.go#L132-L137
+		for _, item := range res.Items {
+			header := types.EventDataNewBlockHeader{}
+			err := json.Unmarshal(item.Data, &header)
+			if err != nil {
+				return nil, "", err
+			}
+			// NOTE: could have also used header.ResultFinalizeBlock.AppHash
+			headers = append(headers, common.BytesToHash(header.Header.Hash()))
+		}
+	}
+	return headers, cursor, nil
+}
+
 // pulls logs from tendermint client for a single address.
 func (a *FilterAPI) getLogs(
 	ctx context.Context,
@@ -239,7 +286,7 @@ func (a *FilterAPI) getLogs(
 	topics [][]common.Hash,
 	cursor string,
 ) ([]*ethtypes.Log, string, error) {
-	q := NewQueryBuilder()
+	q := NewTxQueryBuilder()
 	if blockHash != nil {
 		q = q.FilterBlockHash(blockHash.Hex())
 	}
@@ -262,11 +309,12 @@ func (a *FilterAPI) getLogs(
 		}
 		q = q.FilterTopics(topicsStrs)
 	}
+	builtQuery := q.Build()
 	hasMore := true
 	logs := []*ethtypes.Log{}
 	for hasMore {
 		res, err := a.tmClient.Events(ctx, &coretypes.RequestEvents{
-			Filter: &coretypes.EventFilter{Query: q.Build()},
+			Filter: &coretypes.EventFilter{Query: builtQuery},
 			After:  cursor,
 		})
 		if err != nil {
