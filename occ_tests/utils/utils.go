@@ -221,7 +221,7 @@ func JoinMsgs(msgsList ...[]sdk.Msg) []sdk.Msg {
 }
 
 func Shuffle(msgs []sdk.Msg) []sdk.Msg {
-	var result []sdk.Msg
+	result := make([]sdk.Msg, 0, len(msgs))
 	for _, i := range rand.Perm(len(msgs)) {
 		result = append(result, msgs[i])
 	}
