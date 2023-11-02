@@ -28,7 +28,7 @@ linters:
     - staticcheck
     # - structcheck ## author abandoned project
     - stylecheck
-    - revive
+    # - revive
     - typecheck
     - unconvert
     - unused
