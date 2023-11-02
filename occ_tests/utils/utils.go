@@ -69,6 +69,12 @@ func Funds(amount int64) sdk.Coins {
 	return sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(amount)))
 }
 
+func panicIfErr(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
 // NewTestContext initializes a new TestContext with a new app and a new contract
 func NewTestContext(signer Signer, blockTime time.Time, workers int) *TestContext {
 	contractFile := "../integration_test/contracts/mars.wasm"
@@ -84,12 +90,12 @@ func NewTestContext(signer Signer, blockTime time.Time, workers int) *TestContex
 	depositAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
 	bankkeeper := testApp.BankKeeper
-	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
-	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts)
-	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
-	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, depositAccount, amounts)
-	bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts)
-	bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, signer.Sender, amounts)
+	panicIfErr(bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts))
+	panicIfErr(bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts))
+	panicIfErr(bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts))
+	panicIfErr(bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, depositAccount, amounts))
+	panicIfErr(bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts))
+	panicIfErr(bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, signer.Sender, amounts))
 
 	wasm, err := os.ReadFile(contractFile)
 	if err != nil {
@@ -115,7 +121,7 @@ func NewTestContext(signer Signer, blockTime time.Time, workers int) *TestContex
 }
 
 func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {
-	var txs [][]byte
+	txs := make([][]byte, 0, len(msgs))
 	tc := app.MakeEncodingConfig().TxConfig
 
 	priv := testCtx.Signer.PrivateKey
