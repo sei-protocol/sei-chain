@@ -1,6 +1,7 @@
 package occ_tests
 
 import (
+	"github.com/cosmos/cosmos-sdk/server/config"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -64,18 +65,18 @@ func TestParallelTransactions(t *testing.T) {
 
 		// execute sequentially, then in parallel
 		// the responses and state should match for both
-		sCtx := initTestContext(signer, blockTime)
+		sCtx := initTestContext(signer, blockTime, 1)
 		txs := tt.txs(sCtx)
 		if tt.shuffle {
 			txs = shuffle(txs)
 		}
 
-		sEvts, sResults, _, sErr := runSequentially(sCtx, txs)
+		sEvts, sResults, _, sErr := runWithOCC(sCtx, txs)
 		require.NoError(t, sErr, tt.name)
 
 		for i := 0; i < tt.runs; i++ {
-			pCtx := initTestContext(signer, blockTime)
-			pEvts, pResults, _, pErr := runParallel(pCtx, txs)
+			pCtx := initTestContext(signer, blockTime, config.DefaultConcurrencyWorkers)
+			pEvts, pResults, _, pErr := runWithOCC(pCtx, txs)
 			require.NoError(t, pErr, tt.name)
 			assertEqualEvents(t, sEvts, pEvts, tt.name)
 			assertExecTxResultCode(t, sResults, pResults, 0, tt.name)

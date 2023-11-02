@@ -1362,7 +1362,6 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	//TODO: update with logic that asserts that occ is enabled
 	ctx = ctx.WithIsOCCEnabled(EnableOCC)
-
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
 

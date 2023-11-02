@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"os"
 	"testing"
 	"time"
@@ -153,7 +154,7 @@ func (s *TestWrapper) EndBlock() {
 	s.App.EndBlocker(s.Ctx, reqEndBlock)
 }
 
-func Setup(isCheckTx bool) *App {
+func Setup(isCheckTx bool, baseAppOptions ...func(*baseapp.BaseApp)) *App {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
@@ -171,6 +172,7 @@ func Setup(isCheckTx bool) *App {
 		TestAppOpts{},
 		EmptyWasmOpts,
 		EmptyACLOpts,
+		baseAppOptions...,
 	)
 	if !isCheckTx {
 		genesisState := NewDefaultGenesisState(cdc)

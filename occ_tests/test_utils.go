@@ -3,6 +3,7 @@ package occ_tests
 import (
 	"context"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	tx2 "github.com/cosmos/cosmos-sdk/client/tx"
 	types3 "github.com/cosmos/cosmos-sdk/codec/types"
 	types2 "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -22,7 +23,6 @@ import (
 	wasmxtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
@@ -158,9 +158,11 @@ func initSigner() Signer {
 }
 
 // initTestContext initializes a new TestContext with a new app and a new contract
-func initTestContext(signer Signer, blockTime time.Time) *TestContext {
+func initTestContext(signer Signer, blockTime time.Time, workers int) *TestContext {
 	contractFile := "../integration_test/contracts/mars.wasm"
-	testApp := keepertest.TestApp()
+	testApp := app.Setup(false, func(ba *baseapp.BaseApp) {
+		ba.SetConcurrencyWorkers(workers)
+	})
 	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now(), Height: 1})
 	ctx = ctx.WithChainID("chainId")
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(dextypes.MemStoreKey))))
@@ -273,21 +275,22 @@ func compareStores(t *testing.T, storeKey sdk.StoreKey, expected store.KVStore, 
 	require.False(t, iactual.Valid(), "Extra key found in the actual store: %s", storeKey.Name())
 }
 
-func runParallel(testCtx *TestContext, msgs []sdk.Msg) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func runWithOCC(testCtx *TestContext, msgs []sdk.Msg) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	return runTxs(testCtx, msgs, true)
 }
 
-func runSequentially(testCtx *TestContext, msgs []sdk.Msg) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func runWithoutOCC(testCtx *TestContext, msgs []sdk.Msg) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	return runTxs(testCtx, msgs, false)
 }
 
-func runTxs(testCtx *TestContext, msgs []sdk.Msg, parallel bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
-	app.EnableOCC = parallel
+func runTxs(testCtx *TestContext, msgs []sdk.Msg, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+	app.EnableOCC = occ
 	txs := toTxBytes(testCtx, msgs)
 	req := &types.RequestFinalizeBlock{
 		Txs:    txs,
 		Height: testCtx.Ctx.BlockHeader().Height,
 	}
+
 	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit)
 }
 
