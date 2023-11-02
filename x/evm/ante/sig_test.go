@@ -25,6 +25,7 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	to := new(common.Address)
 	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
 	txData := ethtypes.LegacyTx{
+		Nonce:    1,
 		GasPrice: big.NewInt(10),
 		Gas:      1000,
 		To:       to,
@@ -57,7 +58,7 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	require.NotNil(t, err)
 
 	// should return error if acc is not found (i.e. preprocess not called)
-	txData.Nonce = 1
+	txData.Nonce = 0
 	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
 	typedTx, err = ethtx.NewLegacyTx(tx)
@@ -72,7 +73,7 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	require.NotNil(t, err)
 
 	// should succeed
-	txData.Nonce = 1
+	txData.Nonce = 0
 	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
 	typedTx, err = ethtx.NewLegacyTx(tx)

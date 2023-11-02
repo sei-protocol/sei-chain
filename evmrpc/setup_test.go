@@ -233,6 +233,7 @@ func init() {
 	goodConfig := evmrpc.DefaultConfig
 	goodConfig.HTTPPort = TestPort
 	goodConfig.WSPort = TestWSPort
+	goodConfig.FilterTimeout = 500 * time.Millisecond
 	HttpServer, err := evmrpc.NewEVMHTTPServer(log.NewNopLogger(), goodConfig, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
 	if err != nil {
 		panic(err)
@@ -242,6 +243,7 @@ func init() {
 	}
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
+	badConfig.FilterTimeout = 500 * time.Millisecond
 	badHTTPServer, err := evmrpc.NewEVMHTTPServer(log.NewNopLogger(), badConfig, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
 	if err != nil {
 		panic(err)

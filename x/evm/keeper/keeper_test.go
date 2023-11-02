@@ -7,12 +7,13 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetChainID(t *testing.T) {
 	k, _, ctx := keeper.MockEVMKeeper()
-	require.Equal(t, int64(1), k.ChainID(ctx).Int64())
+	require.Equal(t, types.DefaultChainID.Int64(), k.ChainID(ctx).Int64())
 }
 
 func TestGetVMBlockContext(t *testing.T) {
