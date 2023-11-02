@@ -1,11 +1,14 @@
-package occ_tests
+package messages
 
 import (
 	"fmt"
+
 	"github.com/CosmWasm/wasmd/x/wasm"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+
+	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 )
 
 const instantiateMsg = `{"whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"],
@@ -31,7 +34,7 @@ const instantiateMsg = `{"whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5k
 		"maintenance":"0.06"
 	}}`
 
-func wasmInstantiate(tCtx *TestContext, count int) []sdk.Msg {
+func WasmInstantiate(tCtx *utils.TestContext, count int) []sdk.Msg {
 	var msgs []sdk.Msg
 	for i := 0; i < count; i++ {
 		msgs = append(msgs, &wasm.MsgInstantiateContract{
@@ -40,25 +43,25 @@ func wasmInstantiate(tCtx *TestContext, count int) []sdk.Msg {
 			CodeID: tCtx.CodeID,
 			Label:  fmt.Sprintf("test-%d", i),
 			Msg:    []byte(instantiateMsg),
-			Funds:  funds(100000),
+			Funds:  utils.Funds(100000),
 		})
 	}
 	return msgs
 }
 
-func bankTransfer(tCtx *TestContext, count int) []sdk.Msg {
+func BankTransfer(tCtx *utils.TestContext, count int) []sdk.Msg {
 	var msgs []sdk.Msg
 	for i := 0; i < count; i++ {
-		msgs = append(msgs, banktypes.NewMsgSend(tCtx.Signer.Sender, tCtx.TestAccount2, funds(int64(i+1))))
+		msgs = append(msgs, banktypes.NewMsgSend(tCtx.Signer.Sender, tCtx.TestAccount2, utils.Funds(int64(i+1))))
 	}
 	return msgs
 }
 
-func governanceSubmitProposal(tCtx *TestContext, count int) []sdk.Msg {
+func GovernanceSubmitProposal(tCtx *utils.TestContext, count int) []sdk.Msg {
 	var msgs []sdk.Msg
 	for i := 0; i < count; i++ {
 		content := govtypes.NewTextProposal(fmt.Sprintf("Proposal %d", i), "test", true)
-		mp, err := govtypes.NewMsgSubmitProposalWithExpedite(content, funds(10000), tCtx.Signer.Sender, true)
+		mp, err := govtypes.NewMsgSubmitProposalWithExpedite(content, utils.Funds(10000), tCtx.Signer.Sender, true)
 		if err != nil {
 			panic(err)
 		}
