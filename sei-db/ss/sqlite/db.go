@@ -53,9 +53,31 @@ type Database struct {
 }
 
 func New(dataDir string) (*Database, error) {
-	db, err := sql.Open(driverName, filepath.Join(dataDir, dbName))
+	db, err := sql.Open(driverName, filepath.Join(dataDir, dbName)+"?cache=shared")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite DB: %w", err)
+	}
+
+	// TODO: Possibly change to MEMORY
+	_, err = db.Exec(`PRAGMA journal_mode=WAL;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set PRAGMA journal_mode=WAL: %w", err)
+	}
+
+	// TODO: Possibly change to OFF
+	_, err = db.Exec(`PRAGMA synchronous=NORMAL;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set PRAGMA synchronous=NORMAL: %w", err)
+	}
+
+	_, err = db.Exec(`PRAGMA cache_size=-32000;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set PRAGMA cache_size: %w", err)
+	}
+
+	_, err = db.Exec(`PRAGMA auto_vacuum=FULL;`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set PRAGMA auto_vacuum: %w", err)
 	}
 
 	stmt := `
