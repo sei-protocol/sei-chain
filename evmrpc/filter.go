@@ -16,10 +16,25 @@ import (
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
+// Type determines the kind of filter and is used to put the filter in to
+// the correct bucket when added.
+type Type byte
+
+const (
+	// UnknownSubscription indicates an unknown subscription type
+	UnknownSubscription Type = iota
+	// LogsSubscription queries for new or removed (chain reorg) logs
+	LogsSubscription
+	// BlocksSubscription queries hashes for blocks that are imported
+	BlocksSubscription
+)
+
 type filter struct {
+	typ      Type
 	fc       filters.FilterCriteria
 	deadline *time.Timer
-	cursors  map[common.Address]string
+	logsCursors  map[common.Address]string
+	blockCursor uint64 // last block number returned
 }
 
 type FilterAPI struct {
@@ -76,9 +91,31 @@ func (a *FilterAPI) NewFilter(
 	curFilterID := a.nextFilterID
 	a.nextFilterID++
 	a.filters[curFilterID] = filter{
+		typ:      LogsSubscription,
 		fc:       crit,
 		deadline: time.NewTimer(a.filterConfig.timeout),
-		cursors:  make(map[common.Address]string),
+		logsCursors:  make(map[common.Address]string),
+	}
+	return &curFilterID, nil
+}
+
+func (a *FilterAPI) NewBlockFilter(
+	ctx context.Context,
+) (*uint64, error) {
+	status, err := a.tmClient.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	latestBlockHeight := uint64(status.SyncInfo.LatestBlockHeight)
+
+	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
+	curFilterID := a.nextFilterID
+	a.nextFilterID++
+	a.filters[curFilterID] = filter{
+		typ:      BlocksSubscription,
+		deadline: time.NewTimer(a.filterConfig.timeout),
+		blockCursor: latestBlockHeight,
 	}
 	return &curFilterID, nil
 }
@@ -101,13 +138,13 @@ func (a *FilterAPI) GetFilterChanges(
 	}
 	filter.deadline.Reset(a.filterConfig.timeout)
 
-	res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, filter.cursors)
+	res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, filter.logsCursors)
 	if err != nil {
 		return nil, err
 	}
 	a.filtersMu.Lock()
 	updatedFilter := a.filters[filterID]
-	updatedFilter.cursors = cursors
+	updatedFilter.logsCursors = cursors
 	a.filters[filterID] = updatedFilter
 	a.filtersMu.Unlock()
 	return res, nil
@@ -138,7 +175,7 @@ func (a *FilterAPI) GetFilterLogs(
 	}
 	a.filtersMu.Lock()
 	updatedFilter := a.filters[filterID]
-	updatedFilter.cursors = cursors
+	updatedFilter.logsCursors = cursors
 	a.filters[filterID] = updatedFilter
 	a.filtersMu.Unlock()
 	return res, nil
