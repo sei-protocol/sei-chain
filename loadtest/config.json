@@ -19,7 +19,7 @@
     "message_configs": {
       "default": {
         "gas": 3000000,
-        "fee": 200000
+        "fee": 300000
       },
       "collect_rewards": {
         "gas": 10000000,
