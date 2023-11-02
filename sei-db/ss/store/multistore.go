@@ -161,7 +161,6 @@ func (s *MultiStore) LatestVersion() int64 {
 	return version
 }
 
-func (s *MultiStore) Snapshot(height uint64, protoWriter protoio.Writer) error {
-	//TODO implement me
-	panic("implement me")
+func (s *MultiStore) Snapshot(_ uint64, _ protoio.Writer) error {
+	panic("not supported")
 }
