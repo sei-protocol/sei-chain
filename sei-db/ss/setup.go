@@ -62,6 +62,7 @@ func SetupStateStore(
 	if err != nil {
 		return nil, err
 	}
+	logger.Info(fmt.Sprintf("Finished replaying changelog for SS"))
 
 	// Setup QueryMultiStore
 	qms := store.NewMultiStore(cms, ss, exposeStoreKeys)
@@ -126,7 +127,7 @@ func recoverStateStore(logger logger.Logger, stateStore types.StateStore, homePa
 	firstVersion := firstEntry.Version
 	delta := uint64(firstVersion) - firstOffset
 	targetStartOffset := uint64(ssLatestVersion) + delta
-	logger.Info(fmt.Sprintf("Start replaying changelog for SS from offset %d", targetStartOffset))
+	logger.Info(fmt.Sprintf("Start replaying changelog for SS from offset %d to %d", targetStartOffset, lastOffset))
 	if targetStartOffset < lastOffset {
 		return streamHandler.Replay(targetStartOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
 			return commitToStateStore(stateStore, entry.Version, entry.Changesets)
