@@ -62,7 +62,7 @@ func SetupStateStore(
 	if err != nil {
 		return nil, err
 	}
-	logger.Info(fmt.Sprintf("Finished replaying changelog for SS"))
+	logger.Info("Finished replaying changelog for SS")
 
 	// Setup QueryMultiStore
 	qms := store.NewMultiStore(cms, ss, exposeStoreKeys)
