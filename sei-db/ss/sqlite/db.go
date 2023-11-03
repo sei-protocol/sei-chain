@@ -58,26 +58,15 @@ func New(dataDir string) (*Database, error) {
 		return nil, fmt.Errorf("failed to open sqlite DB: %w", err)
 	}
 
-	// TODO: Possibly change to MEMORY
-	_, err = db.Exec(`PRAGMA journal_mode=WAL;`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set PRAGMA journal_mode=WAL: %w", err)
+	pragmas := []string{
+		`PRAGMA journal_mode=WAL;`,
+		`PRAGMA synchronous=NORMAL;`,
+		`PRAGMA cache_size=-32000;`,
+		`PRAGMA auto_vacuum=FULL;`,
 	}
 
-	// TODO: Possibly change to OFF
-	_, err = db.Exec(`PRAGMA synchronous=NORMAL;`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set PRAGMA synchronous=NORMAL: %w", err)
-	}
-
-	_, err = db.Exec(`PRAGMA cache_size=-32000;`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set PRAGMA cache_size: %w", err)
-	}
-
-	_, err = db.Exec(`PRAGMA auto_vacuum=FULL;`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to set PRAGMA auto_vacuum: %w", err)
+	if err := execPragmas(db, pragmas); err != nil {
+		return nil, err
 	}
 
 	stmt := `
@@ -308,4 +297,14 @@ func (db *Database) PrintRowsDebug() {
 	}
 
 	fmt.Println(strings.TrimSpace(sb.String()))
+}
+
+// execPragmas executes a series of PRAGMA statements on sqlite db
+func execPragmas(db *sql.DB, pragmas []string) error {
+	for _, pragma := range pragmas {
+		if _, err := db.Exec(pragma); err != nil {
+			return fmt.Errorf("failed to set %s: %w", strings.TrimSpace(pragma), err)
+		}
+	}
+	return nil
 }
