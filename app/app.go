@@ -777,7 +777,7 @@ func New(
 	app.ProcessProposalMemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
 	app.MemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
 
-	qms, err := ss.SetupStateStore(logger, homePath, scStore, appOpts, keys, tkeys, memKeys)
+	qms, err := ss.SetupStateStore(logger, homePath, app.CommitMultiStore(), scStore, appOpts, keys, tkeys, memKeys)
 	if err != nil {
 		panic(err)
 	}
@@ -828,6 +828,8 @@ func New(
 
 	// Register snapshot extensions to enable state-sync for wasm.
 	if manager := app.SnapshotManager(); manager != nil {
+		manager.SetStateCommitStore(app.CommitMultiStore())
+		manager.SetStateStore(app.QueryMultiStore())
 		err := manager.RegisterExtensions(
 			wasmkeeper.NewWasmSnapshotter(app.CommitMultiStore(), &app.WasmKeeper),
 		)
