@@ -1,4 +1,4 @@
-package keeper
+package keeper_test
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/precompiles"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper/testdata"
 	sendall "github.com/sei-protocol/sei-chain/x/evm/keeper/testdata/SendAll"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -22,12 +24,12 @@ import (
 )
 
 func TestEVMTransaction(t *testing.T) {
-	k, _, ctx := MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	code, err := os.ReadFile("./testdata/SimpleStorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
-	privKey := MockPrivateKey()
+	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
@@ -38,7 +40,7 @@ func TestEVMTransaction(t *testing.T) {
 		Data:     bz,
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	evmParams := k.GetParams(ctx)
 	chainCfg := evmParams.GetChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
@@ -51,11 +53,11 @@ func TestEVMTransaction(t *testing.T) {
 	req, err := types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	_, evmAddr := PrivateKeyToAddresses(privKey)
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	k.SetOrDeleteBalance(ctx, evmAddr, 1000000)
-	k.bankKeeper.MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
 
-	msgServer := NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(*k)
 
 	// Deploy Simple Storage contract
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
@@ -65,7 +67,7 @@ func TestEVMTransaction(t *testing.T) {
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
 	require.Equal(t, uint64(1000000)-res.GasUsed, k.GetBalance(ctx, evmAddr))
-	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, k.accountKeeper.GetModuleAddress(authtypes.FeeCollectorName), k.GetBaseDenom(ctx)).Amount.Uint64())
+	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), k.GetBaseDenom(ctx)).Amount.Uint64())
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -112,8 +114,8 @@ func TestEVMTransaction(t *testing.T) {
 }
 
 func TestEVMTransactionError(t *testing.T) {
-	k, _, ctx := MockEVMKeeper()
-	privKey := MockPrivateKey()
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
@@ -124,7 +126,7 @@ func TestEVMTransactionError(t *testing.T) {
 		Data:     []byte("123090321920390920123"), // gibberish data
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	evmParams := k.GetParams(ctx)
 	chainCfg := evmParams.GetChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
@@ -137,11 +139,11 @@ func TestEVMTransactionError(t *testing.T) {
 	req, err := types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	_, evmAddr := PrivateKeyToAddresses(privKey)
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	k.SetOrDeleteBalance(ctx, evmAddr, 1000000)
-	k.bankKeeper.MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
 
-	msgServer := NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(*k)
 
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err) // there should only be VM error, no msg-level error
@@ -157,12 +159,12 @@ func TestEVMTransactionError(t *testing.T) {
 }
 
 func TestEVMTransactionInsufficientGas(t *testing.T) {
-	k, _, ctx := MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	code, err := os.ReadFile("./testdata/SimpleStorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
-	privKey := MockPrivateKey()
+	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
@@ -173,7 +175,7 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 		Data:     bz,
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	evmParams := k.GetParams(ctx)
 	chainCfg := evmParams.GetChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
@@ -186,29 +188,29 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	req, err := types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	_, evmAddr := PrivateKeyToAddresses(privKey)
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	k.SetOrDeleteBalance(ctx, evmAddr, 1000)
-	k.bankKeeper.MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000))))
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000))))
 
-	msgServer := NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(*k)
 
 	// Deploy Simple Storage contract with insufficient gas
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err) // there should be no error on Sei level, since we don't want all state changes (like gas charge and receipt) to revert
 	require.Contains(t, res.VmError, "intrinsic gas too low")
 	require.Equal(t, uint64(1000), res.GasUsed) // all gas should be consumed
-	require.Equal(t, uint64(0), k.bankKeeper.GetBalance(ctx, k.accountKeeper.GetModuleAddress(authtypes.FeeCollectorName), k.GetBaseDenom(ctx)).Amount.Uint64())
-	require.Equal(t, uint64(0), k.bankKeeper.GetBalance(ctx, k.accountKeeper.GetModuleAddress(types.ModuleName), k.GetBaseDenom(ctx)).Amount.Uint64())
+	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), k.GetBaseDenom(ctx)).Amount.Uint64())
+	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), k.GetBaseDenom(ctx)).Amount.Uint64())
 	require.Equal(t, uint64(0), k.GetBalance(ctx, evmAddr))
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {
-	k, _, ctx := MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	code, err := os.ReadFile("./testdata/SimpleStorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
-	privKey := MockPrivateKey()
+	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.DynamicFeeTx{
@@ -219,7 +221,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 		Data:      bz,
 		Nonce:     0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	evmParams := k.GetParams(ctx)
 	chainCfg := evmParams.GetChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
@@ -232,11 +234,11 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	req, err := types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	_, evmAddr := PrivateKeyToAddresses(privKey)
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	k.SetOrDeleteBalance(ctx, evmAddr, 1000000)
-	k.bankKeeper.MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
 
-	msgServer := NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(*k)
 
 	// Deploy Simple Storage contract
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
@@ -253,14 +255,14 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 }
 
 func TestEVMPrecompiles(t *testing.T) {
-	k, _, ctx := MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	err := precompiles.InitializePrecompiles(k, k.BankKeeper())
 	require.Nil(t, err)
 	code, err := os.ReadFile("./testdata/SendAll/SendAll.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
-	privKey := MockPrivateKey()
+	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
@@ -271,7 +273,7 @@ func TestEVMPrecompiles(t *testing.T) {
 		Data:     bz,
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	evmParams := k.GetParams(ctx)
 	chainCfg := evmParams.GetChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
@@ -284,11 +286,11 @@ func TestEVMPrecompiles(t *testing.T) {
 	req, err := types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	_, evmAddr := PrivateKeyToAddresses(privKey)
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	k.SetOrDeleteBalance(ctx, evmAddr, 1000000)
-	k.bankKeeper.MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
 
-	msgServer := NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(*k)
 
 	// Deploy SendAll contract
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
@@ -298,18 +300,18 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
 	require.Equal(t, uint64(1000000)-res.GasUsed, k.GetBalance(ctx, evmAddr))
-	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, k.accountKeeper.GetModuleAddress(authtypes.FeeCollectorName), k.GetBaseDenom(ctx)).Amount.Uint64())
+	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), k.GetBaseDenom(ctx)).Amount.Uint64())
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), receipt.Status)
 
 	// call sendall
-	addr1, evmAddr1 := MockAddressPair()
-	addr2, evmAddr2 := MockAddressPair()
+	addr1, evmAddr1 := testkeeper.MockAddressPair()
+	addr2, evmAddr2 := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, addr1, evmAddr1)
 	k.SetAddressMapping(ctx, addr2, evmAddr2)
-	k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, addr1, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(100000))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, addr1, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(100000))))
 	contractAddr := common.HexToAddress(receipt.ContractAddress)
 	abi, err := sendall.SendallMetaData.GetAbi()
 	require.Nil(t, err)
