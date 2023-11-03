@@ -65,7 +65,6 @@ func New(dataDir string) (*Database, error) {
 		`PRAGMA cache_size=-32000;`,
 		`PRAGMA auto_vacuum=FULL;`,
 		`PRAGMA temp_store=MEMORY;`,
-		`PRAGMA mmap_size=30000000000;`,
 	}
 
 	if err := execPragmas(db, pragmas); err != nil {
