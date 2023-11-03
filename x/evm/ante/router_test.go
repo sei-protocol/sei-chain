@@ -1,10 +1,12 @@
-package ante
+package ante_test
 
 import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -24,6 +26,16 @@ func (m *mockAnteState) evmAnteHandler(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.C
 	return ctx, nil
 }
 
+func (m *mockAnteState) regularAnteDepGenerator(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	m.call = "regulardep"
+	return []sdkacltypes.AccessOperation{}, nil
+}
+
+func (m *mockAnteState) evmAnteDepGenerator(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	m.call = "evmdep"
+	return []sdkacltypes.AccessOperation{}, nil
+}
+
 type mockTx struct {
 	msgs []sdk.Msg
 }
@@ -35,7 +47,7 @@ func TestRouter(t *testing.T) {
 	bankMsg := &banktypes.MsgSend{}
 	evmMsg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{})
 	mockAnte := mockAnteState{}
-	router := NewEVMRouterDecorator(mockAnte.regularAnteHandler, mockAnte.evmAnteHandler)
+	router := ante.NewEVMRouterDecorator(mockAnte.regularAnteHandler, mockAnte.evmAnteHandler, mockAnte.regularAnteDepGenerator, mockAnte.evmAnteDepGenerator)
 	_, err := router.AnteHandle(sdk.Context{}, mockTx{msgs: []sdk.Msg{bankMsg}}, false)
 	require.Nil(t, err)
 	require.Equal(t, "regular", mockAnte.call)

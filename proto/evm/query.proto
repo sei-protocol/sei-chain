@@ -1,0 +1,7 @@
+syntax = "proto3";
+package seiprotocol.seichain.evm;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
+
+// Query defines the gRPC querier service.
+service Query {}

@@ -1,0 +1,157 @@
+package evmrpc
+
+import (
+	"time"
+
+	servertypes "github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/spf13/cast"
+)
+
+// EVMRPC Config defines configurations for EVM RPC server on this node
+type Config struct {
+	// controls whether an HTTP EVM server is enabled
+	HTTPEnabled bool `mapstructure:"http_enabled"`
+	HTTPPort    int  `mapstructure:"http_port"`
+
+	// controls whether a websocket server is enabled
+	WSEnabled bool `mapstructure:"ws_enabled"`
+	WSPort    int  `mapstructure:"ws_port"`
+
+	// ReadTimeout is the maximum duration for reading the entire
+	// request, including the body.
+	//
+	// Because ReadTimeout does not let Handlers make per-request
+	// decisions on each request body's acceptable deadline or
+	// upload rate, most users will prefer to use
+	// ReadHeaderTimeout. It is valid to use them both.
+	ReadTimeout time.Duration `mapstructure:"read_timeout"`
+
+	// ReadHeaderTimeout is the amount of time allowed to read
+	// request headers. The connection's read deadline is reset
+	// after reading the headers and the Handler can decide what
+	// is considered too slow for the body. If ReadHeaderTimeout
+	// is zero, the value of ReadTimeout is used. If both are
+	// zero, there is no timeout.
+	ReadHeaderTimeout time.Duration `mapstructure:"read_header_timeout"`
+
+	// WriteTimeout is the maximum duration before timing out
+	// writes of the response. It is reset whenever a new
+	// request's header is read. Like ReadTimeout, it does not
+	// let Handlers make decisions on a per-request basis.
+	WriteTimeout time.Duration `mapstructure:"write_timeout"`
+
+	// IdleTimeout is the maximum amount of time to wait for the
+	// next request when keep-alives are enabled. If IdleTimeout
+	// is zero, the value of ReadTimeout is used. If both are
+	// zero, ReadHeaderTimeout is used.
+	IdleTimeout time.Duration `mapstructure:"idle_timeout"`
+
+	// Maximum gas limit for simulation
+	SimulationGasLimit uint64 `mapstructure:"simulation_gas_limit"`
+
+	// list of CORS allowed origins, separated by comma
+	CORSOrigins string `mapstructure:"cors_origins"`
+
+	// list of WS origins, separated by comma
+	WSOrigins string `mapstructure:"ws_origins"`
+
+	// timeout for filters
+	FilterTimeout time.Duration `mapstructure:"filter_timeout"`
+}
+
+var DefaultConfig = Config{
+	HTTPEnabled:        true,
+	HTTPPort:           8545,
+	WSEnabled:          true,
+	WSPort:             8546,
+	ReadTimeout:        rpc.DefaultHTTPTimeouts.ReadTimeout,
+	ReadHeaderTimeout:  rpc.DefaultHTTPTimeouts.ReadHeaderTimeout,
+	WriteTimeout:       rpc.DefaultHTTPTimeouts.WriteTimeout,
+	IdleTimeout:        rpc.DefaultHTTPTimeouts.IdleTimeout,
+	SimulationGasLimit: 10_000_000, // 10M
+	CORSOrigins:        "*",
+	WSOrigins:          "*",
+	FilterTimeout:      120 * time.Second,
+}
+
+const (
+	flagHTTPEnabled        = "evm.http_enabled"
+	flagHTTPPort           = "evm.http_port"
+	flagWSEnabled          = "evm.ws_enabled"
+	flagWSPort             = "evm.ws_port"
+	flagReadTimeout        = "evm.read_timeout"
+	flagReadHeaderTimeout  = "evm.read_header_timeout"
+	flagWriteTimeout       = "evm.write_timeout"
+	flagIdleTimeout        = "evm.idle_timeout"
+	flagSimulationGasLimit = "evm.simulation_gas_limit"
+	flagCORSOrigins        = "evm.cors_origins"
+	flagWSOrigins          = "evm.ws_origins"
+	flagFilterTimeout      = "evm.filter_timeout"
+)
+
+func ReadConfig(opts servertypes.AppOptions) (Config, error) {
+	cfg := DefaultConfig // copy
+	var err error
+	if v := opts.Get(flagHTTPEnabled); v != nil {
+		if cfg.HTTPEnabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagHTTPPort); v != nil {
+		if cfg.HTTPPort, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagWSEnabled); v != nil {
+		if cfg.WSEnabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagWSPort); v != nil {
+		if cfg.WSPort, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagReadTimeout); v != nil {
+		if cfg.ReadTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagReadHeaderTimeout); v != nil {
+		if cfg.ReadHeaderTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagWriteTimeout); v != nil {
+		if cfg.WriteTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagIdleTimeout); v != nil {
+		if cfg.IdleTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagSimulationGasLimit); v != nil {
+		if cfg.SimulationGasLimit, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagCORSOrigins); v != nil {
+		if cfg.CORSOrigins, err = cast.ToStringE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagWSOrigins); v != nil {
+		if cfg.WSOrigins, err = cast.ToStringE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagFilterTimeout); v != nil {
+		if cfg.FilterTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	return cfg, nil
+}
