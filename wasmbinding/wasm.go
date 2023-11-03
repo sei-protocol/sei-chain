@@ -22,7 +22,7 @@ func RegisterCustomPlugins(
 	dex *dexkeeper.Keeper,
 	epoch *epochkeeper.Keeper,
 	tokenfactory *tokenfactorykeeper.Keeper,
-	accountKeeper *authkeeper.AccountKeeper,
+	_ *authkeeper.AccountKeeper,
 	router wasmkeeper.MessageRouter,
 	channelKeeper wasmtypes.ChannelKeeper,
 	capabilityKeeper wasmtypes.CapabilityKeeper,

@@ -161,7 +161,8 @@ func (p *OkxProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]T
 	for _, currencyPair := range pairs {
 		price, err := p.getTickerPrice(currencyPair)
 		if err != nil {
-			return nil, err
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch tickers for pair ", currencyPair))
+			continue
 		}
 
 		tickerPrices[currencyPair.String()] = price
@@ -177,6 +178,7 @@ func (p *OkxProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string][
 	for _, currencyPair := range pairs {
 		candles, err := p.getCandlePrices(currencyPair)
 		if err != nil {
+			// CONTEXT: we are ok erroring here because we have disabled the candles subscriptions
 			return nil, err
 		}
 
@@ -210,11 +212,15 @@ func (p *OkxProvider) SubscribeCurrencyPairs(cps ...types.CurrencyPair) error {
 
 // subscribeChannels subscribe all currency pairs into ticker and candle channels.
 func (p *OkxProvider) subscribeChannels(cps ...types.CurrencyPair) error {
-	if err := p.subscribeTickers(cps...); err != nil {
-		return err
-	}
 
-	return p.subscribeCandles(cps...)
+	return p.subscribeTickers(cps...)
+
+	// CONTEXT: we want to no-op the candles subscription because its using a different path and the price feeding provides more instantaneous data using ticker pricing anyways
+	// if err := p.subscribeTickers(cps...); err != nil {
+	// 	return err
+	// }
+
+	// return p.subscribeCandles(cps...)
 }
 
 // subscribeTickers subscribe all currency pairs into ticker channel.
@@ -228,16 +234,17 @@ func (p *OkxProvider) subscribeTickers(cps ...types.CurrencyPair) error {
 	return p.subscribePairs(topics...)
 }
 
-// subscribeCandles subscribe all currency pairs into candle channel.
-func (p *OkxProvider) subscribeCandles(cps ...types.CurrencyPair) error {
-	topics := make([]OkxSubscriptionTopic, len(cps))
+// CONTEXT: commented out because okx candles are currently unused
+// // subscribeCandles subscribe all currency pairs into candle channel.
+// func (p *OkxProvider) subscribeCandles(cps ...types.CurrencyPair) error {
+// 	topics := make([]OkxSubscriptionTopic, len(cps))
 
-	for i, cp := range cps {
-		topics[i] = newOkxCandleSubscriptionTopic(currencyPairToOkxPair(cp))
-	}
+// 	for i, cp := range cps {
+// 		topics[i] = newOkxCandleSubscriptionTopic(currencyPairToOkxPair(cp))
+// 	}
 
-	return p.subscribePairs(topics...)
-}
+// 	return p.subscribePairs(topics...)
+// }
 
 // subscribedPairsToSlice returns the map of subscribed pairs as slice
 func (p *OkxProvider) subscribedPairsToSlice() []types.CurrencyPair {
@@ -462,7 +469,7 @@ func (p *OkxProvider) ping() error {
 	return p.wsClient.WriteMessage(websocket.PingMessage, ping)
 }
 
-func (p *OkxProvider) pongHandler(appData string) error {
+func (p *OkxProvider) pongHandler(_ string) error {
 	p.resetReconnectTimer()
 	return nil
 }
@@ -522,13 +529,14 @@ func newOkxTickerSubscriptionTopic(instID string) OkxSubscriptionTopic {
 	}
 }
 
-// newOkxSubscriptionTopic returns a new subscription topic.
-func newOkxCandleSubscriptionTopic(instID string) OkxSubscriptionTopic {
-	return OkxSubscriptionTopic{
-		Channel: "candle1m",
-		InstID:  instID,
-	}
-}
+// CONTEXT: commented out because okx candles are unused
+// // newOkxSubscriptionTopic returns a new subscription topic.
+// func newOkxCandleSubscriptionTopic(instID string) OkxSubscriptionTopic {
+// 	return OkxSubscriptionTopic{
+// 		Channel: "candle1m",
+// 		InstID:  instID,
+// 	}
+// }
 
 // newOkxSubscriptionMsg returns a new subscription Msg for Okx.
 func newOkxSubscriptionMsg(args ...OkxSubscriptionTopic) OkxSubscriptionMsg {

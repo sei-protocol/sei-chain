@@ -25,7 +25,7 @@ func GetOracleDependencyGenerator() aclkeeper.DependencyGeneratorMap {
 	return dependencyGeneratorMap
 }
 
-func MsgVoteDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
+func MsgVoteDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
 	msgVote, ok := msg.(*oracletypes.MsgAggregateExchangeRateVote)
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType

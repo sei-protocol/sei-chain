@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,8 +20,8 @@ import (
 )
 
 const (
-	gateWSHost    = "ws.gate.io"
-	gateWSPath    = "/v3"
+	gateWSHost    = "api.gateio.ws"
+	gateWSPath    = "/ws/v4/"
 	gatePingCheck = time.Second * 28 // should be < 30
 	gateRestHost  = "https://api.gateio.ws"
 	gateRestPath  = "/api/v4/spot/currency_pairs"
@@ -60,22 +61,45 @@ type (
 
 	// GateTickerSubscriptionMsg Msg to subscribe all the tickers channels.
 	GateTickerSubscriptionMsg struct {
-		Method string   `json:"method"` // ticker.subscribe
-		Params []string `json:"params"` // streams to subscribe ex.: BOT_USDT
-		ID     uint16   `json:"id"`     // identify messages going back and forth
+		Time int64 `json:"time"`
+		// Method string   `json:"method"` // ticker.subscribe
+		Channel string `json:"channel"` // spot.tickers
+		Event   string `json:"event"`   // subscribe
+		// Params  []string `json:"params"`  // streams to subscribe ex.: BOT_USDT
+		Payload []string `json:"payload"` // streams to subscribe ex.: BOT_USDT
+		ID      uint16   `json:"id"`      // identify messages going back and forth
 	}
 
 	// GateCandleSubscriptionMsg Msg to subscribe to a candle channel.
 	GateCandleSubscriptionMsg struct {
-		Method string        `json:"method"` // ticker.subscribe
-		Params []interface{} `json:"params"` // streams to subscribe ex.: ["BOT_USDT": 1800]
-		ID     uint16        `json:"id"`     // identify messages going back and forth
+		Time    int64  `json:"time"`
+		Channel string `json:"channel"` // spot.candlesticks
+		Event   string `json:"event"`   // subscribe
+		// Params  []string `json:"params"`  // streams to subscribe ex.: BOT_USDT
+		Payload []string `json:"payload"` // streams to subscribe ex.: BOT_USDT
+		ID      uint16   `json:"id"`      // identify messages going back and forth
 	}
 
 	// GateTickerResponse defines the response body for gate tickers.
 	GateTickerResponse struct {
-		Method string        `json:"method"`
-		Params []interface{} `json:"params"`
+		Time    int64            `json:"time"`
+		TimeMS  int64            `json:"time_ms"`
+		Channel string           `json:"channel"`
+		Event   string           `json:"event"`
+		Result  GateTickerResult `json:"result"`
+	}
+
+	// GateTickerResult defines the response body for gate tickers result data.
+	GateTickerResult struct {
+		CurrencyPair     string `json:"currency_pair"`
+		Last             string `json:"last"`
+		LowestAsk        string `json:"lowest_ask"`
+		HighestBid       string `json:"highest_bid"`
+		ChangePercentage string `json:"change_percentage"`
+		BaseVolume       string `json:"base_volume"`
+		QuoteVolume      string `json:"quote_volume"`
+		High24h          string `json:"high_24h"`
+		Low24h           string `json:"low_24h"`
 	}
 
 	// GateTickerResponse defines the response body for gate tickers.
@@ -83,8 +107,23 @@ type (
 	//
 	// REF: https://www.gate.io/docs/websocket/index.html
 	GateCandleResponse struct {
-		Method string          `json:"method"`
-		Params [][]interface{} `json:"params"`
+		Time    int64            `json:"time"`
+		TimeMS  int64            `json:"time_ms"`
+		Channel string           `json:"channel"`
+		Event   string           `json:"event"`
+		Result  GateCandleResult `json:"result"`
+	}
+
+	// GateCandleResult defines the response body for gate candle result data.
+	GateCandleResult struct {
+		Timestamp         string `json:"t"`
+		Volume            string `json:"v"`
+		ClosePrice        string `json:"c"`
+		HighestPrice      string `json:"h"`
+		LowestPrice       string `json:"l"`
+		OpenPrice         string `json:"o"`
+		SubscriptionName  string `json:"n"`
+		BaseTradingAmount string `json:"a"`
 	}
 
 	// GateEvent defines the response body for gate subscription statuses.
@@ -159,11 +198,11 @@ func NewGateProvider(
 // GetTickerPrices returns the tickerPrices based on the saved map.
 func (p *GateProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]TickerPrice, error) {
 	tickerPrices := make(map[string]TickerPrice, len(pairs))
-
 	for _, currencyPair := range pairs {
 		price, err := p.getTickerPrice(currencyPair)
 		if err != nil {
-			return nil, err
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch tickers for pair ", currencyPair))
+			continue
 		}
 
 		tickerPrices[currencyPair.String()] = price
@@ -175,12 +214,12 @@ func (p *GateProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]
 // GetCandlePrices returns the candlePrices based on the saved map
 func (p *GateProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string][]CandlePrice, error) {
 	candlePrices := make(map[string][]CandlePrice, len(pairs))
-
 	for _, currencyPair := range pairs {
 		gp := currencyPairToGatePair(currencyPair)
 		price, err := p.getCandlePrices(gp)
 		if err != nil {
-			return nil, err
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch candles for pair ", currencyPair))
+			continue
 		}
 
 		candlePrices[currencyPair.String()] = price
@@ -244,11 +283,7 @@ func (p *GateProvider) subscribeTickers(cps ...types.CurrencyPair) error {
 	}
 
 	tickerMsg := newGateTickerSubscription(topics...)
-	if err := p.subscribeTickerPairs(tickerMsg); err != nil {
-		return err
-	}
-
-	return nil
+	return p.subscribeTickerPairs(tickerMsg)
 }
 
 // subscribeCandles subscribes to the candle channels for all pairs one-by-one.
@@ -384,27 +419,15 @@ func (p *GateProvider) messageReceivedTickerPrice(bz []byte) error {
 		return err
 	}
 
-	if tickerMessage.Method != "ticker.update" {
+	if tickerMessage.Channel != "spot.tickers" || tickerMessage.Event != "update" {
 		return fmt.Errorf("message is not a ticker update")
 	}
 
-	tickerBz, err := json.Marshal(tickerMessage.Params[1])
-	if err != nil {
-		p.logger.Err(err).Msg("could not marshal ticker message")
-		return err
+	gateTicker := GateTicker{
+		Last:   tickerMessage.Result.Last,
+		Vol:    tickerMessage.Result.BaseVolume,
+		Symbol: tickerMessage.Result.CurrencyPair,
 	}
-
-	var gateTicker GateTicker
-	if err := json.Unmarshal(tickerBz, &gateTicker); err != nil {
-		p.logger.Err(err).Msg("could not unmarshal ticker message")
-		return err
-	}
-
-	symbol, ok := tickerMessage.Params[0].(string)
-	if !ok {
-		return fmt.Errorf("symbol should be a string")
-	}
-	gateTicker.Symbol = symbol
 
 	p.setTickerPair(gateTicker)
 	telemetry.IncrCounter(
@@ -440,11 +463,11 @@ func (candle *GateCandle) UnmarshalParams(params [][]interface{}) error {
 	}
 	candle.TimeStamp = time
 
-	close, ok := tmp[1].(string)
+	closeStr, ok := tmp[1].(string)
 	if !ok {
 		return fmt.Errorf("close field must be a string")
 	}
-	candle.Close = close
+	candle.Close = closeStr
 
 	volume, ok := tmp[5].(string)
 	if !ok {
@@ -470,14 +493,22 @@ func (p *GateProvider) messageReceivedCandle(bz []byte) error {
 	if err := json.Unmarshal(bz, &candleMessage); err != nil {
 		return err
 	}
-
-	if candleMessage.Method != "kline.update" {
-		return fmt.Errorf("message is not a kline update")
+	if candleMessage.Channel != "spot.candlesticks" || candleMessage.Event != "update" {
+		return fmt.Errorf("message is not a candle update")
 	}
 
-	var gateCandle GateCandle
-	if err := gateCandle.UnmarshalParams(candleMessage.Params); err != nil {
+	timeStamp, err := strconv.ParseInt(candleMessage.Result.Timestamp, 10, 64)
+	if err != nil {
 		return err
+	}
+
+	symbolArr := strings.SplitN(candleMessage.Result.SubscriptionName, "_", 2)
+
+	gateCandle := GateCandle{
+		Close:     candleMessage.Result.ClosePrice,
+		TimeStamp: timeStamp,
+		Volume:    candleMessage.Result.BaseTradingAmount,
+		Symbol:    symbolArr[1],
 	}
 
 	p.setCandlePair(gateCandle)
@@ -583,7 +614,7 @@ func (p *GateProvider) ping() error {
 	return p.wsClient.WriteMessage(websocket.PingMessage, ping)
 }
 
-func (p *GateProvider) pongHandler(appData string) error {
+func (p *GateProvider) pongHandler(_ string) error {
 	p.resetReconnectTimer()
 	return nil
 }
@@ -635,22 +666,25 @@ func currencyPairToGatePair(pair types.CurrencyPair) string {
 
 // newGateTickerSubscription returns a new subscription topic for tickers.
 func newGateTickerSubscription(cp ...string) GateTickerSubscriptionMsg {
+	timeSecs := time.Now().Unix()
 	return GateTickerSubscriptionMsg{
-		Method: "ticker.subscribe",
-		Params: cp,
-		ID:     1,
+		Time:    timeSecs,
+		Channel: "spot.tickers",
+		Event:   "subscribe",
+		Payload: cp,
+		ID:      1,
 	}
 }
 
 // newGateCandleSubscription returns a new subscription topic for candles.
 func newGateCandleSubscription(gatePair string) GateCandleSubscriptionMsg {
-	params := []interface{}{
-		gatePair, // currency pair ex. "ATOM_USDT"
-		60,       // time interval in seconds
-	}
+	pair := []string{"1m", gatePair}
+	timeSecs := time.Now().Unix()
 	return GateCandleSubscriptionMsg{
-		Method: "kline.subscribe",
-		Params: params,
-		ID:     2,
+		Time:    timeSecs,
+		Channel: "spot.candlesticks",
+		Event:   "subscribe",
+		Payload: pair,
+		ID:      2,
 	}
 }

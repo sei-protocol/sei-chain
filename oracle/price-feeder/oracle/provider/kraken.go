@@ -161,7 +161,9 @@ func (p *KrakenProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[strin
 		key := cp.String()
 		tickerPrice, ok := p.tickers[key]
 		if !ok {
-			return nil, fmt.Errorf("failed to get ticker price for %s", key)
+			err := fmt.Errorf("failed to get ticker price for %s", key)
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch tickers for pair ", cp))
+			continue
 		}
 		tickerPrices[key] = tickerPrice
 	}
@@ -177,7 +179,8 @@ func (p *KrakenProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[strin
 		key := cp.String()
 		candlePrice, err := p.getCandlePrices(key)
 		if err != nil {
-			return nil, err
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch candles for pair ", cp))
+			continue
 		}
 		candlePrices[key] = candlePrice
 	}
@@ -425,11 +428,11 @@ func (candle *KrakenCandle) UnmarshalJSON(buf []byte) error {
 	}
 	candle.TimeStamp = int64(timeFloat)
 
-	close, ok := tmp[5].(string)
+	closeStr, ok := tmp[5].(string)
 	if !ok {
 		return fmt.Errorf("close field must be a string")
 	}
-	candle.Close = close
+	candle.Close = closeStr
 
 	volume, ok := tmp[7].(string)
 	if !ok {

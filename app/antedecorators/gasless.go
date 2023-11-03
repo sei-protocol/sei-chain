@@ -136,7 +136,7 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (
 	return true, nil
 }
 
-func dexPlaceOrdersIsGasless(msg *dextypes.MsgPlaceOrders) bool {
+func dexPlaceOrdersIsGasless(_ *dextypes.MsgPlaceOrders) bool {
 	return true
 }
 

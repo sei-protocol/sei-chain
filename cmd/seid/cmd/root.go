@@ -37,6 +37,7 @@ import (
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -51,11 +52,7 @@ type Option func(*rootOptions)
 // scaffoldingOptions keeps set of options to apply scaffolding.
 //
 //nolint:unused // preserving this becase don't know if it is needed.
-type rootOptions struct {
-	addSubCmds         []*cobra.Command
-	startCmdCustomizer func(*cobra.Command)
-	envPrefix          string
-}
+type rootOptions struct{}
 
 func (s *rootOptions) apply(options ...Option) { //nolint:unused // I figure this gets used later.
 	for _, o := range options {
@@ -138,6 +135,7 @@ func initRootCmd(
 		config.Cmd(),
 		pruning.PruningCmd(newApp),
 		CompactCmd(app.DefaultNodeHome),
+		tools.ToolCmd(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
