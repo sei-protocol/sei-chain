@@ -1,12 +1,15 @@
 package evmrpc
 
 import (
+	"context"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
 const LatestCtxHeight int64 = -1
@@ -74,4 +77,33 @@ func hydrateTransaction(
 		R:                   (*hexutil.Big)(r),
 		YParity:             &yparity,
 	}
+}
+
+func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
+	if blockNrOrHash.BlockHash != nil {
+		res, err := tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
+		if err != nil {
+			return nil, err
+		}
+		return &res.Block.Height, nil
+	}
+	return getBlockNumber(ctx, tmClient, *blockNrOrHash.BlockNumber)
+}
+
+func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.BlockNumber) (*int64, error) {
+	var numberPtr *int64
+	switch number {
+	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
+		numberPtr = nil // requesting Block with nil means the latest block
+	case rpc.EarliestBlockNumber:
+		genesisRes, err := tmClient.Genesis(ctx)
+		if err != nil {
+			return nil, err
+		}
+		numberPtr = &genesisRes.Genesis.InitialHeight
+	default:
+		numberI64 := number.Int64()
+		numberPtr = &numberI64
+	}
+	return numberPtr, nil
 }

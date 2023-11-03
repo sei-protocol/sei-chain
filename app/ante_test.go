@@ -93,6 +93,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 			AccessControlKeeper: &suite.App.AccessControlKeeper,
 			TracingInfo:         tracingInfo,
 			CheckTxMemState:     suite.App.CheckTxMemState,
+			EVMKeeper:           &suite.App.EvmKeeper,
 		},
 	)
 
