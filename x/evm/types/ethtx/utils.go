@@ -2,10 +2,12 @@ package ethtx
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common/math"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // Effective gas price is the smaller of base fee + tip limit vs total fee limit
@@ -41,4 +43,14 @@ func ValidateEthTx(tx *ethtypes.Transaction) error {
 		return errors.New("blob gas fee cap overflow")
 	}
 	return nil
+}
+
+func DecodeSignature(sig []byte) (r, s, v *big.Int) {
+	if len(sig) != crypto.SignatureLength {
+		panic(fmt.Sprintf("wrong size for signature: got %d, want %d", len(sig), crypto.SignatureLength))
+	}
+	r = new(big.Int).SetBytes(sig[:32])
+	s = new(big.Int).SetBytes(sig[32:64])
+	v = new(big.Int).SetBytes([]byte{sig[64] + 27})
+	return r, s, v
 }
