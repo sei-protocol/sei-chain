@@ -20,7 +20,6 @@ import (
 type FilterType byte
 
 const (
-	// UnknownSubscription indicates an unknown subscription type
 	UnknownSubscription FilterType = iota
 	LogsSubscription
 	BlocksSubscription
