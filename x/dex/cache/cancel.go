@@ -57,9 +57,9 @@ func (o *BlockCancellations) GetIdsToCancel() (list []uint64) {
 func (o *BlockCancellations) Add(newItem *types.Cancellation) {
 	keybz := make([]byte, 8)
 	binary.BigEndian.PutUint64(keybz, newItem.Id)
-	valbz, err := newItem.Marshal()
-	if err != nil {
+	if valbz, err := newItem.Marshal(); err != nil {
 		panic(err)
+	} else {
+		o.cancelStore.Set(keybz, valbz)
 	}
-	o.cancelStore.Set(keybz, valbz)
 }

@@ -20,11 +20,11 @@ func NewOrders(orderStore prefix.Store) *BlockOrders {
 func (o *BlockOrders) Add(newItem *types.Order) {
 	keybz := make([]byte, 8)
 	binary.BigEndian.PutUint64(keybz, newItem.Id)
-	valbz, err := newItem.Marshal()
-	if err != nil {
+	if valbz, err := newItem.Marshal(); err != nil {
 		panic(err)
+	} else {
+		o.orderStore.Set(keybz, valbz)
 	}
-	o.orderStore.Set(keybz, valbz)
 }
 
 func (o *BlockOrders) GetByID(id uint64) *types.Order {
