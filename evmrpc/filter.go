@@ -31,11 +31,15 @@ const (
 )
 
 type filter struct {
-	typ         Type
-	fc          filters.FilterCriteria
-	deadline    *time.Timer
+	typ      Type
+	fc       filters.FilterCriteria
+	deadline *time.Timer
+
+	// BlocksSubscription
+	blockCursor string
+
+	// LogsSubscription
 	logsCursors map[common.Address]string
-	blockCursor uint64 // last block number returned
 }
 
 type FilterAPI struct {
@@ -103,14 +107,6 @@ func (a *FilterAPI) NewFilter(
 func (a *FilterAPI) NewBlockFilter(
 	ctx context.Context,
 ) (*uint64, error) {
-	// get latest cursor
-
-	status, err := a.tmClient.Status(ctx)
-	if err != nil {
-		return nil, err
-	}
-	latestBlockHeight := uint64(status.SyncInfo.LatestBlockHeight)
-
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	curFilterID := a.nextFilterID
@@ -118,7 +114,7 @@ func (a *FilterAPI) NewBlockFilter(
 	a.filters[curFilterID] = filter{
 		typ:         BlocksSubscription,
 		deadline:    time.NewTimer(a.filterConfig.timeout),
-		blockCursor: latestBlockHeight,
+		blockCursor: "",
 	}
 	return &curFilterID, nil
 }
@@ -126,7 +122,7 @@ func (a *FilterAPI) NewBlockFilter(
 func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID uint64,
-) ([]*ethtypes.Log, error) {
+) (interface{}, error) {
 	a.filtersMu.Lock()
 	filter, ok := a.filters[filterID]
 	a.filtersMu.Unlock()
@@ -143,9 +139,16 @@ func (a *FilterAPI) GetFilterChanges(
 
 	switch filter.typ {
 	case BlocksSubscription:
-		q := NewBlockQueryBuilder()
-
-		return nil, errors.New("not implemented")
+		a.filtersMu.Lock()
+		hashes, cursor, err := a.getBlockHeadersAfter(ctx, filter.blockCursor)
+		if err != nil {
+			return nil, err
+		}
+		updatedFilter := a.filters[filterID]
+		updatedFilter.blockCursor = cursor
+		a.filters[filterID] = updatedFilter
+		a.filtersMu.Unlock()
+		return hashes, nil
 	case LogsSubscription:
 		res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, filter.logsCursors)
 		if err != nil {
@@ -262,15 +265,13 @@ func (a *FilterAPI) getBlockHeadersAfter(
 		hasMore = res.More
 		cursor = res.Newest
 
-		// should get back this: https://github.com/sei-protocol/sei-tendermint/blob/main/types/events.go#L132-L137
 		for _, item := range res.Items {
-			header := types.EventDataNewBlockHeader{}
-			err := json.Unmarshal(item.Data, &header)
+			block := types.EventDataNewBlock{}
+			err := json.Unmarshal(item.Data, &block)
 			if err != nil {
 				return nil, "", err
 			}
-			// NOTE: could have also used header.ResultFinalizeBlock.AppHash
-			headers = append(headers, common.BytesToHash(header.Header.Hash()))
+			headers = append(headers, common.BytesToHash(block.Block.Hash()))
 		}
 	}
 	return headers, cursor, nil

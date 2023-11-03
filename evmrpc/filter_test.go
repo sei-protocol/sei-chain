@@ -250,6 +250,27 @@ func TestFilterGetFilterChanges(t *testing.T) {
 	require.True(t, ok)
 }
 
+func TestFilterBlockFilter(t *testing.T) {
+	t.Parallel()
+	resObj := sendRequestGood(t, "newBlockFilter")
+	blockFilterId := int(resObj["result"].(float64))
+	resObj = sendRequestGood(t, "getFilterChanges", blockFilterId)
+	hashesInterface := resObj["result"].([]interface{})
+	for _, hashInterface := range hashesInterface {
+		hash := hashInterface.(string)
+		require.Equal(t, 66, len(hash))
+		require.Equal(t, "0x", hash[:2])
+	}
+	// query again to make sure cursor is updated
+	resObj = sendRequestGood(t, "getFilterChanges", blockFilterId)
+	hashesInterface = resObj["result"].([]interface{})
+	for _, hashInterface := range hashesInterface {
+		hash := hashInterface.(string)
+		require.Equal(t, 66, len(hash))
+		require.Equal(t, "0x", hash[:2])
+	}
+}
+
 func TestFilterExpiration(t *testing.T) {
 	t.Parallel()
 	filterCriteria := map[string]interface{}{
