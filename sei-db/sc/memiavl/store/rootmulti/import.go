@@ -12,7 +12,7 @@ import (
 	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 )
 
-// Implements interface Snapshotter
+// Restore Implements interface Snapshotter
 func (rs *Store) Restore(
 	height uint64, format uint32, protoReader protoio.Reader,
 ) (snapshottypes.SnapshotItem, error) {
@@ -39,7 +39,6 @@ func (rs *Store) restore(
 		return snapshottypes.SnapshotItem{}, err
 	}
 	defer importer.Close()
-
 	var snapshotItem snapshottypes.SnapshotItem
 loop:
 	for {

@@ -5,23 +5,25 @@ import (
 	"math"
 	"sync"
 
-	"github.com/cosmos/cosmos-sdk/store/mem"
-	"github.com/cosmos/cosmos-sdk/store/transient"
+	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/types"
-	"github.com/sei-protocol/sei-db/sc/memiavl/store/cachemulti"
+	protoio "github.com/gogo/protobuf/io"
 	sstypes "github.com/sei-protocol/sei-db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
-var _ types.MultiStore = (*MultiStore)(nil)
+var _ types.QueryMultiStore = (*MultiStore)(nil)
 
 // MultiStore wraps `StateStore` to implement `MultiStore` interface.
 type MultiStore struct {
 	stateStore sstypes.StateStore
-	storeKeys  []types.StoreKey
+	storeKeys  map[string]types.StoreKey
 
 	// transient or memory stores
-	transientStores map[types.StoreKey]types.KVStore
+	transientStores map[types.StoreKey]struct{}
+
+	// proxy the calls for transient or mem stores to the parent
+	parent types.MultiStore
 
 	traceWriter       io.Writer
 	traceContext      types.TraceContext
@@ -29,11 +31,12 @@ type MultiStore struct {
 }
 
 // NewMultiStore returns a new state store `MultiStore`.
-func NewMultiStore(store sstypes.StateStore, storeKeys []types.StoreKey) *MultiStore {
+func NewMultiStore(parent types.MultiStore, store sstypes.StateStore, storeKeys map[string]types.StoreKey) *MultiStore {
 	return &MultiStore{
 		stateStore:      store,
 		storeKeys:       storeKeys,
-		transientStores: make(map[types.StoreKey]types.KVStore),
+		parent:          parent,
+		transientStores: make(map[types.StoreKey]struct{}),
 	}
 }
 
@@ -44,13 +47,13 @@ func (s *MultiStore) GetStoreType() types.StoreType {
 // cacheMultiStore branch out the multistore.
 func (s *MultiStore) cacheMultiStore(version int64) types.CacheMultiStore {
 	stores := make(map[types.StoreKey]types.CacheWrapper, len(s.transientStores)+len(s.storeKeys))
-	for k, v := range s.transientStores {
-		stores[k] = v
+	for k := range s.transientStores {
+		stores[k] = s.parent.GetKVStore(k).(types.CacheWrapper)
 	}
-	for _, k := range s.storeKeys {
-		stores[k] = NewKVStore(s.stateStore, k, version)
+	for _, v := range s.storeKeys {
+		stores[v] = NewKVStore(s.stateStore, v, version)
 	}
-	return cachemulti.NewStore(nil, stores, nil, s.traceWriter, s.getTracingContext(), nil, nil)
+	return cachemulti.NewStore(nil, stores, s.storeKeys, s.traceWriter, s.getTracingContext(), nil)
 }
 
 func (s *MultiStore) CacheMultiStore() types.CacheMultiStore {
@@ -78,9 +81,8 @@ func (s *MultiStore) GetStore(key types.StoreKey) types.Store {
 }
 
 func (s *MultiStore) GetKVStore(key types.StoreKey) types.KVStore {
-	store, ok := s.transientStores[key]
-	if ok {
-		return store
+	if _, ok := s.transientStores[key]; ok {
+		return s.parent.GetKVStore(key)
 	}
 	return NewKVStore(s.stateStore, key, math.MaxInt64)
 }
@@ -119,14 +121,14 @@ func (s *MultiStore) getTracingContext() types.TraceContext {
 // MountTransientStores simulates the same behavior as sdk to support grpc query service.
 func (s *MultiStore) MountTransientStores(keys map[string]*types.TransientStoreKey) {
 	for _, key := range keys {
-		s.transientStores[key] = transient.NewStore()
+		s.transientStores[key] = struct{}{}
 	}
 }
 
 // MountMemoryStores simulates the same behavior as sdk to support grpc query service.
 func (s *MultiStore) MountMemoryStores(keys map[string]*types.MemoryStoreKey) {
 	for _, key := range keys {
-		s.transientStores[key] = mem.NewStore()
+		s.transientStores[key] = struct{}{}
 	}
 }
 
@@ -147,5 +149,18 @@ func (s *MultiStore) GetEvents() []abci.Event {
 }
 
 func (s *MultiStore) ResetEvents() {
+	panic("not supported")
+}
+
+// LatestVersion returns the latest version saved in versiondb
+func (s *MultiStore) LatestVersion() int64 {
+	version, err := s.stateStore.GetLatestVersion()
+	if err != nil {
+		panic(err)
+	}
+	return version
+}
+
+func (s *MultiStore) Snapshot(_ uint64, _ protoio.Writer) error {
 	panic("not supported")
 }

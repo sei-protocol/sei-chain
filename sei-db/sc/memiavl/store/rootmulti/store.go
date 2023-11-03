@@ -21,6 +21,7 @@ import (
 	memiavl "github.com/sei-protocol/sei-db/sc/memiavl/db"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/cachemulti"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/memiavlstore"
+	streamtypes "github.com/sei-protocol/sei-db/stream/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -201,7 +202,7 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 		}
 		stores[k] = store
 	}
-	return cachemulti.NewStore(nil, stores, rs.keysByName, nil, nil, nil, nil)
+	return cachemulti.NewStore(nil, stores, rs.keysByName, nil, nil, rs.listeners, nil)
 }
 
 // Implements interface MultiStore
@@ -237,14 +238,14 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	return cachemulti.NewStore(nil, stores, rs.keysByName, nil, nil, nil, db), nil
 }
 
-// Implements interface MultiStore
+// GetStore Implements interface MultiStore
 func (rs *Store) GetStore(key types.StoreKey) types.Store {
-	return rs.CacheMultiStore().GetStore(key)
+	return rs.stores[key]
 }
 
-// Implements interface MultiStore
+// GetKVStore Implements interface MultiStore
 func (rs *Store) GetKVStore(key types.StoreKey) types.KVStore {
-	return rs.CacheMultiStore().GetKVStore(key)
+	return rs.stores[key]
 }
 
 // Implements interface MultiStore
@@ -449,6 +450,10 @@ func (rs *Store) SetMemIAVLOptions(opts memiavl.Options) {
 		opts.Logger = logger.Logger(rs.logger.With("module", "memiavl"))
 	}
 	rs.opts = opts
+}
+
+func (rs *Store) SetCommitSubscriber(subscriber streamtypes.Subscriber[proto.ChangelogEntry]) {
+	rs.opts.CommitSubscriber = subscriber
 }
 
 // RollbackToVersion delete the versions after `target` and update the latest version.
