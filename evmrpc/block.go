@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -20,11 +21,11 @@ type BlockAPI struct {
 	tmClient    rpcclient.Client
 	keeper      *keeper.Keeper
 	ctxProvider func(int64) sdk.Context
-	txDecoder   sdk.TxDecoder
+	txConfig    client.TxConfig
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder) *BlockAPI {
-	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
+func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig) *BlockAPI {
+	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig}
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) *hexutil.Uint {
@@ -58,7 +59,7 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	return encodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txDecoder, fullTx)
+	return encodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
@@ -74,25 +75,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	if err != nil {
 		return nil, err
 	}
-	return encodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txDecoder, fullTx)
-}
-
-func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.BlockNumber) (*int64, error) {
-	var numberPtr *int64
-	switch number {
-	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
-		numberPtr = nil // requesting Block with nil means the latest block
-	case rpc.EarliestBlockNumber:
-		genesisRes, err := tmClient.Genesis(ctx)
-		if err != nil {
-			return nil, err
-		}
-		numberPtr = &genesisRes.Genesis.InitialHeight
-	default:
-		numberI64 := number.Int64()
-		numberPtr = &numberI64
-	}
-	return numberPtr, nil
+	return encodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
 func encodeTmBlock(
@@ -112,10 +95,10 @@ func encodeTmBlock(
 	miner := common.HexToAddress(string(block.Block.ProposerAddress))
 	gasLimit, gasWanted := int64(0), int64(0)
 	transactions := []interface{}{}
-	for _, txRes := range blockRes.TxsResults {
+	for i, txRes := range blockRes.TxsResults {
 		gasLimit += txRes.GasWanted
 		gasWanted += txRes.GasUsed
-		decoded, err := txDecoder(txRes.Data)
+		decoded, err := txDecoder(block.Block.Txs[i])
 		if err != nil {
 			return nil, errors.New("failed to decode transaction")
 		}
@@ -159,6 +142,7 @@ func encodeTmBlock(
 		"size":             hexutil.Uint64(block.Block.Size()),
 		"uncles":           []common.Hash{}, // inapplicable to Sei
 		"transactions":     transactions,
+		"baseFeePerGas":    (*hexutil.Big)(k.GetBaseFeePerGas(ctx).RoundInt().BigInt()),
 	}
 	return result, nil
 }
