@@ -1,4 +1,5 @@
-//+build ledger test_ledger_mock
+//go:build ledger || test_ledger_mock
+// +build ledger test_ledger_mock
 
 package keyring
 
@@ -76,9 +77,9 @@ func TestSignVerifyKeyRingWithLedger(t *testing.T) {
 	require.True(t, i1.GetPubKey().VerifySignature(d1, s1))
 	require.True(t, bytes.Equal(s1, s2))
 
-	localInfo, _, err := kb.NewMnemonic("test", English, types.FullFundraiserPath, DefaultBIP39Passphrase, hd.Secp256k1)
+	LocalInfo, _, err := kb.NewMnemonic("test", English, types.FullFundraiserPath, DefaultBIP39Passphrase, hd.Secp256k1)
 	require.NoError(t, err)
-	_, _, err = SignWithLedger(localInfo, d1)
+	_, _, err = SignWithLedger(LocalInfo, d1)
 	require.Error(t, err)
 	require.Equal(t, "not a ledger object", err.Error())
 }

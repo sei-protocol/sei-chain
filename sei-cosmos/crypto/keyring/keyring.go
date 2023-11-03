@@ -232,7 +232,7 @@ func (ks keystore) ExportPrivateKeyObject(uid string) ([]byte, error) {
 	var priv []byte
 
 	switch linfo := info.(type) {
-	case localInfo:
+	case LocalInfo:
 		if linfo.PrivKeyArmor == "" {
 			err = fmt.Errorf("private key not available")
 			return nil, err
@@ -309,7 +309,7 @@ func (ks keystore) Sign(uid string, msg []byte) ([]byte, types.PubKey, error) {
 	var priv types.PrivKey
 
 	switch i := info.(type) {
-	case localInfo:
+	case LocalInfo:
 		if i.PrivKeyArmor == "" {
 			return nil, nil, fmt.Errorf("private key not available")
 		}

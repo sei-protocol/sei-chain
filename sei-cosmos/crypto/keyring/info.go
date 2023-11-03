@@ -28,15 +28,15 @@ type Info interface {
 }
 
 var (
-	_ Info = &localInfo{}
+	_ Info = &LocalInfo{}
 	_ Info = &ledgerInfo{}
 	_ Info = &offlineInfo{}
 	_ Info = &multiInfo{}
 )
 
-// localInfo is the public information about a locally stored key
+// LocalInfo is the public information about a locally stored key
 // Note: Algo must be last field in struct for backwards amino compatibility
-type localInfo struct {
+type LocalInfo struct {
 	Name         string             `json:"name"`
 	PubKey       cryptotypes.PubKey `json:"pubkey"`
 	PrivKeyArmor string             `json:"privkey.armor"`
@@ -44,7 +44,7 @@ type localInfo struct {
 }
 
 func newLocalInfo(name string, pub cryptotypes.PubKey, privArmor string, algo hd.PubKeyType) Info {
-	return &localInfo{
+	return &LocalInfo{
 		Name:         name,
 		PubKey:       pub,
 		PrivKeyArmor: privArmor,
@@ -53,32 +53,32 @@ func newLocalInfo(name string, pub cryptotypes.PubKey, privArmor string, algo hd
 }
 
 // GetType implements Info interface
-func (i localInfo) GetType() KeyType {
+func (i LocalInfo) GetType() KeyType {
 	return TypeLocal
 }
 
 // GetType implements Info interface
-func (i localInfo) GetName() string {
+func (i LocalInfo) GetName() string {
 	return i.Name
 }
 
 // GetType implements Info interface
-func (i localInfo) GetPubKey() cryptotypes.PubKey {
+func (i LocalInfo) GetPubKey() cryptotypes.PubKey {
 	return i.PubKey
 }
 
 // GetType implements Info interface
-func (i localInfo) GetAddress() types.AccAddress {
+func (i LocalInfo) GetAddress() types.AccAddress {
 	return i.PubKey.Address().Bytes()
 }
 
 // GetType implements Info interface
-func (i localInfo) GetAlgo() hd.PubKeyType {
+func (i LocalInfo) GetAlgo() hd.PubKeyType {
 	return i.Algo
 }
 
 // GetType implements Info interface
-func (i localInfo) GetPath() (*hd.BIP44Params, error) {
+func (i LocalInfo) GetPath() (*hd.BIP44Params, error) {
 	return nil, fmt.Errorf("BIP44 Paths are not available for this type")
 }
 
