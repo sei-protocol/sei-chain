@@ -208,7 +208,7 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 // Implements interface MultiStore
 // used to createQueryContext, abci_query or grpc query service.
 func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
-	if version == 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
+	if version == 0 || (rs.lastCommitInfo != nil && version == rs.LatestVersion()) {
 		return rs.CacheMultiStore(), nil
 	}
 	rs.mtx.RLock()
@@ -216,6 +216,7 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	opts := rs.opts
 	opts.TargetVersion = uint32(version)
 	opts.ReadOnly = true
+	rs.logger.Info("Loading memiavl store from version", "version", version)
 	db, err := memiavl.Load(rs.dir, opts)
 	if err != nil {
 		return nil, err
