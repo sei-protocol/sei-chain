@@ -105,6 +105,7 @@ func TestParallelTransactions(t *testing.T) {
 		name    string
 		runs    int
 		shuffle bool
+		before  func(tCtx *utils.TestContext)
 		txs     func(tCtx *utils.TestContext) []sdk.Msg
 	}{
 		{
@@ -150,21 +151,28 @@ func TestParallelTransactions(t *testing.T) {
 
 	for _, tt := range tests {
 		blockTime := time.Now()
-		signer := utils.NewSigner()
+		accts := utils.NewTestAccounts(5)
 
 		// execute sequentially, then in parallel
 		// the responses and state should match for both
-		sCtx := utils.NewTestContext(signer, blockTime, 1)
+		sCtx := utils.NewTestContext(t, accts, blockTime, 1)
 		txs := tt.txs(sCtx)
 		if tt.shuffle {
 			txs = utils.Shuffle(txs)
+		}
+
+		if tt.before != nil {
+			tt.before(sCtx)
 		}
 
 		sEvts, sResults, _, sErr := utils.RunWithOCC(sCtx, txs)
 		require.NoError(t, sErr, tt.name)
 
 		for i := 0; i < tt.runs; i++ {
-			pCtx := utils.NewTestContext(signer, blockTime, config.DefaultConcurrencyWorkers)
+			pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers)
+			if tt.before != nil {
+				tt.before(pCtx)
+			}
 			pEvts, pResults, _, pErr := utils.RunWithOCC(pCtx, txs)
 			require.NoError(t, pErr, tt.name)
 			assertEqualEvents(t, sEvts, pEvts, tt.name)

@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-
 	"math/rand"
 	"os"
 	"testing"
@@ -40,28 +39,38 @@ var ignoredStoreKeys = map[string]struct{}{
 }
 
 type TestContext struct {
-	Ctx    sdk.Context
-	CodeID uint64
-
-	Signer         Signer
-	TestAccount1   sdk.AccAddress
-	TestAccount2   sdk.AccAddress
+	Ctx            sdk.Context
+	CodeID         uint64
+	Validator      TestAcct
+	TestAccounts   []TestAcct
 	ContractKeeper *wasmkeeper.PermissionedKeeper
 	TestApp        *app.App
 }
 
-type Signer struct {
-	Sender     sdk.AccAddress
-	PrivateKey cryptotypes.PrivKey
-	PublicKey  cryptotypes.PubKey
+type TestAcct struct {
+	ValidatorAddress sdk.ValAddress
+	AccountAddress   sdk.AccAddress
+	PrivateKey       cryptotypes.PrivKey
+	PublicKey        cryptotypes.PubKey
 }
 
-func NewSigner() Signer {
-	priv1, pubKey, sender := testdata.KeyTestPubAddr()
-	return Signer{
-		Sender:     sender,
-		PrivateKey: priv1,
-		PublicKey:  pubKey,
+func NewTestAccounts(count int) []TestAcct {
+	testAccounts := make([]TestAcct, 0, count)
+	for i := 0; i < count; i++ {
+		testAccounts = append(testAccounts, NewSigner())
+	}
+	return testAccounts
+}
+
+func NewSigner() TestAcct {
+	priv1, pubKey, acct := testdata.KeyTestPubAddr()
+	val := addressToValAddress(acct)
+
+	return TestAcct{
+		ValidatorAddress: val,
+		AccountAddress:   acct,
+		PrivateKey:       priv1,
+		PublicKey:        pubKey,
 	}
 }
 
@@ -75,46 +84,47 @@ func panicIfErr(err error) {
 	}
 }
 
+func addressToValAddress(addr sdk.AccAddress) sdk.ValAddress {
+	bech, err := sdk.Bech32ifyAddressBytes(sdk.GetConfig().GetBech32ValidatorAddrPrefix(), addr.Bytes())
+	panicIfErr(err)
+	valAddr, err := sdk.ValAddressFromBech32(bech)
+	panicIfErr(err)
+	return valAddr
+}
+
 // NewTestContext initializes a new TestContext with a new app and a new contract
-func NewTestContext(signer Signer, blockTime time.Time, workers int) *TestContext {
+func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, workers int) *TestContext {
 	contractFile := "../integration_test/contracts/mars.wasm"
-	testApp := app.Setup(false, func(ba *baseapp.BaseApp) {
+	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, func(ba *baseapp.BaseApp) {
 		ba.SetConcurrencyWorkers(workers)
 	})
-	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now(), Height: 1})
-	ctx = ctx.WithChainID("chainId")
+	testApp := wrapper.App
+	ctx := wrapper.Ctx
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(dextypes.MemStoreKey))))
 	ctx = ctx.WithBlockGasMeter(sdk.NewGasMeter(100000000))
 	ctx = ctx.WithBlockHeader(tmproto.Header{Height: ctx.BlockHeader().Height, ChainID: ctx.BlockHeader().ChainID, Time: blockTime})
-	testAccount, _ := sdk.AccAddressFromBech32("sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag")
-	depositAccount, _ := sdk.AccAddressFromBech32("sei1yezq49upxhunjjhudql2fnj5dgvcwjj87pn2wx")
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
 	bankkeeper := testApp.BankKeeper
-	panicIfErr(bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts))
-	panicIfErr(bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, testAccount, amounts))
-	panicIfErr(bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts))
-	panicIfErr(bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, depositAccount, amounts))
-	panicIfErr(bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts))
-	panicIfErr(bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, signer.Sender, amounts))
-
-	wasm, err := os.ReadFile(contractFile)
-	if err != nil {
-		panic(err)
-	}
 	wasmKeeper := testApp.WasmKeeper
 	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
+
+	// deploy a contract so we can use it
+	wasm, err := os.ReadFile(contractFile)
+	panicIfErr(err)
 	var perm *wasmxtypes.AccessConfig
-	codeID, err := contractKeeper.Create(ctx, testAccount, wasm, perm)
-	if err != nil {
-		panic(err)
+	codeID, err := contractKeeper.Create(ctx, testAccts[0].AccountAddress, wasm, perm)
+	panicIfErr(err)
+
+	for _, ta := range testAccts {
+		panicIfErr(bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts))
+		panicIfErr(bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, ta.AccountAddress, amounts))
 	}
 
 	return &TestContext{
 		Ctx:            ctx,
 		CodeID:         codeID,
-		Signer:         signer,
-		TestAccount1:   testAccount,
-		TestAccount2:   depositAccount,
+		Validator:      testAccts[0],
+		TestAccounts:   testAccts,
 		ContractKeeper: contractKeeper,
 		TestApp:        testApp,
 	}
@@ -124,8 +134,8 @@ func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {
 	txs := make([][]byte, 0, len(msgs))
 	tc := app.MakeEncodingConfig().TxConfig
 
-	priv := testCtx.Signer.PrivateKey
-	acct := testCtx.TestApp.AccountKeeper.GetAccount(testCtx.Ctx, testCtx.Signer.Sender)
+	priv := testCtx.TestAccounts[0].PrivateKey
+	acct := testCtx.TestApp.AccountKeeper.GetAccount(testCtx.Ctx, testCtx.TestAccounts[0].AccountAddress)
 
 	for _, m := range msgs {
 		a, err := codectypes.NewAnyWithValue(m)
@@ -141,8 +151,8 @@ func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {
 				Fee: &txtype.Fee{
 					Amount:   Funds(10000000000),
 					GasLimit: 10000000000,
-					Payer:    testCtx.Signer.Sender.String(),
-					Granter:  testCtx.Signer.Sender.String(),
+					Payer:    testCtx.TestAccounts[0].AccountAddress.String(),
+					Granter:  testCtx.TestAccounts[0].AccountAddress.String(),
 				},
 			},
 		})
