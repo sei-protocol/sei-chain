@@ -14,24 +14,20 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
-	"github.com/tendermint/tendermint/types"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
-// Type determines the kind of filter and is used to put the filter in to
-// the correct bucket when added.
-type Type byte
+type FilterType byte
 
 const (
 	// UnknownSubscription indicates an unknown subscription type
-	UnknownSubscription Type = iota
-	// LogsSubscription queries for new or removed (chain reorg) logs
+	UnknownSubscription FilterType = iota
 	LogsSubscription
-	// BlocksSubscription queries hashes for blocks that are imported
 	BlocksSubscription
 )
 
 type filter struct {
-	typ      Type
+	typ      FilterType
 	fc       filters.FilterCriteria
 	deadline *time.Timer
 
@@ -139,11 +135,11 @@ func (a *FilterAPI) GetFilterChanges(
 
 	switch filter.typ {
 	case BlocksSubscription:
-		a.filtersMu.Lock()
 		hashes, cursor, err := a.getBlockHeadersAfter(ctx, filter.blockCursor)
 		if err != nil {
 			return nil, err
 		}
+		a.filtersMu.Lock()
 		updatedFilter := a.filters[filterID]
 		updatedFilter.blockCursor = cursor
 		a.filters[filterID] = updatedFilter
@@ -266,7 +262,7 @@ func (a *FilterAPI) getBlockHeadersAfter(
 		cursor = res.Newest
 
 		for _, item := range res.Items {
-			block := types.EventDataNewBlock{}
+			block := tmtypes.EventDataNewBlock{}
 			err := json.Unmarshal(item.Data, &block)
 			if err != nil {
 				return nil, "", err
