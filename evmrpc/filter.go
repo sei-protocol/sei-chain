@@ -101,7 +101,7 @@ func (a *FilterAPI) NewFilter(
 }
 
 func (a *FilterAPI) NewBlockFilter(
-	ctx context.Context,
+	_ context.Context,
 ) (*uint64, error) {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
