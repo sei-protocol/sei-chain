@@ -216,8 +216,8 @@ func (t *Tree) GetByIndex(index int64) ([]byte, []byte) {
 }
 
 func (t *Tree) Get(key []byte) []byte {
-	t.mtx.RLock()
-	defer t.mtx.RUnlock()
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
 	if t.cache != nil {
 		if node := t.cache.Get(key); node != nil {
 			return node.(*cacheNode).value
