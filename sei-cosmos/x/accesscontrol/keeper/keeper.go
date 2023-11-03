@@ -12,6 +12,7 @@ import (
 	"github.com/yourbasic/graph"
 
 	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/cosmos/cosmos-sdk/store/multiversion"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -40,6 +41,7 @@ type (
 		MessageDependencyGeneratorMapper DependencyGeneratorMap
 		AccountKeeper                    authkeeper.AccountKeeper
 		StakingKeeper                    stakingkeeper.Keeper
+		ResourceTypeStoreKeyMapping      acltypes.ResourceTypeToStoreKeyMap
 	}
 )
 
@@ -491,6 +493,67 @@ func (k Keeper) IterateWasmDependencies(ctx sdk.Context, handler func(wasmDepend
 			break
 		}
 	}
+}
+
+type storeKeyMap map[string]sdk.StoreKey
+
+func (k Keeper) GetStoreKeyMap(ctx sdk.Context) storeKeyMap {
+	storeKeyMap := make(storeKeyMap)
+	for _, storeKey := range ctx.MultiStore().StoreKeys() {
+		storeKeyMap[storeKey.Name()] = storeKey
+	}
+	return storeKeyMap
+}
+
+func (k Keeper) UpdateWritesetsWithAccessOps(accessOps []acltypes.AccessOperation, mappedWritesets sdk.MappedWritesets, storeKeyMap storeKeyMap) sdk.MappedWritesets {
+	for _, accessOp := range accessOps {
+		// we only want writes and unknowns (assumed writes)
+		if accessOp.AccessType != acltypes.AccessType_WRITE && accessOp.AccessType != acltypes.AccessType_UNKNOWN {
+			continue
+		}
+		// the accessOps should only have SPECIFIC identifiers (we don't want wildcards)
+		if accessOp.IdentifierTemplate == "*" {
+			continue
+		}
+		// check the resource type to store key map for potential store key
+		if storeKeyStr, ok := k.ResourceTypeStoreKeyMapping[accessOp.ResourceType]; ok {
+			// check that we have a storekey corresponding to that string
+			if storeKey, ok2 := storeKeyMap[storeKeyStr]; ok2 {
+				// if we have a StoreKey, add it to the writeset - writing empty bytes is ok because it will be saved as EstimatedWriteset
+				if _, ok := mappedWritesets[storeKey]; !ok {
+					mappedWritesets[storeKey] = make(multiversion.WriteSet)
+				}
+				mappedWritesets[storeKey][accessOp.IdentifierTemplate] = []byte{}
+			}
+		}
+
+	}
+	return mappedWritesets
+}
+
+// GenerateEstimatedWritesets utilizes the existing patterns for access operation generation to estimate the writesets for a transaction
+func (k Keeper) GenerateEstimatedWritesets(ctx sdk.Context, txDecoder sdk.TxDecoder, anteDepGen sdk.AnteDepGenerator, txIndex int, txBytes []byte) (sdk.MappedWritesets, error) {
+	storeKeyMap := k.GetStoreKeyMap(ctx)
+	writesets := make(sdk.MappedWritesets)
+	tx, err := txDecoder(txBytes)
+	if err != nil {
+		return nil, err
+	}
+	// generate antedeps accessOps for tx
+	anteDeps, err := anteDepGen([]acltypes.AccessOperation{}, tx, txIndex)
+	if err != nil {
+		return nil, err
+	}
+	writesets = k.UpdateWritesetsWithAccessOps(anteDeps, writesets, storeKeyMap)
+
+	// generate accessOps for each message
+	msgs := tx.GetMsgs()
+	for _, msg := range msgs {
+		msgDependencies := k.GetMessageDependencies(ctx, msg)
+		// update estimated writeset for each message deps
+		writesets = k.UpdateWritesetsWithAccessOps(msgDependencies, writesets, storeKeyMap)
+	}
+	return writesets, nil
 }
 
 func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, anteDepGen sdk.AnteDepGenerator, txs [][]byte) (*types.Dag, error) {

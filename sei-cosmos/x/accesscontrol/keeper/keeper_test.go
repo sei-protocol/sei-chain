@@ -20,6 +20,7 @@ import (
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltestutil "github.com/cosmos/cosmos-sdk/x/accesscontrol/testutil"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -2668,6 +2669,42 @@ func (suite *KeeperTestSuite) TestBuildSelectorOps_AccessOperationSelectorType_C
 	_, err := app.AccessControlKeeper.BuildSelectorOps(
 		ctx, wasmContractAddresses[0], accessOps, wasmContractAddresses[0].String(), msgInfo, make(aclkeeper.ContractReferenceLookupMap))
 	req.NoError(err)
+}
+
+func TestGenerateEstimatedDependencies(t *testing.T) {
+	app := simapp.Setup(false)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	accounts := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	// setup test txs
+	msgs := []sdk.Msg{
+		banktypes.NewMsgSend(accounts[0], accounts[1], sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
+	}
+	// set up testing mapping
+	app.AccessControlKeeper.ResourceTypeStoreKeyMapping = map[acltypes.ResourceType]string{
+		acltypes.ResourceType_KV_BANK_BALANCES:      banktypes.StoreKey,
+		acltypes.ResourceType_KV_AUTH_ADDRESS_STORE: authtypes.StoreKey,
+	}
+
+	storeKeyMap := app.AccessControlKeeper.GetStoreKeyMap(ctx)
+
+	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
+	err := txBuilder.SetMsgs(msgs...)
+	require.NoError(t, err)
+	bz, err := simapp.MakeTestEncodingConfig().TxConfig.TxEncoder()(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	writesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, simapp.MakeTestEncodingConfig().TxConfig.TxDecoder(), app.GetAnteDepGenerator(), 0, bz)
+	require.NoError(t, err)
+
+	// check writesets
+	require.Equal(t, 2, len(writesets))
+	bankWritesets := writesets[storeKeyMap[banktypes.StoreKey]]
+	require.Equal(t, 3, len(bankWritesets))
+
+	authWritesets := writesets[storeKeyMap[authtypes.StoreKey]]
+	require.Equal(t, 1, len(authWritesets))
+
 }
 
 func TestKeeperTestSuite(t *testing.T) {

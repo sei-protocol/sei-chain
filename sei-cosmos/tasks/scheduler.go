@@ -228,7 +228,7 @@ func (s *scheduler) validateAll(tasks []*deliverTxTask) ([]*deliverTxTask, error
 				}
 			} else if len(conflicts) == 0 {
 				tasks[i].Status = statusValidated
-			}
+			} // TODO: do we need to have handling for conflicts existing here?
 
 		case statusWaiting:
 			// if conflicts are done, then this task is ready to run again

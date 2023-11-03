@@ -10,6 +10,7 @@ var (
 )
 
 type StoreKeyToResourceTypePrefixMap map[string]map[ResourceType][]byte
+type ResourceTypeToStoreKeyMap map[ResourceType]string
 
 func DefaultStoreKeyToResourceTypePrefixMap() StoreKeyToResourceTypePrefixMap {
 	return StoreKeyToResourceTypePrefixMap{

@@ -1,5 +1,7 @@
 package keeper
 
+import acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+
 type optsFn func(*Keeper)
 
 func (f optsFn) Apply(keeper *Keeper) {
@@ -24,4 +26,10 @@ func (oldGenerator DependencyGeneratorMap) Merge(newGenerator DependencyGenerato
 		oldGenerator[messageKey] = dependencyGenerator
 	}
 	return oldGenerator
+}
+
+func WithResourceTypeToStoreKeyMap(resourceTypeStoreKeyMapping acltypes.ResourceTypeToStoreKeyMap) optsFn {
+	return optsFn(func(k *Keeper) {
+		k.ResourceTypeStoreKeyMapping = resourceTypeStoreKeyMapping
+	})
 }
