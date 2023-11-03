@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"math/big"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -33,4 +35,8 @@ func (k *Keeper) GetBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 
 func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 	return k.GetParams(ctx).MinimumFeePerGas
+}
+
+func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
+	return k.GetParams(ctx).ChainId.BigInt()
 }
