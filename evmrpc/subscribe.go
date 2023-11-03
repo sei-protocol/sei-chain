@@ -74,7 +74,7 @@ func (q *QueryBuilder) FilterTopics(topics [][]string) *QueryBuilder {
 	if len(topics) == 0 {
 		return q
 	}
-	pattern, err := getTopicsRegex(topics)
+	pattern, err := GetTopicsRegex(topics)
 	if err != nil {
 		panic(err)
 	}
@@ -82,7 +82,7 @@ func (q *QueryBuilder) FilterTopics(topics [][]string) *QueryBuilder {
 	return q
 }
 
-func getTopicsRegex(topics [][]string) (string, error) {
+func GetTopicsRegex(topics [][]string) (string, error) {
 	if len(topics) == 0 {
 		return "", errors.New("topics array must be at least length 1")
 	}

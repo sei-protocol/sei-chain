@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	"go.opentelemetry.io/otel/trace"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -113,6 +114,10 @@ import (
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+
+	"github.com/sei-protocol/sei-chain/x/evm"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -193,6 +198,7 @@ var (
 		transfer.AppModuleBasic{},
 		vesting.AppModuleBasic{},
 		oraclemodule.AppModuleBasic{},
+		evm.AppModuleBasic{},
 		wasm.AppModuleBasic{},
 		dexmodule.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
@@ -212,6 +218,7 @@ var (
 		ibctransfertypes.ModuleName:    {authtypes.Minter, authtypes.Burner},
 		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
+		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		dexmoduletypes.ModuleName:      nil,
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
@@ -318,6 +325,7 @@ type App struct {
 	FeeGrantKeeper      feegrantkeeper.Keeper
 	WasmKeeper          wasm.Keeper
 	OracleKeeper        oraclekeeper.Keeper
+	EvmKeeper           evmkeeper.Keeper
 
 	// make scoped keepers public for test purposes
 	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
@@ -355,6 +363,9 @@ type App struct {
 	MemState                *dexcache.MemState
 
 	HardForkManager *upgrades.HardForkManager
+
+	encodingConfig appparams.EncodingConfig
+	evmRPCConfig   evmrpc.Config
 }
 
 // New returns a reference to an initialized blockchain app
@@ -388,7 +399,8 @@ func New(
 		acltypes.StoreKey, authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
-		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey, wasm.StoreKey,
+		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
+		evmtypes.StoreKey, wasm.StoreKey,
 		dexmoduletypes.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
@@ -409,6 +421,7 @@ func New(
 		txDecoder:         encodingConfig.TxConfig.TxDecoder(),
 		versionInfo:       version.NewInfo(),
 		metricCounter:     &map[string]float32{},
+		encodingConfig:    encodingConfig,
 	}
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
@@ -578,6 +591,12 @@ func New(
 	dexModule := dexmodule.NewAppModule(appCodec, app.DexKeeper, app.AccountKeeper, app.BankKeeper, app.WasmKeeper, app.GetBaseApp().TracingInfo)
 	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
 
+	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper)
+	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
+
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
 	govRouter.AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
@@ -639,6 +658,7 @@ func New(
 		params.NewAppModule(app.ParamsKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
+		evm.NewAppModule(appCodec, app.EvmKeeper),
 		transferModule,
 		dexModule,
 		epochModule,
@@ -673,6 +693,7 @@ func New(
 		ibctransfertypes.ModuleName,
 		oracletypes.ModuleName,
 		dexmoduletypes.ModuleName,
+		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
 		acltypes.ModuleName,
@@ -704,6 +725,7 @@ func New(
 		oracletypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
+		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
 		acltypes.ModuleName,
@@ -737,6 +759,7 @@ func New(
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
+		evmtypes.ModuleName,
 		wasm.ModuleName,
 		acltypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/initGenesis
@@ -810,6 +833,7 @@ func New(
 			WasmKeeper:          &app.WasmKeeper,
 			OracleKeeper:        &app.OracleKeeper,
 			DexKeeper:           &app.DexKeeper,
+			EVMKeeper:           &app.EvmKeeper,
 			TracingInfo:         app.GetBaseApp().TracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 			CheckTxMemState:     app.CheckTxMemState,
@@ -1578,6 +1602,37 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+
+	ctxProvider := func(i int64) sdk.Context {
+		if i == evmrpc.LatestCtxHeight {
+			return app.GetCheckCtx()
+		}
+		ctx, err := app.CreateQueryContext(i, false)
+		if err != nil {
+			app.Logger().Error("failed to create query context for EVM; using latest context instead")
+			return app.GetCheckCtx()
+		}
+		return ctx
+	}
+	if app.evmRPCConfig.HTTPEnabled {
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig)
+		if err != nil {
+			panic(err)
+		}
+		if err := evmHTTPServer.Start(); err != nil {
+			panic(err)
+		}
+	}
+
+	if app.evmRPCConfig.WSEnabled {
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig)
+		if err != nil {
+			panic(err)
+		}
+		if err := evmWSServer.Start(); err != nil {
+			panic(err)
+		}
+	}
 }
 
 func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
@@ -1636,6 +1691,7 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(ibchost.ModuleName)
 	paramsKeeper.Subspace(oracletypes.ModuleName)
 	paramsKeeper.Subspace(wasm.ModuleName)
+	paramsKeeper.Subspace(evmtypes.ModuleName)
 	paramsKeeper.Subspace(dexmoduletypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)

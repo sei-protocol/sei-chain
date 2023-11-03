@@ -6,15 +6,15 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestState(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
-	_, evmAddr := keeper.MockAddressPair()
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	_, evmAddr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
 	require.True(t, statedb.Created(evmAddr))
@@ -49,8 +49,8 @@ func TestState(t *testing.T) {
 }
 
 func TestCreate(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
-	_, evmAddr := keeper.MockAddressPair()
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	_, evmAddr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
@@ -83,8 +83,8 @@ func TestCreate(t *testing.T) {
 }
 
 func TestSelfDestructAssociated(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
-	seiAddr, evmAddr := keeper.MockAddressPair()
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	statedb := state.NewDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
@@ -119,8 +119,8 @@ func TestSelfDestructAssociated(t *testing.T) {
 }
 
 func TestSnapshot(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
-	seiAddr, evmAddr := keeper.MockAddressPair()
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	statedb := state.NewDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)

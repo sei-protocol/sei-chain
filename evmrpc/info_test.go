@@ -1,9 +1,10 @@
-package evmrpc
+package evmrpc_test
 
 import (
 	"math/big"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,7 +17,7 @@ func TestBlockNumber(t *testing.T) {
 func TestChainID(t *testing.T) {
 	resObj := sendRequestGood(t, "chainId")
 	result := resObj["result"].(string)
-	require.Equal(t, "0x1", result)
+	require.Equal(t, "0xae3f3", result)
 }
 
 func TestCoinbase(t *testing.T) {
@@ -70,36 +71,36 @@ func TestFeeHistory(t *testing.T) {
 
 func TestCalculatePercentiles(t *testing.T) {
 	// all empty
-	result := calculatePercentiles([]float64{}, []gasAndReward{}, 0)
+	result := evmrpc.CalculatePercentiles([]float64{}, []evmrpc.GasAndReward{}, 0)
 	require.Equal(t, 0, len(result))
 
-	// empty gasAndRewards
-	result = calculatePercentiles([]float64{1}, []gasAndReward{}, 0)
+	// empty GasAndRewards
+	result = evmrpc.CalculatePercentiles([]float64{1}, []evmrpc.GasAndReward{}, 0)
 	require.Equal(t, 0, len(result))
 
 	// empty percentiles
-	result = calculatePercentiles([]float64{}, []gasAndReward{{reward: 10, gasUsed: 1}}, 1)
+	result = evmrpc.CalculatePercentiles([]float64{}, []evmrpc.GasAndReward{{Reward: 10, GasUsed: 1}}, 1)
 	require.Equal(t, 0, len(result))
 
 	// 0 percentile
-	result = calculatePercentiles([]float64{0}, []gasAndReward{{reward: 10, gasUsed: 1}}, 1)
+	result = evmrpc.CalculatePercentiles([]float64{0}, []evmrpc.GasAndReward{{Reward: 10, GasUsed: 1}}, 1)
 	require.Equal(t, 1, len(result))
-	// see comments above calculatePercentiles to understand why it should return 10 here
+	// see comments above CalculatePercentiles to understand why it should return 10 here
 	require.Equal(t, big.NewInt(10), result[0].ToInt())
 
 	// 100 percentile
-	result = calculatePercentiles([]float64{100}, []gasAndReward{{reward: 10, gasUsed: 1}}, 1)
+	result = evmrpc.CalculatePercentiles([]float64{100}, []evmrpc.GasAndReward{{Reward: 10, GasUsed: 1}}, 1)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, big.NewInt(10), result[0].ToInt())
 
 	// 0 percentile and 100 percentile with just one transaction
-	result = calculatePercentiles([]float64{0, 100}, []gasAndReward{{reward: 10, gasUsed: 1}}, 1)
+	result = evmrpc.CalculatePercentiles([]float64{0, 100}, []evmrpc.GasAndReward{{Reward: 10, GasUsed: 1}}, 1)
 	require.Equal(t, 2, len(result))
 	require.Equal(t, big.NewInt(10), result[0].ToInt())
 	require.Equal(t, big.NewInt(10), result[1].ToInt())
 
 	// more transactions than percentiles
-	result = calculatePercentiles([]float64{0, 50, 100}, []gasAndReward{{reward: 10, gasUsed: 1}, {reward: 5, gasUsed: 2}, {reward: 3, gasUsed: 3}}, 6)
+	result = evmrpc.CalculatePercentiles([]float64{0, 50, 100}, []evmrpc.GasAndReward{{Reward: 10, GasUsed: 1}, {Reward: 5, GasUsed: 2}, {Reward: 3, GasUsed: 3}}, 6)
 	require.Equal(t, 3, len(result))
 	require.Equal(t, big.NewInt(3), result[0].ToInt())
 	require.Equal(t, big.NewInt(3), result[1].ToInt())
