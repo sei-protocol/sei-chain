@@ -1,4 +1,4 @@
-package evmrpc
+package evmrpc_test
 
 import (
 	"encoding/hex"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper/testdata"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
@@ -16,14 +16,14 @@ import (
 
 func TestEstimateGas(t *testing.T) {
 	// transfer
-	_, from := keeper.MockAddressPair()
-	_, to := keeper.MockAddressPair()
+	_, from := testkeeper.MockAddressPair()
+	_, to := testkeeper.MockAddressPair()
 	txArgs := map[string]interface{}{
 		"from":    from.Hex(),
 		"to":      to.Hex(),
 		"value":   "0x10",
 		"nonce":   "0x1",
-		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID()),
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 	}
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20))))
 	EVMKeeper.SetOrDeleteBalance(Ctx, from, 20)
@@ -38,7 +38,7 @@ func TestEstimateGas(t *testing.T) {
 	require.Equal(t, "0x5208", result) // 21000
 
 	// contract call
-	_, contractAddr := keeper.MockAddressPair()
+	_, contractAddr := testkeeper.MockAddressPair()
 	code, err := os.ReadFile("../x/evm/keeper/testdata/SimpleStorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
@@ -53,7 +53,7 @@ func TestEstimateGas(t *testing.T) {
 		"to":      contractAddr.Hex(),
 		"value":   "0x0",
 		"nonce":   "0x2",
-		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID()),
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 		"input":   fmt.Sprintf("%#x", input),
 	}
 	resObj = sendRequestGood(t, "estimateGas", txArgs, nil, map[string]interface{}{})
@@ -62,8 +62,8 @@ func TestEstimateGas(t *testing.T) {
 }
 
 func TestCreateAccessList(t *testing.T) {
-	_, from := keeper.MockAddressPair()
-	_, contractAddr := keeper.MockAddressPair()
+	_, from := testkeeper.MockAddressPair()
+	_, contractAddr := testkeeper.MockAddressPair()
 	code, err := os.ReadFile("../x/evm/keeper/testdata/SimpleStorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
@@ -78,7 +78,7 @@ func TestCreateAccessList(t *testing.T) {
 		"to":      contractAddr.Hex(),
 		"value":   "0x0",
 		"nonce":   "0x1",
-		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID()),
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 		"input":   fmt.Sprintf("%#x", input),
 	}
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20))))

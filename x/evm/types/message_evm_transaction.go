@@ -10,7 +10,10 @@ import (
 
 const TypeMsgEVMTransaction = "evm_transaction"
 
-var _ sdk.Msg = &MsgEVMTransaction{}
+var (
+	_ sdk.Msg                            = &MsgEVMTransaction{}
+	_ codectypes.UnpackInterfacesMessage = MsgEVMTransaction{}
+)
 
 func NewMsgEVMTransaction(txData proto.Message) (*MsgEVMTransaction, error) {
 	txDataAny, err := codectypes.NewAnyWithValue(txData)
@@ -47,4 +50,9 @@ func (msg *MsgEVMTransaction) AsTransaction() (*ethtypes.Transaction, ethtx.TxDa
 	}
 
 	return ethtypes.NewTx(txData.AsEthereumData()), txData
+}
+
+// UnpackInterfaces implements UnpackInterfacesMesssage.UnpackInterfaces
+func (msg MsgEVMTransaction) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
+	return unpacker.UnpackAny(msg.Data, new(ethtx.TxData))
 }

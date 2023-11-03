@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"encoding/hex"
-	"math/big"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
@@ -25,10 +24,11 @@ import (
 	tmdb "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/app"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func MockEVMKeeper() (*Keeper, *paramskeeper.Keeper, sdk.Context) {
+func MockEVMKeeper() (*evmkeeper.Keeper, *paramskeeper.Keeper, sdk.Context) {
 	evmStoreKey := sdk.NewKVStoreKey(types.StoreKey)
 	authStoreKey := sdk.NewKVStoreKey(authtypes.StoreKey)
 	bankStoreKey := sdk.NewKVStoreKey(banktypes.StoreKey)
@@ -62,7 +62,7 @@ func MockEVMKeeper() (*Keeper, *paramskeeper.Keeper, sdk.Context) {
 	stakingKeeper := stakingkeeper.NewKeeper(cdc, stakingStoreKey, accountKeeper, bankKeeper, paramsKeeper.Subspace(stakingtypes.ModuleName))
 
 	ctx := sdk.NewContext(stateStore, tmproto.Header{Height: 8}, false, log.NewNopLogger())
-	k := NewKeeper(evmStoreKey, paramsKeeper.Subspace(types.ModuleName), big.NewInt(1), bankKeeper, &accountKeeper, &stakingKeeper)
+	k := evmkeeper.NewKeeper(evmStoreKey, paramsKeeper.Subspace(types.ModuleName), bankKeeper, &accountKeeper, &stakingKeeper)
 	k.InitGenesis(ctx)
 
 	// mint some coins to a sei address
