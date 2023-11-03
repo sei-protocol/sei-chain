@@ -20,11 +20,11 @@ func NewOrders(orderStore prefix.Store) *BlockOrders {
 func (o *BlockOrders) Add(newItem *types.Order) {
 	keybz := make([]byte, 8)
 	binary.BigEndian.PutUint64(keybz, newItem.Id)
-	if valbz, err := newItem.Marshal(); err != nil {
+	valbz, err := newItem.Marshal()
+	if err != nil {
 		panic(err)
-	} else {
-		o.orderStore.Set(keybz, valbz)
 	}
+	o.orderStore.Set(keybz, valbz)
 }
 
 func (o *BlockOrders) GetByID(id uint64) *types.Order {
@@ -81,12 +81,12 @@ func (o *BlockOrders) getKVsToSet(failedOrdersMap map[uint64]types.UnsuccessfulO
 			val.Status = types.OrderStatus_FAILED_TO_PLACE
 			val.StatusDescription = failedOrder.Reason
 		}
-		if bz, err := val.Marshal(); err != nil {
+		bz, err := val.Marshal()
+		if err != nil {
 			panic(err)
-		} else {
-			keys = append(keys, iterator.Key())
-			vals = append(vals, bz)
 		}
+		keys = append(keys, iterator.Key())
+		vals = append(vals, bz)
 	}
 	return keys, vals
 }
