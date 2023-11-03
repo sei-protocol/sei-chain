@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package evmrpc
+package evmrpc_test
 
 import (
 	"bytes"
@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/websocket"
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/stretchr/testify/assert"
 	"github.com/tendermint/tendermint/libs/log"
 )
@@ -39,9 +40,9 @@ const testMethod = "rpc_modules"
 
 // TestCorsHandler makes sure CORS are properly handled on the http server.
 func TestCorsHandler(t *testing.T) {
-	srv := createAndStartServer(t, &httpConfig{CorsAllowedOrigins: []string{"test", "test.com"}}, false, &wsConfig{}, nil)
-	defer srv.stop()
-	url := "http://" + srv.listenAddr()
+	srv := createAndStartServer(t, &evmrpc.HTTPConfig{CorsAllowedOrigins: []string{"test", "test.com"}}, false, &evmrpc.WsConfig{}, nil)
+	defer srv.Stop()
+	url := "http://" + srv.ListenAddr()
 
 	resp := rpcRequest(t, url, testMethod, "origin", "test.com")
 	assert.Equal(t, "test.com", resp.Header.Get("Access-Control-Allow-Origin"))
@@ -52,9 +53,9 @@ func TestCorsHandler(t *testing.T) {
 
 // TestVhosts makes sure vhosts are properly handled on the http server.
 func TestVhosts(t *testing.T) {
-	srv := createAndStartServer(t, &httpConfig{Vhosts: []string{"test"}}, false, &wsConfig{}, nil)
-	defer srv.stop()
-	url := "http://" + srv.listenAddr()
+	srv := createAndStartServer(t, &evmrpc.HTTPConfig{Vhosts: []string{"test"}}, false, &evmrpc.WsConfig{}, nil)
+	defer srv.Stop()
+	url := "http://" + srv.ListenAddr()
 
 	resp := rpcRequest(t, url, testMethod, "host", "test")
 	assert.Equal(t, resp.StatusCode, http.StatusOK)
@@ -148,8 +149,8 @@ func TestWebsocketOrigins(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		srv := createAndStartServer(t, &httpConfig{}, true, &wsConfig{Origins: splitAndTrim(tc.spec)}, nil)
-		url := fmt.Sprintf("ws://%v", srv.listenAddr())
+		srv := createAndStartServer(t, &evmrpc.HTTPConfig{}, true, &evmrpc.WsConfig{Origins: splitAndTrim(tc.spec)}, nil)
+		url := fmt.Sprintf("ws://%v", srv.ListenAddr())
 		for _, origin := range tc.expOk {
 			if err := wsRequest(t, url, "Origin", origin); err != nil {
 				t.Errorf("spec '%v', origin '%v': expected ok, got %v", tc.spec, origin, err)
@@ -160,26 +161,26 @@ func TestWebsocketOrigins(t *testing.T) {
 				t.Errorf("spec '%v', origin '%v': expected not to allow,  got ok", tc.spec, origin)
 			}
 		}
-		srv.stop()
+		srv.Stop()
 	}
 }
 
-// TestIsWebsocket tests if an incoming websocket upgrade request is handled properly.
+// Testevmrpc.IsWebsocket tests if an incoming websocket upgrade request is handled properly.
 func TestIsWebsocket(t *testing.T) {
 	r, _ := http.NewRequest(http.MethodGet, "/", nil)
 
-	assert.False(t, isWebsocket(r))
+	assert.False(t, evmrpc.IsWebsocket(r))
 	r.Header.Set("upgrade", "websocket")
-	assert.False(t, isWebsocket(r))
+	assert.False(t, evmrpc.IsWebsocket(r))
 	r.Header.Set("connection", "upgrade")
-	assert.True(t, isWebsocket(r))
+	assert.True(t, evmrpc.IsWebsocket(r))
 	r.Header.Set("connection", "upgrade,keep-alive")
-	assert.True(t, isWebsocket(r))
+	assert.True(t, evmrpc.IsWebsocket(r))
 	r.Header.Set("connection", " UPGRADE,keep-alive")
-	assert.True(t, isWebsocket(r))
+	assert.True(t, evmrpc.IsWebsocket(r))
 }
 
-func Test_checkPath(t *testing.T) {
+func Test_CheckPath(t *testing.T) {
 	tests := []struct {
 		req      *http.Request
 		prefix   string
@@ -229,23 +230,23 @@ func Test_checkPath(t *testing.T) {
 
 	for i, tt := range tests {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			assert.Equal(t, tt.expected, checkPath(tt.req, tt.prefix))
+			assert.Equal(t, tt.expected, evmrpc.CheckPath(tt.req, tt.prefix))
 		})
 	}
 }
 
-func createAndStartServer(t *testing.T, conf *httpConfig, ws bool, wsConf *wsConfig, timeouts *rpc.HTTPTimeouts) *httpServer {
+func createAndStartServer(t *testing.T, conf *evmrpc.HTTPConfig, ws bool, wsConf *evmrpc.WsConfig, timeouts *rpc.HTTPTimeouts) *evmrpc.HTTPServer {
 	t.Helper()
 
 	if timeouts == nil {
 		timeouts = &rpc.DefaultHTTPTimeouts
 	}
-	srv := newHTTPServer(log.NewNopLogger(), *timeouts)
-	assert.NoError(t, srv.enableRPC(apis(), *conf))
+	srv := evmrpc.NewHTTPServer(log.NewNopLogger(), *timeouts)
+	assert.NoError(t, srv.EnableRPC(apis(), *conf))
 	if ws {
-		assert.NoError(t, srv.enableWS(nil, *wsConf))
+		assert.NoError(t, srv.EnableWS(nil, *wsConf))
 	}
-	assert.NoError(t, srv.setListenAddr("localhost", 0))
+	assert.NoError(t, srv.SetListenAddr("localhost", 0))
 	assert.NoError(t, srv.Start())
 	return srv
 }
@@ -338,12 +339,12 @@ func TestJWT(t *testing.T) {
 		ss, _ := jwt.NewWithClaims(method, testClaim(input)).SignedString(secret)
 		return ss
 	}
-	cfg := rpcEndpointConfig{jwtSecret: []byte("secret")}
-	httpcfg := &httpConfig{rpcEndpointConfig: cfg}
-	wscfg := &wsConfig{Origins: []string{"*"}, rpcEndpointConfig: cfg}
+	cfg := evmrpc.RPCEndpointConfig{JwtSecret: []byte("secret")}
+	httpcfg := &evmrpc.HTTPConfig{RPCEndpointConfig: cfg}
+	wscfg := &evmrpc.WsConfig{Origins: []string{"*"}, RPCEndpointConfig: cfg}
 	srv := createAndStartServer(t, httpcfg, true, wscfg, nil)
-	wsUrl := fmt.Sprintf("ws://%v", srv.listenAddr())
-	htUrl := fmt.Sprintf("http://%v", srv.listenAddr())
+	wsUrl := fmt.Sprintf("ws://%v", srv.ListenAddr())
+	htUrl := fmt.Sprintf("http://%v", srv.ListenAddr())
 
 	expOk := []func() string{
 		func() string {
@@ -382,11 +383,11 @@ func TestJWT(t *testing.T) {
 	expFail := []func() string{
 		// future
 		func() string {
-			return fmt.Sprintf("Bearer %v", issueToken(secret, nil, testClaim{"iat": time.Now().Unix() + int64(jwtExpiryTimeout.Seconds()) + 1}))
+			return fmt.Sprintf("Bearer %v", issueToken(secret, nil, testClaim{"iat": time.Now().Unix() + int64(evmrpc.JwtExpiryTimeout.Seconds()) + 1}))
 		},
 		// stale
 		func() string {
-			return fmt.Sprintf("Bearer %v", issueToken(secret, nil, testClaim{"iat": time.Now().Unix() - int64(jwtExpiryTimeout.Seconds()) - 1}))
+			return fmt.Sprintf("Bearer %v", issueToken(secret, nil, testClaim{"iat": time.Now().Unix() - int64(evmrpc.JwtExpiryTimeout.Seconds()) - 1}))
 		},
 		// wrong algo
 		func() string {
@@ -445,7 +446,7 @@ func TestJWT(t *testing.T) {
 			t.Errorf("tc %d-http, token '%v': expected not to allow,  got %v", i, token, resp.StatusCode)
 		}
 	}
-	srv.stop()
+	srv.Stop()
 }
 
 func TestGzipHandler(t *testing.T) {
@@ -523,7 +524,7 @@ func TestGzipHandler(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			srv := httptest.NewServer(newGzipHandler(test.handler))
+			srv := httptest.NewServer(evmrpc.NewGzipHandler(test.handler))
 			defer srv.Close()
 
 			resp, err := http.Get(srv.URL)
@@ -564,8 +565,8 @@ func TestHTTPWriteTimeout(t *testing.T) {
 	// Set-up server
 	timeouts := rpc.DefaultHTTPTimeouts
 	timeouts.WriteTimeout = time.Second
-	srv := createAndStartServer(t, &httpConfig{Modules: []string{"test"}}, false, &wsConfig{}, &timeouts)
-	url := fmt.Sprintf("http://%v", srv.listenAddr())
+	srv := createAndStartServer(t, &evmrpc.HTTPConfig{Modules: []string{"test"}}, false, &evmrpc.WsConfig{}, &timeouts)
+	url := fmt.Sprintf("http://%v", srv.ListenAddr())
 
 	// Send normal request
 	t.Run("message", func(t *testing.T) {
