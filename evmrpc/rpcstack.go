@@ -35,25 +35,25 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 )
 
-// httpConfig is the JSON-RPC/HTTP configuration.
-type httpConfig struct {
+// HTTPConfig is the JSON-RPC/HTTP configuration.
+type HTTPConfig struct {
 	Modules            []string
 	CorsAllowedOrigins []string
 	Vhosts             []string
 	prefix             string // path prefix on which to mount http handler
-	rpcEndpointConfig
+	RPCEndpointConfig
 }
 
-// wsConfig is the JSON-RPC/Websocket configuration
-type wsConfig struct {
+// WsConfig is the JSON-RPC/Websocket configuration
+type WsConfig struct {
 	Origins []string
 	Modules []string
 	prefix  string // path prefix on which to mount ws handler
-	rpcEndpointConfig
+	RPCEndpointConfig
 }
 
-type rpcEndpointConfig struct {
-	jwtSecret              []byte // optional JWT secret
+type RPCEndpointConfig struct {
+	JwtSecret              []byte // optional JWT secret
 	batchItemLimit         int
 	batchResponseSizeLimit int
 }
@@ -63,7 +63,7 @@ type rpcHandler struct {
 	server *rpc.Server
 }
 
-type httpServer struct {
+type HTTPServer struct {
 	log      log.Logger
 	timeouts rpc.HTTPTimeouts
 	mux      http.ServeMux // registered handlers go here
@@ -74,14 +74,14 @@ type httpServer struct {
 
 	// HTTP RPC handler things.
 
-	httpConfig  httpConfig
+	HTTPConfig  HTTPConfig
 	httpHandler atomic.Value // *rpcHandler
 
 	// WebSocket handler things.
-	wsConfig  wsConfig
+	WsConfig  WsConfig
 	wsHandler atomic.Value // *rpcHandler
 
-	// These are set by setListenAddr.
+	// These are set by SetListenAddr.
 	endpoint string
 	host     string
 	port     int
@@ -93,17 +93,17 @@ const (
 	shutdownTimeout = 5 * time.Second
 )
 
-func newHTTPServer(log log.Logger, timeouts rpc.HTTPTimeouts) *httpServer {
-	h := &httpServer{log: log, timeouts: timeouts, handlerNames: make(map[string]string)}
+func NewHTTPServer(log log.Logger, timeouts rpc.HTTPTimeouts) *HTTPServer {
+	h := &HTTPServer{log: log, timeouts: timeouts, handlerNames: make(map[string]string)}
 
 	h.httpHandler.Store((*rpcHandler)(nil))
 	h.wsHandler.Store((*rpcHandler)(nil))
 	return h
 }
 
-// setListenAddr configures the listening address of the server.
+// SetListenAddr configures the listening address of the server.
 // The address can only be set while the server isn't running.
-func (h *httpServer) setListenAddr(host string, port int) error {
+func (h *HTTPServer) SetListenAddr(host string, port int) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -117,7 +117,7 @@ func (h *httpServer) setListenAddr(host string, port int) error {
 }
 
 // listenAddr returns the listening address of the server.
-func (h *httpServer) listenAddr() string {
+func (h *HTTPServer) ListenAddr() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -128,7 +128,7 @@ func (h *httpServer) listenAddr() string {
 }
 
 // start starts the HTTP server if it is enabled and not already running.
-func (h *httpServer) Start() error {
+func (h *HTTPServer) Start() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -164,8 +164,8 @@ func (h *httpServer) Start() error {
 
 	if h.wsAllowed() {
 		url := fmt.Sprintf("ws://%v", listener.Addr())
-		if h.wsConfig.prefix != "" {
-			url += h.wsConfig.prefix
+		if h.WsConfig.prefix != "" {
+			url += h.WsConfig.prefix
 		}
 		h.log.Info("WebSocket enabled", "url", url)
 	}
@@ -175,10 +175,10 @@ func (h *httpServer) Start() error {
 	}
 	// Log http endpoint.
 	h.log.Info("HTTP server started",
-		"endpoint", listener.Addr(), "auth", (h.httpConfig.jwtSecret != nil),
-		"prefix", h.httpConfig.prefix,
-		"cors", strings.Join(h.httpConfig.CorsAllowedOrigins, ","),
-		"vhosts", strings.Join(h.httpConfig.Vhosts, ","),
+		"endpoint", listener.Addr(), "auth", (h.HTTPConfig.JwtSecret != nil),
+		"prefix", h.HTTPConfig.prefix,
+		"cors", strings.Join(h.HTTPConfig.CorsAllowedOrigins, ","),
+		"vhosts", strings.Join(h.HTTPConfig.Vhosts, ","),
 	)
 
 	// Log all handlers mounted on server.
@@ -198,11 +198,11 @@ func (h *httpServer) Start() error {
 	return nil
 }
 
-func (h *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// check if ws request and serve if ws enabled
 	ws := h.wsHandler.Load().(*rpcHandler)
-	if ws != nil && isWebsocket(r) {
-		if checkPath(r, h.wsConfig.prefix) {
+	if ws != nil && IsWebsocket(r) {
+		if CheckPath(r, h.WsConfig.prefix) {
 			ws.ServeHTTP(w, r)
 		}
 		return
@@ -221,7 +221,7 @@ func (h *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if checkPath(r, h.httpConfig.prefix) {
+		if CheckPath(r, h.HTTPConfig.prefix) {
 			rpc.ServeHTTP(w, r)
 			return
 		}
@@ -229,8 +229,8 @@ func (h *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotFound)
 }
 
-// checkPath checks whether a given request URL matches a given path prefix.
-func checkPath(r *http.Request, path string) bool {
+// CheckPath checks whether a given request URL matches a given path prefix.
+func CheckPath(r *http.Request, path string) bool {
 	// if no prefix has been specified, request URL must be on root
 	if path == "" {
 		return r.URL.Path == "/"
@@ -240,7 +240,7 @@ func checkPath(r *http.Request, path string) bool {
 }
 
 // stop shuts down the HTTP server.
-func (h *httpServer) stop() {
+func (h *HTTPServer) Stop() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	fmt.Println("stopping")
@@ -248,7 +248,7 @@ func (h *httpServer) stop() {
 	fmt.Println("stopped")
 }
 
-func (h *httpServer) doStop() {
+func (h *HTTPServer) doStop() {
 	if h.listener == nil {
 		return // not running
 	}
@@ -281,8 +281,8 @@ func (h *httpServer) doStop() {
 	h.server, h.listener = nil, nil
 }
 
-// enableRPC turns on JSON-RPC over HTTP on the server.
-func (h *httpServer) enableRPC(apis []rpc.API, config httpConfig) error {
+// EnableRPC turns on JSON-RPC over HTTP on the server.
+func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -296,16 +296,16 @@ func (h *httpServer) enableRPC(apis []rpc.API, config httpConfig) error {
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
 	}
-	h.httpConfig = config
+	h.HTTPConfig = config
 	h.httpHandler.Store(&rpcHandler{
-		Handler: NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.jwtSecret),
+		Handler: NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret),
 		server:  srv,
 	})
 	return nil
 }
 
 // disableRPC stops the HTTP RPC handler. This is internal, the caller must hold h.mu.
-func (h *httpServer) disableRPC() bool {
+func (h *HTTPServer) disableRPC() bool {
 	handler := h.httpHandler.Load().(*rpcHandler)
 	if handler != nil {
 		h.httpHandler.Store((*rpcHandler)(nil))
@@ -314,8 +314,8 @@ func (h *httpServer) disableRPC() bool {
 	return handler != nil
 }
 
-// enableWS turns on JSON-RPC over WebSocket on the server.
-func (h *httpServer) enableWS(apis []rpc.API, config wsConfig) error {
+// EnableWS turns on JSON-RPC over WebSocket on the server.
+func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -328,16 +328,16 @@ func (h *httpServer) enableWS(apis []rpc.API, config wsConfig) error {
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
 	}
-	h.wsConfig = config
+	h.WsConfig = config
 	h.wsHandler.Store(&rpcHandler{
-		Handler: NewWSHandlerStack(srv.WebsocketHandler(config.Origins), config.jwtSecret),
+		Handler: NewWSHandlerStack(srv.WebsocketHandler(config.Origins), config.JwtSecret),
 		server:  srv,
 	})
 	return nil
 }
 
 // stopWS disables JSON-RPC over WebSocket and also stops the server if it only serves WebSocket.
-func (h *httpServer) stopWS() {
+func (h *HTTPServer) stopWS() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -349,7 +349,7 @@ func (h *httpServer) stopWS() {
 }
 
 // disableWS disables the WebSocket handler. This is internal, the caller must hold h.mu.
-func (h *httpServer) disableWS() bool {
+func (h *HTTPServer) disableWS() bool {
 	ws := h.wsHandler.Load().(*rpcHandler)
 	if ws != nil {
 		h.wsHandler.Store((*rpcHandler)(nil))
@@ -359,36 +359,36 @@ func (h *httpServer) disableWS() bool {
 }
 
 // rpcAllowed returns true when JSON-RPC over HTTP is enabled.
-func (h *httpServer) rpcAllowed() bool {
+func (h *HTTPServer) rpcAllowed() bool {
 	return h.httpHandler.Load().(*rpcHandler) != nil
 }
 
 // wsAllowed returns true when JSON-RPC over WebSocket is enabled.
-func (h *httpServer) wsAllowed() bool {
+func (h *HTTPServer) wsAllowed() bool {
 	return h.wsHandler.Load().(*rpcHandler) != nil
 }
 
-// isWebsocket checks the header of an http request for a websocket upgrade request.
-func isWebsocket(r *http.Request) bool {
+// IsWebsocket checks the header of an http request for a websocket upgrade request.
+func IsWebsocket(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
 		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
 }
 
 // NewHTTPHandlerStack returns wrapped http-related handlers
-func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, jwtSecret []byte) http.Handler {
+func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, JwtSecret []byte) http.Handler {
 	// Wrap the CORS-handler within a host-handler
 	handler := newCorsHandler(srv, cors)
 	handler = newVHostHandler(vhosts, handler)
-	if len(jwtSecret) != 0 {
-		handler = newJWTHandler(jwtSecret, handler)
+	if len(JwtSecret) != 0 {
+		handler = newJWTHandler(JwtSecret, handler)
 	}
-	return newGzipHandler(handler)
+	return NewGzipHandler(handler)
 }
 
 // NewWSHandlerStack returns a wrapped ws-related handler.
-func NewWSHandlerStack(srv http.Handler, jwtSecret []byte) http.Handler {
-	if len(jwtSecret) != 0 {
-		return newJWTHandler(jwtSecret, srv)
+func NewWSHandlerStack(srv http.Handler, JwtSecret []byte) http.Handler {
+	if len(JwtSecret) != 0 {
+		return newJWTHandler(JwtSecret, srv)
 	}
 	return srv
 }
@@ -490,7 +490,7 @@ func (w *gzipResponseWriter) init() {
 	// Setting Transfer-Encoding to "identity" explicitly disables compression. net/http
 	// also recognizes this header value and uses it to disable "chunked" transfer
 	// encoding, trimming the header from the response. This means downstream handlers can
-	// set this without harm, even if they aren't wrapped by newGzipHandler.
+	// set this without harm, even if they aren't wrapped by NewGzipHandler.
 	//
 	// In go-ethereum, we use this signal to disable compression for certain error
 	// responses which are flushed out close to the write deadline of the response. For
@@ -551,7 +551,7 @@ func (w *gzipResponseWriter) close() {
 	w.gz = nil
 }
 
-func newGzipHandler(next http.Handler) http.Handler {
+func NewGzipHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 			next.ServeHTTP(w, r)

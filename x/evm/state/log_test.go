@@ -5,13 +5,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAddLog(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
 	logs, err := statedb.GetAllLogs()

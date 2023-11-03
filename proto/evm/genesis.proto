@@ -1,0 +1,12 @@
+syntax = "proto3";
+package seiprotocol.seichain.evm;
+
+import "gogoproto/gogo.proto";
+import "evm/params.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
+
+// GenesisState defines the evm module's genesis state.
+message GenesisState {
+  Params params = 1 [(gogoproto.nullable) = false];
+}

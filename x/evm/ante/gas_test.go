@@ -1,18 +1,19 @@
-package ante
+package ante_test
 
 import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGasLimitDecorator(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
-	a := NewGasLimitDecorator(k)
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	a := ante.NewGasLimitDecorator(k)
 	ctx, err := a.AnteHandle(ctx, nil, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})

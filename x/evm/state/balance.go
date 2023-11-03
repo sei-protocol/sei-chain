@@ -7,6 +7,7 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -17,6 +18,13 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 	}
 	if amt.Sign() < 0 {
 		s.AddBalance(evmAddr, new(big.Int).Neg(amt))
+		return
+	}
+
+	feeCollector, _ := s.k.GetFeeCollectorAddress(s.ctx)
+	if feeCollector == evmAddr {
+		coins := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(amt)))
+		s.err = s.k.BankKeeper().SendCoinsFromModuleToModule(s.ctx, authtypes.FeeCollectorName, types.ModuleName, coins)
 		return
 	}
 
@@ -43,6 +51,14 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 	}
 	if amt.Sign() < 0 {
 		s.SubBalance(evmAddr, new(big.Int).Neg(amt))
+		return
+	}
+
+	feeCollector, _ := s.k.GetFeeCollectorAddress(s.ctx)
+	if feeCollector == evmAddr {
+		coin := sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(amt))
+		coins := sdk.NewCoins(coin)
+		s.err = s.k.BankKeeper().SendCoinsFromModuleToModule(s.ctx, types.ModuleName, authtypes.FeeCollectorName, coins)
 		return
 	}
 

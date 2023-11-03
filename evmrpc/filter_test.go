@@ -1,4 +1,4 @@
-package evmrpc
+package evmrpc_test
 
 import (
 	"testing"
