@@ -58,6 +58,7 @@ func New(dataDir string) (*Database, error) {
 		return nil, fmt.Errorf("failed to open sqlite DB: %w", err)
 	}
 
+	// TODO: Make fully configurable
 	pragmas := []string{
 		`PRAGMA journal_mode=WAL;`,
 		`PRAGMA synchronous=NORMAL;`,
