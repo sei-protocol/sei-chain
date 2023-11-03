@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 
 	iavlstore "github.com/cosmos/cosmos-sdk/store/iavl"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -29,49 +31,52 @@ func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 	return &StateAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider}
 }
 
-func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, blockNr rpc.BlockNumber) (*uint64, error) {
-	block, err := getBlockNumber(ctx, a.tmClient, blockNr)
+func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Big, error) {
+	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
+	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
-		return nil, errors.New("block number not safe, finalized, latest, or pending")
+		sdkCtx = a.ctxProvider(*block)
 	}
-	seiAddr, found := a.keeper.GetSeiAddress(a.ctxProvider(LatestCtxHeight), address)
+	seiAddr, found := a.keeper.GetSeiAddress(sdkCtx, address)
 	if found {
-		coin := a.keeper.BankKeeper().GetBalance(a.ctxProvider(LatestCtxHeight), seiAddr, a.keeper.GetBaseDenom(a.ctxProvider(LatestCtxHeight)))
-		balance := coin.Amount.BigInt().Uint64()
-		return &balance, nil
+		coin := a.keeper.BankKeeper().GetBalance(sdkCtx, seiAddr, a.keeper.GetBaseDenom(sdkCtx))
+		balance := coin.Amount.BigInt()
+		return (*hexutil.Big)(balance), nil
 	}
-	balance := a.keeper.GetBalance(a.ctxProvider(LatestCtxHeight), address)
-	return &balance, nil
+	balance := a.keeper.GetBalance(sdkCtx, address)
+	return (*hexutil.Big)(big.NewInt(int64(balance))), nil
 }
 
-func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNr rpc.BlockNumber) ([]byte, error) {
-	block, err := getBlockNumber(ctx, a.tmClient, blockNr)
+func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
+	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
-		return nil, errors.New("block number not safe, finalized, latest, or pending")
+		sdkCtx = a.ctxProvider(*block)
 	}
-	code := a.keeper.GetCode(a.ctxProvider(LatestCtxHeight), address)
+	code := a.keeper.GetCode(sdkCtx, address)
 	return code, nil
 }
 
-func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNr rpc.BlockNumber) ([]byte, error) {
-	block, err := getBlockNumber(ctx, a.tmClient, blockNr)
+func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
+	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
-		return nil, errors.New("block number not safe, finalized, latest, or pending")
+		sdkCtx = a.ctxProvider(*block)
 	}
 	key, _, err := decodeHash(hexKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode storage key: %s", err)
 	}
-	state := a.keeper.GetState(a.ctxProvider(LatestCtxHeight), address, key)
+	state := a.keeper.GetState(sdkCtx, address, key)
 	return state[:], nil
 }
 
@@ -120,6 +125,10 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 	}
 
 	return &result, nil
+}
+
+func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
+	return a.keeper.GetNonce(a.ctxProvider(LatestCtxHeight), address)
 }
 
 // decodeHash parses a hex-encoded 32-byte hash. The input may optionally

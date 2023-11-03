@@ -1,4 +1,4 @@
-package ante
+package ante_test
 
 import (
 	"encoding/hex"
@@ -10,22 +10,23 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
 
 func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
-	k, p, ctx := keeper.MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	ctx = ctx.WithIsCheckTx(true)
-	handler := NewEVMFeeCheckDecorator(k, p)
-	privKey := keeper.MockPrivateKey()
+	handler := ante.NewEVMFeeCheckDecorator(k)
+	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	to := new(common.Address)
 	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	txData := ethtypes.DynamicFeeTx{
 		Nonce:     1,
 		GasFeeCap: big.NewInt(10),
@@ -49,7 +50,7 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
 
-	preprocessor := NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
@@ -174,15 +175,15 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 }
 
 func TestEVMFeeCheckDecoratorLondon(t *testing.T) {
-	k, p, ctx := keeper.MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	ctx = ctx.WithIsCheckTx(true)
-	handler := NewEVMFeeCheckDecorator(k, p)
-	privKey := keeper.MockPrivateKey()
+	handler := ante.NewEVMFeeCheckDecorator(k)
+	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	to := new(common.Address)
 	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	txData := ethtypes.DynamicFeeTx{
 		Nonce:     1,
 		GasFeeCap: big.NewInt(10),
@@ -204,7 +205,7 @@ func TestEVMFeeCheckDecoratorLondon(t *testing.T) {
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
 
-	preprocessor := NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})

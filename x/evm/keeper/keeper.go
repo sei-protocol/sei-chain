@@ -22,15 +22,13 @@ type Keeper struct {
 	storeKey   sdk.StoreKey
 	Paramstore paramtypes.Subspace
 
-	evmChainID *big.Int
-
 	bankKeeper    bankkeeper.Keeper
 	accountKeeper *authkeeper.AccountKeeper
 	stakingKeeper *stakingkeeper.Keeper
 }
 
 func NewKeeper(
-	storeKey sdk.StoreKey, paramstore paramtypes.Subspace, evmChainID *big.Int,
+	storeKey sdk.StoreKey, paramstore paramtypes.Subspace,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
@@ -38,15 +36,10 @@ func NewKeeper(
 	return &Keeper{
 		storeKey:      storeKey,
 		Paramstore:    paramstore,
-		evmChainID:    evmChainID,
 		bankKeeper:    bankKeeper,
 		accountKeeper: accountKeeper,
 		stakingKeeper: stakingKeeper,
 	}
-}
-
-func (k *Keeper) ChainID() *big.Int {
-	return k.evmChainID
 }
 
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
@@ -91,7 +84,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	return &vm.BlockContext{
 		CanTransfer: core.CanTransfer,
 		Transfer:    core.Transfer,
-		GetHash:     k.getHashFn(ctx),
+		GetHash:     k.GetHashFn(ctx),
 		Coinbase:    coinbase,
 		GasLimit:    gp.Gas(),
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
@@ -103,7 +96,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 }
 
 // returns a function that provides block header hash based on block number
-func (k *Keeper) getHashFn(ctx sdk.Context) vm.GetHashFunc {
+func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 	return func(height uint64) common.Hash {
 		if height > math.MaxInt64 {
 			ctx.Logger().Error("Sei block height is bounded by int64 range")

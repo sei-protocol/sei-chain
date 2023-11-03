@@ -36,6 +36,7 @@ import (
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -366,6 +367,8 @@ func initAppConfig() (string, interface{}) {
 		serverconfig.Config
 
 		WASM WASMConfig `mapstructure:"wasm"`
+
+		EVM evmrpc.Config `mapstructure:"evm"`
 	}
 
 	// Optionally allow the chain developer to overwrite the SDK's default
@@ -405,6 +408,7 @@ func initAppConfig() (string, interface{}) {
 			LruSize:       1,
 			QueryGasLimit: 300000,
 		},
+		EVM: evmrpc.DefaultConfig,
 	}
 
 	customAppTemplate := serverconfig.DefaultConfigTemplate + `
@@ -413,7 +417,57 @@ func initAppConfig() (string, interface{}) {
 query_gas_limit = 300000
 # This is the number of wasm vm instances we keep cached in memory for speed-up
 # Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
-lru_size = 0`
+lru_size = 0
+
+[evm]
+# controls whether an HTTP EVM server is enabled
+http_enabled = {{ .EVM.HTTPEnabled }}
+http_port = {{ .EVM.HTTPPort }}
+
+# controls whether a websocket server is enabled
+ws_enabled = {{ .EVM.WSEnabled }}
+ws_port = {{ .EVM.WSPort }}
+
+# ReadTimeout is the maximum duration for reading the entire
+# request, including the body.
+# Because ReadTimeout does not let Handlers make per-request
+# decisions on each request body's acceptable deadline or
+# upload rate, most users will prefer to use
+# ReadHeaderTimeout. It is valid to use them both.
+read_timeout = "{{ .EVM.ReadTimeout }}"
+
+# ReadHeaderTimeout is the amount of time allowed to read
+# request headers. The connection's read deadline is reset
+# after reading the headers and the Handler can decide what
+# is considered too slow for the body. If ReadHeaderTimeout
+# is zero, the value of ReadTimeout is used. If both are
+# zero, there is no timeout.
+read_header_timeout = "{{ .EVM.ReadHeaderTimeout }}"
+
+# WriteTimeout is the maximum duration before timing out
+# writes of the response. It is reset whenever a new
+# request's header is read. Like ReadTimeout, it does not
+# let Handlers make decisions on a per-request basis.
+write_timeout = "{{ .EVM.WriteTimeout }}"
+
+# IdleTimeout is the maximum amount of time to wait for the
+# next request when keep-alives are enabled. If IdleTimeout
+# is zero, the value of ReadTimeout is used. If both are
+# zero, ReadHeaderTimeout is used.
+idle_timeout = "{{ .EVM.IdleTimeout }}"
+
+# Maximum gas limit for simulation
+simulation_gas_limit = {{ .EVM.SimulationGasLimit }}
+
+# list of CORS allowed origins, separated by comma
+cors_origins = "{{ .EVM.CORSOrigins }}"
+
+# list of WS origins, separated by comma
+ws_origins = "{{ .EVM.WSOrigins }}"
+
+# timeout for filters
+filter_timeout = "{{ .EVM.FilterTimeout }}"
+`
 
 	return customAppTemplate, customAppConfig
 }

@@ -1,14 +1,15 @@
-package keeper
+package keeper_test
 
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSetGetAddressMapping(t *testing.T) {
-	k, _, ctx := MockEVMKeeper()
-	seiAddr, evmAddr := MockAddressPair()
+	k, _, ctx := keeper.MockEVMKeeper()
+	seiAddr, evmAddr := keeper.MockAddressPair()
 	foundEVM, ok := k.GetEVMAddress(ctx, seiAddr)
 	require.False(t, ok)
 	foundSei, ok := k.GetSeiAddress(ctx, evmAddr)
@@ -23,8 +24,8 @@ func TestSetGetAddressMapping(t *testing.T) {
 }
 
 func TestDeleteAddressMapping(t *testing.T) {
-	k, _, ctx := MockEVMKeeper()
-	seiAddr, evmAddr := MockAddressPair()
+	k, _, ctx := keeper.MockEVMKeeper()
+	seiAddr, evmAddr := keeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	foundEVM, ok := k.GetEVMAddress(ctx, seiAddr)
 	require.True(t, ok)

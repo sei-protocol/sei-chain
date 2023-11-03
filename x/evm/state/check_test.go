@@ -5,15 +5,15 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
 func TestExist(t *testing.T) {
 	// not exist
-	k, _, ctx := keeper.MockEVMKeeper()
-	_, addr := keeper.MockAddressPair()
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k)
 	require.False(t, statedb.Exist(addr))
 
@@ -22,20 +22,20 @@ func TestExist(t *testing.T) {
 	require.True(t, statedb.Exist(addr))
 
 	// has code
-	_, addr2 := keeper.MockAddressPair()
+	_, addr2 := testkeeper.MockAddressPair()
 	statedb.SetCode(addr2, []byte{3})
 	require.True(t, statedb.Exist(addr2))
 
 	// destructed
-	_, addr3 := keeper.MockAddressPair()
+	_, addr3 := testkeeper.MockAddressPair()
 	statedb.SelfDestruct(addr3)
 	require.True(t, statedb.Exist(addr3))
 }
 
 func TestEmpty(t *testing.T) {
 	// empty
-	k, _, ctx := keeper.MockEVMKeeper()
-	_, addr := keeper.MockAddressPair()
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k)
 	require.True(t, statedb.Empty(addr))
 

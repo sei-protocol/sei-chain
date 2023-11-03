@@ -1,10 +1,11 @@
-package evmrpc
+package evmrpc_test
 
 import (
 	"context"
 	"regexp"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +16,7 @@ func TestQueryBuilder(t *testing.T) {
 }
 
 func TestSubscribe(t *testing.T) {
-	manager := NewSubscriptionManager(&MockClient{})
+	manager := evmrpc.NewSubscriptionManager(&MockClient{})
 	res, err := manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
 	require.Nil(t, err)
 	require.Equal(t, 1, int(res))
@@ -24,13 +25,13 @@ func TestSubscribe(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 2, int(res))
 
-	badManager := NewSubscriptionManager(&MockBadClient{})
+	badManager := evmrpc.NewSubscriptionManager(&MockBadClient{})
 	_, err = badManager.Subscribe(context.Background(), mockQueryBuilder(), 10)
 	require.NotNil(t, err)
 }
 
-func mockQueryBuilder() *QueryBuilder {
-	q := NewQueryBuilder()
+func mockQueryBuilder() *evmrpc.QueryBuilder {
+	q := evmrpc.NewQueryBuilder()
 	q.FilterContractAddress("test contract")
 	q.FilterBlockHash("block hash")
 	q.FilterBlockNumber(1)
@@ -87,7 +88,7 @@ func TestGetTopicsRegex(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := getTopicsRegex(tt.topics)
+			got, err := evmrpc.GetTopicsRegex(tt.topics)
 			regex := regexp.MustCompile(got)
 			if tt.wantErr {
 				require.NotNil(t, err)

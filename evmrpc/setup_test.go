@@ -1,4 +1,4 @@
-package evmrpc
+package evmrpc_test
 
 import (
 	"context"
@@ -20,8 +20,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/gorilla/websocket"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/evmrpc"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -48,10 +50,9 @@ var Encoder = TxConfig.TxEncoder()
 var Decoder = TxConfig.TxDecoder()
 var Tx sdk.Tx
 
-var SConfig = SimulateConfig{GasCap: 10000000}
+var SConfig = evmrpc.SimulateConfig{GasCap: 10000000}
 
 var filterTimeoutDuration = 500 * time.Millisecond
-var FConfig = FilterConfig{timeout: filterTimeoutDuration}
 
 type MockClient struct {
 	mock.Client
@@ -228,22 +229,29 @@ var Ctx sdk.Context
 
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
-	EVMKeeper, _, Ctx = keeper.MockEVMKeeper()
-	httpServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestPort, rpc.DefaultHTTPTimeouts, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig, &FConfig)
+	EVMKeeper, _, Ctx = testkeeper.MockEVMKeeper()
+	goodConfig := evmrpc.DefaultConfig
+	goodConfig.HTTPPort = TestPort
+	goodConfig.WSPort = TestWSPort
+	goodConfig.FilterTimeout = 500 * time.Millisecond
+	HttpServer, err := evmrpc.NewEVMHTTPServer(log.NewNopLogger(), goodConfig, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
 	if err != nil {
 		panic(err)
 	}
-	if err := httpServer.Start(); err != nil {
+	if err := HttpServer.Start(); err != nil {
 		panic(err)
 	}
-	badHTTPServer, err := NewEVMHTTPServer(log.NewNopLogger(), TestAddr, TestBadPort, rpc.DefaultHTTPTimeouts, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, &SConfig, &FConfig)
+	badConfig := evmrpc.DefaultConfig
+	badConfig.HTTPPort = TestBadPort
+	badConfig.FilterTimeout = 500 * time.Millisecond
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(log.NewNopLogger(), badConfig, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
 	if err != nil {
 		panic(err)
 	}
 	if err := badHTTPServer.Start(); err != nil {
 		panic(err)
 	}
-	wsServer, err := NewEVMWebSocketServer(log.NewNopLogger(), TestAddr, TestWSPort, []string{"localhost"}, rpc.DefaultHTTPTimeouts)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(log.NewNopLogger(), goodConfig, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
 	if err != nil {
 		panic(err)
 	}
@@ -353,6 +361,11 @@ func formatParam(p interface{}) string {
 		return "null"
 	}
 	switch v := p.(type) {
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
 	case int:
 		return fmt.Sprintf("%d", v)
 	case float64:
@@ -496,4 +509,28 @@ func (b *ABCIEventBuilder) Build() abci.Event {
 			Value: []byte(b.txHash.Hex()),
 		}},
 	}
+}
+
+func TestEcho(t *testing.T) {
+	// Test HTTP server
+	body := "{\"jsonrpc\": \"2.0\",\"method\": \"echo_echo\",\"params\":[\"something\"],\"id\":\"test\"}"
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err := io.ReadAll(res.Body)
+	require.Nil(t, err)
+	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"something\"}\n", string(resBody))
+
+	// Test WS server
+	headers := make(http.Header)
+	headers.Set("Origin", "localhost")
+	headers.Set("Content-Type", "application/json")
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s:%d", TestAddr, TestWSPort), headers)
+	require.Nil(t, err)
+	require.Nil(t, conn.WriteMessage(websocket.TextMessage, []byte(body)))
+	_, buf, err := conn.ReadMessage()
+	require.Nil(t, err)
+	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"something\"}\n", string(buf))
 }

@@ -44,8 +44,12 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return common.Hash{}, err
 	}
 	res, err := s.tmClient.BroadcastTx(ctx, txbz)
-	if err != nil || res.Code != 0 {
-		return common.Hash{}, fmt.Errorf("error code: %d under %s, log: %s, error: %s", res.Code, res.Codespace, res.Log, err)
+	if err != nil || res == nil || res.Code != 0 {
+		code := -1
+		if res != nil {
+			code = int(res.Code)
+		}
+		return common.Hash{}, fmt.Errorf("res: %d, error: %s", code, err)
 	}
 	return tx.Hash(), nil
 }

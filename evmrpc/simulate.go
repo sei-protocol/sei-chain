@@ -101,7 +101,8 @@ func (b *Backend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*
 func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
 
 func (b *Backend) ChainConfig() *params.ChainConfig {
-	return b.keeper.GetChainConfig(b.ctxProvider(LatestCtxHeight)).EthereumConfig(b.keeper.ChainID())
+	ctx := b.ctxProvider(LatestCtxHeight)
+	return b.keeper.GetChainConfig(ctx).EthereumConfig(b.keeper.ChainID(ctx))
 }
 
 func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {

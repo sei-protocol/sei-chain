@@ -7,19 +7,19 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRun(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
-	senderAddr, senderEVMAddr := keeper.MockAddressPair()
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	senderAddr, senderEVMAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100))))
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100))))
-	seiAddr, evmAddr := keeper.MockAddressPair()
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	p, err := NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
@@ -81,7 +81,7 @@ func TestRun(t *testing.T) {
 }
 
 func TestRequiredGas(t *testing.T) {
-	k, _, _ := keeper.MockEVMKeeper()
+	k, _, _ := testkeeper.MockEVMKeeper()
 	p, err := NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
 	sendInput := []byte{}
@@ -107,7 +107,7 @@ func TestRequiredGas(t *testing.T) {
 }
 
 func TestAddress(t *testing.T) {
-	k, _, _ := keeper.MockEVMKeeper()
+	k, _, _ := testkeeper.MockEVMKeeper()
 	p, err := NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
 	require.Equal(t, common.HexToAddress(BankAddress), p.Address())

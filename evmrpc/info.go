@@ -40,7 +40,7 @@ func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 
 //nolint:revive
 func (i *InfoAPI) ChainId() *hexutil.Big {
-	return (*hexutil.Big)(i.keeper.ChainID())
+	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
 func (i *InfoAPI) Coinbase() (common.Address, error) {
@@ -122,13 +122,13 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 	return &result, nil
 }
 
-type gasAndReward struct {
-	gasUsed uint64
-	reward  uint64
+type GasAndReward struct {
+	GasUsed uint64
+	Reward  uint64
 }
 
 func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rewardPercentiles []float64) ([]*hexutil.Big, error) {
-	gasAndRewards := []gasAndReward{}
+	GasAndRewards := []GasAndReward{}
 	totalEVMGasUsed := uint64(0)
 	for _, txbz := range block.Block.Txs {
 		ethtx := getEthTxForTxBz(txbz, i.txDecoder)
@@ -141,33 +141,33 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 		if err != nil {
 			return nil, err
 		}
-		gasAndRewards = append(gasAndRewards, gasAndReward{gasUsed: receipt.GasUsed, reward: receipt.EffectiveGasPrice - baseFee.Uint64()})
+		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: receipt.GasUsed, Reward: receipt.EffectiveGasPrice - baseFee.Uint64()})
 		totalEVMGasUsed += receipt.GasUsed
 	}
-	return calculatePercentiles(rewardPercentiles, gasAndRewards, totalEVMGasUsed), nil
+	return CalculatePercentiles(rewardPercentiles, GasAndRewards, totalEVMGasUsed), nil
 }
 
 // Following go-ethereum implementation
 // Specifically, the reward value at a percentile of p% will be the reward value of the
 // lowest-rewarded transaction such that the sum of its gasUsed value and gasUsed values
 // of all lower-rewarded transactions is no less than (total gasUsed * p%).
-func calculatePercentiles(rewardPercentiles []float64, gasAndRewards []gasAndReward, totalEVMGasUsed uint64) []*hexutil.Big {
-	slices.SortStableFunc(gasAndRewards, func(a, b gasAndReward) int {
-		return int(a.reward) - int(b.reward)
+func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndReward, totalEVMGasUsed uint64) []*hexutil.Big {
+	slices.SortStableFunc(GasAndRewards, func(a, b GasAndReward) int {
+		return int(a.Reward) - int(b.Reward)
 	})
 	res := []*hexutil.Big{}
-	if len(gasAndRewards) == 0 {
+	if len(GasAndRewards) == 0 {
 		return res
 	}
 	var txIndex int
-	sumGasUsed := gasAndRewards[0].gasUsed
+	sumGasUsed := GasAndRewards[0].GasUsed
 	for _, p := range rewardPercentiles {
 		thresholdGasUsed := uint64(float64(totalEVMGasUsed) * p / 100)
-		for sumGasUsed < thresholdGasUsed && txIndex < len(gasAndRewards)-1 {
+		for sumGasUsed < thresholdGasUsed && txIndex < len(GasAndRewards)-1 {
 			txIndex++
-			sumGasUsed += gasAndRewards[txIndex].gasUsed
+			sumGasUsed += GasAndRewards[txIndex].GasUsed
 		}
-		res = append(res, (*hexutil.Big)(big.NewInt(int64(gasAndRewards[txIndex].reward))))
+		res = append(res, (*hexutil.Big)(big.NewInt(int64(GasAndRewards[txIndex].Reward))))
 	}
 	return res
 }

@@ -6,16 +6,16 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAddAddressToAccessList(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
-	_, addr := keeper.MockAddressPair()
+	_, addr := testkeeper.MockAddressPair()
 	require.False(t, statedb.AddressInAccessList(addr))
 	statedb.AddAddressToAccessList(addr)
 	require.Nil(t, statedb.Err())
@@ -28,10 +28,10 @@ func TestAddAddressToAccessList(t *testing.T) {
 }
 
 func TestAddSlotToAccessList(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
-	_, addr := keeper.MockAddressPair()
+	_, addr := testkeeper.MockAddressPair()
 	statedb.AddAddressToAccessList(addr)
 
 	slot := common.BytesToHash([]byte("abc"))
@@ -45,28 +45,28 @@ func TestAddSlotToAccessList(t *testing.T) {
 }
 
 func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
-	_, addr := keeper.MockAddressPair()
+	_, addr := testkeeper.MockAddressPair()
 
 	slot := common.BytesToHash([]byte("abc"))
 	addAndCheckSlot(t, statedb, addr, false, slot, false)
 }
 
 func TestPrepare(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
-	_, sender := keeper.MockAddressPair()
-	_, coinbase := keeper.MockAddressPair()
-	_, dest := keeper.MockAddressPair()
+	_, sender := testkeeper.MockAddressPair()
+	_, coinbase := testkeeper.MockAddressPair()
+	_, dest := testkeeper.MockAddressPair()
 	p1 := common.BytesToAddress([]byte{1})
 	p2 := common.BytesToAddress([]byte{2})
 	p3 := common.BytesToAddress([]byte{3})
 	precompiles := []common.Address{p1, p2, p3}
-	_, access1 := keeper.MockAddressPair()
-	_, access2 := keeper.MockAddressPair()
+	_, access1 := testkeeper.MockAddressPair()
+	_, access2 := testkeeper.MockAddressPair()
 	txaccesses := []ethtypes.AccessTuple{
 		{Address: access1, StorageKeys: []common.Hash{common.BytesToHash([]byte("abc"))}},
 		{
@@ -77,7 +77,7 @@ func TestPrepare(t *testing.T) {
 			},
 		},
 	}
-	shanghai := params.Rules{ChainID: k.ChainID(), IsShanghai: true}
+	shanghai := params.Rules{ChainID: k.ChainID(ctx), IsShanghai: true}
 	statedb.Prepare(
 		shanghai, sender, coinbase, &dest, precompiles, txaccesses,
 	)

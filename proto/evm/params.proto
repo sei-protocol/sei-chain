@@ -33,4 +33,10 @@ string minimum_fee_per_gas = 4 [
   (gogoproto.jsontag) = "minimum_fee_per_gas"
 ];
   ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
+  string chain_id = 6 [
+  (gogoproto.moretags)   = "yaml:\"chain_id\"",
+  (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+  (gogoproto.nullable)   = false,
+  (gogoproto.jsontag) = "chain_id"
+];
 }

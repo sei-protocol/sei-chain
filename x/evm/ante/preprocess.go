@@ -46,12 +46,12 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 
 	V, R, S := ethTx.RawSignatureValues()
-	chainID := p.evmKeeper.ChainID()
+	chainID := p.evmKeeper.ChainID(ctx)
 	evmParams := p.evmKeeper.GetParams(ctx)
 	chainCfg := evmParams.GetChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	ctx = evmtypes.SetContextEtCfg(ctx, ethCfg)
-	version := getVersion(ctx, ethCfg)
+	version := GetVersion(ctx, ethCfg)
 	if !isTxTypeAllowed(version, ethTx.Type()) {
 		return ctx, ethtypes.ErrInvalidChainId
 	}
@@ -150,7 +150,7 @@ func adjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
 	return V.Sub(V, big.NewInt(8))
 }
 
-func getVersion(ctx sdk.Context, ethCfg *params.ChainConfig) evmtypes.SignerVersion {
+func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) evmtypes.SignerVersion {
 	blockNum := big.NewInt(ctx.BlockHeight())
 	ts := uint64(ctx.BlockTime().Unix())
 	switch {

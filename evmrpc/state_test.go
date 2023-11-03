@@ -1,7 +1,7 @@
-package evmrpc
+package evmrpc_test
 
 import (
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,7 +11,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,56 +21,42 @@ func TestGetBalance(t *testing.T) {
 		addr       string
 		blockNr    string
 		wantErr    bool
-		wantAmount float64
+		wantAmount string
 	}{
 		{
 			name:       "latest block",
 			addr:       "0x1234567890123456789023456789012345678901",
 			blockNr:    "latest",
 			wantErr:    false,
-			wantAmount: 1000,
+			wantAmount: "0x3e8",
 		},
 		{
 			name:       "safe block",
 			addr:       "0x1234567890123456789023456789012345678901",
 			blockNr:    "safe",
 			wantErr:    false,
-			wantAmount: 1000,
+			wantAmount: "0x3e8",
 		},
 		{
 			name:       "finalized block",
 			addr:       "0x1234567890123456789023456789012345678901",
 			blockNr:    "finalized",
 			wantErr:    false,
-			wantAmount: 1000,
+			wantAmount: "0x3e8",
 		},
 		{
 			name:       "pending block",
 			addr:       "0x1234567890123456789023456789012345678901",
 			blockNr:    "pending",
 			wantErr:    false,
-			wantAmount: 1000,
+			wantAmount: "0x3e8",
 		},
 		{
 			name:       "evm address with sei address mapping",
 			addr:       common.HexToAddress(common.Bytes2Hex([]byte("evmAddr"))).String(),
 			blockNr:    "latest",
 			wantErr:    false,
-			wantAmount: 10,
-		},
-		{
-			name:       "err: earliest block",
-			addr:       "0x1234567890123456789023456789012345678901",
-			blockNr:    "earliest",
-			wantErr:    true,
-			wantAmount: -1,
-		},
-		{
-			name:       "err: numbered block",
-			addr:       "0x1234567890123456789023456789012345678901",
-			blockNr:    "0x1",
-			wantErr:    true,
-			wantAmount: -1,
+			wantAmount: "0xa",
 		},
 	}
 
@@ -92,15 +78,14 @@ func TestGetBalance(t *testing.T) {
 			} else {
 				_, ok := resObj["error"]
 				require.False(t, ok)
-				got := resObj["result"].(float64)
-				require.Equal(t, tt.wantAmount, got)
+				require.Equal(t, tt.wantAmount, resObj["result"])
 			}
 		})
 	}
 }
 
 func TestGetCode(t *testing.T) {
-	wantKey := base64.StdEncoding.EncodeToString([]byte("abc"))
+	wantKey := "0x" + hex.EncodeToString([]byte("abc"))
 	tests := []struct {
 		name    string
 		blockNr string
@@ -125,16 +110,6 @@ func TestGetCode(t *testing.T) {
 			name:    "pending block",
 			blockNr: "pending",
 			wantErr: false,
-		},
-		{
-			name:    "err: earliest block",
-			blockNr: "earliest",
-			wantErr: true,
-		},
-		{
-			name:    "err: numbered block",
-			blockNr: "0x1",
-			wantErr: true,
 		},
 	}
 
@@ -165,7 +140,7 @@ func TestGetCode(t *testing.T) {
 
 func TestGetStorageAt(t *testing.T) {
 	hexValue := common.BytesToHash([]byte("value"))
-	wantValue := base64.StdEncoding.EncodeToString(hexValue[:])
+	wantValue := "0x" + hex.EncodeToString(hexValue[:])
 	tests := []struct {
 		name    string
 		blockNr string
@@ -190,16 +165,6 @@ func TestGetStorageAt(t *testing.T) {
 			name:    "pending block",
 			blockNr: "pending",
 			wantErr: false,
-		},
-		{
-			name:    "err: earliest block",
-			blockNr: "earliest",
-			wantErr: true,
-		},
-		{
-			name:    "err: numbered block",
-			blockNr: "0x1",
-			wantErr: true,
 		},
 	}
 
@@ -230,7 +195,7 @@ func TestGetStorageAt(t *testing.T) {
 }
 
 func TestGetProof(t *testing.T) {
-	_, evmAddr := keeper.MockAddressPair()
+	_, evmAddr := testkeeper.MockAddressPair()
 	key, val := []byte("test"), []byte("abc")
 	EVMKeeper.SetState(Ctx, evmAddr, common.BytesToHash(key), common.BytesToHash(val))
 	// bump store version to be the latest block

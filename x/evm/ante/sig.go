@@ -24,7 +24,7 @@ func (svd EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		return ctx, errors.New("EVM transaction is not found in EVM ante route")
 	}
 	if !ethTx.Protected() {
-		return ctx, errors.New("EVM transaction is not replay protected")
+		return ctx, sdkerrors.ErrNoSignatures
 	}
 
 	evmAddr, found := types.GetContextEVMAddress(ctx)
@@ -32,13 +32,13 @@ func (svd EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		return ctx, errors.New("failed to get sender from EVM tx")
 	}
 
-	lastNonce := uint64(0)
+	nextNonce := uint64(0)
 	noncebz := svd.evmKeeper.PrefixStore(ctx, types.NonceKeyPrefix).Get(evmAddr[:])
 	if noncebz != nil {
-		lastNonce = binary.BigEndian.Uint64(noncebz)
+		nextNonce = binary.BigEndian.Uint64(noncebz)
 	}
 
-	if ethTx.Nonce() == lastNonce {
+	if ethTx.Nonce() != nextNonce {
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 

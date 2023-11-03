@@ -15,6 +15,7 @@ var (
 	KeyBaseFeePerGas      = []byte("KeyBaseFeePerGas")
 	KeyMinFeePerGas       = []byte("KeyMinFeePerGas")
 	KeyChainConfig        = []byte("KeyChainConfig")
+	KeyChainID            = []byte("KeyChainID")
 )
 
 const (
@@ -28,6 +29,7 @@ var DefaultPriorityNormalizer = sdk.NewDec(1)
 // Ethereum).
 var DefaultBaseFeePerGas = sdk.NewDec(0)
 var DefaultMinFeePerGas = sdk.NewDec(1)
+var DefaultChainID = sdk.NewInt(713715)
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -42,6 +44,7 @@ func DefaultParams() Params {
 		BaseFeePerGas:      DefaultBaseFeePerGas,
 		MinimumFeePerGas:   DefaultMinFeePerGas,
 		ChainConfig:        DefaultChainConfig(),
+		ChainId:            DefaultChainID,
 	}
 }
 
@@ -52,6 +55,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &p.BaseFeePerGas, validateBaseFeePerGas),
 		paramtypes.NewParamSetPair(KeyMinFeePerGas, &p.MinimumFeePerGas, validateMinFeePerGas),
 		paramtypes.NewParamSetPair(KeyChainConfig, &p.ChainConfig, validateChainConfig),
+		paramtypes.NewParamSetPair(KeyChainID, &p.ChainId, validateChainID),
 	}
 }
 
@@ -70,6 +74,9 @@ func (p Params) Validate() error {
 	}
 	if p.MinimumFeePerGas.LT(p.BaseFeePerGas) {
 		return errors.New("minimum fee cannot be lower than base fee")
+	}
+	if err := validateChainID(p.ChainId); err != nil {
+		return err
 	}
 	return validateChainConfig(p.ChainConfig)
 }
@@ -138,4 +145,17 @@ func validateChainConfig(i interface{}) error {
 	}
 
 	return v.Validate()
+}
+
+func validateChainID(i interface{}) error {
+	v, ok := i.(sdk.Int)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	if v.IsNegative() {
+		return fmt.Errorf("negative min fee per gas: %d", v)
+	}
+
+	return nil
 }

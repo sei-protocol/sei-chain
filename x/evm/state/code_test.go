@@ -5,14 +5,14 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCode(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
-	_, addr := keeper.MockAddressPair()
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k)
 
 	require.Equal(t, common.Hash{}, statedb.GetCodeHash(addr))

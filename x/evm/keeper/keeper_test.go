@@ -1,4 +1,4 @@
-package keeper
+package keeper_test
 
 import (
 	"math"
@@ -6,17 +6,19 @@ import (
 
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetChainID(t *testing.T) {
-	k, _, _ := MockEVMKeeper()
-	require.Equal(t, int64(1), k.ChainID().Int64())
+	k, _, ctx := keeper.MockEVMKeeper()
+	require.Equal(t, types.DefaultChainID.Int64(), k.ChainID(ctx).Int64())
 }
 
 func TestGetVMBlockContext(t *testing.T) {
-	k, _, ctx := MockEVMKeeper()
-	moduleAddr := k.accountKeeper.GetModuleAddress(authtypes.FeeCollectorName)
+	k, _, ctx := keeper.MockEVMKeeper()
+	moduleAddr := k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 	evmAddr, _ := k.GetEVMAddress(ctx, moduleAddr)
 	k.DeleteAddressMapping(ctx, moduleAddr, evmAddr)
 	_, err := k.GetVMBlockContext(ctx, 0)
@@ -24,8 +26,8 @@ func TestGetVMBlockContext(t *testing.T) {
 }
 
 func TestGetHashFn(t *testing.T) {
-	k, _, ctx := MockEVMKeeper()
-	f := k.getHashFn(ctx)
+	k, _, ctx := keeper.MockEVMKeeper()
+	f := k.GetHashFn(ctx)
 	require.Equal(t, common.Hash{}, f(math.MaxInt64+1))
 	require.Equal(t, common.BytesToHash(ctx.HeaderHash()), f(uint64(ctx.BlockHeight())))
 	require.Equal(t, common.Hash{}, f(uint64(ctx.BlockHeight())+1))

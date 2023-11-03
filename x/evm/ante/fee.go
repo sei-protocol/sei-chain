@@ -5,9 +5,9 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -15,15 +15,13 @@ import (
 
 type EVMFeeCheckDecorator struct {
 	evmKeeper     *evmkeeper.Keeper
-	paramsKeeper  *paramskeeper.Keeper
 	bankKeeper    bankkeeper.Keeper
 	accountKeeper *accountkeeper.AccountKeeper
 }
 
-func NewEVMFeeCheckDecorator(evmKeeper *evmkeeper.Keeper, paramsKeeper *paramskeeper.Keeper) *EVMFeeCheckDecorator {
+func NewEVMFeeCheckDecorator(evmKeeper *evmkeeper.Keeper) *EVMFeeCheckDecorator {
 	return &EVMFeeCheckDecorator{
 		evmKeeper:     evmKeeper,
-		paramsKeeper:  paramsKeeper,
 		bankKeeper:    evmKeeper.BankKeeper(),
 		accountKeeper: evmKeeper.AccountKeeper(),
 	}
@@ -46,10 +44,10 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	}
 
 	if txData.GetGasFeeCap().Cmp(fc.getBaseFee(ctx)) < 0 {
-		return ctx, errors.New("provided gas fee cap is smaller than required base fee")
+		return ctx, sdkerrors.ErrInsufficientFee
 	}
 	if txData.GetGasFeeCap().Cmp(fc.getMinimumFee(ctx)) < 0 {
-		return ctx, errors.New("provided gas fee cap is smaller than minimum base fee")
+		return ctx, sdkerrors.ErrInsufficientFee
 	}
 
 	// if EVM version is Cancun or later, and the transaction contains at least one blob, we need to
@@ -58,7 +56,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
 		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(0)) < 0 {
-			return ctx, errors.New("provided blob fee cap is smaller than required blob fee")
+			return ctx, sdkerrors.ErrInsufficientFee
 		}
 	}
 
@@ -70,7 +68,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	}
 	// check if the sender has enough balance to cover fees
 	if fc.bankKeeper.GetBalance(ctx, senderSeiAddr, fc.evmKeeper.GetBaseDenom(ctx)).Amount.BigInt().Cmp(anteCharge) < 0 {
-		return ctx, errors.New("insufficient funds to make fee payment")
+		return ctx, sdkerrors.ErrInsufficientFunds
 	}
 
 	// calculate the priority by dividing the total fee with the native gas limit (i.e. the effective native gas price)

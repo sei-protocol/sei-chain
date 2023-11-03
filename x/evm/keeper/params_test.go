@@ -1,14 +1,15 @@
-package keeper
+package keeper_test
 
 import (
 	"testing"
 
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
 func TestParams(t *testing.T) {
-	k, _, ctx := MockEVMKeeper()
+	k, _, ctx := testkeeper.MockEVMKeeper()
 	require.Equal(t, types.DefaultChainConfig(), k.GetChainConfig(ctx))
 	require.Equal(t, types.DefaultBaseDenom, k.GetBaseDenom(ctx))
 	require.Equal(t, types.DefaultPriorityNormalizer, k.GetPriorityNormalizer(ctx))

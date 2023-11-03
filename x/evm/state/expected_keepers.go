@@ -26,4 +26,7 @@ type EVMKeeper interface {
 	SetState(sdk.Context, common.Address, common.Hash, common.Hash)
 	GetModuleBalance(sdk.Context) *big.Int
 	AccountKeeper() *authkeeper.AccountKeeper
+	GetFeeCollectorAddress(sdk.Context) (common.Address, error)
+	GetNonce(sdk.Context, common.Address) uint64
+	SetNonce(sdk.Context, common.Address, uint64)
 }

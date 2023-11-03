@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -25,11 +26,11 @@ type TransactionAPI struct {
 	tmClient    rpcclient.Client
 	keeper      *keeper.Keeper
 	ctxProvider func(int64) sdk.Context
-	txDecoder   sdk.TxDecoder
+	txConfig    client.TxConfig
 }
 
-func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder) *TransactionAPI {
-	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
+func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig) *TransactionAPI {
+	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig}
 }
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
@@ -100,7 +101,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	}
 	result := hexutil.Uint64(0)
 	for _, tx := range block.Block.Txs {
-		if ethtx := getEthTxForTxBz(tx, t.txDecoder); ethtx != nil {
+		if ethtx := getEthTxForTxBz(tx, t.txConfig.TxDecoder()); ethtx != nil {
 			receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
 			if err != nil {
 				continue
@@ -117,7 +118,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	if int(index) >= len(block.Block.Txs) {
 		return nil
 	}
-	ethtx := getEthTxForTxBz(block.Block.Txs[int(index)], t.txDecoder)
+	ethtx := getEthTxForTxBz(block.Block.Txs[int(index)], t.txConfig.TxDecoder())
 	if ethtx == nil {
 		return nil
 	}
