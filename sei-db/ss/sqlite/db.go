@@ -53,9 +53,22 @@ type Database struct {
 }
 
 func New(dataDir string) (*Database, error) {
-	db, err := sql.Open(driverName, filepath.Join(dataDir, dbName))
+	db, err := sql.Open(driverName, filepath.Join(dataDir, dbName)+"?cache=shared")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite DB: %w", err)
+	}
+
+	// TODO: Make fully configurable
+	pragmas := []string{
+		`PRAGMA journal_mode=WAL;`,
+		`PRAGMA synchronous=NORMAL;`,
+		`PRAGMA cache_size=-32000;`,
+		`PRAGMA auto_vacuum=FULL;`,
+		`PRAGMA temp_store=MEMORY;`,
+	}
+
+	if err := execPragmas(db, pragmas); err != nil {
+		return nil, err
 	}
 
 	stmt := `
@@ -286,4 +299,14 @@ func (db *Database) PrintRowsDebug() {
 	}
 
 	fmt.Println(strings.TrimSpace(sb.String()))
+}
+
+// execPragmas executes a series of PRAGMA statements on sqlite db
+func execPragmas(db *sql.DB, pragmas []string) error {
+	for _, pragma := range pragmas {
+		if _, err := db.Exec(pragma); err != nil {
+			return fmt.Errorf("failed to set %s: %w", strings.TrimSpace(pragma), err)
+		}
+	}
+	return nil
 }
