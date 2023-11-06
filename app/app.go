@@ -838,6 +838,7 @@ func New(
 		}
 	}
 
+	fmt.Println("Loading latest version at time: ", time.Now().Format(time.RFC3339))
 	loadVersionHandler := func() error {
 		if err := app.LoadLatestVersion(); err != nil {
 			tmos.Exit(err.Error())
@@ -857,6 +858,7 @@ func New(
 	} else {
 		app.SetLoadVersionHandler(loadVersionHandler)
 	}
+	fmt.Println("Finished loading latest version at time: ", time.Now().Format(time.RFC3339))
 
 	app.ScopedIBCKeeper = scopedIBCKeeper
 	app.ScopedTransferKeeper = scopedTransferKeeper
