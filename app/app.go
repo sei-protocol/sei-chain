@@ -532,14 +532,9 @@ func New(
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
 	)
-	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper)
-	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
-	if err != nil {
-		panic(fmt.Sprintf("error reading EVM config due to %s", err))
-	}
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
-	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators(app.EvmKeeper)))
+	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
 	app.AccessControlKeeper = aclkeeper.NewKeeper(
 		appCodec,
 		app.keys[acltypes.StoreKey],
@@ -590,6 +585,12 @@ func New(
 	app.DexKeeper.SetWasmKeeper(&app.WasmKeeper)
 	dexModule := dexmodule.NewAppModule(appCodec, app.DexKeeper, app.AccountKeeper, app.BankKeeper, app.WasmKeeper, app.GetBaseApp().TracingInfo)
 	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
+
+	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper)
+	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
 
 	// register the proposal types
 	govRouter := govtypes.NewRouter()
@@ -1596,10 +1597,6 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		}
 	}
 	return true
-}
-
-func (app *App) GetTxConfig() client.TxConfig {
-	return app.encodingConfig.TxConfig
 }
 
 // GetMaccPerms returns a copy of the module account permissions

@@ -4,11 +4,9 @@ import (
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	aclbankmapping "github.com/sei-protocol/sei-chain/aclmapping/bank"
 	acldexmapping "github.com/sei-protocol/sei-chain/aclmapping/dex"
-	aclevmmapping "github.com/sei-protocol/sei-chain/aclmapping/evm"
 	acloraclemapping "github.com/sei-protocol/sei-chain/aclmapping/oracle"
 	acltokenfactorymapping "github.com/sei-protocol/sei-chain/aclmapping/tokenfactory"
 	aclwasmmapping "github.com/sei-protocol/sei-chain/aclmapping/wasm"
-	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
 type CustomDependencyGenerator struct{}
@@ -17,7 +15,7 @@ func NewCustomDependencyGenerator() CustomDependencyGenerator {
 	return CustomDependencyGenerator{}
 }
 
-func (customDepGen CustomDependencyGenerator) GetCustomDependencyGenerators(evmKeeper evmkeeper.Keeper) aclkeeper.DependencyGeneratorMap {
+func (customDepGen CustomDependencyGenerator) GetCustomDependencyGenerators() aclkeeper.DependencyGeneratorMap {
 	dependencyGeneratorMap := make(aclkeeper.DependencyGeneratorMap)
 	wasmDependencyGenerators := aclwasmmapping.NewWasmDependencyGenerator()
 
@@ -26,7 +24,6 @@ func (customDepGen CustomDependencyGenerator) GetCustomDependencyGenerators(evmK
 	dependencyGeneratorMap = dependencyGeneratorMap.Merge(acltokenfactorymapping.GetTokenFactoryDependencyGenerators())
 	dependencyGeneratorMap = dependencyGeneratorMap.Merge(wasmDependencyGenerators.GetWasmDependencyGenerators())
 	dependencyGeneratorMap = dependencyGeneratorMap.Merge(acloraclemapping.GetOracleDependencyGenerator())
-	dependencyGeneratorMap = dependencyGeneratorMap.Merge(aclevmmapping.GetEVMDependencyGenerators(evmKeeper))
 
 	return dependencyGeneratorMap
 }
