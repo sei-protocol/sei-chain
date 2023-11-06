@@ -59,6 +59,8 @@ func New(dataDir string) (*Database, error) {
 		l.IndexBlockSize = 256 << 10 // 256 KB
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
+		// TODO: Consider compression only for specific layers like bottommost
+		l.Compression = pebble.ZstdCompression
 		if i > 0 {
 			l.TargetFileSize = opts.Levels[i-1].TargetFileSize * 2
 		}
