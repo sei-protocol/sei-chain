@@ -84,6 +84,14 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	return t.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), hexutil.Uint(receipt.TransactionIndex)), nil
 }
 
+func (t *TransactionAPI) GetTransactionErrorByHash(ctx context.Context, hash common.Hash) (string, error) {
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
+	if err != nil {
+		return "", err
+	}
+	return receipt.VmError, nil
+}
+
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
 	var block *coretypes.ResultBlock
 	var err error

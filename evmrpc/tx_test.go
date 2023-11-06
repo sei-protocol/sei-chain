@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -170,4 +172,11 @@ func TestGetTransactionCount(t *testing.T) {
 		errMsg := errMap["message"].(string)
 		require.Equal(t, errStr, errMsg)
 	}
+}
+
+func TestGetTransactionError(t *testing.T) {
+	h := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
+	EVMKeeper.SetReceipt(Ctx, h, &types.Receipt{VmError: "test error"})
+	resObj := sendRequestGood(t, "getTransactionErrorByHash", "0x1111111111111111111111111111111111111111111111111111111111111111")
+	require.Equal(t, "test error", resObj["result"])
 }
