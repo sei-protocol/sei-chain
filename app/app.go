@@ -240,6 +240,8 @@ var (
 	EmittedSeidVersionMetric = false
 	// EmptyAclmOpts defines a type alias for a list of wasm options.
 	EmptyACLOpts []aclkeeper.Option
+	// EnableOCC allows tests to override default OCC enablement behavior
+	EnableOCC = true
 )
 
 var (
@@ -1361,12 +1363,9 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	//TODO: update with logic that asserts that occ is enabled
-	ctx = ctx.WithIsOCCEnabled(true)
-
+	ctx = ctx.WithIsOCCEnabled(EnableOCC)
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
-	// enable OCC
-	ctx = ctx.WithIsOCCEnabled(true)
 
 	events := []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{
