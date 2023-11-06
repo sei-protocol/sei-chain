@@ -6,15 +6,17 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store/cachemulti"
-
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
+	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 )
 
 type mockDeliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTx) types.ResponseDeliverTx
@@ -119,7 +121,15 @@ func TestProcessAll(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for i := 0; i < tt.runs; i++ {
-				s := NewScheduler(tt.workers, tt.deliverTxFunc)
+				// set a tracer provider
+				tp := trace.NewNoopTracerProvider()
+				otel.SetTracerProvider(trace.NewNoopTracerProvider())
+				tr := tp.Tracer("scheduler-test")
+				ti := &tracing.Info{
+					Tracer: &tr,
+				}
+
+				s := NewScheduler(tt.workers, ti, tt.deliverTxFunc)
 				ctx := initTestCtx(tt.addStores)
 
 				res, err := s.ProcessAll(ctx, tt.requests)
