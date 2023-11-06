@@ -10,6 +10,7 @@ import (
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -62,17 +63,17 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 	anteCharge := txData.Fee() // this would include blob fee if it's a blob tx
 
-	senderSeiAddr, found := evmtypes.GetContextSeiAddress(ctx)
+	senderEVMAddr, found := evmtypes.GetContextEVMAddress(ctx)
 	if !found {
 		return ctx, errors.New("no address in context")
 	}
 	// check if the sender has enough balance to cover fees
-	if fc.bankKeeper.GetBalance(ctx, senderSeiAddr, fc.evmKeeper.GetBaseDenom(ctx)).Amount.BigInt().Cmp(anteCharge) < 0 {
+	if state.NewDBImpl(ctx, fc.evmKeeper).GetBalance(senderEVMAddr).Cmp(anteCharge) < 0 {
 		return ctx, sdkerrors.ErrInsufficientFunds
 	}
 
 	// calculate the priority by dividing the total fee with the native gas limit (i.e. the effective native gas price)
-	priority := new(big.Int).Quo(anteCharge, new(big.Int).SetUint64(txData.GetGas()))
+	priority := new(big.Int).Quo(new(big.Int).Quo(anteCharge, state.UseiToSweiMultiplier), new(big.Int).SetUint64(txData.GetGas()))
 	priority = new(big.Int).Quo(priority, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
 	ctx = ctx.WithPriority(priority.Int64())
 

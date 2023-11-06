@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -18,7 +19,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -34,6 +37,7 @@ func GetTxCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(CmdAssociateAddress())
+	cmd.AddCommand(CmdSend())
 
 	return cmd
 }
@@ -82,6 +86,91 @@ func CmdAssociateAddress() *cobra.Command {
 			}
 			payload := "0x" + hex.EncodeToString(bz)
 			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"associate_addr\"}", payload)
+			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), strings.NewReader(body))
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return err
+			}
+			defer res.Body.Close()
+			resBody, err := io.ReadAll(res.Body)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Response: %s\n", string(resBody))
+
+			return nil
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdSend() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "send [to EVM address] [amount in usei] [nonce]",
+		Short: "send usei to EVM address",
+		Long:  "",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
+			kb := txf.Keybase()
+			info, err := kb.Key(clientCtx.GetFromName())
+			if err != nil {
+				return err
+			}
+			localInfo, ok := info.(keyring.LocalInfo)
+			if !ok {
+				return errors.New("can only associate address for local keys")
+			}
+			priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
+			if err != nil {
+				return err
+			}
+			privHex := hex.EncodeToString(priv.Bytes())
+			key, _ := crypto.HexToECDSA(privHex)
+
+			to := common.HexToAddress(args[0])
+			val, err := strconv.ParseUint(args[1], 10, 64)
+			if err != nil {
+				return err
+			}
+			nonce, err := strconv.ParseUint(args[2], 10, 64)
+			if err != nil {
+				return err
+			}
+			txData := ethtypes.DynamicFeeTx{
+				Nonce:     nonce,         // TODO query from server
+				GasFeeCap: big.NewInt(1), // TODO use flag
+				Gas:       21000,         // TODO use flag
+				To:        &to,
+				Value:     new(big.Int).Mul(new(big.Int).SetUint64(val), state.UseiToSweiMultiplier),
+				Data:      []byte(""),
+				ChainID:   big.NewInt(713715), // TODO query from server
+			}
+			ethCfg := types.DefaultChainConfig().EthereumConfig(txData.ChainID)
+			signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), 1)
+			tx := ethtypes.NewTx(&txData)
+			tx, err = ethtypes.SignTx(tx, signer, key)
+			if err != nil {
+				return err
+			}
+			bz, err := tx.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			payload := "0x" + hex.EncodeToString(bz)
+
+			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"send\"}", payload)
 			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), strings.NewReader(body))
 			if err != nil {
 				return err

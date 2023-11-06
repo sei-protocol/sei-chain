@@ -21,6 +21,10 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 		return
 	}
 
+	// Fields that were denominated in usei will be converted to swei (1usei = 10^12swei)
+	// for existing Ethereum application (which assumes 18 decimal points) to display properly.
+	amt = new(big.Int).Quo(amt, UseiToSweiMultiplier)
+
 	feeCollector, _ := s.k.GetFeeCollectorAddress(s.ctx)
 	if feeCollector == evmAddr {
 		coins := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(amt)))
@@ -54,6 +58,10 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 		return
 	}
 
+	// Fields that were denominated in usei will be converted to swei (1usei = 10^12swei)
+	// for existing Ethereum application (which assumes 18 decimal points) to display properly.
+	amt = new(big.Int).Quo(amt, UseiToSweiMultiplier)
+
 	feeCollector, _ := s.k.GetFeeCollectorAddress(s.ctx)
 	if feeCollector == evmAddr {
 		coin := sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(amt))
@@ -86,14 +94,20 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
+	var balanceInUsei *big.Int
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, evmAddr); ok {
-		return s.k.BankKeeper().GetBalance(s.ctx, seiAddr, s.k.GetBaseDenom(s.ctx)).Amount.BigInt()
+		balanceInUsei = s.k.BankKeeper().GetBalance(s.ctx, seiAddr, s.k.GetBaseDenom(s.ctx)).Amount.BigInt()
+	} else {
+		balanceInUsei = new(big.Int).SetUint64(s.k.GetBalance(s.ctx, evmAddr))
 	}
-	return big.NewInt(int64(s.k.GetBalance(s.ctx, evmAddr)))
+	return new(big.Int).Mul(balanceInUsei, UseiToSweiMultiplier)
 }
 
 // should only be called during simulation
 func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int) {
+	// Fields that were denominated in usei will be converted to swei (1usei = 10^12swei)
+	// for existing Ethereum application (which assumes 18 decimal points) to display properly.
+	amt = new(big.Int).Quo(amt, UseiToSweiMultiplier)
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, evmAddr); ok {
 		balance := s.k.BankKeeper().GetBalance(s.ctx, seiAddr, s.k.GetBaseDenom(s.ctx))
 		if err := s.k.BankKeeper().SendCoinsFromAccountToModule(s.ctx, seiAddr, types.ModuleName, sdk.NewCoins(balance)); err != nil {
