@@ -12,5 +12,5 @@ func init() {
 	initializer := func(dir string) (types.StateStore, error) {
 		return rocksdb.New(dir)
 	}
-	RegisterBackend(PebbleDBBackend, initializer)
+	RegisterBackend(RocksDBBackend, initializer)
 }
