@@ -73,7 +73,7 @@ func New(cacheSize int) *Tree {
 	return NewEmptyTree(0, 0, cacheSize)
 }
 
-// New creates a empty tree with initial-version,
+// NewWithInitialVersion creates an empty tree with initial-version,
 // it happens when a new store created at the middle of the chain.
 func NewWithInitialVersion(initialVersion uint32, cacheSize int) *Tree {
 	return NewEmptyTree(0, initialVersion, cacheSize)
@@ -137,25 +137,17 @@ func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
 }
 
 func (t *Tree) set(key, value []byte) {
-	t.mtx.Lock()
-	defer t.mtx.Unlock()
 	if value == nil {
 		// the value could be nil when replaying changes from write-ahead-log because of protobuf decoding
 		value = []byte{}
 	}
 	t.root, _ = setRecursive(t.root, key, value, t.version+1, t.cowVersion)
-	if t.cache != nil {
-		t.cache.Add(&cacheNode{key, value})
-	}
+	t.addToCache(key, value)
 }
 
 func (t *Tree) remove(key []byte) {
-	t.mtx.Lock()
-	defer t.mtx.Unlock()
 	_, t.root, _ = removeRecursive(t.root, key, t.version+1, t.cowVersion)
-	if t.cache != nil {
-		t.cache.Remove(key)
-	}
+	t.removeFromCache(key)
 }
 
 // SaveVersion increases the version number and optionally updates the hashes
@@ -216,22 +208,17 @@ func (t *Tree) GetByIndex(index int64) ([]byte, []byte) {
 }
 
 func (t *Tree) Get(key []byte) []byte {
-	t.mtx.RLock()
-	defer t.mtx.RUnlock()
-	if t.cache != nil {
-		if node := t.cache.Get(key); node != nil {
-			return node.(*cacheNode).value
-		}
+	value := t.getFromCache(key)
+	if value != nil {
+		return value
 	}
 
-	_, value := t.GetWithIndex(key)
+	_, value = t.GetWithIndex(key)
 	if value == nil {
 		return nil
 	}
 
-	if t.cache != nil {
-		t.cache.Add(&cacheNode{key, value})
-	}
+	t.addToCache(key, value)
 	return value
 }
 
@@ -309,4 +296,31 @@ func nextVersionU32(v uint32, initialVersion uint32) uint32 {
 		return initialVersion
 	}
 	return v + 1
+}
+
+func (t *Tree) addToCache(key, value []byte) {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+	if t.cache != nil {
+		t.cache.Add(&cacheNode{key, value})
+	}
+}
+
+func (t *Tree) removeFromCache(key []byte) {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+	if t.cache != nil {
+		t.cache.Remove(key)
+	}
+}
+
+func (t *Tree) getFromCache(key []byte) []byte {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
+	if t.cache != nil {
+		if node := t.cache.Get(key); node != nil {
+			return node.(*cacheNode).value
+		}
+	}
+	return nil
 }
