@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/big"
 
@@ -57,6 +58,10 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 	success := true
 	defer func() {
+		if pe := recover(); pe != nil {
+			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
+			panic(pe)
+		}
 		err = server.writeReceipt(ctx, tx, emsg, serverRes.GasUsed, success)
 		if err != nil {
 			return
