@@ -214,14 +214,12 @@ func (db *Database) Prune(version int64) error {
 		}
 
 		if currVersion <= version {
-			if itr.SeekLT(MVCCEncode(key, version+1)); itr.Valid() {
-				nextKey, nextVersion, ok := SplitMVCCKey(itr.Key())
-				newVersion, err := decodeUint64Ascending(nextVersion)
-				if err != nil {
-					return err
-				}
+			// Seek to the cloest version after pruning height
+			if itr.SeekGE(MVCCEncode(key, version+1)); itr.Valid() {
+				nextKey, _, ok := SplitMVCCKey(itr.Key())
+
 				// Only delete a key if there exists another entry for that key at a higher version
-				if ok && bytes.Equal(nextKey, key) && newVersion > currVersion {
+				if ok && bytes.Equal(nextKey, key) {
 					prefixedKey := MVCCEncode(key, currVersion)
 					prefixedVal := MVCCEncode(itr.Value(), currVersion)
 					err = batch.Set(prefixedKey, prefixedVal, nil)
