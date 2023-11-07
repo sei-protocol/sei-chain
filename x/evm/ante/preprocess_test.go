@@ -55,6 +55,45 @@ func TestPreprocessAnteHandler(t *testing.T) {
 	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), setAddr)
 }
 
+func TestPreprocessAssociateTx(t *testing.T) {
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	emptyHash := common.Hash{}
+	sig, err := crypto.Sign(emptyHash[:], key)
+	require.Nil(t, err)
+	R, S, _, _ := ethtx.DecodeSignature(sig)
+	V := big.NewInt(int64(sig[64]))
+	txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes()}
+	msg, err := types.NewMsgEVMTransaction(&txData)
+	require.Nil(t, err)
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		panic("should not be called")
+	})
+	// not enough balance
+	require.NotNil(t, err)
+	seiAddr := sdk.AccAddress(privKey.PubKey().Address())
+	evmAddr := crypto.PubkeyToAddress(key.PublicKey)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(int64(ante.BalanceThreshold))))
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, amt)
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		panic("should not be called")
+	})
+	require.Nil(t, err)
+	associated, ok := k.GetEVMAddress(ctx, seiAddr)
+	require.True(t, ok)
+	require.Equal(t, evmAddr, associated)
+
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		panic("should not be called")
+	})
+	// already associated
+	require.NotNil(t, err)
+}
+
 func TestGetVersion(t *testing.T) {
 	ethCfg := &params.ChainConfig{}
 	ctx := sdk.Context{}.WithBlockHeight(10).WithBlockTime(time.Now())
