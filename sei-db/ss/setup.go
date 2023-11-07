@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/memiavl/store/rootmulti"
+	"github.com/sei-protocol/sei-db/ss/pruning"
 	"github.com/sei-protocol/sei-db/ss/store"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/sei-protocol/sei-db/stream/changelog"
@@ -20,6 +21,8 @@ const (
 	FlagSSEnable            = "state-store.enable"
 	FlagSSBackend           = "state-store.backend"
 	FlagSSAsyncWriterBuffer = "state-store.async-write-buffer"
+	FlagSSKeepRecent        = "state-store.keep-recent"
+	FlagSSPruneInterval     = "state-store.prune-interval-seconds"
 )
 
 func SetupStateStore(
@@ -38,6 +41,8 @@ func SetupStateStore(
 	}
 	ssBuffer := cast.ToInt(appOpts.Get(FlagSSAsyncWriterBuffer))
 	ssBackend := cast.ToString(appOpts.Get(FlagSSBackend))
+	ssKeepRecent := cast.ToInt64(appOpts.Get(FlagSSKeepRecent))
+	ssPruneInterval := cast.ToInt64(appOpts.Get(FlagSSPruneInterval))
 	logger.Info(fmt.Sprintf("State Store is enabled with %s backend", ssBackend))
 
 	ss, err := createStateStore(homePath, BackendType(ssBackend))
@@ -51,12 +56,6 @@ func SetupStateStore(
 		exposeStoreKeys[k] = storeKey
 	}
 
-	// Setup Commit Subscriber
-	subscriber := changelog.NewSubscriber(ssBuffer, func(entry proto.ChangelogEntry) error {
-		return commitToStateStore(ss, entry.Version, entry.Changesets)
-	})
-	subscriber.Start()
-	stateCommit.SetCommitSubscriber(subscriber)
 	// replay to recover the SS and catch up till latest changelog
 	err = recoverStateStore(logger, ss, homePath)
 	if err != nil {
@@ -64,10 +63,22 @@ func SetupStateStore(
 	}
 	logger.Info("Finished replaying changelog for SS")
 
+	// Setup Commit Subscriber
+	subscriber := changelog.NewSubscriber(ssBuffer, func(entry proto.ChangelogEntry) error {
+		return commitToStateStore(ss, entry.Version, entry.Changesets)
+	})
+	subscriber.Start()
+	stateCommit.SetCommitSubscriber(subscriber)
+
+	// Setup Pruning Manager
+	pruningManager := pruning.NewPruningManager(logger, ss, ssKeepRecent, ssPruneInterval)
+	pruningManager.Start()
+
 	// Setup QueryMultiStore
 	qms := store.NewMultiStore(cms, ss, exposeStoreKeys)
 	qms.MountTransientStores(tkeys)
 	qms.MountMemoryStores(memKeys)
+
 	return qms, nil
 }
 
@@ -82,15 +93,15 @@ func createStateStore(homePath string, backendType BackendType) (types.StateStor
 
 // commitToStateStore is a helper function to commit changesets to state store
 func commitToStateStore(stateStore types.StateStore, version int64, changesets []*proto.NamedChangeSet) error {
+	// commit to state store
 	for _, cs := range changesets {
 		err := stateStore.ApplyChangeset(version, cs)
 		if err != nil {
 			return err
 		}
-		err = stateStore.SetLatestVersion(version)
-		if err != nil {
-			return err
-		}
+	}
+	if err := stateStore.SetLatestVersion(version); err != nil {
+		return err
 	}
 	return nil
 }
