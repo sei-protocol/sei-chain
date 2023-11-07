@@ -29,10 +29,10 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	chainID := k.ChainID(ctx)
 	txData := ethtypes.DynamicFeeTx{
 		Nonce:     1,
-		GasFeeCap: big.NewInt(10),
+		GasFeeCap: big.NewInt(10000000000000),
 		Gas:       1000,
 		To:        to,
-		Value:     big.NewInt(1000),
+		Value:     big.NewInt(1000000000000000),
 		Data:      []byte("abc"),
 		ChainID:   chainID,
 	}
@@ -103,7 +103,7 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 		GasFeeCap:  uint256.MustFromBig(txData.GasFeeCap),
 		Gas:        1000,
 		To:         *to,
-		Value:      uint256.NewInt(1000),
+		Value:      uint256.NewInt(1000000000000000),
 		Data:       []byte("abc"),
 		BlobHashes: []common.Hash{{}},
 		ChainID:    uint256.MustFromBig(chainID),
@@ -124,7 +124,7 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	require.NotNil(t, err)
 
 	// should fail because insufficient balance due to additional blob cost
-	blobTxData.BlobFeeCap = uint256.NewInt(1)
+	blobTxData.BlobFeeCap = uint256.NewInt(1000000000000)
 	tx, err = ethtypes.SignTx(ethtypes.NewTx(&blobTxData), signer, key)
 	require.Nil(t, err)
 	typedBlobTx, err = ethtx.NewBlobTx(tx)
@@ -186,10 +186,10 @@ func TestEVMFeeCheckDecoratorLondon(t *testing.T) {
 	chainID := k.ChainID(ctx)
 	txData := ethtypes.DynamicFeeTx{
 		Nonce:     1,
-		GasFeeCap: big.NewInt(10),
+		GasFeeCap: big.NewInt(10000000000000),
 		Gas:       1000,
 		To:        to,
-		Value:     big.NewInt(1000),
+		Value:     big.NewInt(1000000000000000),
 		Data:      []byte("abc"),
 		ChainID:   chainID,
 	}
@@ -258,7 +258,7 @@ func TestEVMFeeCheckDecoratorLondon(t *testing.T) {
 		GasFeeCap:  uint256.MustFromBig(txData.GasFeeCap),
 		Gas:        1000,
 		To:         *to,
-		Value:      uint256.NewInt(1000),
+		Value:      uint256.NewInt(1000000000000000),
 		Data:       []byte("abc"),
 		BlobHashes: []common.Hash{{}},
 		ChainID:    uint256.MustFromBig(chainID),

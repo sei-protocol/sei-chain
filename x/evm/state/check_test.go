@@ -40,11 +40,11 @@ func TestEmpty(t *testing.T) {
 	require.True(t, statedb.Empty(addr))
 
 	// has balance
-	statedb.AddBalance(addr, big.NewInt(1))
+	statedb.AddBalance(addr, big.NewInt(1000000000000))
 	require.False(t, statedb.Empty(addr))
 
 	// has non-zero nonce
-	statedb.SubBalance(addr, big.NewInt(1))
+	statedb.SubBalance(addr, big.NewInt(1000000000000))
 	statedb.SetNonce(addr, 1)
 	require.False(t, statedb.Empty(addr))
 

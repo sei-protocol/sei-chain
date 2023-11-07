@@ -46,18 +46,12 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 // clear account's state except the transient state (in Ethereum transient states are
 // still available even after self destruction in the same tx)
 func (s *DBImpl) SelfDestruct(acc common.Address) {
-	var balance sdk.Coin
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
-		// send all useis from seiAddr to the EVM module
-		balance = s.k.BankKeeper().GetBalance(s.ctx, seiAddr, s.k.GetBaseDenom(s.ctx))
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
-	} else {
-		// get old EVM balance
-		balance = sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromUint64(s.k.GetBalance(s.ctx, acc)))
 	}
 
-	s.SubBalance(acc, balance.Amount.BigInt())
+	s.SubBalance(acc, s.GetBalance(acc))
 
 	// clear account state
 	s.clearAccountState(acc)

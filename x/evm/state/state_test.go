@@ -60,13 +60,13 @@ func TestCreate(t *testing.T) {
 	tval := common.BytesToHash([]byte("mno"))
 	statedb.SetState(evmAddr, key, val)
 	statedb.SetTransientState(evmAddr, tkey, tval)
-	statedb.AddBalance(evmAddr, big.NewInt(10))
+	statedb.AddBalance(evmAddr, big.NewInt(10000000000000))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10))))
 	// recreate an account should clear its state, but keep its balance and transient state
 	statedb.CreateAccount(evmAddr)
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
-	require.Equal(t, big.NewInt(10), statedb.GetBalance(evmAddr))
+	require.Equal(t, big.NewInt(10000000000000), statedb.GetBalance(evmAddr))
 	require.True(t, statedb.Created(evmAddr))
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 	// recreate a destructed (in the same tx) account should clear its selfDestructed flag

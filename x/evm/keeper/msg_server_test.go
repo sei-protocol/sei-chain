@@ -33,7 +33,7 @@ func TestEVMTransaction(t *testing.T) {
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
-		GasPrice: big.NewInt(1),
+		GasPrice: big.NewInt(1000000000000),
 		Gas:      200000,
 		To:       nil,
 		Value:    big.NewInt(0),
@@ -80,7 +80,7 @@ func TestEVMTransaction(t *testing.T) {
 	bz, err = abi.Pack("set", big.NewInt(20))
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
-		GasPrice: big.NewInt(1),
+		GasPrice: big.NewInt(1000000000000),
 		Gas:      200000,
 		To:       &contractAddr,
 		Value:    big.NewInt(0),
@@ -119,7 +119,7 @@ func TestEVMTransactionError(t *testing.T) {
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
-		GasPrice: big.NewInt(1),
+		GasPrice: big.NewInt(1000000000000),
 		Gas:      200000,
 		To:       nil,
 		Value:    big.NewInt(0),
@@ -168,7 +168,7 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
-		GasPrice: big.NewInt(1),
+		GasPrice: big.NewInt(1000000000000),
 		Gas:      1000,
 		To:       nil,
 		Value:    big.NewInt(0),
@@ -214,7 +214,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.DynamicFeeTx{
-		GasFeeCap: big.NewInt(1),
+		GasFeeCap: big.NewInt(1000000000000),
 		Gas:       200000,
 		To:        nil,
 		Value:     big.NewInt(0),
@@ -266,7 +266,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
-		GasPrice: big.NewInt(1),
+		GasPrice: big.NewInt(1000000000000),
 		Gas:      500000,
 		To:       nil,
 		Value:    big.NewInt(0),
@@ -318,7 +318,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	bz, err = abi.Pack("sendAll", evmAddr1, evmAddr2, k.GetBaseDenom(ctx))
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
-		GasPrice: big.NewInt(1),
+		GasPrice: big.NewInt(1000000000000),
 		Gas:      200000,
 		To:       &contractAddr,
 		Value:    big.NewInt(0),
