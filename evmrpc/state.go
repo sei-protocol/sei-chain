@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/big"
 	"strings"
 
 	iavlstore "github.com/cosmos/cosmos-sdk/store/iavl"
@@ -14,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/proto/tendermint/crypto"
@@ -40,14 +40,8 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
 	}
-	seiAddr, found := a.keeper.GetSeiAddress(sdkCtx, address)
-	if found {
-		coin := a.keeper.BankKeeper().GetBalance(sdkCtx, seiAddr, a.keeper.GetBaseDenom(sdkCtx))
-		balance := coin.Amount.BigInt()
-		return (*hexutil.Big)(balance), nil
-	}
-	balance := a.keeper.GetBalance(sdkCtx, address)
-	return (*hexutil.Big)(big.NewInt(int64(balance))), nil
+	statedb := state.NewDBImpl(sdkCtx, a.keeper)
+	return (*hexutil.Big)(statedb.GetBalance(address)), nil
 }
 
 func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
