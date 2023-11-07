@@ -130,6 +130,10 @@ func NewEVMWebSocketServer(
 			Namespace: "net",
 			Service:   NewNetAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
 		},
+		{
+			Namespace: "eth",
+			Service:   NewSubscribeAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
+		},
 	}
 	if err := httpServer.EnableWS(apis, WsConfig{Origins: strings.Split(config.WSOrigins, ",")}); err != nil {
 		return nil, err

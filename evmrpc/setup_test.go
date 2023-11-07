@@ -288,6 +288,7 @@ func init() {
 	if err := wsServer.Start(); err != nil {
 		panic(err)
 	}
+	fmt.Printf("wsServer started with config = %+v\n", goodConfig)
 	time.Sleep(1 * time.Second)
 
 	to := common.HexToAddress("010203")
@@ -384,6 +385,52 @@ func sendRequest(t *testing.T, port int, method string, params ...interface{}) m
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 	return resObj
+}
+
+func sendWSRequestGood(t *testing.T, method string, params ...interface{}) (chan string, chan struct{}) {
+	return sendWSRequestAndListen(t, TestWSPort, method, params...)
+}
+
+func sendWSRequestBad(t *testing.T, method string, params ...interface{}) (chan string, chan struct{}) {
+	return sendWSRequestAndListen(t, TestBadPort, method, params...)
+}
+
+func sendWSRequestAndListen(t *testing.T, port int, method string, params ...interface{}) (chan string, chan struct{}) {
+	paramsFormatted := ""
+	if len(params) > 0 {
+		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
+	}
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_%s\",\"params\":[%s],\"id\":\"test\"}", method, paramsFormatted)
+
+	headers := make(http.Header)
+	headers.Set("Origin", "localhost")
+	headers.Set("Content-Type", "application/json")
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s:%d", TestAddr, TestWSPort), headers)
+	require.Nil(t, err)
+
+	recv := make(chan string)
+	done := make(chan struct{})
+
+	err = conn.WriteMessage(websocket.TextMessage, []byte(body))
+	require.Nil(t, err)
+
+	go func() {
+		defer close(recv)
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				fmt.Println("read:", err)
+				return
+			}
+			select {
+			case recv <- string(message):
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	return recv, done
 }
 
 func formatParam(p interface{}) string {
