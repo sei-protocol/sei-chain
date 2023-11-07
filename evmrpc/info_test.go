@@ -79,28 +79,28 @@ func TestCalculatePercentiles(t *testing.T) {
 	require.Equal(t, 0, len(result))
 
 	// empty percentiles
-	result = evmrpc.CalculatePercentiles([]float64{}, []evmrpc.GasAndReward{{Reward: 10, GasUsed: 1}}, 1)
+	result = evmrpc.CalculatePercentiles([]float64{}, []evmrpc.GasAndReward{{Reward: big.NewInt(10), GasUsed: 1}}, 1)
 	require.Equal(t, 0, len(result))
 
 	// 0 percentile
-	result = evmrpc.CalculatePercentiles([]float64{0}, []evmrpc.GasAndReward{{Reward: 10, GasUsed: 1}}, 1)
+	result = evmrpc.CalculatePercentiles([]float64{0}, []evmrpc.GasAndReward{{Reward: big.NewInt(10), GasUsed: 1}}, 1)
 	require.Equal(t, 1, len(result))
 	// see comments above CalculatePercentiles to understand why it should return 10 here
 	require.Equal(t, big.NewInt(10), result[0].ToInt())
 
 	// 100 percentile
-	result = evmrpc.CalculatePercentiles([]float64{100}, []evmrpc.GasAndReward{{Reward: 10, GasUsed: 1}}, 1)
+	result = evmrpc.CalculatePercentiles([]float64{100}, []evmrpc.GasAndReward{{Reward: big.NewInt(10), GasUsed: 1}}, 1)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, big.NewInt(10), result[0].ToInt())
 
 	// 0 percentile and 100 percentile with just one transaction
-	result = evmrpc.CalculatePercentiles([]float64{0, 100}, []evmrpc.GasAndReward{{Reward: 10, GasUsed: 1}}, 1)
+	result = evmrpc.CalculatePercentiles([]float64{0, 100}, []evmrpc.GasAndReward{{Reward: big.NewInt(10), GasUsed: 1}}, 1)
 	require.Equal(t, 2, len(result))
 	require.Equal(t, big.NewInt(10), result[0].ToInt())
 	require.Equal(t, big.NewInt(10), result[1].ToInt())
 
 	// more transactions than percentiles
-	result = evmrpc.CalculatePercentiles([]float64{0, 50, 100}, []evmrpc.GasAndReward{{Reward: 10, GasUsed: 1}, {Reward: 5, GasUsed: 2}, {Reward: 3, GasUsed: 3}}, 6)
+	result = evmrpc.CalculatePercentiles([]float64{0, 50, 100}, []evmrpc.GasAndReward{{Reward: big.NewInt(10), GasUsed: 1}, {Reward: big.NewInt(5), GasUsed: 2}, {Reward: big.NewInt(3), GasUsed: 3}}, 6)
 	require.Equal(t, 3, len(result))
 	require.Equal(t, big.NewInt(3), result[0].ToInt())
 	require.Equal(t, big.NewInt(3), result[1].ToInt())
