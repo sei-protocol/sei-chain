@@ -344,3 +344,14 @@ func TestEVMPrecompiles(t *testing.T) {
 	addr2Balance := k.BankKeeper().GetBalance(ctx, addr2, k.GetBaseDenom(ctx)).Amount.Uint64()
 	require.Equal(t, uint64(100000), addr2Balance)
 }
+
+func TestEVMAssociateTx(t *testing.T) {
+	k, _, ctx := testkeeper.MockEVMKeeper()
+	req, err := types.NewMsgEVMTransaction(&ethtx.AssociateTx{})
+	require.Nil(t, err)
+	msgServer := keeper.NewMsgServerImpl(*k)
+
+	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.Nil(t, err)
+	require.Equal(t, types.MsgEVMTransactionResponse{}, *res)
+}
