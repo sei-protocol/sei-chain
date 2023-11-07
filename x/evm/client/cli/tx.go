@@ -26,6 +26,13 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
+const (
+	FlagGasFeeCap  = "gas-fee-cap"
+	FlagGas        = "gas-limit"
+	FlagEVMChainID = "evm-chain-id"
+	FlagRPC        = "rpc"
+)
+
 // GetTxCmd returns the transaction commands for this module
 func GetTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -44,7 +51,7 @@ func GetTxCmd() *cobra.Command {
 
 func CmdAssociateAddress() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "associate-address",
+		Use:   "associate-address --rpc=<url> --from=<sender>",
 		Short: "associate EVM and Sei address for the sender",
 		Long:  "",
 		Args:  cobra.NoArgs,
@@ -86,7 +93,11 @@ func CmdAssociateAddress() *cobra.Command {
 			}
 			payload := "0x" + hex.EncodeToString(bz)
 			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"associate_addr\"}", payload)
-			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), strings.NewReader(body))
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
 			if err != nil {
 				return err
 			}
@@ -106,6 +117,7 @@ func CmdAssociateAddress() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -113,7 +125,7 @@ func CmdAssociateAddress() *cobra.Command {
 
 func CmdSend() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "send [to EVM address] [amount in usei] [nonce]",
+		Use:   "send [to EVM address] [amount in usei] [nonce] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --rpc=<url>",
 		Short: "send usei to EVM address",
 		Long:  "",
 		Args:  cobra.ExactArgs(3),
@@ -148,14 +160,26 @@ func CmdSend() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			gasFeeCap, err := cmd.Flags().GetUint64(FlagGasFeeCap)
+			if err != nil {
+				return err
+			}
+			gasLimit, err := cmd.Flags().GetUint64(FlagGas)
+			if err != nil {
+				return err
+			}
+			chainID, err := cmd.Flags().GetUint64(FlagEVMChainID)
+			if err != nil {
+				return err
+			}
 			txData := ethtypes.DynamicFeeTx{
-				Nonce:     nonce,         // TODO query from server
-				GasFeeCap: big.NewInt(1), // TODO use flag
-				Gas:       21000,         // TODO use flag
+				Nonce:     nonce,
+				GasFeeCap: new(big.Int).SetUint64(gasFeeCap),
+				Gas:       gasLimit,
 				To:        &to,
 				Value:     new(big.Int).Mul(new(big.Int).SetUint64(val), state.UseiToSweiMultiplier),
 				Data:      []byte(""),
-				ChainID:   big.NewInt(713715), // TODO query from server
+				ChainID:   new(big.Int).SetUint64(chainID),
 			}
 			ethCfg := types.DefaultChainConfig().EthereumConfig(txData.ChainID)
 			signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), 1)
@@ -171,7 +195,11 @@ func CmdSend() *cobra.Command {
 			payload := "0x" + hex.EncodeToString(bz)
 
 			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"send\"}", payload)
-			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), strings.NewReader(body))
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
 			if err != nil {
 				return err
 			}
@@ -191,6 +219,10 @@ func CmdSend() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
+	cmd.Flags().Uint64(FlagGas, 21000, "Gas limit for the transaction")
+	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
