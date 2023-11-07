@@ -10,19 +10,18 @@ import (
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
-type SubscribeAPI struct {
+type SubscriptionAPI struct {
 	tmClient    rpcclient.Client
 	keeper      *keeper.Keeper
 	ctxProvider func(int64) sdk.Context
 	txDecoder   sdk.TxDecoder
 }
 
-func NewSubscribeAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder) *SubscribeAPI {
-	return &SubscribeAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
+func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder) *SubscriptionAPI {
+	return &SubscriptionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
 }
 
-func (a *SubscribeAPI) MySubscribe(ctx context.Context, eventName string) (uint64, error) {
-	fmt.Println("In MySubscribe")
+func (a *SubscriptionAPI) Subscribe2(ctx context.Context, eventName string) (uint64, error) {
 	// Depending on subType, set up the appropriate query
 	switch eventName {
 	case "newHeads":

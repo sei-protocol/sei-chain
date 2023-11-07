@@ -12,13 +12,14 @@ import (
 
 func TestNewSubscribeAPI(t *testing.T) {
 	t.Parallel()
-	recvCh, done := sendWSRequestGood(t, "mySubscribe", "newHeads")
+	recvCh, done := sendWSRequestGood(t, "subscribe2", "newHeads")
 
 	// Start a goroutine to receive and print messages
 	for {
 		select {
 		case msg := <-recvCh:
 			fmt.Println("Received message:", msg)
+			return
 		case <-time.After(10 * time.Second):
 			fmt.Println("No message received within 10 seconds")
 			t.Fatal("No message received within 10 seconds")

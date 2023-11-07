@@ -132,7 +132,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSubscribeAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
+			Service:   NewSubscriptionAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
 		},
 	}
 	if err := httpServer.EnableWS(apis, WsConfig{Origins: strings.Split(config.WSOrigins, ",")}); err != nil {
