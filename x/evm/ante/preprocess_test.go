@@ -64,7 +64,7 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	emptyHash := common.Hash{}
 	sig, err := crypto.Sign(emptyHash[:], key)
 	require.Nil(t, err)
-	R, S, _ := ethtx.DecodeSignature(sig)
+	R, S, _, _ := ethtx.DecodeSignature(sig)
 	V := big.NewInt(int64(sig[64]))
 	txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes()}
 	msg, err := types.NewMsgEVMTransaction(&txData)

@@ -45,12 +45,13 @@ func ValidateEthTx(tx *ethtypes.Transaction) error {
 	return nil
 }
 
-func DecodeSignature(sig []byte) (r, s, v *big.Int) {
+func DecodeSignature(sig []byte) (r, s, v *big.Int, err error) {
 	if len(sig) != crypto.SignatureLength {
-		panic(fmt.Sprintf("wrong size for signature: got %d, want %d", len(sig), crypto.SignatureLength))
+		err = fmt.Errorf("wrong size for signature: got %d, want %d", len(sig), crypto.SignatureLength)
+		return
 	}
 	r = new(big.Int).SetBytes(sig[:32])
 	s = new(big.Int).SetBytes(sig[32:64])
 	v = new(big.Int).SetBytes([]byte{sig[64] + 27})
-	return r, s, v
+	return r, s, v, nil
 }

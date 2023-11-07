@@ -2,7 +2,6 @@ package ante
 
 import (
 	"errors"
-	"math"
 	"math/big"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -15,6 +14,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -78,7 +78,7 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
 		}
 		p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
-		return ctx.WithPriority(math.MaxInt64 - 101), nil // short-circuit without calling next
+		return ctx.WithPriority(antedecorators.EVMAssociatePriority), nil // short-circuit without calling next
 	}
 	ethTx := ethtypes.NewTx(txData.AsEthereumData())
 	ctx = evmtypes.SetContextEthTx(ctx, ethTx)

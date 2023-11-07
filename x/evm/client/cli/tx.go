@@ -70,7 +70,10 @@ func CmdAssociateAddress() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			R, S, _ := ethtx.DecodeSignature(sig)
+			R, S, _, err := ethtx.DecodeSignature(sig)
+			if err != nil {
+				return err
+			}
 			V := big.NewInt(int64(sig[64]))
 			txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes()}
 			bz, err := txData.Marshal()
