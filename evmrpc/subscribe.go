@@ -21,7 +21,7 @@ func NewSubscribeAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider fu
 	return &SubscribeAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
 }
 
-func (a *SubscribeAPI) MySubscribe(ctx context.Context, eventName string, params ...interface{}) (uint64, error) {
+func (a *SubscribeAPI) MySubscribe(ctx context.Context, eventName string) (uint64, error) {
 	fmt.Println("In MySubscribe")
 	// Depending on subType, set up the appropriate query
 	switch eventName {
