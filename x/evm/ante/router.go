@@ -16,7 +16,12 @@ type EVMRouterDecorator struct {
 	evmAnteDepGenerator     sdk.AnteDepGenerator
 }
 
-func NewEVMRouterDecorator(defaultAnteHandler sdk.AnteHandler, evmAnteHandler sdk.AnteHandler, defaultAnteDepGenerator sdk.AnteDepGenerator, evmAnteDepGenerator sdk.AnteDepGenerator) *EVMRouterDecorator {
+func NewEVMRouterDecorator(
+	defaultAnteHandler sdk.AnteHandler,
+	evmAnteHandler sdk.AnteHandler,
+	defaultAnteDepGenerator sdk.AnteDepGenerator,
+	evmAnteDepGenerator sdk.AnteDepGenerator,
+) *EVMRouterDecorator {
 	return &EVMRouterDecorator{
 		defaultAnteHandler:      defaultAnteHandler,
 		evmAnteHandler:          evmAnteHandler,
@@ -31,6 +36,7 @@ func (r EVMRouterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	} else if isEVM {
 		return r.evmAnteHandler(ctx, tx, simulate)
 	}
+
 	return r.defaultAnteHandler(ctx, tx, simulate)
 }
 
@@ -40,6 +46,7 @@ func (r EVMRouterDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sd
 	} else if isEVM {
 		return r.evmAnteDepGenerator(txDeps, tx, txIndex)
 	}
+
 	return r.defaultAnteDepGenerator(txDeps, tx, txIndex)
 }
 

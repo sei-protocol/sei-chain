@@ -13,6 +13,7 @@ var (
 	_ TxData = &AccessListTx{}
 	_ TxData = &DynamicFeeTx{}
 	_ TxData = &BlobTx{}
+	_ TxData = &AssociateTx{}
 )
 
 // Unfortunately `TxData` interface in go-ethereum/core/types defines its functions
@@ -72,12 +73,18 @@ func NewTxDataFromTx(tx *ethtypes.Transaction) (TxData, error) {
 func rawSignatureValues(vBz, rBz, sBz []byte) (v, r, s *big.Int) {
 	if len(vBz) > 0 {
 		v = new(big.Int).SetBytes(vBz)
+	} else {
+		v = big.NewInt(0)
 	}
 	if len(rBz) > 0 {
 		r = new(big.Int).SetBytes(rBz)
+	} else {
+		r = big.NewInt(0)
 	}
 	if len(sBz) > 0 {
 		s = new(big.Int).SetBytes(sBz)
+	} else {
+		s = big.NewInt(0)
 	}
 	return v, r, s
 }

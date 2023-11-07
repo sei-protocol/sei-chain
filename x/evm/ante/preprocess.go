@@ -6,15 +6,22 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
+
+// Accounts need to have at least 1Sei to force association. Note that account won't be charged.
+const BalanceThreshold uint64 = 1000000
 
 var SignerMap = map[evmtypes.SignerVersion]func(*big.Int) ethtypes.Signer{
 	evmtypes.London: ethtypes.NewLondonSigner,
@@ -39,35 +46,53 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 		// this would never happen if this handler call is routed by the router
 		return ctx, errors.New("no message exists in EVM tx")
 	}
-	ethTx, txData := tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction).AsTransaction()
-	ctx = evmtypes.SetContextEthTx(ctx, ethTx)
+	msgEVMTransaction := tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction)
+	txData, err := evmtypes.UnpackTxData(msgEVMTransaction.Data)
+	if err != nil {
+		return ctx, err
+	}
 	ctx = evmtypes.SetContextTxData(ctx, txData)
 	// use infinite gas meter for EVM transaction because EVM handles gas checking from within
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 
-	V, R, S := ethTx.RawSignatureValues()
 	chainID := p.evmKeeper.ChainID(ctx)
 	evmParams := p.evmKeeper.GetParams(ctx)
 	chainCfg := evmParams.GetChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	ctx = evmtypes.SetContextEtCfg(ctx, ethCfg)
 	version := GetVersion(ctx, ethCfg)
+	signer := SignerMap[version](ethCfg.ChainID)
+	if atx, ok := txData.(*ethtx.AssociateTx); ok {
+		V, R, S := atx.GetRawSignatureValues()
+		V = new(big.Int).Add(V, big.NewInt(27))
+		evmAddr, seiAddr, _, err := getAddresses(V, R, S, common.Hash{}) // associate tx should sign over an empty hash
+		if err != nil {
+			return ctx, err
+		}
+		if _, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr); found {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
+		}
+		seiBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, p.evmKeeper.GetBaseDenom(ctx)).Amount
+		evmBalance := new(big.Int).SetUint64(p.evmKeeper.GetBalance(ctx, evmAddr))
+		if new(big.Int).Add(seiBalance.BigInt(), evmBalance).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
+		}
+		p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
+		return ctx.WithPriority(antedecorators.EVMAssociatePriority), nil // short-circuit without calling next
+	}
+	ethTx := ethtypes.NewTx(txData.AsEthereumData())
+	ctx = evmtypes.SetContextEthTx(ctx, ethTx)
 	if !isTxTypeAllowed(version, ethTx.Type()) {
 		return ctx, ethtypes.ErrInvalidChainId
 	}
 	ctx = evmtypes.SetContextEVMVersion(ctx, version)
+
+	V, R, S := ethTx.RawSignatureValues()
 	V = adjustV(V, ethTx.Type(), ethCfg.ChainID)
-	signer := SignerMap[version](ethCfg.ChainID)
-	pubkey, err := recoverPubkey(signer.Hash(ethTx), R, S, V, true)
+	evmAddr, seiAddr, seiPubkey, err := getAddresses(V, R, S, signer.Hash(ethTx))
 	if err != nil {
 		return ctx, err
 	}
-	evmAddr, err := pubkeyToEVMAddress(pubkey)
-	if err != nil {
-		return ctx, err
-	}
-	seiPubkey := pubkeyBytesToSeiPubKey(pubkey)
-	seiAddr := sdk.AccAddress(seiPubkey.Address())
 	ctx = evmtypes.SetContextEVMAddress(ctx, evmAddr)
 	ctx = evmtypes.SetContextSeiAddress(ctx, seiAddr)
 
@@ -81,7 +106,7 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 	// set pubkey in acc object if not exist. Not doing it in the above block in case an account is created
 	// as a recipient of a send
 	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
-		if err := acc.SetPubKey(&seiPubkey); err != nil {
+		if err := acc.SetPubKey(seiPubkey); err != nil {
 			return ctx, err
 		}
 		p.accountKeeper.SetAccount(ctx, acc)
@@ -93,6 +118,20 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 		}
 	}
 	return next(ctx, tx, simulate)
+}
+
+func getAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
+	pubkey, err := recoverPubkey(data, R, S, V, true)
+	if err != nil {
+		return common.Address{}, sdk.AccAddress{}, nil, err
+	}
+	evmAddr, err := pubkeyToEVMAddress(pubkey)
+	if err != nil {
+		return common.Address{}, sdk.AccAddress{}, nil, err
+	}
+	seiPubkey := pubkeyBytesToSeiPubKey(pubkey)
+	seiAddr := sdk.AccAddress(seiPubkey.Address())
+	return evmAddr, seiAddr, &seiPubkey, nil
 }
 
 // first half of go-ethereum/core/types/transaction_signing.go:recoverPlain

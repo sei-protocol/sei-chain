@@ -1,7 +1,33 @@
 syntax = "proto3";
 package seiprotocol.seichain.evm;
 
+import "google/api/annotations.proto";
+
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
 // Query defines the gRPC querier service.
-service Query {}
+service Query {
+    rpc SeiAddressByEVMAddress(QuerySeiAddressByEVMAddressRequest) returns (QuerySeiAddressByEVMAddressResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/sei_address";
+    }
+
+    rpc EVMAddressBySeiAddress(QueryEVMAddressBySeiAddressRequest) returns (QueryEVMAddressBySeiAddressResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/evm_address";
+    }
+}
+
+message QuerySeiAddressByEVMAddressRequest {
+    string evm_address = 1;
+}
+
+message QuerySeiAddressByEVMAddressResponse {
+    string sei_address = 1;
+}
+
+message QueryEVMAddressBySeiAddressRequest {
+    string sei_address = 1;
+}
+
+message QueryEVMAddressBySeiAddressResponse {
+    string evm_address = 1;
+}

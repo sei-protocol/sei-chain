@@ -7,6 +7,11 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
+const (
+	OraclePriority       = math.MaxInt64 - 100
+	EVMAssociatePriority = math.MaxInt64 - 101
+)
+
 type PriorityDecorator struct{}
 
 func NewPriorityDecorator() PriorityDecorator {
@@ -27,7 +32,7 @@ func (pd PriorityDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	priority := intMin(ctx.Priority(), math.MaxInt64-1000)
 
 	if isOracleTx(tx) {
-		priority = math.MaxInt64 - 100
+		priority = OraclePriority
 	}
 
 	newCtx := ctx.WithPriority(priority)

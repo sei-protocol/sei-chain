@@ -22,34 +22,41 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig) *SendAPI {
 	return &SendAPI{tmClient: tmClient, txConfig: txConfig}
 }
 
-func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (common.Hash, error) {
-	tx := new(ethtypes.Transaction)
-	if err := tx.UnmarshalBinary(input); err != nil {
-		return common.Hash{}, err
+func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
+	var txData ethtx.TxData
+	associateTx := ethtx.AssociateTx{}
+	if associateTx.Unmarshal(input) == nil {
+		txData = &associateTx
+	} else {
+		tx := new(ethtypes.Transaction)
+		if err = tx.UnmarshalBinary(input); err != nil {
+			return
+		}
+		hash = tx.Hash()
+		txData, err = ethtx.NewTxDataFromTx(tx)
+		if err != nil {
+			return
+		}
 	}
-	txdata, err := ethtx.NewTxDataFromTx(tx)
+	msg, err := types.NewMsgEVMTransaction(txData)
 	if err != nil {
-		return common.Hash{}, err
-	}
-	msg, err := types.NewMsgEVMTransaction(txdata)
-	if err != nil {
-		return common.Hash{}, err
+		return
 	}
 	txBuilder := s.txConfig.NewTxBuilder()
-	if err := txBuilder.SetMsgs(msg); err != nil {
-		return common.Hash{}, err
+	if err = txBuilder.SetMsgs(msg); err != nil {
+		return
 	}
-	txbz, err := s.txConfig.TxEncoder()(txBuilder.GetTx())
-	if err != nil {
-		return common.Hash{}, err
+	txbz, encodeErr := s.txConfig.TxEncoder()(txBuilder.GetTx())
+	if encodeErr != nil {
+		return hash, encodeErr
 	}
-	res, err := s.tmClient.BroadcastTx(ctx, txbz)
-	if err != nil || res == nil || res.Code != 0 {
+	res, broadcastError := s.tmClient.BroadcastTx(ctx, txbz)
+	if broadcastError != nil || res == nil || res.Code != 0 {
 		code := -1
 		if res != nil {
 			code = int(res.Code)
 		}
-		return common.Hash{}, fmt.Errorf("res: %d, error: %s", code, err)
+		return hash, fmt.Errorf("res: %d, error: %s", code, broadcastError)
 	}
-	return tx.Hash(), nil
+	return
 }

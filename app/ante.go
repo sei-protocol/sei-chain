@@ -116,7 +116,6 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMFeeCheckDecorator(options.EVMKeeper)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewGasLimitDecorator(options.EVMKeeper)),
 	}
-
 	evmAnteHandler, evmAnteDepGenerator := sdk.ChainAnteDecorators(evmAnteDecorators...)
 
 	router := evmante.NewEVMRouterDecorator(anteHandler, evmAnteHandler, anteDepGenerator, evmAnteDepGenerator)

@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type msgServer struct {
@@ -27,6 +28,14 @@ func NewMsgServerImpl(keeper Keeper) types.MsgServer {
 var _ types.MsgServer = msgServer{}
 
 func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
+	txData, err := types.UnpackTxData(msg.Data)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := txData.(*ethtx.AssociateTx); ok {
+		// no-op in msg server for associate tx; all the work have been done in ante handler
+		return &types.MsgEVMTransactionResponse{}, nil
+	}
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	// EVM has a special case here, mainly because for an EVM transaction the gas limit is set on EVM payload level, not on top-level GasWanted field
 	// as normal transactions (because existing eth client can't). As a result EVM has its own dedicated ante handler chain. The full sequence is:
@@ -39,7 +48,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 
 	stateDB := state.NewDBImpl(ctx, &server)
-	tx, _ := msg.AsTransaction()
+	tx := ethtypes.NewTx(txData.AsEthereumData())
 	ctx, gp := server.getGasPool(ctx)
 	emsg, err := server.getEVMMessage(ctx, tx)
 	if err != nil {
