@@ -124,7 +124,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 
 type GasAndReward struct {
 	GasUsed uint64
-	Reward  uint64
+	Reward  *big.Int
 }
 
 func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rewardPercentiles []float64) ([]*hexutil.Big, error) {
@@ -141,7 +141,8 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 		if err != nil {
 			return nil, err
 		}
-		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: receipt.GasUsed, Reward: receipt.EffectiveGasPrice - baseFee.Uint64()})
+		reward := new(big.Int).Sub(new(big.Int).SetUint64(receipt.EffectiveGasPrice), baseFee)
+		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: receipt.GasUsed, Reward: reward})
 		totalEVMGasUsed += receipt.GasUsed
 	}
 	return CalculatePercentiles(rewardPercentiles, GasAndRewards, totalEVMGasUsed), nil
@@ -153,7 +154,7 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 // of all lower-rewarded transactions is no less than (total gasUsed * p%).
 func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndReward, totalEVMGasUsed uint64) []*hexutil.Big {
 	slices.SortStableFunc(GasAndRewards, func(a, b GasAndReward) int {
-		return int(a.Reward) - int(b.Reward)
+		return a.Reward.Cmp(b.Reward)
 	})
 	res := []*hexutil.Big{}
 	if len(GasAndRewards) == 0 {
@@ -167,7 +168,7 @@ func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndRew
 			txIndex++
 			sumGasUsed += GasAndRewards[txIndex].GasUsed
 		}
-		res = append(res, (*hexutil.Big)(big.NewInt(int64(GasAndRewards[txIndex].Reward))))
+		res = append(res, (*hexutil.Big)(GasAndRewards[txIndex].Reward))
 	}
 	return res
 }
