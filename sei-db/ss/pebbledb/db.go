@@ -192,7 +192,75 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 //
 // See: https://github.com/cockroachdb/cockroach/blob/33623e3ee420174a4fd3226d1284b03f0e3caaac/pkg/storage/mvcc.go#L3182
 func (db *Database) Prune(version int64) error {
-	panic("not implemented!")
+	startKey := MVCCEncode(nil, version)
+	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: startKey})
+	if err != nil {
+		return err
+	}
+	defer itr.Close()
+
+	batch := db.storage.NewBatch()
+
+	var counter int
+	// TODO: Look into parallelizing pruning
+	for itr.First(); itr.Valid(); itr.Next() {
+		key, keyVersion, ok := SplitMVCCKey(itr.Key())
+		if !ok {
+			return nil
+		}
+		currVersion, err := decodeUint64Ascending(keyVersion)
+		if err != nil {
+			return err
+		}
+
+		if currVersion <= version {
+			if itr.SeekLT(MVCCEncode(key, version+1)); itr.Valid() {
+				nextKey, nextVersion, ok := SplitMVCCKey(itr.Key())
+				newVersion, err := decodeUint64Ascending(nextVersion)
+				if err != nil {
+					return err
+				}
+				// Only delete a key if there exists another entry for that key at a higher version
+				if ok && bytes.Equal(nextKey, key) && newVersion > currVersion {
+					prefixedKey := MVCCEncode(key, currVersion)
+					prefixedVal := MVCCEncode(itr.Value(), currVersion)
+					err = batch.Set(prefixedKey, prefixedVal, nil)
+					if err != nil {
+						return err
+					}
+
+					// Reset batch after ImportCommitBatchSize delete ops
+					counter++
+					if counter >= ImportCommitBatchSize {
+						err = batch.Commit(defaultWriteOpts)
+						if err != nil {
+							return err
+						}
+						err = batch.Close()
+						if err != nil {
+							return err
+						}
+
+						counter = 0
+						batch = db.storage.NewBatch()
+					}
+				}
+			}
+		}
+	}
+
+	if counter > 0 {
+		err = batch.Commit(defaultWriteOpts)
+		if err != nil {
+			return err
+		}
+		err = batch.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
