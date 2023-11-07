@@ -15,25 +15,17 @@ func TestNewSubscribeAPI(t *testing.T) {
 	recvCh, done := sendWSRequestGood(t, "subscribe", "mysubscribe", "newHeads")
 
 	// Start a goroutine to receive and print messages
-	go func() {
-		for {
-			select {
-			case msg := <-recvCh:
-				fmt.Println("Received message:", msg)
-			case <-time.After(10 * time.Second):
-				fmt.Println("No message received within 10 seconds")
-				t.Fatal("No message received within 10 seconds")
-				return
-			case <-done:
-				fmt.Println("got done")
-				return
-			}
+	for {
+		select {
+		case msg := <-recvCh:
+			fmt.Println("Received message:", msg)
+		case <-time.After(10 * time.Second):
+			fmt.Println("No message received within 10 seconds")
+			t.Fatal("No message received within 10 seconds")
+			done <- struct{}{}
+			return
 		}
-	}()
-
-	time.Sleep(10 * time.Second)
-	done <- struct{}{}
-
+	}
 }
 
 func TestSubscribe(t *testing.T) {
