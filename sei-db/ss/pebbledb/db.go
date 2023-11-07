@@ -186,11 +186,7 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	return b.Write()
 }
 
-// Prune for the PebbleDB SS backend is currently not supported. It seems the only
-// reliable way to prune is to iterate over the desired domain and either manually
-// tombstone or delete. Either way, the operation would be timely.
-//
-// See: https://github.com/cockroachdb/cockroach/blob/33623e3ee420174a4fd3226d1284b03f0e3caaac/pkg/storage/mvcc.go#L3182
+// Prune attempts to prune all versions up to and including the current version
 func (db *Database) Prune(version int64) error {
 	startKey := MVCCEncode(nil, version)
 	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: startKey})
@@ -204,6 +200,7 @@ func (db *Database) Prune(version int64) error {
 	var counter int
 	// TODO: Look into parallelizing pruning
 	for itr.First(); itr.Valid(); itr.Next() {
+		// TODO: Check if current key is not already tombstoned
 		key, keyVersion, ok := SplitMVCCKey(itr.Key())
 		if !ok {
 			return nil
