@@ -9,6 +9,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,4 +54,23 @@ func TestSendRawTransaction(t *testing.T) {
 	resObj = sendRequestBad(t, "sendRawTransaction", payload)
 	errMap = resObj["error"].(map[string]interface{})
 	require.Equal(t, "res: 1, error: %!s(<nil>)", errMap["message"].(string))
+}
+
+func TestSendAssociateTransaction(t *testing.T) {
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	emptyHash := common.Hash{}
+	sig, err := crypto.Sign(emptyHash[:], key)
+	require.Nil(t, err)
+	R, S, _, _ := ethtx.DecodeSignature(sig)
+	V := big.NewInt(int64(sig[64]))
+	txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes()}
+	bz, err := txData.Marshal()
+	require.Nil(t, err)
+	payload := "0x" + hex.EncodeToString(bz)
+
+	resObj := sendRequestGood(t, "sendRawTransaction", payload)
+	result := resObj["result"].(string)
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", result)
 }
