@@ -25,7 +25,7 @@ require (
 	github.com/rs/cors v1.8.2
 	github.com/rs/zerolog v1.30.0
 	github.com/sei-protocol/goutils v0.0.2
-	github.com/sei-protocol/sei-db v0.0.13
+	github.com/sei-protocol/sei-db v0.0.15
 	github.com/sirkon/goproxy v1.4.8
 	github.com/spf13/cast v1.5.0
 	github.com/spf13/cobra v1.6.1
