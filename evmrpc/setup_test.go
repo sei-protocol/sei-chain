@@ -58,7 +58,7 @@ type MockClient struct {
 	mock.Client
 }
 
-func (c *MockClient) mockBlock() *coretypes.ResultBlock {
+func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 	return &coretypes.ResultBlock{
 		BlockID: tmtypes.BlockID{
 			Hash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000001")),
@@ -66,7 +66,7 @@ func (c *MockClient) mockBlock() *coretypes.ResultBlock {
 		Block: &tmtypes.Block{
 			Header: tmtypes.Header{
 				ChainID:         "test",
-				Height:          MockHeight,
+				Height:          height,
 				Time:            time.Unix(1696941649, 0),
 				DataHash:        bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000002")),
 				AppHash:         bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000003")),
@@ -75,12 +75,20 @@ func (c *MockClient) mockBlock() *coretypes.ResultBlock {
 				LastBlockID: tmtypes.BlockID{
 					Hash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000006")),
 				},
+				LastCommitHash:     bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000007")),
+				ValidatorsHash:     bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000009")),
+				NextValidatorsHash: bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000A")),
+				ConsensusHash:      bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000B")),
+				EvidenceHash:       bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000E")),
 			},
 			Data: tmtypes.Data{
 				Txs: []tmtypes.Tx{func() []byte {
 					bz, _ := Encoder(Tx)
 					return bz
 				}()},
+			},
+			LastCommit: &tmtypes.Commit{
+				Height: MockHeight - 1,
 			},
 		},
 	}
@@ -91,11 +99,11 @@ func (c *MockClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) 
 }
 
 func (c *MockClient) Block(context.Context, *int64) (*coretypes.ResultBlock, error) {
-	return c.mockBlock(), nil
+	return c.mockBlock(MockHeight), nil
 }
 
 func (c *MockClient) BlockByHash(context.Context, bytes.HexBytes) (*coretypes.ResultBlock, error) {
-	return c.mockBlock(), nil
+	return c.mockBlock(MockHeight), nil
 }
 
 func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlockResults, error) {
@@ -122,63 +130,85 @@ func (c *MockClient) Subscribe(context.Context, string, string, ...int) (<-chan 
 }
 
 func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
-	eb := NewABCIEventBuilder()
-
-	// assume cursor is block number for testing purposes
-	var cursor string
-	if req.After != "" {
-		cursorAfter, err := strconv.Atoi(req.After)
-		if err != nil {
-			panic("invalid cursor")
+	if strings.Contains(req.Filter.Query, "tm.event = 'NewBlock'") {
+		var cursor int
+		var err error
+		if req.After != "" {
+			cursor, err = strconv.Atoi(req.After)
+			if err != nil {
+				panic("invalid cursor")
+			}
+		} else {
+			cursor = MockHeight
 		}
-		nextBlockNum := cursorAfter + 1
-		eb = eb.SetBlockNum(nextBlockNum)
-		cursor = strconv.FormatInt(int64(nextBlockNum), 10)
-	} else {
-		var startBlock int
-		re := regexp.MustCompile(`evm_log.block_number >= '(\d+?)'`)
+		resultBlock := c.mockBlock(int64(cursor))
+		data := tmtypes.EventDataNewBlock{
+			Block:   resultBlock.Block,
+			BlockID: tmtypes.BlockID{},
+		}
+		newCursor := strconv.FormatInt(int64(cursor)+1, 10)
+		return buildSingleResultEvent(data, false, newCursor, "event"), nil
+	} else if strings.Contains(req.Filter.Query, "tm.event = 'Tx'") {
+		eb := NewABCIEventBuilder()
+
+		// assume newCursor is block number for testing purposes
+		var newCursor string
+		if req.After != "" {
+			cursorAfter, err := strconv.Atoi(req.After)
+			if err != nil {
+				panic("invalid cursor")
+			}
+			nextBlockNum := cursorAfter + 1
+			eb = eb.SetBlockNum(nextBlockNum)
+			newCursor = strconv.FormatInt(int64(nextBlockNum), 10)
+		} else {
+			var startBlock int
+			re := regexp.MustCompile(`evm_log.block_number >= '(\d+?)'`)
+			matches := re.FindStringSubmatch(req.Filter.Query)
+			if len(matches) == 2 {
+				var err error
+				startBlock, err = strconv.Atoi(matches[1])
+				if err != nil {
+					return nil, err
+				}
+				eb = eb.SetBlockNum(startBlock)
+				newCursor = strconv.FormatInt(int64(startBlock), 10)
+			}
+		}
+
+		var blockHash string
+		re := regexp.MustCompile(`evm_log.block_hash = '(.+?)'`)
 		matches := re.FindStringSubmatch(req.Filter.Query)
 		if len(matches) == 2 {
-			var err error
-			startBlock, err = strconv.Atoi(matches[1])
-			if err != nil {
-				return nil, err
-			}
-			eb = eb.SetBlockNum(startBlock)
-			cursor = strconv.FormatInt(int64(startBlock), 10)
+			blockHash = matches[1]
+			eb = eb.SetBlockHash(blockHash)
 		}
-	}
 
-	var blockHash string
-	re := regexp.MustCompile(`evm_log.block_hash = '(.+?)'`)
-	matches := re.FindStringSubmatch(req.Filter.Query)
-	if len(matches) == 2 {
-		blockHash = matches[1]
-		eb = eb.SetBlockHash(blockHash)
-	}
+		var contractAddress string
+		re = regexp.MustCompile(`evm_log.contract_address = '(.+?)'.*`)
+		matches = re.FindStringSubmatch(req.Filter.Query)
+		if len(matches) == 2 {
+			contractAddress = matches[1]
+			eb = eb.SetContractAddress(contractAddress)
+		}
 
-	var contractAddress string
-	re = regexp.MustCompile(`evm_log.contract_address = '(.+?)'.*`)
-	matches = re.FindStringSubmatch(req.Filter.Query)
-	if len(matches) == 2 {
-		contractAddress = matches[1]
-		eb = eb.SetContractAddress(contractAddress)
-	}
+		// hardcode topic matches to match up with tests since doing the regex is too complicated
+		if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
+			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123"})
+		} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123)[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
+			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
+		} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
+			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
+		}
 
-	// hardcode topic matches to match up with tests since doing the regex is too complicated
-	if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
-		eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123"})
-	} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123)[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
-		eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
-	} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
-		eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
+		return buildSingleResultEvent(eb.Build(), false, newCursor, "event"), nil
+	} else {
+		panic("unknown query")
 	}
-
-	return buildSingleResultEvent(eb.Build(), false, cursor, "event"), nil
 }
 
-func buildSingleResultEvent(abciEvent abci.Event, more bool, cursor string, event string) *coretypes.ResultEvents {
-	eventData, err := json.Marshal(abciEvent)
+func buildSingleResultEvent(data interface{}, more bool, cursor string, event string) *coretypes.ResultEvents {
+	eventData, err := json.Marshal(data)
 	if err != nil {
 		panic(err)
 	}

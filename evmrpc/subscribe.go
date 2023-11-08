@@ -48,7 +48,15 @@ type QueryBuilder struct {
 	conditions []string
 }
 
-func NewQueryBuilder() *QueryBuilder {
+func NewBlockQueryBuilder() *QueryBuilder {
+	return &QueryBuilder{
+		conditions: []string{
+			"tm.event = 'NewBlock'",
+		},
+	}
+}
+
+func NewTxQueryBuilder() *QueryBuilder {
 	return &QueryBuilder{
 		conditions: []string{
 			"tm.event = 'Tx'", // needed for all transaction-generated events

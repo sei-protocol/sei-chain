@@ -54,7 +54,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000006", resObj["parentHash"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000004", resObj["receiptsRoot"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["sha3Uncles"])
-	require.Equal(t, "0x260", resObj["size"])
+	require.Equal(t, "0x3b2", resObj["size"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000003", resObj["stateRoot"])
 	require.Equal(t, "0x65254651", resObj["timestamp"])
 	tx := resObj["transactions"].([]interface{})[0].(map[string]interface{})
