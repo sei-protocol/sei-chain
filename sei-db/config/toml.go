@@ -50,7 +50,7 @@ async-write-buffer = {{ .StateStore.AsyncWriteBuffer }}
 # Setting it to 0 means keep everything, default to 0
 keep-recent = {{ .StateStore.KeepRecent }}
 
-# PruneIntervalSeconds defines the minimum interval in seconds to trigger pruning.
+# PruneIntervalSeconds defines the minimum interval in seconds + some random delay to trigger pruning.
 # It is more efficient to trigger pruning less frequently with large interval.
 # default to 60 seconds
 prune-interval-seconds = {{ .StateStore.PruneIntervalSeconds }}

@@ -16,6 +16,8 @@ type Manager struct {
 	started       bool
 }
 
+// NewPruningManager creates a new pruning manager for state store
+// Pruning Manager will periodically prune state store based on keep-recent and prune-interval configs.
 func NewPruningManager(
 	logger logger.Logger,
 	stateStore types.StateStore,
