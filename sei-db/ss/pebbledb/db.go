@@ -25,6 +25,7 @@ const (
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
+	PruneCommitBatchSize  = 10000
 )
 
 var (
@@ -187,9 +188,11 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 }
 
 // Prune attempts to prune all versions up to and including the current version
+// Get the range of keys, manually iterate over them and delete them
 func (db *Database) Prune(version int64) error {
-	startKey := MVCCEncode(nil, version)
-	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: startKey})
+	lowerBound := MVCCEncode(nil, 0)
+	upperBound := MVCCEncode(nil, version+1)
+	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound, UpperBound: upperBound})
 	if err != nil {
 		return err
 	}
@@ -201,7 +204,7 @@ func (db *Database) Prune(version int64) error {
 	// TODO: Look into parallelizing pruning
 	for itr.First(); itr.Valid(); itr.Next() {
 		// TODO: Check if current key is not already tombstoned
-		key, keyVersion, ok := SplitMVCCKey(itr.Key())
+		_, keyVersion, ok := SplitMVCCKey(itr.Key())
 		if !ok {
 			return nil
 		}
@@ -212,15 +215,14 @@ func (db *Database) Prune(version int64) error {
 
 		if currVersion <= version {
 			// Delete key
-			prefixedKey := MVCCEncode(key, currVersion)
-			err = batch.Delete(prefixedKey, defaultWriteOpts)
+			err = batch.Delete(itr.Key(), defaultWriteOpts)
 			if err != nil {
 				return err
 			}
 
 			// Reset batch after ImportCommitBatchSize delete ops
 			counter++
-			if counter >= ImportCommitBatchSize {
+			if counter >= PruneCommitBatchSize {
 				err = batch.Commit(defaultWriteOpts)
 				if err != nil {
 					return err
