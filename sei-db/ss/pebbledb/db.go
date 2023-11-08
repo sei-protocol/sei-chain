@@ -216,11 +216,31 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, false), nil
 }
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
-	panic("not implemented!")
+	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
+		return nil, utils.ErrKeyEmpty
+	}
+
+	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
+		return nil, utils.ErrStartAfterEnd
+	}
+
+	lowerBound := MVCCEncode(prependStoreKey(storeKey, start), 0)
+
+	var upperBound []byte
+	if end != nil {
+		upperBound = MVCCEncode(prependStoreKey(storeKey, end), 0)
+	}
+
+	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound, UpperBound: upperBound})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
+	}
+
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, true), nil
 }
 
 // Import loads the initial version of the state
