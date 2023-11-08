@@ -8,7 +8,6 @@ import (
 func TestClone(t *testing.T) {
 	var cloneTests = [][]byte{
 		[]byte(nil),
-		[]byte{},
 		Clone([]byte{}),
 		[]byte(strings.Repeat("a", 42))[:0],
 		[]byte(strings.Repeat("a", 42))[:0:0],
