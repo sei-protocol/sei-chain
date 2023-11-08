@@ -18,16 +18,14 @@ type MemState struct {
 	storeKey sdk.StoreKey
 
 	// TODO: all of these need to be in the memstore
-
-	contractsToDepsMtx      *sync.Mutex
-	contractsToDependencies *datastructures.TypedSyncMap[string, []string]
+	contractsToProcessMtx *sync.RWMutex
+	contractsToDepsMtx    *sync.Mutex
 }
 
 func NewMemState(storeKey sdk.StoreKey) *MemState {
 	return &MemState{
-		storeKey:                storeKey,
-		contractsToDepsMtx:      &sync.Mutex{},
-		contractsToDependencies: datastructures.NewTypedSyncMap[string, []string](),
+		storeKey:           storeKey,
+		contractsToDepsMtx: &sync.Mutex{},
 	}
 }
 
@@ -90,22 +88,40 @@ func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr types.ContractAd
 func (s *MemState) GetContractToDependencies(ctx sdk.Context, contractAddress string, loader func(sdk.Context, string) (types.ContractInfoV2, error)) []string {
 	s.contractsToDepsMtx.Lock()
 	defer s.contractsToDepsMtx.Unlock()
-	if deps, ok := s.contractsToDependencies.Load(contractAddress); ok {
-		return deps
+
+	store := ctx.KVStore(s.storeKey)
+
+	// GET from memstate
+	bz := store.Get(types.MemDownstreamContractsKey(contractAddress))
+	if bz != nil {
+		var contracts types.DownsteamContracts
+		if err := contracts.Unmarshal(bz); err != nil {
+			panic(err)
+		}
+		return contracts.ContractAddrs
 	}
 	loadedDownstreams := GetAllDownstreamContracts(ctx, contractAddress, loader)
-	s.contractsToDependencies.Store(contractAddress, loadedDownstreams)
+	// if we have to get all downstreams, save them to memstate
+	downstreamContracts := types.DownsteamContracts{
+		ContractAddrs: loadedDownstreams,
+	}
+	contractsBz, err := downstreamContracts.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	store.Set(types.MemDownstreamContractsKey(contractAddress), contractsBz)
 	return loadedDownstreams
 }
 
-func (s *MemState) ClearContractToDependencies() {
+func (s *MemState) ClearContractToDependencies(ctx sdk.Context) {
 	s.contractsToDepsMtx.Lock()
 	defer s.contractsToDepsMtx.Unlock()
-
-	s.contractsToDependencies = datastructures.NewTypedSyncMap[string, []string]()
+	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDownstreamContracts), func(_ []byte) bool { return true })
 }
 
 func (s *MemState) SetDownstreamsToProcess(ctx sdk.Context, contractAddress string, loader func(sdk.Context, string) (types.ContractInfoV2, error)) {
+	s.contractsToProcessMtx.Lock()
+	defer s.contractsToProcessMtx.Unlock()
 	contracts := s.GetContractToDependencies(ctx, contractAddress, loader)
 	store := ctx.KVStore(s.storeKey)
 	for _, contract := range contracts {
@@ -115,11 +131,15 @@ func (s *MemState) SetDownstreamsToProcess(ctx sdk.Context, contractAddress stri
 }
 
 func (s *MemState) ContractsToProcessContains(ctx sdk.Context, contractAddress string) bool {
+	s.contractsToProcessMtx.RLock()
+	defer s.contractsToProcessMtx.RUnlock()
 	store := ctx.KVStore(s.storeKey)
 	return store.Has(types.MemContractsToProcessKey(contractAddress))
 }
 
 func (s *MemState) GetContractToProcessOrderedSlice(ctx sdk.Context) []string {
+	s.contractsToProcessMtx.RLock()
+	defer s.contractsToProcessMtx.RUnlock()
 	orderedContracts := []string{}
 	store := ctx.KVStore(s.storeKey)
 	iter := sdk.KVStorePrefixIterator(store, types.KeyPrefix(types.MemContractsToProcess))
@@ -136,6 +156,8 @@ func (s *MemState) GetContractToProcessOrderedSlice(ctx sdk.Context) []string {
 }
 
 func (s *MemState) Clear(ctx sdk.Context) {
+	s.contractsToProcessMtx.Lock()
+	defer s.contractsToProcessMtx.Unlock()
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemOrderKey), func(_ []byte) bool { return true })
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(_ []byte) bool { return true })
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDepositKey), func(_ []byte) bool { return true })
@@ -155,9 +177,8 @@ func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr types.
 
 func (s *MemState) DeepCopy() *MemState {
 	return &MemState{
-		storeKey:                s.storeKey,
-		contractsToDepsMtx:      s.contractsToDepsMtx, // passing by pointer
-		contractsToDependencies: s.contractsToDependencies,
+		storeKey:           s.storeKey,
+		contractsToDepsMtx: s.contractsToDepsMtx, // passing by pointer
 	}
 }
 
