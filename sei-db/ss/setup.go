@@ -95,8 +95,7 @@ func createStateStore(homePath string, backendType BackendType) (types.StateStor
 func commitToStateStore(stateStore types.StateStore, version int64, changesets []*proto.NamedChangeSet) error {
 	// commit to state store
 	for _, cs := range changesets {
-		err := stateStore.ApplyChangeset(version, cs)
-		if err != nil {
+		if err := stateStore.ApplyChangeset(version, cs); err != nil {
 			return err
 		}
 	}
