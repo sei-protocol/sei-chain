@@ -31,7 +31,7 @@ func TestSubscribe(t *testing.T) {
 }
 
 func mockQueryBuilder() *evmrpc.QueryBuilder {
-	q := evmrpc.NewQueryBuilder()
+	q := evmrpc.NewTxQueryBuilder()
 	q.FilterContractAddress("test contract")
 	q.FilterBlockHash("block hash")
 	q.FilterBlockNumber(1)
