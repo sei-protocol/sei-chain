@@ -12,7 +12,7 @@ import (
 
 func TestNewSubscribeAPI(t *testing.T) {
 	t.Parallel()
-	recvCh, done := sendWSRequestGood(t, "subscribe2", "newHeads")
+	recvCh, done := sendWSRequestGood(t, "subscribe", "subscribe", "newHeads")
 
 	// Start a goroutine to receive and print messages
 	for {

@@ -426,6 +426,7 @@ func sendWSRequestAndListen(t *testing.T, port int, method string, params ...int
 				fmt.Println("read:", err)
 				return
 			}
+			fmt.Println("got message: ", string(message))
 			select {
 			case recv <- string(message):
 			case <-done:

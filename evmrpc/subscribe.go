@@ -2,9 +2,11 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -21,19 +23,27 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider
 	return &SubscriptionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
 }
 
-func (a *SubscriptionAPI) Subscribe2(ctx context.Context, eventName string) (uint64, error) {
-	// Depending on subType, set up the appropriate query
+// TODO: need to fix this name, but when I change it to Subscribe, the ws client doesn't work
+func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string) (*rpc.Subscription, error) {
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+
+	rpcSub := notifier.CreateSubscription()
+
 	switch eventName {
 	case "newHeads":
+		notifier.Notify(rpcSub.ID, 1)
 		fmt.Println("newHeads")
 	case "logs":
 		fmt.Println("logs")
 	case "newPendingTransactions":
-		fmt.Println("newPendingTransactions")
+		return nil, errors.New("newPendingTransactions not supported")
 	default:
-		return 0, fmt.Errorf("unsupported subscription type: %s", eventName)
+		return nil, fmt.Errorf("unsupported subscription type: %s", eventName)
 	}
-	return 0, nil
+	return rpcSub, nil
 }
 
 const SubscriberPrefix = "evm.rpc."
