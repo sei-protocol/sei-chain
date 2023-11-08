@@ -216,7 +216,7 @@ func (db *Database) Prune(version int64) error {
 
 		if currVersion <= version {
 			// Seek to the cloest version after pruning height
-			if itr.SeekGE(MVCCEncode(key, version+1)); itr.Valid() {
+			if itr.SeekGE(MVCCEncode(key, currVersion+1)); itr.Valid() {
 				nextKey, _, ok := SplitMVCCKey(itr.Key())
 
 				// Only delete a key if there exists another entry for that key at a higher version
