@@ -24,8 +24,9 @@ type MemState struct {
 
 func NewMemState(storeKey sdk.StoreKey) *MemState {
 	return &MemState{
-		storeKey:           storeKey,
-		contractsToDepsMtx: &sync.Mutex{},
+		storeKey:              storeKey,
+		contractsToDepsMtx:    &sync.Mutex{},
+		contractsToProcessMtx: &sync.RWMutex{},
 	}
 }
 
@@ -177,8 +178,9 @@ func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr types.
 
 func (s *MemState) DeepCopy() *MemState {
 	return &MemState{
-		storeKey:           s.storeKey,
-		contractsToDepsMtx: s.contractsToDepsMtx, // passing by pointer
+		storeKey:              s.storeKey,
+		contractsToDepsMtx:    s.contractsToDepsMtx,    // passing by pointer
+		contractsToProcessMtx: s.contractsToProcessMtx, // passing by pointer
 	}
 }
 
