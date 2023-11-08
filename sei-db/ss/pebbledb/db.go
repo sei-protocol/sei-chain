@@ -190,6 +190,7 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 // Prune attempts to prune all versions up to and including the current version
 // Get the range of keys, manually iterate over them and delete them
 func (db *Database) Prune(version int64) error {
+	// Get range of keys
 	lowerBound := MVCCEncode(nil, 0)
 	upperBound := MVCCEncode(nil, version+1)
 	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound, UpperBound: upperBound})
@@ -220,7 +221,7 @@ func (db *Database) Prune(version int64) error {
 				return err
 			}
 
-			// Reset batch after ImportCommitBatchSize delete ops
+			// Reset batch after PruneCommitBatchSize delete ops
 			counter++
 			if counter >= PruneCommitBatchSize {
 				err = batch.Commit(defaultWriteOpts)
@@ -238,6 +239,7 @@ func (db *Database) Prune(version int64) error {
 		}
 	}
 
+	// Commit any leftover delete ops in batch
 	if counter > 0 {
 		err = batch.Commit(defaultWriteOpts)
 		if err != nil {
