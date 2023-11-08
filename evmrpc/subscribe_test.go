@@ -19,7 +19,7 @@ func TestNewSubscribeAPI(t *testing.T) {
 		select {
 		case msg := <-recvCh:
 			fmt.Println("Received message:", msg)
-			return
+			continue
 		case <-time.After(10 * time.Second):
 			fmt.Println("No message received within 10 seconds")
 			t.Fatal("No message received within 10 seconds")
