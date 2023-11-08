@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -53,6 +54,10 @@ type Database struct {
 }
 
 func New(dataDir string) (*Database, error) {
+	if err := os.MkdirAll(dataDir, os.ModePerm); err != nil {
+		return nil, err
+	}
+
 	db, err := sql.Open(driverName, filepath.Join(dataDir, dbName)+"?cache=shared")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite DB: %w", err)
