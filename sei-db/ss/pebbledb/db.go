@@ -205,7 +205,7 @@ func (db *Database) Prune(version int64) error {
 	// TODO: Look into parallelizing pruning
 	for itr.First(); itr.Valid(); itr.Next() {
 		// TODO: Check if current key is not already tombstoned
-		_, keyVersion, ok := SplitMVCCKey(itr.Key())
+		key, keyVersion, ok := SplitMVCCKey(itr.Key())
 		if !ok {
 			return nil
 		}
@@ -215,26 +215,35 @@ func (db *Database) Prune(version int64) error {
 		}
 
 		if currVersion <= version {
-			// Delete key
-			err = batch.Delete(itr.Key(), defaultWriteOpts)
-			if err != nil {
-				return err
-			}
+			// Seek to the cloest version after pruning height
+			if itr.SeekGE(MVCCEncode(key, version+1)); itr.Valid() {
+				nextKey, _, ok := SplitMVCCKey(itr.Key())
 
-			// Reset batch after PruneCommitBatchSize delete ops
-			counter++
-			if counter >= PruneCommitBatchSize {
-				err = batch.Commit(defaultWriteOpts)
-				if err != nil {
-					return err
-				}
-				err = batch.Close()
-				if err != nil {
-					return err
-				}
+				// Only delete a key if there exists another entry for that key at a higher version
+				if ok && bytes.Equal(nextKey, key) {
+					// Delete key
+					prefixedKey := MVCCEncode(key, currVersion)
+					err = batch.Delete(prefixedKey, defaultWriteOpts)
+					if err != nil {
+						return err
+					}
 
-				counter = 0
-				batch = db.storage.NewBatch()
+					// Reset batch after ImportCommitBatchSize delete ops
+					counter++
+					if counter >= ImportCommitBatchSize {
+						err = batch.Commit(defaultWriteOpts)
+						if err != nil {
+							return err
+						}
+						err = batch.Close()
+						if err != nil {
+							return err
+						}
+
+						counter = 0
+						batch = db.storage.NewBatch()
+					}
+				}
 			}
 		}
 	}
