@@ -1,12 +1,14 @@
 package pruning
 
 import (
+	"math/rand"
+	"time"
+
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/ss/types"
-	"time"
 )
 
-type PruningManager struct {
+type Manager struct {
 	logger        logger.Logger
 	stateStore    types.StateStore
 	keepRecent    int64
@@ -19,8 +21,8 @@ func NewPruningManager(
 	stateStore types.StateStore,
 	keepRecent int64,
 	pruneInterval int64,
-) *PruningManager {
-	return &PruningManager{
+) *Manager {
+	return &Manager{
 		logger:        logger,
 		stateStore:    stateStore,
 		keepRecent:    keepRecent,
@@ -28,7 +30,7 @@ func NewPruningManager(
 	}
 }
 
-func (m *PruningManager) Start() {
+func (m *Manager) Start() {
 	if m.keepRecent <= 0 || m.pruneInterval <= 0 || m.started {
 		return
 	}
@@ -43,7 +45,10 @@ func (m *PruningManager) Start() {
 					m.logger.Error("failed to prune versions till", "version", pruneVersion, "err", err)
 				}
 			}
-			time.Sleep(time.Duration(m.pruneInterval) * time.Second)
+			// Generate a random percentage (between 0% and 100%) of the fixed interval as a delay
+			randomPercentage := rand.Float64() // Generate a random float between 0 and 1
+			randomDelay := int64(float64(m.pruneInterval) * randomPercentage)
+			time.Sleep(time.Duration(m.pruneInterval+randomDelay) * time.Second)
 		}
 	}()
 }
