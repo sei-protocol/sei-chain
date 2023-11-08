@@ -140,6 +140,10 @@ func MemDepositSubprefix(creator, denom string) []byte {
 	return append([]byte(creator), DenomPrefix(denom)...)
 }
 
+func MemContractsToProcessKey(contractAddr string) []byte {
+	return append(KeyPrefix(MemContractsToProcess), AddressKeyPrefix(contractAddr)...)
+}
+
 func ContractKey(contractAddr string) []byte {
 	return AddressKeyPrefix(contractAddr)
 }
@@ -174,7 +178,8 @@ const (
 	LongOrderCountKey   = "loc-"
 	ShortOrderCountKey  = "soc-"
 
-	MemOrderKey   = "MemOrder-"
-	MemDepositKey = "MemDeposit-"
-	MemCancelKey  = "MemCancel-"
+	MemOrderKey           = "MemOrder-"
+	MemDepositKey         = "MemDeposit-"
+	MemCancelKey          = "MemCancel-"
+	MemContractsToProcess = "MemContractsToProcess-"
 )
