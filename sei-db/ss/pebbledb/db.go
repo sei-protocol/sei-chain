@@ -190,74 +190,66 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 // Prune attempts to prune all versions up to and including the current version
 // Get the range of keys, manually iterate over them and delete them
 func (db *Database) Prune(version int64) error {
-	// Get range of keys
-	lowerBound := MVCCEncode(nil, 0)
-	upperBound := MVCCEncode(nil, version+1)
-	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound, UpperBound: upperBound})
+	itr, err := db.storage.NewIter(nil)
 	if err != nil {
 		return err
 	}
 	defer itr.Close()
 
-	// Reusable iteartor for checking next version
-	checkItr, err := db.storage.NewIter(nil)
-	if err != nil {
-		return err
-	}
-	defer checkItr.Close()
-
 	batch := db.storage.NewBatch()
-
 	var counter int
-	// TODO: Look into parallelizing pruning
-	for itr.First(); itr.Valid(); itr.Next() {
-		// TODO: Check if current key is not already tombstoned
-		key, keyVersion, ok := SplitMVCCKey(itr.Key())
-		if !ok {
-			return nil
-		}
-		currVersion, err := decodeUint64Ascending(keyVersion)
-		if err != nil {
-			return err
+	var prevKey, prevVersion []byte
+	var prevOK bool
+
+	for itr.First(); itr.Valid(); {
+		// Store current key and version
+		currKey, currVersion, currOK := SplitMVCCKey(itr.Key())
+		if !currOK {
+			return fmt.Errorf("invalid MVCC key")
 		}
 
-		if currVersion <= version {
-			// Seek to the closest version after pruning height
-			checkItr.SeekGE(MVCCEncode(key, currVersion+1))
-			if checkItr.Valid() {
-				nextKey, nextVersion, ok := SplitMVCCKey(checkItr.Key())
+		// Deletes a key if another entry for that key exists a larger version than original but leq prune height
+		if prevOK && bytes.Equal(prevKey, currKey) {
+			prevVer, err := decodeUint64Ascending(prevVersion)
+			if err != nil {
+				return err
+			}
 
-				newVersion, err := decodeUint64Ascending((nextVersion))
+			currVer, err := decodeUint64Ascending(currVersion)
+			if err != nil {
+				return err
+			}
+
+			if prevVer <= version && currVer <= version {
+				// Delete previous key
+				err = batch.Delete(MVCCEncode(prevKey, int64(prevVer)), defaultWriteOpts)
 				if err != nil {
 					return err
 				}
 
-				// Only delete a key if there exists another entry for that key at a higher version which is lower than prune height
-				if ok && bytes.Equal(nextKey, key) && newVersion < version {
-					// Delete key
-					err = batch.Delete(itr.Key(), defaultWriteOpts)
+				counter++
+				if counter >= ImportCommitBatchSize {
+					err = batch.Commit(defaultWriteOpts)
+					if err != nil {
+						return err
+					}
+					err = batch.Close()
 					if err != nil {
 						return err
 					}
 
-					// Reset batch after ImportCommitBatchSize delete ops
-					counter++
-					if counter >= ImportCommitBatchSize {
-						err = batch.Commit(defaultWriteOpts)
-						if err != nil {
-							return err
-						}
-						err = batch.Close()
-						if err != nil {
-							return err
-						}
-
-						counter = 0
-						batch = db.storage.NewBatch()
-					}
+					counter = 0
+					batch = db.storage.NewBatch()
 				}
 			}
 		}
+
+		// Update prevKey and prevVersion for next iteration
+		prevKey = currKey
+		prevVersion = currVersion
+		prevOK = currOK
+
+		itr.Next() // Move to next key
 	}
 
 	// Commit any leftover delete ops in batch
