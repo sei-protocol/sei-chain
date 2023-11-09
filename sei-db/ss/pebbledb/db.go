@@ -225,10 +225,15 @@ func (db *Database) Prune(version int64) error {
 			// Seek to the closest version after pruning height
 			checkItr.SeekGE(MVCCEncode(key, currVersion+1))
 			if checkItr.Valid() {
-				nextKey, _, ok := SplitMVCCKey(checkItr.Key())
+				nextKey, nextVersion, ok := SplitMVCCKey(checkItr.Key())
 
-				// Only delete a key if there exists another entry for that key at a higher version
-				if ok && bytes.Equal(nextKey, key) {
+				newVersion, err := decodeUint64Ascending((nextVersion))
+				if err != nil {
+					return err
+				}
+
+				// Only delete a key if there exists another entry for that key at a higher version which is lower than prune height
+				if ok && bytes.Equal(nextKey, key) && newVersion < version {
 					// Delete key
 					prefixedKey := MVCCEncode(key, currVersion)
 					err = batch.Delete(prefixedKey, defaultWriteOpts)
