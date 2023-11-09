@@ -120,6 +120,19 @@ func MeasureDeliverTxDuration(start time.Time) {
 	)
 }
 
+// Measures the time taken to execute a batch tx
+// Metric Names:
+//
+//	sei_deliver_batch_tx_duration_miliseconds
+//	sei_deliver_batch_tx_duration_miliseconds_count
+//	sei_deliver_batch_tx_duration_miliseconds_sum
+func MeasureDeliverBatchTxDuration(start time.Time) {
+	metrics.MeasureSince(
+		[]string{"sei", "deliver", "batch", "tx", "milliseconds"},
+		start.UTC(),
+	)
+}
+
 // sei_oracle_vote_penalty_count
 func SetOracleVotePenaltyCount(count uint64, valAddr string, penaltyType string) {
 	metrics.SetGaugeWithLabels(
