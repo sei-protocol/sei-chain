@@ -47,6 +47,10 @@ func (i *InfoAPI) Coinbase() (common.Address, error) {
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
+func (i *InfoAPI) Accounts() []common.Address {
+	return []common.Address{}
+}
+
 func (i *InfoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 	// get fee history of the most recent block with 50% reward percentile
 	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
