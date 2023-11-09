@@ -199,6 +199,13 @@ func (db *Database) Prune(version int64) error {
 	}
 	defer itr.Close()
 
+	// Reusable iteartor for checking next version
+	checkItr, err := db.storage.NewIter(nil)
+	if err != nil {
+		return err
+	}
+	defer checkItr.Close()
+
 	batch := db.storage.NewBatch()
 
 	var counter int
@@ -215,9 +222,10 @@ func (db *Database) Prune(version int64) error {
 		}
 
 		if currVersion <= version {
-			// Seek to the cloest version after pruning height
-			if itr.SeekGE(MVCCEncode(key, currVersion+1)); itr.Valid() {
-				nextKey, _, ok := SplitMVCCKey(itr.Key())
+			// Seek to the closest version after pruning height
+			checkItr.SeekGE(MVCCEncode(key, currVersion+1))
+			if checkItr.Valid() {
+				nextKey, _, ok := SplitMVCCKey(checkItr.Key())
 
 				// Only delete a key if there exists another entry for that key at a higher version
 				if ok && bytes.Equal(nextKey, key) {
