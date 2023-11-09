@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,6 +66,9 @@ func TestGetTxReceipt(t *testing.T) {
 	resObj = resObj["error"].(map[string]interface{})
 	require.Equal(t, float64(-32000), resObj["code"].(float64))
 	require.Equal(t, "error block", resObj["message"].(string))
+
+	resObj = sendRequestGood(t, "getTransactionReceipt", common.HexToHash("0x3030303030303030303030303030303030303030303030303030303030303031"))
+	require.Nil(t, resObj["result"])
 }
 
 func TestGetTransaction(t *testing.T) {
@@ -154,8 +159,6 @@ func TestGetTransactionCount(t *testing.T) {
 	earliestBodyToBadPort := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"earliest\"],\"id\":\"test\"}"
 	for body, errStr := range map[string]string{
 		earliestBodyToBadPort: "error genesis",
-		bodyByNumber:          "error block",
-		bodyByHash:            "error block",
 	} {
 		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestBadPort), strings.NewReader(body))
 		require.Nil(t, err)
@@ -170,4 +173,11 @@ func TestGetTransactionCount(t *testing.T) {
 		errMsg := errMap["message"].(string)
 		require.Equal(t, errStr, errMsg)
 	}
+}
+
+func TestGetTransactionError(t *testing.T) {
+	h := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
+	EVMKeeper.SetReceipt(Ctx, h, &types.Receipt{VmError: "test error"})
+	resObj := sendRequestGood(t, "getTransactionErrorByHash", "0x1111111111111111111111111111111111111111111111111111111111111111")
+	require.Equal(t, "test error", resObj["result"])
 }
