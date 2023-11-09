@@ -355,6 +355,7 @@ func init() {
 		common.BytesToHash([]byte("key")),
 		common.BytesToHash([]byte("value")),
 	)
+	EVMKeeper.SetNonce(Ctx, common.HexToAddress("0x1234567890123456789012345678901234567890"), 1)
 }
 
 //nolint:deadcode

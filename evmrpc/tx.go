@@ -36,9 +36,12 @@ func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
-		// When the transaction doesn't exist, the RPC method should return JSON null
-		// as per specification.
-		return nil, nil
+		if strings.Contains(err.Error(), "not found") {
+			// When the transaction doesn't exist, the RPC method should return JSON null
+			// as per specification.
+			return nil, nil
+		}
+		return nil, err
 	}
 	// can only get tx from block results, since Tx() endpoint requires tendermint-level tx hash which is not available
 	// here (we can potentially store tendermint-level tx hash in receipt but that requires calculating sha256 in the chain
@@ -79,39 +82,37 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return t.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), hexutil.Uint(receipt.TransactionIndex)), nil
 }
 
-func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
-	var block *coretypes.ResultBlock
-	var err error
-	if blockNr, ok := blockNrOrHash.Number(); ok {
-		blockNumber, blockNumErr := getBlockNumber(ctx, t.tmClient, blockNr)
-		if blockNumErr != nil {
-			return nil, blockNumErr
+func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (string, error) {
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return "", nil
 		}
-		block, err = t.tmClient.Block(ctx, blockNumber)
-	} else {
-		block, err = t.tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
+		return "", err
 	}
+	return receipt.VmError, nil
+}
+
+func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	blkNr, err := GetBlockNumberByNrOrHash(ctx, t.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
-	result := hexutil.Uint64(0)
-	for _, tx := range block.Block.Txs {
-		if ethtx := getEthTxForTxBz(tx, t.txConfig.TxDecoder()); ethtx != nil {
-			receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
-			if err != nil {
-				continue
-			}
-			if common.HexToAddress(receipt.From) == address {
-				result++
-			}
-		}
+
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	if blkNr != nil {
+		sdkCtx = t.ctxProvider(*blkNr)
 	}
-	return &result, nil
+	nonce := t.keeper.GetNonce(sdkCtx, address)
+	return (*hexutil.Uint64)(&nonce), nil
 }
 
 func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint) *RPCTransaction {

@@ -9,18 +9,19 @@ import (
 )
 
 type opts struct {
-	httpEnabled        interface{}
-	httpPort           interface{}
-	wsEnabled          interface{}
-	wsPort             interface{}
-	readTimeout        interface{}
-	readHeaderTimeout  interface{}
-	writeTimeout       interface{}
-	idleTimeout        interface{}
-	simulationGasLimit interface{}
-	corsOrigins        interface{}
-	wsOrigins          interface{}
-	filterTimeout      interface{}
+	httpEnabled          interface{}
+	httpPort             interface{}
+	wsEnabled            interface{}
+	wsPort               interface{}
+	readTimeout          interface{}
+	readHeaderTimeout    interface{}
+	writeTimeout         interface{}
+	idleTimeout          interface{}
+	simulationGasLimit   interface{}
+	simulationEVMTimeout interface{}
+	corsOrigins          interface{}
+	wsOrigins            interface{}
+	filterTimeout        interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -51,6 +52,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.simulation_gas_limit" {
 		return o.simulationGasLimit
 	}
+	if k == "evm.simulation_evm_timeout" {
+		return o.simulationEVMTimeout
+	}
 	if k == "evm.cors_origins" {
 		return o.corsOrigins
 	}
@@ -74,6 +78,7 @@ func TestReadConfig(t *testing.T) {
 		time.Duration(5),
 		time.Duration(5),
 		uint64(10),
+		time.Duration(60),
 		"",
 		"",
 		time.Duration(5),
@@ -118,6 +123,10 @@ func TestReadConfig(t *testing.T) {
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.simulationGasLimit = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+	badOpts = goodOpts
+	badOpts.simulationEVMTimeout = "bad"
 	_, err = evmrpc.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts

@@ -2,9 +2,13 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math/big"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -67,8 +71,55 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 	return ethapi.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, s.backend.RPCGasCap())
 }
 
+func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (hexutil.Bytes, error) {
+	if blockNrOrHash == nil {
+		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
+		blockNrOrHash = &latest
+	}
+	result, err := ethapi.DoCall(ctx, s.backend, args, *blockNrOrHash, overrides, blockOverrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
+	if err != nil {
+		return nil, err
+	}
+	// If the result contains a revert reason, try to unpack and return it.
+	if len(result.Revert()) > 0 {
+		return nil, NewRevertError(result)
+	}
+	return result.Return(), result.Err
+}
+
+func NewRevertError(result *core.ExecutionResult) *RevertError {
+	reason, errUnpack := abi.UnpackRevert(result.Revert())
+	err := errors.New("execution reverted")
+	if errUnpack == nil {
+		err = fmt.Errorf("execution reverted: %v", reason)
+	}
+	return &RevertError{
+		error:  err,
+		reason: hexutil.Encode(result.Revert()),
+	}
+}
+
+// RevertError is an API error that encompasses an EVM revertal with JSON error
+// code and a binary data blob.
+type RevertError struct {
+	error
+	reason string // revert reason hex encoded
+}
+
+// ErrorCode returns the JSON error code for a revertal.
+// See: https://github.com/ethereum/wiki/wiki/JSON-RPC-Error-Codes-Improvement-Proposal
+func (e *RevertError) ErrorCode() int {
+	return 3
+}
+
+// ErrorData returns the hex encoded revert reason.
+func (e *RevertError) ErrorData() interface{} {
+	return e.reason
+}
+
 type SimulateConfig struct {
-	GasCap uint64
+	GasCap     uint64
+	EVMTimeout time.Duration
 }
 
 type Backend struct {
@@ -99,6 +150,8 @@ func (b *Backend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*
 }
 
 func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
+
+func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
 func (b *Backend) ChainConfig() *params.ChainConfig {
 	ctx := b.ctxProvider(LatestCtxHeight)

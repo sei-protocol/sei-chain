@@ -50,6 +50,9 @@ type Config struct {
 	// Maximum gas limit for simulation
 	SimulationGasLimit uint64 `mapstructure:"simulation_gas_limit"`
 
+	// Timeout for EVM call in simulation
+	SimulationEVMTimeout time.Duration `mapstructure:"simulation_evm_timeout"`
+
 	// list of CORS allowed origins, separated by comma
 	CORSOrigins string `mapstructure:"cors_origins"`
 
@@ -61,33 +64,35 @@ type Config struct {
 }
 
 var DefaultConfig = Config{
-	HTTPEnabled:        true,
-	HTTPPort:           8545,
-	WSEnabled:          true,
-	WSPort:             8546,
-	ReadTimeout:        rpc.DefaultHTTPTimeouts.ReadTimeout,
-	ReadHeaderTimeout:  rpc.DefaultHTTPTimeouts.ReadHeaderTimeout,
-	WriteTimeout:       rpc.DefaultHTTPTimeouts.WriteTimeout,
-	IdleTimeout:        rpc.DefaultHTTPTimeouts.IdleTimeout,
-	SimulationGasLimit: 10_000_000, // 10M
-	CORSOrigins:        "*",
-	WSOrigins:          "*",
-	FilterTimeout:      120 * time.Second,
+	HTTPEnabled:          true,
+	HTTPPort:             8545,
+	WSEnabled:            true,
+	WSPort:               8546,
+	ReadTimeout:          rpc.DefaultHTTPTimeouts.ReadTimeout,
+	ReadHeaderTimeout:    rpc.DefaultHTTPTimeouts.ReadHeaderTimeout,
+	WriteTimeout:         rpc.DefaultHTTPTimeouts.WriteTimeout,
+	IdleTimeout:          rpc.DefaultHTTPTimeouts.IdleTimeout,
+	SimulationGasLimit:   10_000_000, // 10M
+	SimulationEVMTimeout: 60 * time.Second,
+	CORSOrigins:          "*",
+	WSOrigins:            "*",
+	FilterTimeout:        120 * time.Second,
 }
 
 const (
-	flagHTTPEnabled        = "evm.http_enabled"
-	flagHTTPPort           = "evm.http_port"
-	flagWSEnabled          = "evm.ws_enabled"
-	flagWSPort             = "evm.ws_port"
-	flagReadTimeout        = "evm.read_timeout"
-	flagReadHeaderTimeout  = "evm.read_header_timeout"
-	flagWriteTimeout       = "evm.write_timeout"
-	flagIdleTimeout        = "evm.idle_timeout"
-	flagSimulationGasLimit = "evm.simulation_gas_limit"
-	flagCORSOrigins        = "evm.cors_origins"
-	flagWSOrigins          = "evm.ws_origins"
-	flagFilterTimeout      = "evm.filter_timeout"
+	flagHTTPEnabled          = "evm.http_enabled"
+	flagHTTPPort             = "evm.http_port"
+	flagWSEnabled            = "evm.ws_enabled"
+	flagWSPort               = "evm.ws_port"
+	flagReadTimeout          = "evm.read_timeout"
+	flagReadHeaderTimeout    = "evm.read_header_timeout"
+	flagWriteTimeout         = "evm.write_timeout"
+	flagIdleTimeout          = "evm.idle_timeout"
+	flagSimulationGasLimit   = "evm.simulation_gas_limit"
+	flagSimulationEVMTimeout = "evm.simulation_evm_timeout"
+	flagCORSOrigins          = "evm.cors_origins"
+	flagWSOrigins            = "evm.ws_origins"
+	flagFilterTimeout        = "evm.filter_timeout"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -135,6 +140,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagSimulationGasLimit); v != nil {
 		if cfg.SimulationGasLimit, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagSimulationEVMTimeout); v != nil {
+		if cfg.SimulationEVMTimeout, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
 		}
 	}

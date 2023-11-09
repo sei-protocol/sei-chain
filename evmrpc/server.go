@@ -61,7 +61,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, tmClient, &SimulateConfig{GasCap: config.SimulationGasLimit}),
+			Service:   NewSimulationAPI(ctxProvider, k, tmClient, &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}),
 		},
 		{
 			Namespace: "net",
@@ -70,6 +70,10 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "eth",
 			Service:   NewFilterAPI(tmClient, &FilterConfig{timeout: config.FilterTimeout}),
+		},
+		{
+			Namespace: "web3",
+			Service:   &Web3API{},
 		},
 	}
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
@@ -124,11 +128,15 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, tmClient, &SimulateConfig{GasCap: config.SimulationGasLimit}),
+			Service:   NewSimulationAPI(ctxProvider, k, tmClient, &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}),
 		},
 		{
 			Namespace: "net",
 			Service:   NewNetAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
+		},
+		{
+			Namespace: "web3",
+			Service:   &Web3API{},
 		},
 	}
 	if err := httpServer.EnableWS(apis, WsConfig{Origins: strings.Split(config.WSOrigins, ",")}); err != nil {
