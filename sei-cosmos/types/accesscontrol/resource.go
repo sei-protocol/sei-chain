@@ -22,6 +22,7 @@ var ResourceTree = map[ResourceType]TreeNode{
 		ResourceType_KV_FEEGRANT,
 		ResourceType_KV_SLASHING,
 		ResourceType_KV_BANK_DEFERRED,
+		ResourceType_KV_EVM,
 	}},
 	ResourceType_Mem: {ResourceType_ANY, []ResourceType{
 		ResourceType_DexMem,
@@ -194,6 +195,8 @@ var ResourceTree = map[ResourceType]TreeNode{
 	ResourceType_KV_DEX_MEM_ORDER:                     {ResourceType_KV_DEX, []ResourceType{}},
 	ResourceType_KV_DEX_MEM_CANCEL:                    {ResourceType_KV_DEX, []ResourceType{}},
 	ResourceType_KV_DEX_MEM_DEPOSIT:                   {ResourceType_KV_DEX, []ResourceType{}},
+	ResourceType_KV_EVM:                               {ResourceType_KV, []ResourceType{ResourceType_KV_EVM_BALANCE}},
+	ResourceType_KV_EVM_BALANCE:                       {ResourceType_KV_EVM, []ResourceType{}},
 }
 
 // This returns a slice of all resource types that are dependent to a specific resource type
