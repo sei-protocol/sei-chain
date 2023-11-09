@@ -223,36 +223,6 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return NewRocksDBIterator(itr, prefix, start, end, true), nil
 }
 
-// // Import loads the initial version of the state
-// // TODO: Parallelize Import
-// func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
-// 	batch := NewBatch(db, version)
-
-// 	var counter int
-// 	for entry := range ch {
-// 		err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		counter++
-// 		if counter%ImportCommitBatchSize == 0 {
-// 			if err := batch.Write(); err != nil {
-// 				return err
-// 			}
-// 			batch = NewBatch(db, version)
-// 		}
-// 	}
-
-// 	if batch.Size() > 0 {
-// 		if err := batch.Write(); err != nil {
-// 			return err
-// 		}
-// 	}
-
-// 	return nil
-// }
-
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
 func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWorkers int) error {
