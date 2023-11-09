@@ -23,6 +23,7 @@ const (
 	FlagSSAsyncWriterBuffer = "state-store.async-write-buffer"
 	FlagSSKeepRecent        = "state-store.keep-recent"
 	FlagSSPruneInterval     = "state-store.prune-interval-seconds"
+	FlagSSImportNumWorkers  = "state-store.import-num-workers"
 )
 
 func SetupStateStore(
@@ -43,6 +44,7 @@ func SetupStateStore(
 	ssBackend := cast.ToString(appOpts.Get(FlagSSBackend))
 	ssKeepRecent := cast.ToInt64(appOpts.Get(FlagSSKeepRecent))
 	ssPruneInterval := cast.ToInt64(appOpts.Get(FlagSSPruneInterval))
+	ssImportNumWorkers := cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	logger.Info(fmt.Sprintf("State Store is enabled with %s backend", ssBackend))
 
 	ss, err := createStateStore(homePath, BackendType(ssBackend))
@@ -75,7 +77,7 @@ func SetupStateStore(
 	pruningManager.Start()
 
 	// Setup QueryMultiStore
-	qms := store.NewMultiStore(cms, ss, exposeStoreKeys)
+	qms := store.NewMultiStore(cms, ss, exposeStoreKeys, ssImportNumWorkers)
 	qms.MountTransientStores(tkeys)
 	qms.MountMemoryStores(memKeys)
 

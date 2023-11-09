@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
@@ -243,41 +244,68 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, true), nil
 }
 
-// Import loads the initial version of the state
-// TODO: Parallelize Import
-func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
-	batch, err := NewBatch(db.storage, version)
-	if err != nil {
-		return err
-	}
+// Import loads the initial version of the state in parallel with numWorkers goroutines
+func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWorkers int) error {
+	var wg sync.WaitGroup
+	errChan := make(chan error, numWorkers)
 
-	var counter int
-	for entry := range ch {
-		err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
+	worker := func() {
+		defer wg.Done()
+		batch, err := NewBatch(db.storage, version)
 		if err != nil {
-			return err
+			errChan <- err
+			return
 		}
 
-		counter++
-		if counter%ImportCommitBatchSize == 0 {
-			if err := batch.Write(); err != nil {
-				return err
-			}
-
-			batch, err = NewBatch(db.storage, version)
+		var counter int
+		for entry := range ch {
+			err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
 			if err != nil {
-				return err
+				errChan <- err
+				return
+			}
+
+			counter++
+			if counter%ImportCommitBatchSize == 0 {
+				if err := batch.Write(); err != nil {
+					errChan <- err
+					return
+				}
+
+				batch, err = NewBatch(db.storage, version)
+				if err != nil {
+					errChan <- err
+					return
+				}
+			}
+		}
+
+		if batch.Size() > 0 {
+			if err := batch.Write(); err != nil {
+				errChan <- err
 			}
 		}
 	}
 
-	if batch.Size() > 0 {
-		if err := batch.Write(); err != nil {
-			return err
-		}
+	wg.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		go worker()
 	}
 
-	return nil
+	wg.Wait()
+	close(errChan)
+
+	if len(errChan) == 0 {
+		return nil
+	}
+
+	// Collect all errors
+	var allErrors []error
+	for err := range errChan {
+		allErrors = append(allErrors, err)
+	}
+
+	return utils.Join(allErrors...)
 }
 
 func storePrefix(storeKey string) []byte {

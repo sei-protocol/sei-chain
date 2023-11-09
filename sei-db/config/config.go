@@ -56,6 +56,10 @@ type StateStoreConfig struct {
 	// PruneIntervalSeconds defines the interval in seconds to trigger pruning
 	// default to 60 seconds
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
+
+	// ImportNumWorkers defines the number of goroutines used during import
+	// defaults to 1
+	ImportNumWorkers int `mapstructure:"import-num-workers"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {
