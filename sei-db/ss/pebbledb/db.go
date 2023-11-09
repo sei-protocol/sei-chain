@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
@@ -26,6 +28,7 @@ const (
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
+	ImportMaxretries      = 5
 )
 
 var (
@@ -244,45 +247,45 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, true), nil
 }
 
+func jitter() time.Duration {
+	return time.Duration(rand.Intn(1000)) * time.Millisecond
+}
+
 // Import loads the initial version of the state in parallel with numWorkers goroutines
+// TODO: Potentially add retries instead of panics
 func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWorkers int) error {
 	var wg sync.WaitGroup
-	errChan := make(chan error, numWorkers)
 
 	worker := func() {
 		defer wg.Done()
 		batch, err := NewBatch(db.storage, version)
 		if err != nil {
-			errChan <- err
-			return
+			panic(err)
 		}
 
 		var counter int
 		for entry := range ch {
 			err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
 			if err != nil {
-				errChan <- err
-				return
+				panic(err)
 			}
 
 			counter++
 			if counter%ImportCommitBatchSize == 0 {
 				if err := batch.Write(); err != nil {
-					errChan <- err
-					return
+					panic(err)
 				}
 
 				batch, err = NewBatch(db.storage, version)
 				if err != nil {
-					errChan <- err
-					return
+					panic(err)
 				}
 			}
 		}
 
 		if batch.Size() > 0 {
 			if err := batch.Write(); err != nil {
-				errChan <- err
+				panic(err)
 			}
 		}
 	}
@@ -293,19 +296,8 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWork
 	}
 
 	wg.Wait()
-	close(errChan)
 
-	if len(errChan) == 0 {
-		return nil
-	}
-
-	// Collect all errors
-	var allErrors []error
-	for err := range errChan {
-		allErrors = append(allErrors, err)
-	}
-
-	return utils.Join(allErrors...)
+	return nil
 }
 
 func storePrefix(storeKey string) []byte {
