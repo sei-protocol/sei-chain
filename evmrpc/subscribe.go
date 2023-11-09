@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -44,19 +43,33 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string) (*rpc
 
 	switch eventName {
 	case "newHeads":
-		fmt.Println("newHeads")
+		subscriberId, subCh, err := a.subscriptionManager.Subscribe(ctx, NewHeadQueryBuilder(), 100)
+		if err != nil {
+			fmt.Println("in newHeads, got err = ", err)
+			return nil, err
+		}
+
+		// TODO: need to not launch a newHead subscription for every new subscriber maybe (or maybe do)
 		go func() {
-			counter := 0
 			for {
-				notifier.Notify(rpcSub.ID, fmt.Sprint("in eventName switch: new heads", counter))
-				counter += 1
-				time.Sleep(20 * time.Millisecond)
+				select {
+				case res := <-subCh:
+					err := notifier.Notify(rpcSub.ID, res)
+					if err != nil {
+						a.subscriptionManager.Unsubscribe(ctx, subscriberId)
+						return
+					}
+				case <-rpcSub.Err():
+					fmt.Println("rpcSub.Err(), closed")
+					a.subscriptionManager.Unsubscribe(ctx, subscriberId)
+					return
+				case <-notifier.Closed():
+					fmt.Println("notifier.Closed(), closed")
+					a.subscriptionManager.Unsubscribe(ctx, subscriberId)
+					return
+				}
 			}
 		}()
-		// err := a.handleNewHeadsSubscription(ctx, notifier, rpcSub)
-		// if err != nil {
-		// 	return nil, err
-		// }
 		return rpcSub, nil
 	case "logs":
 		fmt.Println("logs")
@@ -66,37 +79,6 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string) (*rpc
 		return nil, fmt.Errorf("unsupported subscription type: %s", eventName)
 	}
 	return rpcSub, nil
-}
-
-func (a *SubscriptionAPI) handleNewHeadsSubscription(ctx context.Context, notifier *rpc.Notifier, rpcSub *rpc.Subscription) error {
-	notifier.Notify(rpcSub.ID, "new heads")
-	subscriberId, err := a.subscriptionManager.Subscribe(ctx, NewHeadQueryBuilder(), 10)
-	if err != nil {
-		return err
-	}
-	// need to take stuff from SubscriptionCh below and push it to nofifier.Notify
-	// launch a goroutine to do this?
-	// need to make sure goroutine exits when subscription is cancelled
-	// ISSUE: how to cancel goroutine when subscription is cancelled? do we have a map from
-	// subscription id to cancel channel?
-	// What is the separation of responsibilities between subManager and subAPI?
-	//  - maybe subscriptionManager should absorb all the complexity of managing subscriptions??
-	go func() {
-		for {
-			select {
-			case res := <-a.subscriptionManager.SubscriptionInfo[subscriberId].SubscriptionCh:
-				err := notifier.Notify(rpcSub.ID, res)
-				if err != nil {
-					fmt.Println("error notifying")
-					return
-				}
-			case <-ctx.Done():
-				return
-				// TODO: do a case for quitting
-			}
-		}
-	}()
-	return nil
 }
 
 // func (a *SubscriptionAPI) Unsubscribe(ctx context.Context, id rpc.ID) error {
@@ -128,7 +110,7 @@ func NewSubscriptionManager(tmClient rpcclient.Client) *SubscriptionManager {
 	}
 }
 
-func (s *SubscriptionManager) Subscribe(ctx context.Context, q *QueryBuilder, limit int) (SubscriberID, error) {
+func (s *SubscriptionManager) Subscribe(ctx context.Context, q *QueryBuilder, limit int) (SubscriberID, <-chan coretypes.ResultEvent, error) {
 	query := q.Build()
 	s.subMu.Lock()
 	defer s.subMu.Unlock()
@@ -137,11 +119,11 @@ func (s *SubscriptionManager) Subscribe(ctx context.Context, q *QueryBuilder, li
 	//nolint:staticcheck
 	res, err := s.tmClient.Subscribe(ctx, fmt.Sprintf("%s%d", SubscriberPrefix, id), query, limit)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	s.SubscriptionInfo[id] = SubInfo{Query: query, SubscriptionCh: res}
 	s.NextID++
-	return id, nil
+	return id, res, nil
 }
 
 func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) error {

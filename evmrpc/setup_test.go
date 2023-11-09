@@ -126,8 +126,27 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 	}, nil
 }
 
-func (c *MockClient) Subscribe(context.Context, string, string, ...int) (<-chan coretypes.ResultEvent, error) {
-	return make(chan coretypes.ResultEvent, 1), nil
+// Subscribe(ctx context.Context, subscriber, query string, outCapacity ...int) (out <-chan coretypes.ResultEvent, err error)
+func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query string, outCapacity ...int) (<-chan coretypes.ResultEvent, error) {
+	fmt.Println("In MockClient Subscribe, subscriber = ", subscriber, ", query = ", query, ", outCapacity = ", outCapacity)
+	if query == "tm.event = 'NewBlockHeader'" {
+		resCh := make(chan coretypes.ResultEvent, 5)
+		go func() {
+			for i := 0; i < 5; i++ {
+				abciEvent := NewABCIEventBuilder().SetBlockNum(int(MockHeight + i)).Build()
+				resCh <- coretypes.ResultEvent{
+					SubscriptionID: subscriber,
+					Query:          query,
+					Events: []abci.Event{
+						abciEvent,
+					},
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}()
+		return resCh, nil
+	}
+	return nil, errors.New("unknown query")
 }
 
 func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
@@ -286,7 +305,7 @@ func init() {
 	if err := badHTTPServer.Start(); err != nil {
 		panic(err)
 	}
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
 	if err != nil {
 		panic(err)
 	}
