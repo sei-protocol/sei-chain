@@ -228,7 +228,7 @@ func (db *Database) Prune(version int64) error {
 
 			if prevVer <= version && currVer <= version {
 				// Delete previous key
-				err = batch.Delete(MVCCEncode(prevKey, int64(prevVer)), defaultWriteOpts)
+				err = batch.Delete(MVCCEncode(prevKey, prevVer), defaultWriteOpts)
 				if err != nil {
 					return err
 				}
