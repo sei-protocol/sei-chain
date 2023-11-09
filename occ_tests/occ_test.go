@@ -167,6 +167,7 @@ func TestParallelTransactions(t *testing.T) {
 
 		sEvts, sResults, _, sErr := utils.RunWithOCC(sCtx, txs)
 		require.NoError(t, sErr, tt.name)
+		require.Len(t, sResults, len(txs))
 
 		for i := 0; i < tt.runs; i++ {
 			pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers)
@@ -175,6 +176,8 @@ func TestParallelTransactions(t *testing.T) {
 			}
 			pEvts, pResults, _, pErr := utils.RunWithOCC(pCtx, txs)
 			require.NoError(t, pErr, tt.name)
+			require.Len(t, pResults, len(txs))
+
 			assertEqualEvents(t, sEvts, pEvts, tt.name)
 			assertExecTxResultCode(t, sResults, pResults, 0, tt.name)
 			assertEqualExecTxResults(t, sResults, pResults, tt.name)
