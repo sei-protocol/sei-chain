@@ -20,6 +20,12 @@ func TestChainID(t *testing.T) {
 	require.Equal(t, "0xae3f3", result)
 }
 
+func TestAccounts(t *testing.T) {
+	resObj := sendRequestGood(t, "accounts")
+	result := resObj["result"].([]interface{})
+	require.Equal(t, 0, len(result))
+}
+
 func TestCoinbase(t *testing.T) {
 	resObj := sendRequestGood(t, "coinbase")
 	result := resObj["result"].(string)
