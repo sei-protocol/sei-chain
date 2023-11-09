@@ -235,8 +235,7 @@ func (db *Database) Prune(version int64) error {
 				// Only delete a key if there exists another entry for that key at a higher version which is lower than prune height
 				if ok && bytes.Equal(nextKey, key) && newVersion < version {
 					// Delete key
-					prefixedKey := MVCCEncode(key, currVersion)
-					err = batch.Delete(prefixedKey, defaultWriteOpts)
+					err = batch.Delete(itr.Key(), defaultWriteOpts)
 					if err != nil {
 						return err
 					}
