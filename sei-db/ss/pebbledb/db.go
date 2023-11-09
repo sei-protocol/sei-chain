@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand"
 	"sync"
-	"time"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
@@ -245,10 +243,6 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	}
 
 	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, true), nil
-}
-
-func jitter() time.Duration {
-	return time.Duration(rand.Intn(1000)) * time.Millisecond
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
