@@ -13,6 +13,14 @@ type QueryBuilder struct {
 	conditions []string
 }
 
+func NewHeadQueryBuilder() *QueryBuilder {
+	return &QueryBuilder{
+		conditions: []string{
+			"tm.event = 'NewBlockHeader'",
+		},
+	}
+}
+
 func NewBlockQueryBuilder() *QueryBuilder {
 	return &QueryBuilder{
 		conditions: []string{

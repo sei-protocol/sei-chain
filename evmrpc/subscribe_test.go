@@ -10,19 +10,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewSubscribeAPI(t *testing.T) {
+func TestSubscribeNewHeads(t *testing.T) {
 	t.Parallel()
 	recvCh, done := sendWSRequestGood(t, "subscribe", "subscribe", "newHeads")
 
 	// Start a goroutine to receive and print messages
+	receivedMsg := false
+	// timer for 5 seconds
+	timer := time.NewTimer(5 * time.Second)
+
 	for {
 		select {
-		case msg := <-recvCh:
-			fmt.Println("Received message:", msg)
-			continue
-		case <-time.After(10 * time.Second):
-			fmt.Println("No message received within 10 seconds")
-			t.Fatal("No message received within 10 seconds")
+		case resObj := <-recvCh:
+			receivedMsg = true
+			_, ok := resObj["error"]
+			if ok {
+				t.Fatal("Received error:", resObj["error"])
+			}
+			fmt.Println("Received message:", resObj)
+		case <-timer.C:
+			fmt.Println("Timer expired")
+			if !receivedMsg {
+				t.Fatal("No message received within 5 seconds")
+			}
 			done <- struct{}{}
 			return
 		}

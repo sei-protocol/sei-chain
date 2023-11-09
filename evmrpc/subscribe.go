@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -35,6 +36,7 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider
 func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string) (*rpc.Subscription, error) {
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
+		fmt.Println("not supported")
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
 	}
 
@@ -43,7 +45,19 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string) (*rpc
 	switch eventName {
 	case "newHeads":
 		fmt.Println("newHeads")
-		a.handleNewHeadsSubscription(notifier, rpcSub)
+		go func() {
+			counter := 0
+			for {
+				notifier.Notify(rpcSub.ID, fmt.Sprint("in eventName switch: new heads", counter))
+				counter += 1
+				time.Sleep(20 * time.Millisecond)
+			}
+		}()
+		// err := a.handleNewHeadsSubscription(ctx, notifier, rpcSub)
+		// if err != nil {
+		// 	return nil, err
+		// }
+		return rpcSub, nil
 	case "logs":
 		fmt.Println("logs")
 	case "newPendingTransactions":
@@ -54,9 +68,40 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string) (*rpc
 	return rpcSub, nil
 }
 
-func (a *SubscriptionAPI) handleNewHeadsSubscription(notifier *rpc.Notifier, rpcSub *rpc.Subscription) {
+func (a *SubscriptionAPI) handleNewHeadsSubscription(ctx context.Context, notifier *rpc.Notifier, rpcSub *rpc.Subscription) error {
 	notifier.Notify(rpcSub.ID, "new heads")
+	subscriberId, err := a.subscriptionManager.Subscribe(ctx, NewHeadQueryBuilder(), 10)
+	if err != nil {
+		return err
+	}
+	// need to take stuff from SubscriptionCh below and push it to nofifier.Notify
+	// launch a goroutine to do this?
+	// need to make sure goroutine exits when subscription is cancelled
+	// ISSUE: how to cancel goroutine when subscription is cancelled? do we have a map from
+	// subscription id to cancel channel?
+	// What is the separation of responsibilities between subManager and subAPI?
+	//  - maybe subscriptionManager should absorb all the complexity of managing subscriptions??
+	go func() {
+		for {
+			select {
+			case res := <-a.subscriptionManager.SubscriptionInfo[subscriberId].SubscriptionCh:
+				err := notifier.Notify(rpcSub.ID, res)
+				if err != nil {
+					fmt.Println("error notifying")
+					return
+				}
+			case <-ctx.Done():
+				return
+				// TODO: do a case for quitting
+			}
+		}
+	}()
+	return nil
 }
+
+// func (a *SubscriptionAPI) Unsubscribe(ctx context.Context, id rpc.ID) error {
+// 	return a.subscriptionManager.Unsubscribe(ctx, id)
+// }
 
 const SubscriberPrefix = "evm.rpc."
 

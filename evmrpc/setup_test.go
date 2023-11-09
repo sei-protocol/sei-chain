@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -391,15 +392,15 @@ func sendRequest(t *testing.T, port int, method string, params ...interface{}) m
 	return resObj
 }
 
-func sendWSRequestGood(t *testing.T, method string, params ...interface{}) (chan string, chan struct{}) {
+func sendWSRequestGood(t *testing.T, method string, params ...interface{}) (chan map[string]interface{}, chan struct{}) {
 	return sendWSRequestAndListen(t, TestWSPort, method, params...)
 }
 
-func sendWSRequestBad(t *testing.T, method string, params ...interface{}) (chan string, chan struct{}) {
+func sendWSRequestBad(t *testing.T, method string, params ...interface{}) (chan map[string]interface{}, chan struct{}) {
 	return sendWSRequestAndListen(t, TestBadPort, method, params...)
 }
 
-func sendWSRequestAndListen(t *testing.T, port int, method string, params ...interface{}) (chan string, chan struct{}) {
+func sendWSRequestAndListen(t *testing.T, port int, method string, params ...interface{}) (chan map[string]interface{}, chan struct{}) {
 	paramsFormatted := ""
 	if len(params) > 0 {
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
@@ -412,7 +413,7 @@ func sendWSRequestAndListen(t *testing.T, port int, method string, params ...int
 	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s:%d", TestAddr, TestWSPort), headers)
 	require.Nil(t, err)
 
-	recv := make(chan string)
+	recv := make(chan map[string]interface{})
 	done := make(chan struct{})
 
 	err = conn.WriteMessage(websocket.TextMessage, []byte(body))
@@ -420,17 +421,31 @@ func sendWSRequestAndListen(t *testing.T, port int, method string, params ...int
 
 	go func() {
 		defer close(recv)
+
+		// Set a read deadline to prevent blocking forever
+		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+
 		for {
-			_, message, err := conn.ReadMessage()
-			if err != nil {
-				fmt.Println("read:", err)
-				return
-			}
-			fmt.Println("got message: ", string(message))
 			select {
-			case recv <- string(message):
 			case <-done:
 				return
+			case <-time.After(200 * time.Millisecond):
+				_, message, err := conn.ReadMessage()
+				if err != nil {
+					if ne, ok := err.(net.Error); ok && ne.Timeout() {
+						// It was a timeout error, no data was ready to be read
+						continue // Retry the read operation
+					}
+					recv <- map[string]interface{}{"error": err.Error()}
+					return
+				}
+				res := map[string]interface{}{}
+				err = json.Unmarshal(message, &res)
+				if err != nil {
+					recv <- map[string]interface{}{"error": err.Error()}
+					return
+				}
+				recv <- res
 			}
 		}
 	}()
