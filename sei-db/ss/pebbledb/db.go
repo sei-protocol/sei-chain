@@ -208,14 +208,20 @@ func (db *Database) Prune(version int64) error {
 			return fmt.Errorf("invalid MVCC key")
 		}
 
+		currVer, err := decodeUint64Ascending(currVersion)
+		if err != nil {
+			return err
+		}
+
+		// Seek to next key if we are at a version which is higher than prune height
+		if currVer > version {
+			itr.NextPrefix()
+			continue
+		}
+
 		// Deletes a key if another entry for that key exists a larger version than original but leq prune height
 		if prevOK && bytes.Equal(prevKey, currKey) {
 			prevVer, err := decodeUint64Ascending(prevVersion)
-			if err != nil {
-				return err
-			}
-
-			currVer, err := decodeUint64Ascending(currVersion)
 			if err != nil {
 				return err
 			}
@@ -249,7 +255,7 @@ func (db *Database) Prune(version int64) error {
 		prevVersion = currVersion
 		prevOK = currOK
 
-		itr.Next() // Move to next key
+		itr.Next()
 	}
 
 	// Commit any leftover delete ops in batch
