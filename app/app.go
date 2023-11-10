@@ -1245,7 +1245,7 @@ func (app *App) ProcessTxs(
 
 	dexMemState := dexutils.GetMemState(ctx.Context())
 	dexMemState.Clear(ctx)
-	dexMemState.ClearContractToDependencies()
+	dexMemState.ClearContractToDependencies(ctx)
 
 	if ctx.BlockGasMeter() != nil {
 		ctx.BlockGasMeter().RefundGas(ctx.BlockGasMeter().GasConsumed()-blockGasMeterConsumed, "concurrent failure rollback")

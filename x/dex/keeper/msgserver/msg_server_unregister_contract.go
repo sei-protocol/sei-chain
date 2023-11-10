@@ -34,6 +34,6 @@ func (k msgServer) UnregisterContract(goCtx context.Context, msg *types.MsgUnreg
 		sdk.NewAttribute(types.AttributeKeyContractAddress, msg.ContractAddr),
 	))
 
-	dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
+	dexutils.GetMemState(ctx.Context()).ClearContractToDependencies(ctx)
 	return &types.MsgUnregisterContractResponse{}, nil
 }
