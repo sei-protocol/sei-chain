@@ -42,5 +42,11 @@ func (svd EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 
+	if ctx.IsCheckTx() {
+		bz := make([]byte, 8)
+		binary.BigEndian.PutUint64(bz, nextNonce+1)
+		svd.evmKeeper.PrefixStore(ctx, types.NonceKeyPrefix).Set(evmAddr[:], bz)
+	}
+
 	return next(ctx, tx, simulate)
 }

@@ -22,6 +22,8 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
+const UnconfirmedTxQueryMaxPage = 5
+
 type TransactionAPI struct {
 	tmClient    rpcclient.Client
 	keeper      *keeper.Keeper
@@ -82,8 +84,7 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
-	page := 1
-	for {
+	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
 		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, nil)
 		if err != nil || len(res.Txs) == 0 {
 			break
@@ -114,7 +115,6 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 				}, nil
 			}
 		}
-		page++
 	}
 
 	// then try get from committed
