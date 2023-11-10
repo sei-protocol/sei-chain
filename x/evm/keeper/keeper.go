@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/precompiles"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 )
@@ -33,13 +34,18 @@ func NewKeeper(
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
-	return &Keeper{
+	k := &Keeper{
 		storeKey:      storeKey,
 		Paramstore:    paramstore,
 		bankKeeper:    bankKeeper,
 		accountKeeper: accountKeeper,
 		stakingKeeper: stakingKeeper,
 	}
+	err := precompiles.InitializePrecompiles(k, k.BankKeeper())
+	if err != nil {
+		panic(err)
+	}
+	return k
 }
 
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
