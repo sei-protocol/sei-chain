@@ -80,6 +80,44 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 }
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	// first try get from mempool
+	page := 1
+	for {
+		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, nil)
+		if err != nil || len(res.Txs) == 0 {
+			break
+		}
+		for _, tx := range res.Txs {
+			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
+			if etx != nil && etx.Hash() == hash {
+				signer := ethtypes.MakeSigner(
+					t.keeper.GetChainConfig(sdkCtx).EthereumConfig(t.keeper.ChainID(sdkCtx)),
+					big.NewInt(sdkCtx.BlockHeight()),
+					uint64(sdkCtx.BlockTime().Second()),
+				)
+				from, _ := ethtypes.Sender(signer, etx)
+				v, r, s := etx.RawSignatureValues()
+				return &RPCTransaction{
+					Type:     hexutil.Uint64(etx.Type()),
+					From:     from,
+					Gas:      hexutil.Uint64(etx.Gas()),
+					GasPrice: (*hexutil.Big)(etx.GasPrice()),
+					Hash:     etx.Hash(),
+					Input:    hexutil.Bytes(etx.Data()),
+					Nonce:    hexutil.Uint64(etx.Nonce()),
+					To:       etx.To(),
+					Value:    (*hexutil.Big)(etx.Value()),
+					V:        (*hexutil.Big)(v),
+					R:        (*hexutil.Big)(r),
+					S:        (*hexutil.Big)(s),
+				}, nil
+			}
+		}
+		page++
+	}
+
+	// then try get from committed
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -141,7 +179,7 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 		return nil
 	}
 	evmTx, ok := decoded.GetMsgs()[0].(*types.MsgEVMTransaction)
-	if !ok {
+	if !ok || evmTx.IsAssociateTx() {
 		return nil
 	}
 	ethtx, _ := evmTx.AsTransaction()
