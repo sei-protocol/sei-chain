@@ -345,10 +345,10 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 		// get the latest value from the multiversion store
 		latestValue := s.GetLatestBeforeIndex(index, []byte(key))
 		if latestValue == nil {
-			// TODO: maybe we don't even do this check?
+			// this is possible if we previously read a value from a transaction write that was later reverted, so this time we read from parent store
 			parentVal := s.parentStore.Get([]byte(key))
 			if !bytes.Equal(parentVal, value) {
-				panic("there shouldn't be readset conflicts with parent kv store, since it shouldn't change")
+				valid = false
 			}
 		} else {
 			// if estimate, mark as conflict index - but don't invalidate

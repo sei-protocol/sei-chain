@@ -130,7 +130,11 @@ enum ResourceType {
     KV_DEX_SHORT_ORDER_COUNT = 92; // child of KV_DEX
 
     KV_BANK_DEFERRED = 93; // child of KV
+    reserved 94;
     KV_BANK_DEFERRED_MODULE_TX_INDEX = 95; // child of KV_BANK_DEFERRED
+
+    KV_DEX_MEM_CONTRACTS_TO_PROCESS = 96; // child of KV_DEX_MEM
+    KV_DEX_MEM_DOWNSTREAM_CONTRACTS = 97; // child of KV_DEX_MEM
 }
 
 enum WasmMessageSubtype {
