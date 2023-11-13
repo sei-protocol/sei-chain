@@ -25,7 +25,7 @@ const (
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
-	PruneCommitBatchSize  = 10000
+	PruneCommitBatchSize  = 50
 )
 
 var (
@@ -234,7 +234,7 @@ func (db *Database) Prune(version int64) error {
 				}
 
 				counter++
-				if counter >= ImportCommitBatchSize {
+				if counter >= PruneCommitBatchSize {
 					err = batch.Commit(defaultWriteOpts)
 					if err != nil {
 						return err
