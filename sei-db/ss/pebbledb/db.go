@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
@@ -243,39 +244,51 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, true), nil
 }
 
-// Import loads the initial version of the state
-// TODO: Parallelize Import
-func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
-	batch, err := NewBatch(db.storage, version)
-	if err != nil {
-		return err
-	}
+// Import loads the initial version of the state in parallel with numWorkers goroutines
+// TODO: Potentially add retries instead of panics
+func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWorkers int) error {
+	var wg sync.WaitGroup
 
-	var counter int
-	for entry := range ch {
-		err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
+	worker := func() {
+		defer wg.Done()
+		batch, err := NewBatch(db.storage, version)
 		if err != nil {
-			return err
+			panic(err)
 		}
 
-		counter++
-		if counter%ImportCommitBatchSize == 0 {
-			if err := batch.Write(); err != nil {
-				return err
-			}
-
-			batch, err = NewBatch(db.storage, version)
+		var counter int
+		for entry := range ch {
+			err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
 			if err != nil {
-				return err
+				panic(err)
+			}
+
+			counter++
+			if counter%ImportCommitBatchSize == 0 {
+				if err := batch.Write(); err != nil {
+					panic(err)
+				}
+
+				batch, err = NewBatch(db.storage, version)
+				if err != nil {
+					panic(err)
+				}
+			}
+		}
+
+		if batch.Size() > 0 {
+			if err := batch.Write(); err != nil {
+				panic(err)
 			}
 		}
 	}
 
-	if batch.Size() > 0 {
-		if err := batch.Write(); err != nil {
-			return err
-		}
+	wg.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		go worker()
 	}
+
+	wg.Wait()
 
 	return nil
 }

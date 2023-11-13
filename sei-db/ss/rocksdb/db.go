@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/linxGnu/grocksdb"
@@ -222,32 +223,45 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	return NewRocksDBIterator(itr, prefix, start, end, true), nil
 }
 
-// Import loads the initial version of the state
-// TODO: Parallelize Import
-func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry) error {
-	batch := NewBatch(db, version)
+// Import loads the initial version of the state in parallel with numWorkers goroutines
+// TODO: Potentially add retries instead of panics
+func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWorkers int) error {
+	var wg sync.WaitGroup
 
-	var counter int
-	for entry := range ch {
-		err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
-		if err != nil {
-			return err
-		}
+	worker := func() {
+		defer wg.Done()
+		batch := NewBatch(db, version)
 
-		counter++
-		if counter%ImportCommitBatchSize == 0 {
-			if err := batch.Write(); err != nil {
-				return err
+		var counter int
+		for entry := range ch {
+			err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
+			if err != nil {
+				panic(err)
 			}
-			batch = NewBatch(db, version)
+
+			counter++
+			if counter%ImportCommitBatchSize == 0 {
+				if err := batch.Write(); err != nil {
+					panic(err)
+				}
+
+				batch = NewBatch(db, version)
+			}
+		}
+
+		if batch.Size() > 0 {
+			if err := batch.Write(); err != nil {
+				panic(err)
+			}
 		}
 	}
 
-	if batch.Size() > 0 {
-		if err := batch.Write(); err != nil {
-			return err
-		}
+	wg.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		go worker()
 	}
+
+	wg.Wait()
 
 	return nil
 }
