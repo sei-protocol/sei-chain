@@ -57,6 +57,6 @@ prune-interval-seconds = {{ .StateStore.PruneIntervalSeconds }}
 
 # ImportNumWorkers defines the number of goroutines used during import
 # defaults to 1
-import-num-workers = {{ .StateStore.PruneIntervalSeconds }}
+import-num-workers = {{ .StateStore.ImportNumWorkers }}
 
 `
