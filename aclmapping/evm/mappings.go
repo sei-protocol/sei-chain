@@ -30,34 +30,44 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrInvalidMessageType
 	}
+	if evmMsg.IsAssociateTx() {
+		// msg server will be noop for AssociateTx; all work are done in ante
+		return []sdkacltypes.AccessOperation{*acltypes.CommitAccessOp()}, nil
+	}
 
 	tx, _ := evmMsg.AsTransaction()
 	// Only specifying accesses to `to` address since `from` has to be derived via signature,
 	// which happens in the ante handler (i.e. after this generator is called) and is quite heavy
 	// so we don't want to repeat it.
+	toOperations := []sdkacltypes.AccessOperation{}
 	toAddress := tx.To()
-	seiAddress, associated := evmKeeper.GetSeiAddress(ctx, *toAddress)
-	var idTempl string
-	var resourceType sdkacltypes.ResourceType
-	if associated {
-		idTempl = hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(seiAddress))
-		resourceType = sdkacltypes.ResourceType_KV_BANK_BALANCES
-	} else {
-		idTempl = hex.EncodeToString(evmtypes.BalanceKey(*toAddress))
-		resourceType = sdkacltypes.ResourceType_KV_EVM_BALANCE
+	if toAddress != nil {
+		seiAddress, associated := evmKeeper.GetSeiAddress(ctx, *toAddress)
+		var idTempl string
+		var resourceType sdkacltypes.ResourceType
+		if associated {
+			idTempl = hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(seiAddress))
+			resourceType = sdkacltypes.ResourceType_KV_BANK_BALANCES
+		} else {
+			idTempl = hex.EncodeToString(evmtypes.BalanceKey(*toAddress))
+			resourceType = sdkacltypes.ResourceType_KV_EVM_BALANCE
+		}
+		toOperations = []sdkacltypes.AccessOperation{
+			{
+				AccessType:         sdkacltypes.AccessType_READ,
+				ResourceType:       resourceType,
+				IdentifierTemplate: idTempl,
+			},
+			{
+				AccessType:         sdkacltypes.AccessType_WRITE,
+				ResourceType:       resourceType,
+				IdentifierTemplate: idTempl,
+			},
+		}
 	}
 
-	return []sdkacltypes.AccessOperation{
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       resourceType,
-			IdentifierTemplate: idTempl,
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       resourceType,
-			IdentifierTemplate: idTempl,
-		},
+	return append(toOperations, []sdkacltypes.AccessOperation{
+
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
@@ -91,5 +101,5 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 
 		// Last Operation should always be a commit
 		*acltypes.CommitAccessOp(),
-	}, nil
+	}...), nil
 }

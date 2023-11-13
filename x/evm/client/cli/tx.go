@@ -30,7 +30,7 @@ const (
 	FlagGasFeeCap  = "gas-fee-cap"
 	FlagGas        = "gas-limit"
 	FlagEVMChainID = "evm-chain-id"
-	FlagRPC        = "rpc"
+	FlagRPC        = "evm-rpc"
 )
 
 // GetTxCmd returns the transaction commands for this module

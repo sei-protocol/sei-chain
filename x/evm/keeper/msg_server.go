@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type msgServer struct {
@@ -29,11 +28,7 @@ func NewMsgServerImpl(keeper Keeper) types.MsgServer {
 var _ types.MsgServer = msgServer{}
 
 func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
-	txData, err := types.UnpackTxData(msg.Data)
-	if err != nil {
-		return nil, err
-	}
-	if _, ok := txData.(*ethtx.AssociateTx); ok {
+	if msg.IsAssociateTx() {
 		// no-op in msg server for associate tx; all the work have been done in ante handler
 		return &types.MsgEVMTransactionResponse{}, nil
 	}
@@ -49,7 +44,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 
 	stateDB := state.NewDBImpl(ctx, &server)
-	tx := ethtypes.NewTx(txData.AsEthereumData())
+	tx, _ := msg.AsTransaction()
 	ctx, gp := server.getGasPool(ctx)
 	emsg, err := server.getEVMMessage(ctx, tx)
 	if err != nil {

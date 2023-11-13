@@ -122,6 +122,12 @@ func TestGetTransaction(t *testing.T) {
 	}
 }
 
+func TestGetPendingTransactionByHash(t *testing.T) {
+	resObj := sendRequestGood(t, "getTransactionByHash", "0x74452c2b9b4482f34eba843725cc99625bc89fe55d9a67d4a506e584ba1f334b")
+	result := resObj["result"].(map[string]interface{})
+	require.Equal(t, "0x2", result["nonce"])
+}
+
 func TestGetTransactionCount(t *testing.T) {
 	// happy path
 	bodyByNumber := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"0x8\"],\"id\":\"test\"}"
