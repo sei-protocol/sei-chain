@@ -26,7 +26,6 @@ const (
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
-	ImportMaxretries      = 5
 )
 
 var (
