@@ -56,3 +56,13 @@ func (msg *MsgEVMTransaction) AsTransaction() (*ethtypes.Transaction, ethtx.TxDa
 func (msg MsgEVMTransaction) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 	return unpacker.UnpackAny(msg.Data, new(ethtx.TxData))
 }
+
+func (msg MsgEVMTransaction) IsAssociateTx() bool {
+	txData, err := UnpackTxData(msg.Data)
+	if err != nil {
+		// should never happen
+		panic(err)
+	}
+	_, ok := txData.(*ethtx.AssociateTx)
+	return ok
+}

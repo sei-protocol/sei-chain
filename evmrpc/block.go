@@ -107,7 +107,7 @@ func encodeTmBlock(
 			continue
 		}
 		evmTx, ok := decoded.GetMsgs()[0].(*types.MsgEVMTransaction)
-		if !ok {
+		if !ok || evmTx.IsAssociateTx() {
 			continue
 		}
 		ethtx, _ := evmTx.AsTransaction()
