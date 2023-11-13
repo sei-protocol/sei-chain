@@ -48,6 +48,14 @@ type StateStoreConfig struct {
 	// Set <= 0 for synchronous writes, which means commits also need to wait for data to be persisted in State Store.
 	// defaults to 100
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
+
+	// KeepRecent defines the number of versions to keep in state store
+	// Setting it to 0 means keep all, default to 0
+	KeepRecent int `mapstructure:"keep-recent"`
+
+	// PruneIntervalSeconds defines the interval in seconds to trigger pruning
+	// default to 60 seconds
+	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {
@@ -61,7 +69,9 @@ func DefaultStateCommitConfig() StateCommitConfig {
 
 func DefaultStateStoreConfig() StateStoreConfig {
 	return StateStoreConfig{
-		Backend:          "pebbledb",
-		AsyncWriteBuffer: 100,
+		Backend:              "pebbledb",
+		AsyncWriteBuffer:     100,
+		KeepRecent:           0,
+		PruneIntervalSeconds: 60,
 	}
 }
