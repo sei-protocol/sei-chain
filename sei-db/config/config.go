@@ -77,5 +77,6 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		AsyncWriteBuffer:     100,
 		KeepRecent:           0,
 		PruneIntervalSeconds: 60,
+		ImportNumWorkers:     1,
 	}
 }
