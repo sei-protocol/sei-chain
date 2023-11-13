@@ -198,62 +198,56 @@ func (db *Database) Prune(version int64) error {
 
 	batch := db.storage.NewBatch()
 	var counter int
-	var prevKey, prevVersion []byte
-	var prevOK bool
+	var prevKey, prevKeyEncoded []byte
+	var prevVersionDecoded int64
 
 	for itr.First(); itr.Valid(); {
 		// Store current key and version
-		currKey, currVersion, currOK := SplitMVCCKey(itr.Key())
+		currKeyEncoded := slices.Clone(itr.Key())
+		currKey, currVersion, currOK := SplitMVCCKey(currKeyEncoded)
 		if !currOK {
 			return fmt.Errorf("invalid MVCC key")
 		}
 
-		currVer, err := decodeUint64Ascending(currVersion)
+		currVersionDecoded, err := decodeUint64Ascending(currVersion)
 		if err != nil {
 			return err
 		}
 
 		// Seek to next key if we are at a version which is higher than prune height
-		if currVer > version {
+		if currVersionDecoded > version {
 			itr.NextPrefix()
 			continue
 		}
 
 		// Deletes a key if another entry for that key exists a larger version than original but leq prune height
-		if prevOK && bytes.Equal(prevKey, currKey) {
-			prevVer, err := decodeUint64Ascending(prevVersion)
+		if bytes.Equal(prevKey, currKey) && prevVersionDecoded <= version && currVersionDecoded <= version {
+			// Delete previous key
+			err = batch.Delete(prevKeyEncoded, defaultWriteOpts)
 			if err != nil {
 				return err
 			}
 
-			if prevVer <= version && currVer <= version {
-				// Delete previous key
-				err = batch.Delete(MVCCEncode(prevKey, prevVer), defaultWriteOpts)
+			counter++
+			if counter >= PruneCommitBatchSize {
+				err = batch.Commit(defaultWriteOpts)
+				if err != nil {
+					return err
+				}
+				err = batch.Close()
 				if err != nil {
 					return err
 				}
 
-				counter++
-				if counter >= PruneCommitBatchSize {
-					err = batch.Commit(defaultWriteOpts)
-					if err != nil {
-						return err
-					}
-					err = batch.Close()
-					if err != nil {
-						return err
-					}
-
-					counter = 0
-					batch = db.storage.NewBatch()
-				}
+				counter = 0
+				batch = db.storage.NewBatch()
 			}
 		}
 
 		// Update prevKey and prevVersion for next iteration
 		prevKey = currKey
-		prevVersion = currVersion
-		prevOK = currOK
+		prevVersionDecoded = currVersionDecoded
+		prevKeyEncoded = currKeyEncoded
 
 		itr.Next()
 	}
