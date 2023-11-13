@@ -1,6 +1,8 @@
 package precompiles
 
 import (
+	"sync"
+
 	ecommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
@@ -8,17 +10,22 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 )
 
+var SetupMtx = &sync.Mutex{}
+
 func InitializePrecompiles(
 	evmKeeper common.EVMKeeper,
 	bankKeeper common.BankKeeper,
 	wasmdKeeper common.WasmdKeeper,
+	wasmdViewKeeper common.WasmdViewKeeper,
 ) error {
+	SetupMtx.Lock()
+	defer SetupMtx.Unlock()
 	bankp, err := bank.NewPrecompile(bankKeeper, evmKeeper)
 	if err != nil {
 		return err
 	}
 	addPrecompileToVM(bankp, bankp.Address())
-	wasmdp, err := wasmd.NewPrecompile(evmKeeper, wasmdKeeper)
+	wasmdp, err := wasmd.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper)
 	if err != nil {
 		return err
 	}

@@ -42,7 +42,7 @@ func NewKeeper(
 		accountKeeper: accountKeeper,
 		stakingKeeper: stakingKeeper,
 	}
-	err := precompiles.InitializePrecompiles(k, bankKeeper, wasmkeeper.NewDefaultPermissionKeeper(wasmdKeeper))
+	err := precompiles.InitializePrecompiles(k, bankKeeper, wasmkeeper.NewDefaultPermissionKeeper(wasmdKeeper), wasmdKeeper)
 	if err != nil {
 		panic(err)
 	}

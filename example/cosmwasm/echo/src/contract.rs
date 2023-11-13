@@ -1,10 +1,10 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    DepsMut, Env, MessageInfo, Response, StdError,
+    Deps, DepsMut, Env, MessageInfo, Response, StdError, to_json_binary, StdResult, Binary,
 };
 use crate::msg::{
-    ExecuteMsg, InstantiateMsg,
+    ExecuteMsg, InstantiateMsg, QueryMsg, InfoResponse,
 };
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -32,5 +32,14 @@ pub fn execute(
             }
             Ok(Response::new().set_data(data.as_bytes()))
         }
+    }
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn query(_deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    match msg {
+        QueryMsg::Info {} => to_json_binary(&InfoResponse{
+            message: "query test".to_string(),
+        }),
     }
 }

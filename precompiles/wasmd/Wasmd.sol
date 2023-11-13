@@ -9,6 +9,15 @@ IWasmd constant WASMD_CONTRACT = IWasmd(
 
 interface IWasmd {
     // Transactions
+    function instantiate(
+        uint64 codeID,
+        string memory creator,
+        string memory admin,
+        bytes memory msg,
+        string memory label,
+        bytes memory coins
+    ) external returns (string memory contractAddr, bytes memory data);
+
     function execute(
         string memory contractAddress,
         string memory sender,
@@ -17,4 +26,5 @@ interface IWasmd {
     ) external returns (bytes memory response);
 
     // Queries
+    function query(string memory contractAddress, bytes memory req) external view returns (bytes memory response);
 }

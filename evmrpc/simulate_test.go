@@ -97,7 +97,7 @@ func TestCreateAccessList(t *testing.T) {
 func TestCall(t *testing.T) {
 	_, from := testkeeper.MockAddressPair()
 	_, contractAddr := testkeeper.MockAddressPair()
-	code, err := os.ReadFile("./example/contracts/simplestorage/SimpleStorage.bin")
+	code, err := os.ReadFile("../example/contracts/simplestorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)

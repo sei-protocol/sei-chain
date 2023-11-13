@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	ExecuteMethod = "execute"
+	InstantiateMethod = "instantiate"
+	ExecuteMethod     = "execute"
+	QueryMethod       = "query"
 )
 
 const WasmdAddress = "0x0000000000000000000000000000000000001002"
@@ -29,14 +31,17 @@ var f embed.FS
 
 type Precompile struct {
 	pcommon.Precompile
-	evmKeeper   pcommon.EVMKeeper
-	wasmdKeeper pcommon.WasmdKeeper
-	address     common.Address
+	evmKeeper       pcommon.EVMKeeper
+	wasmdKeeper     pcommon.WasmdKeeper
+	wasmdViewKeeper pcommon.WasmdViewKeeper
+	address         common.Address
 
-	ExecuteID []byte
+	InstantiateID []byte
+	ExecuteID     []byte
+	QueryID       []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper) (*Precompile, error) {
+func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper) (*Precompile, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
 		return nil, fmt.Errorf("error loading the staking ABI %s", err)
@@ -48,15 +53,21 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper)
 	}
 
 	p := &Precompile{
-		Precompile:  pcommon.Precompile{ABI: newAbi},
-		wasmdKeeper: wasmdKeeper,
-		evmKeeper:   evmKeeper,
-		address:     common.HexToAddress(WasmdAddress),
+		Precompile:      pcommon.Precompile{ABI: newAbi},
+		wasmdKeeper:     wasmdKeeper,
+		wasmdViewKeeper: wasmdViewKeeper,
+		evmKeeper:       evmKeeper,
+		address:         common.HexToAddress(WasmdAddress),
 	}
 
 	for name, m := range newAbi.Methods {
-		if name == "execute" {
+		switch name {
+		case "instantiate":
+			p.InstantiateID = m.ID
+		case "execute":
 			p.ExecuteID = m.ID
+		case "query":
+			p.QueryID = m.ID
 		}
 	}
 
@@ -80,6 +91,8 @@ func (Precompile) IsTransaction(method string) bool {
 	switch method {
 	case ExecuteMethod:
 		return true
+	case InstantiateMethod:
+		return true
 	default:
 		return false
 	}
@@ -96,10 +109,64 @@ func (p Precompile) Run(evm *vm.EVM, input []byte) (bz []byte, err error) {
 	}
 
 	switch method.Name {
+	case InstantiateMethod:
+		return p.instantiate(ctx, method, args)
 	case ExecuteMethod:
 		return p.execute(ctx, method, args)
+	case QueryMethod:
+		return p.query(ctx, method, args)
 	}
 	return
+}
+
+func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+	if len(args) != 6 {
+		return nil, errors.New("instantiate requires exactly 6 arguments")
+	}
+	codeID, ok := args[0].(uint64)
+	if !ok {
+		return nil, errors.New("invalid code ID: must be uint64")
+	}
+	creatorAddrStr, ok := args[1].(string)
+	if !ok {
+		return nil, errors.New("invalid creator address: must be bech32 string")
+	}
+	creatorAddr, err := sdk.AccAddressFromBech32(creatorAddrStr)
+	if err != nil {
+		return nil, err
+	}
+	var adminAddr sdk.AccAddress
+	adminAddrStr, ok := args[2].(string)
+	if !ok {
+		return nil, errors.New("invalid admin address: must be bech32 string")
+	}
+	if len(adminAddrStr) > 0 {
+		adminAddr, err = sdk.AccAddressFromBech32(adminAddrStr)
+		if err != nil {
+			return nil, err
+		}
+	}
+	msg, ok := args[3].([]byte)
+	if !ok {
+		return nil, errors.New("invalid message: must be []byte")
+	}
+	label, ok := args[4].(string)
+	if !ok {
+		return nil, errors.New("invalid label: must be string")
+	}
+	coins := sdk.NewCoins()
+	coinsBz, ok := args[5].([]byte)
+	if !ok {
+		return nil, errors.New("invalid coins: must be []byte")
+	}
+	if err := json.Unmarshal(coinsBz, &coins); err != nil {
+		return nil, err
+	}
+	addr, data, err := p.wasmdKeeper.Instantiate(ctx, codeID, creatorAddr, adminAddr, msg, label, coins)
+	if err != nil {
+		return nil, err
+	}
+	return method.Outputs.Pack(addr.String(), data)
 }
 
 func (p Precompile) execute(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
@@ -108,7 +175,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, args []interfac
 	}
 	contractAddrStr, ok := args[0].(string)
 	if !ok {
-		return nil, errors.New("invalid contract address; must be string")
+		return nil, errors.New("invalid contract address: must be bech32 string")
 	}
 	// addresses will be sent in Sei format
 	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
@@ -117,7 +184,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, args []interfac
 	}
 	senderAddrStr, ok := args[1].(string)
 	if !ok {
-		return nil, errors.New("invalid sender address; must be string")
+		return nil, errors.New("invalid sender address: must be bech32 string")
 	}
 	senderAddr, err := sdk.AccAddressFromBech32(senderAddrStr)
 	if err != nil {
@@ -125,7 +192,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, args []interfac
 	}
 	msg, ok := args[2].([]byte)
 	if !ok {
-		return nil, errors.New("invalid message; must be []byte")
+		return nil, errors.New("invalid message: must be []byte")
 	}
 	coins := sdk.NewCoins()
 	coinsBz, ok := args[3].([]byte)
@@ -135,5 +202,33 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, args []interfac
 	if err := json.Unmarshal(coinsBz, &coins); err != nil {
 		return nil, err
 	}
-	return p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
+	res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
+	if err != nil {
+		return nil, err
+	}
+	return method.Outputs.Pack(res)
+}
+
+func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+	if len(args) != 2 {
+		return nil, errors.New("query requires exactly 2 arguments")
+	}
+	contractAddrStr, ok := args[0].(string)
+	if !ok {
+		return nil, errors.New("invalid contract address: must be bech32 string")
+	}
+	// addresses will be sent in Sei format
+	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
+	if err != nil {
+		return nil, err
+	}
+	req, ok := args[1].([]byte)
+	if !ok {
+		return nil, errors.New("invalid req: must be bytes")
+	}
+	res, err := p.wasmdViewKeeper.QuerySmart(ctx, contractAddr, req)
+	if err != nil {
+		return nil, err
+	}
+	return method.Outputs.Pack(res)
 }
