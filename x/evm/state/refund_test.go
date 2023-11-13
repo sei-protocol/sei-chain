@@ -9,7 +9,7 @@ import (
 )
 
 func TestGasRefund(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
 	require.Equal(t, uint64(0), statedb.GetRefund())

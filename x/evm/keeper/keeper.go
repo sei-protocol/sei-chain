@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/big"
 
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -30,7 +31,7 @@ type Keeper struct {
 
 func NewKeeper(
 	storeKey sdk.StoreKey, paramstore paramtypes.Subspace,
-	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper) *Keeper {
+	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper, wasmdKeeper *wasmkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -41,7 +42,7 @@ func NewKeeper(
 		accountKeeper: accountKeeper,
 		stakingKeeper: stakingKeeper,
 	}
-	err := precompiles.InitializePrecompiles(k, k.BankKeeper())
+	err := precompiles.InitializePrecompiles(k, bankKeeper, wasmkeeper.NewDefaultPermissionKeeper(wasmdKeeper))
 	if err != nil {
 		panic(err)
 	}

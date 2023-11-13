@@ -15,7 +15,7 @@ import (
 )
 
 func TestRun(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	senderAddr, senderEVMAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100))))
@@ -82,7 +82,7 @@ func TestRun(t *testing.T) {
 }
 
 func TestRequiredGas(t *testing.T) {
-	k, _, _ := testkeeper.MockEVMKeeper()
+	k, _ := testkeeper.MockEVMKeeper()
 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
 	sendInput := []byte{}
@@ -108,7 +108,7 @@ func TestRequiredGas(t *testing.T) {
 }
 
 func TestAddress(t *testing.T) {
-	k, _, _ := testkeeper.MockEVMKeeper()
+	k, _ := testkeeper.MockEVMKeeper()
 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())

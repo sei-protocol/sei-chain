@@ -532,22 +532,7 @@ func New(
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
 	)
-	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper)
-	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
-	if err != nil {
-		panic(fmt.Sprintf("error reading EVM config due to %s", err))
-	}
 
-	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
-	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators(app.EvmKeeper)))
-	app.AccessControlKeeper = aclkeeper.NewKeeper(
-		appCodec,
-		app.keys[acltypes.StoreKey],
-		app.GetSubspace(acltypes.ModuleName),
-		app.AccountKeeper,
-		app.StakingKeeper,
-		aclOpts...,
-	)
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
@@ -587,6 +572,24 @@ func New(
 		supportedFeatures,
 		wasmOpts...,
 	)
+
+	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper, &app.WasmKeeper)
+	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
+
+	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
+	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators(app.EvmKeeper)))
+	app.AccessControlKeeper = aclkeeper.NewKeeper(
+		appCodec,
+		app.keys[acltypes.StoreKey],
+		app.GetSubspace(acltypes.ModuleName),
+		app.AccountKeeper,
+		app.StakingKeeper,
+		aclOpts...,
+	)
+
 	app.DexKeeper.SetWasmKeeper(&app.WasmKeeper)
 	dexModule := dexmodule.NewAppModule(appCodec, app.DexKeeper, app.AccountKeeper, app.BankKeeper, app.WasmKeeper, app.GetBaseApp().TracingInfo)
 	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
