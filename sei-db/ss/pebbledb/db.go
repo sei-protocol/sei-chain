@@ -198,7 +198,7 @@ func (db *Database) Prune(version int64) error {
 
 	batch := db.storage.NewBatch()
 	var counter int
-	var prevKey, prevKeyEncoded []byte
+	var prevKey, prevKeyEncoded, prevValEncoded []byte
 	var prevVersionDecoded int64
 
 	for itr.First(); itr.Valid(); {
@@ -220,8 +220,9 @@ func (db *Database) Prune(version int64) error {
 			continue
 		}
 
-		// Deletes a key if another entry for that key exists a larger version than original but leq prune height
-		if bytes.Equal(prevKey, currKey) && prevVersionDecoded <= version && currVersionDecoded <= version {
+		// Deletes a key if another entry for that key exists a larger version than original but leq to the prune height
+		// Also deletes a key if it has been tombstoned and its version is leq to the prune height
+		if prevVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || valTombstoned(prevValEncoded)) {
 			// Delete previous key
 			err = batch.Delete(prevKeyEncoded, defaultWriteOpts)
 			if err != nil {
@@ -248,6 +249,7 @@ func (db *Database) Prune(version int64) error {
 		prevKey = currKey
 		prevVersionDecoded = currVersionDecoded
 		prevKeyEncoded = currKeyEncoded
+		prevValEncoded = itr.Value()
 
 		itr.Next()
 	}
@@ -378,4 +380,21 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]
 	}
 
 	return slices.Clone(itr.Value()), nil
+}
+
+func valTombstoned(value []byte) bool {
+	_, tombBz, ok := SplitMVCCKey(value)
+	if !ok {
+		// XXX: This should not happen as that would indicate we have a malformed
+		// MVCC value.
+		panic(fmt.Sprintf("invalid PebbleDB MVCC value: %s", value))
+	}
+
+	// If the tombstone suffix is empty, we consider this a zero value and thus it
+	// is not tombstoned.
+	if len(tombBz) == 0 {
+		return false
+	}
+
+	return true
 }
