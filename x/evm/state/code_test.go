@@ -11,7 +11,7 @@ import (
 )
 
 func TestCode(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k)
 
