@@ -17,8 +17,12 @@ import (
 )
 
 const (
-	SendMethod    = "send"
-	BalanceMethod = "balance"
+	SendMethod     = "send"
+	BalanceMethod  = "balance"
+	NameMethod     = "name"
+	SymbolMethod   = "symbol"
+	DecimalsMethod = "decimals"
+	SupplyMethod   = "supply"
 )
 
 const (
@@ -37,19 +41,13 @@ type Precompile struct {
 	bankKeeper pcommon.BankKeeper
 	evmKeeper  pcommon.EVMKeeper
 	address    common.Address
-}
 
-// RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID := input[:4]
-
-	method, err := p.ABI.MethodById(methodID)
-	if err != nil {
-		// This should never happen since this method is going to fail during Run
-		return 0
-	}
-
-	return p.Precompile.RequiredGas(input, p.IsTransaction(method.Name))
+	SendID     []byte
+	BalanceID  []byte
+	NameID     []byte
+	SymbolID   []byte
+	DecimalsID []byte
+	SupplyID   []byte
 }
 
 func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
@@ -63,12 +61,44 @@ func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (
 		return nil, err
 	}
 
-	return &Precompile{
+	p := &Precompile{
 		Precompile: pcommon.Precompile{ABI: newAbi},
 		bankKeeper: bankKeeper,
 		evmKeeper:  evmKeeper,
 		address:    common.HexToAddress(BankAddress),
-	}, nil
+	}
+
+	for name, m := range newAbi.Methods {
+		switch name {
+		case "send":
+			p.SendID = m.ID
+		case "balance":
+			p.BalanceID = m.ID
+		case "name":
+			p.NameID = m.ID
+		case "symbol":
+			p.SymbolID = m.ID
+		case "decimals":
+			p.DecimalsID = m.ID
+		case "supply":
+			p.SupplyID = m.ID
+		}
+	}
+
+	return p, nil
+}
+
+// RequiredGas returns the required bare minimum gas to execute the precompile.
+func (p Precompile) RequiredGas(input []byte) uint64 {
+	methodID := input[:4]
+
+	method, err := p.ABI.MethodById(methodID)
+	if err != nil {
+		// This should never happen since this method is going to fail during Run
+		return 0
+	}
+
+	return p.Precompile.RequiredGas(input, p.IsTransaction(method.Name))
 }
 
 func (p Precompile) Address() common.Address {
@@ -86,23 +116,27 @@ func (p Precompile) Run(evm *vm.EVM, input []byte) (bz []byte, err error) {
 		return p.send(ctx, method, args)
 	case BalanceMethod:
 		return p.balance(ctx, method, args)
+	case NameMethod:
+		return p.name(ctx, method, args)
+	case SymbolMethod:
+		return p.symbol(ctx, method, args)
+	case DecimalsMethod:
+		return p.decimals(ctx, method, args)
+	case SupplyMethod:
+		return p.totalSupply(ctx, method, args)
 	}
 	return
 }
 
 func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
-	if len(args) != 4 {
-		return nil, errors.New("send requires exactly 4 arguments")
-	}
-	denom, ok := args[2].(string)
-	if !ok || denom == "" {
+	pcommon.AssertArgsLength(args, 4)
+	denom := args[2].(string)
+	if denom == "" {
 		return nil, errors.New("invalid denom")
 	}
-	amount, ok := args[3].(*big.Int)
-	if !ok {
-		return nil, errors.New("invalid amount")
-	}
+	amount := args[3].(*big.Int)
 	if amount.Cmp(big.NewInt(0)) == 0 {
+		// short circuit
 		return method.Outputs.Pack(true)
 	}
 	// TODO: it's possible to extend evm module's balance to handle non-usei tokens as well
@@ -121,25 +155,62 @@ func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}
 }
 
 func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 2)
+
 	addr, err := p.accAddressFromArg(ctx, args[0])
 	if err != nil {
 		return nil, err
 	}
-	denom, ok := args[1].(string)
-	if !ok || denom == "" {
+	denom := args[1].(string)
+	if denom == "" {
 		return nil, errors.New("invalid denom")
 	}
 	return method.Outputs.Pack(p.bankKeeper.GetBalance(ctx, addr, denom).Amount.BigInt())
 }
 
+func (p Precompile) name(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 1)
+
+	denom := args[0].(string)
+	metadata, found := p.bankKeeper.GetDenomMetaData(ctx, denom)
+	if !found {
+		return nil, fmt.Errorf("denom %s not found", denom)
+	}
+	return method.Outputs.Pack(metadata.Name)
+}
+
+func (p Precompile) symbol(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 1)
+
+	denom := args[0].(string)
+	metadata, found := p.bankKeeper.GetDenomMetaData(ctx, denom)
+	if !found {
+		return nil, fmt.Errorf("denom %s not found", denom)
+	}
+	return method.Outputs.Pack(metadata.Symbol)
+}
+
+func (p Precompile) decimals(_ sdk.Context, method *abi.Method, _ []interface{}) ([]byte, error) {
+	// all native tokens are integer-based
+	return method.Outputs.Pack(uint8(0))
+}
+
+func (p Precompile) totalSupply(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 1)
+
+	denom := args[0].(string)
+	coin := p.bankKeeper.GetSupply(ctx, denom)
+	return method.Outputs.Pack(coin.Amount.BigInt())
+}
+
 func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
-	addr, ok := arg.(common.Address)
-	if !ok || addr == (common.Address{}) {
+	addr := arg.(common.Address)
+	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")
 	}
 	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, addr)
 	if !found {
-		return nil, errors.New("address does not have association")
+		return nil, fmt.Errorf("address %s does not have association", addr.Hex())
 	}
 	return seiAddr, nil
 }
