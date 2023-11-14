@@ -204,8 +204,14 @@ func (db *Database) Prune(version int64) error {
 	)
 
 	for itr.First(); itr.Valid(); {
-		// Store current key and version
 		currKeyEncoded := slices.Clone(itr.Key())
+		// Ignore metadata entry for version during pruning
+		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) {
+			itr.Next()
+			continue
+		}
+
+		// Store current key and version
 		currKey, currVersion, currOK := SplitMVCCKey(currKeyEncoded)
 		if !currOK {
 			return fmt.Errorf("invalid MVCC key")
@@ -409,6 +415,9 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]
 }
 
 func valTombstoned(value []byte) bool {
+	if value == nil {
+		return false
+	}
 	_, tombBz, ok := SplitMVCCKey(value)
 	if !ok {
 		// XXX: This should not happen as that would indicate we have a malformed
