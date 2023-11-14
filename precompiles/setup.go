@@ -11,6 +11,7 @@ import (
 )
 
 var SetupMtx = &sync.Mutex{}
+var Initialized = false
 
 func InitializePrecompiles(
 	evmKeeper common.EVMKeeper,
@@ -20,6 +21,9 @@ func InitializePrecompiles(
 ) error {
 	SetupMtx.Lock()
 	defer SetupMtx.Unlock()
+	if Initialized {
+		panic("precompiles already initialized")
+	}
 	bankp, err := bank.NewPrecompile(bankKeeper, evmKeeper)
 	if err != nil {
 		return err
@@ -30,6 +34,7 @@ func InitializePrecompiles(
 		return err
 	}
 	addPrecompileToVM(wasmdp, wasmdp.Address())
+	Initialized = true
 	return nil
 }
 

@@ -254,7 +254,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 }
 
 func TestEVMPrecompiles(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeperWithPrecompiles()
 	code, err := os.ReadFile("../../../example/contracts/sendall/SendAll.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))

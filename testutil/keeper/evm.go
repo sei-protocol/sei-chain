@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"encoding/hex"
+	"sync"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -14,8 +15,41 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
+var mockKeeper *evmkeeper.Keeper
+var mockCtx sdk.Context
+var mtx = &sync.Mutex{}
+
+func MockEVMKeeperWithPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
+	mtx.Lock()
+	defer mtx.Unlock()
+	if mockKeeper != nil {
+		return mockKeeper, mockCtx
+	}
+	testApp := app.Setup(false, true)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	k := testApp.EvmKeeper
+	k.InitGenesis(ctx)
+
+	// mint some coins to a sei address
+	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
+	if err != nil {
+		panic(err)
+	}
+	err = testApp.BankKeeper.MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	err = testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	mockKeeper = &k
+	mockCtx = ctx
+	return &k, ctx
+}
+
 func MockEVMKeeper() (*evmkeeper.Keeper, sdk.Context) {
-	testApp := app.Setup(false)
+	testApp := app.Setup(false, false)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 	k := testApp.EvmKeeper
 	k.InitGenesis(ctx)

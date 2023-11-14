@@ -279,7 +279,7 @@ func (suite *KeeperTestSuite) TestMsgDelegateDependencies() {
 func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 	stakingDelegate := stakingtypes.MsgDelegate{
 		DelegatorAddress: "delegator",

@@ -5,7 +5,6 @@ import (
 	"math"
 	"math/big"
 
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -15,7 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/precompiles"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 )
@@ -31,7 +29,7 @@ type Keeper struct {
 
 func NewKeeper(
 	storeKey sdk.StoreKey, paramstore paramtypes.Subspace,
-	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper, wasmdKeeper *wasmkeeper.Keeper) *Keeper {
+	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -41,10 +39,6 @@ func NewKeeper(
 		bankKeeper:    bankKeeper,
 		accountKeeper: accountKeeper,
 		stakingKeeper: stakingKeeper,
-	}
-	err := precompiles.InitializePrecompiles(k, bankKeeper, wasmkeeper.NewDefaultPermissionKeeper(wasmdKeeper), wasmdKeeper)
-	if err != nil {
-		panic(err)
 	}
 	return k
 }

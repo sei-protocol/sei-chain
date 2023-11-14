@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -120,45 +119,27 @@ func (p Precompile) Run(evm *vm.EVM, input []byte) (bz []byte, err error) {
 }
 
 func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
-	if len(args) != 6 {
-		return nil, errors.New("instantiate requires exactly 6 arguments")
-	}
-	codeID, ok := args[0].(uint64)
-	if !ok {
-		return nil, errors.New("invalid code ID: must be uint64")
-	}
-	creatorAddrStr, ok := args[1].(string)
-	if !ok {
-		return nil, errors.New("invalid creator address: must be bech32 string")
-	}
+	pcommon.AssertArgsLength(args, 6)
+
+	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
+	codeID := args[0].(uint64)
+	creatorAddrStr := args[1].(string)
 	creatorAddr, err := sdk.AccAddressFromBech32(creatorAddrStr)
 	if err != nil {
 		return nil, err
 	}
 	var adminAddr sdk.AccAddress
-	adminAddrStr, ok := args[2].(string)
-	if !ok {
-		return nil, errors.New("invalid admin address: must be bech32 string")
-	}
+	adminAddrStr := args[2].(string)
 	if len(adminAddrStr) > 0 {
 		adminAddr, err = sdk.AccAddressFromBech32(adminAddrStr)
 		if err != nil {
 			return nil, err
 		}
 	}
-	msg, ok := args[3].([]byte)
-	if !ok {
-		return nil, errors.New("invalid message: must be []byte")
-	}
-	label, ok := args[4].(string)
-	if !ok {
-		return nil, errors.New("invalid label: must be string")
-	}
+	msg := args[3].([]byte)
+	label := args[4].(string)
 	coins := sdk.NewCoins()
-	coinsBz, ok := args[5].([]byte)
-	if !ok {
-		return nil, errors.New("invalid coins: must be []byte")
-	}
+	coinsBz := args[5].([]byte)
 	if err := json.Unmarshal(coinsBz, &coins); err != nil {
 		return nil, err
 	}
@@ -170,35 +151,23 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, args []inte
 }
 
 func (p Precompile) execute(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
-	if len(args) != 4 {
-		return nil, errors.New("execute requires exactly 4 arguments")
-	}
-	contractAddrStr, ok := args[0].(string)
-	if !ok {
-		return nil, errors.New("invalid contract address: must be bech32 string")
-	}
+	pcommon.AssertArgsLength(args, 4)
+
+	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
+	contractAddrStr := args[0].(string)
 	// addresses will be sent in Sei format
 	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
 	if err != nil {
 		return nil, err
 	}
-	senderAddrStr, ok := args[1].(string)
-	if !ok {
-		return nil, errors.New("invalid sender address: must be bech32 string")
-	}
+	senderAddrStr := args[1].(string)
 	senderAddr, err := sdk.AccAddressFromBech32(senderAddrStr)
 	if err != nil {
 		return nil, err
 	}
-	msg, ok := args[2].([]byte)
-	if !ok {
-		return nil, errors.New("invalid message: must be []byte")
-	}
+	msg := args[2].([]byte)
 	coins := sdk.NewCoins()
-	coinsBz, ok := args[3].([]byte)
-	if !ok {
-		return nil, errors.New("invalid coins: must be []byte")
-	}
+	coinsBz := args[3].([]byte)
 	if err := json.Unmarshal(coinsBz, &coins); err != nil {
 		return nil, err
 	}
@@ -210,22 +179,15 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, args []interfac
 }
 
 func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
-	if len(args) != 2 {
-		return nil, errors.New("query requires exactly 2 arguments")
-	}
-	contractAddrStr, ok := args[0].(string)
-	if !ok {
-		return nil, errors.New("invalid contract address: must be bech32 string")
-	}
+	pcommon.AssertArgsLength(args, 2)
+
+	contractAddrStr := args[0].(string)
 	// addresses will be sent in Sei format
 	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
 	if err != nil {
 		return nil, err
 	}
-	req, ok := args[1].([]byte)
-	if !ok {
-		return nil, errors.New("invalid req: must be bytes")
-	}
+	req := args[1].([]byte)
 	res, err := p.wasmdViewKeeper.QuerySmart(ctx, contractAddr, req)
 	if err != nil {
 		return nil, err
