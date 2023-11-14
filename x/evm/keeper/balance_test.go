@@ -9,7 +9,7 @@ import (
 )
 
 func TestSetGetBalance(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper()
 	_, evmAddr := keeper.MockAddressPair()
 	k.SetOrDeleteBalance(ctx, evmAddr, 10)
 	require.Equal(t, uint64(10), k.GetBalance(ctx, evmAddr))
@@ -20,7 +20,7 @@ func TestSetGetBalance(t *testing.T) {
 }
 
 func TestGetBadBalance(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper()
 	_, evmAddr := keeper.MockAddressPair()
 	store := ctx.KVStore(k.GetStoreKey())
 	store.Set(types.BalanceKey(evmAddr), []byte("garbage"))
