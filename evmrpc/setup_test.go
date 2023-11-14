@@ -36,6 +36,7 @@ import (
 	"github.com/tendermint/tendermint/rpc/client/mock"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
+	"github.com/tendermint/tendermint/version"
 )
 
 const TestAddr = "127.0.0.1"
@@ -95,6 +96,59 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 	}
 }
 
+func (c *MockClient) mockEventDataNewBlockHeader(mockHeight uint64) *tmtypes.EventDataNewBlockHeader {
+	return &tmtypes.EventDataNewBlockHeader{
+		Header: tmtypes.Header{
+			Version: version.Consensus{
+				Block: mockHeight,
+				App:   10,
+			},
+			ChainID: "1",
+			Height:  int64(mockHeight),
+			Time:    time.Now(),
+
+			// prev block info
+			LastBlockID: tmtypes.BlockID{
+				Hash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000006")),
+			},
+
+			// hashes of block data
+			LastCommitHash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000001")),
+			DataHash:       bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000002")),
+
+			ValidatorsHash:     bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000009")),
+			NextValidatorsHash: bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000A")),
+			ConsensusHash:      bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000B")),
+			EvidenceHash:       bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000E")),
+			AppHash:            bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000003")),
+			LastResultsHash:    bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000004")),
+			ProposerAddress:    tmtypes.Address([]byte("0000000000000000000000000000000000000000000000000000000000000005")),
+		},
+		NumTxs: 5,
+		ResultFinalizeBlock: abci.ResponseFinalizeBlock{
+			TxResults: mockTxResult(),
+			AppHash:   bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000006")),
+		},
+	}
+}
+
+func mockTxResult() []*abci.ExecTxResult {
+	return []*abci.ExecTxResult{
+		{
+			Data:      []byte("abc"),
+			Log:       "log1",
+			GasUsed:   10,
+			GasWanted: 11,
+		},
+		{
+			Data:      []byte("def"),
+			Log:       "log2",
+			GasUsed:   20,
+			GasWanted: 21,
+		},
+	}
+}
+
 func (c *MockClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) {
 	return &coretypes.ResultGenesis{Genesis: &tmtypes.GenesisDoc{InitialHeight: 1}}, nil
 }
@@ -126,22 +180,18 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 	}, nil
 }
 
-// Subscribe(ctx context.Context, subscriber, query string, outCapacity ...int) (out <-chan coretypes.ResultEvent, err error)
 func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query string, outCapacity ...int) (<-chan coretypes.ResultEvent, error) {
-	fmt.Println("In MockClient Subscribe, subscriber = ", subscriber, ", query = ", query, ", outCapacity = ", outCapacity)
 	if query == "tm.event = 'NewBlockHeader'" {
 		resCh := make(chan coretypes.ResultEvent, 5)
 		go func() {
-			for i := 0; i < 5; i++ {
-				abciEvent := NewABCIEventBuilder().SetBlockNum(int(MockHeight + i)).Build()
+			for i := uint64(0); i < 5; i++ {
 				resCh <- coretypes.ResultEvent{
 					SubscriptionID: subscriber,
 					Query:          query,
-					Events: []abci.Event{
-						abciEvent,
-					},
+					Data:           c.mockEventDataNewBlockHeader(i + 1),
+					Events:         c.mockEventDataNewBlockHeader(i + 1).ABCIEvents(),
 				}
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
 			}
 		}()
 		return resCh, nil

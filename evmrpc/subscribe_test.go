@@ -43,10 +43,13 @@ func TestSubscribeNewHeads(t *testing.T) {
 			if paramMap["subscription"] != subscriptionId {
 				t.Fatal("Subscription ID does not match")
 			}
-			resMap := paramMap["result"].(map[string]interface{})
-			query := resMap["query"].(string)
-			if query != "tm.event = 'NewBlockHeader'" {
-				t.Fatal("query is not correct")
+			resultMap := paramMap["result"].(map[string]interface{})
+			// check some basic stuff like number and transactionRoot
+			if resultMap["number"] == nil {
+				t.Fatal("Block number is nil")
+			}
+			if resultMap["transactionsRoot"] == nil {
+				t.Fatal("Transaction root is nil")
 			}
 		case <-timer.C:
 			if !receivedSubMsg || !receivedEvents {
