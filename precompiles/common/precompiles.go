@@ -2,6 +2,7 @@ package common
 
 import (
 	"errors"
+	"fmt"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -45,4 +46,10 @@ func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method
 	}
 
 	return ctxer.Ctx(), method, args, nil
+}
+
+func AssertArgsLength(args []interface{}, length int) {
+	if len(args) != length {
+		panic(fmt.Sprintf("expected %d arguments but got %d", length, len(args)))
+	}
 }

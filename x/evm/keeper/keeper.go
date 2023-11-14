@@ -33,13 +33,14 @@ func NewKeeper(
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
-	return &Keeper{
+	k := &Keeper{
 		storeKey:      storeKey,
 		Paramstore:    paramstore,
 		bankKeeper:    bankKeeper,
 		accountKeeper: accountKeeper,
 		stakingKeeper: stakingKeeper,
 	}
+	return k
 }
 
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {

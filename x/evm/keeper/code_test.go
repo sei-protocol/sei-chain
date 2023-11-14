@@ -10,7 +10,7 @@ import (
 )
 
 func TestCode(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper()
 	_, addr := keeper.MockAddressPair()
 
 	require.Equal(t, common.Hash{}, k.GetCodeHash(ctx, addr))
