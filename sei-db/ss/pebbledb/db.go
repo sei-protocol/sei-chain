@@ -198,9 +198,13 @@ func (db *Database) Prune(version int64) error {
 	defer itr.Close()
 
 	batch := db.storage.NewBatch()
-	var counter int
-	var prevKey, prevKeyEncoded, prevValEncoded []byte
-	var prevVersionDecoded int64
+	defer batch.Close()
+
+	var (
+		counter                                 int
+		prevKey, prevKeyEncoded, prevValEncoded []byte
+		prevVersionDecoded                      int64
+	)
 
 	for itr.First(); itr.Valid(); {
 		// Store current key and version
@@ -221,10 +225,9 @@ func (db *Database) Prune(version int64) error {
 			continue
 		}
 
-		// Deletes a key if another entry for that key exists a larger version than original but leq to the prune height
-		// Also deletes a key if it has been tombstoned and its version is leq to the prune height
+		// Delete a key if another entry for that key exists a larger version than original but leq to the prune height
+		// Also delete a key if it has been tombstoned and its version is leq to the prune height
 		if prevVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || valTombstoned(prevValEncoded)) {
-			// Delete previous key
 			err = batch.Delete(prevKeyEncoded, defaultWriteOpts)
 			if err != nil {
 				return err
@@ -236,13 +239,10 @@ func (db *Database) Prune(version int64) error {
 				if err != nil {
 					return err
 				}
-				err = batch.Close()
-				if err != nil {
-					return err
-				}
 
 				counter = 0
 				batch = db.storage.NewBatch()
+				defer batch.Close()
 			}
 		}
 
