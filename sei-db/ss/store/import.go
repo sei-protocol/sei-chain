@@ -14,7 +14,7 @@ import (
 func (s *MultiStore) Restore(height uint64, _ uint32, protoReader protoio.Reader) (snapshottypes.SnapshotItem, error) {
 	ch := make(chan types.ImportEntry, 1000)
 	go func() {
-		err := s.stateStore.Import(int64(height), ch)
+		err := s.stateStore.Import(int64(height), ch, s.importNumWorkers)
 		if err != nil {
 			panic(err)
 		}

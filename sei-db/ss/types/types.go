@@ -23,7 +23,7 @@ type StateStore interface {
 	ApplyChangeset(version int64, cs *proto.NamedChangeSet) error
 
 	// Import the initial state of the store
-	Import(version int64, ch <-chan ImportEntry) error
+	Import(version int64, ch <-chan ImportEntry, numWorkers int) error
 
 	// Prune attempts to prune all versions up to and including the provided
 	// version argument. The operation should be idempotent. An error should be

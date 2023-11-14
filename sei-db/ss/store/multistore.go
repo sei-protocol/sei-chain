@@ -28,15 +28,19 @@ type MultiStore struct {
 	traceWriter       io.Writer
 	traceContext      types.TraceContext
 	traceContextMutex sync.Mutex
+
+	// Number of goroutines for import
+	importNumWorkers int
 }
 
 // NewMultiStore returns a new state store `MultiStore`.
-func NewMultiStore(parent types.MultiStore, store sstypes.StateStore, storeKeys map[string]types.StoreKey) *MultiStore {
+func NewMultiStore(parent types.MultiStore, store sstypes.StateStore, storeKeys map[string]types.StoreKey, importNumWorkers int) *MultiStore {
 	return &MultiStore{
-		stateStore:      store,
-		storeKeys:       storeKeys,
-		parent:          parent,
-		transientStores: make(map[types.StoreKey]struct{}),
+		stateStore:       store,
+		storeKeys:        storeKeys,
+		parent:           parent,
+		transientStores:  make(map[types.StoreKey]struct{}),
+		importNumWorkers: importNumWorkers,
 	}
 }
 
@@ -116,6 +120,15 @@ func (s *MultiStore) getTracingContext() types.TraceContext {
 	}
 
 	return ctx
+}
+
+func (s *MultiStore) SetImportNumWorkers(numWorkers int) types.MultiStore {
+	s.importNumWorkers = numWorkers
+	return s
+}
+
+func (s *MultiStore) GetImportNumWorkers() int {
+	return s.importNumWorkers
 }
 
 // MountTransientStores simulates the same behavior as sdk to support grpc query service.
