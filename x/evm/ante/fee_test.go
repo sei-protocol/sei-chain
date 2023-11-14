@@ -18,7 +18,7 @@ import (
 )
 
 func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	ctx = ctx.WithIsCheckTx(true)
 	handler := ante.NewEVMFeeCheckDecorator(k)
 	privKey := testkeeper.MockPrivateKey()
@@ -175,7 +175,7 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 }
 
 func TestEVMFeeCheckDecoratorLondon(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	ctx = ctx.WithIsCheckTx(true)
 	handler := ante.NewEVMFeeCheckDecorator(k)
 	privKey := testkeeper.MockPrivateKey()

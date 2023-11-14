@@ -265,7 +265,7 @@ var Ctx sdk.Context
 
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
-	EVMKeeper, _, Ctx = testkeeper.MockEVMKeeper()
+	EVMKeeper, Ctx = testkeeper.MockEVMKeeper()
 	goodConfig := evmrpc.DefaultConfig
 	goodConfig.HTTPPort = TestPort
 	goodConfig.WSPort = TestWSPort
