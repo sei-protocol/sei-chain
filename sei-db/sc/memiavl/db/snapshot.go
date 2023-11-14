@@ -411,9 +411,9 @@ func writeSnapshot(
 		}
 	}()
 
-	nodesWriter := bufio.NewWriter(fpNodes)
-	leavesWriter := bufio.NewWriter(fpLeaves)
-	kvsWriter := bufio.NewWriter(fpKVs)
+	nodesWriter := bufio.NewWriterSize(fpNodes, bufIOSize)
+	leavesWriter := bufio.NewWriterSize(fpLeaves, bufIOSize)
+	kvsWriter := bufio.NewWriterSize(fpKVs, bufIOSize)
 
 	w := newSnapshotWriter(nodesWriter, leavesWriter, kvsWriter)
 	leaves, err := doWrite(w)
