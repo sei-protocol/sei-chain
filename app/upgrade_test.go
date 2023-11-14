@@ -16,7 +16,7 @@ import (
 func TestUpgradesListIsSorted(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	testWrapper.App.RegisterUpgradeHandlers()
 }
 
@@ -24,7 +24,7 @@ func TestUpgradesListIsSorted(t *testing.T) {
 func TestDistributionCommunityTaxParamMigration(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	testWrapper.App.RegisterUpgradeHandlers()
 	params := testWrapper.App.DistrKeeper.GetParams(testWrapper.Ctx)
 	testWrapper.Require().Equal(params.CommunityTax, sdk.NewDec(0))
@@ -36,7 +36,7 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 	t.Run("Test optimistic processing is skipped on upgrade", func(t *testing.T) {
 		tm := time.Now().UTC()
 		valPub := secp256k1.GenPrivKey().PubKey()
-		testWrapper := app.NewTestWrapper(t, tm, valPub)
+		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 		// No optimistic processing with upgrade scheduled
 		testCtx := testWrapper.App.BaseApp.NewContext(false, tmproto.Header{Height: 3, ChainID: "sei-test", Time: tm})
@@ -59,7 +59,7 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 	t.Run("Test optimistic processing if no upgrade", func(t *testing.T) {
 		tm := time.Now().UTC()
 		valPub := secp256k1.GenPrivKey().PubKey()
-		testWrapper := app.NewTestWrapper(t, tm, valPub)
+		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 		testCtx := testWrapper.App.BaseApp.NewContext(false, tmproto.Header{Height: 3, ChainID: "sei-test", Time: tm})
 
 		testWrapper.App.UpgradeKeeper.ScheduleUpgrade(testWrapper.Ctx, types.Plan{

@@ -12,12 +12,12 @@ import (
 )
 
 func TestGetChainID(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper()
 	require.Equal(t, types.DefaultChainID.Int64(), k.ChainID(ctx).Int64())
 }
 
 func TestGetVMBlockContext(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper()
 	moduleAddr := k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 	evmAddr, _ := k.GetEVMAddress(ctx, moduleAddr)
 	k.DeleteAddressMapping(ctx, moduleAddr, evmAddr)
@@ -26,7 +26,7 @@ func TestGetVMBlockContext(t *testing.T) {
 }
 
 func TestGetHashFn(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper()
 	f := k.GetHashFn(ctx)
 	require.Equal(t, common.Hash{}, f(math.MaxInt64+1))
 	require.Equal(t, common.BytesToHash(ctx.HeaderHash()), f(uint64(ctx.BlockHeight())))

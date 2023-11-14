@@ -8,7 +8,7 @@ import (
 )
 
 func TestSetGetAddressMapping(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper()
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	foundEVM, ok := k.GetEVMAddress(ctx, seiAddr)
 	require.False(t, ok)
@@ -24,7 +24,7 @@ func TestSetGetAddressMapping(t *testing.T) {
 }
 
 func TestDeleteAddressMapping(t *testing.T) {
-	k, _, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper()
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	foundEVM, ok := k.GetEVMAddress(ctx, seiAddr)
