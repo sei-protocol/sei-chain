@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-db/benchmark/dbbackend"
 	"github.com/sei-protocol/sei-db/ss"
+	"github.com/sei-protocol/sei-db/tools/dbbackend"
 	"github.com/spf13/cobra"
 )
 

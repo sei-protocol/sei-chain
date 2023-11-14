@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sei-protocol/sei-db/benchmark/utils"
+	"github.com/sei-protocol/sei-db/tools/utils"
 	"github.com/spf13/cobra"
 )
 
