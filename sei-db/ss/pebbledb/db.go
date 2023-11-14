@@ -290,6 +290,10 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWork
 	return nil
 }
 
+func (db *Database) DebugIterateStore(storeKey string, outputDir string) error {
+	panic("not implemented")
+}
+
 func storePrefix(storeKey string) []byte {
 	return []byte(fmt.Sprintf(StorePrefixTpl, storeKey))
 }

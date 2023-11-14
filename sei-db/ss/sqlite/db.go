@@ -306,6 +306,10 @@ func (db *Database) PrintRowsDebug() {
 	fmt.Println(strings.TrimSpace(sb.String()))
 }
 
+func (db *Database) DebugIterateStore(storeKey string, outputDir string) error {
+	panic("not implemented")
+}
+
 // execPragmas executes a series of PRAGMA statements on sqlite db
 func execPragmas(db *sql.DB, pragmas []string) error {
 	for _, pragma := range pragmas {
