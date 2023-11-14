@@ -20,9 +20,10 @@ import (
 const (
 	VersionSize = 8
 
-	StorePrefixTpl   = "s/k:%s/"   // s/k:<storeKey>
-	latestVersionKey = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
-	tombstoneVal     = "TOMBSTONE"
+	StorePrefixTpl     = "s/k:%s/"   // s/k:<storeKey>
+	latestVersionKey   = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
+	earliestVersionKey = "s/_earliest"
+	tombstoneVal       = "TOMBSTONE"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
@@ -37,6 +38,8 @@ var (
 
 type Database struct {
 	storage *pebble.DB
+	// Earliest version for db after pruning
+	earliestVersion int64
 }
 
 func New(dataDir string) (*Database, error) {
@@ -78,8 +81,14 @@ func New(dataDir string) (*Database, error) {
 		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
 	}
 
+	earliestVersion, err := retrieveEarliestVersion(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
+	}
+
 	return &Database{
-		storage: db,
+		storage:         db,
+		earliestVersion: earliestVersion,
 	}, nil
 }
 
@@ -119,7 +128,42 @@ func (db *Database) GetLatestVersion() (int64, error) {
 	return int64(binary.LittleEndian.Uint64(bz)), closer.Close()
 }
 
+func (db *Database) SetEarliestVersion(version int64) error {
+	db.earliestVersion = version
+
+	var ts [VersionSize]byte
+	binary.LittleEndian.PutUint64(ts[:], uint64(version))
+	return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
+}
+
+func (db *Database) GetEarliestVersion() int64 {
+	return db.earliestVersion
+}
+
+// Retrieves earliest version from db
+func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
+	bz, closer, err := db.Get([]byte(earliestVersionKey))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			// in case of a fresh database
+			return 0, nil
+		}
+
+		return 0, err
+	}
+
+	if len(bz) == 0 {
+		return 0, closer.Close()
+	}
+
+	return int64(binary.LittleEndian.Uint64(bz)), closer.Close()
+}
+
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
+	if version < db.earliestVersion {
+		return false, nil
+	}
+
 	val, err := db.Get(storeKey, version, key)
 	if err != nil {
 		return false, err
@@ -129,6 +173,10 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 }
 
 func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byte, error) {
+	if targetVersion < db.earliestVersion {
+		return nil, nil
+	}
+
 	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion)
 	if err != nil {
 		if errors.Is(err, utils.ErrRecordNotFound) {
@@ -188,6 +236,8 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 // Prune attempts to prune all versions up to and including the current version
 // Get the range of keys, manually iterate over them and delete them
 func (db *Database) Prune(version int64) error {
+	earliestVersion := version + 1 // we increment by 1 to include the provided version
+
 	itr, err := db.storage.NewIter(nil)
 	if err != nil {
 		return err
@@ -266,7 +316,7 @@ func (db *Database) Prune(version int64) error {
 		}
 	}
 
-	return nil
+	return db.SetEarliestVersion(earliestVersion)
 }
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
