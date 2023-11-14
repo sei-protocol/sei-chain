@@ -1,4 +1,4 @@
-package bank
+package bank_test
 
 import (
 	"math/big"
@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -14,14 +15,14 @@ import (
 )
 
 func TestRun(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	senderAddr, senderEVMAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100))))
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100))))
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	p, err := NewPrecompile(k.BankKeeper(), k)
+	p, err := bank.NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k)
 	evm := vm.EVM{
@@ -81,8 +82,8 @@ func TestRun(t *testing.T) {
 }
 
 func TestRequiredGas(t *testing.T) {
-	k, _, _ := testkeeper.MockEVMKeeper()
-	p, err := NewPrecompile(k.BankKeeper(), k)
+	k, _ := testkeeper.MockEVMKeeper()
+	p, err := bank.NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
 	sendInput := []byte{}
 	for name, m := range p.ABI.Methods {
@@ -107,8 +108,8 @@ func TestRequiredGas(t *testing.T) {
 }
 
 func TestAddress(t *testing.T) {
-	k, _, _ := testkeeper.MockEVMKeeper()
-	p, err := NewPrecompile(k.BankKeeper(), k)
+	k, _ := testkeeper.MockEVMKeeper()
+	p, err := bank.NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
-	require.Equal(t, common.HexToAddress(BankAddress), p.Address())
+	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
 }
