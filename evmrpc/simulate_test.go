@@ -10,8 +10,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper/testdata"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -41,11 +41,11 @@ func TestEstimateGas(t *testing.T) {
 
 	// contract call
 	_, contractAddr := testkeeper.MockAddressPair()
-	code, err := os.ReadFile("../x/evm/keeper/testdata/SimpleStorage/SimpleStorage.bin")
+	code, err := os.ReadFile("../example/contracts/simplestorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
-	abi, err := testdata.TestdataMetaData.GetAbi()
+	abi, err := simplestorage.SimplestorageMetaData.GetAbi()
 	require.Nil(t, err)
 	input, err := abi.Pack("set", big.NewInt(20))
 	require.Nil(t, err)
@@ -66,11 +66,11 @@ func TestEstimateGas(t *testing.T) {
 func TestCreateAccessList(t *testing.T) {
 	_, from := testkeeper.MockAddressPair()
 	_, contractAddr := testkeeper.MockAddressPair()
-	code, err := os.ReadFile("../x/evm/keeper/testdata/SimpleStorage/SimpleStorage.bin")
+	code, err := os.ReadFile("../example/contracts/simplestorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
-	abi, err := testdata.TestdataMetaData.GetAbi()
+	abi, err := simplestorage.SimplestorageMetaData.GetAbi()
 	require.Nil(t, err)
 	input, err := abi.Pack("set", big.NewInt(20))
 	require.Nil(t, err)
@@ -97,11 +97,11 @@ func TestCreateAccessList(t *testing.T) {
 func TestCall(t *testing.T) {
 	_, from := testkeeper.MockAddressPair()
 	_, contractAddr := testkeeper.MockAddressPair()
-	code, err := os.ReadFile("../x/evm/keeper/testdata/SimpleStorage/SimpleStorage.bin")
+	code, err := os.ReadFile("../example/contracts/simplestorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
-	abi, err := testdata.TestdataMetaData.GetAbi()
+	abi, err := simplestorage.SimplestorageMetaData.GetAbi()
 	require.Nil(t, err)
 	input, err := abi.Pack("set", big.NewInt(20))
 	require.Nil(t, err)

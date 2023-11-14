@@ -27,7 +27,7 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 
 	for i := 1; i <= 10; i++ {
-		testWrapper := app.NewTestWrapper(t, tm, valPub)
+		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
 		testWrapper.App.Commit(context.Background())
 		data := res.AppHash
@@ -109,7 +109,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 	account := sdk.AccAddress(valPub.Address()).String()
 	validator := sdk.ValAddress(valPub.Address()).String()
@@ -220,7 +220,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 	secondAcc := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 	account := sdk.AccAddress(valPub.Address()).String()
 	account2 := sdk.AccAddress(secondAcc.Address()).String()
@@ -306,7 +306,7 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	ap := testWrapper.App
 	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
 		Block: &types.BlockParams{MaxGas: 10},

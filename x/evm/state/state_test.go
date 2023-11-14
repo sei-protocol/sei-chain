@@ -13,7 +13,7 @@ import (
 )
 
 func TestState(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	_, evmAddr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
@@ -49,7 +49,7 @@ func TestState(t *testing.T) {
 }
 
 func TestCreate(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	_, evmAddr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k)
 	statedb.CreateAccount(evmAddr)
@@ -83,7 +83,7 @@ func TestCreate(t *testing.T) {
 }
 
 func TestSelfDestructAssociated(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	statedb := state.NewDBImpl(ctx, k)
@@ -119,7 +119,7 @@ func TestSelfDestructAssociated(t *testing.T) {
 }
 
 func TestSnapshot(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	statedb := state.NewDBImpl(ctx, k)
