@@ -21,4 +21,20 @@ interface IBank {
         address acc,
         string memory denom
     ) external view returns (uint256 amount);
+
+    function name(
+        string memory denom
+    ) external view returns (string memory response);
+
+    function symbol(
+        string memory denom
+    ) external view returns (string memory response);
+
+    function decimals(
+        string memory denom
+    ) external view returns (uint8 response);
+
+    function supply(
+        string memory denom
+    ) external view returns (uint256 response);
 }

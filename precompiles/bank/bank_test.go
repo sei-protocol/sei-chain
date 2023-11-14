@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
@@ -28,52 +29,38 @@ func TestRun(t *testing.T) {
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
-	sendInput := []byte{}
-	for name, m := range p.ABI.Methods {
-		if name == "send" {
-			sendInput = m.ID
-		}
-	}
-	require.NotEmpty(t, sendInput)
-	send, err := p.ABI.MethodById(sendInput)
+	send, err := p.ABI.MethodById(p.SendID)
 	require.Nil(t, err)
 	args, err := send.Inputs.Pack(senderEVMAddr, evmAddr, "usei", big.NewInt(100))
 	require.Nil(t, err)
-	res, err := p.Run(&evm, append(sendInput, args...))
+	res, err := p.Run(&evm, append(p.SendID, args...))
 	require.Nil(t, err)
 	is, err := send.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(is))
 	require.True(t, is[0].(bool))
 	require.Equal(t, uint64(100), k.BankKeeper().GetBalance(statedb.Ctx(), seiAddr, "usei").Amount.Uint64())
-	res, err = p.Run(&evm, append(sendInput, args[:3]...))
+	res, err = p.Run(&evm, append(p.SendID, args[:3]...))
 	require.NotNil(t, err)
 	args, err = send.Inputs.Pack(senderEVMAddr, evmAddr, "", big.NewInt(100))
-	res, err = p.Run(&evm, append(sendInput, args...))
+	res, err = p.Run(&evm, append(p.SendID, args...))
 	require.NotNil(t, err)
 
-	balanceInput := []byte{}
-	for name, m := range p.ABI.Methods {
-		if name == "balance" {
-			balanceInput = m.ID
-		}
-	}
-	require.NotEmpty(t, balanceInput)
-	balance, err := p.ABI.MethodById(balanceInput)
+	balance, err := p.ABI.MethodById(p.BalanceID)
 	require.Nil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "usei")
 	require.Nil(t, err)
-	res, err = p.Run(&evm, append(balanceInput, args...))
+	res, err = p.Run(&evm, append(p.BalanceID, args...))
 	require.Nil(t, err)
 	is, err = balance.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(is))
 	require.Equal(t, big.NewInt(100), is[0].(*big.Int))
-	res, err = p.Run(&evm, append(balanceInput, args[:1]...))
+	res, err = p.Run(&evm, append(p.BalanceID, args[:1]...))
 	require.NotNil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "")
 	require.Nil(t, err)
-	res, err = p.Run(&evm, append(balanceInput, args...))
+	res, err = p.Run(&evm, append(p.BalanceID, args...))
 	require.NotNil(t, err)
 
 	// invalid input
@@ -81,27 +68,63 @@ func TestRun(t *testing.T) {
 	require.NotNil(t, err)
 }
 
+func TestMetadata(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
+	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, k)
+	evm := vm.EVM{
+		StateDB: statedb,
+	}
+	name, err := p.ABI.MethodById(p.NameID)
+	require.Nil(t, err)
+	args, err := name.Inputs.Pack("usei")
+	require.Nil(t, err)
+	res, err := p.Run(&evm, append(p.NameID, args...))
+	require.Nil(t, err)
+	outputs, err := name.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, "SEI", outputs[0])
+
+	symbol, err := p.ABI.MethodById(p.SymbolID)
+	require.Nil(t, err)
+	args, err = symbol.Inputs.Pack("usei")
+	require.Nil(t, err)
+	res, err = p.Run(&evm, append(p.SymbolID, args...))
+	require.Nil(t, err)
+	outputs, err = symbol.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, "usei", outputs[0])
+
+	decimal, err := p.ABI.MethodById(p.DecimalsID)
+	require.Nil(t, err)
+	args, err = decimal.Inputs.Pack("usei")
+	require.Nil(t, err)
+	res, err = p.Run(&evm, append(p.DecimalsID, args...))
+	require.Nil(t, err)
+	outputs, err = decimal.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, uint8(0), outputs[0])
+
+	supply, err := p.ABI.MethodById(p.SupplyID)
+	require.Nil(t, err)
+	args, err = supply.Inputs.Pack("usei")
+	require.Nil(t, err)
+	res, err = p.Run(&evm, append(p.SupplyID, args...))
+	require.Nil(t, err)
+	outputs, err = supply.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, big.NewInt(10), outputs[0])
+}
+
 func TestRequiredGas(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
-	sendInput := []byte{}
-	for name, m := range p.ABI.Methods {
-		if name == "send" {
-			sendInput = m.ID
-		}
-	}
-	require.NotEmpty(t, sendInput)
-	sendRequiredGas := p.RequiredGas(sendInput)
+	sendRequiredGas := p.RequiredGas(p.SendID)
 	require.Equal(t, uint64(2000), sendRequiredGas)
-	balanceInput := []byte{}
-	for name, m := range p.ABI.Methods {
-		if name == "balance" {
-			balanceInput = m.ID
-		}
-	}
-	require.NotEmpty(t, balanceInput)
-	balanceRequiredGas := p.RequiredGas(balanceInput)
+	balanceRequiredGas := p.RequiredGas(p.BalanceID)
 	require.Equal(t, uint64(1000), balanceRequiredGas)
 	// invalid method
 	require.Equal(t, uint64(0), p.RequiredGas([]byte{1, 1, 1, 1}))
