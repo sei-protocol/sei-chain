@@ -11,6 +11,8 @@ import (
 	"github.com/sei-protocol/sei-db/proto"
 )
 
+var importBufferSize = 10000
+
 type MultiTreeImporter struct {
 	dir         string
 	snapshotDir string
@@ -103,7 +105,7 @@ type TreeImporter struct {
 }
 
 func NewTreeImporter(dir string, version int64) *TreeImporter {
-	nodesChan := make(chan *ExportNode)
+	nodesChan := make(chan *ExportNode, importBufferSize)
 	quitChan := make(chan error)
 	go func() {
 		defer close(quitChan)
