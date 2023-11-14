@@ -1,29 +1,55 @@
 package precompiles
 
 import (
+	"sync"
+
+	ecommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 )
+
+var SetupMtx = &sync.Mutex{}
+var Initialized = false
 
 func InitializePrecompiles(
 	evmKeeper common.EVMKeeper,
 	bankKeeper common.BankKeeper,
+	wasmdKeeper common.WasmdKeeper,
+	wasmdViewKeeper common.WasmdViewKeeper,
 ) error {
+	SetupMtx.Lock()
+	defer SetupMtx.Unlock()
+	if Initialized {
+		panic("precompiles already initialized")
+	}
 	bankp, err := bank.NewPrecompile(bankKeeper, evmKeeper)
 	if err != nil {
 		return err
 	}
-	vm.PrecompiledContractsHomestead[bankp.Address()] = bankp
-	vm.PrecompiledContractsByzantium[bankp.Address()] = bankp
-	vm.PrecompiledContractsIstanbul[bankp.Address()] = bankp
-	vm.PrecompiledContractsBerlin[bankp.Address()] = bankp
-	vm.PrecompiledContractsCancun[bankp.Address()] = bankp
-	vm.PrecompiledContractsBLS[bankp.Address()] = bankp
-	vm.PrecompiledAddressesHomestead = append(vm.PrecompiledAddressesHomestead, bankp.Address())
-	vm.PrecompiledAddressesByzantium = append(vm.PrecompiledAddressesByzantium, bankp.Address())
-	vm.PrecompiledAddressesIstanbul = append(vm.PrecompiledAddressesIstanbul, bankp.Address())
-	vm.PrecompiledAddressesBerlin = append(vm.PrecompiledAddressesBerlin, bankp.Address())
-	vm.PrecompiledAddressesCancun = append(vm.PrecompiledAddressesCancun, bankp.Address())
+	addPrecompileToVM(bankp, bankp.Address())
+	wasmdp, err := wasmd.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(wasmdp, wasmdp.Address())
+	Initialized = true
 	return nil
+}
+
+// This function modifies global variable in `vm` module. It should only be called once
+// per precompile during initialization
+func addPrecompileToVM(p vm.PrecompiledContract, addr ecommon.Address) {
+	vm.PrecompiledContractsHomestead[addr] = p
+	vm.PrecompiledContractsByzantium[addr] = p
+	vm.PrecompiledContractsIstanbul[addr] = p
+	vm.PrecompiledContractsBerlin[addr] = p
+	vm.PrecompiledContractsCancun[addr] = p
+	vm.PrecompiledContractsBLS[addr] = p
+	vm.PrecompiledAddressesHomestead = append(vm.PrecompiledAddressesHomestead, addr)
+	vm.PrecompiledAddressesByzantium = append(vm.PrecompiledAddressesByzantium, addr)
+	vm.PrecompiledAddressesIstanbul = append(vm.PrecompiledAddressesIstanbul, addr)
+	vm.PrecompiledAddressesBerlin = append(vm.PrecompiledAddressesBerlin, addr)
+	vm.PrecompiledAddressesCancun = append(vm.PrecompiledAddressesCancun, addr)
 }

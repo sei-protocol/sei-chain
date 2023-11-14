@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "../../../../precompiles/bank/Bank.sol";
+import "../../../precompiles/bank/Bank.sol";
 
 contract SendAll {
     function sendAll(

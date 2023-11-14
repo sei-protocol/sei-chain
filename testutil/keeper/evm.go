@@ -2,67 +2,32 @@ package keeper
 
 import (
 	"encoding/hex"
+	"sync"
 
-	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
-	typesparams "github.com/cosmos/cosmos-sdk/x/params/types"
-	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmdb "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/app"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func MockEVMKeeper() (*evmkeeper.Keeper, *paramskeeper.Keeper, sdk.Context) {
-	evmStoreKey := sdk.NewKVStoreKey(types.StoreKey)
-	authStoreKey := sdk.NewKVStoreKey(authtypes.StoreKey)
-	bankStoreKey := sdk.NewKVStoreKey(banktypes.StoreKey)
-	stakingStoreKey := sdk.NewKVStoreKey(stakingtypes.StoreKey)
-	keyParams := sdk.NewKVStoreKey(typesparams.StoreKey)
-	tKeyParams := sdk.NewTransientStoreKey(typesparams.TStoreKey)
+var mockKeeper *evmkeeper.Keeper
+var mockCtx sdk.Context
+var mtx = &sync.Mutex{}
 
-	db := tmdb.NewMemDB()
-	stateStore := store.NewCommitMultiStore(db)
-	getPref := func(name string) []byte {
-		return []byte("s/k:" + name + "/")
+func MockEVMKeeperWithPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
+	mtx.Lock()
+	defer mtx.Unlock()
+	if mockKeeper != nil {
+		return mockKeeper, mockCtx
 	}
-	stateStore.MountStoreWithDB(evmStoreKey, sdk.StoreTypeIAVL, tmdb.NewPrefixDB(db, getPref(types.ModuleName)))
-	stateStore.MountStoreWithDB(authStoreKey, sdk.StoreTypeIAVL, tmdb.NewPrefixDB(db, getPref(authtypes.ModuleName)))
-	stateStore.MountStoreWithDB(bankStoreKey, sdk.StoreTypeIAVL, tmdb.NewPrefixDB(db, getPref(banktypes.ModuleName)))
-	stateStore.MountStoreWithDB(stakingStoreKey, sdk.StoreTypeIAVL, tmdb.NewPrefixDB(db, getPref(stakingtypes.ModuleName)))
-	stateStore.MountStoreWithDB(tKeyParams, sdk.StoreTypeTransient, tmdb.NewPrefixDB(db, getPref("tparams")))
-	stateStore.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, tmdb.NewPrefixDB(db, getPref("params")))
-	_ = stateStore.LoadLatestVersion()
-
-	cdc := codec.NewProtoCodec(app.MakeEncodingConfig().InterfaceRegistry)
-
-	paramsKeeper := paramskeeper.NewKeeper(cdc, codec.NewLegacyAmino(), keyParams, tKeyParams)
-	accountKeeper := authkeeper.NewAccountKeeper(cdc, authStoreKey, paramsKeeper.Subspace(authtypes.ModuleName), authtypes.ProtoBaseAccount, map[string][]string{
-		types.ModuleName:               {authtypes.Minter, authtypes.Burner},
-		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
-		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
-		authtypes.FeeCollectorName:     nil,
-	})
-	bankKeeper := bankkeeper.NewBaseKeeper(cdc, bankStoreKey, accountKeeper, paramsKeeper.Subspace(banktypes.ModuleName), map[string]bool{})
-	stakingKeeper := stakingkeeper.NewKeeper(cdc, stakingStoreKey, accountKeeper, bankKeeper, paramsKeeper.Subspace(stakingtypes.ModuleName))
-
-	ctx := sdk.NewContext(stateStore, tmproto.Header{Height: 8}, false, log.NewNopLogger())
-	k := evmkeeper.NewKeeper(evmStoreKey, paramsKeeper.Subspace(types.ModuleName), bankKeeper, &accountKeeper, &stakingKeeper)
+	testApp := app.Setup(false, true)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	k := testApp.EvmKeeper
 	k.InitGenesis(ctx)
 
 	// mint some coins to a sei address
@@ -70,15 +35,39 @@ func MockEVMKeeper() (*evmkeeper.Keeper, *paramskeeper.Keeper, sdk.Context) {
 	if err != nil {
 		panic(err)
 	}
-	err = bankKeeper.MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	err = testApp.BankKeeper.MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
 	if err != nil {
 		panic(err)
 	}
-	err = bankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	err = testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
 	if err != nil {
 		panic(err)
 	}
-	return k, &paramsKeeper, ctx
+	mockKeeper = &k
+	mockCtx = ctx
+	return &k, ctx
+}
+
+func MockEVMKeeper() (*evmkeeper.Keeper, sdk.Context) {
+	testApp := app.Setup(false, false)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	k := testApp.EvmKeeper
+	k.InitGenesis(ctx)
+
+	// mint some coins to a sei address
+	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
+	if err != nil {
+		panic(err)
+	}
+	err = testApp.BankKeeper.MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	err = testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	return &k, ctx
 }
 
 func MockAddressPair() (sdk.AccAddress, common.Address) {

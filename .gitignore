@@ -45,3 +45,6 @@ integration_test/**/*.txt
 # Coverage Files
 coverage.html
 coverage.out
+
+# example artifacts
+example/cosmwasm/echo/target

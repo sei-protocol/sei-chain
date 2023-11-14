@@ -13,7 +13,7 @@ import (
 )
 
 func TestAddBalance(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(15)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
 	db := state.NewDBImpl(ctx, k)
@@ -37,7 +37,7 @@ func TestAddBalance(t *testing.T) {
 }
 
 func TestSubBalance(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	db := state.NewDBImpl(ctx, k)
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))
@@ -66,7 +66,7 @@ func TestSubBalance(t *testing.T) {
 }
 
 func TestSetBalance(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	db := state.NewDBImpl(ctx, k)
 	_, evmAddr := testkeeper.MockAddressPair()
 	db.SetBalance(evmAddr, big.NewInt(10000000000000))
@@ -79,7 +79,7 @@ func TestSetBalance(t *testing.T) {
 }
 
 func TestCheckBalance(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	db := state.NewDBImpl(ctx, k)
 	require.Nil(t, db.CheckBalance())
 
@@ -88,7 +88,7 @@ func TestCheckBalance(t *testing.T) {
 	db.WithErr(nil)
 
 	// subbalance with unassociated address
-	k, _, ctx = testkeeper.MockEVMKeeper()
+	k, ctx = testkeeper.MockEVMKeeper()
 	_, evmAddr := testkeeper.MockAddressPair()
 	k.SetOrDeleteBalance(ctx, evmAddr, 1000)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))
@@ -100,7 +100,7 @@ func TestCheckBalance(t *testing.T) {
 	require.Equal(t, uint64(500), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), k.GetBaseDenom(ctx)).Amount.Uint64())
 
 	// subbalance with associated address
-	k, _, ctx = testkeeper.MockEVMKeeper()
+	k, ctx = testkeeper.MockEVMKeeper()
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	amt = sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))
@@ -113,7 +113,7 @@ func TestCheckBalance(t *testing.T) {
 	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), k.GetBaseDenom(ctx)).Amount.Uint64())
 
 	// addbalance with unassociated address (should fail since it tries to create tokens from thin air)
-	k, _, ctx = testkeeper.MockEVMKeeper()
+	k, ctx = testkeeper.MockEVMKeeper()
 	_, evmAddr = testkeeper.MockAddressPair()
 	k.SetOrDeleteBalance(ctx, evmAddr, 1000)
 	amt = sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))
@@ -125,7 +125,7 @@ func TestCheckBalance(t *testing.T) {
 	require.Equal(t, uint64(1000), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), k.GetBaseDenom(ctx)).Amount.Uint64()) // should remain unchanged
 
 	// addbalance with associated address (should fail since it tries to create tokens from thin air)
-	k, _, ctx = testkeeper.MockEVMKeeper()
+	k, ctx = testkeeper.MockEVMKeeper()
 	seiAddr, evmAddr = testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	amt = sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))

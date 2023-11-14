@@ -61,8 +61,8 @@ type TestWrapper struct {
 	Ctx sdk.Context
 }
 
-func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
-	appPtr := Setup(false, baseAppOptions...)
+func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
+	appPtr := Setup(false, enableEVMCustomPrecompiles, baseAppOptions...)
 	ctx := appPtr.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, appPtr.MemState))
 	wrapper := &TestWrapper{
@@ -155,7 +155,7 @@ func (s *TestWrapper) EndBlock() {
 	s.App.EndBlocker(s.Ctx, reqEndBlock)
 }
 
-func Setup(isCheckTx bool, baseAppOptions ...func(*baseapp.BaseApp)) *App {
+func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) *App {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
@@ -167,6 +167,7 @@ func Setup(isCheckTx bool, baseAppOptions ...func(*baseapp.BaseApp)) *App {
 		map[int64]bool{},
 		DefaultNodeHome,
 		1,
+		enableEVMCustomPrecompiles,
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
@@ -197,7 +198,7 @@ func Setup(isCheckTx bool, baseAppOptions ...func(*baseapp.BaseApp)) *App {
 	return app
 }
 
-func SetupTestingAppWithLevelDb(isCheckTx bool) (*App, func()) {
+func SetupTestingAppWithLevelDb(isCheckTx bool, enableEVMCustomPrecompiles bool) (*App, func()) {
 	dir := "sei_testing"
 	db, err := sdk.NewLevelDB("sei_leveldb_testing", dir)
 	if err != nil {
@@ -213,6 +214,7 @@ func SetupTestingAppWithLevelDb(isCheckTx bool) (*App, func()) {
 		map[int64]bool{},
 		DefaultNodeHome,
 		5,
+		enableEVMCustomPrecompiles,
 		nil,
 		encodingConfig,
 		wasm.EnableAllProposals,

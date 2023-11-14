@@ -17,7 +17,7 @@ import (
 )
 
 func TestEVMSigVerifyDecorator(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	handler := ante.NewEVMSigVerifyDecorator(k)
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())

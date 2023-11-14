@@ -12,11 +12,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/precompiles"
+	"github.com/sei-protocol/sei-chain/example/contracts/sendall"
+	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper/testdata"
-	sendall "github.com/sei-protocol/sei-chain/x/evm/keeper/testdata/SendAll"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -24,8 +23,8 @@ import (
 )
 
 func TestEVMTransaction(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
-	code, err := os.ReadFile("./testdata/SimpleStorage/SimpleStorage.bin")
+	k, ctx := testkeeper.MockEVMKeeper()
+	code, err := os.ReadFile("../../../example/contracts/simplestorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
@@ -75,7 +74,7 @@ func TestEVMTransaction(t *testing.T) {
 
 	// send transaction to the contract
 	contractAddr := common.HexToAddress(receipt.ContractAddress)
-	abi, err := testdata.TestdataMetaData.GetAbi()
+	abi, err := simplestorage.SimplestorageMetaData.GetAbi()
 	require.Nil(t, err)
 	bz, err = abi.Pack("set", big.NewInt(20))
 	require.Nil(t, err)
@@ -114,7 +113,7 @@ func TestEVMTransaction(t *testing.T) {
 }
 
 func TestEVMTransactionError(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
@@ -159,8 +158,8 @@ func TestEVMTransactionError(t *testing.T) {
 }
 
 func TestEVMTransactionInsufficientGas(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
-	code, err := os.ReadFile("./testdata/SimpleStorage/SimpleStorage.bin")
+	k, ctx := testkeeper.MockEVMKeeper()
+	code, err := os.ReadFile("../../../example/contracts/simplestorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
@@ -205,8 +204,8 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
-	code, err := os.ReadFile("./testdata/SimpleStorage/SimpleStorage.bin")
+	k, ctx := testkeeper.MockEVMKeeper()
+	code, err := os.ReadFile("../../../example/contracts/simplestorage/SimpleStorage.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
@@ -255,10 +254,8 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 }
 
 func TestEVMPrecompiles(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
-	err := precompiles.InitializePrecompiles(k, k.BankKeeper())
-	require.Nil(t, err)
-	code, err := os.ReadFile("./testdata/SendAll/SendAll.bin")
+	k, ctx := testkeeper.MockEVMKeeperWithPrecompiles()
+	code, err := os.ReadFile("../../../example/contracts/sendall/SendAll.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
@@ -346,7 +343,7 @@ func TestEVMPrecompiles(t *testing.T) {
 }
 
 func TestEVMAssociateTx(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	req, err := types.NewMsgEVMTransaction(&ethtx.AssociateTx{})
 	require.Nil(t, err)
 	msgServer := keeper.NewMsgServerImpl(*k)

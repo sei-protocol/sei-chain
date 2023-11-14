@@ -100,6 +100,7 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 		return nil, err
 	}
 	sdkCtx := a.ctxProvider(block.Block.Height)
+	// TODO: fix me
 	iavl, ok := sdkCtx.MultiStore().GetKVStore((a.keeper.GetStoreKey())).(*iavlstore.Store)
 	if !ok {
 		return nil, errors.New("cannot find EVM IAVL store")

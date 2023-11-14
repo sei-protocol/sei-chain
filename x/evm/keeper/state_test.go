@@ -9,7 +9,7 @@ import (
 )
 
 func TestState(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	_, addr := testkeeper.MockAddressPair()
 
 	initialState := k.GetState(ctx, addr, common.HexToHash("0xabc"))

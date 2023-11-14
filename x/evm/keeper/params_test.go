@@ -9,7 +9,7 @@ import (
 )
 
 func TestParams(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	require.Equal(t, types.DefaultChainConfig(), k.GetChainConfig(ctx))
 	require.Equal(t, types.DefaultBaseDenom, k.GetBaseDenom(ctx))
 	require.Equal(t, types.DefaultPriorityNormalizer, k.GetPriorityNormalizer(ctx))

@@ -12,7 +12,7 @@ import (
 )
 
 func TestAddAddressToAccessList(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
 	_, addr := testkeeper.MockAddressPair()
@@ -28,7 +28,7 @@ func TestAddAddressToAccessList(t *testing.T) {
 }
 
 func TestAddSlotToAccessList(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
 	_, addr := testkeeper.MockAddressPair()
@@ -45,7 +45,7 @@ func TestAddSlotToAccessList(t *testing.T) {
 }
 
 func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
 	_, addr := testkeeper.MockAddressPair()
@@ -55,7 +55,7 @@ func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
 }
 
 func TestPrepare(t *testing.T) {
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	statedb := state.NewDBImpl(ctx, k)
 
 	_, sender := testkeeper.MockAddressPair()

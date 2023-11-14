@@ -1,0 +1,17 @@
+# Install solc (on Mac)
+brew update
+brew tap ethereum/ethereum
+brew install solidity
+
+# Install abigen
+go get -u github.com/ethereum/go-ethereum
+cd $GOPATH/src/github.com/ethereum/go-ethereum/
+make
+make devtools
+
+# Compile sol
+solc --bin -o example/contracts/sendall example/contracts/sendall/SendAll.sol
+
+# Generate ABI in Go
+solc --abi -o example/contracts/sendall example/contracts/sendall/SendAll.sol
+abigen --abi=example/contracts/sendall/SendAll.abi --pkg=sendall --out=example/contracts/sendall/SendAll.go
