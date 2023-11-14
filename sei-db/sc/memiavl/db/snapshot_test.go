@@ -180,9 +180,9 @@ func testSnapshotRoundTrip(t *testing.T, db *DB) {
 		require.NoError(t, importer.Add(item))
 	}
 
-	require.NoError(t, exporter.Close())
 	require.NoError(t, importer.Finalize())
 	require.NoError(t, importer.Close())
+	require.NoError(t, exporter.Close())
 
 	db2, err := Load(restoreDir, Options{})
 	require.NoError(t, err)
