@@ -273,7 +273,7 @@ func (c *Local) eventsRoutine(ctx context.Context, sub eventbus.Subscription, su
 		case outc <- coretypes.ResultEvent{
 			SubscriptionID: msg.SubscriptionID(),
 			Query:          qstr,
-			Data:           msg.LegacyData(),
+			Data:           msg.Data(),
 			Events:         msg.Events(),
 		}:
 		case <-ctx.Done():
