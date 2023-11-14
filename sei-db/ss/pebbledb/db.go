@@ -261,10 +261,6 @@ func (db *Database) Prune(version int64) error {
 		if err != nil {
 			return err
 		}
-		err = batch.Close()
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
