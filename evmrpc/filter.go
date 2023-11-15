@@ -282,30 +282,7 @@ func (a *FilterAPI) getLogs(
 	topics [][]common.Hash,
 	cursor string,
 ) ([]*ethtypes.Log, string, error) {
-	q := NewTxQueryBuilder()
-	if blockHash != nil {
-		q = q.FilterBlockHash(blockHash.Hex())
-	}
-	if fromBlock != nil {
-		q = q.FilterBlockNumberStart(fromBlock.Int64())
-	}
-	if toBlock != nil {
-		q = q.FilterBlockNumberEnd(toBlock.Int64())
-	}
-	if (address != common.Address{}) {
-		q = q.FilterContractAddress(address.Hex())
-	}
-	if len(topics) > 0 {
-		topicsStrs := make([][]string, len(topics))
-		for i, topic := range topics {
-			topicsStrs[i] = make([]string, len(topic))
-			for j, t := range topic {
-				topicsStrs[i][j] = t.Hex()
-			}
-		}
-		q = q.FilterTopics(topicsStrs)
-	}
-	builtQuery := q.Build()
+	builtQuery := getBuiltQuery(blockHash, fromBlock, toBlock, address, topics).Build()
 	hasMore := true
 	logs := []*ethtypes.Log{}
 	for hasMore {
@@ -346,4 +323,37 @@ func (a *FilterAPI) UninstallFilter(
 	}
 	delete(a.filters, filterID)
 	return true
+}
+
+func getBuiltQuery(
+	blockHash *common.Hash,
+	fromBlock *big.Int,
+	toBlock *big.Int,
+	address common.Address,
+	topics [][]common.Hash,
+) *QueryBuilder {
+	q := NewTxQueryBuilder()
+	if blockHash != nil {
+		q = q.FilterBlockHash(blockHash.Hex())
+	}
+	if fromBlock != nil {
+		q = q.FilterBlockNumberStart(fromBlock.Int64())
+	}
+	if toBlock != nil {
+		q = q.FilterBlockNumberEnd(toBlock.Int64())
+	}
+	if (address != common.Address{}) {
+		q = q.FilterContractAddress(address.Hex())
+	}
+	if len(topics) > 0 {
+		topicsStrs := make([][]string, len(topics))
+		for i, topic := range topics {
+			topicsStrs[i] = make([]string, len(topic))
+			for j, t := range topic {
+				topicsStrs[i][j] = t.Hex()
+			}
+		}
+		q = q.FilterTopics(topicsStrs)
+	}
+	return q
 }
