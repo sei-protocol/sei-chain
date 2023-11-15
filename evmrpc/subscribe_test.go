@@ -2,105 +2,139 @@ package evmrpc_test
 
 import (
 	"context"
-	"regexp"
 	"testing"
+	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/stretchr/testify/require"
 )
 
-func TestQueryBuilder(t *testing.T) {
-	q := mockQueryBuilder()
-	expectedQuery := "tm.event = 'Tx' AND evm_log.contract_address = 'test contract' AND evm_log.block_hash = 'block hash' AND evm_log.block_number = '1' AND evm_log.tx_hash = 'tx hash' AND evm_log.tx_idx = '2' AND evm_log.idx = '3' AND evm_log.topics CONTAINS 'topic a' AND evm_log.topics CONTAINS 'topic b'"
-	require.Equal(t, expectedQuery, q.Build())
+func TestSubscribeNewHeads(t *testing.T) {
+	t.Parallel()
+	recvCh, done := sendWSRequestGood(t, "subscribe", "newHeads")
+	defer func() { done <- struct{}{} }()
+
+	receivedSubMsg := false
+	receivedEvents := false
+	timer := time.NewTimer(1 * time.Second)
+
+	var subscriptionId string
+
+	for {
+		select {
+		case resObj := <-recvCh:
+			_, ok := resObj["error"]
+			if ok {
+				t.Fatal("Received error:", resObj["error"])
+			}
+			if !receivedSubMsg {
+				// get subscriptionId from first message
+				subscriptionId = resObj["result"].(string)
+				receivedSubMsg = true
+				continue
+			}
+			receivedEvents = true
+			method := resObj["method"].(string)
+			if method != "eth_subscription" {
+				t.Fatal("Method is not eth_subscription")
+			}
+			paramMap := resObj["params"].(map[string]interface{})
+			if paramMap["subscription"] != subscriptionId {
+				t.Fatal("Subscription ID does not match")
+			}
+			resultMap := paramMap["result"].(map[string]interface{})
+			// check some basic stuff like number and transactionRoot
+			if resultMap["number"] == nil {
+				t.Fatal("Block number is nil")
+			}
+			if resultMap["transactionsRoot"] == nil {
+				t.Fatal("Transaction root is nil")
+			}
+		case <-timer.C:
+			if !receivedSubMsg || !receivedEvents {
+				t.Fatal("No message received within 5 seconds")
+			}
+			return
+		}
+	}
 }
 
-func TestSubscribe(t *testing.T) {
+func TestSubscribeNewLogs(t *testing.T) {
+	t.Parallel()
+	data := map[string]interface{}{
+		"address": []common.Address{
+			common.HexToAddress("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"),
+			common.HexToAddress("0xc0ffee254729296a45a3885639AC7E10F9d54979"),
+		},
+		"topics": [][]common.Hash{
+			{
+				common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+			},
+		},
+	}
+	recvCh, done := sendWSRequestGood(t, "subscribe", "logs", data)
+	defer func() { done <- struct{}{} }()
+
+	receivedSubMsg := false
+	receivedEvents := false
+	timer := time.NewTimer(2 * time.Second)
+
+	var subscriptionId string
+
+	for {
+		select {
+		case resObj := <-recvCh:
+			_, ok := resObj["error"]
+			if ok {
+				t.Fatal("Received error:", resObj["error"])
+			}
+			if !receivedSubMsg {
+				// get subscriptionId from first message
+				subscriptionId = resObj["result"].(string)
+				receivedSubMsg = true
+				continue
+			}
+			receivedEvents = true
+			method := resObj["method"].(string)
+			if method != "eth_subscription" {
+				t.Fatal("Method is not eth_subscription")
+			}
+			paramMap := resObj["params"].(map[string]interface{})
+			if paramMap["subscription"] != subscriptionId {
+				t.Fatal("Subscription ID does not match")
+			}
+			resultMap := paramMap["result"].(map[string]interface{})
+			if resultMap["address"] != "0xc0ffee254729296a45a3885639ac7e10f9d54979" && resultMap["address"] != "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" {
+				t.Fatalf("Unexpected address, got %v", resultMap["address"])
+			}
+			firstTopic := resultMap["topics"].([]interface{})[0].(string)
+			if firstTopic != "0x0000000000000000000000000000000000000000000000000000000000000123" {
+				t.Fatalf("Unexpected topic, got %v", firstTopic)
+			}
+		case <-timer.C:
+			if !receivedSubMsg || !receivedEvents {
+				t.Fatal("No message received within 5 seconds")
+			}
+			return
+		}
+	}
+}
+
+func TestSubscriptionManager(t *testing.T) {
 	manager := evmrpc.NewSubscriptionManager(&MockClient{})
-	res, err := manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
+	res, subCh, err := manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
 	require.Nil(t, err)
+	require.NotNil(t, subCh)
 	require.Equal(t, 1, int(res))
 
-	res, err = manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
+	res, subCh, err = manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
 	require.Nil(t, err)
+	require.NotNil(t, subCh)
 	require.Equal(t, 2, int(res))
 
 	badManager := evmrpc.NewSubscriptionManager(&MockBadClient{})
-	_, err = badManager.Subscribe(context.Background(), mockQueryBuilder(), 10)
+	_, subCh, err = badManager.Subscribe(context.Background(), mockQueryBuilder(), 10)
 	require.NotNil(t, err)
-}
-
-func mockQueryBuilder() *evmrpc.QueryBuilder {
-	q := evmrpc.NewTxQueryBuilder()
-	q.FilterContractAddress("test contract")
-	q.FilterBlockHash("block hash")
-	q.FilterBlockNumber(1)
-	q.FilterTxHash("tx hash")
-	q.FilterTxIndex(2)
-	q.FilterIndex(3)
-	q.FilterTopic("topic a")
-	q.FilterTopic("topic b")
-	return q
-}
-
-func TestGetTopicsRegex(t *testing.T) {
-	tests := []struct {
-		name         string
-		topics       [][]string
-		wantErr      bool
-		wantMatch    []string
-		wantNotMatch []string
-	}{
-		{
-			name:    "error: topics length 0",
-			topics:  [][]string{},
-			wantErr: true,
-		},
-		{
-			name:         "match first topic",
-			topics:       [][]string{{"a"}},
-			wantErr:      false,
-			wantMatch:    []string{"[a]", "[a,b]", "[a,a,a,a]"},
-			wantNotMatch: []string{"b", "[b]", "[b,a]", "[a,b"},
-		},
-		{
-			name:         "match first topic with OR",
-			topics:       [][]string{{"a", "b"}}, // first topic can be a or b
-			wantErr:      false,
-			wantMatch:    []string{"[a]", "[a,b]", "[a,c,c,c]", "[b]", "[b,c]", "[b,c,c,c]"},
-			wantNotMatch: []string{"b", "[c]", "[c,a]", "[c,b"},
-		},
-		{
-			name:         "match second topic",
-			topics:       [][]string{{}, {"a"}},
-			wantErr:      false,
-			wantMatch:    []string{"[b,a]", "[c,a]", "[a,a,a]"},
-			wantNotMatch: []string{"b,a]", "[a,b,a]"},
-		},
-		{
-			name:         "match second and fourth topic",
-			topics:       [][]string{{""}, {"a", "c"}, {""}, {"b", "d"}},
-			wantErr:      false,
-			wantMatch:    []string{"[d,a,c,b]", "[c,a,c,d,c]", "[a,c,b,d]"},
-			wantNotMatch: []string{"[a,a,a,a]", "[a,b]", "[c,a,b,c]"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := evmrpc.GetTopicsRegex(tt.topics)
-			regex := regexp.MustCompile(got)
-			if tt.wantErr {
-				require.NotNil(t, err)
-				return
-			}
-			require.Nil(t, err)
-			for _, toMatch := range tt.wantMatch {
-				require.True(t, regex.MatchString(toMatch))
-			}
-			for _, toNotMatch := range tt.wantNotMatch {
-				require.False(t, regex.MatchString(toNotMatch))
-			}
-		})
-	}
+	require.Nil(t, subCh)
 }
