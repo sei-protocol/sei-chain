@@ -42,7 +42,7 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 
 	switch eventName {
 	case "newHeads":
-		subscriberId, subCh, err := a.subscriptionManager.Subscribe(ctx, NewHeadQueryBuilder(), 100)
+		subscriberID, subCh, err := a.subscriptionManager.Subscribe(ctx, NewHeadQueryBuilder(), 100)
 		if err != nil {
 			return nil, err
 		}
@@ -53,20 +53,19 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 				case res := <-subCh:
 					ethHeader, err := encodeTmHeader(a.ctxProvider(LatestCtxHeight), res.Data.(*tmtypes.EventDataNewBlockHeader))
 					if err != nil {
-						a.subscriptionManager.Unsubscribe(ctx, subscriberId)
+						_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 						return
 					}
 					err = notifier.Notify(rpcSub.ID, ethHeader)
 					if err != nil {
-						a.subscriptionManager.Unsubscribe(ctx, subscriberId)
+						_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 						return
 					}
-				case err := <-rpcSub.Err():
-					notifier.Notify(rpcSub.ID, err)
-					a.subscriptionManager.Unsubscribe(ctx, subscriberId)
+				case <-rpcSub.Err():
+					_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 					return
 				case <-notifier.Closed():
-					a.subscriptionManager.Unsubscribe(ctx, subscriberId)
+					_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 					return
 				}
 			}
@@ -86,10 +85,10 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 					case res := <-subCh:
 						resultEventAllAddrs <- res
 					case <-rpcSub.Err():
-						a.subscriptionManager.Unsubscribe(ctx, subscriberID)
+						_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 						return
 					case <-notifier.Closed():
-						a.subscriptionManager.Unsubscribe(ctx, subscriberID)
+						_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 						return
 					}
 				}
@@ -105,11 +104,10 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 						if err == InvalidEventAttributeError {
 							continue
 						}
-						notifier.Notify(rpcSub.ID, err)
-					}
-					if err != nil {
-						notifier.Notify(rpcSub.ID, err)
-						return
+						err = notifier.Notify(rpcSub.ID, err)
+						if err != nil {
+							return
+						}
 					}
 					err = notifier.Notify(rpcSub.ID, ethLog)
 					if err != nil {
