@@ -581,9 +581,6 @@ func sendWSRequestBad(t *testing.T, method string, params ...interface{}) (chan 
 }
 
 func sendWSRequestAndListen(t *testing.T, port int, method string, params ...interface{}) (chan map[string]interface{}, chan struct{}) {
-	// for i, param := range params {
-	// 	params[i] = strings.Replace(fmt.Sprintf("%v", param), "\"", "\\\"", -1)
-	// }
 	paramsFormatted := ""
 	if len(params) > 0 {
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")

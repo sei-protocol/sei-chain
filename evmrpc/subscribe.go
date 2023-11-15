@@ -51,7 +51,7 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 			for {
 				select {
 				case res := <-subCh:
-					ethHeader, err := encodeTmHeader(a.ctxProvider(LatestCtxHeight), res.Data.(*tmtypes.EventDataNewBlockHeader))
+					ethHeader, err := encodeTmHeader(res.Data.(*tmtypes.EventDataNewBlockHeader))
 					if err != nil {
 						_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 						return
@@ -179,7 +179,6 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 }
 
 func encodeTmHeader(
-	ctx sdk.Context,
 	header *tmtypes.EventDataNewBlockHeader,
 ) (map[string]interface{}, error) {
 	number := big.NewInt(header.Header.Height)
