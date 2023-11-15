@@ -46,11 +46,8 @@ type FilterQuery struct {
 }
 
 func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filter *FilterQuery) (*rpc.Subscription, error) {
-	fmt.Println("eventName = ", eventName)
-	fmt.Println("filter = ", filter)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
-		fmt.Println("not supported")
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
 	}
 
@@ -82,7 +79,6 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 				case err := <-rpcSub.Err():
 					notifier.Notify(rpcSub.ID, err)
 					// TODO: try to test these cases
-					fmt.Println("rpcSub.Err(), closed")
 					a.subscriptionManager.Unsubscribe(ctx, subscriberId)
 					return
 				case <-notifier.Closed():
@@ -93,11 +89,9 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 		}()
 		return rpcSub, nil
 	case "logs":
-		fmt.Println("in logs case")
 		resultEventAllAddrs := make(chan coretypes.ResultEvent)
 		for _, address := range filter.Addresses {
 			q := getBuiltQuery(filter.BlockHash, filter.FromBlock, filter.ToBlock, address, filter.Topics)
-			fmt.Printf("\n-------seting up subscription with subManager for addr %v and query %v\n\n", address, q.Build())
 			subscriberID, subCh, err := a.subscriptionManager.Subscribe(ctx, q, 100)
 			if err != nil {
 				return nil, err
@@ -106,7 +100,6 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 				for {
 					select {
 					case res := <-subCh:
-						fmt.Printf("\n-------got result from subCh for addr %v\n\n", address)
 						resultEventAllAddrs <- res
 					case <-rpcSub.Err():
 						a.subscriptionManager.Unsubscribe(ctx, subscriberID)
@@ -123,17 +116,14 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 			for {
 				select {
 				case res := <-resultEventAllAddrs:
-					fmt.Printf("\n-------got result from resultEventAllAddrs, len(res.Events) = %v, res = %+v\n\n", len(res.Events), res)
 					for _, abciEvent := range res.Events {
 						ethLog, err := encodeEventToLog(abciEvent)
 						if err != nil {
 							if err == InvalidEventAttributeError {
-								fmt.Printf("\nGot an invalid event attribute, for abciEvent = %+v\n\n", abciEvent)
 								continue
 							}
 							notifier.Notify(rpcSub.ID, err)
 						}
-						fmt.Printf("\n-------sending ethLog back = %v\n\n", ethLog)
 						if err != nil {
 							notifier.Notify(rpcSub.ID, err)
 							return

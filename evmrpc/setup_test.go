@@ -132,38 +132,8 @@ func (c *MockClient) mockEventDataNewBlockHeader(mockHeight uint64) *tmtypes.Eve
 	}
 }
 
-// Attributes: []abci.EventAttribute{{
-// 	Key:   []byte(types.AttributeTypeContractAddress),
-// 	Value: []byte(b.contractAddress),
-// }, {
-// 	Key:   []byte(types.AttributeTypeBlockHash),
-// 	Value: []byte(b.blockHash),
-// }, {
-// 	Key:   []byte(types.AttributeTypeBlockNumber),
-// 	Value: []byte(fmt.Sprintf("%d", b.blockNum)),
-// }, {
-// 	Key:   []byte(types.AttributeTypeData),
-// 	Value: []byte(b.data),
-// }, {
-// 	Key:   []byte(types.AttributeTypeIndex),
-// 	Value: []byte(fmt.Sprintf("%d", b.index)),
-// }, {
-// 	Key:   []byte(types.AttributeTypeTxIndex),
-// 	Value: []byte(fmt.Sprintf("%d", b.txIndex)),
-// }, {
-// 	Key:   []byte(types.AttributeTypeRemoved),
-// 	Value: []byte(fmt.Sprintf("%t", b.removed)),
-// }, {
-// 	Key:   []byte(types.AttributeTypeTopics),
-// 	Value: []byte(strings.Join(b.topics, ",")),
-// }, {
-// 	Key:   []byte(types.AttributeTypeTxHash),
-// 	Value: []byte(b.txHash.Hex()),
-// }},
-
 func mockEventDataTx(mockHeight uint64, addr common.Address, topics []common.Hash) *tmtypes.EventDataTx {
 	topicsStrs := utils.Map(topics, func(hash common.Hash) string { return hash.Hex() })
-	fmt.Println("topicsStrs = ", topicsStrs)
 	abciEvent := abci.Event{
 		Type: types.EventTypeEVMLog,
 		Attributes: []abci.EventAttribute{
@@ -245,8 +215,6 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 }
 
 func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query string, outCapacity ...int) (<-chan coretypes.ResultEvent, error) {
-	fmt.Println("In Subscribe()")
-	fmt.Println("query = ", query)
 	if query == "tm.event = 'NewBlockHeader'" {
 		resCh := make(chan coretypes.ResultEvent, 5)
 		go func() {
@@ -263,13 +231,31 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 		return resCh, nil
 		// hardcoded test case for simplicity
 	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' AND evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
-		fmt.Println("in hardcoded test case")
 		resCh := make(chan coretypes.ResultEvent, 5)
 		go func() {
 			for i := uint64(0); i < 5; i++ {
 				eventData := mockEventDataTx(
 					i+1,
 					common.HexToAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
+					[]common.Hash{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")},
+				)
+				resCh <- coretypes.ResultEvent{
+					SubscriptionID: subscriber,
+					Query:          query,
+					Data:           eventData,
+					Events:         eventData.ABCIEvents(),
+				}
+				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
+			}
+		}()
+		return resCh, nil
+	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xc0ffee254729296a45a3885639AC7E10F9d54979' AND evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
+		resCh := make(chan coretypes.ResultEvent, 5)
+		go func() {
+			for i := uint64(0); i < 5; i++ {
+				eventData := mockEventDataTx(
+					i+1,
+					common.HexToAddress("0xc0ffee254729296a45a3885639AC7E10F9d54979"),
 					[]common.Hash{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")},
 				)
 				resCh <- coretypes.ResultEvent{
@@ -565,7 +551,6 @@ func sendWSRequestAndListen(t *testing.T, port int, method string, params ...int
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
 	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_%s\",\"params\":[%s],\"id\":\"test\"}", method, paramsFormatted)
-	fmt.Println("final body:", body)
 
 	headers := make(http.Header)
 	headers.Set("Origin", "localhost")

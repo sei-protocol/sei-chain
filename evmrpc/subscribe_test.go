@@ -2,7 +2,6 @@ package evmrpc_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -63,10 +62,10 @@ func TestSubscribeNewHeads(t *testing.T) {
 
 func TestSubscribeNewLogs(t *testing.T) {
 	t.Parallel()
-	// data := "{\"address\":\"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\"]}"
 	data := map[string]interface{}{
 		"address": []common.Address{
 			common.HexToAddress("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"),
+			common.HexToAddress("0xc0ffee254729296a45a3885639AC7E10F9d54979"),
 		},
 		"topics": [][]common.Hash{
 			{
@@ -87,7 +86,6 @@ func TestSubscribeNewLogs(t *testing.T) {
 	for {
 		select {
 		case resObj := <-recvCh:
-			fmt.Println("resObj:", resObj)
 			_, ok := resObj["error"]
 			if ok {
 				t.Fatal("Received error:", resObj["error"])
@@ -106,6 +104,14 @@ func TestSubscribeNewLogs(t *testing.T) {
 			paramMap := resObj["params"].(map[string]interface{})
 			if paramMap["subscription"] != subscriptionId {
 				t.Fatal("Subscription ID does not match")
+			}
+			resultMap := paramMap["result"].(map[string]interface{})
+			if resultMap["address"] != "0xc0ffee254729296a45a3885639ac7e10f9d54979" && resultMap["address"] != "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" {
+				t.Fatalf("Unexpected address, got %v", resultMap["address"])
+			}
+			firstTopic := resultMap["topics"].([]interface{})[0].(string)
+			if firstTopic != "0x0000000000000000000000000000000000000000000000000000000000000123" {
+				t.Fatalf("Unexpected topic, got %v", firstTopic)
 			}
 		case <-timer.C:
 			if !receivedSubMsg || !receivedEvents {
