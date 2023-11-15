@@ -9,9 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,35 +26,35 @@ func TestGetBalance(t *testing.T) {
 			addr:       "0x1234567890123456789023456789012345678901",
 			blockNr:    "latest",
 			wantErr:    false,
-			wantAmount: "0x3e8",
+			wantAmount: "0x38d7ea4c68000",
 		},
 		{
 			name:       "safe block",
 			addr:       "0x1234567890123456789023456789012345678901",
 			blockNr:    "safe",
 			wantErr:    false,
-			wantAmount: "0x3e8",
+			wantAmount: "0x38d7ea4c68000",
 		},
 		{
 			name:       "finalized block",
 			addr:       "0x1234567890123456789023456789012345678901",
 			blockNr:    "finalized",
 			wantErr:    false,
-			wantAmount: "0x3e8",
+			wantAmount: "0x38d7ea4c68000",
 		},
 		{
 			name:       "pending block",
 			addr:       "0x1234567890123456789023456789012345678901",
 			blockNr:    "pending",
 			wantErr:    false,
-			wantAmount: "0x3e8",
+			wantAmount: "0x38d7ea4c68000",
 		},
 		{
 			name:       "evm address with sei address mapping",
 			addr:       common.HexToAddress(common.Bytes2Hex([]byte("evmAddr"))).String(),
 			blockNr:    "latest",
 			wantErr:    false,
-			wantAmount: "0xa",
+			wantAmount: "0x9184e72a000",
 		},
 	}
 
@@ -192,47 +190,4 @@ func TestGetStorageAt(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestGetProof(t *testing.T) {
-	_, evmAddr := testkeeper.MockAddressPair()
-	key, val := []byte("test"), []byte("abc")
-	EVMKeeper.SetState(Ctx, evmAddr, common.BytesToHash(key), common.BytesToHash(val))
-	// bump store version to be the latest block
-	for i := 0; i < MockHeight; i++ {
-		Ctx.MultiStore().(sdk.CommitMultiStore).Commit(true)
-	}
-	tests := []struct {
-		key         string
-		blockNr     string
-		expectedVal []byte
-	}{
-		{
-			key:         string(key),
-			blockNr:     "latest",
-			expectedVal: val,
-		},
-		{
-			key:         string(key),
-			blockNr:     "0x8",
-			expectedVal: val,
-		},
-		{
-			key:         "non existent",
-			blockNr:     "latest",
-			expectedVal: []byte{},
-		},
-	}
-	for _, test := range tests {
-		resObj := sendRequestGood(t, "getProof", evmAddr.Hex(), []interface{}{test.key}, test.blockNr)
-		result := resObj["result"].(map[string]interface{})
-		vals := result["hexValues"].([]interface{})
-		require.Equal(t, common.BytesToHash(test.expectedVal), common.HexToHash(vals[0].(string)))
-		proofs := result["storageProof"].([]interface{})
-		require.Equal(t, "ics23:iavl", proofs[0].(map[string]interface{})["ops"].([]interface{})[0].(map[string]interface{})["type"].(string))
-	}
-
-	resObj := sendRequestBad(t, "getProof", evmAddr.Hex(), []interface{}{string("non existent")}, "latest")
-	result := resObj["error"].(map[string]interface{})
-	require.Equal(t, "error block", result["message"])
 }

@@ -51,6 +51,7 @@ var TxConfig = EncodingConfig.TxConfig
 var Encoder = TxConfig.TxEncoder()
 var Decoder = TxConfig.TxDecoder()
 var Tx sdk.Tx
+var UnconfirmedTx sdk.Tx
 
 var SConfig = evmrpc.SimulateConfig{GasCap: 10000000}
 
@@ -373,6 +374,11 @@ func (c *MockClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.Result
 	return &coretypes.ResultBroadcastTx{Code: 0}, nil
 }
 
+func (c *MockClient) UnconfirmedTxs(ctx context.Context, page, perPage *int) (*coretypes.ResultUnconfirmedTxs, error) {
+	tx, _ := Encoder(UnconfirmedTx)
+	return &coretypes.ResultUnconfirmedTxs{Txs: []tmtypes.Tx{tx}}, nil
+}
+
 type MockBadClient struct {
 	MockClient
 }
@@ -402,7 +408,7 @@ var Ctx sdk.Context
 
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
-	EVMKeeper, _, Ctx = testkeeper.MockEVMKeeper()
+	EVMKeeper, Ctx = testkeeper.MockEVMKeeper()
 	goodConfig := evmrpc.DefaultConfig
 	goodConfig.HTTPPort = TestPort
 	goodConfig.WSPort = TestWSPort
@@ -503,6 +509,35 @@ func init() {
 		common.BytesToHash([]byte("key")),
 		common.BytesToHash([]byte("value")),
 	)
+	EVMKeeper.SetNonce(Ctx, common.HexToAddress("0x1234567890123456789012345678901234567890"), 1)
+
+	unconfirmedTxData := ethtypes.DynamicFeeTx{
+		Nonce:     2,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(2000),
+		Data:      []byte("abc"),
+		ChainID:   big.NewInt(1),
+	}
+	tx = ethtypes.NewTx(&unconfirmedTxData)
+	tx, err = ethtypes.SignTx(tx, signer, key)
+	if err != nil {
+		panic(err)
+	}
+	typedTx, err = ethtx.NewDynamicFeeTx(tx)
+	if err != nil {
+		panic(err)
+	}
+	msg, err = types.NewMsgEVMTransaction(typedTx)
+	if err != nil {
+		panic(err)
+	}
+	b = TxConfig.NewTxBuilder()
+	if err := b.SetMsgs(msg); err != nil {
+		panic(err)
+	}
+	UnconfirmedTx = b.GetTx()
 }
 
 //nolint:deadcode

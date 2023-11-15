@@ -12,7 +12,7 @@ import (
 
 func TestExist(t *testing.T) {
 	// not exist
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k)
 	require.False(t, statedb.Exist(addr))
@@ -34,17 +34,17 @@ func TestExist(t *testing.T) {
 
 func TestEmpty(t *testing.T) {
 	// empty
-	k, _, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper()
 	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k)
 	require.True(t, statedb.Empty(addr))
 
 	// has balance
-	statedb.AddBalance(addr, big.NewInt(1))
+	statedb.AddBalance(addr, big.NewInt(1000000000000))
 	require.False(t, statedb.Empty(addr))
 
 	// has non-zero nonce
-	statedb.SubBalance(addr, big.NewInt(1))
+	statedb.SubBalance(addr, big.NewInt(1000000000000))
 	statedb.SetNonce(addr, 1)
 	require.False(t, statedb.Empty(addr))
 

@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/big"
 
@@ -27,6 +28,10 @@ func NewMsgServerImpl(keeper Keeper) types.MsgServer {
 var _ types.MsgServer = msgServer{}
 
 func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
+	if msg.IsAssociateTx() {
+		// no-op in msg server for associate tx; all the work have been done in ante handler
+		return &types.MsgEVMTransactionResponse{}, nil
+	}
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	// EVM has a special case here, mainly because for an EVM transaction the gas limit is set on EVM payload level, not on top-level GasWanted field
 	// as normal transactions (because existing eth client can't). As a result EVM has its own dedicated ante handler chain. The full sequence is:
@@ -43,16 +48,26 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx, gp := server.getGasPool(ctx)
 	emsg, err := server.getEVMMessage(ctx, tx)
 	if err != nil {
+		ctx.Logger().Error(fmt.Sprintf("EVM message server error: getting EVM message failed due to %s", err))
 		return
 	}
 
 	success := true
 	defer func() {
-		err = server.writeReceipt(ctx, tx, emsg, serverRes.GasUsed, success)
+		if pe := recover(); pe != nil {
+			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
+			panic(pe)
+		}
+		err = server.writeReceipt(ctx, tx, emsg, serverRes, success)
 		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 			return
 		}
 		err = stateDB.Finalize()
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("failed to finalize EVM stateDB: %s", err))
+			return
+		}
 
 		// GasUsed in serverRes is in EVM's gas unit, not Sei's gas unit.
 		// PriorityNormalizer is the coefficient that's used to adjust EVM
@@ -113,8 +128,8 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	return st.TransitionDb()
 }
 
-func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, usedGas uint64, success bool) error {
-	cumulativeGasUsed := usedGas
+func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, success bool) error {
+	cumulativeGasUsed := response.GasUsed
 	if ctx.BlockGasMeter() != nil {
 		limit := ctx.BlockGasMeter().Limit()
 		cumulativeGasUsed += ctx.BlockGasMeter().GasConsumed()
@@ -127,10 +142,11 @@ func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, 
 		TxType:            uint32(tx.Type()),
 		CumulativeGasUsed: cumulativeGasUsed,
 		TxHashHex:         tx.Hash().Hex(),
-		GasUsed:           usedGas,
+		GasUsed:           response.GasUsed,
 		BlockNumber:       uint64(ctx.BlockHeight()),
 		TransactionIndex:  uint32(ctx.TxIndex()),
 		EffectiveGasPrice: tx.GasPrice().Uint64(),
+		VmError:           response.VmError,
 	}
 
 	if msg.To == nil {

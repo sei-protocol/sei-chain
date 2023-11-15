@@ -23,6 +23,8 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
+const UnconfirmedTxQueryMaxPage = 5
+
 type TransactionAPI struct {
 	tmClient    rpcclient.Client
 	keeper      *keeper.Keeper
@@ -37,9 +39,12 @@ func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
-		// When the transaction doesn't exist, the RPC method should return JSON null
-		// as per specification.
-		return nil, nil
+		if strings.Contains(err.Error(), "not found") {
+			// When the transaction doesn't exist, the RPC method should return JSON null
+			// as per specification.
+			return nil, nil
+		}
+		return nil, err
 	}
 	// can only get tx from block results, since Tx() endpoint requires tendermint-level tx hash which is not available
 	// here (we can potentially store tendermint-level tx hash in receipt but that requires calculating sha256 in the chain
@@ -78,41 +83,75 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 }
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	// first try get from mempool
+	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
+		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, nil)
+		if err != nil || len(res.Txs) == 0 {
+			break
+		}
+		for _, tx := range res.Txs {
+			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
+			if etx != nil && etx.Hash() == hash {
+				signer := ethtypes.MakeSigner(
+					t.keeper.GetChainConfig(sdkCtx).EthereumConfig(t.keeper.ChainID(sdkCtx)),
+					big.NewInt(sdkCtx.BlockHeight()),
+					uint64(sdkCtx.BlockTime().Second()),
+				)
+				from, _ := ethtypes.Sender(signer, etx)
+				v, r, s := etx.RawSignatureValues()
+				return &RPCTransaction{
+					Type:     hexutil.Uint64(etx.Type()),
+					From:     from,
+					Gas:      hexutil.Uint64(etx.Gas()),
+					GasPrice: (*hexutil.Big)(etx.GasPrice()),
+					Hash:     etx.Hash(),
+					Input:    hexutil.Bytes(etx.Data()),
+					Nonce:    hexutil.Uint64(etx.Nonce()),
+					To:       etx.To(),
+					Value:    (*hexutil.Big)(etx.Value()),
+					V:        (*hexutil.Big)(v),
+					R:        (*hexutil.Big)(r),
+					S:        (*hexutil.Big)(s),
+				}, nil
+			}
+		}
+	}
+
+	// then try get from committed
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return t.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), hexutil.Uint(receipt.TransactionIndex)), nil
 }
 
-func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
-	var block *coretypes.ResultBlock
-	var err error
-	if blockNr, ok := blockNrOrHash.Number(); ok {
-		blockNumber, blockNumErr := getBlockNumber(ctx, t.tmClient, blockNr)
-		if blockNumErr != nil {
-			return nil, blockNumErr
+func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (string, error) {
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return "", nil
 		}
-		block, err = t.tmClient.Block(ctx, blockNumber)
-	} else {
-		block, err = t.tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
+		return "", err
 	}
+	return receipt.VmError, nil
+}
+
+func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	blkNr, err := GetBlockNumberByNrOrHash(ctx, t.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
-	result := hexutil.Uint64(0)
-	for _, tx := range block.Block.Txs {
-		if ethtx := getEthTxForTxBz(tx, t.txConfig.TxDecoder()); ethtx != nil {
-			receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
-			if err != nil {
-				continue
-			}
-			if common.HexToAddress(receipt.From) == address {
-				result++
-			}
-		}
+
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	if blkNr != nil {
+		sdkCtx = t.ctxProvider(*blkNr)
 	}
-	return &result, nil
+	nonce := t.keeper.GetNonce(sdkCtx, address)
+	return (*hexutil.Uint64)(&nonce), nil
 }
 
 func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint) *RPCTransaction {
@@ -141,7 +180,7 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 		return nil
 	}
 	evmTx, ok := decoded.GetMsgs()[0].(*types.MsgEVMTransaction)
-	if !ok {
+	if !ok || evmTx.IsAssociateTx() {
 		return nil
 	}
 	ethtx, _ := evmTx.AsTransaction()
