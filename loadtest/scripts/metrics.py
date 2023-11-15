@@ -78,12 +78,13 @@ def get_transaction_breakdown(height):
     return tx_mapping
 
 def get_best_block_stats(block_info_list):
+    max_throughput, max_block_height, max_block_time = -1, -1, -1
     for i in range(len(block_info_list)):
         block = block_info_list[i]
         next_block_time = get_block_time(block["height"] + 1)
         block_time = (next_block_time - block["timestamp"]) // timedelta(milliseconds=1)
-        max_throughput, max_block_height, max_block_time = -1, -1, -1
-        throughput = block["number_of_txs"] / block_time
+        throughput = block["number_of_txs"] * 1000 / block_time
+        print(f"Block {block['height']} has throughput {throughput} and block time {block_time} ms")
         if throughput > max_throughput:
             max_throughput = throughput
             max_block_height = block["height"]
@@ -100,8 +101,13 @@ def get_metrics():
     # Skip first and last block since it may have high deviation if we start it at the end of the block
 
     skip_edge_blocks = block_info_list[1:-1]
-    total_duration = skip_edge_blocks[-1]["timestamp"] - skip_edge_blocks[0]["timestamp"]
-    average_block_time = total_duration.total_seconds() / (len(skip_edge_blocks) - 1)
+    total_duration = 0
+    for i in range(len(skip_edge_blocks)):
+        block = skip_edge_blocks[i]
+        next_block_time = get_block_time(block["height"] + 1)
+        block_time = (next_block_time - block["timestamp"]) // timedelta(milliseconds=1)
+        total_duration += block_time
+    average_block_time = total_duration / 1000 / len(skip_edge_blocks)
     total_txs_num = sum([block["number_of_txs"] for block in skip_edge_blocks])
     average_txs_num = total_txs_num / len(skip_edge_blocks)
 
@@ -125,7 +131,7 @@ def get_metrics():
         },
         "Best block": {
             "height": max_block_height,
-            "tps": max_throughput * 1000,
+            "tps": max_throughput,
             "tx_mapping": tx_mapping,
             "block_time_ms": max_block_time
         }
