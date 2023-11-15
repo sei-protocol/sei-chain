@@ -12,7 +12,7 @@ import (
 
 func TestSubscribeNewHeads(t *testing.T) {
 	t.Parallel()
-	recvCh, done := sendWSRequestGood(t, "subscribe", "subscribe", "newHeads")
+	recvCh, done := sendWSRequestGood(t, "subscribe", "newHeads")
 	defer func() { done <- struct{}{} }()
 
 	receivedSubMsg := false
@@ -73,7 +73,7 @@ func TestSubscribeNewLogs(t *testing.T) {
 			},
 		},
 	}
-	recvCh, done := sendWSRequestGood(t, "subscribe", "subscribe", "logs", data)
+	recvCh, done := sendWSRequestGood(t, "subscribe", "logs", data)
 	defer func() { done <- struct{}{} }()
 
 	receivedSubMsg := false

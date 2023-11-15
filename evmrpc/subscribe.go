@@ -2,7 +2,6 @@ package evmrpc
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -38,7 +37,44 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, ctxProvider func(int64) sdk.C
 	}
 }
 
-func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filter *filters.FilterCriteria) (*rpc.Subscription, error) {
+func (a *SubscriptionAPI) NewHeads(ctx context.Context) (*rpc.Subscription, error) {
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+
+	rpcSub := notifier.CreateSubscription()
+	subscriberID, subCh, err := a.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), a.subscriptonConfig.subscriptionCapacity)
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		defer func() {
+			_ = a.subscriptionManager.Unsubscribe(context.Background(), subscriberID)
+		}()
+		for {
+			select {
+			case res := <-subCh:
+				ethHeader, err := encodeTmHeader(res.Data.(tmtypes.EventDataNewBlockHeader))
+				if err != nil {
+					return
+				}
+				err = notifier.Notify(rpcSub.ID, ethHeader)
+				if err != nil {
+					return
+				}
+			case <-rpcSub.Err():
+				return
+			case <-notifier.Closed():
+				return
+			}
+		}
+	}()
+	return rpcSub, nil
+}
+
+func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (*rpc.Subscription, error) {
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -46,28 +82,21 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 
 	rpcSub := notifier.CreateSubscription()
 
-	switch eventName {
-	case "newHeads":
-		subscriberID, subCh, err := a.subscriptionManager.Subscribe(ctx, NewHeadQueryBuilder(), a.subscriptonConfig.subscriptionCapacity)
+	resultEventAllAddrs := make(chan coretypes.ResultEvent, len(filter.Addresses)*a.subscriptonConfig.subscriptionCapacity)
+	for _, address := range filter.Addresses {
+		q := getBuiltQuery(filter.BlockHash, filter.FromBlock, filter.ToBlock, address, filter.Topics)
+		subscriberID, subCh, err := a.subscriptionManager.Subscribe(context.Background(), q, a.subscriptonConfig.subscriptionCapacity)
 		if err != nil {
 			return nil, err
 		}
-
 		go func() {
 			defer func() {
-				_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
+				_ = a.subscriptionManager.Unsubscribe(context.Background(), subscriberID)
 			}()
 			for {
 				select {
 				case res := <-subCh:
-					ethHeader, err := encodeTmHeader(res.Data.(*tmtypes.EventDataNewBlockHeader))
-					if err != nil {
-						return
-					}
-					err = notifier.Notify(rpcSub.ID, ethHeader)
-					if err != nil {
-						return
-					}
+					resultEventAllAddrs <- res
 				case <-rpcSub.Err():
 					return
 				case <-notifier.Closed():
@@ -75,59 +104,30 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 				}
 			}
 		}()
-		return rpcSub, nil
-	case "logs":
-		resultEventAllAddrs := make(chan coretypes.ResultEvent, len(filter.Addresses)*a.subscriptonConfig.subscriptionCapacity)
-		for _, address := range filter.Addresses {
-			q := getBuiltQuery(filter.BlockHash, filter.FromBlock, filter.ToBlock, address, filter.Topics)
-			subscriberID, subCh, err := a.subscriptionManager.Subscribe(ctx, q, a.subscriptonConfig.subscriptionCapacity)
-			if err != nil {
-				return nil, err
-			}
-			go func() {
-				defer func() {
-					_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
-				}()
-				for {
-					select {
-					case res := <-subCh:
-						resultEventAllAddrs <- res
-					case <-rpcSub.Err():
-						return
-					case <-notifier.Closed():
-						return
-					}
-				}
-			}()
-		}
-
-		go func() {
-			for {
-				res := <-resultEventAllAddrs
-				for _, abciEvent := range res.Events {
-					ethLog, err := encodeEventToLog(abciEvent)
-					if err != nil {
-						if err == ErrInvalidEventAttribute {
-							continue
-						}
-						err = notifier.Notify(rpcSub.ID, err)
-						if err != nil {
-							return
-						}
-					}
-					err = notifier.Notify(rpcSub.ID, ethLog)
-					if err != nil {
-						return
-					}
-				}
-			}
-		}()
-		return rpcSub, nil
-	case "newPendingTransactions":
-		return nil, errors.New("newPendingTransactions not supported")
-	default:
-		return nil, fmt.Errorf("unsupported subscription type: %s", eventName)
 	}
+
+	go func() {
+		for {
+			res := <-resultEventAllAddrs
+			for _, abciEvent := range res.Events {
+				ethLog, err := encodeEventToLog(abciEvent)
+				if err != nil {
+					if err == ErrInvalidEventAttribute {
+						continue
+					}
+					err = notifier.Notify(rpcSub.ID, err)
+					if err != nil {
+						return
+					}
+				}
+				err = notifier.Notify(rpcSub.ID, ethLog)
+				if err != nil {
+					return
+				}
+			}
+		}
+	}()
+	return rpcSub, nil
 }
 
 const SubscriberPrefix = "evm.rpc."
@@ -185,7 +185,7 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 }
 
 func encodeTmHeader(
-	header *tmtypes.EventDataNewBlockHeader,
+	header tmtypes.EventDataNewBlockHeader,
 ) (map[string]interface{}, error) {
 	number := big.NewInt(header.Header.Height)
 	miner := common.HexToAddress(string(header.Header.ProposerAddress))
