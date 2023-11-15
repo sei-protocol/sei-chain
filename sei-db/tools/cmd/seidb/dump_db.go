@@ -67,7 +67,6 @@ func DumpDbData(dbBackend string, module string, outputDir string, dbDir string)
 		panic(err)
 	}
 
-	fmt.Printf("debug iterate store\n")
 	err = backend.DebugIterateStore(module, outputDir)
 	if err != nil {
 		panic(err)
