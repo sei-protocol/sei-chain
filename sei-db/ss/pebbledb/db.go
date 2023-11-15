@@ -435,7 +435,7 @@ func (db *Database) DebugIterateStore(storeKey string, outputDir string) error {
 	for itr.First(); itr.Valid(); itr.Next() {
 		currKeyEncoded := itr.Key()
 
-		// Ignore metadata entry for version during pruning
+		// Ignore metadata entry for version
 		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
 			continue
 		}
