@@ -54,7 +54,9 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 		}
 
 		go func() {
-			defer a.subscriptionManager.Unsubscribe(ctx, subscriberID)
+			defer func() {
+				_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
+			}()
 			for {
 				select {
 				case res := <-subCh:
@@ -83,7 +85,9 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 				return nil, err
 			}
 			go func() {
-				defer a.subscriptionManager.Unsubscribe(ctx, subscriberID)
+				defer func() {
+					_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
+				}()
 				for {
 					select {
 					case res := <-subCh:
