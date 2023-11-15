@@ -2,6 +2,8 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math/big"
 	"strconv"
 	"strings"
@@ -180,12 +182,18 @@ func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes, txRes *abci
 	return fields, nil
 }
 
+var InvalidEventAttributeError = errors.New("invalid event attribute")
+
 func encodeEventToLog(e abci.Event) (*ethtypes.Log, error) {
 	log := ethtypes.Log{}
+	fmt.Printf("\n------encodingEventToLog for an event with %v attributes------\n\n", len(e.Attributes))
 	for _, a := range e.Attributes {
+		fmt.Println("In encodeEventToLog, key = ", string(a.Key), ", value = ", string(a.Value))
 		switch string(a.Key) {
 		case types.AttributeTypeContractAddress:
+			fmt.Println("In encodeEventToLog, AttributeTypeContractAddress")
 			log.Address = common.HexToAddress(string(a.Value))
+			fmt.Println("In encodeEventToLog, log.Address = ", log.Address)
 		case types.AttributeTypeTopics:
 			log.Topics = utils.Map(strings.Split(string(a.Value), ","), common.HexToHash)
 		case types.AttributeTypeData:
@@ -214,7 +222,10 @@ func encodeEventToLog(e abci.Event) (*ethtypes.Log, error) {
 			log.TxHash = common.HexToHash(string(a.Value))
 		case types.AttributeTypeRemoved:
 			log.Removed = string(a.Value) == "true"
+		default:
+			return nil, InvalidEventAttributeError
 		}
+
 	}
 	return &log, nil
 }
