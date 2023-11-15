@@ -841,6 +841,7 @@ func New(
 			TracingInfo:         app.GetBaseApp().TracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 			CheckTxMemState:     app.CheckTxMemState,
+			EVMCheckTxTimeout:   app.evmRPCConfig.CheckTxTimeout,
 		},
 	)
 	if err != nil {
