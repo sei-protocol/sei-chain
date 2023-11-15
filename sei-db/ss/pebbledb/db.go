@@ -20,12 +20,14 @@ import (
 const (
 	VersionSize = 8
 
-	StorePrefixTpl   = "s/k:%s/"   // s/k:<storeKey>
-	latestVersionKey = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
-	tombstoneVal     = "TOMBSTONE"
+	StorePrefixTpl     = "s/k:%s/"   // s/k:<storeKey>
+	latestVersionKey   = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
+	earliestVersionKey = "s/_earliest"
+	tombstoneVal       = "TOMBSTONE"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
+	PruneCommitBatchSize  = 50
 )
 
 var (
@@ -36,6 +38,8 @@ var (
 
 type Database struct {
 	storage *pebble.DB
+	// Earliest version for db after pruning
+	earliestVersion int64
 }
 
 func New(dataDir string) (*Database, error) {
@@ -77,8 +81,14 @@ func New(dataDir string) (*Database, error) {
 		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
 	}
 
+	earliestVersion, err := retrieveEarliestVersion(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
+	}
+
 	return &Database{
-		storage: db,
+		storage:         db,
+		earliestVersion: earliestVersion,
 	}, nil
 }
 
@@ -118,7 +128,42 @@ func (db *Database) GetLatestVersion() (int64, error) {
 	return int64(binary.LittleEndian.Uint64(bz)), closer.Close()
 }
 
+func (db *Database) SetEarliestVersion(version int64) error {
+	db.earliestVersion = version
+
+	var ts [VersionSize]byte
+	binary.LittleEndian.PutUint64(ts[:], uint64(version))
+	return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
+}
+
+func (db *Database) GetEarliestVersion() int64 {
+	return db.earliestVersion
+}
+
+// Retrieves earliest version from db
+func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
+	bz, closer, err := db.Get([]byte(earliestVersionKey))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			// in case of a fresh database
+			return 0, nil
+		}
+
+		return 0, err
+	}
+
+	if len(bz) == 0 {
+		return 0, closer.Close()
+	}
+
+	return int64(binary.LittleEndian.Uint64(bz)), closer.Close()
+}
+
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
+	if version < db.earliestVersion {
+		return false, nil
+	}
+
 	val, err := db.Get(storeKey, version, key)
 	if err != nil {
 		return false, err
@@ -128,6 +173,10 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 }
 
 func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byte, error) {
+	if targetVersion < db.earliestVersion {
+		return nil, nil
+	}
+
 	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion)
 	if err != nil {
 		if errors.Is(err, utils.ErrRecordNotFound) {
@@ -184,13 +233,90 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	return b.Write()
 }
 
-// Prune for the PebbleDB SS backend is currently not supported. It seems the only
-// reliable way to prune is to iterate over the desired domain and either manually
-// tombstone or delete. Either way, the operation would be timely.
-//
-// See: https://github.com/cockroachdb/cockroach/blob/33623e3ee420174a4fd3226d1284b03f0e3caaac/pkg/storage/mvcc.go#L3182
+// Prune attempts to prune all versions up to and including the current version
+// Get the range of keys, manually iterate over them and delete them
 func (db *Database) Prune(version int64) error {
-	panic("not implemented!")
+	earliestVersion := version + 1 // we increment by 1 to include the provided version
+
+	itr, err := db.storage.NewIter(nil)
+	if err != nil {
+		return err
+	}
+	defer itr.Close()
+
+	batch := db.storage.NewBatch()
+	defer batch.Close()
+
+	var (
+		counter                                 int
+		prevKey, prevKeyEncoded, prevValEncoded []byte
+		prevVersionDecoded                      int64
+	)
+
+	for itr.First(); itr.Valid(); {
+		currKeyEncoded := slices.Clone(itr.Key())
+		// Ignore metadata entry for version during pruning
+		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) {
+			itr.Next()
+			continue
+		}
+
+		// Store current key and version
+		currKey, currVersion, currOK := SplitMVCCKey(currKeyEncoded)
+		if !currOK {
+			return fmt.Errorf("invalid MVCC key")
+		}
+
+		currVersionDecoded, err := decodeUint64Ascending(currVersion)
+		if err != nil {
+			return err
+		}
+
+		// Seek to next key if we are at a version which is higher than prune height
+		if currVersionDecoded > version {
+			itr.NextPrefix()
+			continue
+		}
+
+		// Delete a key if another entry for that key exists a larger version than original but leq to the prune height
+		// Also delete a key if it has been tombstoned and its version is leq to the prune height
+		if prevVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || valTombstoned(prevValEncoded)) {
+			err = batch.Delete(prevKeyEncoded, defaultWriteOpts)
+			if err != nil {
+				return err
+			}
+
+			counter++
+			if counter >= PruneCommitBatchSize {
+				err = batch.Commit(defaultWriteOpts)
+				if err != nil {
+					return err
+				}
+
+				counter = 0
+				batch = db.storage.NewBatch()
+				defer batch.Close()
+			}
+		}
+
+		// Update prevKey and prevVersion for next iteration
+		prevKey = currKey
+		prevVersionDecoded = currVersionDecoded
+		prevKeyEncoded = currKeyEncoded
+		prevValEncoded = itr.Value()
+
+		itr.Next()
+	}
+
+	// Commit any leftover delete ops in batch
+	if counter > 0 {
+		err = batch.Commit(defaultWriteOpts)
+		if err != nil {
+			return err
+		}
+	}
+
+	return db.SetEarliestVersion(earliestVersion)
 }
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
@@ -340,4 +466,24 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]
 	}
 
 	return slices.Clone(itr.Value()), nil
+}
+
+func valTombstoned(value []byte) bool {
+	if value == nil {
+		return false
+	}
+	_, tombBz, ok := SplitMVCCKey(value)
+	if !ok {
+		// XXX: This should not happen as that would indicate we have a malformed
+		// MVCC value.
+		panic(fmt.Sprintf("invalid PebbleDB MVCC value: %s", value))
+	}
+
+	// If the tombstone suffix is empty, we consider this a zero value and thus it
+	// is not tombstoned.
+	if len(tombBz) == 0 {
+		return false
+	}
+
+	return true
 }
