@@ -256,7 +256,7 @@ func (db *Database) Prune(version int64) error {
 	for itr.First(); itr.Valid(); {
 		currKeyEncoded := slices.Clone(itr.Key())
 		// Ignore metadata entry for version during pruning
-		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) {
+		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
 			itr.Next()
 			continue
 		}
