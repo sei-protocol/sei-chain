@@ -2,7 +2,7 @@
 
 ![Banner!](assets/SeiLogo.png)
 
-Sei is a general purpose, open-source L1 blockchain offering the best infrastructure for the exchange of digital assets. The chain emphasizes reliability, security and high throughput above all else, enabling an entirely new echelon of ultra-high performance DeFi products built on top. Sei's on-chain CLOB and matching engine provides deep liquidity and price-time-priority matching for traders and apps. Apps built on Sei benefit from built-in orderbook infrastructure, deep liquidity, and a fully decentralized matching service. Users benefit from this exchange model with the ability to select price, size, and direction of their trades coupled with MEV protection.
+Sei is the fastest general purpose L1 blockchain offering the best infrastructure for the exchange of digital assets. The chain emphasizes reliability, security and high throughput above all else, enabling an entirely new echelon of ultra-high performance DeFi products built on top. Sei's on-chain CLOB and matching engine provides deep liquidity and price-time-priority matching for traders and apps. Apps built on Sei benefit from built-in orderbook infrastructure, deep liquidity, and a fully decentralized matching service. Users benefit from this exchange model with the ability to select price, size, and direction of their trades coupled with MEV protection.
 
 # Sei
 **Sei** is a blockchain built using Cosmos SDK and Tendermint. It is built using the Cosmos SDK and Tendermint core, and features a built-in central limit orderbook (CLOB) module. Decentralized applications building on Sei can build on top of the CLOB, and other Cosmos-based blockchains can leverage Sei's CLOB as a shared liquidity hub and create markets for any asset.
@@ -11,11 +11,6 @@ Designed with developers and users in mind, Sei serves as the infrastructure and
 
 # Documentation
 For the most up to date documentation please visit https://www.sei.io/
-
-# Central Limit Orderbook
-Most financial applications in traditional finance make use of CLOBs to create markets. This works well if you have cheap transaction fees and large amounts of liquidity. In decentralized finance however, the automated market-maker (AMM) model is more popular because it doesn't require constantly updating orders and works with lower amounts of liquidity. 
-
-Sei offers cheap transaction fees and works with market makers to have large amounts of liquidity. As a result, it can offer the orderbook based trading experience in a decentralized, permissionless manner. This unlocks many use cases that previously didn't work with the AMM model. 
 
 # Sei Ecosystem
 Sei Network is an L1 blockchain with a built-in on-chain orderbook that allows smart contracts easy access to shared liquidity. Sei architecture enables composable apps that maintain modularity.
