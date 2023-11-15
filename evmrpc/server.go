@@ -136,7 +136,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSubscriptionAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
+			Service:   NewSubscriptionAPI(tmClient, ctxProvider),
 		},
 		{
 			Namespace: "web3",

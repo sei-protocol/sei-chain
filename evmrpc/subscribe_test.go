@@ -121,8 +121,6 @@ func TestSubscribeNewLogs(t *testing.T) {
 	}
 }
 
-// TODO: test unsubscribe somehow (maybe just test within subscribe)
-
 func TestSubscriptionManager(t *testing.T) {
 	manager := evmrpc.NewSubscriptionManager(&MockClient{})
 	res, subCh, err := manager.Subscribe(context.Background(), mockQueryBuilder(), 10)

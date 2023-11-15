@@ -13,27 +13,21 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 type SubscriptionAPI struct {
-	// TODO: delete any of these if unusued
 	tmClient            rpcclient.Client
-	keeper              *keeper.Keeper
 	ctxProvider         func(int64) sdk.Context
-	txDecoder           sdk.TxDecoder
 	subscriptionManager *SubscriptionManager
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder) *SubscriptionAPI {
+func NewSubscriptionAPI(tmClient rpcclient.Client, ctxProvider func(int64) sdk.Context) *SubscriptionAPI {
 	return &SubscriptionAPI{
 		tmClient:            tmClient,
-		keeper:              k,
 		ctxProvider:         ctxProvider,
-		txDecoder:           txDecoder,
 		subscriptionManager: NewSubscriptionManager(tmClient),
 	}
 }
