@@ -276,6 +276,10 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 	return nil, errors.New("unknown query")
 }
 
+func (c *MockClient) Unsubscribe(_ context.Context, _, _ string) error {
+	return nil
+}
+
 func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
 	if strings.Contains(req.Filter.Query, "tm.event = 'NewBlock'") {
 		var cursor int
