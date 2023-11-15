@@ -223,7 +223,7 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 				resCh <- coretypes.ResultEvent{
 					SubscriptionID: subscriber,
 					Query:          query,
-					Data:           c.mockEventDataNewBlockHeader(i + 1),
+					Data:           *c.mockEventDataNewBlockHeader(i + 1),
 					Events:         c.mockEventDataNewBlockHeader(i + 1).ABCIEvents(),
 				}
 				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
@@ -243,7 +243,7 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 				resCh <- coretypes.ResultEvent{
 					SubscriptionID: subscriber,
 					Query:          query,
-					Data:           eventData,
+					Data:           *eventData,
 					Events:         eventData.ABCIEvents(),
 				}
 				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
@@ -262,7 +262,7 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 				resCh <- coretypes.ResultEvent{
 					SubscriptionID: subscriber,
 					Query:          query,
-					Data:           eventData,
+					Data:           *eventData,
 					Events:         eventData.ABCIEvents(),
 				}
 				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
