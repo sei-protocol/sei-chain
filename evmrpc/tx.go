@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"strconv"
 	"strings"
@@ -219,6 +220,8 @@ func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes, txRes *abci
 	return fields, nil
 }
 
+var ErrInvalidEventAttribute = errors.New("invalid event attribute")
+
 func encodeEventToLog(e abci.Event) (*ethtypes.Log, error) {
 	log := ethtypes.Log{}
 	for _, a := range e.Attributes {
@@ -253,7 +256,10 @@ func encodeEventToLog(e abci.Event) (*ethtypes.Log, error) {
 			log.TxHash = common.HexToHash(string(a.Value))
 		case types.AttributeTypeRemoved:
 			log.Removed = string(a.Value) == "true"
+		default:
+			return nil, ErrInvalidEventAttribute
 		}
+
 	}
 	return &log, nil
 }

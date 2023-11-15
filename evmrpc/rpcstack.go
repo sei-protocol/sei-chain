@@ -325,6 +325,7 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	fmt.Println("evmrpc/rpcstack: registering apis for websocket")
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
 	}

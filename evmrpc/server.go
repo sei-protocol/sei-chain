@@ -135,6 +135,10 @@ func NewEVMWebSocketServer(
 			Service:   NewNetAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
 		},
 		{
+			Namespace: "eth",
+			Service:   NewSubscriptionAPI(tmClient, ctxProvider, &SubscriptionConfig{subscriptionCapacity: 100}),
+		},
+		{
 			Namespace: "web3",
 			Service:   &Web3API{},
 		},

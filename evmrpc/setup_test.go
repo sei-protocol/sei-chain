@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -35,6 +36,7 @@ import (
 	"github.com/tendermint/tendermint/rpc/client/mock"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
+	"github.com/tendermint/tendermint/version"
 )
 
 const TestAddr = "127.0.0.1"
@@ -95,6 +97,93 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 	}
 }
 
+func (c *MockClient) mockEventDataNewBlockHeader(mockHeight uint64) *tmtypes.EventDataNewBlockHeader {
+	return &tmtypes.EventDataNewBlockHeader{
+		Header: tmtypes.Header{
+			Version: version.Consensus{
+				Block: mockHeight,
+				App:   10,
+			},
+			ChainID: "1",
+			Height:  int64(mockHeight),
+			Time:    time.Now(),
+
+			// prev block info
+			LastBlockID: tmtypes.BlockID{
+				Hash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000006")),
+			},
+
+			// hashes of block data
+			LastCommitHash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000001")),
+			DataHash:       bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000002")),
+
+			ValidatorsHash:     bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000009")),
+			NextValidatorsHash: bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000A")),
+			ConsensusHash:      bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000B")),
+			EvidenceHash:       bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000E")),
+			AppHash:            bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000003")),
+			LastResultsHash:    bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000004")),
+			ProposerAddress:    tmtypes.Address([]byte("0000000000000000000000000000000000000000000000000000000000000005")),
+		},
+		NumTxs: 5,
+		ResultFinalizeBlock: abci.ResponseFinalizeBlock{
+			TxResults: mockTxResult(),
+			AppHash:   bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000006")),
+		},
+	}
+}
+
+func mockEventDataTx(mockHeight uint64, addr common.Address, topics []common.Hash) *tmtypes.EventDataTx {
+	topicsStrs := utils.Map(topics, func(hash common.Hash) string { return hash.Hex() })
+	abciEvent := abci.Event{
+		Type: types.EventTypeEVMLog,
+		Attributes: []abci.EventAttribute{
+			{
+				Key:   []byte(types.AttributeTypeContractAddress),
+				Value: []byte(addr.Hex()),
+			}, {
+				Key:   []byte(types.AttributeTypeTopics),
+				Value: []byte(strings.Join(topicsStrs, ",")),
+			},
+		},
+	}
+	eventData := &tmtypes.EventDataTx{
+		TxResult: abci.TxResult{
+			Height: int64(mockHeight + 200000),
+			Index:  0,
+			Tx:     common.Hex2Bytes("0x123"),
+			Result: abci.ExecTxResult{
+				Code:      0,
+				Data:      common.Hex2Bytes("0x456"),
+				Log:       "log",
+				Info:      "info",
+				GasWanted: 10,
+				GasUsed:   5,
+				Events:    []abci.Event{abciEvent},
+				Codespace: "codespace",
+			},
+		},
+	}
+	return eventData
+}
+
+func mockTxResult() []*abci.ExecTxResult {
+	return []*abci.ExecTxResult{
+		{
+			Data:      []byte("abc"),
+			Log:       "log1",
+			GasUsed:   10,
+			GasWanted: 11,
+		},
+		{
+			Data:      []byte("def"),
+			Log:       "log2",
+			GasUsed:   20,
+			GasWanted: 21,
+		},
+	}
+}
+
 func (c *MockClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) {
 	return &coretypes.ResultGenesis{Genesis: &tmtypes.GenesisDoc{InitialHeight: 1}}, nil
 }
@@ -126,8 +215,69 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 	}, nil
 }
 
-func (c *MockClient) Subscribe(context.Context, string, string, ...int) (<-chan coretypes.ResultEvent, error) {
-	return make(chan coretypes.ResultEvent, 1), nil
+func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query string, outCapacity ...int) (<-chan coretypes.ResultEvent, error) {
+	if query == "tm.event = 'NewBlockHeader'" {
+		resCh := make(chan coretypes.ResultEvent, 5)
+		go func() {
+			for i := uint64(0); i < 5; i++ {
+				resCh <- coretypes.ResultEvent{
+					SubscriptionID: subscriber,
+					Query:          query,
+					Data:           *c.mockEventDataNewBlockHeader(i + 1),
+					Events:         c.mockEventDataNewBlockHeader(i + 1).ABCIEvents(),
+				}
+				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
+			}
+		}()
+		return resCh, nil
+		// hardcoded test case for simplicity
+	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' AND evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
+		resCh := make(chan coretypes.ResultEvent, 5)
+		go func() {
+			for i := uint64(0); i < 5; i++ {
+				eventData := mockEventDataTx(
+					i+1,
+					common.HexToAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
+					[]common.Hash{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")},
+				)
+				resCh <- coretypes.ResultEvent{
+					SubscriptionID: subscriber,
+					Query:          query,
+					Data:           *eventData,
+					Events:         eventData.ABCIEvents(),
+				}
+				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
+			}
+		}()
+		return resCh, nil
+	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xc0ffee254729296a45a3885639AC7E10F9d54979' AND evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
+		resCh := make(chan coretypes.ResultEvent, 5)
+		go func() {
+			for i := uint64(0); i < 5; i++ {
+				eventData := mockEventDataTx(
+					i+1,
+					common.HexToAddress("0xc0ffee254729296a45a3885639AC7E10F9d54979"),
+					[]common.Hash{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")},
+				)
+				resCh <- coretypes.ResultEvent{
+					SubscriptionID: subscriber,
+					Query:          query,
+					Data:           *eventData,
+					Events:         eventData.ABCIEvents(),
+				}
+				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
+			}
+		}()
+		return resCh, nil
+	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = 'test contract' AND evm_log.block_hash = 'block hash' AND evm_log.block_number = '1' AND evm_log.tx_hash = 'tx hash' AND evm_log.tx_idx = '2' AND evm_log.idx = '3' AND evm_log.topics CONTAINS 'topic a' AND evm_log.topics CONTAINS 'topic b'") {
+		resCh := make(chan coretypes.ResultEvent)
+		return resCh, nil
+	}
+	return nil, errors.New("unknown query")
+}
+
+func (c *MockClient) Unsubscribe(_ context.Context, _, _ string) error {
+	return nil
 }
 
 func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
@@ -270,7 +420,11 @@ func init() {
 	goodConfig.HTTPPort = TestPort
 	goodConfig.WSPort = TestWSPort
 	goodConfig.FilterTimeout = 500 * time.Millisecond
-	HttpServer, err := evmrpc.NewEVMHTTPServer(log.NewNopLogger(), goodConfig, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
+	infoLog, err := log.NewDefaultLogger("text", "info")
+	if err != nil {
+		panic(err)
+	}
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
 	if err != nil {
 		panic(err)
 	}
@@ -280,20 +434,21 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(log.NewNopLogger(), badConfig, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
 	if err != nil {
 		panic(err)
 	}
 	if err := badHTTPServer.Start(); err != nil {
 		panic(err)
 	}
-	wsServer, err := evmrpc.NewEVMWebSocketServer(log.NewNopLogger(), goodConfig, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig)
 	if err != nil {
 		panic(err)
 	}
 	if err := wsServer.Start(); err != nil {
 		panic(err)
 	}
+	fmt.Printf("wsServer started with config = %+v\n", goodConfig)
 	time.Sleep(1 * time.Second)
 
 	to := common.HexToAddress("010203")
@@ -419,6 +574,67 @@ func sendRequest(t *testing.T, port int, method string, params ...interface{}) m
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 	return resObj
+}
+
+func sendWSRequestGood(t *testing.T, method string, params ...interface{}) (chan map[string]interface{}, chan struct{}) {
+	return sendWSRequestAndListen(t, TestWSPort, method, params...)
+}
+
+func sendWSRequestBad(t *testing.T, method string, params ...interface{}) (chan map[string]interface{}, chan struct{}) {
+	return sendWSRequestAndListen(t, TestBadPort, method, params...)
+}
+
+func sendWSRequestAndListen(t *testing.T, port int, method string, params ...interface{}) (chan map[string]interface{}, chan struct{}) {
+	paramsFormatted := ""
+	if len(params) > 0 {
+		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
+	}
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_%s\",\"params\":[%s],\"id\":\"test\"}", method, paramsFormatted)
+
+	headers := make(http.Header)
+	headers.Set("Origin", "localhost")
+	headers.Set("Content-Type", "application/json")
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s:%d", TestAddr, TestWSPort), headers)
+	require.Nil(t, err)
+
+	recv := make(chan map[string]interface{})
+	done := make(chan struct{})
+
+	err = conn.WriteMessage(websocket.TextMessage, []byte(body))
+	require.Nil(t, err)
+
+	go func() {
+		defer close(recv)
+
+		// Set a read deadline to prevent blocking forever
+		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+
+		for {
+			select {
+			case <-done:
+				return
+			case <-time.After(200 * time.Millisecond):
+				_, message, err := conn.ReadMessage()
+				if err != nil {
+					if ne, ok := err.(net.Error); ok && ne.Timeout() {
+						// It was a timeout error, no data was ready to be read
+						continue // Retry the read operation
+					}
+					recv <- map[string]interface{}{"error": err.Error()}
+					return
+				}
+				res := map[string]interface{}{}
+				err = json.Unmarshal(message, &res)
+				if err != nil {
+					recv <- map[string]interface{}{"error": err.Error()}
+					return
+				}
+				recv <- res
+			}
+		}
+	}()
+
+	return recv, done
 }
 
 func formatParam(p interface{}) string {
