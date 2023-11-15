@@ -101,7 +101,7 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 				for _, abciEvent := range res.Events {
 					ethLog, err := encodeEventToLog(abciEvent)
 					if err != nil {
-						if err == InvalidEventAttributeError {
+						if err == ErrInvalidEventAttribute {
 							continue
 						}
 						err = notifier.Notify(rpcSub.ID, err)

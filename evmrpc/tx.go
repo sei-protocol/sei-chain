@@ -220,7 +220,7 @@ func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes, txRes *abci
 	return fields, nil
 }
 
-var InvalidEventAttributeError = errors.New("invalid event attribute")
+var ErrInvalidEventAttribute = errors.New("invalid event attribute")
 
 func encodeEventToLog(e abci.Event) (*ethtypes.Log, error) {
 	log := ethtypes.Log{}
@@ -257,7 +257,7 @@ func encodeEventToLog(e abci.Event) (*ethtypes.Log, error) {
 		case types.AttributeTypeRemoved:
 			log.Removed = string(a.Value) == "true"
 		default:
-			return nil, InvalidEventAttributeError
+			return nil, ErrInvalidEventAttribute
 		}
 
 	}
