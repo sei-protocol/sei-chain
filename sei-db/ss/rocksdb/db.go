@@ -7,9 +7,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
@@ -273,13 +270,7 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWork
 // TODO: Accept list of storeKeys to export
 func (db *Database) DebugIterateStore(storeKey string, outputDir string) error {
 	// Create output directory
-	err := os.MkdirAll(outputDir, fs.ModePerm)
-	if err != nil {
-		return err
-	}
-	filename := filepath.Join(outputDir, fmt.Sprintf("debug_rocks_store_%s.kv", storeKey))
-
-	currentFile, err := os.Create(filename)
+	currentFile, err := util.CreateFile(outputDir, fmt.Sprintf("debug_rocksdb_store_%s.kv", storeKey))
 	if err != nil {
 		return err
 	}

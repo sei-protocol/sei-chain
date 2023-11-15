@@ -1,16 +1,22 @@
 package util
 
 import (
-	"encoding/binary"
-	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 )
 
-// Writes raw bytes to file
-func writeByteSlice(w io.Writer, data []byte) error {
-	length := uint32(len(data))
-	if err := binary.Write(w, binary.LittleEndian, length); err != nil {
-		return err
+func CreateFile(outputDir string, fileName string) (*os.File, error) {
+	err := os.MkdirAll(outputDir, fs.ModePerm)
+	if err != nil {
+		return nil, err
 	}
-	_, err := w.Write(data)
-	return err
+	filename := filepath.Join(outputDir, fileName)
+
+	currentFile, err := os.Create(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	return currentFile, nil
 }

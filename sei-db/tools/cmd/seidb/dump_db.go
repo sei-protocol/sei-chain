@@ -17,8 +17,9 @@ func DumpDbCmd() *cobra.Command {
 	}
 
 	dumpDbCmd.PersistentFlags().StringP("output-dir", "o", "", "Output Directory")
+	dumpDbCmd.PersistentFlags().StringP("db-dir", "d", "", "Database Directory")
 	dumpDbCmd.PersistentFlags().StringP("module", "m", "", "Module to export")
-	dumpDbCmd.PersistentFlags().StringP("db-backend", "d", "", "DB Backend")
+	dumpDbCmd.PersistentFlags().StringP("db-backend", "b", "", "DB Backend")
 
 	return dumpDbCmd
 }
@@ -26,10 +27,15 @@ func DumpDbCmd() *cobra.Command {
 func dump(cmd *cobra.Command, _ []string) {
 	outputDir, _ := cmd.Flags().GetString("output-dir")
 	module, _ := cmd.Flags().GetString("module")
+	dbDir, _ := cmd.Flags().GetString("db-dir")
 	dbBackend, _ := cmd.Flags().GetString("db-backend")
 
+	if dbDir == "" {
+		panic("Must provide database dir")
+	}
+
 	if dbBackend == "" {
-		panic("Must provide db backend when benchmarking")
+		panic("Must provide db backend")
 	}
 
 	_, isAcceptedBackend := ValidDBBackends[dbBackend]
@@ -45,22 +51,23 @@ func dump(cmd *cobra.Command, _ []string) {
 		panic("Must provide module to export")
 	}
 
-	DumpDbData(dbBackend, module, outputDir)
+	DumpDbData(dbBackend, module, outputDir, dbDir)
 }
 
 // Outputs the raw keys and values for all modules at a height to a file
-func DumpDbData(dbBackend string, module string, outputDir string) {
+func DumpDbData(dbBackend string, module string, outputDir string, dbDir string) {
 	// Create output directory
 	err := os.MkdirAll(outputDir, fs.ModePerm)
 	if err != nil {
 		panic(err)
 	}
 
-	backend, err := ss.NewStateStoreDB(outputDir, ss.BackendType(dbBackend))
+	backend, err := ss.NewStateStoreDB(dbDir, ss.BackendType(dbBackend))
 	if err != nil {
 		panic(err)
 	}
 
+	fmt.Printf("debug iterate store\n")
 	err = backend.DebugIterateStore(module, outputDir)
 	if err != nil {
 		panic(err)

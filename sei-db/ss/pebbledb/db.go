@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	sstypes "github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/ss/util"
 	"golang.org/x/exp/slices"
 )
 
@@ -43,6 +44,7 @@ type Database struct {
 }
 
 func New(dataDir string) (*Database, error) {
+	fmt.Printf("NEW INITIALIZER %s\n", dataDir)
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
 	opts := &pebble.Options{
@@ -256,7 +258,7 @@ func (db *Database) Prune(version int64) error {
 	for itr.First(); itr.Valid(); {
 		currKeyEncoded := slices.Clone(itr.Key())
 		// Ignore metadata entry for version during pruning
-		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) {
+		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
 			itr.Next()
 			continue
 		}
@@ -417,7 +419,63 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWork
 }
 
 func (db *Database) DebugIterateStore(storeKey string, outputDir string) error {
-	panic("not implemented")
+	// Create output directory
+	currentFile, err := util.CreateFile(outputDir, fmt.Sprintf("debug_pebbledb_store_%s.kv", storeKey))
+	if err != nil {
+		return err
+	}
+	defer currentFile.Close()
+
+	// lowerBound := MVCCEncode(nil, 0)
+
+	itr, err := db.storage.NewIter(nil)
+	if err != nil {
+		return fmt.Errorf("failed to create PebbleDB iterator: %w", err)
+	}
+
+	for itr.First(); itr.Valid(); itr.Next() {
+		currKeyEncoded := itr.Key()
+
+		// Ignore metadata entry for version during pruning
+		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
+			itr.Next()
+			continue
+		}
+
+		// Store current key and version
+		currKey, currVersion, currOK := SplitMVCCKey(currKeyEncoded)
+		if !currOK {
+			return fmt.Errorf("invalid MVCC key")
+		}
+
+		// Only iterate through module
+		if !bytes.HasPrefix(currKey, storePrefix(storeKey)) {
+			break
+		}
+
+		currVersionDecoded, err := decodeUint64Ascending(currVersion)
+		if err != nil {
+			return err
+		}
+
+		// Decode the value
+		currValEncoded := itr.Value()
+		if valTombstoned(currValEncoded) {
+			continue
+		}
+		valBz, _, ok := SplitMVCCKey(currValEncoded)
+		if !ok {
+			return fmt.Errorf("invalid PebbleDB MVCC value: %s", currKey)
+		}
+
+		_, err = currentFile.WriteString(fmt.Sprintf("Key: %X Val: %X Version: %d\n", currKey, valBz, currVersionDecoded))
+		if err != nil {
+			return err
+		}
+
+	}
+
+	return nil
 }
 
 func storePrefix(storeKey string) []byte {
