@@ -269,6 +269,9 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 			}
 		}()
 		return resCh, nil
+	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = 'test contract' AND evm_log.block_hash = 'block hash' AND evm_log.block_number = '1' AND evm_log.tx_hash = 'tx hash' AND evm_log.tx_idx = '2' AND evm_log.idx = '3' AND evm_log.topics CONTAINS 'topic a' AND evm_log.topics CONTAINS 'topic b'") {
+		resCh := make(chan coretypes.ResultEvent)
+		return resCh, nil
 	}
 	return nil, errors.New("unknown query")
 }
