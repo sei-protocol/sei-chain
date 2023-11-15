@@ -22,13 +22,19 @@ type SubscriptionAPI struct {
 	tmClient            rpcclient.Client
 	ctxProvider         func(int64) sdk.Context
 	subscriptionManager *SubscriptionManager
+	subscriptonConfig   *SubscriptionConfig
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, ctxProvider func(int64) sdk.Context) *SubscriptionAPI {
+type SubscriptionConfig struct {
+	subscriptionCapacity int
+}
+
+func NewSubscriptionAPI(tmClient rpcclient.Client, ctxProvider func(int64) sdk.Context, subscriptionConfig *SubscriptionConfig) *SubscriptionAPI {
 	return &SubscriptionAPI{
 		tmClient:            tmClient,
 		ctxProvider:         ctxProvider,
 		subscriptionManager: NewSubscriptionManager(tmClient),
+		subscriptonConfig:   subscriptionConfig,
 	}
 }
 
@@ -42,53 +48,49 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 
 	switch eventName {
 	case "newHeads":
-		subscriberID, subCh, err := a.subscriptionManager.Subscribe(ctx, NewHeadQueryBuilder(), 100)
+		subscriberID, subCh, err := a.subscriptionManager.Subscribe(ctx, NewHeadQueryBuilder(), a.subscriptonConfig.subscriptionCapacity)
 		if err != nil {
 			return nil, err
 		}
 
 		go func() {
+			defer a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 			for {
 				select {
 				case res := <-subCh:
 					ethHeader, err := encodeTmHeader(res.Data.(*tmtypes.EventDataNewBlockHeader))
 					if err != nil {
-						_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 						return
 					}
 					err = notifier.Notify(rpcSub.ID, ethHeader)
 					if err != nil {
-						_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 						return
 					}
 				case <-rpcSub.Err():
-					_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 					return
 				case <-notifier.Closed():
-					_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 					return
 				}
 			}
 		}()
 		return rpcSub, nil
 	case "logs":
-		resultEventAllAddrs := make(chan coretypes.ResultEvent)
+		resultEventAllAddrs := make(chan coretypes.ResultEvent, len(filter.Addresses)*a.subscriptonConfig.subscriptionCapacity)
 		for _, address := range filter.Addresses {
 			q := getBuiltQuery(filter.BlockHash, filter.FromBlock, filter.ToBlock, address, filter.Topics)
-			subscriberID, subCh, err := a.subscriptionManager.Subscribe(ctx, q, 100)
+			subscriberID, subCh, err := a.subscriptionManager.Subscribe(ctx, q, a.subscriptonConfig.subscriptionCapacity)
 			if err != nil {
 				return nil, err
 			}
 			go func() {
+				defer a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 				for {
 					select {
 					case res := <-subCh:
 						resultEventAllAddrs <- res
 					case <-rpcSub.Err():
-						_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 						return
 					case <-notifier.Closed():
-						_ = a.subscriptionManager.Unsubscribe(ctx, subscriberID)
 						return
 					}
 				}
