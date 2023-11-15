@@ -99,23 +99,6 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, _ sdk.Context, m
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_ORDER,
 			IdentifierTemplate: hex.EncodeToString(dextypes.MemOrderPrefix(contractAddr)),
 		},
-
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS,
-			IdentifierTemplate: hex.EncodeToString(dextypes.MemDownstreamContractsKey(contractAddr)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS,
-			IdentifierTemplate: hex.EncodeToString(dextypes.MemDownstreamContractsKey(contractAddr)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_CONTRACTS_TO_PROCESS,
-			IdentifierTemplate: hex.EncodeToString(dextypes.MemContractsToProcessKey(contractAddr)),
-		},
-
 		// Checks balance of sender
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
@@ -199,21 +182,6 @@ func DexCancelOrdersDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, msg s
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_CONTRACT,
 			IdentifierTemplate: hex.EncodeToString([]byte(dexkeeper.ContractPrefixKey)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS,
-			IdentifierTemplate: hex.EncodeToString(dextypes.MemDownstreamContractsKey(contractAddr)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS,
-			IdentifierTemplate: hex.EncodeToString(dextypes.MemDownstreamContractsKey(contractAddr)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_CONTRACTS_TO_PROCESS,
-			IdentifierTemplate: hex.EncodeToString(dextypes.MemContractsToProcessKey(contractAddr)),
 		},
 	}
 

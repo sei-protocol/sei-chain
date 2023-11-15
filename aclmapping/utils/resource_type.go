@@ -56,11 +56,9 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 	},
 	dextypes.MemStoreKey: {
 		// mem
-		aclsdktypes.ResourceType_KV_DEX_MEM_ORDER:                dextypes.KeyPrefix(dextypes.MemOrderKey),
-		aclsdktypes.ResourceType_KV_DEX_MEM_CANCEL:               dextypes.KeyPrefix(dextypes.MemCancelKey),
-		aclsdktypes.ResourceType_KV_DEX_MEM_DEPOSIT:              dextypes.KeyPrefix(dextypes.MemDepositKey),
-		aclsdktypes.ResourceType_KV_DEX_MEM_CONTRACTS_TO_PROCESS: dextypes.KeyPrefix(dextypes.MemContractsToProcess),
-		aclsdktypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS: dextypes.KeyPrefix(dextypes.MemDownstreamContracts),
+		aclsdktypes.ResourceType_KV_DEX_MEM_ORDER:   dextypes.KeyPrefix(dextypes.MemOrderKey),
+		aclsdktypes.ResourceType_KV_DEX_MEM_CANCEL:  dextypes.KeyPrefix(dextypes.MemCancelKey),
+		aclsdktypes.ResourceType_KV_DEX_MEM_DEPOSIT: dextypes.KeyPrefix(dextypes.MemDepositKey),
 	},
 	banktypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_BANK:          aclsdktypes.EmptyPrefix,
@@ -185,11 +183,9 @@ var ResourceTypeToStoreKeyMap = aclsdktypes.ResourceTypeToStoreKeyMap{
 	aclsdktypes.ResourceType_KV_DEX_SETTLEMENT:          dextypes.StoreKey,
 
 	// ~~~~ DEX MEM Resource Types ~~~~
-	aclsdktypes.ResourceType_KV_DEX_MEM_ORDER:                dextypes.MemStoreKey,
-	aclsdktypes.ResourceType_KV_DEX_MEM_CANCEL:               dextypes.MemStoreKey,
-	aclsdktypes.ResourceType_KV_DEX_MEM_DEPOSIT:              dextypes.MemStoreKey,
-	aclsdktypes.ResourceType_KV_DEX_MEM_CONTRACTS_TO_PROCESS: dextypes.MemStoreKey,
-	aclsdktypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS: dextypes.MemStoreKey,
+	aclsdktypes.ResourceType_KV_DEX_MEM_ORDER:   dextypes.MemStoreKey,
+	aclsdktypes.ResourceType_KV_DEX_MEM_CANCEL:  dextypes.MemStoreKey,
+	aclsdktypes.ResourceType_KV_DEX_MEM_DEPOSIT: dextypes.MemStoreKey,
 
 	// ~~~~ BANK Resource Types ~~~~
 	aclsdktypes.ResourceType_KV_BANK:          banktypes.StoreKey,
