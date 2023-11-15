@@ -940,6 +940,7 @@ func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 
 // EndBlocker application updates every end block
 func (app *App) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock {
+	time.Sleep(1 * time.Second)
 	return app.mm.EndBlock(ctx, req)
 }
 
