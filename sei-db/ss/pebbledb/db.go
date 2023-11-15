@@ -44,7 +44,6 @@ type Database struct {
 }
 
 func New(dataDir string) (*Database, error) {
-	fmt.Printf("NEW INITIALIZER %s\n", dataDir)
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
 	opts := &pebble.Options{
@@ -426,9 +425,9 @@ func (db *Database) DebugIterateStore(storeKey string, outputDir string) error {
 	}
 	defer currentFile.Close()
 
-	// lowerBound := MVCCEncode(nil, 0)
+	lowerBound := MVCCEncode(prependStoreKey(storeKey, nil), 0)
 
-	itr, err := db.storage.NewIter(nil)
+	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound})
 	if err != nil {
 		return fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
@@ -438,7 +437,6 @@ func (db *Database) DebugIterateStore(storeKey string, outputDir string) error {
 
 		// Ignore metadata entry for version during pruning
 		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
-			itr.Next()
 			continue
 		}
 
