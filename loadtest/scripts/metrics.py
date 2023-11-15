@@ -83,7 +83,8 @@ def get_best_block_stats(block_info_list):
         next_block_time = get_block_time(block["height"] + 1)
         block_time = (next_block_time - block["timestamp"]) // timedelta(milliseconds=1)
         max_throughput, max_block_height, max_block_time = -1, -1, -1
-        throughput = block["number_of_txs"] / block_time
+        throughput = block["number_of_txs"] * 1000 / block_time
+        print(f"Block {block['height']} has throughput {throughput} and time {block_time}")
         if throughput > max_throughput:
             max_throughput = throughput
             max_block_height = block["height"]
@@ -101,7 +102,7 @@ def get_metrics():
 
     skip_edge_blocks = block_info_list[1:-1]
     total_duration = 0
-    for i in range(len(skip_edge_blocks) - 1):
+    for i in range(len(skip_edge_blocks)):
         block = skip_edge_blocks[i]
         next_block_time = get_block_time(block["height"] + 1)
         block_time = (next_block_time - block["timestamp"]) // timedelta(milliseconds=1)
