@@ -73,7 +73,6 @@ func TestSubscribeNewLogs(t *testing.T) {
 			},
 		},
 	}
-	// data := map[string]interface{}{}
 	recvCh, done := sendWSRequestGood(t, "subscribe", "subscribe", "logs", data)
 	defer func() { done <- struct{}{} }()
 
@@ -124,7 +123,7 @@ func TestSubscribeNewLogs(t *testing.T) {
 
 // TODO: test unsubscribe somehow (maybe just test within subscribe)
 
-func TestSubscribe(t *testing.T) {
+func TestSubscriptionManager(t *testing.T) {
 	manager := evmrpc.NewSubscriptionManager(&MockClient{})
 	res, subCh, err := manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
 	require.Nil(t, err)

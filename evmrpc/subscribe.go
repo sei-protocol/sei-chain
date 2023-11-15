@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -37,15 +38,7 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider
 	}
 }
 
-type FilterQuery struct {
-	BlockHash *common.Hash     `json:"blockHash"`
-	FromBlock *big.Int         `json:"fromBlock"`
-	ToBlock   *big.Int         `json:"toBlock"`
-	Addresses []common.Address `json:"address"`
-	Topics    [][]common.Hash  `json:"topics"`
-}
-
-func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filter *FilterQuery) (*rpc.Subscription, error) {
+func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filter *filters.FilterCriteria) (*rpc.Subscription, error) {
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -60,8 +53,6 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 			return nil, err
 		}
 
-		// TODO: try to not launch a newHead subscription for every new subscriber maybe (or maybe do)
-		// TODO: timeouts!
 		go func() {
 			for {
 				select {
@@ -78,7 +69,6 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 					}
 				case err := <-rpcSub.Err():
 					notifier.Notify(rpcSub.ID, err)
-					// TODO: try to test these cases
 					a.subscriptionManager.Unsubscribe(ctx, subscriberId)
 					return
 				case <-notifier.Closed():
@@ -114,24 +104,22 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 
 		go func() {
 			for {
-				select {
-				case res := <-resultEventAllAddrs:
-					for _, abciEvent := range res.Events {
-						ethLog, err := encodeEventToLog(abciEvent)
-						if err != nil {
-							if err == InvalidEventAttributeError {
-								continue
-							}
-							notifier.Notify(rpcSub.ID, err)
+				res := <-resultEventAllAddrs
+				for _, abciEvent := range res.Events {
+					ethLog, err := encodeEventToLog(abciEvent)
+					if err != nil {
+						if err == InvalidEventAttributeError {
+							continue
 						}
-						if err != nil {
-							notifier.Notify(rpcSub.ID, err)
-							return
-						}
-						err = notifier.Notify(rpcSub.ID, ethLog)
-						if err != nil {
-							return
-						}
+						notifier.Notify(rpcSub.ID, err)
+					}
+					if err != nil {
+						notifier.Notify(rpcSub.ID, err)
+						return
+					}
+					err = notifier.Notify(rpcSub.ID, ethLog)
+					if err != nil {
+						return
 					}
 				}
 			}
@@ -143,11 +131,6 @@ func (a *SubscriptionAPI) Subscribe(ctx context.Context, eventName string, filte
 		return nil, fmt.Errorf("unsupported subscription type: %s", eventName)
 	}
 }
-
-// TODO: figure this out
-// func (a *SubscriptionAPI) Unsubscribe(ctx context.Context, id rpc.ID) error {
-// 	return a.subscriptionManager.Unsubscribe(ctx, id)
-// }
 
 const SubscriberPrefix = "evm.rpc."
 
