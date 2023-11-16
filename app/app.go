@@ -1314,7 +1314,7 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.E
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
 	startTime := time.Now()
-	entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
+	entries := make([]*sdk.DeliverTxEntry, len(txs))
 	wg := sync.WaitGroup{}
 	mutex := sync.Mutex{}
 	for txIndex, tx := range txs {
