@@ -2,13 +2,14 @@ package messages
 
 import (
 	"fmt"
+
 	"github.com/CosmWasm/wasmd/x/wasm"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
-
+	
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 const instantiateMsg = `{"whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"],
