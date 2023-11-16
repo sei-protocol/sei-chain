@@ -269,10 +269,31 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWork
 // RawIterate iterates over all keys and values for a store
 // TODO: Accept list of storeKeys to export
 func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte, version int64) bool) (bool, error) {
-	prefix := storePrefix(storeKey)
+	// If store key provided, only iterate over keys with prefix
+	var prefix []byte
+	if storeKey != "" {
+		prefix = storePrefix(storeKey)
+	}
 	start, end := util.IterateWithPrefix(prefix, nil, nil)
 
-	itr := db.storage.NewIteratorCF(nil, db.cfHandle)
+	latestVersion, err := db.GetLatestVersion()
+	if err != nil {
+		return false, err
+	}
+
+	var startTs [TimestampSize]byte
+	binary.LittleEndian.PutUint64(startTs[:], uint64(0))
+
+	var endTs [TimestampSize]byte
+	binary.LittleEndian.PutUint64(endTs[:], uint64(latestVersion))
+
+	// Set timestamp lower and upper bound to iterate over all keys in db
+	readOpts := grocksdb.NewDefaultReadOptions()
+	readOpts.SetIterStartTimestamp(startTs[:])
+	readOpts.SetTimestamp(endTs[:])
+	defer readOpts.Destroy()
+
+	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
 	rocksItr := NewRocksDBIterator(itr, prefix, start, end, false)
 	defer rocksItr.Close()
 
