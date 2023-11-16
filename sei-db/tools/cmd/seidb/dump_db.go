@@ -62,8 +62,8 @@ func DumpDbData(dbBackend string, module string, outputDir string, dbDir string)
 		panic(err)
 	}
 
-	// Create output directory
-	currentFile, err := utils.CreateFile(outputDir, fmt.Sprintf(outputFileName))
+	// Create output file
+	currentFile, err := utils.CreateFile(outputDir, outputFileName)
 	if err != nil {
 		panic(err)
 	}
