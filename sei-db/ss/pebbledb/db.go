@@ -303,7 +303,7 @@ func (db *Database) Prune(version int64) error {
 		prevKey = currKey
 		prevVersionDecoded = currVersionDecoded
 		prevKeyEncoded = currKeyEncoded
-		prevValEncoded = itr.Value()
+		prevValEncoded = slices.Clone(itr.Value())
 
 		itr.Next()
 	}
