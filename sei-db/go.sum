@@ -510,8 +510,6 @@ github.com/sasha-s/go-deadlock v0.3.1 h1:sqv7fDNShgjcaxkO0JNcOAlr8B9+cV5Ey/OB71e
 github.com/sasha-s/go-deadlock v0.3.1/go.mod h1:F73l+cr82YSh10GxyRI6qZiCgK64VaZjwesgfQ1/iLM=
 github.com/savaki/jq v0.0.0-20161209013833-0e6baecebbf8 h1:ajJQhvqPSQFJJ4aV5mDAMx8F7iFi6Dxfo6y62wymLNs=
 github.com/sclevine/agouti v3.0.0+incompatible/go.mod h1:b4WX9W9L1sfQKXeJf1mUTLZKJ48R1S7H23Ji7oFO5Bw=
-github.com/sei-protocol/sei-cosmos v0.2.65-0.20231107232007-9b57f8d41469 h1:536vD2J9Tr8OvTg9b/fAIHFpVJDY3UxFCtrmnhgVdEU=
-github.com/sei-protocol/sei-cosmos v0.2.65-0.20231107232007-9b57f8d41469/go.mod h1:76gNJ2ItN9NdLQCDxva9YZCePkZkTIUB7eqLvdhcT+8=
 github.com/sei-protocol/sei-iavl v0.1.8-0.20230726213826-031d03d26f2d h1:FWWK/dxqrurTRR3SBlpk0v/FgXef+Ev7/d3X1KBPrTo=
 github.com/sei-protocol/sei-iavl v0.1.8-0.20230726213826-031d03d26f2d/go.mod h1:7PfkEVT5dcoQE+s/9KWdoXJ8VVVP1QpYYPLdxlkSXFk=
 github.com/sei-protocol/sei-tendermint v0.2.28 h1:5PB1a/zu6H2iDbxIMnXgDtB4QwV5PZRikguX8gASLGI=
