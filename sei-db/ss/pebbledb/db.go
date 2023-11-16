@@ -416,6 +416,61 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWork
 	return nil
 }
 
+// RawIterate iterates over all keys and values for a store
+func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte, version int64) bool) (bool, error) {
+	// Iterate through all keys and values for a store
+	lowerBound := MVCCEncode(prependStoreKey(storeKey, nil), 0)
+
+	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound})
+	if err != nil {
+		return false, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
+	}
+	defer itr.Close()
+
+	for itr.First(); itr.Valid(); itr.Next() {
+		currKeyEncoded := itr.Key()
+
+		// Ignore metadata entry for version
+		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
+			continue
+		}
+
+		// Store current key and version
+		currKey, currVersion, currOK := SplitMVCCKey(currKeyEncoded)
+		if !currOK {
+			return false, fmt.Errorf("invalid MVCC key")
+		}
+
+		// Only iterate through module
+		if storeKey != "" && !bytes.HasPrefix(currKey, storePrefix(storeKey)) {
+			break
+		}
+
+		currVersionDecoded, err := decodeUint64Ascending(currVersion)
+		if err != nil {
+			return false, err
+		}
+
+		// Decode the value
+		currValEncoded := itr.Value()
+		if valTombstoned(currValEncoded) {
+			continue
+		}
+		valBz, _, ok := SplitMVCCKey(currValEncoded)
+		if !ok {
+			return false, fmt.Errorf("invalid PebbleDB MVCC value: %s", currKey)
+		}
+
+		// Call callback fn
+		if fn(currKey, valBz, currVersionDecoded) {
+			return true, nil
+		}
+
+	}
+
+	return false, nil
+}
+
 func storePrefix(storeKey string) []byte {
 	return []byte(fmt.Sprintf(StorePrefixTpl, storeKey))
 }
