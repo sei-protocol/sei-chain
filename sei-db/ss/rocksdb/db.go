@@ -266,16 +266,9 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWork
 	return nil
 }
 
-// DebugIterateStore iterates over all keys and values for a store and writes to a file
+// RawIterate iterates over all keys and values for a store
 // TODO: Accept list of storeKeys to export
-func (db *Database) DebugIterateStore(storeKey string, outputDir string) error {
-	// Create output directory
-	currentFile, err := util.CreateFile(outputDir, fmt.Sprintf("debug_rocksdb_store_%s.kv", storeKey))
-	if err != nil {
-		return err
-	}
-	defer currentFile.Close()
-
+func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte, version int64) bool) (bool, error) {
 	prefix := storePrefix(storeKey)
 	start, end := util.IterateWithPrefix(prefix, nil, nil)
 
@@ -288,15 +281,15 @@ func (db *Database) DebugIterateStore(storeKey string, outputDir string) error {
 		value := rocksItr.Value()
 		version := int64(binary.LittleEndian.Uint64(itr.Timestamp().Data()))
 
-		_, err := currentFile.WriteString(fmt.Sprintf("Key: %X Val: %X Version: %d\n", key, value, version))
-		if err != nil {
-			return err
+		// Call callback fn
+		if fn(key, value, version) {
+			return true, nil
 		}
 
 		rocksItr.Next()
 	}
 
-	return nil
+	return false, nil
 }
 
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.

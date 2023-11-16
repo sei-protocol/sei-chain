@@ -14,7 +14,7 @@ type StateStore interface {
 	Has(storeKey string, version int64, key []byte) (bool, error)
 	Iterator(storeKey string, version int64, start, end []byte) (types.Iterator, error)
 	ReverseIterator(storeKey string, version int64, start, end []byte) (types.Iterator, error)
-	DebugIterateStore(storeKey string, outputDir string) error
+	RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error)
 	GetLatestVersion() (int64, error)
 	SetLatestVersion(version int64) error
 

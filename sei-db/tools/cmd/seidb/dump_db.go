@@ -6,8 +6,11 @@ import (
 	"os"
 
 	"github.com/sei-protocol/sei-db/ss"
+	"github.com/sei-protocol/sei-db/tools/utils"
 	"github.com/spf13/cobra"
 )
+
+const outputFileName = "db_dump.kv"
 
 func DumpDbCmd() *cobra.Command {
 	dumpDbCmd := &cobra.Command{
@@ -18,7 +21,8 @@ func DumpDbCmd() *cobra.Command {
 
 	dumpDbCmd.PersistentFlags().StringP("output-dir", "o", "", "Output Directory")
 	dumpDbCmd.PersistentFlags().StringP("db-dir", "d", "", "Database Directory")
-	dumpDbCmd.PersistentFlags().StringP("module", "m", "", "Module to export")
+	// TODO: Accept multiple modules. Can pass empty to iterate over all stores
+	dumpDbCmd.PersistentFlags().StringP("module", "m", "", "Module to export. Leave empty to export all")
 	dumpDbCmd.PersistentFlags().StringP("db-backend", "b", "", "DB Backend")
 
 	return dumpDbCmd
@@ -47,10 +51,6 @@ func dump(cmd *cobra.Command, _ []string) {
 		panic("Must provide output dir when generating db export")
 	}
 
-	if module == "" {
-		panic("Must provide module to export")
-	}
-
 	DumpDbData(dbBackend, module, outputDir, dbDir)
 }
 
@@ -62,12 +62,29 @@ func DumpDbData(dbBackend string, module string, outputDir string, dbDir string)
 		panic(err)
 	}
 
+	// Create output directory
+	currentFile, err := utils.CreateFile(outputDir, fmt.Sprintf(outputFileName))
+	if err != nil {
+		panic(err)
+	}
+	defer currentFile.Close()
+
+	// TODO: Defer Close Db
 	backend, err := ss.NewStateStoreDB(dbDir, ss.BackendType(dbBackend))
 	if err != nil {
 		panic(err)
 	}
 
-	err = backend.DebugIterateStore(module, outputDir)
+	fmt.Printf("Writing db data to %s...\n", outputFileName)
+
+	// Callback to write db entries to file
+	_, err = backend.RawIterate(module, func(key, value []byte, version int64) bool {
+		_, err = currentFile.WriteString(fmt.Sprintf("Key: %X Val: %X Version: %d\n", key, value, version))
+		if err != nil {
+			panic(err)
+		}
+		return false
+	})
 	if err != nil {
 		panic(err)
 	}
