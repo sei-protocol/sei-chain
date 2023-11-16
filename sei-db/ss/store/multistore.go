@@ -177,3 +177,7 @@ func (s *MultiStore) LatestVersion() int64 {
 func (s *MultiStore) Snapshot(_ uint64, _ protoio.Writer) error {
 	panic("not supported")
 }
+
+func (s *MultiStore) Close() error {
+	return s.stateStore.Close()
+}
