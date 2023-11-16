@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/benchmark/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/tools/utils"
 )
 
 // writeToDBConcurrently generates random write load against the db
@@ -96,8 +96,8 @@ func BenchmarkDBWrite(db types.StateStore, inputKVDir string, numVersions int, c
 	// Write each version sequentially
 	totalTime := time.Duration(0)
 	writeCount := 0
-	v := 0
-	for ; v < numVersions; v++ {
+	v := 1
+	for ; v < (numVersions + 1); v++ {
 		// Write shuffled entries to RocksDB concurrently
 		fmt.Printf("On Version %+v\n", v)
 		totalLatencies := []time.Duration{}
@@ -149,7 +149,7 @@ func readFromDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, nu
 					break
 				}
 				// Randomly pick a version and retrieve its column family handle
-				version := int64(rand.Intn(numVersions))
+				version := int64(rand.Intn(numVersions)) + 1
 
 				// Randomly pick a key-value pair to read
 				kv := allKVs[rand.Intn(len(allKVs))]

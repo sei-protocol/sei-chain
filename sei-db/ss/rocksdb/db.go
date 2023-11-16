@@ -266,6 +266,53 @@ func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWork
 	return nil
 }
 
+// RawIterate iterates over all keys and values for a store
+// TODO: Accept list of storeKeys to export
+func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte, version int64) bool) (bool, error) {
+	// If store key provided, only iterate over keys with prefix
+	var prefix []byte
+	if storeKey != "" {
+		prefix = storePrefix(storeKey)
+	}
+	start, end := util.IterateWithPrefix(prefix, nil, nil)
+
+	latestVersion, err := db.GetLatestVersion()
+	if err != nil {
+		return false, err
+	}
+
+	var startTs [TimestampSize]byte
+	binary.LittleEndian.PutUint64(startTs[:], uint64(0))
+
+	var endTs [TimestampSize]byte
+	binary.LittleEndian.PutUint64(endTs[:], uint64(latestVersion))
+
+	// Set timestamp lower and upper bound to iterate over all keys in db
+	readOpts := grocksdb.NewDefaultReadOptions()
+	readOpts.SetIterStartTimestamp(startTs[:])
+	readOpts.SetTimestamp(endTs[:])
+	defer readOpts.Destroy()
+
+	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
+	rocksItr := NewRocksDBIterator(itr, prefix, start, end, false)
+	defer rocksItr.Close()
+
+	for rocksItr.Valid() {
+		key := rocksItr.Key()
+		value := rocksItr.Value()
+		version := int64(binary.LittleEndian.Uint64(itr.Timestamp().Data()))
+
+		// Call callback fn
+		if fn(key, value, version) {
+			return true, nil
+		}
+
+		rocksItr.Next()
+	}
+
+	return false, nil
+}
+
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.
 func newTSReadOptions(version int64) *grocksdb.ReadOptions {
 	var ts [TimestampSize]byte
