@@ -442,7 +442,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		}
 
 		// Only iterate through module
-		if !bytes.HasPrefix(currKey, storePrefix(storeKey)) {
+		if storeKey != "" && !bytes.HasPrefix(currKey, storePrefix(storeKey)) {
 			break
 		}
 
