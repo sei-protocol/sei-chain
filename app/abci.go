@@ -52,12 +52,12 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.Respo
 // DeliverTxBatch is not part of the ABCI specification, but this is here for code convention
 func (app *App) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (res sdk.DeliverTxBatchResponse) {
 	defer metrics.MeasureDeliverBatchTxDuration(time.Now())
-	// ensure we carry the initial context from tracer here
-	ctx = ctx.WithTraceSpanContext(app.GetBaseApp().TracingInfo.GetContext())
-	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("DeliverTxBatch", ctx.TraceSpanContext())
-	defer span.End()
-	// update context with trace span new context
-	ctx = ctx.WithTraceSpanContext(spanCtx)
+	//// ensure we carry the initial context from tracer here
+	//ctx = ctx.WithTraceSpanContext(app.GetBaseApp().TracingInfo.GetContext())
+	//spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("DeliverTxBatch", ctx.TraceSpanContext())
+	//defer span.End()
+	//// update context with trace span new context
+	//ctx = ctx.WithTraceSpanContext(spanCtx)
 	return app.BaseApp.DeliverTxBatch(ctx, req)
 }
 

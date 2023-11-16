@@ -1369,6 +1369,7 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	//TODO: update with logic that asserts that occ is enabled
+	startTime := time.Now()
 	ctx = ctx.WithIsOCCEnabled(EnableOCC)
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
@@ -1398,7 +1399,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
-
+	fmt.Printf("[SeiChain-Debug] BeginBlock for block height %d took %s\n", ctx.BlockHeight(), time.Since(startTime))
+	beginBlockEndTime := time.Now()
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	prioritizedTxs, otherTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs)
 
@@ -1411,14 +1413,19 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
 	deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, deferredWriteEvents...)
-
+	fmt.Printf("[SeiChain-Debug] Run prioritized txs for block height %d took %s\n", ctx.BlockHeight(), time.Since(beginBlockEndTime))
+	prioritizedEndTime := time.Now()
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
+	fmt.Printf("[SeiChain-Debug] MidBlock for block height %d took %s\n", ctx.BlockHeight(), time.Since(prioritizedEndTime))
 
+	midBlockEndTime := time.Now()
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}
+	fmt.Printf("[SeiChain-Debug] Run other %d txs for block height %d took %s\n", len(otherTxs), ctx.BlockHeight(), time.Since(midBlockEndTime))
+	runOtherTxEndTime := time.Now()
 
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
@@ -1429,6 +1436,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	})
 
 	events = append(events, endBlockResp.Events...)
+	fmt.Printf("[SeiChain-Debug] EndBlock for block height %d took %s\n", ctx.BlockHeight(), time.Since(runOtherTxEndTime))
+
 	return events, txResults, endBlockResp, nil
 }
 
