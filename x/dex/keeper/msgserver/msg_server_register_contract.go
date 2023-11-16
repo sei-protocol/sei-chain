@@ -96,7 +96,7 @@ func (k msgServer) RemoveExistingDependencies(ctx sdk.Context, msg *types.MsgReg
 	contractInfo, err := k.GetContract(ctx, msg.Contract.ContractAddr)
 	if err != nil {
 		// contract is being added for the first time
-		ctx.Logger().Info(fmt.Sprintf("adding contract %s for the first time", msg.Contract.ContractAddr, "err", err))
+		ctx.Logger().Info(fmt.Sprintf("adding contract %s for the first time", msg.Contract.ContractAddr))
 		return nil
 	}
 	if contractInfo.Dependencies == nil {
