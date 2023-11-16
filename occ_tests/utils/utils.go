@@ -39,12 +39,13 @@ var ignoredStoreKeys = map[string]struct{}{
 }
 
 type TestContext struct {
-	Ctx            sdk.Context
-	CodeID         uint64
-	Validator      TestAcct
-	TestAccounts   []TestAcct
-	ContractKeeper *wasmkeeper.PermissionedKeeper
-	TestApp        *app.App
+	Ctx               sdk.Context
+	CodeID            uint64
+	Validator         TestAcct
+	TestAccounts      []TestAcct
+	TestContractAddrs []string
+	ContractKeeper    *wasmkeeper.PermissionedKeeper
+	TestApp           *app.App
 }
 
 type TestAcct struct {
@@ -103,7 +104,7 @@ func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, wor
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(dextypes.MemStoreKey))))
 	ctx = ctx.WithBlockGasMeter(sdk.NewGasMeter(100000000))
 	ctx = ctx.WithBlockHeader(tmproto.Header{Height: ctx.BlockHeader().Height, ChainID: ctx.BlockHeader().ChainID, Time: blockTime})
-	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000000)))
 	bankkeeper := testApp.BankKeeper
 	wasmKeeper := testApp.WasmKeeper
 	contractKeeper := wasmkeeper.NewDefaultPermissionKeeper(&wasmKeeper)
@@ -120,7 +121,7 @@ func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, wor
 		panicIfErr(bankkeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, ta.AccountAddress, amounts))
 	}
 
-	return &TestContext{
+	tc := &TestContext{
 		Ctx:            ctx,
 		CodeID:         codeID,
 		Validator:      testAccts[0],
@@ -128,6 +129,7 @@ func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, wor
 		ContractKeeper: contractKeeper,
 		TestApp:        testApp,
 	}
+	return tc
 }
 
 func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {

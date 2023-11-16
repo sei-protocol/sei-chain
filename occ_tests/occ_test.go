@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/server/config"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/occ_tests/messages"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
@@ -156,13 +155,14 @@ func TestParallelTransactions(t *testing.T) {
 		// execute sequentially, then in parallel
 		// the responses and state should match for both
 		sCtx := utils.NewTestContext(t, accts, blockTime, 1)
-		txs := tt.txs(sCtx)
-		if tt.shuffle {
-			txs = utils.Shuffle(txs)
-		}
 
 		if tt.before != nil {
 			tt.before(sCtx)
+		}
+
+		txs := tt.txs(sCtx)
+		if tt.shuffle {
+			txs = utils.Shuffle(txs)
 		}
 
 		sEvts, sResults, _, sErr := utils.RunWithOCC(sCtx, txs)
@@ -170,7 +170,75 @@ func TestParallelTransactions(t *testing.T) {
 		require.Len(t, sResults, len(txs))
 
 		for i := 0; i < tt.runs; i++ {
-			pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers)
+			pCtx := utils.NewTestContext(t, accts, blockTime, 1)
+			if tt.before != nil {
+				tt.before(pCtx)
+			}
+			pEvts, pResults, _, pErr := utils.RunWithOCC(pCtx, txs)
+			require.NoError(t, pErr, tt.name)
+			require.Len(t, pResults, len(txs))
+
+			assertEqualEvents(t, sEvts, pEvts, tt.name)
+			assertExecTxResultCode(t, sResults, pResults, 0, tt.name)
+			assertEqualExecTxResults(t, sResults, pResults, tt.name)
+			assertEqualState(t, sCtx.Ctx, pCtx.Ctx, tt.name)
+		}
+	}
+}
+
+func TestRegistrationTxs(t *testing.T) {
+	runs := 1
+	tests := []struct {
+		name    string
+		runs    int
+		shuffle bool
+		before  func(tCtx *utils.TestContext)
+		txs     func(tCtx *utils.TestContext) []sdk.Msg
+	}{
+		{
+			name: "Test contract registrations",
+			runs: runs,
+			before: func(tCtx *utils.TestContext) {
+				txs := utils.JoinMsgs(messages.WasmInstantiate(tCtx, 2))
+				_, results, _, sErr := utils.RunWithOCC(tCtx, txs)
+				require.NoError(t, sErr)
+				require.Len(t, results, len(txs))
+				for _, res := range results {
+					addr := res.Events[len(res.Events)-1].Attributes[0].Value
+					tCtx.TestContractAddrs = append(tCtx.TestContractAddrs, string(addr))
+				}
+			},
+			txs: func(tCtx *utils.TestContext) []sdk.Msg {
+				return utils.JoinMsgs(
+					messages.DexRegisterContract(tCtx, 2),
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		blockTime := time.Now()
+		accts := utils.NewTestAccounts(5)
+
+		// execute sequentially, then in parallel
+		// the responses and state should match for both
+		sCtx := utils.NewTestContext(t, accts, blockTime, 1)
+
+		if tt.before != nil {
+			tt.before(sCtx)
+		}
+
+		txs := tt.txs(sCtx)
+		if tt.shuffle {
+			txs = utils.Shuffle(txs)
+		}
+
+		sEvts, sResults, _, sErr := utils.RunWithOCC(sCtx, txs)
+		require.NoError(t, sErr, tt.name)
+		require.Len(t, sResults, len(txs))
+
+		for i := 0; i < tt.runs; i++ {
+			pCtx := utils.NewTestContext(t, accts, blockTime, 1)
 			if tt.before != nil {
 				tt.before(pCtx)
 			}
