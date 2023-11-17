@@ -1,6 +1,7 @@
 package benchmarks
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -103,7 +104,7 @@ func BenchmarkTxSending(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N/blockSize; i++ {
-				appInfo.App.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: height, Time: time.Now()}})
+				appInfo.App.BeginBlock(appInfo.App.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: tmproto.Header{Height: height, Time: time.Now()}})
 
 				for j := 0; j < blockSize; j++ {
 					idx := i*blockSize + j
@@ -116,8 +117,9 @@ func BenchmarkTxSending(b *testing.B) {
 					require.NoError(b, err)
 				}
 
-				appInfo.App.EndBlock(abci.RequestEndBlock{Height: height})
-				appInfo.App.Commit()
+				appInfo.App.EndBlock(appInfo.App.GetContextForDeliverTx([]byte{}), abci.RequestEndBlock{Height: height})
+				appInfo.App.SetDeliverStateToCommit()
+				appInfo.App.Commit(context.Background())
 				height++
 			}
 		})

@@ -1,6 +1,7 @@
 package benchmarks
 
 import (
+	"context"
 	"encoding/json"
 	"io/ioutil"
 	"testing"
@@ -28,7 +29,7 @@ import (
 
 func setup(db dbm.DB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Option) (*app.WasmApp, app.GenesisState) {
 	encodingConfig := app.MakeEncodingConfig()
-	wasmApp := app.NewWasmApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, app.DefaultNodeHome, invCheckPeriod, encodingConfig, wasm.EnableAllProposals, app.EmptyBaseAppOptions{}, opts)
+	wasmApp := app.NewWasmApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, app.DefaultNodeHome, invCheckPeriod, nil, encodingConfig, wasm.EnableAllProposals, app.EmptyBaseAppOptions{}, opts)
 	if withGenesis {
 		return wasmApp, app.NewDefaultGenesisState()
 	}
@@ -58,15 +59,17 @@ func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.Genes
 	}
 
 	wasmApp.InitChain(
-		abci.RequestInitChain{
+		context.Background(),
+		&abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: app.DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
 		},
 	)
 
-	wasmApp.Commit()
-	wasmApp.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: wasmApp.LastBlockHeight() + 1}})
+	wasmApp.SetDeliverStateToCommit()
+	wasmApp.Commit(context.Background())
+	wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: tmproto.Header{Height: wasmApp.LastBlockHeight() + 1}})
 
 	return wasmApp
 }
@@ -116,7 +119,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 	// add wasm contract
 	height := int64(2)
 	txGen := simappparams.MakeTestEncodingConfig().TxConfig
-	wasmApp.BeginBlock(abci.RequestBeginBlock{Header: tmproto.Header{Height: height, Time: time.Now()}})
+	wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: tmproto.Header{Height: height, Time: time.Now()}})
 
 	// upload the code
 	cw20Code, err := ioutil.ReadFile("./testdata/cw20_base.wasm")
@@ -169,8 +172,9 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 	attr := evt.Attributes[0]
 	contractAddr := string(attr.Value)
 
-	wasmApp.EndBlock(abci.RequestEndBlock{Height: height})
-	wasmApp.Commit()
+	wasmApp.EndBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestEndBlock{Height: height})
+	wasmApp.SetDeliverStateToCommit()
+	wasmApp.Commit(context.Background())
 
 	return AppInfo{
 		App:          wasmApp,

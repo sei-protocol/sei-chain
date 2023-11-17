@@ -2,6 +2,7 @@ package ibctesting
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
+	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -29,12 +32,11 @@ import (
 	"github.com/cosmos/ibc-go/v3/modules/core/types"
 	ibctmtypes "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
 	ibctesting "github.com/cosmos/ibc-go/v3/testing"
-	"github.com/cosmos/ibc-go/v3/testing/mock"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/tmhash"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmprotoversion "github.com/tendermint/tendermint/proto/tendermint/version"
 	tmtypes "github.com/tendermint/tendermint/types"
 	tmversion "github.com/tendermint/tendermint/version"
 
@@ -74,6 +76,41 @@ type PacketAck struct {
 	Ack    []byte
 }
 
+type PV struct {
+	PrivKey cryptotypes.PrivKey
+}
+
+func NewPV() PV {
+	return PV{ed25519.GenPrivKey()}
+}
+
+// GetPubKey implements PrivValidator interface
+func (pv PV) GetPubKey(context.Context) (crypto.PubKey, error) {
+	return cryptocodec.ToTmPubKeyInterface(pv.PrivKey.PubKey())
+}
+
+// SignVote implements PrivValidator interface
+func (pv PV) SignVote(_ context.Context, chainID string, vote *tmproto.Vote) error {
+	signBytes := tmtypes.VoteSignBytes(chainID, vote)
+	sig, err := pv.PrivKey.Sign(signBytes)
+	if err != nil {
+		return err
+	}
+	vote.Signature = sig
+	return nil
+}
+
+// SignProposal implements PrivValidator interface
+func (pv PV) SignProposal(_ context.Context, chainID string, proposal *tmproto.Proposal) error {
+	signBytes := tmtypes.ProposalSignBytes(chainID, proposal)
+	sig, err := pv.PrivKey.Sign(signBytes)
+	if err != nil {
+		return err
+	}
+	proposal.Signature = sig
+	return nil
+}
+
 // NewTestChain initializes a new TestChain instance with a single validator set using a
 // generated private key. It also creates a sender account to be used for delivering transactions.
 //
@@ -84,8 +121,8 @@ type PacketAck struct {
 // Each update of any chain increments the block header time for all chains by 5 seconds.
 func NewTestChain(t *testing.T, coord *Coordinator, chainID string, opts ...wasm.Option) *TestChain {
 	// generate validator private/public key
-	privVal := mock.NewPV()
-	pubKey, err := privVal.GetPubKey()
+	privVal := NewPV()
+	pubKey, err := privVal.GetPubKey(context.Background())
 	require.NoError(t, err)
 
 	// create validator set with single validator
@@ -150,7 +187,7 @@ func (chain *TestChain) QueryProof(key []byte) ([]byte, clienttypes.Height) {
 // QueryProof performs an abci query with the given key and returns the proto encoded merkle proof
 // for the query and the height at which the proof will succeed on a tendermint verifier.
 func (chain *TestChain) QueryProofAtHeight(key []byte, height int64) ([]byte, clienttypes.Height) {
-	res := chain.App.Query(abci.RequestQuery{
+	res, _ := chain.App.Query(context.Background(), &abci.RequestQuery{
 		Path:   fmt.Sprintf("store/%s/key", host.StoreKey),
 		Height: height - 1,
 		Data:   key,
@@ -174,7 +211,7 @@ func (chain *TestChain) QueryProofAtHeight(key []byte, height int64) ([]byte, cl
 // QueryUpgradeProof performs an abci query with the given key and returns the proto encoded merkle proof
 // for the query and the height at which the proof will succeed on a tendermint verifier.
 func (chain *TestChain) QueryUpgradeProof(key []byte, height uint64) ([]byte, clienttypes.Height) {
-	res := chain.App.Query(abci.RequestQuery{
+	res, _ := chain.App.Query(context.Background(), &abci.RequestQuery{
 		Path:   "store/upgrade/key",
 		Height: int64(height - 1),
 		Data:   key,
@@ -228,7 +265,8 @@ func (chain *TestChain) NextBlock() {
 		NextValidatorsHash: chain.Vals.Hash(),
 	}
 
-	chain.App.BeginBlock(abci.RequestBeginBlock{Header: chain.CurrentHeader})
+	wasmApp := chain.App.(*TestingAppDecorator).WasmApp
+	wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: chain.CurrentHeader})
 }
 
 // sendMsgs delivers a transaction through the application without returning the result.
@@ -404,7 +442,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 	vsetHash := tmValSet.Hash()
 
 	tmHeader := tmtypes.Header{
-		Version:            tmprotoversion.Consensus{Block: tmversion.BlockProtocol, App: 2},
+		Version:            tmversion.Consensus{Block: tmversion.BlockProtocol, App: 2},
 		ChainID:            chainID,
 		Height:             blockHeight,
 		Time:               timestamp,
@@ -422,16 +460,26 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 	hhash := tmHeader.Hash()
 	blockID := MakeBlockID(hhash, 3, tmhash.Sum([]byte("part_set")))
 	voteSet := tmtypes.NewVoteSet(chainID, blockHeight, 1, tmproto.PrecommitType, tmValSet)
+	for i, val := range tmValSet.Validators {
+		voteSet.AddVote(&tmtypes.Vote{
+			Type:             tmproto.PrevoteType,
+			Height:           blockHeight,
+			Round:            1,
+			BlockID:          blockID,
+			Timestamp:        timestamp,
+			ValidatorAddress: val.Address,
+			ValidatorIndex:   int32(i),
+		})
+	}
 
-	commit, err := tmtypes.MakeCommit(blockID, blockHeight, 1, voteSet, signers, timestamp)
-	require.NoError(chain.t, err)
+	commit := voteSet.MakeExtendedCommit().ToCommit()
 
 	signedHeader := &tmproto.SignedHeader{
 		Header: tmHeader.ToProto(),
 		Commit: commit.ToProto(),
 	}
 
-	valSet, err = tmValSet.ToProto()
+	valSet, err := tmValSet.ToProto()
 	if err != nil {
 		panic(err)
 	}
@@ -501,7 +549,9 @@ func (chain *TestChain) CreatePortCapability(scopedKeeper capabilitykeeper.Scope
 		require.NoError(chain.t, err)
 	}
 
-	chain.App.Commit()
+	wasmApp := chain.App.(*TestingAppDecorator).WasmApp
+	wasmApp.SetDeliverStateToCommit()
+	chain.App.Commit(context.Background())
 
 	chain.NextBlock()
 }
@@ -529,7 +579,9 @@ func (chain *TestChain) CreateChannelCapability(scopedKeeper capabilitykeeper.Sc
 		require.NoError(chain.t, err)
 	}
 
-	chain.App.Commit()
+	wasmApp := chain.App.(*TestingAppDecorator).WasmApp
+	wasmApp.SetDeliverStateToCommit()
+	chain.App.Commit(context.Background())
 
 	chain.NextBlock()
 }

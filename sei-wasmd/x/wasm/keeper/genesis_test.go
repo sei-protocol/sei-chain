@@ -75,7 +75,7 @@ func TestGenesisExportImport(t *testing.T) {
 			anyTime := time.Now().UTC()
 			var nestedType govtypes.TextProposal
 			f.NilChance(0).Fuzz(&nestedType)
-			myExtension, err := govtypes.NewProposal(&nestedType, 1, anyTime, anyTime)
+			myExtension, err := govtypes.NewProposal(&nestedType, 1, anyTime, anyTime, false)
 			require.NoError(t, err)
 			contract.SetExtension(&myExtension)
 		}

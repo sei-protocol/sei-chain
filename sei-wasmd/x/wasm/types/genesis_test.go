@@ -186,7 +186,7 @@ func TestGenesisContractInfoMarshalUnmarshal(t *testing.T) {
 
 	anyTime := time.Now().UTC()
 	// using gov proposal here as a random protobuf types as it contains an Any type inside for nested unpacking
-	myExtension, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "bar"}, 1, anyTime, anyTime)
+	myExtension, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "bar"}, 1, anyTime, anyTime, false)
 	require.NoError(t, err)
 	myExtension.TotalDeposit = nil
 

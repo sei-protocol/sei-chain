@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
@@ -92,6 +94,7 @@ import (
 	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	tmcfg "github.com/tendermint/tendermint/config"
 
 	// Note: please do your research before using this in production app, this is a demo and not an officially
 	// supported IBC team implementation. It has no known issues, but do your own research before using it.
@@ -279,6 +282,8 @@ type WasmApp struct {
 
 	// module configurator
 	configurator module.Configurator
+
+	txDecoder sdk.TxDecoder
 }
 
 // NewWasmApp returns a reference to an initialized WasmApp.
@@ -290,6 +295,7 @@ func NewWasmApp(
 	skipUpgradeHeights map[int64]bool,
 	homePath string,
 	invCheckPeriod uint,
+	tmConfig *tmcfg.Config,
 	encodingConfig wasmappparams.EncodingConfig,
 	enabledProposals []wasm.ProposalType,
 	appOpts servertypes.AppOptions,
@@ -299,7 +305,7 @@ func NewWasmApp(
 	appCodec, legacyAmino := encodingConfig.Marshaler, encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bApp := baseapp.NewBaseApp(appName, logger, db, encodingConfig.TxConfig.TxDecoder(), baseAppOptions...)
+	bApp := baseapp.NewBaseApp(appName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
 
@@ -322,6 +328,7 @@ func NewWasmApp(
 		keys:              keys,
 		tkeys:             tkeys,
 		memKeys:           memKeys,
+		txDecoder:         encodingConfig.TxConfig.TxDecoder(),
 	}
 
 	app.paramsKeeper = initParamsKeeper(
@@ -714,7 +721,7 @@ func NewWasmApp(
 	app.MountTransientStores(tkeys)
 	app.MountMemoryStores(memKeys)
 
-	anteHandler, err := NewAnteHandler(
+	anteHandler, anteDepGenerator, err := NewAnteHandler(
 		HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   app.accountKeeper,
@@ -733,9 +740,13 @@ func NewWasmApp(
 	}
 
 	app.SetAnteHandler(anteHandler)
+	app.SetAnteDepGenerator(anteDepGenerator)
 	app.SetInitChainer(app.InitChainer)
 	app.SetBeginBlocker(app.BeginBlocker)
 	app.SetEndBlocker(app.EndBlocker)
+	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
+	app.SetProcessProposalHandler(app.ProcessProposalHandler)
+	app.SetFinalizeBlocker(app.FinalizeBlocker)
 
 	// must be before Loading version
 	// requires the snapshot store to be created and registered as a BaseAppOption
@@ -773,6 +784,115 @@ func NewWasmApp(
 
 // Name returns the name of the App
 func (app *WasmApp) Name() string { return app.BaseApp.Name() }
+
+func (app *WasmApp) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+	return &abci.ResponsePrepareProposal{
+		TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
+			return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
+		}),
+	}, nil
+}
+
+func (app *WasmApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+	return &abci.ResponseProcessProposal{
+		Status: abci.ResponseProcessProposal_ACCEPT,
+	}, nil
+}
+
+func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	events := []abci.Event{}
+	beginBlockResp := app.BeginBlock(ctx, abci.RequestBeginBlock{
+		Hash: req.Hash,
+		ByzantineValidators: utils.Map(req.ByzantineValidators, func(mis abci.Misbehavior) abci.Evidence {
+			return abci.Evidence{
+				Type:             abci.MisbehaviorType(mis.Type),
+				Validator:        abci.Validator(mis.Validator),
+				Height:           mis.Height,
+				Time:             mis.Time,
+				TotalVotingPower: mis.TotalVotingPower,
+			}
+		}),
+		LastCommitInfo: abci.LastCommitInfo{
+			Round: req.DecidedLastCommit.Round,
+			Votes: utils.Map(req.DecidedLastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
+				return abci.VoteInfo{
+					Validator:       abci.Validator(vote.Validator),
+					SignedLastBlock: vote.SignedLastBlock,
+				}
+			}),
+		},
+		Header: tmproto.Header{
+			ChainID:         app.ChainID,
+			Height:          req.Height,
+			Time:            req.Time,
+			ProposerAddress: ctx.BlockHeader().ProposerAddress,
+		},
+	})
+	events = append(events, beginBlockResp.Events...)
+
+	typedTxs := []sdk.Tx{}
+	for _, tx := range req.Txs {
+		typedTx, err := app.txDecoder(tx)
+		if err != nil {
+			typedTxs = append(typedTxs, nil)
+		} else {
+			typedTxs = append(typedTxs, typedTx)
+		}
+	}
+
+	txResults := []*abci.ExecTxResult{}
+	for i, tx := range req.Txs {
+		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
+			Tx: tx,
+		})
+		txResults = append(txResults, &abci.ExecTxResult{
+			Code:      deliverTxResp.Code,
+			Data:      deliverTxResp.Data,
+			Log:       deliverTxResp.Log,
+			Info:      deliverTxResp.Info,
+			GasWanted: deliverTxResp.GasWanted,
+			GasUsed:   deliverTxResp.GasUsed,
+			Events:    deliverTxResp.Events,
+			Codespace: deliverTxResp.Codespace,
+		})
+	}
+	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
+		Height: req.Height,
+	})
+	events = append(events, endBlockResp.Events...)
+
+	app.SetDeliverStateToCommit()
+	appHash := app.WriteStateToCommitAndGetWorkingHash()
+	return &abci.ResponseFinalizeBlock{
+		Events:    events,
+		TxResults: txResults,
+		ValidatorUpdates: utils.Map(endBlockResp.ValidatorUpdates, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
+			return abci.ValidatorUpdate{
+				PubKey: v.PubKey,
+				Power:  v.Power,
+			}
+		}),
+		ConsensusParamUpdates: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{
+				MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+			},
+			Evidence: &tmproto.EvidenceParams{
+				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
+				MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
+				MaxBytes:        endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+			},
+			Validator: &tmproto.ValidatorParams{
+				PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
+			},
+			Version: &tmproto.VersionParams{
+				AppVersion: endBlockResp.ConsensusParamUpdates.Version.AppVersion,
+			},
+		},
+		AppHash: appHash,
+	}, nil
+}
 
 // application updates every begin block
 func (app *WasmApp) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
