@@ -31,7 +31,7 @@ type iterator struct {
 }
 
 func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool) *iterator {
-	// move the underlying PebbleDB iterator to the first key
+	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
 			source:  src,
@@ -44,6 +44,7 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 		}
 	}
 
+	// move the underlying PebbleDB iterator to the first key
 	var valid bool
 	if reverse {
 		valid = src.Last()
