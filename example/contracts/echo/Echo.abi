@@ -1,0 +1,1 @@
+[{"inputs":[{"internalType":"uint256","name":"value","type":"uint256"}],"name":"echo","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"pure","type":"function"}]

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	wasm "github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
@@ -37,6 +39,7 @@ type HandlerOptions struct {
 	EVMKeeper           *evmkeeper.Keeper
 	TXCounterStoreKey   sdk.StoreKey
 	CheckTxMemState     *dexcache.MemState
+	EVMCheckTxTimeout   time.Duration
 
 	TracingInfo *tracing.Info
 }
@@ -112,8 +115,8 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 
 	evmAnteDecorators := []sdk.AnteFullDecorator{
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper())),
-		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMSigVerifyDecorator(options.EVMKeeper)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMFeeCheckDecorator(options.EVMKeeper)),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMSigVerifyDecorator(options.EVMKeeper, options.EVMCheckTxTimeout)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewGasLimitDecorator(options.EVMKeeper)),
 	}
 	evmAnteHandler, evmAnteDepGenerator := sdk.ChainAnteDecorators(evmAnteDecorators...)

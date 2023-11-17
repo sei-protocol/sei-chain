@@ -61,6 +61,9 @@ type Config struct {
 
 	// timeout for filters
 	FilterTimeout time.Duration `mapstructure:"filter_timeout"`
+
+	// checkTx timeout for sig verify
+	CheckTxTimeout time.Duration `mapstructure:"checktx_timeout"`
 }
 
 var DefaultConfig = Config{
@@ -77,6 +80,7 @@ var DefaultConfig = Config{
 	CORSOrigins:          "*",
 	WSOrigins:            "*",
 	FilterTimeout:        120 * time.Second,
+	CheckTxTimeout:       5 * time.Second,
 }
 
 const (
@@ -93,6 +97,7 @@ const (
 	flagCORSOrigins          = "evm.cors_origins"
 	flagWSOrigins            = "evm.ws_origins"
 	flagFilterTimeout        = "evm.filter_timeout"
+	flagCheckTxTimeout       = "evm.checktx_timeout"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -160,6 +165,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagFilterTimeout); v != nil {
 		if cfg.FilterTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagCheckTxTimeout); v != nil {
+		if cfg.CheckTxTimeout, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
 		}
 	}
