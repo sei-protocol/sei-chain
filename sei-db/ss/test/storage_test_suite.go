@@ -2,7 +2,8 @@ package sstest
 
 import (
 	"fmt"
-	"slices"
+
+	"golang.org/x/exp/slices"
 
 	"github.com/stretchr/testify/suite"
 
