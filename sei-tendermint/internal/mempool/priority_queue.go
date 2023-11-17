@@ -4,6 +4,8 @@ import (
 	"container/heap"
 	"sort"
 	"sync"
+
+	tmmath "github.com/tendermint/tendermint/libs/math"
 )
 
 var _ heap.Interface = (*TxPriorityQueue)(nil)
@@ -104,6 +106,32 @@ func (pq *TxPriorityQueue) PopTx() *WrappedTx {
 	}
 
 	return nil
+}
+
+// dequeue up to `max` transactions and reenqueue while locked
+func (pq *TxPriorityQueue) PeekTxs(max int) []*WrappedTx {
+	pq.mtx.Lock()
+	defer pq.mtx.Unlock()
+
+	numTxs := len(pq.txs)
+	if max < 0 {
+		max = numTxs
+	}
+
+	cap := tmmath.MinInt(numTxs, max)
+	res := make([]*WrappedTx, 0, cap)
+	for i := 0; i < cap; i++ {
+		popped := heap.Pop(pq)
+		if popped == nil {
+			break
+		}
+		res = append(res, popped.(*WrappedTx))
+	}
+
+	for _, tx := range res {
+		heap.Push(pq, tx)
+	}
+	return res
 }
 
 // Push implements the Heap interface.

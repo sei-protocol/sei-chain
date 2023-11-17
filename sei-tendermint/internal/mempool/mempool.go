@@ -15,7 +15,6 @@ import (
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/libs/clist"
 	"github.com/tendermint/tendermint/libs/log"
-	tmmath "github.com/tendermint/tendermint/libs/math"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -420,24 +419,10 @@ func (txmp *TxMempool) ReapMaxTxs(max int) types.Txs {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
 
-	numTxs := txmp.priorityIndex.NumTxs()
-	if max < 0 {
-		max = numTxs
-	}
-
-	cap := tmmath.MinInt(numTxs, max)
-
-	// wTxs contains a list of *WrappedTx retrieved from the priority queue that
-	// need to be re-enqueued prior to returning.
-	wTxs := make([]*WrappedTx, 0, cap)
-	txs := make([]types.Tx, 0, cap)
-	for txmp.priorityIndex.NumTxs() > 0 && len(txs) < max {
-		wtx := txmp.priorityIndex.PopTx()
-		txs = append(txs, wtx.tx)
-		wTxs = append(wTxs, wtx)
-	}
+	wTxs := txmp.priorityIndex.PeekTxs(max)
+	txs := make([]types.Tx, 0, len(wTxs))
 	for _, wtx := range wTxs {
-		txmp.priorityIndex.PushTx(wtx)
+		txs = append(txs, wtx.tx)
 	}
 	return txs
 }
