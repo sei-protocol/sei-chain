@@ -458,6 +458,9 @@ idle_timeout = "{{ .EVM.IdleTimeout }}"
 # Maximum gas limit for simulation
 simulation_gas_limit = {{ .EVM.SimulationGasLimit }}
 
+# Timeout for EVM call in simulation
+simulation_evm_timeout = "{{ .EVM.SimulationEVMTimeout }}"
+
 # list of CORS allowed origins, separated by comma
 cors_origins = "{{ .EVM.CORSOrigins }}"
 
@@ -466,6 +469,9 @@ ws_origins = "{{ .EVM.WSOrigins }}"
 
 # timeout for filters
 filter_timeout = "{{ .EVM.FilterTimeout }}"
+
+# checkTx timeout for sig verify
+checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 `
 
 	return customAppTemplate, customAppConfig
