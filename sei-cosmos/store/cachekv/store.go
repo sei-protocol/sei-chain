@@ -364,3 +364,7 @@ func (store *Store) isDeleted(key string) bool {
 	_, ok := store.deleted.Load(key)
 	return ok
 }
+
+func (store *Store) GetParent() types.KVStore {
+	return store.parent
+}

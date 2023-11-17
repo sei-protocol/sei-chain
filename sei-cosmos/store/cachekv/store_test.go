@@ -62,6 +62,9 @@ func TestCacheKVStore(t *testing.T) {
 	st.Write()
 	require.Empty(t, st.Get(keyFmt(1)), "Expected `key1` to be empty")
 	require.Empty(t, mem.Get(keyFmt(1)), "Expected `key1` to be empty")
+
+	// GetParent returns parent store
+	require.NotNil(t, st.GetParent())
 }
 
 func TestCacheKVStoreNoNilSet(t *testing.T) {
