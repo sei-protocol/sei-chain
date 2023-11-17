@@ -22,6 +22,7 @@ type opts struct {
 	corsOrigins          interface{}
 	wsOrigins            interface{}
 	filterTimeout        interface{}
+	checkTxTimeout       interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -64,6 +65,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.filter_timeout" {
 		return o.filterTimeout
 	}
+	if k == "evm.checktx_timeout" {
+		return o.checkTxTimeout
+	}
 	panic("unknown key")
 }
 
@@ -81,6 +85,7 @@ func TestReadConfig(t *testing.T) {
 		time.Duration(60),
 		"",
 		"",
+		time.Duration(5),
 		time.Duration(5),
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
@@ -135,6 +140,10 @@ func TestReadConfig(t *testing.T) {
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.wsOrigins = map[string]interface{}{}
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+	badOpts = goodOpts
+	badOpts.checkTxTimeout = "bad"
 	_, err = evmrpc.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 }

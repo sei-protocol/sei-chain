@@ -145,11 +145,11 @@ func TestSigVerifyCheckTxNonceGap(t *testing.T) {
 			i, nonce := i, nonce
 			go func() {
 				defer wg.Done()
-				ctx = types.SetContextEthTx(ctx, ethtypes.NewTx(&ethtypes.DynamicFeeTx{Nonce: nonce})).WithPriority(leadingPriority)
+				runCtx := types.SetContextEthTx(ctx, ethtypes.NewTx(&ethtypes.DynamicFeeTx{Nonce: nonce})).WithPriority(leadingPriority)
 				if test.delay[i] > 0 {
 					time.Sleep(test.delay[i])
 				}
-				resCtx, err := handler.AnteHandle(ctx, nil, false, noop)
+				resCtx, err := handler.AnteHandle(runCtx, nil, false, noop)
 				if test.shouldSuccess[i] {
 					require.Nil(t, err, test.name)
 					require.Equal(t, test.expectedPriorities[i], resCtx.Priority(), test.name)
