@@ -30,8 +30,20 @@ type iterator struct {
 	reverse            bool
 }
 
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, reverse bool) *iterator {
+func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool) *iterator {
 	// move the underlying PebbleDB iterator to the first key
+	if version < earliestVersion {
+		return &iterator{
+			source:  src,
+			prefix:  prefix,
+			start:   mvccStart,
+			end:     mvccEnd,
+			version: version,
+			valid:   false,
+			reverse: reverse,
+		}
+	}
+
 	var valid bool
 	if reverse {
 		valid = src.Last()

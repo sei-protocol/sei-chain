@@ -340,7 +340,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, false), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, false), nil
 }
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
@@ -364,7 +364,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, true), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, true), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
