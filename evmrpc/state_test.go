@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,8 +10,14 @@ import (
 	"strings"
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/evmrpc"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
+	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 func TestGetBalance(t *testing.T) {
@@ -189,5 +196,50 @@ func TestGetStorageAt(t *testing.T) {
 				require.Equal(t, wantValue, got)
 			}
 		})
+	}
+}
+
+func TestGetProof(t *testing.T) {
+	testApp := app.Setup(false, false)
+	_, evmAddr := testkeeper.MockAddressPair()
+	key, val := []byte("test"), []byte("abc")
+	testApp.EvmKeeper.SetState(testApp.GetContextForDeliverTx([]byte{}), evmAddr, common.BytesToHash(key), common.BytesToHash(val))
+	for i := 0; i < MockHeight; i++ {
+		testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: int64(i + 1)})
+		testApp.SetDeliverStateToCommit()
+		_, err := testApp.Commit(context.Background())
+		require.Nil(t, err)
+	}
+	stateAPI := evmrpc.NewStateAPI(&MockClient{}, &testApp.EvmKeeper, func(int64) sdk.Context { return testApp.GetCheckCtx() })
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000616263", testApp.EvmKeeper.GetState(testApp.GetCheckCtx(), evmAddr, common.BytesToHash(key)).Hex())
+	tests := []struct {
+		key         string
+		blockNr     rpc.BlockNumber
+		expectedVal []byte
+	}{
+		{
+			key:         string(key),
+			blockNr:     rpc.BlockNumber(-2),
+			expectedVal: val,
+		},
+		{
+			key:         string(key),
+			blockNr:     rpc.BlockNumber(8),
+			expectedVal: val,
+		},
+		{
+			key:         "non existent",
+			blockNr:     rpc.BlockNumber(-2),
+			expectedVal: []byte{},
+		},
+	}
+	for _, test := range tests {
+		bptr := &rpc.BlockNumberOrHash{BlockNumber: &test.blockNr}
+		res, err := stateAPI.GetProof(context.Background(), evmAddr, []string{test.key}, *bptr)
+		require.Nil(t, err)
+		vals := res.HexValues
+		require.Equal(t, common.BytesToHash(test.expectedVal), common.HexToHash(vals[0]))
+		proofs := res.StorageProof
+		require.Equal(t, "ics23:iavl", proofs[0].Ops[0].Type)
 	}
 }

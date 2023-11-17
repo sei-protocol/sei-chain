@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	cachekv "github.com/cosmos/cosmos-sdk/store/cachekv"
 	iavlstore "github.com/cosmos/cosmos-sdk/store/iavl"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -100,10 +101,22 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 		return nil, err
 	}
 	sdkCtx := a.ctxProvider(block.Block.Height)
-	// TODO: fix me
-	iavl, ok := sdkCtx.MultiStore().GetKVStore((a.keeper.GetStoreKey())).(*iavlstore.Store)
-	if !ok {
-		return nil, errors.New("cannot find EVM IAVL store")
+	var iavl *iavlstore.Store
+	s := sdkCtx.MultiStore().GetKVStore((a.keeper.GetStoreKey()))
+OUTER:
+	for {
+		switch cast := s.(type) {
+		case *iavlstore.Store:
+			iavl = cast
+			break OUTER
+		case *cachekv.Store:
+			if cast.GetParent() == nil {
+				return nil, errors.New("cannot find EVM IAVL store")
+			}
+			s = cast.GetParent()
+		default:
+			return nil, errors.New("cannot find EVM IAVL store")
+		}
 	}
 	result := ProofResult{Address: address}
 	for _, key := range storageKeys {
