@@ -58,21 +58,12 @@ func (s *StorageTestSuite) TestDatabaseVersionedKeys() {
 	s.Require().NoError(err)
 	defer db.Close()
 
-	for i := int64(1); i <= 100; i++ {
-		cs := &iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte(fmt.Sprintf("value%03d", i))}},
-		}
-		ncs := &proto.NamedChangeSet{
-			Name:      storeKey1,
-			Changeset: *cs,
-		}
-		s.Require().NoError(db.ApplyChangeset(i, ncs))
-	}
+	s.Require().NoError(FillData(db, 1, 100))
 
 	for i := int64(1); i <= 100; i++ {
-		bz, err := db.Get(storeKey1, i, []byte("key"))
+		bz, err := db.Get(storeKey1, i, []byte("key000"))
 		s.Require().NoError(err)
-		s.Require().Equal(fmt.Sprintf("value%03d", i), string(bz))
+		s.Require().Equal(fmt.Sprintf("val000-%03d", i), string(bz))
 	}
 }
 
@@ -166,15 +157,12 @@ func (s *StorageTestSuite) TestDatabaseApplyChangeset() {
 	s.Require().NoError(err)
 	defer db.Close()
 
+	s.Require().NoError(FillData(db, 100, 1))
+
 	cs := &iavl.ChangeSet{}
 	cs.Pairs = []*iavl.KVPair{}
-	for i := 0; i < 100; i++ {
-		cs.Pairs = append(cs.Pairs, &iavl.KVPair{
-			Key:   []byte(fmt.Sprintf("key%03d", i)),
-			Value: []byte("value"),
-		})
-	}
 
+	// Deletes
 	for i := 0; i < 100; i++ {
 		if i%10 == 0 {
 			cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(fmt.Sprintf("key%03d", i))})
@@ -263,21 +251,7 @@ func (s *StorageTestSuite) TestDatabaseIterator() {
 	s.Require().NoError(err)
 	defer db.Close()
 
-	cs := &iavl.ChangeSet{}
-	cs.Pairs = []*iavl.KVPair{}
-	for i := 0; i < 100; i++ {
-		key := fmt.Sprintf("key%03d", i) // key000, key001, ..., key099
-		val := fmt.Sprintf("val%03d", i) // val000, val001, ..., val099
-
-		cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(key), Value: []byte(val)})
-	}
-
-	ncs := &proto.NamedChangeSet{
-		Name:      storeKey1,
-		Changeset: *cs,
-	}
-
-	s.Require().NoError(db.ApplyChangeset(1, ncs))
+	s.Require().NoError(FillData(db, 100, 1))
 
 	// iterator without an end key over multiple versions
 	for v := int64(1); v < 5; v++ {
@@ -289,7 +263,7 @@ func (s *StorageTestSuite) TestDatabaseIterator() {
 		var i, count int
 		for ; itr.Valid(); itr.Next() {
 			s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), itr.Key(), string(itr.Key()))
-			s.Require().Equal([]byte(fmt.Sprintf("val%03d", i)), itr.Value())
+			s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, 1)), itr.Value())
 
 			i++
 			count++
@@ -312,7 +286,7 @@ func (s *StorageTestSuite) TestDatabaseIterator() {
 		i, count := 10, 0
 		for ; itr2.Valid(); itr2.Next() {
 			s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), itr2.Key())
-			s.Require().Equal([]byte(fmt.Sprintf("val%03d", i)), itr2.Value())
+			s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, 1)), itr2.Value())
 
 			i++
 			count++
@@ -377,26 +351,10 @@ func (s *StorageTestSuite) TestDatabaseIteratorMultiVersion() {
 	s.Require().NoError(err)
 	defer db.Close()
 
-	// for versions 1-49, set all 10 keys
-	for v := int64(1); v < 50; v++ {
-		cs := &iavl.ChangeSet{}
-		cs.Pairs = []*iavl.KVPair{}
-		for i := 0; i < 10; i++ {
-			key := fmt.Sprintf("key%03d", i)
-			val := fmt.Sprintf("val%03d-%03d", i, v)
-
-			cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(key), Value: []byte(val)})
-		}
-
-		ncs := &proto.NamedChangeSet{
-			Name:      storeKey1,
-			Changeset: *cs,
-		}
-		s.Require().NoError(db.ApplyChangeset(v, ncs))
-	}
+	s.Require().NoError(FillData(db, 10, 50))
 
 	// for versions 50-100, only update even keys
-	for v := int64(50); v <= 100; v++ {
+	for v := int64(51); v <= 100; v++ {
 		cs := &iavl.ChangeSet{}
 		cs.Pairs = []*iavl.KVPair{}
 		for i := 0; i < 10; i++ {
@@ -430,7 +388,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorMultiVersion() {
 		if i%2 == 0 {
 			s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, 69)), itr.Value())
 		} else {
-			s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, 49)), itr.Value())
+			s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, 50)), itr.Value())
 		}
 
 		i = (i + 1) % 10
@@ -445,23 +403,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorNoDomain() {
 	s.Require().NoError(err)
 	defer db.Close()
 
-	// for versions 1-50, set all 10 keys
-	for v := int64(1); v <= 50; v++ {
-		cs := &iavl.ChangeSet{}
-		cs.Pairs = []*iavl.KVPair{}
-		for i := 0; i < 10; i++ {
-			key := fmt.Sprintf("key%03d", i)
-			val := fmt.Sprintf("val%03d-%03d", i, v)
-
-			cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(key), Value: []byte(val)})
-		}
-
-		ncs := &proto.NamedChangeSet{
-			Name:      storeKey1,
-			Changeset: *cs,
-		}
-		s.Require().NoError(db.ApplyChangeset(v, ncs))
-	}
+	s.Require().NoError(FillData(db, 10, 50))
 
 	// create an iterator over the entire domain
 	itr, err := db.Iterator(storeKey1, 50, nil, nil)
@@ -490,23 +432,7 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 	s.Require().NoError(err)
 	defer db.Close()
 
-	// for versions 1-50, set 10 keys
-	for v := int64(1); v <= 50; v++ {
-		cs := &iavl.ChangeSet{}
-		cs.Pairs = []*iavl.KVPair{}
-		for i := 0; i < 10; i++ {
-			key := fmt.Sprintf("key%03d", i)
-			val := fmt.Sprintf("val%03d-%03d", i, v)
-
-			cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(key), Value: []byte(val)})
-		}
-
-		ncs := &proto.NamedChangeSet{
-			Name:      storeKey1,
-			Changeset: *cs,
-		}
-		s.Require().NoError(db.ApplyChangeset(v, ncs))
-	}
+	s.Require().NoError(FillData(db, 10, 50))
 
 	// prune the first 25 versions
 	s.Require().NoError(db.Prune(25))
