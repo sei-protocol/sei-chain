@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/server/config"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/occ_tests/messages"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
@@ -238,7 +239,7 @@ func TestRegistrationTxs(t *testing.T) {
 		require.Len(t, sResults, len(txs))
 
 		for i := 0; i < tt.runs; i++ {
-			pCtx := utils.NewTestContext(t, accts, blockTime, 1)
+			pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers)
 			if tt.before != nil {
 				tt.before(pCtx)
 			}
