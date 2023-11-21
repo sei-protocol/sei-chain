@@ -7,8 +7,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-
+	
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 const instantiateMsg = `{"whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"],
@@ -66,6 +67,15 @@ func GovernanceSubmitProposal(tCtx *utils.TestContext, count int) []sdk.Msg {
 			panic(err)
 		}
 		msgs = append(msgs, mp)
+	}
+	return msgs
+}
+
+func DexRegisterContract(tCtx *utils.TestContext, count int) []sdk.Msg {
+	var msgs []sdk.Msg
+	for i := 0; i < count; i++ {
+		mrc := dextypes.NewMsgRegisterContract(tCtx.TestAccounts[0].AccountAddress.String(), tCtx.CodeID, tCtx.TestContractAddrs[i], false, []*dextypes.ContractDependencyInfo{}, 10000000)
+		msgs = append(msgs, mrc)
 	}
 	return msgs
 }
