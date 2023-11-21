@@ -11,13 +11,12 @@ import (
 )
 
 const (
-	FlagSCEnable            = "state-commit.enable"
-	FlagAsyncCommitBuffer   = "state-commit.async-commit-buffer"
-	FlagZeroCopy            = "state-commit.zero-copy"
-	FlagSnapshotKeepRecent  = "state-commit.snapshot-keep-recent"
-	FlagSnapshotInterval    = "state-commit.snapshot-interval"
-	FlagCacheSize           = "state-commit.cache-size"
-	FlagSnapshotWriterLimit = "state-commit.snapshot-writer-limit"
+	FlagSCEnable           = "state-commit.sc-enable"
+	FlagAsyncCommitBuffer  = "state-commit.async-commit-buffer"
+	FlagZeroCopy           = "state-commit.zero-copy"
+	FlagSnapshotKeepRecent = "state-commit.sc-keep-recent"
+	FlagSnapshotInterval   = "state-commit.sc-snapshot-interval"
+	FlagCacheSize          = "state-commit.sc-cache-size"
 )
 
 // SetupStateCommit will replace the default rootmulti store with memiavl store
@@ -38,7 +37,7 @@ func SetupStateCommit(
 		SnapshotKeepRecent:       cast.ToUint32(appOpts.Get(FlagSnapshotKeepRecent)),
 		SnapshotInterval:         cast.ToUint32(appOpts.Get(FlagSnapshotInterval)),
 		CacheSize:                cast.ToInt(appOpts.Get(FlagCacheSize)),
-		SnapshotWriterLimit:      cast.ToInt(appOpts.Get(FlagSnapshotWriterLimit)),
+		SnapshotWriterLimit:      4,
 		SdkBackwardCompatible:    true,
 		ExportNonSnapshotVersion: false,
 	}
