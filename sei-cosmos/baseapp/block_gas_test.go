@@ -125,7 +125,7 @@ func TestBaseApp_BlockGas(t *testing.T) {
 			}
 			// check block gas is always consumed - this value may change if we update the logic for
 			// how gas is consumed
-			baseGas := uint64(58406) // baseGas is the gas consumed before tx msg
+			baseGas := uint64(62766) // baseGas is the gas consumed before tx msg
 			expGasConsumed := addUint64Saturating(tc.gasToConsume, baseGas)
 			if expGasConsumed > txtypes.MaxGasWanted {
 				// capped by gasLimit
