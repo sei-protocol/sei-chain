@@ -1311,13 +1311,13 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.E
 	return app.BuildDependenciesAndRunTxs(ctx, txs)
 }
 
-var EsitmateWriteSetEnabled = false
+var EstimateWriteSetEnabled = false
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
 	startTime := time.Now()
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
-	if !EsitmateWriteSetEnabled {
+	if !EstimateWriteSetEnabled {
 		for txIndex, tx := range txs {
 			deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
 			deliverTxEntry.EstimatedWritesets = sdk.MappedWritesets{}
