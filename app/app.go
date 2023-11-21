@@ -12,18 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
-
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-
-	"github.com/sei-protocol/sei-chain/aclmapping"
-	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
-	appparams "github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/app/upgrades"
-	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
-	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/wasmbinding"
-
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -35,22 +23,19 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/cosmos-sdk/x/auth"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
-	"github.com/cosmos/cosmos-sdk/x/authz"
-	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
-	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
-
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	"github.com/cosmos/cosmos-sdk/x/auth"
+	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
@@ -58,6 +43,9 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
 	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
+	"github.com/cosmos/cosmos-sdk/x/authz"
+	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
+	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -108,10 +96,35 @@ import (
 	ibcporttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	"github.com/sei-protocol/sei-chain/aclmapping"
+	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/upgrades"
+	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
+	"github.com/sei-protocol/sei-chain/wasmbinding"
+	dexmodule "github.com/sei-protocol/sei-chain/x/dex"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
+	dexmodulekeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
+	dexmoduletypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
+	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
+	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	oraclemodule "github.com/sei-protocol/sei-chain/x/oracle"
+	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
+	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"github.com/sei-protocol/sei-db/sc"
+	"github.com/sei-protocol/sei-db/ss"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -119,26 +132,6 @@ import (
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/sei-protocol/sei-chain/utils/metrics"
-
-	dexmodule "github.com/sei-protocol/sei-chain/x/dex"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
-	dexmodulekeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
-	dexmoduletypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
-
-	oraclemodule "github.com/sei-protocol/sei-chain/x/oracle"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
-
-	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
-	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
-	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
-
-	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
-	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
@@ -240,6 +233,8 @@ var (
 	EmittedSeidVersionMetric = false
 	// EmptyAclmOpts defines a type alias for a list of wasm options.
 	EmptyACLOpts []aclkeeper.Option
+	// EnableOCC allows tests to override default OCC enablement behavior
+	EnableOCC = true
 )
 
 var (
@@ -375,7 +370,10 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, baseAppOptions...)
+	// setup seiDB if it's enabled in config
+	bAppOptions, scStore := sc.SetupStateCommit(logger, homePath, appOpts, baseAppOptions)
+
+	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
@@ -522,6 +520,7 @@ func New(
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
+	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
 	app.AccessControlKeeper = aclkeeper.NewKeeper(
 		appCodec,
 		app.keys[acltypes.StoreKey],
@@ -781,6 +780,14 @@ func New(
 	app.ProcessProposalMemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
 	app.MemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
 
+	qms, err := ss.SetupStateStore(logger, homePath, app.CommitMultiStore(), scStore, appOpts, keys, tkeys, memKeys)
+	if err != nil {
+		panic(err)
+	}
+	if qms != nil {
+		app.SetQueryMultiStore(qms)
+	}
+
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
 	app.SetBeginBlocker(app.BeginBlocker)
@@ -824,6 +831,8 @@ func New(
 
 	// Register snapshot extensions to enable state-sync for wasm.
 	if manager := app.SnapshotManager(); manager != nil {
+		manager.SetStateCommitStore(app.CommitMultiStore())
+		manager.SetStateStore(app.QueryMultiStore())
 		err := manager.RegisterExtensions(
 			wasmkeeper.NewWasmSnapshotter(app.CommitMultiStore(), &app.WasmKeeper),
 		)
@@ -832,6 +841,7 @@ func New(
 		}
 	}
 
+	fmt.Println("Loading latest version at time: ", time.Now().Format(time.RFC3339))
 	loadVersionHandler := func() error {
 		if err := app.LoadLatestVersion(); err != nil {
 			tmos.Exit(err.Error())
@@ -851,6 +861,7 @@ func New(
 	} else {
 		app.SetLoadVersionHandler(loadVersionHandler)
 	}
+	fmt.Println("Finished loading latest version at time: ", time.Now().Format(time.RFC3339))
 
 	app.ScopedIBCKeeper = scopedIBCKeeper
 	app.ScopedTransferKeeper = scopedTransferKeeper
@@ -973,6 +984,7 @@ func (app *App) ClearOptimisticProcessingInfo() {
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
+
 	if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
 		return &abci.ResponseProcessProposal{
@@ -1031,6 +1043,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
 	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
+
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
 	app.SetDeliverStateToCommit()
@@ -1099,6 +1112,9 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 	return ctx.WithMultiStore(msCache), msCache
 }
 
+// TODO: (occ) this is the roughly analogous to the execution + validation tasks for OCC, but this one performs validation in isolation
+// rather than comparing against a multi-version store
+// The validation happens immediately after execution all part of DeliverTx (which is a path that goes through sei-cosmos to runTx eventually)
 func (app *App) ProcessTxConcurrent(
 	ctx sdk.Context,
 	txIndex int,
@@ -1212,6 +1228,7 @@ func (app *App) ProcessTxs(
 	if processBlockCtx.BlockGasMeter() != nil {
 		blockGasMeterConsumed = processBlockCtx.BlockGasMeter().GasConsumed()
 	}
+	// TODO: (occ) replaced with scheduler sending tasks to workers such as execution and validation
 	concurrentResults, ok := processBlockConcurrentFunction(
 		processBlockCtx,
 		txs,
@@ -1235,7 +1252,7 @@ func (app *App) ProcessTxs(
 
 	dexMemState := dexutils.GetMemState(ctx.Context())
 	dexMemState.Clear(ctx)
-	dexMemState.ClearContractToDependencies()
+	dexMemState.ClearContractToDependencies(ctx)
 
 	if ctx.BlockGasMeter() != nil {
 		ctx.BlockGasMeter().RefundGas(ctx.BlockGasMeter().GasConsumed()-blockGasMeterConsumed, "concurrent failure rollback")
@@ -1285,11 +1302,76 @@ func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioriti
 	return prioritizedTxs, otherTxs, prioritizedIndices, otherIndices
 }
 
+// ExecuteTxsConcurrently calls the appropriate function for processing transacitons
+func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
+	// TODO after OCC release, remove this check and call ProcessTXsWithOCC directly
+	if ctx.IsOCCEnabled() {
+		return app.ProcessTXsWithOCC(ctx, txs)
+	}
+	return app.BuildDependenciesAndRunTxs(ctx, txs)
+}
+
+var EstimateWriteSetEnabled = false
+
+// ProcessTXsWithOCC runs the transactions concurrently via OCC
+func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
+	startTime := time.Now()
+	entries := make([]*sdk.DeliverTxEntry, len(txs))
+	if !EstimateWriteSetEnabled {
+		for txIndex, tx := range txs {
+			deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
+			deliverTxEntry.EstimatedWritesets = sdk.MappedWritesets{}
+			entries[txIndex] = deliverTxEntry
+		}
+	} else {
+		wg := sync.WaitGroup{}
+		mutex := sync.Mutex{}
+		for txIndex, tx := range txs {
+			wg.Add(1)
+			go func(index int, tx []byte) {
+				defer wg.Done()
+				deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
+				estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.txDecoder, app.GetAnteDepGenerator(), txIndex, tx)
+				// get prefill estimate
+				// if no error, then we assign the mapped writesets for prefill estimate
+				if err == nil {
+					deliverTxEntry.EstimatedWritesets = estimatedWritesets
+				}
+				mutex.Lock()
+				entries[index] = deliverTxEntry
+				mutex.Unlock()
+			}(txIndex, tx)
+		}
+		wg.Wait()
+	}
+	fmt.Printf("[OCC-Debug] build estimate writeset took %s\n", time.Since(startTime))
+
+	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
+
+	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
+	for _, r := range batchResult.Results {
+		execResults = append(execResults, &abci.ExecTxResult{
+			Code:      r.Response.Code,
+			Data:      r.Response.Data,
+			Log:       r.Response.Log,
+			Info:      r.Response.Info,
+			GasWanted: r.Response.GasWanted,
+			GasUsed:   r.Response.GasUsed,
+			Events:    r.Response.Events,
+			Codespace: r.Response.Codespace,
+		})
+	}
+
+	return execResults, ctx
+}
+
+// BuildDependenciesAndRunTxs deprecated, use ProcessTXsWithOCC instead
+// Deprecated: this will be removed after OCC releases
+// TODO: remove after release
 func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
 	var txResults []*abci.ExecTxResult
 
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
-
 	switch err {
 	case nil:
 		txResults, ctx = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
@@ -1307,6 +1389,9 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	//TODO: update with logic that asserts that occ is enabled
+	startTime := time.Now()
+	ctx = ctx.WithIsOCCEnabled(EnableOCC)
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
 
@@ -1335,12 +1420,13 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
-
+	fmt.Printf("[SeiChain-Debug] BeginBlock for block height %d took %s\n", ctx.BlockHeight(), time.Since(startTime))
+	beginBlockEndTime := time.Now()
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	prioritizedTxs, otherTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs)
 
 	// run the prioritized txs
-	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs)
+	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs)
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
 	}
@@ -1348,14 +1434,19 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
 	deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, deferredWriteEvents...)
-
+	fmt.Printf("[SeiChain-Debug] Run prioritized txs for block height %d took %s\n", ctx.BlockHeight(), time.Since(beginBlockEndTime))
+	prioritizedEndTime := time.Now()
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
+	fmt.Printf("[SeiChain-Debug] MidBlock for block height %d took %s\n", ctx.BlockHeight(), time.Since(prioritizedEndTime))
 
-	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, otherTxs)
+	midBlockEndTime := time.Now()
+	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}
+	fmt.Printf("[SeiChain-Debug] Run other %d txs for block height %d took %s\n", len(otherTxs), ctx.BlockHeight(), time.Since(midBlockEndTime))
+	runOtherTxEndTime := time.Now()
 
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
@@ -1366,6 +1457,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	})
 
 	events = append(events, endBlockResp.Events...)
+	fmt.Printf("[SeiChain-Debug] EndBlock for block height %d took %s\n", ctx.BlockHeight(), time.Since(runOtherTxEndTime))
+
 	return events, txResults, endBlockResp, nil
 }
 

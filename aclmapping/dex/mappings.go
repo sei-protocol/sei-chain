@@ -45,6 +45,7 @@ func GetLongShortOrderBookOps(contractAddr string, priceDenom string, assetDenom
 }
 
 func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, _ sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
+	// TODO: read + write downstream, write contracts to process
 	placeOrdersMsg, ok := msg.(*dextypes.MsgPlaceOrders)
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrPlaceOrdersGenerator
@@ -98,7 +99,6 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, _ sdk.Context, m
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_ORDER,
 			IdentifierTemplate: hex.EncodeToString(dextypes.MemOrderPrefix(contractAddr)),
 		},
-
 		// Checks balance of sender
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
