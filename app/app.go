@@ -1311,29 +1311,39 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.E
 	return app.BuildDependenciesAndRunTxs(ctx, txs)
 }
 
+var EsitmateWriteSetEnabled = false
+
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
 	startTime := time.Now()
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
-	wg := sync.WaitGroup{}
-	mutex := sync.Mutex{}
-	for txIndex, tx := range txs {
-		wg.Add(1)
-		go func(index int, tx []byte) {
-			defer wg.Done()
+	if !EsitmateWriteSetEnabled {
+		for txIndex, tx := range txs {
 			deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
-			estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.txDecoder, app.GetAnteDepGenerator(), txIndex, tx)
-			// get prefill estimate
-			// if no error, then we assign the mapped writesets for prefill estimate
-			if err == nil {
-				deliverTxEntry.EstimatedWritesets = estimatedWritesets
-			}
-			mutex.Lock()
-			entries[index] = deliverTxEntry
-			mutex.Unlock()
-		}(txIndex, tx)
+			deliverTxEntry.EstimatedWritesets = sdk.MappedWritesets{}
+			entries[txIndex] = deliverTxEntry
+		}
+	} else {
+		wg := sync.WaitGroup{}
+		mutex := sync.Mutex{}
+		for txIndex, tx := range txs {
+			wg.Add(1)
+			go func(index int, tx []byte) {
+				defer wg.Done()
+				deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
+				estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.txDecoder, app.GetAnteDepGenerator(), txIndex, tx)
+				// get prefill estimate
+				// if no error, then we assign the mapped writesets for prefill estimate
+				if err == nil {
+					deliverTxEntry.EstimatedWritesets = estimatedWritesets
+				}
+				mutex.Lock()
+				entries[index] = deliverTxEntry
+				mutex.Unlock()
+			}(txIndex, tx)
+		}
+		wg.Wait()
 	}
-	wg.Wait()
 	fmt.Printf("[OCC-Debug] build estimate writeset took %s\n", time.Since(startTime))
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
