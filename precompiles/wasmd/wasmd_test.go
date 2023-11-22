@@ -56,7 +56,7 @@ func TestInstantiate(t *testing.T) {
 		"test",
 		amtsbz,
 	)
-	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper)
+	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
@@ -115,7 +115,7 @@ func TestExecute(t *testing.T) {
 	require.Nil(t, err)
 	args, err := executeMethod.Inputs.Pack(contractAddr.String(), mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
 	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper)
+	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
@@ -161,7 +161,7 @@ func TestQuery(t *testing.T) {
 	require.Nil(t, err)
 	args, err := queryMethod.Inputs.Pack(contractAddr.String(), []byte("{\"info\":{}}"))
 	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper)
+	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
