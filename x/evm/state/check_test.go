@@ -4,9 +4,11 @@ import (
 	"math/big"
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +16,7 @@ func TestExist(t *testing.T) {
 	// not exist
 	k, ctx := testkeeper.MockEVMKeeper()
 	_, addr := testkeeper.MockAddressPair()
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, false)
 	require.False(t, statedb.Exist(addr))
 
 	// has state
@@ -36,10 +38,12 @@ func TestEmpty(t *testing.T) {
 	// empty
 	k, ctx := testkeeper.MockEVMKeeper()
 	_, addr := testkeeper.MockAddressPair()
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, false)
 	require.True(t, statedb.Empty(addr))
 
 	// has balance
+	k.BankKeeper().MintCoins(statedb.Ctx(), types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(statedb.Ctx(), types.ModuleName, state.GetMiddleManAddress(ctx), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))))
 	statedb.AddBalance(addr, big.NewInt(1000000000000))
 	require.False(t, statedb.Empty(addr))
 

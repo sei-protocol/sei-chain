@@ -210,7 +210,7 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 	}
 	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, addr)
 	if !found {
-		return nil, fmt.Errorf("address %s does not have association", addr.Hex())
+		return sdk.AccAddress(addr[:]), nil
 	}
 	return seiAddr, nil
 }

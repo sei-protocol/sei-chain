@@ -139,7 +139,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 	if err != nil {
 		return nil, nil, err
 	}
-	return state.NewDBImpl(b.ctxProvider(height), b.keeper), b.getHeader(big.NewInt(height)), nil
+	return state.NewDBImpl(b.ctxProvider(height), b.keeper, true), b.getHeader(big.NewInt(height)), nil
 }
 
 // returns block header only
@@ -159,7 +159,7 @@ func (b *Backend) ChainConfig() *params.ChainConfig {
 }
 
 func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {
-	return state.NewDBImpl(b.ctxProvider(LatestCtxHeight), b.keeper).GetNonce(addr), nil
+	return state.NewDBImpl(b.ctxProvider(LatestCtxHeight), b.keeper, true).GetNonce(addr), nil
 }
 
 func (b *Backend) Engine() consensus.Engine {
