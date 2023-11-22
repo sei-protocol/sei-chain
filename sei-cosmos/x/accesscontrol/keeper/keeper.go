@@ -588,6 +588,7 @@ func (k Keeper) BuildDependencyDag(ctx sdk.Context, txDecoder sdk.TxDecoder, ant
 		// add Access ops for msg for anteMsg
 		dependencyDag.AddAccessOpsForMsg(acltypes.ANTE_MSG_INDEX, txIndex, anteAccessOpsList)
 
+		ctx = ctx.WithTxIndex(txIndex)
 		msgs := tx.GetMsgs()
 		for messageIndex, msg := range msgs {
 			if types.IsGovMessage(msg) {
