@@ -320,11 +320,11 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 }
 
 func (s *Store) checkIteratorAtIndex(index int) bool {
-	s.mtx.RLock()
-	defer s.mtx.RUnlock()
-
 	valid := true
+	s.mtx.RLock()
 	iterateset := s.txIterateSets[index]
+	s.mtx.RUnlock()
+
 	for _, iterationTracker := range iterateset {
 		iteratorValid := s.validateIterator(index, iterationTracker)
 		valid = valid && iteratorValid
@@ -333,11 +333,12 @@ func (s *Store) checkIteratorAtIndex(index int) bool {
 }
 
 func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
-	s.mtx.RLock()
-	defer s.mtx.RUnlock()
-
 	conflictSet := make(map[int]struct{})
+
+	s.mtx.RLock()
 	readset := s.txReadSets[index]
+	s.mtx.RUnlock()
+
 	valid := true
 
 	// iterate over readset and check if the value is the same as the latest value relateive to txIndex in the multiversion store

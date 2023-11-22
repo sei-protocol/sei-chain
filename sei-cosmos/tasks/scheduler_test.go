@@ -66,7 +66,7 @@ func TestProcessAll(t *testing.T) {
 		{
 			name:      "Test every tx accesses same key",
 			workers:   50,
-			runs:      25,
+			runs:      50,
 			addStores: true,
 			requests:  requestList(50),
 			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) types.ResponseDeliverTx {
@@ -94,7 +94,7 @@ func TestProcessAll(t *testing.T) {
 				}
 				// confirm last write made it to the parent store
 				latest := ctx.MultiStore().GetKVStore(testStoreKey).Get(itemKey)
-				require.Equal(t, []byte("49"), latest)
+				require.Equal(t, []byte(fmt.Sprintf("%d", len(res)-1)), latest)
 			},
 			expectedErr: nil,
 		},
