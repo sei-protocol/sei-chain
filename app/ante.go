@@ -114,7 +114,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	anteHandler, anteDepGenerator := sdk.ChainAnteDecorators(anteDecorators...)
 
 	evmAnteDecorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper())),
+		evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMFeeCheckDecorator(options.EVMKeeper)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMSigVerifyDecorator(options.EVMKeeper, options.EVMCheckTxTimeout)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewGasLimitDecorator(options.EVMKeeper)),

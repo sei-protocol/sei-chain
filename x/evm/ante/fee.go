@@ -6,8 +6,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -15,16 +13,12 @@ import (
 )
 
 type EVMFeeCheckDecorator struct {
-	evmKeeper     *evmkeeper.Keeper
-	bankKeeper    bankkeeper.Keeper
-	accountKeeper *accountkeeper.AccountKeeper
+	evmKeeper *evmkeeper.Keeper
 }
 
 func NewEVMFeeCheckDecorator(evmKeeper *evmkeeper.Keeper) *EVMFeeCheckDecorator {
 	return &EVMFeeCheckDecorator{
-		evmKeeper:     evmKeeper,
-		bankKeeper:    evmKeeper.BankKeeper(),
-		accountKeeper: evmKeeper.AccountKeeper(),
+		evmKeeper: evmKeeper,
 	}
 }
 
