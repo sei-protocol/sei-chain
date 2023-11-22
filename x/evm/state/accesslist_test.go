@@ -13,7 +13,7 @@ import (
 
 func TestAddAddressToAccessList(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, false)
 
 	_, addr := testkeeper.MockAddressPair()
 	require.False(t, statedb.AddressInAccessList(addr))
@@ -29,7 +29,7 @@ func TestAddAddressToAccessList(t *testing.T) {
 
 func TestAddSlotToAccessList(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, false)
 
 	_, addr := testkeeper.MockAddressPair()
 	statedb.AddAddressToAccessList(addr)
@@ -46,7 +46,7 @@ func TestAddSlotToAccessList(t *testing.T) {
 
 func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, false)
 
 	_, addr := testkeeper.MockAddressPair()
 
@@ -56,7 +56,7 @@ func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
 
 func TestPrepare(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, false)
 
 	_, sender := testkeeper.MockAddressPair()
 	_, coinbase := testkeeper.MockAddressPair()

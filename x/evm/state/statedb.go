@@ -19,17 +19,28 @@ type DBImpl struct {
 	// back.
 	err error
 
-	k EVMKeeper
+	// a temporary address that facilitates transfer during the processing of this particular
+	// transaction. Its account state and balance will be deleted before the block commits
+	middleManAddress sdk.AccAddress
+	// a temporary address that collects fees for this particular transaction so that there is
+	// no single bottleneck for fee collection. Its account state and balance will be deleted
+	// before the block commits
+	coinbaseAddress sdk.AccAddress
+
+	k          EVMKeeper
+	simulation bool
 }
 
-func NewDBImpl(ctx sdk.Context, k EVMKeeper) *DBImpl {
+func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	s := &DBImpl{
-		ctx:             ctx,
-		k:               k,
-		snapshottedCtxs: []sdk.Context{},
+		ctx:              ctx,
+		k:                k,
+		snapshottedCtxs:  []sdk.Context{},
+		middleManAddress: GetMiddleManAddress(ctx),
+		coinbaseAddress:  GetCoinbaseAddress(ctx),
+		simulation:       simulation,
 	}
-	s.Snapshot()                                                                            // take an initial snapshot for GetCommitted
-	s.AddBigIntTransientModuleState(k.GetModuleBalance(s.ctx), TotalUnassociatedBalanceKey) // set total unassociated balance to be current module balance
+	s.Snapshot() // take an initial snapshot for GetCommitted
 	return s
 }
 
@@ -40,11 +51,11 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper) *DBImpl {
 func (s *DBImpl) AddPreimage(_ common.Hash, _ []byte) {}
 
 func (s *DBImpl) Finalize() error {
+	if s.simulation {
+		panic("should never call finalize on a simulation DB")
+	}
 	if s.err != nil {
 		return s.err
-	}
-	if err := s.CheckBalance(); err != nil {
-		return err
 	}
 
 	logs, err := s.GetAllLogs()
@@ -75,6 +86,7 @@ func (s *DBImpl) Finalize() error {
 	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
 		s.flushCtx(s.snapshottedCtxs[i])
 	}
+	s.k.AppendToEVMTxIndices(s.ctx.TxIndex())
 	return nil
 }
 
