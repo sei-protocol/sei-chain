@@ -16,8 +16,6 @@ type EVMKeeper interface {
 	BankKeeper() bankkeeper.Keeper
 	GetBaseDenom(sdk.Context) string
 	DeleteAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
-	GetBalance(sdk.Context, common.Address) uint64
-	SetOrDeleteBalance(sdk.Context, common.Address, uint64)
 	GetCode(sdk.Context, common.Address) []byte
 	SetCode(sdk.Context, common.Address, []byte)
 	GetCodeHash(sdk.Context, common.Address) common.Hash
@@ -29,4 +27,5 @@ type EVMKeeper interface {
 	GetFeeCollectorAddress(sdk.Context) (common.Address, error)
 	GetNonce(sdk.Context, common.Address) uint64
 	SetNonce(sdk.Context, common.Address, uint64)
+	AppendToEVMTxIndices(int)
 }

@@ -62,7 +62,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		return ctx, errors.New("no address in context")
 	}
 	// check if the sender has enough balance to cover fees
-	if state.NewDBImpl(ctx, fc.evmKeeper).GetBalance(senderEVMAddr).Cmp(anteCharge) < 0 {
+	if state.NewDBImpl(ctx, fc.evmKeeper, true).GetBalance(senderEVMAddr).Cmp(anteCharge) < 0 {
 		return ctx, sdkerrors.ErrInsufficientFunds
 	}
 

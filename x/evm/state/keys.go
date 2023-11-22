@@ -9,10 +9,9 @@ var (
 	// If evm module balance is higher than this value at the end of
 	// the transaction, we need to burn from module balance in order
 	// for this number to align.
-	TotalUnassociatedBalanceKey = []byte{0x01}
-	GasRefundKey                = []byte{0x02}
-	LogsKey                     = []byte{0x03}
-	AccessListKey               = []byte{0x04}
+	GasRefundKey  = []byte{0x01}
+	LogsKey       = []byte{0x02}
+	AccessListKey = []byte{0x03}
 )
 
 /*

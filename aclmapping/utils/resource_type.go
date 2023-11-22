@@ -155,7 +155,7 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 	},
 	evmtypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_EVM:         aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_KV_EVM_BALANCE: evmtypes.BalanceKeyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_BALANCE: aclsdktypes.EmptyPrefix, // EVM_BALANCE is deprecated and not used anymore
 	},
 }
 

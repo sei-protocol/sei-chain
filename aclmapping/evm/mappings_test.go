@@ -56,7 +56,7 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	seiAddr, associatedAcc := testkeeper.MockAddressPair()
 	suite.App.EvmKeeper.SetAddressMapping(suite.Ctx, seiAddr, associatedAcc)
 	suite.associatedAcc = associatedAcc
-	suite.msgServer = keeper.NewMsgServerImpl(suite.App.EvmKeeper)
+	suite.msgServer = keeper.NewMsgServerImpl(&suite.App.EvmKeeper)
 	suite.preprocessor = ante.NewEVMPreprocessDecorator(&suite.App.EvmKeeper, &suite.App.AccountKeeper)
 	amt := sdk.NewCoins(sdk.NewCoin(suite.App.EvmKeeper.GetBaseDenom(suite.Ctx), sdk.NewInt(1000000)))
 	suite.App.EvmKeeper.BankKeeper().MintCoins(suite.Ctx, types.ModuleName, amt)

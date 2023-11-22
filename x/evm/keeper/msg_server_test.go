@@ -53,10 +53,11 @@ func TestEVMTransaction(t *testing.T) {
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	k.SetOrDeleteBalance(ctx, evmAddr, 1000000)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt)
 
-	msgServer := keeper.NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
@@ -65,8 +66,8 @@ func TestEVMTransaction(t *testing.T) {
 	require.Empty(t, res.VmError)
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
-	require.Equal(t, uint64(1000000)-res.GasUsed, k.GetBalance(ctx, evmAddr))
-	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), k.GetBaseDenom(ctx)).Amount.Uint64())
+	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
+	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx), k.GetBaseDenom(ctx)).Amount.Uint64())
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -107,7 +108,7 @@ func TestEVMTransaction(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-	stateDB := state.NewDBImpl(ctx, k)
+	stateDB := state.NewDBImpl(ctx, k, false)
 	val := hex.EncodeToString(bytes.Trim(stateDB.GetState(contractAddr, common.Hash{}).Bytes(), "\x00")) // key is 0x0 since the contract only has one variable
 	require.Equal(t, "14", val)                                                                          // value is 0x14 = 20
 }
@@ -139,21 +140,22 @@ func TestEVMTransactionError(t *testing.T) {
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	k.SetOrDeleteBalance(ctx, evmAddr, 1000000)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt)
 
-	msgServer := keeper.NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(k)
 
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err) // there should only be VM error, no msg-level error
 	require.NotEmpty(t, res.VmError)
 	// gas should be charged and receipt should be created
-	require.Equal(t, uint64(800000), k.GetBalance(ctx, evmAddr))
+	require.Equal(t, uint64(800000), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
 	// yet there should be no contract state
-	stateDB := state.NewDBImpl(ctx, k)
+	stateDB := state.NewDBImpl(ctx, k, false)
 	require.Empty(t, stateDB.GetState(common.HexToAddress(receipt.ContractAddress), common.Hash{}))
 }
 
@@ -188,10 +190,11 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	k.SetOrDeleteBalance(ctx, evmAddr, 1000)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt)
 
-	msgServer := keeper.NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract with insufficient gas
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
@@ -200,7 +203,7 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	require.Equal(t, uint64(1000), res.GasUsed) // all gas should be consumed
 	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), k.GetBaseDenom(ctx)).Amount.Uint64())
 	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), k.GetBaseDenom(ctx)).Amount.Uint64())
-	require.Equal(t, uint64(0), k.GetBalance(ctx, evmAddr))
+	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {
@@ -234,10 +237,11 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	k.SetOrDeleteBalance(ctx, evmAddr, 1000000)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt)
 
-	msgServer := keeper.NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
@@ -246,7 +250,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	require.Empty(t, res.VmError)
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
-	require.LessOrEqual(t, k.GetBalance(ctx, evmAddr), uint64(1000000)-res.GasUsed)
+	require.LessOrEqual(t, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64(), uint64(1000000)-res.GasUsed)
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -284,10 +288,11 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	k.SetOrDeleteBalance(ctx, evmAddr, 1000000)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt)
 
-	msgServer := keeper.NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy SendAll contract
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
@@ -296,8 +301,8 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Empty(t, res.VmError)
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
-	require.Equal(t, uint64(1000000)-res.GasUsed, k.GetBalance(ctx, evmAddr))
-	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), k.GetBaseDenom(ctx)).Amount.Uint64())
+	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
+	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx), k.GetBaseDenom(ctx)).Amount.Uint64())
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -308,6 +313,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	addr2, evmAddr2 := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, addr1, evmAddr1)
 	k.SetAddressMapping(ctx, addr2, evmAddr2)
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(100000))))
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, addr1, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(100000))))
 	contractAddr := common.HexToAddress(receipt.ContractAddress)
 	abi, err := sendall.SendallMetaData.GetAbi()
@@ -346,7 +352,7 @@ func TestEVMAssociateTx(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	req, err := types.NewMsgEVMTransaction(&ethtx.AssociateTx{})
 	require.Nil(t, err)
-	msgServer := keeper.NewMsgServerImpl(*k)
+	msgServer := keeper.NewMsgServerImpl(k)
 
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)

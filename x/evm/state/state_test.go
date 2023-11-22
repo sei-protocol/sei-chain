@@ -15,7 +15,7 @@ import (
 func TestState(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	_, evmAddr := testkeeper.MockAddressPair()
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)
 	require.True(t, statedb.Created(evmAddr))
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
@@ -51,7 +51,7 @@ func TestState(t *testing.T) {
 func TestCreate(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	_, evmAddr := testkeeper.MockAddressPair()
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)
 	require.False(t, statedb.HasSelfDestructed(evmAddr))
 	key := common.BytesToHash([]byte("abc"))
@@ -60,8 +60,9 @@ func TestCreate(t *testing.T) {
 	tval := common.BytesToHash([]byte("mno"))
 	statedb.SetState(evmAddr, key, val)
 	statedb.SetTransientState(evmAddr, tkey, tval)
-	statedb.AddBalance(evmAddr, big.NewInt(10000000000000))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, state.GetMiddleManAddress(ctx), sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10))))
+	statedb.AddBalance(evmAddr, big.NewInt(10000000000000))
 	// recreate an account should clear its state, but keep its balance and transient state
 	statedb.CreateAccount(evmAddr)
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
@@ -86,7 +87,7 @@ func TestSelfDestructAssociated(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)
 	key := common.BytesToHash([]byte("abc"))
 	val := common.BytesToHash([]byte("def"))
@@ -122,7 +123,7 @@ func TestSnapshot(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)
 	key := common.BytesToHash([]byte("abc"))
 	val := common.BytesToHash([]byte("def"))
@@ -143,13 +144,13 @@ func TestSnapshot(t *testing.T) {
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
 	require.Equal(t, val, statedb.GetState(evmAddr, key))
 
-	newStateDB := state.NewDBImpl(ctx, k)
+	newStateDB := state.NewDBImpl(ctx, k, false)
 	// prev state DB not committed yet
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, common.Hash{}, newStateDB.GetState(evmAddr, key))
 
 	require.Nil(t, statedb.Finalize())
-	newStateDB = state.NewDBImpl(ctx, k)
+	newStateDB = state.NewDBImpl(ctx, k, false)
 	// prev state DB committed except for transient states
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, val, newStateDB.GetState(evmAddr, key))

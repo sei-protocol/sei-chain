@@ -25,7 +25,7 @@ func TestRun(t *testing.T) {
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
@@ -73,7 +73,7 @@ func TestMetadata(t *testing.T) {
 	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, k)
+	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
