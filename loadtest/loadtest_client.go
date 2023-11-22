@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,14 +26,14 @@ import (
 type LoadTestClient struct {
 	LoadTestConfig     Config
 	TestConfig         EncodingConfig
-	TxClient           typestx.ServiceClient
+	TxClients          []typestx.ServiceClient
 	TxHashFile         *os.File
 	SignerClient       *SignerClient
 	ChainID            string
 	TxHashList         []string
 	TxResponseChan     chan *string
 	TxHashListMutex    *sync.Mutex
-	GrpcConn           *grpc.ClientConn
+	GrpcConns          []*grpc.ClientConn
 	StakingQueryClient stakingtypes.QueryClient
 	// Staking specific variables
 	Validators []stakingtypes.Validator
@@ -55,11 +56,15 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	} else {
 		dialOptions = append(dialOptions, grpc.WithInsecure())
 	}
-	grpcConn, _ := grpc.Dial(
-		config.GrpcEndpoint,
-		dialOptions...,
-	)
-	TxClient := typestx.NewServiceClient(grpcConn)
+	var TxClients []typestx.ServiceClient
+	var GrpcConns []*grpc.ClientConn
+	for _, endpoint := range strings.Split(config.GrpcEndpoints, ",") {
+		grpcConn, _ := grpc.Dial(
+			endpoint,
+			dialOptions...)
+		TxClients = append(TxClients, typestx.NewServiceClient(grpcConn))
+		GrpcConns = append(GrpcConns, grpcConn)
+	}
 
 	// setup output files
 	userHomeDir, _ := os.UserHomeDir()
@@ -70,15 +75,15 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	return &LoadTestClient{
 		LoadTestConfig:                config,
 		TestConfig:                    TestConfig,
-		TxClient:                      TxClient,
+		TxClients:                     TxClients,
 		TxHashFile:                    outputFile,
 		SignerClient:                  NewSignerClient(config.NodeURI),
 		ChainID:                       config.ChainID,
 		TxHashList:                    []string{},
 		TxResponseChan:                make(chan *string),
 		TxHashListMutex:               &sync.Mutex{},
-		GrpcConn:                      grpcConn,
-		StakingQueryClient:            stakingtypes.NewQueryClient(grpcConn),
+		GrpcConns:                     GrpcConns,
+		StakingQueryClient:            stakingtypes.NewQueryClient(GrpcConns[0]),
 		DelegationMap:                 map[string]map[string]int{},
 		TokenFactoryDenomOwner:        map[string]string{},
 		generatedAdminMessageForBlock: false,
@@ -97,7 +102,9 @@ func (c *LoadTestClient) SetValidators() {
 }
 
 func (c *LoadTestClient) Close() {
-	c.GrpcConn.Close()
+	for _, grpcConn := range c.GrpcConns {
+		_ = grpcConn.Close()
+	}
 }
 
 func (c *LoadTestClient) AppendTxHash(txHash string) {
@@ -276,7 +283,7 @@ func (c *LoadTestClient) ValidateTxs() {
 }
 
 func (c *LoadTestClient) GetTxResponse(hash string) *types.TxResponse {
-	grpcRes, err := c.TxClient.GetTx(
+	grpcRes, err := c.GetTxClient().GetTx(
 		context.Background(),
 		&typestx.GetTxRequest{
 			Hash: hash,
@@ -288,4 +295,9 @@ func (c *LoadTestClient) GetTxResponse(hash string) *types.TxResponse {
 		return nil
 	}
 	return grpcRes.TxResponse
+}
+
+func (c *LoadTestClient) GetTxClient() typestx.ServiceClient {
+	rand.Seed(time.Now().Unix())
+	return c.TxClients[rand.Int()%len(c.TxClients)]
 }
