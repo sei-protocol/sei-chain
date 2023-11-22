@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	"github.com/ethereum/go-ethereum/common"
@@ -118,6 +119,37 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 		}
 	}
 	return next(ctx, tx, simulate)
+}
+
+func (p EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	// TODO: define granular dependencies
+	// Challenge is mainly the fact that at the time this function is evaluated, we haven't derived
+	// the `from` key from signatures yet.
+	return next(append(txDeps, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_READ,
+		ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+		IdentifierTemplate: "*",
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_WRITE,
+		ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+		IdentifierTemplate: "*",
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_READ,
+		ResourceType:       sdkacltypes.ResourceType_KV_BANK,
+		IdentifierTemplate: "*",
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_WRITE,
+		ResourceType:       sdkacltypes.ResourceType_KV_BANK,
+		IdentifierTemplate: "*",
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_READ,
+		ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
+		IdentifierTemplate: "*",
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_WRITE,
+		ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
+		IdentifierTemplate: "*",
+	}), tx, txIndex)
 }
 
 func getAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
