@@ -11,6 +11,7 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -74,8 +75,8 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
 		}
 		seiBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, p.evmKeeper.GetBaseDenom(ctx)).Amount
-		evmBalance := new(big.Int).SetUint64(p.evmKeeper.GetBalance(ctx, evmAddr))
-		if new(big.Int).Add(seiBalance.BigInt(), evmBalance).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
+		castBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), p.evmKeeper.GetBaseDenom(ctx)).Amount
+		if new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt()).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
 		}
 		p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
@@ -113,11 +114,14 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 		p.accountKeeper.SetAccount(ctx, acc)
 	}
 
-	if balance := p.evmKeeper.GetBalance(ctx, evmAddr); balance > 0 {
-		if err := p.evmKeeper.EVMToBankSend(ctx, evmAddr, seiAddr, balance); err != nil {
+	castAddr := sdk.AccAddress(evmAddr[:])
+	castAddrBalances := p.evmKeeper.BankKeeper().GetAllBalances(ctx, castAddr)
+	if !castAddrBalances.IsZero() {
+		if err := p.evmKeeper.BankKeeper().SendCoins(ctx, castAddr, seiAddr, castAddrBalances); err != nil {
 			return ctx, err
 		}
 	}
+	p.evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
 	return next(ctx, tx, simulate)
 }
 
