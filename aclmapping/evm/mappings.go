@@ -2,14 +2,18 @@ package evm
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -35,66 +39,115 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 		return []sdkacltypes.AccessOperation{*acltypes.CommitAccessOp()}, nil
 	}
 
-	tx, _ := evmMsg.AsTransaction()
-	// Only specifying accesses to `to` address since `from` has to be derived via signature,
-	// which happens in the ante handler (i.e. after this generator is called) and is quite heavy
-	// so we don't want to repeat it.
-	toOperations := []sdkacltypes.AccessOperation{}
+	ctx, err := ante.Preprocess(ctx, evmMsg, evmKeeper.GetParams(ctx))
+	if err != nil {
+		return []sdkacltypes.AccessOperation{}, err
+	}
+	ops := []sdkacltypes.AccessOperation{}
+	ops = appendRWBalanceOps(ops, state.GetMiddleManAddress(ctx))
+	ops = appendRWBalanceOps(ops, state.GetCoinbaseAddress(ctx))
+	sender, found := evmtypes.GetContextSeiAddress(ctx)
+	if !found {
+		return []sdkacltypes.AccessOperation{}, errors.New("unable to find sei address in context when generating dependencies")
+	}
+	ops = appendRWBalanceOps(ops, sender)
+
+	tx, found := evmtypes.GetContextEthTx(ctx)
+	if !found {
+		return []sdkacltypes.AccessOperation{}, errors.New("unable to find eth tx in context when generating dependencies")
+	}
 	toAddress := tx.To()
 	if toAddress != nil {
 		seiAddress, associated := evmKeeper.GetSeiAddress(ctx, *toAddress)
 		if !associated {
 			seiAddress = sdk.AccAddress((*toAddress)[:])
 		}
-		idTempl := hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(seiAddress))
-		toOperations = []sdkacltypes.AccessOperation{
-			{
-				AccessType:         sdkacltypes.AccessType_READ,
-				ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-				IdentifierTemplate: idTempl,
-			},
-			{
-				AccessType:         sdkacltypes.AccessType_WRITE,
-				ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-				IdentifierTemplate: idTempl,
-			},
-		}
+		ops = appendRWBalanceOps(ops, seiAddress)
+		ops = append(ops, sdkacltypes.AccessOperation{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+			IdentifierTemplate: hex.EncodeToString(evmtypes.EVMAddressToSeiAddressKey(*toAddress)),
+		})
 	}
 
-	return append(toOperations, []sdkacltypes.AccessOperation{
+	evmAddr, found := evmtypes.GetContextEVMAddress(ctx)
+	if !found {
+		return []sdkacltypes.AccessOperation{}, errors.New("unable to find evm address in context when generating dependencies")
+	}
+	return append(ops, []sdkacltypes.AccessOperation{
 
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
-			IdentifierTemplate: "*", // no way to derive what fields a contract might read
+			IdentifierTemplate: hex.EncodeToString(evmtypes.TransientStateKey(ctx)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
-			IdentifierTemplate: "*", // no way to derive what fields a contract might write
+			IdentifierTemplate: hex.EncodeToString(evmtypes.TransientStateKey(ctx)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
-			IdentifierTemplate: "*", // from address access (reasoning described above)
+			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+			IdentifierTemplate: hex.EncodeToString(evmtypes.AccountTransientStateKey(ctx)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
-			IdentifierTemplate: "*", // from address access (reasoning described above)
+			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+			IdentifierTemplate: hex.EncodeToString(evmtypes.AccountTransientStateKey(ctx)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
-			IdentifierTemplate: "*", // from address access (reasoning described above)
+			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+			IdentifierTemplate: hex.EncodeToString(evmtypes.TransientModuleStateKey(ctx)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
-			IdentifierTemplate: "*", // from address access (reasoning described above)
+			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+			IdentifierTemplate: hex.EncodeToString(evmtypes.TransientModuleStateKey(ctx)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+			IdentifierTemplate: hex.EncodeToString(append(evmtypes.NonceKeyPrefix, evmAddr[:]...)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+			IdentifierTemplate: hex.EncodeToString(append(evmtypes.NonceKeyPrefix, evmAddr[:]...)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+			IdentifierTemplate: hex.EncodeToString(evmtypes.ReceiptKey(tx.Hash())),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+			IdentifierTemplate: hex.EncodeToString(evmtypes.SeiAddressToEVMAddressKey(evmKeeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName))),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+			IdentifierTemplate: hex.EncodeToString(evmtypes.EVMAddressToSeiAddressKey(evmAddr)),
 		},
 
 		// Last Operation should always be a commit
 		*acltypes.CommitAccessOp(),
 	}...), nil
+}
+
+func appendRWBalanceOps(ops []sdkacltypes.AccessOperation, addr sdk.AccAddress) []sdkacltypes.AccessOperation {
+	idTempl := hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(addr))
+	return append(ops,
+		sdkacltypes.AccessOperation{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: idTempl,
+		},
+		sdkacltypes.AccessOperation{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: idTempl,
+		})
 }

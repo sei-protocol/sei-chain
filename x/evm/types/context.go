@@ -3,6 +3,7 @@ package types
 import (
 	context "context"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -25,6 +26,8 @@ const ContextTxDataKey = ContextKeyType("tx_data")
 const ContextEVMAddressKey = ContextKeyType("evm_addr")
 const ContextSeiAddressKey = ContextKeyType("sei_addr")
 const ContextEVMVersionKey = ContextKeyType("evm_ver")
+const ContextPubkeyKey = ContextKeyType("pubkey")
+const ContextIsAssociateTxKey = ContextKeyType("is_associate")
 
 func SetContextEtCfg(ctx sdk.Context, cfg *params.ChainConfig) sdk.Context {
 	return ctx.WithContext(context.WithValue(ctx.Context(), ContextEthCfgKey, cfg))
@@ -48,6 +51,14 @@ func SetContextSeiAddress(ctx sdk.Context, addr sdk.AccAddress) sdk.Context {
 
 func SetContextEVMVersion(ctx sdk.Context, version SignerVersion) sdk.Context {
 	return ctx.WithContext(context.WithValue(ctx.Context(), ContextEVMVersionKey, version))
+}
+
+func SetContextPubkey(ctx sdk.Context, pubkey cryptotypes.PubKey) sdk.Context {
+	return ctx.WithContext(context.WithValue(ctx.Context(), ContextPubkeyKey, pubkey))
+}
+
+func SetContextIsAssociatedTx(ctx sdk.Context) sdk.Context {
+	return ctx.WithContext(context.WithValue(ctx.Context(), ContextIsAssociateTxKey, true))
 }
 
 func GetContextEthCfg(ctx sdk.Context) (*params.ChainConfig, bool) {
@@ -111,4 +122,26 @@ func GetContextEVMVersion(ctx sdk.Context) (SignerVersion, bool) {
 		return 0, false
 	}
 	return ver.(SignerVersion), true
+}
+
+func GetContextPubkey(ctx sdk.Context) (cryptotypes.PubKey, bool) {
+	if ctx.Context() == nil {
+		return nil, false
+	}
+	ver := ctx.Context().Value(ContextPubkeyKey)
+	if ver == nil {
+		return nil, false
+	}
+	return ver.(cryptotypes.PubKey), true
+}
+
+func GetContextIsAssociateTx(ctx sdk.Context) bool {
+	if ctx.Context() == nil {
+		return false
+	}
+	ver := ctx.Context().Value(ContextIsAssociateTxKey)
+	if ver == nil {
+		return false
+	}
+	return ver.(bool)
 }

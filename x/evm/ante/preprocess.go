@@ -43,12 +43,77 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 	return &EVMPreprocessDecorator{evmKeeper: evmKeeper, accountKeeper: accountKeeper}
 }
 
-func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	if len(tx.GetMsgs()) == 0 {
-		// this would never happen if this handler call is routed by the router
-		return ctx, errors.New("no message exists in EVM tx")
+func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+	pctx, err := Preprocess(ctx, tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction), p.evmKeeper.GetParams(ctx))
+	if err != nil {
+		return ctx, err
 	}
-	msgEVMTransaction := tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction)
+	ctx = pctx
+
+	seiAddr, found := evmtypes.GetContextSeiAddress(ctx)
+	if !found {
+		return ctx, errors.New("missing sei address from context, which is supposed to be set during preprocess")
+	}
+	evmAddr, found := evmtypes.GetContextEVMAddress(ctx)
+	if !found {
+		return ctx, errors.New("missing evm address from context, which is supposed to be set during preprocess")
+	}
+	pubkey, found := evmtypes.GetContextPubkey(ctx)
+	if !found {
+		return ctx, errors.New("missing pubkey from context, which is supposed to be set during preprocess")
+	}
+	isAssociateTx := evmtypes.GetContextIsAssociateTx(ctx)
+	_, isAssociated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
+	if isAssociateTx && isAssociated {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
+	} else if isAssociateTx {
+		// check if the account has enough balance (without charging)
+		baseDenom := p.evmKeeper.GetBaseDenom(ctx)
+		seiBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, baseDenom).Amount
+		castBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), baseDenom).Amount
+		if new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt()).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
+		}
+		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
+			return ctx, err
+		}
+		return ctx.WithPriority(antedecorators.EVMAssociatePriority), nil // short-circuit without calling next
+	} else if isAssociated {
+		// noop; for readability
+	} else {
+		// not associatedTx and not already associated
+		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
+			return ctx, err
+		}
+	}
+
+	return next(ctx, tx, simulate)
+}
+
+func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address, pubkey cryptotypes.PubKey) error {
+	p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
+	if !p.accountKeeper.HasAccount(ctx, seiAddr) {
+		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, seiAddr))
+	}
+	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
+		if err := acc.SetPubKey(pubkey); err != nil {
+			return err
+		}
+		p.accountKeeper.SetAccount(ctx, acc)
+	}
+	castAddr := sdk.AccAddress(evmAddr[:])
+	castAddrBalances := p.evmKeeper.BankKeeper().GetAllBalances(ctx, castAddr)
+	if !castAddrBalances.IsZero() {
+		if err := p.evmKeeper.BankKeeper().SendCoins(ctx, castAddr, seiAddr, castAddrBalances); err != nil {
+			return err
+		}
+	}
+	p.evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
+	return nil
+}
+
+// stateless
+func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, params evmtypes.Params) (sdk.Context, error) {
 	txData, err := evmtypes.UnpackTxData(msgEVMTransaction.Data)
 	if err != nil {
 		return ctx, err
@@ -57,30 +122,24 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 	// use infinite gas meter for EVM transaction because EVM handles gas checking from within
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 
-	chainID := p.evmKeeper.ChainID(ctx)
-	evmParams := p.evmKeeper.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
-	ethCfg := chainCfg.EthereumConfig(chainID)
+	chainID := params.ChainId
+	chainCfg := params.GetChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID.BigInt())
 	ctx = evmtypes.SetContextEtCfg(ctx, ethCfg)
 	version := GetVersion(ctx, ethCfg)
 	signer := SignerMap[version](ethCfg.ChainID)
 	if atx, ok := txData.(*ethtx.AssociateTx); ok {
 		V, R, S := atx.GetRawSignatureValues()
 		V = new(big.Int).Add(V, big.NewInt(27))
-		evmAddr, seiAddr, _, err := getAddresses(V, R, S, common.Hash{}) // associate tx should sign over an empty hash
+		evmAddr, seiAddr, pubkey, err := getAddresses(V, R, S, common.Hash{}) // associate tx should sign over an empty hash
 		if err != nil {
 			return ctx, err
 		}
-		if _, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr); found {
-			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
-		}
-		seiBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, p.evmKeeper.GetBaseDenom(ctx)).Amount
-		castBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), p.evmKeeper.GetBaseDenom(ctx)).Amount
-		if new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt()).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
-			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
-		}
-		p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
-		return ctx.WithPriority(antedecorators.EVMAssociatePriority), nil // short-circuit without calling next
+		ctx = evmtypes.SetContextEVMAddress(ctx, evmAddr)
+		ctx = evmtypes.SetContextSeiAddress(ctx, seiAddr)
+		ctx = evmtypes.SetContextPubkey(ctx, pubkey)
+		ctx = evmtypes.SetContextIsAssociatedTx(ctx)
+		return ctx, nil
 	}
 	ethTx := ethtypes.NewTx(txData.AsEthereumData())
 	ctx = evmtypes.SetContextEthTx(ctx, ethTx)
@@ -97,32 +156,8 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 	}
 	ctx = evmtypes.SetContextEVMAddress(ctx, evmAddr)
 	ctx = evmtypes.SetContextSeiAddress(ctx, seiAddr)
-
-	if _, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr); !found {
-		p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
-	}
-
-	if !p.accountKeeper.HasAccount(ctx, seiAddr) {
-		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, seiAddr))
-	}
-	// set pubkey in acc object if not exist. Not doing it in the above block in case an account is created
-	// as a recipient of a send
-	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
-		if err := acc.SetPubKey(seiPubkey); err != nil {
-			return ctx, err
-		}
-		p.accountKeeper.SetAccount(ctx, acc)
-	}
-
-	castAddr := sdk.AccAddress(evmAddr[:])
-	castAddrBalances := p.evmKeeper.BankKeeper().GetAllBalances(ctx, castAddr)
-	if !castAddrBalances.IsZero() {
-		if err := p.evmKeeper.BankKeeper().SendCoins(ctx, castAddr, seiAddr, castAddrBalances); err != nil {
-			return ctx, err
-		}
-	}
-	p.evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
-	return next(ctx, tx, simulate)
+	ctx = evmtypes.SetContextPubkey(ctx, seiPubkey)
+	return ctx, nil
 }
 
 func (p EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
