@@ -41,7 +41,7 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
 	}
-	statedb := state.NewDBImpl(sdkCtx, a.keeper)
+	statedb := state.NewDBImpl(sdkCtx, a.keeper, true)
 	return (*hexutil.Big)(statedb.GetBalance(address)), nil
 }
 

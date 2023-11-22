@@ -508,7 +508,10 @@ func init() {
 	}
 	evmAddr := common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))
 	EVMKeeper.SetAddressMapping(Ctx, seiAddr, evmAddr)
-	EVMKeeper.SetOrDeleteBalance(Ctx, common.HexToAddress("0x1234567890123456789023456789012345678901"), 1000)
+	unassociatedAddr := common.HexToAddress("0x1234567890123456789023456789012345678901")
+	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(1000)))
+	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(unassociatedAddr[:]), amts)
 	EVMKeeper.SetCode(Ctx, common.HexToAddress("0x1234567890123456789023456789012345678901"), []byte("abc"))
 	EVMKeeper.SetState(
 		Ctx,
