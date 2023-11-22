@@ -56,14 +56,15 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	} else {
 		dialOptions = append(dialOptions, grpc.WithInsecure())
 	}
-	var TxClients []typestx.ServiceClient
-	var GrpcConns []*grpc.ClientConn
-	for _, endpoint := range strings.Split(config.GrpcEndpoints, ",") {
+	endpoints := strings.Split(config.GrpcEndpoints, ",")
+	TxClients := make([]typestx.ServiceClient, len(endpoints))
+	GrpcConns := make([]*grpc.ClientConn, len(endpoints))
+	for i, endpoint := range endpoints {
 		grpcConn, _ := grpc.Dial(
 			endpoint,
 			dialOptions...)
-		TxClients = append(TxClients, typestx.NewServiceClient(grpcConn))
-		GrpcConns = append(GrpcConns, grpcConn)
+		TxClients[i] = typestx.NewServiceClient(grpcConn)
+		GrpcConns[i] = grpcConn
 	}
 
 	// setup output files
