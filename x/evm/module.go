@@ -17,8 +17,10 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/sei-protocol/sei-chain/x/evm/client/cli"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -87,12 +89,12 @@ func (AppModuleBasic) GetQueryCmd() *cobra.Command {
 type AppModule struct {
 	AppModuleBasic
 
-	keeper keeper.Keeper
+	keeper *keeper.Keeper
 }
 
 func NewAppModule(
 	cdc codec.Codec,
-	keeper keeper.Keeper,
+	keeper *keeper.Keeper,
 ) AppModule {
 	return AppModule{
 		AppModuleBasic: NewAppModuleBasic(cdc),
@@ -150,10 +152,28 @@ func (AppModule) ConsensusVersion() uint64 { return 2 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
+	am.keeper.ClearEVMTxIndices()
 }
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
-func (am AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+	evmTxIndices := am.keeper.GetEVMTxIndices()
+	for _, idx := range evmTxIndices {
+		middleManAddress := state.GetMiddleManAddress(sdk.Context{}.WithTxIndex(idx))
+		balances := am.keeper.BankKeeper().GetAllBalances(ctx, middleManAddress)
+		if !balances.IsZero() {
+			if err := am.keeper.BankKeeper().SendCoinsFromAccountToModule(ctx, middleManAddress, types.ModuleName, balances); err != nil {
+				panic(err)
+			}
+		}
+		coinbaseAddress := state.GetCoinbaseAddress(sdk.Context{}.WithTxIndex(idx))
+		balances = am.keeper.BankKeeper().GetAllBalances(ctx, coinbaseAddress)
+		if !balances.IsZero() {
+			if err := am.keeper.BankKeeper().SendCoinsFromAccountToModule(ctx, coinbaseAddress, authtypes.FeeCollectorName, balances); err != nil {
+				panic(err)
+			}
+		}
+	}
 	return []abci.ValidatorUpdate{}
 }
