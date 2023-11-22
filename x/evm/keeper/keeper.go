@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -25,6 +26,10 @@ type Keeper struct {
 	bankKeeper    bankkeeper.Keeper
 	accountKeeper *authkeeper.AccountKeeper
 	stakingKeeper *stakingkeeper.Keeper
+
+	cachedFeeCollectorAddress *common.Address
+	evmTxIndicesMtx           *sync.Mutex
+	evmTxIndices              []int
 }
 
 func NewKeeper(
@@ -34,11 +39,13 @@ func NewKeeper(
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
 	k := &Keeper{
-		storeKey:      storeKey,
-		Paramstore:    paramstore,
-		bankKeeper:    bankKeeper,
-		accountKeeper: accountKeeper,
-		stakingKeeper: stakingKeeper,
+		storeKey:        storeKey,
+		Paramstore:      paramstore,
+		bankKeeper:      bankKeeper,
+		accountKeeper:   accountKeeper,
+		stakingKeeper:   stakingKeeper,
+		evmTxIndicesMtx: &sync.Mutex{},
+		evmTxIndices:    []int{},
 	}
 	return k
 }
@@ -115,6 +122,22 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 		// fetch historical hash from historical info
 		return k.getHistoricalHash(ctx, h)
 	}
+}
+
+func (k *Keeper) ClearEVMTxIndices() {
+	// no need to acquire mutex here since it's only called by BeginBlock
+	k.evmTxIndices = []int{}
+}
+
+func (k *Keeper) GetEVMTxIndices() []int {
+	// no need to acquire mutex here since it's only called by EndBlock
+	return k.evmTxIndices
+}
+
+func (k *Keeper) AppendToEVMTxIndices(idx int) {
+	k.evmTxIndicesMtx.Lock()
+	defer k.evmTxIndicesMtx.Unlock()
+	k.evmTxIndices = append(k.evmTxIndices, idx)
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {

@@ -27,8 +27,9 @@ func TestEstimateGas(t *testing.T) {
 		"nonce":   "0x1",
 		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 	}
-	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20))))
-	EVMKeeper.SetOrDeleteBalance(Ctx, from, 20)
+	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20)))
+	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(from[:]), amts)
 	resObj := sendRequestGood(t, "estimateGas", txArgs, nil, map[string]interface{}{})
 	result := resObj["result"].(string)
 	require.Equal(t, "0x5208", result) // 21000
@@ -83,8 +84,9 @@ func TestCreateAccessList(t *testing.T) {
 		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 		"input":   fmt.Sprintf("%#x", input),
 	}
-	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20))))
-	EVMKeeper.SetOrDeleteBalance(Ctx, from, 20)
+	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20)))
+	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(from[:]), amts)
 	resObj := sendRequestGood(t, "createAccessList", txArgs, "latest")
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, []interface{}{}, result["accessList"]) // the code uses MSTORE which does not trace access list
