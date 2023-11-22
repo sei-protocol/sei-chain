@@ -7,6 +7,7 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -105,4 +106,14 @@ func TestGetVersion(t *testing.T) {
 
 	ethCfg.CancunTime = nil
 	require.Equal(t, types.London, ante.GetVersion(ctx, ethCfg))
+}
+
+func TestAnteDeps(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	deps, err := handler.AnteDeps(nil, mockTx{msgs: []sdk.Msg{}}, 0, func(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int) ([]sdkacltypes.AccessOperation, error) {
+		return txDeps, nil
+	})
+	require.Nil(t, err)
+	require.Equal(t, 6, len(deps))
 }
