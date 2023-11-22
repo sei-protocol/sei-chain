@@ -38,7 +38,8 @@ jobs:
       - name: Run Go Tests
         run: |
           NUM_SPLIT=20
-          make test-group-${{matrix.part}} NUM_SPLIT=20
+          make split-test-packages
+          make test-group-${{matrix.part}}
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v3
@@ -99,7 +100,7 @@ jobs:
         with:
           max_attempts: 2
           retry_on: error
-          timeout_seconds: 30
+          timeout_seconds: 60
           command: |
               jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
               job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')

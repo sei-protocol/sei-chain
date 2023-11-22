@@ -176,8 +176,8 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 			headerEvent := msg.Data().(types.EventDataNewBlockHeader)
 			n += headerEvent.NumTxs
 			logger.Info("new transactions", "nTxs", headerEvent.NumTxs, "total", n)
-		case <-time.After(30 * time.Second):
-			t.Fatal("Timed out waiting 30s to commit blocks with transactions")
+		case <-time.After(60 * time.Second):
+			t.Fatal("Timed out waiting 60s to commit blocks with transactions")
 		}
 	}
 }

@@ -13,6 +13,8 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
+var DefaultBufferCapacity = 100
+
 // Subscription is a proxy interface for a pubsub Subscription.
 type Subscription interface {
 	ID() string
@@ -30,7 +32,7 @@ type EventBus struct {
 // NewDefault returns a new event bus with default options.
 func NewDefault(l log.Logger) *EventBus {
 	logger := l.With("module", "eventbus")
-	pubsub := tmpubsub.NewServer(l, tmpubsub.BufferCapacity(0))
+	pubsub := tmpubsub.NewServer(l, tmpubsub.BufferCapacity(DefaultBufferCapacity))
 	b := &EventBus{pubsub: pubsub}
 	b.BaseService = *service.NewBaseService(logger, "EventBus", b)
 	return b

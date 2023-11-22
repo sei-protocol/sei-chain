@@ -2482,7 +2482,6 @@ func TestWaitingTimeoutProposeOnNewRound(t *testing.T) {
 
 	round++ // moving to the next round
 	ensureNewRound(t, newRoundCh, height, round)
-
 	rs := cs1.GetRoundState()
 	assert.Equal(t, rs.Step, cstypes.RoundStepPropose) // P0 does not prevote before timeoutPropose expires
 
