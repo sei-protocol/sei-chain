@@ -525,17 +525,17 @@ func (s *StorageTestSuite) TestDatabase_Prune_KeepRecent() {
 	// ensure the value previously at version 1 is still there for queries greater than 50
 	bz, err = db.Get(storeKey1, 51, key)
 	s.Require().NoError(err)
-	s.Require().Equal([]byte("val001"), bz)
+	s.Require().Equal([]byte("value001"), bz)
 
 	// ensure the correct value at a greater height
 	bz, err = db.Get(storeKey1, 200, key)
 	s.Require().NoError(err)
-	s.Require().Equal([]byte("val002"), bz)
+	s.Require().Equal([]byte("value003"), bz)
 
 	// prune latest height and ensure we have the previous version when querying above it
 	s.Require().NoError(db.Prune(200))
 
 	bz, err = db.Get(storeKey1, 201, key)
 	s.Require().NoError(err)
-	s.Require().Equal([]byte("val002"), bz)
+	s.Require().Equal([]byte("value003"), bz)
 }
