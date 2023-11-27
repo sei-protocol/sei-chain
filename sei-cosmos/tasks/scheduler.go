@@ -91,6 +91,8 @@ func NewScheduler(workers int, tracingInfo *tracing.Info, deliverTxFunc func(ctx
 func (s *scheduler) invalidateTask(task *deliverTxTask) {
 	for _, mv := range s.multiVersionStores {
 		mv.InvalidateWriteset(task.Index, task.Incarnation)
+		mv.ClearReadset(task.Index)
+		mv.ClearIterateset(task.Index)
 	}
 }
 
