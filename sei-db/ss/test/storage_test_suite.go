@@ -514,6 +514,7 @@ func (s *StorageTestSuite) TestDatabase_Prune_KeepRecent() {
 
 	// ensure queries for versions 50 and older return nil
 	bz, err := db.Get(storeKey1, 49, key)
+	s.Require().Nil(err)
 	s.Require().Nil(bz)
 
 	itr, err := db.Iterator(storeKey1, 49, nil, nil)
