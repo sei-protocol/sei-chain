@@ -3,6 +3,7 @@ package state
 import (
 	"bytes"
 
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -89,10 +90,10 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
 	s.k.PurgePrefix(s.ctx, types.StateKey(acc))
-	s.k.PrefixStore(s.ctx, types.CodeKeyPrefix).Delete(acc[:])
-	s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix).Delete(acc[:])
-	s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix).Delete(acc[:])
-	s.k.PrefixStore(s.ctx, types.NonceKeyPrefix).Delete(acc[:])
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:])
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
@@ -113,5 +114,11 @@ func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.H
 	s.clearAccountState(addr)
 	for key, val := range states {
 		s.SetState(addr, key, val)
+	}
+}
+
+func deleteIfExists(store storetypes.KVStore, key []byte) {
+	if store.Has(key) {
+		store.Delete(key)
 	}
 }

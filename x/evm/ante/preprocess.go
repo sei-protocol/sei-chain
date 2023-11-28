@@ -1,6 +1,7 @@
 package ante
 
 import (
+	"encoding/hex"
 	"errors"
 	"math/big"
 
@@ -12,6 +13,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -26,12 +28,12 @@ import (
 const BalanceThreshold uint64 = 1000000
 
 var SignerMap = map[evmtypes.SignerVersion]func(*big.Int) ethtypes.Signer{
-	evmtypes.London: ethtypes.NewLondonSigner,
-	evmtypes.Cancun: ethtypes.NewCancunSigner,
+	evmtypes.SignerVersion_LONDON: ethtypes.NewLondonSigner,
+	evmtypes.SignerVersion_CANCUN: ethtypes.NewCancunSigner,
 }
 var AllowedTxTypes = map[evmtypes.SignerVersion][]uint8{
-	evmtypes.London: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType},
-	evmtypes.Cancun: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType, ethtypes.BlobTxType},
+	evmtypes.SignerVersion_LONDON: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType},
+	evmtypes.SignerVersion_CANCUN: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType, ethtypes.BlobTxType},
 }
 
 type EVMPreprocessDecorator struct {
@@ -43,26 +45,21 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 	return &EVMPreprocessDecorator{evmKeeper: evmKeeper, accountKeeper: accountKeeper}
 }
 
+//nolint:revive
 func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	pctx, err := Preprocess(ctx, tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction), p.evmKeeper.GetParams(ctx))
-	if err != nil {
+	msg := evmtypes.MustGetEVMTransactionMessage(tx)
+	if err := Preprocess(ctx, msg, p.evmKeeper.GetParams(ctx)); err != nil {
 		return ctx, err
 	}
-	ctx = pctx
 
-	seiAddr, found := evmtypes.GetContextSeiAddress(ctx)
-	if !found {
-		return ctx, errors.New("missing sei address from context, which is supposed to be set during preprocess")
-	}
-	evmAddr, found := evmtypes.GetContextEVMAddress(ctx)
-	if !found {
-		return ctx, errors.New("missing evm address from context, which is supposed to be set during preprocess")
-	}
-	pubkey, found := evmtypes.GetContextPubkey(ctx)
-	if !found {
-		return ctx, errors.New("missing pubkey from context, which is supposed to be set during preprocess")
-	}
-	isAssociateTx := evmtypes.GetContextIsAssociateTx(ctx)
+	// use infinite gas meter for EVM transaction because EVM handles gas checking from within
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+
+	derived := msg.Derived
+	seiAddr := sdk.AccAddress(derived.SenderSeiAddr)
+	evmAddr := common.BytesToAddress(derived.SenderEVMAddr)
+	pubkey := &secp256k1.PubKey{Key: derived.Pubkey}
+	isAssociateTx := derived.IsAssociate
 	_, isAssociated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
 	if isAssociateTx && isAssociated {
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
@@ -113,19 +110,19 @@ func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk
 }
 
 // stateless
-func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, params evmtypes.Params) (sdk.Context, error) {
+func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, params evmtypes.Params) error {
+	if msgEVMTransaction.Derived != nil {
+		// already preprocessed
+		return nil
+	}
 	txData, err := evmtypes.UnpackTxData(msgEVMTransaction.Data)
 	if err != nil {
-		return ctx, err
+		return err
 	}
-	ctx = evmtypes.SetContextTxData(ctx, txData)
-	// use infinite gas meter for EVM transaction because EVM handles gas checking from within
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 
 	chainID := params.ChainId
 	chainCfg := params.GetChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID.BigInt())
-	ctx = evmtypes.SetContextEtCfg(ctx, ethCfg)
 	version := GetVersion(ctx, ethCfg)
 	signer := SignerMap[version](ethCfg.ChainID)
 	if atx, ok := txData.(*ethtx.AssociateTx); ok {
@@ -133,61 +130,88 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 		V = new(big.Int).Add(V, big.NewInt(27))
 		evmAddr, seiAddr, pubkey, err := getAddresses(V, R, S, common.Hash{}) // associate tx should sign over an empty hash
 		if err != nil {
-			return ctx, err
+			return err
 		}
-		ctx = evmtypes.SetContextEVMAddress(ctx, evmAddr)
-		ctx = evmtypes.SetContextSeiAddress(ctx, seiAddr)
-		ctx = evmtypes.SetContextPubkey(ctx, pubkey)
-		ctx = evmtypes.SetContextIsAssociatedTx(ctx)
-		return ctx, nil
+		msgEVMTransaction.Derived = &evmtypes.DerivedData{
+			SenderEVMAddr: evmAddr[:],
+			SenderSeiAddr: seiAddr,
+			Pubkey:        pubkey.Bytes(),
+			Version:       version,
+			IsAssociate:   true,
+		}
+		return nil
 	}
 	ethTx := ethtypes.NewTx(txData.AsEthereumData())
-	ctx = evmtypes.SetContextEthTx(ctx, ethTx)
 	if !isTxTypeAllowed(version, ethTx.Type()) {
-		return ctx, ethtypes.ErrInvalidChainId
+		return ethtypes.ErrInvalidChainId
 	}
-	ctx = evmtypes.SetContextEVMVersion(ctx, version)
 
 	V, R, S := ethTx.RawSignatureValues()
 	V = adjustV(V, ethTx.Type(), ethCfg.ChainID)
 	evmAddr, seiAddr, seiPubkey, err := getAddresses(V, R, S, signer.Hash(ethTx))
 	if err != nil {
-		return ctx, err
+		return err
 	}
-	ctx = evmtypes.SetContextEVMAddress(ctx, evmAddr)
-	ctx = evmtypes.SetContextSeiAddress(ctx, seiAddr)
-	ctx = evmtypes.SetContextPubkey(ctx, seiPubkey)
-	return ctx, nil
+	msgEVMTransaction.Derived = &evmtypes.DerivedData{
+		SenderEVMAddr: evmAddr[:],
+		SenderSeiAddr: seiAddr,
+		Pubkey:        seiPubkey.Bytes(),
+		Version:       version,
+		IsAssociate:   false,
+	}
+	return nil
 }
 
-func (p EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	// TODO: define granular dependencies
-	// Challenge is mainly the fact that at the time this function is evaluated, we haven't derived
-	// the `from` key from signatures yet.
+func (p *EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	return next(append(txDeps, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_EVM,
-		IdentifierTemplate: "*",
+		ResourceType:       sdkacltypes.ResourceType_KV_EVM_S2E,
+		IdentifierTemplate: hex.EncodeToString(evmtypes.SeiAddressToEVMAddressKey(msg.Derived.SenderSeiAddr)),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_EVM,
-		IdentifierTemplate: "*",
+		ResourceType:       sdkacltypes.ResourceType_KV_EVM_S2E,
+		IdentifierTemplate: hex.EncodeToString(evmtypes.SeiAddressToEVMAddressKey(msg.Derived.SenderSeiAddr)),
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_WRITE,
+		ResourceType:       sdkacltypes.ResourceType_KV_EVM_E2S,
+		IdentifierTemplate: hex.EncodeToString(evmtypes.EVMAddressToSeiAddressKey(common.BytesToAddress(msg.Derived.SenderEVMAddr))),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_BANK,
-		IdentifierTemplate: "*",
+		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderSeiAddr)),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_BANK,
-		IdentifierTemplate: "*",
+		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderSeiAddr)),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
-		IdentifierTemplate: "*",
+		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderEVMAddr)),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
-		IdentifierTemplate: "*",
+		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderEVMAddr)),
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_READ,
+		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderSeiAddr)),
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_WRITE,
+		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderSeiAddr)),
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_READ,
+		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderEVMAddr)),
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_WRITE,
+		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
+		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderEVMAddr)),
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_READ,
+		ResourceType:       sdkacltypes.ResourceType_KV_EVM_NONCE,
+		IdentifierTemplate: hex.EncodeToString(append(evmtypes.NonceKeyPrefix, msg.Derived.SenderEVMAddr...)),
 	}), tx, txIndex)
 }
 
@@ -265,8 +289,8 @@ func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) evmtypes.SignerVers
 	ts := uint64(ctx.BlockTime().Unix())
 	switch {
 	case ethCfg.IsCancun(blockNum, ts):
-		return evmtypes.Cancun
+		return evmtypes.SignerVersion_CANCUN
 	default:
-		return evmtypes.London
+		return evmtypes.SignerVersion_LONDON
 	}
 }

@@ -31,7 +31,7 @@ func NewEVMRouterDecorator(
 }
 
 func (r EVMRouterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
-	if isEVM, err := r.isEVMMessage(tx); err != nil {
+	if isEVM, err := IsEVMMessage(tx); err != nil {
 		return ctx, err
 	} else if isEVM {
 		return r.evmAnteHandler(ctx, tx, simulate)
@@ -41,7 +41,7 @@ func (r EVMRouterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 }
 
 func (r EVMRouterDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	if isEVM, err := r.isEVMMessage(tx); err != nil {
+	if isEVM, err := IsEVMMessage(tx); err != nil {
 		return nil, err
 	} else if isEVM {
 		return r.evmAnteDepGenerator(txDeps, tx, txIndex)
@@ -50,7 +50,7 @@ func (r EVMRouterDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sd
 	return r.defaultAnteDepGenerator(txDeps, tx, txIndex)
 }
 
-func (r EVMRouterDecorator) isEVMMessage(tx sdk.Tx) (bool, error) {
+func IsEVMMessage(tx sdk.Tx) (bool, error) {
 	hasEVMMsg := false
 	for _, msg := range tx.GetMsgs() {
 		switch msg.(type) {
