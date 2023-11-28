@@ -2,6 +2,7 @@ package sstest
 
 import (
 	"fmt"
+	"sync"
 
 	"golang.org/x/exp/slices"
 
@@ -553,4 +554,179 @@ func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 	bz, err = db.Get(storeKey1, 201, key)
 	s.Require().NoError(err)
 	s.Require().Equal([]byte("value003"), bz)
+}
+
+func (s *StorageTestSuite) TestDatabaseReverseIterator() {
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
+
+	s.Require().NoError(FillData(db, 1, 100))
+
+	// reverse iterator without an end key
+	iter, err := db.ReverseIterator(storeKey1, 1, []byte("key000"), nil)
+	s.Require().NoError(err)
+
+	defer iter.Close()
+
+	i, count := 99, 0
+	for ; iter.Valid(); iter.Next() {
+		s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), iter.Key())
+		s.Require().Equal([]byte(fmt.Sprintf("val%03d-000", i)), iter.Value())
+
+		i--
+		count++
+	}
+	s.Require().Equal(100, count)
+	s.Require().NoError(iter.Error())
+
+	// seek past domain, which should make the iterator invalid and produce an error
+	iter.Next()
+	s.Require().False(iter.Valid())
+
+	// reverse iterator with with a start and end domain
+	iter2, err := db.ReverseIterator(storeKey1, 1, []byte("key010"), []byte("key019"))
+	s.Require().NoError(err)
+
+	defer iter2.Close()
+
+	i, count = 18, 0
+	for ; iter2.Valid(); iter2.Next() {
+		s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), iter2.Key())
+		s.Require().Equal([]byte(fmt.Sprintf("val%03d-000", i)), iter2.Value())
+
+		i--
+		count++
+	}
+	s.Require().Equal(9, count)
+	s.Require().NoError(iter2.Error())
+
+	// seek past domain, which should make the iterator invalid and produce an error
+	iter2.Next()
+	s.Require().False(iter2.Valid())
+
+	// start must be <= end
+	iter3, err := db.ReverseIterator(storeKey1, 1, []byte("key020"), []byte("key019"))
+	s.Require().Error(err)
+	s.Require().Nil(iter3)
+}
+
+func (s *StorageTestSuite) TestParallelWrites() {
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
+
+	latestVersion := 10
+	kvCount := 100
+
+	wg := sync.WaitGroup{}
+	triggerStartCh := make(chan bool)
+
+	// start 10 goroutines that write to the database
+	for i := 0; i < latestVersion; i++ {
+		wg.Add(1)
+		go func(i int) {
+			<-triggerStartCh
+			defer wg.Done()
+			cs := &iavl.ChangeSet{}
+			cs.Pairs = []*iavl.KVPair{}
+			for j := 0; j < kvCount; j++ {
+				key := fmt.Sprintf("key-%d-%03d", i, j)
+				val := fmt.Sprintf("val-%d-%03d", i, j)
+
+				cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(key), Value: []byte(val)})
+			}
+
+			ncs := &proto.NamedChangeSet{
+				Name:      storeKey1,
+				Changeset: *cs,
+			}
+			s.Require().NoError(db.ApplyChangeset(int64(i+1), ncs))
+		}(i)
+
+	}
+
+	// start the goroutines
+	close(triggerStartCh)
+	wg.Wait()
+
+	// check that all the data is there
+	for i := 0; i < latestVersion; i++ {
+		for j := 0; j < kvCount; j++ {
+			version := int64(i + 1)
+			key := fmt.Sprintf("key-%d-%03d", i, j)
+			val := fmt.Sprintf("val-%d-%03d", i, j)
+
+			v, err := db.Get(storeKey1, version, []byte(key))
+			s.Require().NoError(err)
+			s.Require().Equal([]byte(val), v)
+		}
+	}
+}
+
+func (s *StorageTestSuite) TestParallelWriteAndPruning() {
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
+
+	latestVersion := 100
+	kvCount := 100
+	prunePeriod := 5
+
+	wg := sync.WaitGroup{}
+	triggerStartCh := make(chan bool)
+
+	// start a goroutine that write to the database
+	wg.Add(1)
+	go func() {
+		<-triggerStartCh
+		defer wg.Done()
+		for i := 0; i < latestVersion; i++ {
+			cs := &iavl.ChangeSet{}
+			cs.Pairs = []*iavl.KVPair{}
+			for j := 0; j < kvCount; j++ {
+				key := fmt.Sprintf("key-%d-%03d", i, j)
+				val := fmt.Sprintf("val-%d-%03d", i, j)
+
+				cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(key), Value: []byte(val)})
+			}
+
+			ncs := &proto.NamedChangeSet{
+				Name:      storeKey1,
+				Changeset: *cs,
+			}
+			s.Require().NoError(db.ApplyChangeset(int64(i+1), ncs))
+		}
+	}()
+	// start a goroutine that prunes the database
+	wg.Add(1)
+	go func() {
+		<-triggerStartCh
+		defer wg.Done()
+		for i := 10; i < latestVersion; i += prunePeriod {
+			for {
+				v, err := db.GetLatestVersion()
+				s.Require().NoError(err)
+				if v > int64(i) {
+					s.Require().NoError(db.Prune(v - 1))
+					break
+				}
+			}
+		}
+	}()
+
+	// start the goroutines
+	close(triggerStartCh)
+	wg.Wait()
+
+	// check if the data is pruned
+	version := int64(latestVersion - prunePeriod)
+	val, err := db.Get(storeKey1, version, []byte(fmt.Sprintf("key-%d-%03d", version-1, 0)))
+	s.Require().Nil(err)
+	s.Require().Nil(val)
+
+	version = int64(latestVersion)
+	val, err = db.Get(storeKey1, version, []byte(fmt.Sprintf("key-%d-%03d", version-1, 0)))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte(fmt.Sprintf("val-%d-%03d", version-1, 0)), val)
 }
