@@ -9,7 +9,7 @@ const DefaultConfigTemplate = `
 [state-commit]
 
 # Enable defines if the state-commit (memiavl) should be enabled to override existing IAVL db backend.
-enable = {{ .StateCommit.Enable }}
+sc-enable = {{ .StateCommit.Enable }}
 
 # ZeroCopy defines if memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
 # the zero-copied slices must not be retained beyond current block's execution.
@@ -22,24 +22,24 @@ async-commit-buffer = {{ .StateCommit.AsyncCommitBuffer }}
 
 # SnapshotKeepRecent defines how many state-commit snapshots (besides the latest one) to keep 
 # defaults to 1 to make sure ibc relayers work.
-snapshot-keep-recent = {{ .StateCommit.SnapshotKeepRecent }}
+sc-keep-recent = {{ .StateCommit.SnapshotKeepRecent }}
 
 # SnapshotInterval defines the block interval the SC snapshot is taken, default to 10000.
-snapshot-interval = {{ .StateCommit.SnapshotInterval }}
+sc-snapshot-interval = {{ .StateCommit.SnapshotInterval }}
 
 # CacheSize defines the size of the cache for each memiavl store, default to 100000.
-cache-size = {{ .StateCommit.CacheSize }}
+sc-cache-size = {{ .StateCommit.CacheSize }}
 
 [state-store]
 
 # Enable defines if the state-store should be enabled for historical queries.
 # In order to use state-store, you need to make sure to enable state-commit at the same time
-enable = {{ .StateStore.Enable }}
+ss-enable = {{ .StateStore.Enable }}
 
 # DBBackend defines the backend database used for state-store.
 # Supported backends: pebbledb, rocksdb
 # defaults to pebbledb
-backend = "{{ .StateStore.Backend }}"
+ss-backend = "{{ .StateStore.Backend }}"
 
 # AsyncWriteBuffer defines the async queue length for commits to be applied to State Store
 # Set <= 0 for synchronous writes, which means commits also need to wait for data to be persisted in State Store.
@@ -48,15 +48,20 @@ async-write-buffer = {{ .StateStore.AsyncWriteBuffer }}
 
 # KeepRecent defines the number of versions to keep in state store
 # Setting it to 0 means keep everything, default to 0
-keep-recent = {{ .StateStore.KeepRecent }}
+ss-keep-recent = {{ .StateStore.KeepRecent }}
 
 # PruneIntervalSeconds defines the minimum interval in seconds + some random delay to trigger pruning.
 # It is more efficient to trigger pruning less frequently with large interval.
 # default to 60 seconds
-prune-interval-seconds = {{ .StateStore.PruneIntervalSeconds }}
+ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 
 # ImportNumWorkers defines the number of goroutines used during import
 # defaults to 1
 import-num-workers = {{ .StateStore.ImportNumWorkers }}
+
+# Directory defines the directory to store the state store db files
+# If not explicitly set, default to application home directory
+# default to empty
+ss-db-directory = {{ .StateStore.DBDirectory }}
 
 `
