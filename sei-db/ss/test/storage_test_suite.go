@@ -35,15 +35,16 @@ func (s *StorageTestSuite) TestDatabaseClose() {
 }
 
 func (s *StorageTestSuite) TestDatabaseLatestVersion() {
-	db, err := s.NewDB(s.T().TempDir())
+	tempDir := s.T().TempDir()
+	db, err := s.NewDB(tempDir)
 	s.Require().NoError(err)
-	defer db.Close()
 
 	lv, err := db.GetLatestVersion()
 	s.Require().NoError(err)
 	s.Require().Zero(lv)
 
-	for i := int64(1); i <= 1001; i++ {
+	i := int64(1)
+	for ; i <= 1001; i++ {
 		err = db.SetLatestVersion(i)
 		s.Require().NoError(err)
 
@@ -51,6 +52,19 @@ func (s *StorageTestSuite) TestDatabaseLatestVersion() {
 		s.Require().NoError(err)
 		s.Require().Equal(i, lv)
 	}
+
+	// Test even after closing and reopening, the latest version is maintained
+	err = db.Close()
+	s.Require().NoError(err)
+
+	newDB, err := s.NewDB(tempDir)
+	s.Require().NoError(err)
+	defer newDB.Close()
+
+	lv, err = newDB.GetLatestVersion()
+	s.Require().NoError(err)
+	s.Require().Equal(i-1, lv)
+
 }
 
 func (s *StorageTestSuite) TestDatabaseVersionedKeys() {
