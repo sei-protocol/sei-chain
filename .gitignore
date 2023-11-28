@@ -5,6 +5,7 @@ release/
 .vscode/
 .DS_Store
 build/
+cache/
 
 Local .terraform directories
 **/.terraform
