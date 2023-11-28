@@ -8,8 +8,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -73,8 +75,8 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
 		}
 		seiBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, p.evmKeeper.GetBaseDenom(ctx)).Amount
-		evmBalance := new(big.Int).SetUint64(p.evmKeeper.GetBalance(ctx, evmAddr))
-		if new(big.Int).Add(seiBalance.BigInt(), evmBalance).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
+		castBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), p.evmKeeper.GetBaseDenom(ctx)).Amount
+		if new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt()).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
 		}
 		p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
@@ -112,12 +114,46 @@ func (p EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate 
 		p.accountKeeper.SetAccount(ctx, acc)
 	}
 
-	if balance := p.evmKeeper.GetBalance(ctx, evmAddr); balance > 0 {
-		if err := p.evmKeeper.EVMToBankSend(ctx, evmAddr, seiAddr, balance); err != nil {
+	castAddr := sdk.AccAddress(evmAddr[:])
+	castAddrBalances := p.evmKeeper.BankKeeper().GetAllBalances(ctx, castAddr)
+	if !castAddrBalances.IsZero() {
+		if err := p.evmKeeper.BankKeeper().SendCoins(ctx, castAddr, seiAddr, castAddrBalances); err != nil {
 			return ctx, err
 		}
 	}
+	p.evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
 	return next(ctx, tx, simulate)
+}
+
+func (p EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	// TODO: define granular dependencies
+	// Challenge is mainly the fact that at the time this function is evaluated, we haven't derived
+	// the `from` key from signatures yet.
+	return next(append(txDeps, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_READ,
+		ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+		IdentifierTemplate: "*",
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_WRITE,
+		ResourceType:       sdkacltypes.ResourceType_KV_EVM,
+		IdentifierTemplate: "*",
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_READ,
+		ResourceType:       sdkacltypes.ResourceType_KV_BANK,
+		IdentifierTemplate: "*",
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_WRITE,
+		ResourceType:       sdkacltypes.ResourceType_KV_BANK,
+		IdentifierTemplate: "*",
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_READ,
+		ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
+		IdentifierTemplate: "*",
+	}, sdkacltypes.AccessOperation{
+		AccessType:         sdkacltypes.AccessType_WRITE,
+		ResourceType:       sdkacltypes.ResourceType_KV_AUTH,
+		IdentifierTemplate: "*",
+	}), tx, txIndex)
 }
 
 func getAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {

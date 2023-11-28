@@ -43,24 +43,19 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 	toAddress := tx.To()
 	if toAddress != nil {
 		seiAddress, associated := evmKeeper.GetSeiAddress(ctx, *toAddress)
-		var idTempl string
-		var resourceType sdkacltypes.ResourceType
-		if associated {
-			idTempl = hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(seiAddress))
-			resourceType = sdkacltypes.ResourceType_KV_BANK_BALANCES
-		} else {
-			idTempl = hex.EncodeToString(evmtypes.BalanceKey(*toAddress))
-			resourceType = sdkacltypes.ResourceType_KV_EVM_BALANCE
+		if !associated {
+			seiAddress = sdk.AccAddress((*toAddress)[:])
 		}
+		idTempl := hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(seiAddress))
 		toOperations = []sdkacltypes.AccessOperation{
 			{
 				AccessType:         sdkacltypes.AccessType_READ,
-				ResourceType:       resourceType,
+				ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 				IdentifierTemplate: idTempl,
 			},
 			{
 				AccessType:         sdkacltypes.AccessType_WRITE,
-				ResourceType:       resourceType,
+				ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 				IdentifierTemplate: idTempl,
 			},
 		}

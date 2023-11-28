@@ -662,7 +662,7 @@ func New(
 		params.NewAppModule(app.ParamsKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
-		evm.NewAppModule(appCodec, app.EvmKeeper),
+		evm.NewAppModule(appCodec, &app.EvmKeeper),
 		transferModule,
 		dexModule,
 		epochModule,
@@ -841,6 +841,7 @@ func New(
 			TracingInfo:         app.GetBaseApp().TracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 			CheckTxMemState:     app.CheckTxMemState,
+			EVMCheckTxTimeout:   app.evmRPCConfig.CheckTxTimeout,
 		},
 	)
 	if err != nil {
