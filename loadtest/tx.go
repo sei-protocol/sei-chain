@@ -29,7 +29,7 @@ func SendTx(
 	loadtestClient.SignerClient.SignTx(loadtestClient.ChainID, txBuilder, key, seqDelta)
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()((*txBuilder).GetTx())
 	return func() {
-		grpcRes, err := loadtestClient.TxClient.BroadcastTx(
+		grpcRes, err := loadtestClient.GetTxClient().BroadcastTx(
 			context.Background(),
 			&typestx.BroadcastTxRequest{
 				Mode:    mode,
@@ -52,7 +52,7 @@ func SendTx(
 			// retry after a second until either succeed or fail for some other reason
 			fmt.Printf("Mempool full\n")
 			time.Sleep(1 * time.Second)
-			grpcRes, err = loadtestClient.TxClient.BroadcastTx(
+			grpcRes, err = loadtestClient.GetTxClient().BroadcastTx(
 				context.Background(),
 				&typestx.BroadcastTxRequest{
 					Mode:    mode,

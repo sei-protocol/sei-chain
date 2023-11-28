@@ -31,7 +31,7 @@ const (
 
 type Config struct {
 	ChainID            string                `json:"chain_id"`
-	GrpcEndpoint       string                `json:"grpc_endpoint"`
+	GrpcEndpoints      string                `json:"grpc_endpoints"`
 	BlockchainEndpoint string                `json:"blockchain_endpoint"`
 	NodeURI            string                `json:"node_uri"`
 	TxsPerBlock        uint64                `json:"txs_per_block"`

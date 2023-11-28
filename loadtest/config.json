@@ -1,5 +1,5 @@
 {
-    "grpc_endpoint": "127.0.0.1:9090",
+    "grpc_endpoints": "127.0.0.1:9090",
     "blockchain_endpoint": "http://localhost:26657/blockchain",
     "node_uri": "tcp://localhost:26657",
     "tls": false,
