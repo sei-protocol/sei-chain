@@ -490,7 +490,7 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 	}
 }
 
-func (s *StorageTestSuite) TestDatabase_Prune_KeepRecent() {
+func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 	if slices.Contains(s.SkipTests, s.T().Name()) {
 		s.T().SkipNow()
 	}
