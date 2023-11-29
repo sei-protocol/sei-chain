@@ -23,15 +23,18 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig) *SendAPI {
 }
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
+	fmt.Println("In SendRawTransaction")
 	var txData ethtx.TxData
 	associateTx := ethtx.AssociateTx{}
 	if associateTx.Unmarshal(input) == nil {
 		txData = &associateTx
 	} else {
+		fmt.Println("In SendRawTransaction: Not associate tx")
 		tx := new(ethtypes.Transaction)
 		if err = tx.UnmarshalBinary(input); err != nil {
 			return
 		}
+		fmt.Printf("In SendRawTransaction: tx data = %+v\n", tx)
 		hash = tx.Hash()
 		txData, err = ethtx.NewTxDataFromTx(tx)
 		if err != nil {
