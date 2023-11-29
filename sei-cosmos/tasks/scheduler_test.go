@@ -68,6 +68,41 @@ func TestProcessAll(t *testing.T) {
 			workers:   50,
 			runs:      50,
 			addStores: true,
+			requests:  requestList(100),
+			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) types.ResponseDeliverTx {
+				// all txs read and write to the same key to maximize conflicts
+				kv := ctx.MultiStore().GetKVStore(testStoreKey)
+				val := string(kv.Get(itemKey))
+
+				// write to the store with this tx's index
+				kv.Set(itemKey, req.Tx)
+
+				// return what was read from the store (final attempt should be index-1)
+				return types.ResponseDeliverTx{
+					Info: val,
+				}
+			},
+			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+				for idx, response := range res {
+					if idx == 0 {
+						require.Equal(t, "", response.Info)
+					} else {
+						// the info is what was read from the kv store by the tx
+						// each tx writes its own index, so the info should be the index of the previous tx
+						require.Equal(t, fmt.Sprintf("%d", idx-1), response.Info)
+					}
+				}
+				// confirm last write made it to the parent store
+				latest := ctx.MultiStore().GetKVStore(testStoreKey).Get(itemKey)
+				require.Equal(t, []byte(fmt.Sprintf("%d", len(res)-1)), latest)
+			},
+			expectedErr: nil,
+		},
+		{
+			name:      "Test few workers many txs",
+			workers:   5,
+			runs:      10,
+			addStores: true,
 			requests:  requestList(50),
 			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) types.ResponseDeliverTx {
 				// all txs read and write to the same key to maximize conflicts
