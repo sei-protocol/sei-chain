@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 
 	"github.com/cockroachdb/pebble"
@@ -40,6 +41,9 @@ type Database struct {
 	storage *pebble.DB
 	// Earliest version for db after pruning
 	earliestVersion int64
+
+	// Map of stores that have been updated
+	storeKeyDirty sync.Map
 }
 
 func New(dataDir string) (*Database, error) {
@@ -230,6 +234,9 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 		}
 	}
 
+	// Mark the store as updated
+	db.storeKeyDirty.Store(cs.Name, version)
+
 	return b.Write()
 }
 
@@ -255,6 +262,7 @@ func (db *Database) Prune(version int64) error {
 
 	for itr.First(); itr.Valid(); {
 		currKeyEncoded := slices.Clone(itr.Key())
+
 		// Ignore metadata entry for version during pruning
 		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
 			itr.Next()
@@ -265,6 +273,17 @@ func (db *Database) Prune(version int64) error {
 		currKey, currVersion, currOK := SplitMVCCKey(currKeyEncoded)
 		if !currOK {
 			return fmt.Errorf("invalid MVCC key")
+		}
+
+		storeKey := parseStoreKey(currKey)
+
+		updated, ok := db.storeKeyDirty.Load(storeKey)
+		if ok {
+			versionUpdated, ok := updated.(int64)
+			if ok && versionUpdated < db.earliestVersion {
+				itr.SeekGE([]byte(storePrefix(storeKey + "0")))
+				continue
+			}
 		}
 
 		currVersionDecoded, err := decodeUint64Ascending(currVersion)
@@ -480,6 +499,19 @@ func prependStoreKey(storeKey string, key []byte) []byte {
 		return key
 	}
 	return append(storePrefix(storeKey), key...)
+}
+
+func parseStoreKey(key []byte) string {
+	prefixed := string(key)
+
+	// store key format is "s/k:{storeKey}/"
+	split := strings.SplitN(prefixed, "s/k:", 2)
+	if len(split) != 2 {
+		return ""
+	}
+
+	storeKey := split[1]
+	return strings.TrimSuffix(storeKey, "/")
 }
 
 func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {
