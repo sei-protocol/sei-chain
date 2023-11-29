@@ -88,14 +88,7 @@ func (s *StorageTestSuite) TestDatabaseGetVersionedKey() {
 	defer db.Close()
 
 	// store a key at version 1
-	cs := &iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value001")}},
-	}
-	ncs := &proto.NamedChangeSet{
-		Name:      storeKey1,
-		Changeset: *cs,
-	}
-	s.Require().NoError(db.ApplyChangeset(1, ncs))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, []byte("key"), []byte("value001")))
 
 	// assume chain progresses to version 10 w/o any changes to key
 	bz, err := db.Get(storeKey1, 10, []byte("key"))
@@ -107,14 +100,7 @@ func (s *StorageTestSuite) TestDatabaseGetVersionedKey() {
 	s.Require().True(ok)
 
 	// chain progresses to version 11 with an update to key
-	cs = &iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value011")}},
-	}
-	ncs = &proto.NamedChangeSet{
-		Name:      storeKey1,
-		Changeset: *cs,
-	}
-	s.Require().NoError(db.ApplyChangeset(11, ncs))
+	s.Require().NoError(DBApplyChangeset(db, 11, storeKey1, []byte("key"), []byte("value011")))
 
 	bz, err = db.Get(storeKey1, 10, []byte("key"))
 	s.Require().NoError(err)
@@ -135,14 +121,7 @@ func (s *StorageTestSuite) TestDatabaseGetVersionedKey() {
 	}
 
 	// chain progresses to version 15 with a delete to key
-	cs = &iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{{Key: []byte("key")}},
-	}
-	ncs = &proto.NamedChangeSet{
-		Name:      storeKey1,
-		Changeset: *cs,
-	}
-	s.Require().NoError(db.ApplyChangeset(15, ncs))
+	s.Require().NoError(DBApplyChangeset(db, 15, storeKey1, []byte("key"), nil))
 
 	// all queries up to version 14 should return the latest value
 	for i := int64(1); i <= 14; i++ {
@@ -325,26 +304,11 @@ func (s *StorageTestSuite) TestDatabaseIteratorRangedDeletes() {
 	s.Require().NoError(err)
 	defer db.Close()
 
-	cs := &iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{{Key: []byte("key001"), Value: []byte("value001")}, {Key: []byte("key002"), Value: []byte("value001")}},
-	}
-	ncs := &proto.NamedChangeSet{
-		Name:      storeKey1,
-		Changeset: *cs,
-	}
-	s.Require().NoError(db.ApplyChangeset(1, ncs))
-
-	cs = &iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{{Key: []byte("key002"), Value: []byte("value002")}},
-	}
-	ncs.Changeset = *cs
-	s.Require().NoError(db.ApplyChangeset(5, ncs))
-
-	cs = &iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{{Key: []byte("key002")}},
-	}
-	ncs.Changeset = *cs
-	s.Require().NoError(db.ApplyChangeset(10, ncs))
+	// TODO: Will update the DBApplyChangeset to take in a list to apply all at once
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, []byte("key001"), []byte("value001")))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, []byte("key002"), []byte("value001")))
+	s.Require().NoError(DBApplyChangeset(db, 5, storeKey1, []byte("key002"), []byte("value002")))
+	s.Require().NoError(DBApplyChangeset(db, 10, storeKey1, []byte("key002"), nil))
 
 	itr, err := db.Iterator(storeKey1, 11, []byte("key001"), nil)
 	s.Require().NoError(err)
@@ -503,26 +467,9 @@ func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 	key := []byte("key000")
 
 	// write a key at three different versions 1, 100 and 200
-	cs := &iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{{Key: key, Value: []byte("value001")}},
-	}
-	ncs := &proto.NamedChangeSet{
-		Name:      storeKey1,
-		Changeset: *cs,
-	}
-	s.Require().NoError(db.ApplyChangeset(1, ncs))
-
-	cs = &iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{{Key: key, Value: []byte("value002")}},
-	}
-	ncs.Changeset = *cs
-	s.Require().NoError(db.ApplyChangeset(100, ncs))
-
-	cs = &iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{{Key: key, Value: []byte("value003")}},
-	}
-	ncs.Changeset = *cs
-	s.Require().NoError(db.ApplyChangeset(200, ncs))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, key, []byte("value001")))
+	s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, key, []byte("value002")))
+	s.Require().NoError(DBApplyChangeset(db, 200, storeKey1, key, []byte("value003")))
 
 	// prune version 50
 	s.Require().NoError(db.Prune(50))
@@ -715,7 +662,7 @@ func (s *StorageTestSuite) TestParallelWriteAndPruning() {
 		}
 	}()
 
-	// start the goroutines
+	// wait for the goroutines
 	close(triggerStartCh)
 	wg.Wait()
 
