@@ -510,7 +510,7 @@ func parseStoreKey(key []byte) string {
 
 	// remaining format is {storeKey}/...
 	storeKeySplit := strings.Split(split[1], "/")
-	if len(storeKeySplit) != 2 {
+	if len(storeKeySplit) < 2 {
 		return ""
 	}
 
