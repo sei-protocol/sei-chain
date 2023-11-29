@@ -242,6 +242,11 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 
 // Prune attempts to prune all versions up to and including the current version
 // Get the range of keys, manually iterate over them and delete them
+// We add a heuristic to skip over a module's keys during pruning if it hasn't been updated
+// since the last time pruning occurred.
+// NOTE: There is a rare case when a module's keys are skipped during pruning even though
+// it has been updated. This occurs when that module is updated in between pruning runs, the node after is restarted.
+// This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) error {
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
 
@@ -499,16 +504,17 @@ func prependStoreKey(storeKey string, key []byte) []byte {
 	return append(storePrefix(storeKey), key...)
 }
 
+// Parses store from key with format "s/k:{store}/..."
 func parseStoreKey(key []byte) string {
 	prefixed := string(key)
 
-	// store key format is "s/k:{storeKey}/..."
+	// store key format is "s/k:{store}/..."
 	split := strings.Split(prefixed, "s/k:")
 	if len(split) != 2 {
 		return ""
 	}
 
-	// remaining format is {storeKey}/...
+	// remaining format is {store}/...
 	storeKeySplit := strings.Split(split[1], "/")
 	if len(storeKeySplit) < 2 {
 		return ""
