@@ -278,12 +278,10 @@ func (db *Database) Prune(version int64) error {
 		storeKey := parseStoreKey(currKey)
 
 		updated, ok := db.storeKeyDirty.Load(storeKey)
-		if ok {
-			versionUpdated, ok := updated.(int64)
-			if ok && versionUpdated < db.earliestVersion {
-				itr.SeekGE([]byte(storePrefix(storeKey + "0")))
-				continue
-			}
+		versionUpdated, typeOk := updated.(int64)
+		if !ok || (typeOk && versionUpdated < db.earliestVersion) {
+			itr.SeekGE([]byte(storePrefix(storeKey + "0")))
+			continue
 		}
 
 		currVersionDecoded, err := decodeUint64Ascending(currVersion)
@@ -504,14 +502,19 @@ func prependStoreKey(storeKey string, key []byte) []byte {
 func parseStoreKey(key []byte) string {
 	prefixed := string(key)
 
-	// store key format is "s/k:{storeKey}/"
-	split := strings.SplitN(prefixed, "s/k:", 2)
+	// store key format is "s/k:{storeKey}/..."
+	split := strings.Split(prefixed, "s/k:")
 	if len(split) != 2 {
 		return ""
 	}
 
-	storeKey := split[1]
-	return strings.TrimSuffix(storeKey, "/")
+	// remaining format is {storeKey}/...
+	storeKeySplit := strings.Split(split[1], "/")
+	if len(storeKeySplit) != 2 {
+		return ""
+	}
+
+	return storeKeySplit[0]
 }
 
 func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {
