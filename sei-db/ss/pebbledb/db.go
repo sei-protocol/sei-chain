@@ -21,6 +21,7 @@ import (
 const (
 	VersionSize = 8
 
+	PrefixStore        = "s/k:"
 	StorePrefixTpl     = "s/k:%s/"   // s/k:<storeKey>
 	latestVersionKey   = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
 	earliestVersionKey = "s/_earliest"
@@ -281,7 +282,13 @@ func (db *Database) Prune(version int64) error {
 			return fmt.Errorf("invalid MVCC key")
 		}
 
-		storeKey := parseStoreKey(currKey)
+		storeKey, err := parseStoreKey(currKey)
+
+		// Should never happen given we skip the metadata keys
+		if err != nil {
+			return err
+		}
+
 		if storeKey != prevStore {
 			prevStore = storeKey
 			updated, ok := db.storeKeyDirty.Load(storeKey)
@@ -509,22 +516,23 @@ func prependStoreKey(storeKey string, key []byte) []byte {
 }
 
 // Parses store from key with format "s/k:{store}/..."
-func parseStoreKey(key []byte) string {
-	prefixed := string(key)
+func parseStoreKey(key []byte) (string, error) {
+	// Convert byte slice to string only once
+	keyStr := string(key)
 
-	// store key format is "s/k:{store}/..."
-	split := strings.Split(prefixed, "s/k:")
-	if len(split) != 2 {
-		return ""
+	if !strings.HasPrefix(keyStr, PrefixStore) {
+		return "", fmt.Errorf("Not a valid store key")
 	}
 
-	// remaining format is {store}/...
-	storeKeySplit := strings.Split(split[1], "/")
-	if len(storeKeySplit) < 2 {
-		return ""
+	// Find the first occurrence of "/" after the prefix
+	// This avoids splitting the entire string unnecessarily
+	slashIndex := strings.Index(keyStr[len(PrefixStore):], "/")
+	if slashIndex == -1 {
+		return "", fmt.Errorf("Not a valid store key")
 	}
 
-	return storeKeySplit[0]
+	// Return the substring between the prefix and the first "/"
+	return keyStr[len(PrefixStore) : len(PrefixStore)+slashIndex], nil
 }
 
 func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {
