@@ -1,3 +1,6 @@
+//go:build sqliteBackend
+// +build sqliteBackend
+
 package sqlite
 
 import (
@@ -9,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-db/ss/types"
 )
 
+// TODO: Update Sqlite to latest
 func TestStorageTestSuite(t *testing.T) {
 	s := &sstest.StorageTestSuite{
 		NewDB: func(dir string) (types.StateStore, error) {

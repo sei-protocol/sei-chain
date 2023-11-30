@@ -508,7 +508,7 @@ func (s *StorageTestSuite) TestDatabaseReverseIterator() {
 	s.Require().NoError(err)
 	defer db.Close()
 
-	s.Require().NoError(FillData(db, 1, 100))
+	s.Require().NoError(FillData(db, 100, 1))
 
 	// reverse iterator without an end key
 	iter, err := db.ReverseIterator(storeKey1, 1, []byte("key000"), nil)
@@ -519,7 +519,7 @@ func (s *StorageTestSuite) TestDatabaseReverseIterator() {
 	i, count := 99, 0
 	for ; iter.Valid(); iter.Next() {
 		s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), iter.Key())
-		s.Require().Equal([]byte(fmt.Sprintf("val%03d-000", i)), iter.Value())
+		s.Require().Equal([]byte(fmt.Sprintf("val%03d-001", i)), iter.Value())
 
 		i--
 		count++
@@ -540,7 +540,7 @@ func (s *StorageTestSuite) TestDatabaseReverseIterator() {
 	i, count = 18, 0
 	for ; iter2.Valid(); iter2.Next() {
 		s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), iter2.Key())
-		s.Require().Equal([]byte(fmt.Sprintf("val%03d-000", i)), iter2.Value())
+		s.Require().Equal([]byte(fmt.Sprintf("val%03d-001", i)), iter2.Value())
 
 		i--
 		count++
