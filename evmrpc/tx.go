@@ -100,7 +100,6 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 				)
 				from, _ := ethtypes.Sender(signer, etx)
 				v, r, s := etx.RawSignatureValues()
-				fmt.Println("GetTransactionByHash found tx in mempool")
 				return &RPCTransaction{
 					Type:     hexutil.Uint64(etx.Type()),
 					From:     from,
