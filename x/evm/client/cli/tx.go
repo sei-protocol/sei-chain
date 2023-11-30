@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
+	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -289,12 +289,12 @@ func CmdDeployErc20() *cobra.Command {
 				return
 			}
 
-			abi_, err := f.ReadFile("contract-artifacts/NativeSeiTokensERC20.abi")
+			abi, err := f.ReadFile("contract-artifacts/NativeSeiTokensERC20.abi")
 			if err != nil {
 				fmt.Println("failed at reading abi")
 				return err
 			}
-			parsedABI, err := abi.JSON(strings.NewReader(string(abi_)))
+			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
 			if err != nil {
 				fmt.Println("failed at parsing abi")
 				return err
@@ -372,7 +372,7 @@ func CmdDeployErc20() *cobra.Command {
 				return err
 			}
 			var resp Response
-			err = json.Unmarshal([]byte(resBody), &resp)
+			err = json.Unmarshal(resBody, &resp)
 			if err != nil {
 				log.Fatal(err)
 			}
