@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,6 @@ import (
 	"log"
 	"math/big"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -38,6 +38,12 @@ const (
 	FlagEVMChainID = "evm-chain-id"
 	FlagRPC        = "evm-rpc"
 )
+
+// Embed abi json file to the executable binary. Needed when importing as dependency.
+//
+//go:embed contract-artifacts/NativeSeiTokensERC20.bin
+//go:embed contract-artifacts/NativeSeiTokensERC20.abi
+var f embed.FS
 
 // GetTxCmd returns the transaction commands for this module
 func GetTxCmd() *cobra.Command {
@@ -248,21 +254,16 @@ func CmdDeployErc20() *cobra.Command {
 		Long:  "",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			fmt.Println("deploying ERC20 contract")
-			// validate the denom
 			err = sdk.ValidateDenom(args[0])
 			if err != nil {
 				return err
 			}
 			denom := args[0]
 
-			// parse the nonce
 			nonce, err := strconv.ParseUint(args[1], 10, 64)
 			if err != nil {
 				return err
 			}
-
-			// parse other flag values
 			gasFeeCap, err := cmd.Flags().GetUint64(FlagGasFeeCap)
 			if err != nil {
 				return err
@@ -275,10 +276,8 @@ func CmdDeployErc20() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// convert contract to bytes and pass it as data
 
-			bytecodePath := "/Users/jeremywei/code/sei/sei-chain/x/evm/client/cli/contract-artifacts/NativeSeiTokensERC20.bin"
-			bytecodeString, err := os.ReadFile(bytecodePath)
+			bytecodeString, err := f.ReadFile("contract-artifacts/NativeSeiTokensERC20.bin")
 			if err != nil {
 				fmt.Println("failed at reading bytecode")
 				return err
@@ -290,8 +289,7 @@ func CmdDeployErc20() *cobra.Command {
 				return
 			}
 
-			abiPath := "/Users/jeremywei/code/sei/sei-chain/x/evm/client/cli/contract-artifacts/NativeSeiTokensERC20.abi"
-			abi_, err := os.ReadFile(abiPath)
+			abi_, err := f.ReadFile("contract-artifacts/NativeSeiTokensERC20.abi")
 			if err != nil {
 				fmt.Println("failed at reading abi")
 				return err
@@ -301,8 +299,6 @@ func CmdDeployErc20() *cobra.Command {
 				fmt.Println("failed at parsing abi")
 				return err
 			}
-			fmt.Println("parsedABI is: ", parsedABI)
-
 			constructorArguments := []interface{}{
 				denom,
 			}
@@ -365,67 +361,39 @@ func CmdDeployErc20() *cobra.Command {
 				return err
 			}
 			req.Header.Set("Content-Type", "application/json")
-			fmt.Println("making the JSON RPC HTTP request to deploy contract")
 			res, err := http.DefaultClient.Do(req)
 			if err != nil {
 				return err
 			}
-			fmt.Println("res is: ", res)
-			fmt.Println("err is: ", err)
 			defer res.Body.Close()
+
 			resBody, err := io.ReadAll(res.Body)
 			if err != nil {
 				return err
 			}
-			fmt.Println("resBody from contract deploy is: ", string(resBody))
 			var resp Response
 			err = json.Unmarshal([]byte(resBody), &resp)
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Println("resp is: ", resp)
-			fmt.Println("txn hash is: ", resp.Result)
 
 			senderAddr := crypto.PubkeyToAddress(key.PublicKey)
-
-			// RLP encode the sender's address and nonce
 			data, err := rlp.EncodeToBytes([]interface{}{senderAddr, nonce})
 			if err != nil {
 				fmt.Println("Error encoding:", err)
 				return
 			}
-
-			// Hash the RLP encoded data
 			hash := crypto.Keccak256Hash(data)
-
-			// The contract address is the last 20 bytes of the hash
 			contractAddress := hash.Bytes()[12:]
 			contractAddressHex := hex.EncodeToString(contractAddress)
-			fmt.Println("Got contract address:", contractAddressHex)
 
-			body = fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionByHash\",\"params\":[\"%s\"],\"id\":\"deploy-erc20\"}", resp.Result)
-			fmt.Println("body to get txn receipt is: ", body)
-			req, err = http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
-			if err != nil {
-				return err
-			}
-			req.Header.Set("Content-Type", "application/json")
-			fmt.Println("making the JSON RPC HTTP request to get txn receipt")
-			res, err = http.DefaultClient.Do(req)
-			if err != nil {
-				return err
-			}
-			resBody, err = io.ReadAll(res.Body)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Get Transaction By Hash Response: %s\n", string(resBody))
-
+			fmt.Println("Deployer:", senderAddr)
+			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
+			fmt.Println("Transaction hash:", resp.Result)
 			return nil
 		},
 	}
 
-	// TODO: what are these for? -> this might be for the SEI txn
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 21000, "Gas limit for the transaction")
 	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
