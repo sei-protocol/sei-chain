@@ -521,14 +521,14 @@ func parseStoreKey(key []byte) (string, error) {
 	keyStr := string(key)
 
 	if !strings.HasPrefix(keyStr, PrefixStore) {
-		return "", fmt.Errorf("Not a valid store key")
+		return "", fmt.Errorf("not a valid store key")
 	}
 
 	// Find the first occurrence of "/" after the prefix
 	// This avoids splitting the entire string unnecessarily
 	slashIndex := strings.Index(keyStr[len(PrefixStore):], "/")
 	if slashIndex == -1 {
-		return "", fmt.Errorf("Not a valid store key")
+		return "", fmt.Errorf("not a valid store key")
 	}
 
 	// Return the substring between the prefix and the first "/"
