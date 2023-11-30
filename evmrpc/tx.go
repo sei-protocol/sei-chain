@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 	"strconv"
 	"strings"
@@ -38,11 +37,9 @@ func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 }
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
-	fmt.Println("In GetTransactionReceipt, trying to get hash for = ", hash)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
-			fmt.Println("Receipt not found")
 			// When the transaction doesn't exist, the RPC method should return JSON null
 			// as per specification.
 			return nil, nil
@@ -103,6 +100,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 				)
 				from, _ := ethtypes.Sender(signer, etx)
 				v, r, s := etx.RawSignatureValues()
+				fmt.Println("GetTransactionByHash found tx in mempool")
 				return &RPCTransaction{
 					Type:     hexutil.Uint64(etx.Type()),
 					From:     from,
