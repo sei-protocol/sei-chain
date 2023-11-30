@@ -284,8 +284,9 @@ func (db *Database) Prune(version int64) error {
 
 		updated, ok := db.storeKeyDirty.Load(storeKey)
 		versionUpdated, typeOk := updated.(int64)
+		// Skip a store's keys if version it was last updated is less than last prune height
 		if !ok || (typeOk && versionUpdated < db.earliestVersion) {
-			itr.SeekGE([]byte(storePrefix(storeKey + "0")))
+			itr.SeekGE(storePrefix(storeKey + "0"))
 			continue
 		}
 
