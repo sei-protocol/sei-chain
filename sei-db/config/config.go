@@ -60,6 +60,11 @@ type StateStoreConfig struct {
 	// ImportNumWorkers defines the number of goroutines used during import
 	// defaults to 1
 	ImportNumWorkers int `mapstructure:"import-num-workers"`
+
+	// DBDirectory defines the directory to store the state store db files
+	// If not explicitly set, default to application home directory
+	// default to empty
+	DBDirectory string `mapstructure:"db-directory"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {
