@@ -289,6 +289,7 @@ func (db *Database) Prune(version int64) error {
 			return err
 		}
 
+		// For every new module visited, check to see last time it was updated
 		if storeKey != prevStore {
 			prevStore = storeKey
 			updated, ok := db.storeKeyDirty.Load(storeKey)
@@ -525,7 +526,6 @@ func parseStoreKey(key []byte) (string, error) {
 	}
 
 	// Find the first occurrence of "/" after the prefix
-	// This avoids splitting the entire string unnecessarily
 	slashIndex := strings.Index(keyStr[len(PrefixStore):], "/")
 	if slashIndex == -1 {
 		return "", fmt.Errorf("not a valid store key")
