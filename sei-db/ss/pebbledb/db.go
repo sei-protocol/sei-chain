@@ -263,6 +263,7 @@ func (db *Database) Prune(version int64) error {
 		counter                                 int
 		prevKey, prevKeyEncoded, prevValEncoded []byte
 		prevVersionDecoded                      int64
+		prevStore                               string
 	)
 
 	for itr.First(); itr.Valid(); {
@@ -281,13 +282,15 @@ func (db *Database) Prune(version int64) error {
 		}
 
 		storeKey := parseStoreKey(currKey)
-
-		updated, ok := db.storeKeyDirty.Load(storeKey)
-		versionUpdated, typeOk := updated.(int64)
-		// Skip a store's keys if version it was last updated is less than last prune height
-		if !ok || (typeOk && versionUpdated < db.earliestVersion) {
-			itr.SeekGE(storePrefix(storeKey + "0"))
-			continue
+		if storeKey != prevStore {
+			prevStore = storeKey
+			updated, ok := db.storeKeyDirty.Load(storeKey)
+			versionUpdated, typeOk := updated.(int64)
+			// Skip a store's keys if version it was last updated is less than last prune height
+			if !ok || (typeOk && versionUpdated < db.earliestVersion) {
+				itr.SeekGE(storePrefix(storeKey + "0"))
+				continue
+			}
 		}
 
 		currVersionDecoded, err := decodeUint64Ascending(currVersion)
