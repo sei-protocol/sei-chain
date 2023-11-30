@@ -39,6 +39,7 @@ func (m *Manager) Start() {
 	m.started = true
 	go func() {
 		for {
+			pruneStartTime := time.Now()
 			latestVersion, _ := m.stateStore.GetLatestVersion()
 			pruneVersion := latestVersion - m.keepRecent
 			if pruneVersion > 0 {
@@ -46,7 +47,9 @@ func (m *Manager) Start() {
 				if err := m.stateStore.Prune(pruneVersion); err != nil {
 					m.logger.Error("failed to prune versions till", "version", pruneVersion, "err", err)
 				}
+				m.logger.Info("Pruned state store till version %d took %s\n", pruneVersion, time.Since(pruneStartTime))
 			}
+
 			// Generate a random percentage (between 0% and 100%) of the fixed interval as a delay
 			randomPercentage := rand.Float64() // Generate a random float between 0 and 1
 			randomDelay := int64(float64(m.pruneInterval) * randomPercentage)

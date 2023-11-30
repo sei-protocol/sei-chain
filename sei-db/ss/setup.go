@@ -18,12 +18,13 @@ import (
 )
 
 const (
-	FlagSSEnable            = "state-store.enable"
-	FlagSSBackend           = "state-store.backend"
+	FlagSSEnable            = "state-store.ss-enable"
+	FlagSSBackend           = "state-store.ss-backend"
 	FlagSSAsyncWriterBuffer = "state-store.async-write-buffer"
-	FlagSSKeepRecent        = "state-store.keep-recent"
-	FlagSSPruneInterval     = "state-store.prune-interval-seconds"
+	FlagSSKeepRecent        = "state-store.ss-keep-recent"
+	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.import-num-workers"
+	FlagSSDirectory         = "state-store.ss-db-directory"
 )
 
 func SetupStateStore(
@@ -45,9 +46,13 @@ func SetupStateStore(
 	ssKeepRecent := cast.ToInt64(appOpts.Get(FlagSSKeepRecent))
 	ssPruneInterval := cast.ToInt64(appOpts.Get(FlagSSPruneInterval))
 	ssImportNumWorkers := cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
+	ssDirectory := cast.ToString(appOpts.Get(FlagSSDirectory))
 	logger.Info(fmt.Sprintf("State Store is enabled with %s backend", ssBackend))
 
-	ss, err := createStateStore(homePath, BackendType(ssBackend))
+	if ssDirectory == "" {
+		ssDirectory = homePath
+	}
+	ss, err := createStateStore(ssDirectory, BackendType(ssBackend))
 	if err != nil {
 		return nil, err
 	}
