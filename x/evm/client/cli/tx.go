@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net/http"
 	"strconv"
@@ -285,8 +284,7 @@ func CmdDeployErc20() *cobra.Command {
 
 			bytecode, err := hex.DecodeString(string(bytecodeString))
 			if err != nil {
-				fmt.Println("Error decoding hex string:", err)
-				return
+				return err
 			}
 
 			abi, err := f.ReadFile("contract-artifacts/NativeSeiTokensERC20.abi")
@@ -374,14 +372,13 @@ func CmdDeployErc20() *cobra.Command {
 			var resp Response
 			err = json.Unmarshal(resBody, &resp)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 
 			senderAddr := crypto.PubkeyToAddress(key.PublicKey)
 			data, err := rlp.EncodeToBytes([]interface{}{senderAddr, nonce})
 			if err != nil {
-				fmt.Println("Error encoding:", err)
-				return
+				return err
 			}
 			hash := crypto.Keccak256Hash(data)
 			contractAddress := hash.Bytes()[12:]
