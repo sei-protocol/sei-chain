@@ -22,6 +22,7 @@ const (
 	VersionSize = 8
 
 	PrefixStore        = "s/k:"
+	LenPrefixStore     = 4
 	StorePrefixTpl     = "s/k:%s/"   // s/k:<storeKey>
 	latestVersionKey   = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
 	earliestVersionKey = "s/_earliest"
@@ -43,7 +44,8 @@ type Database struct {
 	// Earliest version for db after pruning
 	earliestVersion int64
 
-	// Map of stores that have been updated
+	// Map of module to when each was last updated
+	// Used in pruning to skip over stores that have not been updated recently
 	storeKeyDirty sync.Map
 }
 
@@ -284,7 +286,7 @@ func (db *Database) Prune(version int64) error {
 
 		storeKey, err := parseStoreKey(currKey)
 		if err != nil {
-		    // XXX: This should never happen given we skip the metadata keys.
+			// XXX: This should never happen given we skip the metadata keys.
 			return err
 		}
 
@@ -525,13 +527,13 @@ func parseStoreKey(key []byte) (string, error) {
 	}
 
 	// Find the first occurrence of "/" after the prefix
-	slashIndex := strings.Index(keyStr[len(PrefixStore):], "/")
+	slashIndex := strings.Index(keyStr[LenPrefixStore:], "/")
 	if slashIndex == -1 {
 		return "", fmt.Errorf("not a valid store key")
 	}
 
 	// Return the substring between the prefix and the first "/"
-	return keyStr[len(PrefixStore) : len(PrefixStore)+slashIndex], nil
+	return keyStr[LenPrefixStore : LenPrefixStore+slashIndex], nil
 }
 
 func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {
