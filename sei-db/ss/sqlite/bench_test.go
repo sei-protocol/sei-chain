@@ -8,17 +8,17 @@ import (
 
 	sstest "github.com/sei-protocol/sei-db/ss/test"
 	"github.com/sei-protocol/sei-db/ss/types"
-	"github.com/stretchr/testify/suite"
 )
 
-// TODO: Update Sqlite to latest
-func TestStorageTestSuite(t *testing.T) {
-	s := &sstest.StorageTestSuite{
+func BenchmarkDBBackend(b *testing.B) {
+	s := &sstest.StorageBenchSuite{
 		NewDB: func(dir string) (types.StateStore, error) {
 			return New(dir)
 		},
-		EmptyBatchSize: 0,
+		BenchBackendName: "Sqlite",
 	}
 
-	suite.Run(t, s)
+	s.BenchmarkGet(b)
+	s.BenchmarkApplyChangeset(b)
+	s.BenchmarkIterate(b)
 }
