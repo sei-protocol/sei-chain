@@ -70,7 +70,7 @@ func DumpDbData(dbBackend string, module string, outputDir string, dbDir string)
 	defer currentFile.Close()
 
 	// TODO: Defer Close Db
-	backend, err := ss.NewStateStoreDB(dbDir, ss.BackendType(dbBackend))
+	backend, err := ss.NewStateStoreDB(dbDir, dbBackend)
 	if err != nil {
 		panic(err)
 	}

@@ -65,7 +65,7 @@ func BenchmarkWrite(inputKVDir string, numVersions int, outputDir string, dbBack
 	// Iterate over files in directory
 	fmt.Printf("Reading Raw Keys and Values from %s\n", inputKVDir)
 
-	backend, err := ss.NewStateStoreDB(outputDir, ss.BackendType(dbBackend))
+	backend, err := ss.NewStateStoreDB(outputDir, dbBackend)
 	if err != nil {
 		panic(err)
 	}

@@ -49,7 +49,7 @@ func prune(cmd *cobra.Command, _ []string) {
 // Prunes DB at given height
 func PruneDB(dbBackend string, dbDir string, version int64) {
 	// TODO: Defer Close Db
-	backend, err := ss.NewStateStoreDB(dbDir, ss.BackendType(dbBackend))
+	backend, err := ss.NewStateStoreDB(dbDir, dbBackend)
 	if err != nil {
 		panic(err)
 	}

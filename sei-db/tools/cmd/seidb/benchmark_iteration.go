@@ -60,7 +60,7 @@ func BenchmarkDBIteration(inputKVDir string, numVersions int, outputDir string, 
 	// Iterate over db at directory
 	fmt.Printf("Iterating Over DB at  %s\n", outputDir)
 
-	backend, err := ss.NewStateStoreDB(outputDir, ss.BackendType(dbBackend))
+	backend, err := ss.NewStateStoreDB(outputDir, dbBackend)
 	if err != nil {
 		panic(err)
 	}
