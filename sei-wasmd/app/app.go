@@ -317,7 +317,7 @@ func NewWasmApp(
 		feegrant.StoreKey, authzkeeper.StoreKey, wasm.StoreKey, icahosttypes.StoreKey, icacontrollertypes.StoreKey, intertxtypes.StoreKey,
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey)
 
 	app := &WasmApp{
 		BaseApp:           bApp,
@@ -363,12 +363,13 @@ func NewWasmApp(
 		authtypes.ProtoBaseAccount,
 		maccPerms,
 	)
-	app.bankKeeper = bankkeeper.NewBaseKeeper(
+	app.bankKeeper = bankkeeper.NewBaseKeeperWithDeferredCache(
 		appCodec,
 		keys[banktypes.StoreKey],
 		app.accountKeeper,
 		app.getSubspace(banktypes.ModuleName),
 		app.ModuleAccountAddrs(),
+		memKeys[banktypes.DeferredCacheStoreKey],
 	)
 	app.authzKeeper = authzkeeper.NewKeeper(
 		keys[authzkeeper.StoreKey],
@@ -727,6 +728,7 @@ func NewWasmApp(
 				AccountKeeper:   app.accountKeeper,
 				BankKeeper:      app.bankKeeper,
 				FeegrantKeeper:  app.feeGrantKeeper,
+				ParamsKeeper:    app.paramsKeeper,
 				SignModeHandler: encodingConfig.TxConfig.SignModeHandler(),
 				SigGasConsumer:  ante.DefaultSigVerificationGasConsumer,
 			},
