@@ -3,7 +3,6 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IBank} from "./precompiles/IBank.sol";
-import {console2} from "forge-std/Test.sol";
 
 contract NativeSeiTokensERC20 is ERC20 {
 
