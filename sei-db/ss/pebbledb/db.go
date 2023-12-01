@@ -283,9 +283,8 @@ func (db *Database) Prune(version int64) error {
 		}
 
 		storeKey, err := parseStoreKey(currKey)
-
-		// Should never happen given we skip the metadata keys
 		if err != nil {
+		    // XXX: This should never happen given we skip the metadata keys.
 			return err
 		}
 
