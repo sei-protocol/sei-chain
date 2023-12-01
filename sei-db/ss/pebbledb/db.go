@@ -10,10 +10,9 @@ import (
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
-	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	sstypes "github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/ss/types"
 	"golang.org/x/exp/slices"
 )
 
@@ -31,7 +30,7 @@ const (
 )
 
 var (
-	_ sstypes.StateStore = (*Database)(nil)
+	_ types.StateStore = (*Database)(nil)
 
 	defaultWriteOpts = pebble.NoSync
 )
@@ -319,7 +318,7 @@ func (db *Database) Prune(version int64) error {
 	return db.SetEarliestVersion(earliestVersion)
 }
 
-func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
+func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, utils.ErrKeyEmpty
 	}
@@ -343,7 +342,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, false), nil
 }
 
-func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
+func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, utils.ErrKeyEmpty
 	}
@@ -369,7 +368,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
-func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWorkers int) error {
+func (db *Database) Import(version int64, ch <-chan types.ImportEntry, numWorkers int) error {
 	var wg sync.WaitGroup
 
 	worker := func() {

@@ -1,3 +1,6 @@
+//go:build sqliteBackend
+// +build sqliteBackend
+
 package sqlite
 
 import (
@@ -9,13 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	// _ Import to register sqlite driver with database/sql.
-	_ "modernc.org/sqlite"
-
-	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	sstypes "github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/ss/types"
+	// _ Import to register sqlite driver with database/sql.
+	_ "modernc.org/sqlite"
 )
 
 const (
@@ -47,7 +48,7 @@ const (
 	ImportCommitBatchSize = 10000
 )
 
-var _ sstypes.StateStore = (*Database)(nil)
+var _ types.StateStore = (*Database)(nil)
 
 type Database struct {
 	storage *sql.DB
@@ -210,7 +211,7 @@ func (db *Database) Prune(version int64) error {
 	return nil
 }
 
-func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
+func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, utils.ErrKeyEmpty
 	}
@@ -222,7 +223,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	return newIterator(db.storage, storeKey, version, start, end, false)
 }
 
-func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
+func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, utils.ErrKeyEmpty
 	}
@@ -236,7 +237,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 
 // Import loads the initial version of the state
 // TODO: Parallelize Import
-func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWorkers int) error {
+func (db *Database) Import(version int64, ch <-chan types.ImportEntry, numWorkers int) error {
 	batch, err := NewBatch(db.storage, version)
 	if err != nil {
 		return err

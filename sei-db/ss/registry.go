@@ -28,8 +28,9 @@ func RegisterBackend(backendType BackendType, initializer BackendInitializer) {
 	backends[backendType] = initializer
 }
 
-func NewStateStoreDB(dir string, backendType BackendType) (types.StateStore, error) {
-	initializer, ok := backends[backendType]
+// NewStateStoreDB Create a new state store with the specified backend type
+func NewStateStoreDB(dir string, backendType string) (types.StateStore, error) {
+	initializer, ok := backends[BackendType(backendType)]
 	if !ok {
 		return nil, fmt.Errorf("unsupported backend: %s", backendType)
 	}

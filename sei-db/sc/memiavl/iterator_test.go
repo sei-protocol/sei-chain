@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
 
 func TestIterator(t *testing.T) {
@@ -43,7 +42,7 @@ type pair struct {
 	key, value []byte
 }
 
-func collectIter(iter dbm.Iterator) []pair {
+func collectIter(iter *Iterator) []pair {
 	result := []pair{}
 	for ; iter.Valid(); iter.Next() {
 		result = append(result, pair{key: iter.Key(), value: iter.Value()})

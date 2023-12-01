@@ -1,12 +1,14 @@
+//go:build sqliteBackend
+// +build sqliteBackend
+
 package sqlite
 
 import (
 	"testing"
 
-	"github.com/stretchr/testify/suite"
-
 	sstest "github.com/sei-protocol/sei-db/ss/test"
 	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/stretchr/testify/suite"
 )
 
 func TestStorageTestSuite(t *testing.T) {

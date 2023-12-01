@@ -9,11 +9,10 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/linxGnu/grocksdb"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
-	sstypes "github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/sei-protocol/sei-db/ss/util"
 	"golang.org/x/exp/slices"
 )
@@ -29,7 +28,7 @@ const (
 )
 
 var (
-	_ sstypes.StateStore = (*Database)(nil)
+	_ types.StateStore = (*Database)(nil)
 
 	defaultWriteOpts = grocksdb.NewDefaultWriteOptions()
 	defaultReadOpts  = grocksdb.NewDefaultReadOptions()
@@ -191,7 +190,7 @@ func (db *Database) Prune(version int64) error {
 	return nil
 }
 
-func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
+func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, utils.ErrKeyEmpty
 	}
@@ -207,7 +206,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	return NewRocksDBIterator(itr, prefix, start, end, false), nil
 }
 
-func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.Iterator, error) {
+func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, utils.ErrKeyEmpty
 	}
@@ -225,7 +224,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
-func (db *Database) Import(version int64, ch <-chan sstypes.ImportEntry, numWorkers int) error {
+func (db *Database) Import(version int64, ch <-chan types.ImportEntry, numWorkers int) error {
 	var wg sync.WaitGroup
 
 	worker := func() {
