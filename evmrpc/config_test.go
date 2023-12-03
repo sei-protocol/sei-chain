@@ -23,6 +23,7 @@ type opts struct {
 	wsOrigins            interface{}
 	filterTimeout        interface{}
 	checkTxTimeout       interface{}
+	slow                 interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -67,6 +68,9 @@ func (o *opts) Get(k string) interface{} {
 	}
 	if k == "evm.checktx_timeout" {
 		return o.checkTxTimeout
+	}
+	if k == "evm.slow" {
+		return o.slow
 	}
 	panic("unknown key")
 }

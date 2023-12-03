@@ -1,6 +1,7 @@
 package evmrpc
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -57,7 +58,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfig),
+			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}),
 		},
 		{
 			Namespace: "eth",
@@ -101,6 +102,7 @@ func NewEVMWebSocketServer(
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
 	}
+	fmt.Println("GOT SLOW = ", config.Slow)
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -124,7 +126,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfig),
+			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}),
 		},
 		{
 			Namespace: "eth",
