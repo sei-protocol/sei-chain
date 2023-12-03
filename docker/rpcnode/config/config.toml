@@ -40,7 +40,7 @@ mode = "full"
 # * badgerdb (uses github.com/dgraph-io/badger)
 #   - EXPERIMENTAL
 #   - use badgerdb build tag (go build -tags badgerdb)
-db-ba"ckend = "goleveldb
+db-backend = "goleveldb"
 
 # Database directory
 db-dir = "data"
