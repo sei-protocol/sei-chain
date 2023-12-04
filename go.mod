@@ -323,7 +323,7 @@ replace (
 	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.66-evm-9
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.7
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.2.0
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.2-sei-5
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.2-sei-6
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/keybase/go-keychain => github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4
 	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.2.30-evm

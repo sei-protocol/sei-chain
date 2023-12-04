@@ -11,7 +11,6 @@ interface IWasmd {
     // Transactions
     function instantiate(
         uint64 codeID,
-        string memory creator,
         string memory admin,
         bytes memory msg,
         string memory label,
@@ -20,7 +19,6 @@ interface IWasmd {
 
     function execute(
         string memory contractAddress,
-        string memory sender,
         bytes memory msg,
         bytes memory coins
     ) external returns (bytes memory response);

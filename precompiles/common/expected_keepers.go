@@ -15,6 +15,7 @@ type BankKeeper interface {
 
 type EVMKeeper interface {
 	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
+	GetEVMAddress(sdk.Context, sdk.AccAddress) (common.Address, bool)
 }
 
 type WasmdKeeper interface {

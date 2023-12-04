@@ -17,12 +17,13 @@ import (
 )
 
 const (
-	SendMethod     = "send"
-	BalanceMethod  = "balance"
-	NameMethod     = "name"
-	SymbolMethod   = "symbol"
-	DecimalsMethod = "decimals"
-	SupplyMethod   = "supply"
+	SendFromCallerMethod = "sendFromCaller"
+	SendFromOriginMethod = "sendFromOrigin"
+	BalanceMethod        = "balance"
+	NameMethod           = "name"
+	SymbolMethod         = "symbol"
+	DecimalsMethod       = "decimals"
+	SupplyMethod         = "supply"
 )
 
 const (
@@ -42,12 +43,13 @@ type Precompile struct {
 	evmKeeper  pcommon.EVMKeeper
 	address    common.Address
 
-	SendID     []byte
-	BalanceID  []byte
-	NameID     []byte
-	SymbolID   []byte
-	DecimalsID []byte
-	SupplyID   []byte
+	SendFromCallerID []byte
+	SendFromOriginID []byte
+	BalanceID        []byte
+	NameID           []byte
+	SymbolID         []byte
+	DecimalsID       []byte
+	SupplyID         []byte
 }
 
 func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
@@ -70,8 +72,10 @@ func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (
 
 	for name, m := range newAbi.Methods {
 		switch name {
-		case "send":
-			p.SendID = m.ID
+		case SendFromCallerMethod:
+			p.SendFromCallerID = m.ID
+		case SendFromOriginMethod:
+			p.SendFromOriginID = m.ID
 		case "balance":
 			p.BalanceID = m.ID
 		case "name":
@@ -105,15 +109,17 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) Run(evm *vm.EVM, input []byte) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []byte, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err
 	}
 
 	switch method.Name {
-	case SendMethod:
-		return p.send(ctx, method, args)
+	case SendFromCallerMethod:
+		return p.send(ctx, method, append([]interface{}{caller}, args...))
+	case SendFromOriginMethod:
+		return p.send(ctx, method, append([]interface{}{evm.TxContext.Origin}, args...))
 	case BalanceMethod:
 		return p.balance(ctx, method, args)
 	case NameMethod:
@@ -217,7 +223,9 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 
 func (Precompile) IsTransaction(method string) bool {
 	switch method {
-	case SendMethod:
+	case SendFromCallerMethod:
+		return true
+	case SendFromOriginMethod:
 		return true
 	default:
 		return false
