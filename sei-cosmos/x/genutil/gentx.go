@@ -1,6 +1,7 @@
 package genutil
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 
@@ -87,7 +88,7 @@ func ValidateAccountInGenesis(
 	return nil
 }
 
-type deliverTxfn func(sdk.Context, abci.RequestDeliverTx) abci.ResponseDeliverTx
+type deliverTxfn func(sdk.Context, abci.RequestDeliverTx, sdk.Tx, [32]byte) abci.ResponseDeliverTx
 
 // DeliverGenTxs iterates over all genesis txs, decodes each into a Tx and
 // invokes the provided deliverTxfn with the decoded Tx. It returns the result
@@ -109,7 +110,7 @@ func DeliverGenTxs(
 			panic(err)
 		}
 
-		res := deliverTx(ctx, abci.RequestDeliverTx{Tx: bz})
+		res := deliverTx(ctx, abci.RequestDeliverTx{Tx: bz}, tx, sha256.Sum256(bz))
 		if !res.IsOK() {
 			panic(res.Log)
 		}

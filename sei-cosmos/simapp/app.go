@@ -2,6 +2,7 @@ package simapp
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -515,9 +516,13 @@ func (app *SimApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlo
 	txResults := []*abci.ExecTxResult{}
 	for i, tx := range req.Txs {
 		ctx = ctx.WithContext(context.WithValue(ctx.Context(), ante.ContextKeyTxIndexKey, i))
+		if typedTxs[i] == nil {
+			txResults = append(txResults, &abci.ExecTxResult{}) // empty result
+			continue
+		}
 		deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 			Tx: tx,
-		})
+		}, typedTxs[i], sha256.Sum256(tx))
 		txResults = append(txResults, &abci.ExecTxResult{
 			Code:      deliverTxResp.Code,
 			Data:      deliverTxResp.Data,

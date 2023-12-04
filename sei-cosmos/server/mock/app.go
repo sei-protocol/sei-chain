@@ -2,6 +2,7 @@ package mock
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,10 +40,15 @@ func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
 	baseApp.SetInitChainer(InitChainer(capKeyMainStore))
 	baseApp.SetFinalizeBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 		txResults := []*abci.ExecTxResult{}
-		for _, tx := range req.Txs {
+		for _, txbz := range req.Txs {
+			tx, err := decodeTx(txbz)
+			if err != nil {
+				txResults = append(txResults, &abci.ExecTxResult{})
+				continue
+			}
 			deliverTxResp := baseApp.DeliverTx(ctx, abci.RequestDeliverTx{
-				Tx: tx,
-			})
+				Tx: txbz,
+			}, tx, sha256.Sum256(txbz))
 			txResults = append(txResults, &abci.ExecTxResult{
 				Code:      deliverTxResp.Code,
 				Data:      deliverTxResp.Data,

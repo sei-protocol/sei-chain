@@ -133,8 +133,21 @@ enum ResourceType {
     reserved 94;
     KV_BANK_DEFERRED_MODULE_TX_INDEX = 95; // child of KV_BANK_DEFERRED
 
-    KV_DEX_MEM_CONTRACTS_TO_PROCESS = 96; // child of KV_DEX_MEM
-    KV_DEX_MEM_DOWNSTREAM_CONTRACTS = 97; // child of KV_DEX_MEM
+    KV_EVM = 96; // child of KV
+    KV_EVM_BALANCE = 97; // child of KV_EVM; deprecated
+    KV_EVM_TRANSIENT = 98; // child of KV_EVM
+    KV_EVM_ACCOUNT_TRANSIENT = 99; // child of KV_EVM
+    KV_EVM_MODULE_TRANSIENT = 100; // child of KV_EVM
+    KV_EVM_NONCE = 101; // child of KV_EVM
+    KV_EVM_RECEIPT = 102; // child of KV_EVM
+    KV_EVM_S2E = 103; // child of KV_EVM
+    KV_EVM_E2S = 104; // child of KV_EVM
+    KV_EVM_CODE_HASH = 105; // child of KV_EVM
+    KV_EVM_CODE = 106; // child of KV_EVM
+    KV_EVM_CODE_SIZE = 107; // child of KV_EVM
+
+    KV_DEX_MEM_CONTRACTS_TO_PROCESS = 108; // child of KV_DEX_MEM
+    KV_DEX_MEM_DOWNSTREAM_CONTRACTS = 109; // child of KV_DEX_MEM
 }
 
 enum WasmMessageSubtype {

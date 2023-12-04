@@ -2,6 +2,7 @@ package baseapp_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -73,7 +74,8 @@ func TestMsgService(t *testing.T) {
 	encCfg := simapp.MakeTestEncodingConfig()
 	testdata.RegisterInterfaces(encCfg.InterfaceRegistry)
 	db := dbm.NewMemDB()
-	app := baseapp.NewBaseApp("test", log.NewTestingLogger(t), db, encCfg.TxConfig.TxDecoder(), nil, &testutil.TestAppOpts{})
+	decoder := encCfg.TxConfig.TxDecoder()
+	app := baseapp.NewBaseApp("test", log.NewTestingLogger(t), db, decoder, nil, &testutil.TestAppOpts{})
 	app.SetInterfaceRegistry(encCfg.InterfaceRegistry)
 	testdata.RegisterMsgServer(
 		app.MsgServiceRouter(),
@@ -81,10 +83,15 @@ func TestMsgService(t *testing.T) {
 	)
 	app.SetFinalizeBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 		txResults := []*abci.ExecTxResult{}
-		for _, tx := range req.Txs {
+		for _, txbz := range req.Txs {
+			tx, err := decoder(txbz)
+			if err != nil {
+				txResults = append(txResults, &abci.ExecTxResult{})
+				continue
+			}
 			deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
-				Tx: tx,
-			})
+				Tx: txbz,
+			}, tx, sha256.Sum256(txbz))
 			txResults = append(txResults, &abci.ExecTxResult{
 				Code:      deliverTxResp.Code,
 				Data:      deliverTxResp.Data,
