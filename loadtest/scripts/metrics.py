@@ -3,12 +3,17 @@ import json
 import requests
 import os
 from datetime import datetime, timedelta
+import argparse
 
 DATE_TIME_FMT = "%Y-%m-%dT%H:%M:%S.%f"
 DEX_MSGS = ["MsgPlaceOrder"]
+parser = argparse.ArgumentParser()
+parser.add_argument("--node", default="localhost", help="Node base URL")
+args = parser.parse_args()
+node_base_url = args.node
 
 def get_block_height(tx_hash_str):
-    res = requests.get(f"http://0.0.0.0:1317/txs/{tx_hash_str}")
+    res = requests.get(f"http://{node_base_url}:1317/txs/{tx_hash_str}")
     body = res.json()
     if "height" not in body:
         return
@@ -29,7 +34,7 @@ def get_all_heights():
     return sorted(list(seen_heights))
 
 def get_block_info(height):
-    res = requests.get(f"http://localhost:26657/block?height={height}")
+    res = requests.get(f"http://{node_base_url}:26657/block?height={height}")
     #timestamp: "2023-02-27T23:00:44.214Z"
     block = res.json()["block"]
     return {
@@ -46,7 +51,7 @@ This code is quite brittle as it handles different message types differently, an
 the proto or want to test more modules, we'll need to modify this. However, it works for now.
 """
 def get_transaction_breakdown(height):
-    res = requests.get(f"http://localhost:26657/block?height={height}")
+    res = requests.get(f"http://{node_base_url}:26657/block?height={height}")
     output = res.json()["block"]["data"]["txs"]
     tx_mapping = {}
     for tx in output:
