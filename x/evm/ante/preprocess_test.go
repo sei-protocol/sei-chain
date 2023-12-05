@@ -51,9 +51,7 @@ func TestPreprocessAnteHandler(t *testing.T) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	setAddr, found := types.GetContextSeiAddress(ctx)
-	require.True(t, found)
-	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), setAddr)
+	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), sdk.AccAddress(msg.Derived.SenderSeiAddr))
 }
 
 func TestPreprocessAssociateTx(t *testing.T) {
@@ -102,18 +100,24 @@ func TestGetVersion(t *testing.T) {
 
 	ethCfg.LondonBlock = big.NewInt(0)
 	ethCfg.CancunTime = &zero
-	require.Equal(t, types.Cancun, ante.GetVersion(ctx, ethCfg))
+	require.Equal(t, types.SignerVersion_CANCUN, ante.GetVersion(ctx, ethCfg))
 
 	ethCfg.CancunTime = nil
-	require.Equal(t, types.London, ante.GetVersion(ctx, ethCfg))
+	require.Equal(t, types.SignerVersion_LONDON, ante.GetVersion(ctx, ethCfg))
 }
 
 func TestAnteDeps(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
-	deps, err := handler.AnteDeps(nil, mockTx{msgs: []sdk.Msg{}}, 0, func(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int) ([]sdkacltypes.AccessOperation, error) {
+	msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{GasLimit: 100})
+	msg.Derived = &types.DerivedData{
+		SenderEVMAddr: []byte("senderevm"),
+		SenderSeiAddr: []byte("sendersei"),
+		Pubkey:        []byte("pubkey"),
+	}
+	deps, err := handler.AnteDeps(nil, mockTx{msgs: []sdk.Msg{msg}}, 0, func(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int) ([]sdkacltypes.AccessOperation, error) {
 		return txDeps, nil
 	})
 	require.Nil(t, err)
-	require.Equal(t, 6, len(deps))
+	require.Equal(t, 12, len(deps))
 }

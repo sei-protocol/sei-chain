@@ -83,8 +83,7 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	amt := typedTx.Fee()
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
-	seiAddr, ok := types.GetContextSeiAddress(ctx)
-	require.True(t, ok)
+	seiAddr := sdk.AccAddress(msg.Derived.SenderSeiAddr)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, coinsAmt)
 
 	// should succeed now that the sender has enough funds
@@ -144,7 +143,6 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	amt = new(big.Int).Mul(typedBlobTx.GetBlobFeeCap(), new(big.Int).SetUint64(typedBlobTx.BlobGas()))
 	coinsAmt = sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
-	require.True(t, ok)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, coinsAmt)
 
 	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
@@ -238,8 +236,7 @@ func TestEVMFeeCheckDecoratorLondon(t *testing.T) {
 	amt := typedTx.Fee()
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
-	seiAddr, ok := types.GetContextSeiAddress(ctx)
-	require.True(t, ok)
+	seiAddr := sdk.AccAddress(msg.Derived.SenderSeiAddr)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, coinsAmt)
 
 	// should succeed now that the sender has enough funds
