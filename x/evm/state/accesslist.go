@@ -78,7 +78,7 @@ func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *
 }
 
 func (s *DBImpl) getAccessList() *accessList {
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
+	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
 	bz := store.Get(AccessListKey)
 	al := accessList{Addresses: make(map[common.Address]int)}
 	if bz == nil {
@@ -95,6 +95,6 @@ func (s *DBImpl) saveAccessList(al *accessList) {
 	if err != nil {
 		panic(err)
 	}
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
+	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
 	store.Set(AccessListKey, albz)
 }

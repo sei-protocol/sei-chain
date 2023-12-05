@@ -3,6 +3,7 @@ package state
 import (
 	"bytes"
 
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -31,7 +32,7 @@ func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash)
 }
 
 func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.Hash {
-	val := s.k.PrefixStore(s.ctx, types.TransientStateKey(addr)).Get(key[:])
+	val := s.k.PrefixStore(s.ctx, types.TransientStateKeyForAddress(s.ctx, addr)).Get(key[:])
 	if val == nil {
 		return common.Hash{}
 	}
@@ -39,7 +40,7 @@ func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.
 }
 
 func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
-	s.k.PrefixStore(s.ctx, types.TransientStateKey(addr)).Set(key[:], val[:])
+	s.k.PrefixStore(s.ctx, types.TransientStateKeyForAddress(s.ctx, addr)).Set(key[:], val[:])
 }
 
 // burns account's balance
@@ -70,7 +71,7 @@ func (s *DBImpl) Selfdestruct6780(acc common.Address) {
 // the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
 // **CURRENT** block
 func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
-	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
+	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKey(s.ctx))
 	return bytes.Equal(store.Get(acc[:]), AccountDeleted)
 }
 
@@ -89,14 +90,14 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
 	s.k.PurgePrefix(s.ctx, types.StateKey(acc))
-	s.k.PrefixStore(s.ctx, types.CodeKeyPrefix).Delete(acc[:])
-	s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix).Delete(acc[:])
-	s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix).Delete(acc[:])
-	s.k.PrefixStore(s.ctx, types.NonceKeyPrefix).Delete(acc[:])
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:])
+	deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
-	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
+	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKey(s.ctx))
 	if status == nil {
 		store.Delete(acc[:])
 	} else {
@@ -105,7 +106,7 @@ func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
 }
 
 func (s *DBImpl) Created(acc common.Address) bool {
-	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKeyPrefix)
+	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKey(s.ctx))
 	return bytes.Equal(store.Get(acc[:]), AccountCreated)
 }
 
@@ -113,5 +114,11 @@ func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.H
 	s.clearAccountState(addr)
 	for key, val := range states {
 		s.SetState(addr, key, val)
+	}
+}
+
+func deleteIfExists(store storetypes.KVStore, key []byte) {
+	if store.Has(key) {
+		store.Delete(key)
 	}
 }

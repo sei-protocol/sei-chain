@@ -91,9 +91,9 @@ func (s *DBImpl) Finalize() error {
 }
 
 func (s *DBImpl) flushCtx(ctx sdk.Context) {
-	s.k.PurgePrefix(ctx, types.TransientStateKeyPrefix)
-	s.k.PurgePrefix(ctx, types.AccountTransientStateKeyPrefix)
-	s.k.PurgePrefix(ctx, types.TransientModuleStateKeyPrefix)
+	s.k.PurgePrefix(ctx, types.TransientStateKey(s.ctx))
+	s.k.PurgePrefix(ctx, types.AccountTransientStateKey(s.ctx))
+	s.k.PurgePrefix(ctx, types.TransientModuleStateKey(s.ctx))
 	ctx.MultiStore().(sdk.CacheMultiStore).Write()
 }
 
