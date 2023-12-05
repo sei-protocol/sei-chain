@@ -91,6 +91,7 @@ func TestReadConfig(t *testing.T) {
 		"",
 		time.Duration(5),
 		time.Duration(5),
+		false,
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)
@@ -148,6 +149,10 @@ func TestReadConfig(t *testing.T) {
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.checkTxTimeout = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+	badOpts = goodOpts
+	badOpts.slow = "bad"
 	_, err = evmrpc.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 }
