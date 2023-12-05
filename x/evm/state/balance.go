@@ -17,7 +17,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 		return
 	}
 
-	s.err = s.k.BankKeeper().SendCoins(s.ctx, s.getSeiAddress(evmAddr), s.middleManAddress, s.bigIntAmtToCoins(amt))
+	s.err = s.k.BankKeeper().SendCoinsWithoutAccCreation(s.ctx, s.getSeiAddress(evmAddr), s.middleManAddress, s.bigIntAmtToCoins(amt))
 }
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
@@ -29,7 +29,7 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 		return
 	}
 
-	s.err = s.k.BankKeeper().SendCoins(s.ctx, s.middleManAddress, s.getSeiAddress(evmAddr), s.bigIntAmtToCoins(amt))
+	s.err = s.k.BankKeeper().SendCoinsWithoutAccCreation(s.ctx, s.middleManAddress, s.getSeiAddress(evmAddr), s.bigIntAmtToCoins(amt))
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
