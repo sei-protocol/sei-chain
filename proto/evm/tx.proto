@@ -11,6 +11,7 @@ service Msg {
 
 message MsgEVMTransaction {
   google.protobuf.Any data = 1;
+  DerivedData derived = 2;
 }
 
 message MsgEVMTransactionResponse {
@@ -18,4 +19,18 @@ message MsgEVMTransactionResponse {
   string vm_error = 2;
   bytes return_data = 3;
   string hash = 4;
+}
+
+enum SignerVersion {
+  LONDON = 0;
+  CANCUN = 1;
+}
+
+// derived from signature
+message DerivedData {
+  bytes senderEVMAddr = 1;
+  bytes senderSeiAddr = 2;
+  bytes pubkey = 3;
+  bool isAssociate = 4;
+  SignerVersion version = 5;
 }

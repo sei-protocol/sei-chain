@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -116,6 +117,7 @@ import (
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 
 	"github.com/sei-protocol/sei-chain/x/evm"
+	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/spf13/cast"
@@ -1074,10 +1076,10 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	return &resp, nil
 }
 
-func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResult {
+func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) *abci.ExecTxResult {
 	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 		Tx: tx,
-	})
+	}, typedTx, sha256.Sum256(tx))
 
 	metrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)
 	metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted)
@@ -1094,12 +1096,12 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResu
 	}
 }
 
-func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.ExecTxResult {
+func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	txResults := []*abci.ExecTxResult{}
-	for _, tx := range txs {
-		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx))
+	for i, tx := range txs {
+		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx, typedTxs[i]))
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 	return txResults
@@ -1138,6 +1140,7 @@ func (app *App) ProcessTxConcurrent(
 	ctx sdk.Context,
 	txIndex int,
 	txBytes []byte,
+	typedTx sdk.Tx,
 	wg *sync.WaitGroup,
 	resultChan chan<- ChannelResult,
 	txCompletionSignalingMap acltypes.MessageCompletionSignalMapping,
@@ -1155,13 +1158,14 @@ func (app *App) ProcessTxConcurrent(
 	ctx = ctx.WithTxIndex(txIndex)
 
 	// Deliver the transaction and store the result in the channel
-	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
+	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes, typedTx)}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
 type ProcessBlockConcurrentFunction func(
 	ctx sdk.Context,
 	txs [][]byte,
+	typedTxs []sdk.Tx,
 	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
 	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
 	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
@@ -1170,6 +1174,7 @@ type ProcessBlockConcurrentFunction func(
 func (app *App) ProcessBlockConcurrent(
 	ctx sdk.Context,
 	txs [][]byte,
+	typedTxs []sdk.Tx,
 	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
 	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
 	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
@@ -1191,6 +1196,7 @@ func (app *App) ProcessBlockConcurrent(
 			ctx,
 			txIndex,
 			txBytes,
+			typedTxs[txIndex],
 			&waitGroup,
 			resultChan,
 			completionSignalingMap[txIndex],
@@ -1234,6 +1240,7 @@ func (app *App) ProcessBlockConcurrent(
 func (app *App) ProcessTxs(
 	ctx sdk.Context,
 	txs [][]byte,
+	typedTxs []sdk.Tx,
 	dependencyDag *acltypes.Dag,
 	processBlockConcurrentFunction ProcessBlockConcurrentFunction,
 ) ([]*abci.ExecTxResult, sdk.Context) {
@@ -1250,6 +1257,7 @@ func (app *App) ProcessTxs(
 	concurrentResults, ok := processBlockConcurrentFunction(
 		processBlockCtx,
 		txs,
+		typedTxs,
 		dependencyDag.CompletionSignalingMap,
 		dependencyDag.BlockingSignalsMap,
 		dependencyDag.TxMsgAccessOpMapping,
@@ -1276,24 +1284,28 @@ func (app *App) ProcessTxs(
 		ctx.BlockGasMeter().RefundGas(ctx.BlockGasMeter().GasConsumed()-blockGasMeterConsumed, "concurrent failure rollback")
 	}
 
-	txResults := app.ProcessBlockSynchronous(ctx, txs)
+	txResults := app.ProcessBlockSynchronous(ctx, txs, typedTxs)
 	processBlockCache.Write()
 	return txResults, ctx
 }
 
-func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioritizedTxs, otherTxs [][]byte, prioritizedIndices, otherIndices []int) {
+func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []sdk.Tx) (
+	prioritizedTxs, otherTxs [][]byte,
+	prioritizedTypedTxs, otherTypedTxs []sdk.Tx,
+	prioritizedIndices, otherIndices []int,
+) {
 	for idx, tx := range txs {
-		decodedTx, err := app.txDecoder(tx)
-		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Error decoding tx for partitioning: %v", err))
-			// if theres an issue decoding, add it to `otherTxs` for normal processing and continue
+		if typedTxs[idx] == nil {
 			otherTxs = append(otherTxs, tx)
+			otherTypedTxs = append(otherTypedTxs, nil)
+			otherIndices = append(otherIndices, idx)
 			continue
 		}
+
 		prioritized := false
 		// if all messages are prioritized, we want to add to prioritizedTxs
 	msgLoop:
-		for _, msg := range decodedTx.GetMsgs() {
+		for _, msg := range typedTxs[idx].GetMsgs() {
 			switch msg.(type) {
 			case *oracletypes.MsgAggregateExchangeRateVote:
 				prioritized = true
@@ -1310,31 +1322,33 @@ func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioriti
 		}
 		if prioritized {
 			prioritizedTxs = append(prioritizedTxs, tx)
+			prioritizedTypedTxs = append(prioritizedTypedTxs, typedTxs[idx])
 			prioritizedIndices = append(prioritizedIndices, idx)
 		} else {
 			otherTxs = append(otherTxs, tx)
+			otherTypedTxs = append(otherTypedTxs, typedTxs[idx])
 			otherIndices = append(otherIndices, idx)
 		}
 
 	}
-	return prioritizedTxs, otherTxs, prioritizedIndices, otherIndices
+	return prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices
 }
 
-func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
+func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
 	var txResults []*abci.ExecTxResult
 
-	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
+	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), typedTxs)
 
 	switch err {
 	case nil:
-		txResults, ctx = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
+		txResults, ctx = app.ProcessTxs(ctx, txs, typedTxs, dependencyDag, app.ProcessBlockConcurrent)
 	case acltypes.ErrGovMsgInBlock:
 		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
-		txResults = app.ProcessBlockSynchronous(ctx, txs)
+		txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs)
 		metrics.IncrDagBuildErrorCounter(metrics.GovMsgInBlock)
 	default:
 		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
-		txResults = app.ProcessBlockSynchronous(ctx, txs)
+		txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs)
 		metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
 	}
 
@@ -1372,10 +1386,27 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, beginBlockResp.Events...)
 
 	txResults := make([]*abci.ExecTxResult, len(txs))
-	prioritizedTxs, otherTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs)
+	typedTxs := []sdk.Tx{}
+	for i, tx := range txs {
+		typedTx, err := app.txDecoder(tx)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("error decoding transaction at index %d due to %s", i, err))
+			typedTxs = append(typedTxs, nil)
+		} else {
+			if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
+				if err := evmante.Preprocess(ctx, evmtypes.MustGetEVMTransactionMessage(typedTx), app.EvmKeeper.GetParams(ctx)); err != nil {
+					ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
+					typedTxs = append(typedTxs, nil)
+					continue
+				}
+			}
+			typedTxs = append(typedTxs, typedTx)
+		}
+	}
+	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
 
 	// run the prioritized txs
-	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs)
+	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs, prioritizedTypedTxs)
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
 	}
@@ -1387,7 +1418,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
-	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, otherTxs)
+	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, otherTxs, otherTypedTxs)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}

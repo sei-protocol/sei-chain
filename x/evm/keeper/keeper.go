@@ -27,9 +27,10 @@ type Keeper struct {
 	accountKeeper *authkeeper.AccountKeeper
 	stakingKeeper *stakingkeeper.Keeper
 
-	cachedFeeCollectorAddress *common.Address
-	evmTxIndicesMtx           *sync.Mutex
-	evmTxIndices              []int
+	cachedFeeCollectorAddressMtx *sync.RWMutex
+	cachedFeeCollectorAddress    *common.Address
+	evmTxIndicesMtx              *sync.Mutex
+	evmTxIndices                 []int
 }
 
 func NewKeeper(
@@ -39,13 +40,14 @@ func NewKeeper(
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
 	k := &Keeper{
-		storeKey:        storeKey,
-		Paramstore:      paramstore,
-		bankKeeper:      bankKeeper,
-		accountKeeper:   accountKeeper,
-		stakingKeeper:   stakingKeeper,
-		evmTxIndicesMtx: &sync.Mutex{},
-		evmTxIndices:    []int{},
+		storeKey:                     storeKey,
+		Paramstore:                   paramstore,
+		bankKeeper:                   bankKeeper,
+		accountKeeper:                accountKeeper,
+		stakingKeeper:                stakingKeeper,
+		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
+		evmTxIndicesMtx:              &sync.Mutex{},
+		evmTxIndices:                 []int{},
 	}
 	return k
 }
@@ -56,10 +58,6 @@ func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
 
 func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 	return k.bankKeeper
-}
-
-func (k *Keeper) GetModuleBalance(ctx sdk.Context) *big.Int {
-	return k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), k.GetBaseDenom(ctx)).Amount.BigInt()
 }
 
 func (k *Keeper) GetStoreKey() sdk.StoreKey {
