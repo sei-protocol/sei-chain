@@ -474,6 +474,9 @@ filter_timeout = "{{ .EVM.FilterTimeout }}"
 
 # checkTx timeout for sig verify
 checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
+
+# controls whether to have txns go through one by one
+slow = {{ .EVM.Slow }}
 `
 
 	return customAppTemplate, customAppConfig
