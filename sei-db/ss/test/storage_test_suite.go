@@ -849,7 +849,6 @@ func (s *StorageTestSuite) TestParallelIterationAndPruning() {
 		<-triggerStartCh
 		defer wg.Done()
 		for i := 10; i <= latestVersion-numHeightsPruned; i += prunePeriod {
-			fmt.Printf("PRUNE %d\n", i)
 			s.Require().NoError(db.Prune(int64(i)))
 		}
 	}()
@@ -897,7 +896,6 @@ func (s *StorageTestSuite) TestParallelIterationAndPruning() {
 			bz, err := db.Get(storeKey1, v, []byte(key))
 			s.Require().NoError(err)
 			if v <= int64(latestVersion-numHeightsPruned) {
-				fmt.Printf("version %d bytes %s\n", v, string(bz))
 				s.Require().Nil(bz)
 			} else {
 				s.Require().Equal([]byte(val), bz)
