@@ -68,11 +68,11 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	msg, err = types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
 
-	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
-		return ctx, nil
+	require.Panics(t, func() {
+		handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+			return ctx, nil
+		})
 	})
-	require.NotNil(t, err)
 
 	// should succeed
 	txData.Nonce = 0
@@ -97,7 +97,6 @@ func TestSigVerifyCheckTxNonceGap(t *testing.T) {
 	_, addr := testkeeper.MockAddressPair()
 	k, ctx := testkeeper.MockEVMKeeper()
 	ctx = ctx.WithIsCheckTx(true)
-	ctx = types.SetContextEVMAddress(ctx, addr)
 	k.SetNonce(ctx, addr, 1)
 
 	var leadingPriority int64 = 1000
@@ -145,11 +144,16 @@ func TestSigVerifyCheckTxNonceGap(t *testing.T) {
 			i, nonce := i, nonce
 			go func() {
 				defer wg.Done()
-				runCtx := types.SetContextEthTx(ctx, ethtypes.NewTx(&ethtypes.DynamicFeeTx{Nonce: nonce})).WithPriority(leadingPriority)
+				runCtx := ctx.WithPriority(leadingPriority)
+				msg, _ := types.NewMsgEVMTransaction(&ethtx.DynamicFeeTx{Nonce: nonce})
 				if test.delay[i] > 0 {
 					time.Sleep(test.delay[i])
 				}
-				resCtx, err := handler.AnteHandle(runCtx, nil, false, noop)
+				msg.Derived = &types.DerivedData{
+					SenderEVMAddr: addr[:],
+					SenderSeiAddr: []byte("sendersei"),
+				}
+				resCtx, err := handler.AnteHandle(runCtx, mockTx{msgs: []sdk.Msg{msg}}, false, noop)
 				if test.shouldSuccess[i] {
 					require.Nil(t, err, test.name)
 					require.Equal(t, test.expectedPriorities[i], resCtx.Priority(), test.name)
@@ -166,15 +170,18 @@ func TestSigVerifyCheckTxCleanup(t *testing.T) {
 	_, addr := testkeeper.MockAddressPair()
 	k, ctx := testkeeper.MockEVMKeeper()
 	ctx = ctx.WithIsCheckTx(true)
-	ctx = types.SetContextEVMAddress(ctx, addr)
 	k.SetNonce(ctx, addr, 1)
 	handler := ante.NewEVMSigVerifyDecorator(k, 5*time.Second)
-	ctx = types.SetContextEthTx(ctx, ethtypes.NewTx(&ethtypes.DynamicFeeTx{Nonce: 1}))
-	handler.AnteHandle(ctx, nil, false, noop) // checktx at height 8
+	msg, _ := types.NewMsgEVMTransaction(&ethtx.DynamicFeeTx{Nonce: 1})
+	msg.Derived = &types.DerivedData{
+		SenderEVMAddr: addr[:],
+		SenderSeiAddr: []byte("sendersei"),
+	}
+	handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, noop) // checktx at height 8
 	ctx = ctx.WithBlockHeight(ctx.BlockHeight() + 1)
-	handler.AnteHandle(ctx, nil, false, noop)        // checktx at height 9, which should clean height 8's state
-	ctx = ctx.WithBlockHeight(ctx.BlockHeight() - 1) // revert back to height 8. Note that this would not happen in practice. We are doing it here merely to verify cleanup's effect.
-	_, err := handler.AnteHandle(ctx, nil, false, noop)
+	handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, noop) // checktx at height 9, which should clean height 8's state
+	ctx = ctx.WithBlockHeight(ctx.BlockHeight() - 1)                   // revert back to height 8. Note that this would not happen in practice. We are doing it here merely to verify cleanup's effect.
+	_, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, noop)
 	require.Nil(t, err) // there should be no error since the dedupe map should've been cleared already when the height 9 tx was checked.
 }
 

@@ -192,12 +192,22 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		otherTx,
 		mixedTx,
 	}
+	typedTxs := []sdk.Tx{
+		oracleTxBuilder.GetTx(),
+		contractRegisterBuilder.GetTx(),
+		contractUnregisterBuilder.GetTx(),
+		contractUnsuspendBuilder.GetTx(),
+		otherTxBuilder.GetTx(),
+		mixedTxBuilder.GetTx(),
+	}
 
-	prioritizedTxs, otherTxs, prioIdxs, otherIdxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs)
+	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs, typedTxs)
 	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
 	require.Equal(t, []int{0, 1, 2, 3}, prioIdxs)
 	require.Equal(t, []int{4, 5}, otherIdxs)
+	require.Equal(t, 4, len(prioritizedTypedTxs))
+	require.Equal(t, 2, len(otherTypedTxs))
 
 	diffOrderTxs := [][]byte{
 		oracleTx,
@@ -207,12 +217,22 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		mixedTx,
 		contractSuspendTx,
 	}
+	differOrderTypedTxs := []sdk.Tx{
+		oracleTxBuilder.GetTx(),
+		otherTxBuilder.GetTx(),
+		contractRegisterBuilder.GetTx(),
+		contractUnregisterBuilder.GetTx(),
+		mixedTxBuilder.GetTx(),
+		contractUnsuspendBuilder.GetTx(),
+	}
 
-	prioritizedTxs, otherTxs, prioIdxs, otherIdxs = testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, diffOrderTxs)
+	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs = testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, diffOrderTxs, differOrderTypedTxs)
 	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
 	require.Equal(t, []int{0, 2, 3, 5}, prioIdxs)
 	require.Equal(t, []int{1, 4}, otherIdxs)
+	require.Equal(t, 4, len(prioritizedTypedTxs))
+	require.Equal(t, 2, len(otherTypedTxs))
 }
 
 func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {

@@ -1,11 +1,11 @@
 package ante
 
 import (
-	"errors"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -28,15 +28,13 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		return ctx, nil
 	}
 
-	txData, found := evmtypes.GetContextTxData(ctx)
-	if !found {
-		return ctx, errors.New("could not find eth tx when checking fees")
+	msg := evmtypes.MustGetEVMTransactionMessage(tx)
+	txData, err := evmtypes.UnpackTxData(msg.Data)
+	if err != nil {
+		return ctx, err
 	}
 
-	ver, ok := evmtypes.GetContextEVMVersion(ctx)
-	if !ok {
-		return ctx, errors.New("could not find eth version when checking fees")
-	}
+	ver := msg.Derived.Version
 
 	if txData.GetGasFeeCap().Cmp(fc.getBaseFee(ctx)) < 0 {
 		return ctx, sdkerrors.ErrInsufficientFee
@@ -47,7 +45,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 	// if EVM version is Cancun or later, and the transaction contains at least one blob, we need to
 	// make sure the transaction carries a non-zero blob fee cap.
-	if ver >= evmtypes.Cancun && len(txData.GetBlobHashes()) > 0 {
+	if ver >= evmtypes.SignerVersion_CANCUN && len(txData.GetBlobHashes()) > 0 {
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
 		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(0)) < 0 {
@@ -57,10 +55,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 	anteCharge := txData.Fee() // this would include blob fee if it's a blob tx
 
-	senderEVMAddr, found := evmtypes.GetContextEVMAddress(ctx)
-	if !found {
-		return ctx, errors.New("no address in context")
-	}
+	senderEVMAddr := common.BytesToAddress(evmtypes.MustGetEVMTransactionMessage(tx).Derived.SenderEVMAddr)
 	// check if the sender has enough balance to cover fees
 	if state.NewDBImpl(ctx, fc.evmKeeper, true).GetBalance(senderEVMAddr).Cmp(anteCharge) < 0 {
 		return ctx, sdkerrors.ErrInsufficientFunds

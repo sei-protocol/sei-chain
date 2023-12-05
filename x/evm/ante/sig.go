@@ -2,12 +2,12 @@ package ante
 
 import (
 	"encoding/binary"
-	"errors"
 	"sync"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/ethereum/go-ethereum/common"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -47,10 +47,7 @@ func NewEVMSigVerifyDecorator(evmKeeper *evmkeeper.Keeper, checkTxTimeout time.D
 }
 
 func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	ethTx, found := types.GetContextEthTx(ctx)
-	if !found {
-		return ctx, errors.New("EVM transaction is not found in EVM ante route")
-	}
+	ethTx, _ := types.MustGetEVMTransactionMessage(tx).AsTransaction()
 	if ctx.IsCheckTx() {
 		svd.CheckTxInit(ctx.BlockHeight())
 
@@ -61,10 +58,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 		return ctx, sdkerrors.ErrNoSignatures
 	}
 
-	evmAddr, found := types.GetContextEVMAddress(ctx)
-	if !found {
-		return ctx, errors.New("failed to get sender from EVM tx")
-	}
+	evmAddr := common.BytesToAddress(types.MustGetEVMTransactionMessage(tx).Derived.SenderEVMAddr)
 
 	nextNonce := uint64(0)
 	noncebz := svd.evmKeeper.PrefixStore(ctx, types.NonceKeyPrefix).Get(evmAddr[:])

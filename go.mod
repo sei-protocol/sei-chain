@@ -40,9 +40,9 @@ require (
 	go.opentelemetry.io/otel/trace v1.9.0
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
 	golang.org/x/sync v0.3.0
-	golang.org/x/text v0.13.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20230822172742-b8732ec3820d
-	google.golang.org/grpc v1.58.0
+	golang.org/x/text v0.14.0
+	google.golang.org/genproto/googleapis/api v0.0.0-20231106174013-bbf56f31fb17
+	google.golang.org/grpc v1.59.0
 	google.golang.org/protobuf v1.31.0
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -155,7 +155,7 @@ require (
 	github.com/golangci/unconvert v0.0.0-20180507085042-28b1c447d1f4 // indirect
 	github.com/google/btree v1.1.2 // indirect
 	github.com/google/flatbuffers v1.12.1 // indirect
-	github.com/google/go-cmp v0.5.9 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/orderedcode v0.0.1 // indirect
 	github.com/google/uuid v1.3.0 // indirect
@@ -296,16 +296,16 @@ require (
 	go.opencensus.io v0.23.0 // indirect
 	go.opentelemetry.io/otel/exporters/jaeger v1.9.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.9.0 // indirect
-	golang.org/x/crypto v0.13.0 // indirect
+	golang.org/x/crypto v0.14.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20220218215828-6cf2b201936e // indirect
 	golang.org/x/mod v0.12.0 // indirect
-	golang.org/x/net v0.15.0 // indirect
-	golang.org/x/sys v0.12.0 // indirect
-	golang.org/x/term v0.12.0 // indirect
+	golang.org/x/net v0.17.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/term v0.13.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.13.0 // indirect
-	google.golang.org/genproto v0.0.0-20230803162519-f966b187b2e5 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20230822172742-b8732ec3820d // indirect
+	google.golang.org/genproto v0.0.0-20231030173426-d783a09b4405 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20231030173426-d783a09b4405 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	honnef.co/go/tools v0.3.1 // indirect
@@ -320,7 +320,7 @@ require (
 replace (
 	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.0.2
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.66-evm
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.66-evm-9
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.7
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.2.0
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.2-sei-5
