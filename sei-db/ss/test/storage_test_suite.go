@@ -818,7 +818,7 @@ func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
 
 	// Verify writes and deletes on latest version
 	for j := 0; j < 100; j++ {
-		ok, err := db.Has(storeKey1, int64(latestVersion), []byte(fmt.Sprintf("key%03d", j)))
+		ok, err := db.Has(storeKey1, latestVersion, []byte(fmt.Sprintf("key%03d", j)))
 		s.Require().NoError(err)
 
 		if j >= 50 {
