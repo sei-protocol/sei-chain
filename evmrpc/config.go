@@ -64,6 +64,9 @@ type Config struct {
 
 	// checkTx timeout for sig verify
 	CheckTxTimeout time.Duration `mapstructure:"checktx_timeout"`
+
+	// controls whether to have txns go through one by one
+	Slow bool `mapstructure:"slow"`
 }
 
 var DefaultConfig = Config{
@@ -81,6 +84,7 @@ var DefaultConfig = Config{
 	WSOrigins:            "*",
 	FilterTimeout:        120 * time.Second,
 	CheckTxTimeout:       5 * time.Second,
+	Slow:                 false,
 }
 
 const (
@@ -98,6 +102,7 @@ const (
 	flagWSOrigins            = "evm.ws_origins"
 	flagFilterTimeout        = "evm.filter_timeout"
 	flagCheckTxTimeout       = "evm.checktx_timeout"
+	flagSlow                 = "evm.slow"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -170,6 +175,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagCheckTxTimeout); v != nil {
 		if cfg.CheckTxTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagSlow); v != nil {
+		if cfg.Slow, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}

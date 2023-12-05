@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/ethereum/go-ethereum/common"
@@ -14,15 +15,30 @@ import (
 )
 
 type SendAPI struct {
-	tmClient rpcclient.Client
-	txConfig client.TxConfig
+	tmClient   rpcclient.Client
+	txConfig   client.TxConfig
+	sendConfig *SendConfig
+	slowMu     *sync.Mutex
 }
 
-func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig) *SendAPI {
-	return &SendAPI{tmClient: tmClient, txConfig: txConfig}
+type SendConfig struct {
+	slow bool
+}
+
+func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig *SendConfig) *SendAPI {
+	return &SendAPI{
+		tmClient:   tmClient,
+		txConfig:   txConfig,
+		sendConfig: sendConfig,
+		slowMu:     &sync.Mutex{},
+	}
 }
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
+	if s.sendConfig.slow {
+		s.slowMu.Lock()
+		defer s.slowMu.Unlock()
+	}
 	var txData ethtx.TxData
 	associateTx := ethtx.AssociateTx{}
 	if associateTx.Unmarshal(input) == nil {
@@ -50,13 +66,24 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if encodeErr != nil {
 		return hash, encodeErr
 	}
-	res, broadcastError := s.tmClient.BroadcastTx(ctx, txbz)
-	if broadcastError != nil || res == nil || res.Code != 0 {
-		code := -1
-		if res != nil {
-			code = int(res.Code)
+	if s.sendConfig.slow {
+		res, broadcastError := s.tmClient.BroadcastTxCommit(ctx, txbz)
+		if broadcastError != nil || res == nil || res.CheckTx.Code != 0 {
+			code := -1
+			if res != nil {
+				code = int(res.CheckTx.Code)
+			}
+			return hash, fmt.Errorf("res: %d, error: %s", code, broadcastError)
 		}
-		return hash, fmt.Errorf("res: %d, error: %s", code, broadcastError)
+	} else {
+		res, broadcastError := s.tmClient.BroadcastTx(ctx, txbz)
+		if broadcastError != nil || res == nil || res.Code != 0 {
+			code := -1
+			if res != nil {
+				code = int(res.Code)
+			}
+			return hash, fmt.Errorf("res: %d, error: %s", code, broadcastError)
+		}
 	}
 	return
 }

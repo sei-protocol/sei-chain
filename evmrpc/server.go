@@ -57,7 +57,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfig),
+			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}),
 		},
 		{
 			Namespace: "eth",
@@ -124,7 +124,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfig),
+			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}),
 		},
 		{
 			Namespace: "eth",

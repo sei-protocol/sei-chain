@@ -76,6 +76,12 @@ else
   CONFIG_PATH="$HOME/.sei/config/config.toml"
 fi
 
+if [ ! -z "$2" ]; then
+  APP_PATH="$2"
+else
+  APP_PATH="$HOME/.sei/config/app.toml"
+fi
+
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   sed -i 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
   sed -i 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
@@ -83,6 +89,7 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   sed -i 's/timeout_precommit =.*/timeout_precommit = "2000ms"/g' $CONFIG_PATH
   sed -i 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
   sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
+  sed -i 's/slow = false/slow = true/g' $APP_PATH
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
   sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
@@ -91,6 +98,7 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/unsafe-vote-timeout-override =.*/unsafe-vote-timeout-override = "2s"/g' $CONFIG_PATH
   sed -i '' 's/unsafe-vote-timeout-delta-override =.*/unsafe-vote-timeout-delta-override = "2s"/g' $CONFIG_PATH
   sed -i '' 's/unsafe-commit-timeout-override =.*/unsafe-commit-timeout-override = "2s"/g' $CONFIG_PATH
+  sed -i '' 's/slow = false/slow = true/g' $APP_PATH
 else
   printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
   printf "###         Consensus Configuration Options         ###\n"
