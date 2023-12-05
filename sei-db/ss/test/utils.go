@@ -57,7 +57,7 @@ func DBApplyChangeset(db types.StateStore, version int64, storeKey string, key, 
 	}
 
 	ncs := &proto.NamedChangeSet{
-		Name:      storeKey1,
+		Name:      storeKey,
 		Changeset: *cs,
 	}
 
