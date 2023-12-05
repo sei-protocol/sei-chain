@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
 )
 
@@ -87,60 +86,64 @@ func (s *StorageTestSuite) TestDatabaseGetVersionedKey() {
 	s.Require().NoError(err)
 	defer db.Close()
 
+	key := []byte("key")
+	val := []byte("value001")
+
 	// store a key at version 1
-	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, []byte("key"), []byte("value001")))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, [][]byte{key}, [][]byte{val}))
 
 	// assume chain progresses to version 10 w/o any changes to key
-	bz, err := db.Get(storeKey1, 10, []byte("key"))
+	bz, err := db.Get(storeKey1, 10, key)
 	s.Require().NoError(err)
-	s.Require().Equal([]byte("value001"), bz)
+	s.Require().Equal(val, bz)
 
-	ok, err := db.Has(storeKey1, 10, []byte("key"))
+	ok, err := db.Has(storeKey1, 10, key)
 	s.Require().NoError(err)
 	s.Require().True(ok)
 
 	// chain progresses to version 11 with an update to key
-	s.Require().NoError(DBApplyChangeset(db, 11, storeKey1, []byte("key"), []byte("value011")))
+	newVal := []byte("value011")
+	s.Require().NoError(DBApplyChangeset(db, 11, storeKey1, [][]byte{key}, [][]byte{newVal}))
 
-	bz, err = db.Get(storeKey1, 10, []byte("key"))
+	bz, err = db.Get(storeKey1, 10, key)
 	s.Require().NoError(err)
-	s.Require().Equal([]byte("value001"), bz)
+	s.Require().Equal(val, bz)
 
-	ok, err = db.Has(storeKey1, 10, []byte("key"))
+	ok, err = db.Has(storeKey1, 10, key)
 	s.Require().NoError(err)
 	s.Require().True(ok)
 
 	for i := int64(11); i <= 14; i++ {
-		bz, err = db.Get(storeKey1, i, []byte("key"))
+		bz, err = db.Get(storeKey1, i, key)
 		s.Require().NoError(err)
-		s.Require().Equal([]byte("value011"), bz)
+		s.Require().Equal(newVal, bz)
 
-		ok, err = db.Has(storeKey1, i, []byte("key"))
+		ok, err = db.Has(storeKey1, i, key)
 		s.Require().NoError(err)
 		s.Require().True(ok)
 	}
 
 	// chain progresses to version 15 with a delete to key
-	s.Require().NoError(DBApplyChangeset(db, 15, storeKey1, []byte("key"), nil))
+	s.Require().NoError(DBApplyChangeset(db, 15, storeKey1, [][]byte{key}, [][]byte{nil}))
 
 	// all queries up to version 14 should return the latest value
 	for i := int64(1); i <= 14; i++ {
-		bz, err = db.Get(storeKey1, i, []byte("key"))
+		bz, err = db.Get(storeKey1, i, key)
 		s.Require().NoError(err)
 		s.Require().NotNil(bz)
 
-		ok, err = db.Has(storeKey1, i, []byte("key"))
+		ok, err = db.Has(storeKey1, i, key)
 		s.Require().NoError(err)
 		s.Require().True(ok)
 	}
 
 	// all queries after version 15 should return nil
 	for i := int64(15); i <= 17; i++ {
-		bz, err = db.Get(storeKey1, i, []byte("key"))
+		bz, err = db.Get(storeKey1, i, key)
 		s.Require().NoError(err)
 		s.Require().Nil(bz)
 
-		ok, err = db.Has(storeKey1, i, []byte("key"))
+		ok, err = db.Has(storeKey1, i, key)
 		s.Require().NoError(err)
 		s.Require().False(ok)
 	}
@@ -157,18 +160,15 @@ func (s *StorageTestSuite) TestDatabaseApplyChangeset() {
 	cs.Pairs = []*iavl.KVPair{}
 
 	// Deletes
+	keys := [][]byte{}
+	vals := [][]byte{}
 	for i := 0; i < 100; i++ {
 		if i%10 == 0 {
-			cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(fmt.Sprintf("key%03d", i))})
+			keys = append(keys, []byte(fmt.Sprintf("key%03d", i)))
+			vals = append(vals, nil)
 		}
 	}
-
-	ncs := &proto.NamedChangeSet{
-		Name:      storeKey1,
-		Changeset: *cs,
-	}
-
-	s.Require().NoError(db.ApplyChangeset(1, ncs))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, keys, vals))
 
 	lv, err := db.GetLatestVersion()
 	s.Require().NoError(err)
@@ -304,11 +304,10 @@ func (s *StorageTestSuite) TestDatabaseIteratorRangedDeletes() {
 	s.Require().NoError(err)
 	defer db.Close()
 
-	// TODO: Will update the DBApplyChangeset to take in a list to apply all at once
-	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, []byte("key001"), []byte("value001")))
-	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, []byte("key002"), []byte("value001")))
-	s.Require().NoError(DBApplyChangeset(db, 5, storeKey1, []byte("key002"), []byte("value002")))
-	s.Require().NoError(DBApplyChangeset(db, 10, storeKey1, []byte("key002"), nil))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value001")}))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, [][]byte{[]byte("key002")}, [][]byte{[]byte("value001")}))
+	s.Require().NoError(DBApplyChangeset(db, 5, storeKey1, [][]byte{[]byte("key002")}, [][]byte{[]byte("value002")}))
+	s.Require().NoError(DBApplyChangeset(db, 10, storeKey1, [][]byte{[]byte("key002")}, [][]byte{nil}))
 
 	itr, err := db.Iterator(storeKey1, 11, []byte("key001"), nil)
 	s.Require().NoError(err)
@@ -334,22 +333,15 @@ func (s *StorageTestSuite) TestDatabaseIteratorMultiVersion() {
 
 	// for versions 50-100, only update even keys
 	for v := int64(51); v <= 100; v++ {
-		cs := &iavl.ChangeSet{}
-		cs.Pairs = []*iavl.KVPair{}
+		keys := [][]byte{}
+		vals := [][]byte{}
 		for i := 0; i < 10; i++ {
 			if i%2 == 0 {
-				key := fmt.Sprintf("key%03d", i)
-				val := fmt.Sprintf("val%03d-%03d", i, v)
-
-				cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(key), Value: []byte(val)})
+				keys = append(keys, []byte(fmt.Sprintf("key%03d", i)))
+				vals = append(vals, []byte(fmt.Sprintf("val%03d-%03d", i, v)))
 			}
 		}
-
-		ncs := &proto.NamedChangeSet{
-			Name:      storeKey1,
-			Changeset: *cs,
-		}
-		s.Require().NoError(db.ApplyChangeset(v, ncs))
+		s.Require().NoError(DBApplyChangeset(db, v, storeKey1, keys, vals))
 	}
 
 	itr, err := db.Iterator(storeKey1, 69, []byte("key000"), nil)
@@ -467,9 +459,9 @@ func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 	key := []byte("key000")
 
 	// write a key at three different versions 1, 100 and 200
-	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, key, []byte("value001")))
-	s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, key, []byte("value002")))
-	s.Require().NoError(DBApplyChangeset(db, 200, storeKey1, key, []byte("value003")))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, [][]byte{key}, [][]byte{[]byte("value001")}))
+	s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, [][]byte{key}, [][]byte{[]byte("value002")}))
+	s.Require().NoError(DBApplyChangeset(db, 200, storeKey1, [][]byte{key}, [][]byte{[]byte("value003")}))
 
 	// prune version 50
 	s.Require().NoError(db.Prune(50))
@@ -575,20 +567,13 @@ func (s *StorageTestSuite) TestParallelWrites() {
 		go func(i int) {
 			<-triggerStartCh
 			defer wg.Done()
-			cs := &iavl.ChangeSet{}
-			cs.Pairs = []*iavl.KVPair{}
+			keys := [][]byte{}
+			vals := [][]byte{}
 			for j := 0; j < kvCount; j++ {
-				key := fmt.Sprintf("key-%d-%03d", i, j)
-				val := fmt.Sprintf("val-%d-%03d", i, j)
-
-				cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(key), Value: []byte(val)})
+				keys = append(keys, []byte(fmt.Sprintf("key-%d-%03d", i, j)))
+				vals = append(vals, []byte(fmt.Sprintf("val-%d-%03d", i, j)))
 			}
-
-			ncs := &proto.NamedChangeSet{
-				Name:      storeKey1,
-				Changeset: *cs,
-			}
-			s.Require().NoError(db.ApplyChangeset(int64(i+1), ncs))
+			s.Require().NoError(DBApplyChangeset(db, int64(i+1), storeKey1, keys, vals))
 		}(i)
 
 	}
@@ -629,22 +614,16 @@ func (s *StorageTestSuite) TestParallelWriteAndPruning() {
 		<-triggerStartCh
 		defer wg.Done()
 		for i := 0; i < latestVersion; i++ {
-			cs := &iavl.ChangeSet{}
-			cs.Pairs = []*iavl.KVPair{}
+			keys := [][]byte{}
+			vals := [][]byte{}
 			for j := 0; j < kvCount; j++ {
-				key := fmt.Sprintf("key-%d-%03d", i, j)
-				val := fmt.Sprintf("val-%d-%03d", i, j)
-
-				cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(key), Value: []byte(val)})
+				keys = append(keys, []byte(fmt.Sprintf("key-%d-%03d", i, j)))
+				vals = append(vals, []byte(fmt.Sprintf("val-%d-%03d", i, j)))
 			}
-
-			ncs := &proto.NamedChangeSet{
-				Name:      storeKey1,
-				Changeset: *cs,
-			}
-			s.Require().NoError(db.ApplyChangeset(int64(i+1), ncs))
+			s.Require().NoError(DBApplyChangeset(db, int64(i+1), storeKey1, keys, vals))
 		}
 	}()
+
 	// start a goroutine that prunes the database
 	wg.Add(1)
 	go func() {
@@ -697,19 +676,12 @@ func (s *StorageTestSuite) TestDatabaseParallelDeleteIteration() {
 		<-triggerStartCh
 		defer wg.Done()
 
-		cs := &iavl.ChangeSet{}
-		cs.Pairs = []*iavl.KVPair{}
 		for j := 0; j < kvCount; j++ {
 			if j%10 == 0 {
-				cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(fmt.Sprintf("key%03d", j))})
+				key := []byte(fmt.Sprintf("key%03d", j))
+				s.Require().NoError(DBApplyChangeset(db, int64(latestVersion), storeKey1, [][]byte{key}, [][]byte{nil}))
 			}
 		}
-
-		ncs := &proto.NamedChangeSet{
-			Name:      storeKey1,
-			Changeset: *cs,
-		}
-		s.Require().NoError(db.ApplyChangeset(int64(latestVersion), ncs))
 	}()
 
 	// start a goroutine that iterates over the database
@@ -770,7 +742,7 @@ func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
 
 	latestVersion := int64(2)
 
-	// start a goroutine that writes to the database
+	// start a goroutine that writes to the database at latestVersion
 	wg.Add(1)
 	go func() {
 		<-triggerStartCh
@@ -781,13 +753,9 @@ func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
 
 		for i := 0; i < 50; i++ {
 			// Apply changeset for each key separately
-			cs := &iavl.ChangeSet{}
-			cs.Pairs = []*iavl.KVPair{{Key: []byte(fmt.Sprintf("key%03d", i)), Value: []byte(fmt.Sprintf("val%03d", i))}}
-			ncs := &proto.NamedChangeSet{
-				Name:      storeKey1,
-				Changeset: *cs,
-			}
-			s.Require().NoError(db.ApplyChangeset(latestVersion, ncs))
+			key := []byte(fmt.Sprintf("key%03d", i))
+			val := []byte(fmt.Sprintf("val%03d", i))
+			s.Require().NoError(DBApplyChangeset(db, int64(latestVersion), storeKey1, [][]byte{key}, [][]byte{val}))
 		}
 	}()
 
@@ -802,13 +770,8 @@ func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
 
 		for i := 50; i < 100; i++ {
 			// Apply changeset for each key separately
-			cs := &iavl.ChangeSet{}
-			cs.Pairs = []*iavl.KVPair{{Key: []byte(fmt.Sprintf("key%03d", i))}}
-			ncs := &proto.NamedChangeSet{
-				Name:      storeKey1,
-				Changeset: *cs,
-			}
-			s.Require().NoError(db.ApplyChangeset(latestVersion, ncs))
+			key := []byte(fmt.Sprintf("key%03d", i))
+			s.Require().NoError(DBApplyChangeset(db, int64(latestVersion), storeKey1, [][]byte{key}, [][]byte{nil}))
 		}
 	}()
 
@@ -902,4 +865,52 @@ func (s *StorageTestSuite) TestParallelIterationAndPruning() {
 			}
 		}
 	}
+}
+
+func (s *StorageTestSuite) TestDatabaseParallelIterationVersions() {
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
+
+	s.Require().NoError(FillData(db, 10, 100))
+
+	wg := sync.WaitGroup{}
+	triggerStartCh := make(chan bool)
+
+	latestVersion := 100
+	kvCount := 10
+
+	// start multiple goroutines that iterate over different version of the database
+	for v := 1; v < latestVersion; v++ {
+		wg.Add(1)
+		go func(v int) {
+			<-triggerStartCh
+			defer wg.Done()
+
+			itr, err := db.Iterator(storeKey1, int64(v), []byte("key000"), nil)
+			s.Require().NoError(err)
+
+			defer itr.Close()
+
+			var i, count int
+			for ; itr.Valid(); itr.Next() {
+				s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), itr.Key(), string(itr.Key()))
+				s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, v)), itr.Value())
+
+				i++
+				count++
+			}
+			s.Require().Equal(kvCount, count)
+			s.Require().NoError(itr.Error())
+
+			// seek past domain, which should make the iterator invalid and produce an error
+			itr.Next()
+			s.Require().False(itr.Valid())
+
+		}(v)
+	}
+
+	// wait for the goroutines
+	close(triggerStartCh)
+	wg.Wait()
 }
