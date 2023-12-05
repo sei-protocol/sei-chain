@@ -755,7 +755,7 @@ func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
 			// Apply changeset for each key separately
 			key := []byte(fmt.Sprintf("key%03d", i))
 			val := []byte(fmt.Sprintf("val%03d", i))
-			s.Require().NoError(DBApplyChangeset(db, int64(latestVersion), storeKey1, [][]byte{key}, [][]byte{val}))
+			s.Require().NoError(DBApplyChangeset(db, latestVersion, storeKey1, [][]byte{key}, [][]byte{val}))
 		}
 	}()
 
@@ -771,7 +771,7 @@ func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
 		for i := 50; i < 100; i++ {
 			// Apply changeset for each key separately
 			key := []byte(fmt.Sprintf("key%03d", i))
-			s.Require().NoError(DBApplyChangeset(db, int64(latestVersion), storeKey1, [][]byte{key}, [][]byte{nil}))
+			s.Require().NoError(DBApplyChangeset(db, latestVersion, storeKey1, [][]byte{key}, [][]byte{nil}))
 		}
 	}()
 
