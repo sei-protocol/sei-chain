@@ -33,6 +33,54 @@
     # query reset reason with good deps - should be empty
     - cmd: seid q accesscontrol wasm-dependency-mapping $COUNTER_ADDRESS --output json | jq -r ".wasm_dependency_mapping.reset_reason"
       env: RESET_REASON_2
+    # ADDITIONS
+    # Create two accounts
+    - cmd: seid keys add user --keyring-backend test
+    - cmd: seid keys add user2 --keyring-backend test
+    # Get users
+    - cmd: seid keys list --output json --keyring-backend test | jq ".[] | select (.name==\"user\")" | jq -r .address
+      env: USER_ADDR
+    - cmd: seid keys list --output json --keyring-backend test | jq ".[] | select (.name==\"user2\")" | jq -r .address
+      env: USER2_ADDR
+    # Fund them
+    - cmd: "printf \"12345678\\n\" | seid tx bank send admin $USER_ADDR 100000000usei -b block -y --gas 1000000 --fees 1sei"
+    - cmd: "printf \"12345678\\n\" | seid tx bank send admin $USER2_ADDR 100000000usei -b block -y --gas 1000000 --fees 1sei"
+    # User should fail to send the transaction without permission
+    - cmd: seid tx accesscontrol register-wasm-dependency-mapping $GOOD_DEPS_FILEPATH --from user -b block -y --fees 2000usei --keyring-backend test
+    # Grant permission to user account:
+    - cmd: seid tx authz grant $USER_ADDR generic --msg-type=/cosmos.accesscontrol_x.v1beta1.MsgRegisterWasmDependency --from user2 --keyring-backend test -b block -y --fees 2000usei
+    # Generate register transaction
+    - cmd: seid tx accesscontrol register-wasm-dependency-mapping $GOOD_DEPS_FILEPATH --from user2 -b block --generate-only --fees 2000usei --keyring-backend test > grantmsg.json
+    # Send the granted msg - should err
+    - cmd: seid tx authz exec grantmsg.json --from user -b block -y --fees 2000usei --keyring-backend test -o json | jq -r ".code"
+      env: TX_CODE
+
+    ## test a nested authz tx
+    - cmd: seid keys add user3 --keyring-backend test
+    - cmd: seid keys list --output json --keyring-backend test | jq ".[] | select (.name==\"user3\")" | jq -r .address
+      env: USER3_ADDR
+    - cmd: "printf \"12345678\\n\" | seid tx bank send admin $USER3_ADDR 100000000usei -b block -y --gas 1000000 --fees 1sei"
+    - cmd: seid tx authz grant $USER3_ADDR generic --msg-type=/cosmos.authz.v1beta1.MsgExec --from user --keyring-backend test -b block -y --fees 2000usei
+
+    # Generate register transaction
+    - cmd: seid tx accesscontrol register-wasm-dependency-mapping $GOOD_DEPS_FILEPATH --from user2 -b block --generate-only --fees 2000usei --keyring-backend test > grantmsg2.json
+    - cmd: seid tx authz exec grantmsg2.json --from user --generate-only -b block -y --fees 2000usei --keyring-backend test > grantmsg3.json
+
+    # Send the granted msg - should err
+    - cmd: seid tx authz exec grantmsg3.json --from user3 -b block -y --fees 2000usei --keyring-backend test -o json | jq -r ".code"
+      env: TX_CODE_2
+
+    # try nested authz that is valid
+    # Grant permission to user account:
+    - cmd: printf "12345678\n" | seid tx authz grant $USER_ADDR generic --msg-type=/cosmos.accesscontrol_x.v1beta1.MsgRegisterWasmDependency --from admin -b block -y --fees 2000usei
+    # Generate register transaction
+    - cmd: printf "12345678\n" | seid tx accesscontrol register-wasm-dependency-mapping $GOOD_DEPS_FILEPATH --from admin -b block --generate-only --fees 2000usei > grantmsg4.json
+    - cmd: seid tx authz exec grantmsg4.json --from user --generate-only -b block -y --fees 2000usei --keyring-backend test > grantmsg5.json
+
+    # Send the granted msg - shouldnt
+    - cmd: seid tx authz exec grantmsg5.json --from user3 -b block -y --fees 2000usei --keyring-backend test -o json | jq -r ".code"
+      env: TX_CODE_3
+
   verifiers:
     # reset reason should have a value after resetting the bad one
     - type: eval
@@ -40,4 +88,13 @@
     # second reset reason should be empty
     - type: eval
       expr: RESET_REASON_2 == ""
+    # TX_CODE should have failed due to incorrect sender
+    - type: eval
+      expr: TX_CODE == 3
+    # TX_CODE_2 should have failed due to incorrect sender
+    - type: eval
+      expr: TX_CODE_2 == 3
+    # TX_CODE_3 should succeed
+    - type: eval
+      expr: TX_CODE_3 == 0
 
