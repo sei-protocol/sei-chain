@@ -12,7 +12,7 @@ const TypeMsgEVMTransaction = "evm_transaction"
 
 var (
 	_ sdk.Msg                            = &MsgEVMTransaction{}
-	_ codectypes.UnpackInterfacesMessage = MsgEVMTransaction{}
+	_ codectypes.UnpackInterfacesMessage = &MsgEVMTransaction{}
 )
 
 func NewMsgEVMTransaction(txData proto.Message) (*MsgEVMTransaction, error) {
@@ -53,11 +53,11 @@ func (msg *MsgEVMTransaction) AsTransaction() (*ethtypes.Transaction, ethtx.TxDa
 }
 
 // UnpackInterfaces implements UnpackInterfacesMesssage.UnpackInterfaces
-func (msg MsgEVMTransaction) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
+func (msg *MsgEVMTransaction) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 	return unpacker.UnpackAny(msg.Data, new(ethtx.TxData))
 }
 
-func (msg MsgEVMTransaction) IsAssociateTx() bool {
+func (msg *MsgEVMTransaction) IsAssociateTx() bool {
 	txData, err := UnpackTxData(msg.Data)
 	if err != nil {
 		// should never happen
@@ -65,4 +65,15 @@ func (msg MsgEVMTransaction) IsAssociateTx() bool {
 	}
 	_, ok := txData.(*ethtx.AssociateTx)
 	return ok
+}
+
+func MustGetEVMTransactionMessage(tx sdk.Tx) *MsgEVMTransaction {
+	if len(tx.GetMsgs()) != 1 {
+		panic("EVM transaction must have exactly 1 message")
+	}
+	msg, ok := tx.GetMsgs()[0].(*MsgEVMTransaction)
+	if !ok {
+		panic("not EVM message")
+	}
+	return msg
 }

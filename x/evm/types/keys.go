@@ -1,6 +1,8 @@
 package types
 
 import (
+	"encoding/binary"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -44,10 +46,28 @@ func StateKey(evmAddress common.Address) []byte {
 	return append(StateKeyPrefix, evmAddress[:]...)
 }
 
-func TransientStateKey(evmAddress common.Address) []byte {
-	return append(TransientStateKeyPrefix, evmAddress[:]...)
+func TransientStateKey(ctx sdk.Context) []byte {
+	return append(TransientStateKeyPrefix, getTxIndexBz(ctx)...)
+}
+
+func TransientStateKeyForAddress(ctx sdk.Context, evmAddress common.Address) []byte {
+	return append(TransientStateKey(ctx), evmAddress[:]...)
+}
+
+func AccountTransientStateKey(ctx sdk.Context) []byte {
+	return append(AccountTransientStateKeyPrefix, getTxIndexBz(ctx)...)
+}
+
+func TransientModuleStateKey(ctx sdk.Context) []byte {
+	return append(TransientModuleStateKeyPrefix, getTxIndexBz(ctx)...)
 }
 
 func ReceiptKey(txHash common.Hash) []byte {
 	return append(ReceiptKeyPrefix, txHash[:]...)
+}
+
+func getTxIndexBz(ctx sdk.Context) []byte {
+	res := make([]byte, 8)
+	binary.BigEndian.PutUint64(res, uint64(ctx.TxIndex()))
+	return res
 }

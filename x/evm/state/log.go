@@ -14,7 +14,7 @@ type Logs struct {
 
 func (s *DBImpl) AddLog(l *ethtypes.Log) {
 	// TODO: potentially decorate log with block/tx metadata
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
+	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
 	logs := Logs{Ls: []*ethtypes.Log{}}
 	ls, err := s.GetAllLogs()
 	if err != nil {
@@ -31,7 +31,7 @@ func (s *DBImpl) AddLog(l *ethtypes.Log) {
 }
 
 func (s *DBImpl) GetAllLogs() ([]*ethtypes.Log, error) {
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
+	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
 	logsbz := store.Get(LogsKey)
 	logs := Logs{Ls: []*ethtypes.Log{}}
 	if logsbz == nil {
