@@ -33,7 +33,7 @@ type (
 
 		// the same CommitKVStoreCache may be accessed concurrently by multiple
 		// goroutines due to transaction parallelization
-		mtx sync.Mutex
+		mtx sync.RWMutex
 	}
 
 	// CommitKVStoreCacheManager maintains a mapping from a StoreKey to a
@@ -102,27 +102,34 @@ func (ckv *CommitKVStoreCache) CacheWrap(storeKey types.StoreKey) types.CacheWra
 	return cachekv.NewStore(ckv, storeKey, ckv.cacheKVSize)
 }
 
+// getFromCache queries the write-through cache for a value by key.
+func (ckv *CommitKVStoreCache) getFromCache(key []byte) ([]byte, bool) {
+	ckv.mtx.RLock()
+	defer ckv.mtx.RUnlock()
+	return ckv.cache.Get(string(key))
+}
+
+// getAndWriteToCache queries the underlying CommitKVStore and writes the result
+func (ckv *CommitKVStoreCache) getAndWriteToCache(key []byte) []byte {
+	ckv.mtx.RLock()
+	defer ckv.mtx.RUnlock()
+	value := ckv.CommitKVStore.Get(key)
+	ckv.cache.Add(string(key), value)
+	return value
+}
+
 // Get retrieves a value by key. It will first look in the write-through cache.
 // If the value doesn't exist in the write-through cache, the query is delegated
 // to the underlying CommitKVStore.
 func (ckv *CommitKVStoreCache) Get(key []byte) []byte {
-	ckv.mtx.Lock()
-	defer ckv.mtx.Unlock()
-
 	types.AssertValidKey(key)
 
-	keyStr := string(key)
-	value, ok := ckv.cache.Get(keyStr)
-	if ok {
-		// cache hit
+	if value, ok := ckv.getFromCache(key); ok {
 		return value
 	}
 
-	// cache miss; write to cache
-	value = ckv.CommitKVStore.Get(key)
-	ckv.cache.Add(keyStr, value)
-
-	return value
+	// if not found in the cache, query the underlying CommitKVStore and init cache value
+	return ckv.getAndWriteToCache(key)
 }
 
 // Set inserts a key/value pair into both the write-through cache and the
