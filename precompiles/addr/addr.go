@@ -127,6 +127,6 @@ func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []inter
 	return method.Outputs.Pack(evmAddr)
 }
 
-func (Precompile) IsTransaction(method string) bool {
+func (Precompile) IsTransaction(string) bool {
 	return false
 }

@@ -23,12 +23,15 @@ contract MockBank {
         return balances[account];
     }
 
-    function sendFromCaller(
-        address,
+    function send(
+        address fromAddress,
+        address toAddress,
         string memory denom,
-        uint256
-    ) external pure returns (bool) {
+        uint256 amount
+    ) external returns (bool success) {
         require(keccak256(abi.encodePacked(denom)) == keccak256(abi.encodePacked("usei")), "MockBank: denom not supported");
+        balances[fromAddress] -= amount;
+        balances[toAddress] += amount;
         return true;
     }
 }
@@ -89,12 +92,8 @@ contract NativeSeiTokensERC20Test is Test {
         vm.stopPrank();
 
         assertEq(success, true);
-        // Since ERC20 calls Bank via a delegatecall, states in the mock bank contract won't be mutated, thus
-        // the checks below would fail. In real Sei, states in the bank precompile will still be mutated since
-        // its state is outside of EVM. The bank send behavior will be verified in bank unit tests as well as
-        // integration tests.
-        // assertEq(seiERC20.balanceOf(alice), 1000 - 123);
-        // assertEq(seiERC20.balanceOf(bob), 1000 + 123);
+        assertEq(seiERC20.balanceOf(alice), 1000 - 123);
+        assertEq(seiERC20.balanceOf(bob), 1000 + 123);
     }
 
     function testApprovals() public {
@@ -129,12 +128,8 @@ contract NativeSeiTokensERC20Test is Test {
         vm.stopPrank();
 
         assertEq(transferFromSuccess, true);
-        // Since ERC20 calls Bank via a delegatecall, states in the mock bank contract won't be mutated, thus
-        // the checks below would fail. In real Sei, states in the bank precompile will still be mutated since
-        // its state is outside of EVM. The bank send behavior will be verified in bank unit tests as well as
-        // integration tests.
-        // assertEq(seiERC20.balanceOf(alice), 1000 - 150);
-        // assertEq(seiERC20.balanceOf(bob), 1000 + 150);
+        assertEq(seiERC20.balanceOf(alice), 1000 - 150);
+        assertEq(seiERC20.balanceOf(bob), 1000 + 150);
         assertEq(seiERC20.allowance(alice, bob), 50); // Remaining allowance after the transfer
     }
 }

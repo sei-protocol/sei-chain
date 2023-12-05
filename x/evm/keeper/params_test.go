@@ -15,4 +15,7 @@ func TestParams(t *testing.T) {
 	require.Equal(t, types.DefaultPriorityNormalizer, k.GetPriorityNormalizer(ctx))
 	require.Equal(t, types.DefaultBaseFeePerGas, k.GetBaseFeePerGas(ctx))
 	require.Equal(t, types.DefaultMinFeePerGas, k.GetMinimumFeePerGas(ctx))
+	require.Equal(t, types.DefaultWhitelistedCodeHashesBankSend, k.WhitelistedCodehashesBankSend(ctx))
+
+	require.Nil(t, k.GetParams(ctx).Validate())
 }

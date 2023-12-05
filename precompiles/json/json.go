@@ -18,7 +18,7 @@ const (
 	ExtractAsBytesListMethod = "extractAsBytesList"
 )
 
-const JsonAddress = "0x0000000000000000000000000000000000001003"
+const JSONAddress = "0x0000000000000000000000000000000000001003"
 const GasCostPerByte = 100 // TODO: parameterize
 
 var _ vm.PrecompiledContract = &Precompile{}
@@ -49,7 +49,7 @@ func NewPrecompile() (*Precompile, error) {
 
 	p := &Precompile{
 		Precompile: pcommon.Precompile{ABI: newAbi},
-		address:    common.HexToAddress(JsonAddress),
+		address:    common.HexToAddress(JSONAddress),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -69,7 +69,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	return uint64(GasCostPerByte * (len(input) - 4))
 }
 
-func (Precompile) IsTransaction(method string) bool {
+func (Precompile) IsTransaction(string) bool {
 	return false
 }
 
@@ -92,7 +92,7 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte) (bz []byte,
 	return
 }
 
-func (p Precompile) extractAsBytes(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+func (p Precompile) extractAsBytes(_ sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 2)
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
@@ -110,7 +110,7 @@ func (p Precompile) extractAsBytes(ctx sdk.Context, method *abi.Method, args []i
 	return method.Outputs.Pack(result)
 }
 
-func (p Precompile) extractAsBytesList(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+func (p Precompile) extractAsBytesList(_ sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 2)
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()

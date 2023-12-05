@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	SendMethod           = "send"
 	SendFromCallerMethod = "sendFromCaller"
 	SendFromOriginMethod = "sendFromOrigin"
 	BalanceMethod        = "balance"
@@ -43,6 +44,7 @@ type Precompile struct {
 	evmKeeper  pcommon.EVMKeeper
 	address    common.Address
 
+	SendID           []byte
 	SendFromCallerID []byte
 	SendFromOriginID []byte
 	BalanceID        []byte
@@ -72,6 +74,8 @@ func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (
 
 	for name, m := range newAbi.Methods {
 		switch name {
+		case SendMethod:
+			p.SendID = m.ID
 		case SendFromCallerMethod:
 			p.SendFromCallerID = m.ID
 		case SendFromOriginMethod:
@@ -116,6 +120,11 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 	}
 
 	switch method.Name {
+	case SendMethod:
+		if err := p.validateCaller(ctx, caller); err != nil {
+			return nil, err
+		}
+		return p.send(ctx, method, args)
 	case SendFromCallerMethod:
 		return p.send(ctx, method, append([]interface{}{caller}, args...))
 	case SendFromOriginMethod:
@@ -132,6 +141,16 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 		return p.totalSupply(ctx, method, args)
 	}
 	return
+}
+
+func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address) error {
+	codeHash := p.evmKeeper.GetCodeHash(ctx, caller)
+	for _, whitelisted := range p.evmKeeper.WhitelistedCodehashesBankSend(ctx) {
+		if codeHash.Hex() == whitelisted {
+			return nil
+		}
+	}
+	return fmt.Errorf("caller %s with code hash %s is not whitelisted for arbirary bank send", caller.Hex(), codeHash.Hex())
 }
 
 func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {

@@ -27,11 +27,12 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
-		StateDB: statedb,
+		StateDB:   statedb,
+		TxContext: vm.TxContext{Origin: senderEVMAddr},
 	}
 	send, err := p.ABI.MethodById(p.SendFromCallerID)
 	require.Nil(t, err)
-	args, err := send.Inputs.Pack(evmAddr, "usei", big.NewInt(100))
+	args, err := send.Inputs.Pack(evmAddr, "usei", big.NewInt(50))
 	require.Nil(t, err)
 	res, err := p.Run(&evm, senderEVMAddr, append(p.SendFromCallerID, args...))
 	require.Nil(t, err)
@@ -39,11 +40,30 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 1, len(is))
 	require.True(t, is[0].(bool))
-	require.Equal(t, uint64(100), k.BankKeeper().GetBalance(statedb.Ctx(), seiAddr, "usei").Amount.Uint64())
+	require.Equal(t, uint64(50), k.BankKeeper().GetBalance(statedb.Ctx(), seiAddr, "usei").Amount.Uint64())
 	res, err = p.Run(&evm, senderEVMAddr, append(p.SendFromCallerID, args[:2]...))
 	require.NotNil(t, err)
 	args, err = send.Inputs.Pack(evmAddr, "", big.NewInt(100))
 	res, err = p.Run(&evm, senderEVMAddr, append(p.SendFromCallerID, args...))
+	require.NotNil(t, err)
+
+	send, err = p.ABI.MethodById(p.SendFromOriginID)
+	require.Nil(t, err)
+	args, err = send.Inputs.Pack(evmAddr, "usei", big.NewInt(50))
+	require.Nil(t, err)
+	res, err = p.Run(&evm, common.Address{}, append(p.SendFromOriginID, args...))
+	require.Nil(t, err)
+	is, err = send.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(is))
+	require.True(t, is[0].(bool))
+	require.Equal(t, uint64(100), k.BankKeeper().GetBalance(statedb.Ctx(), seiAddr, "usei").Amount.Uint64())
+
+	send, err = p.ABI.MethodById(p.SendID)
+	require.Nil(t, err)
+	args, err = send.Inputs.Pack(senderEVMAddr, evmAddr, "usei", big.NewInt(25))
+	require.Nil(t, err)
+	_, err = p.Run(&evm, senderEVMAddr, append(p.SendID, args...)) // should error because address is not whitelisted
 	require.NotNil(t, err)
 
 	balance, err := p.ABI.MethodById(p.BalanceID)

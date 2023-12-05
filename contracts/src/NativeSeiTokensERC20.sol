@@ -37,7 +37,7 @@ contract NativeSeiTokensERC20 is ERC20 {
     }
 
     function _update(address from, address to, uint256 value) internal override {
-        (bool success,) = BANK_PRECOMPILE_ADDRESS.delegatecall(abi.encodeWithSignature("sendFromCaller(address,string,uint256)", to, denom, value));
+        bool success = BankPrecompile.send(from, to, denom, value);
         require(success, "NativeSeiTokensERC20: transfer failed");
         emit Transfer(from, to, value);
     }
