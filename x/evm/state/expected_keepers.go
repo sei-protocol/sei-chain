@@ -1,8 +1,6 @@
 package state
 
 import (
-	"math/big"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
@@ -22,7 +20,6 @@ type EVMKeeper interface {
 	GetCodeSize(sdk.Context, common.Address) int
 	GetState(sdk.Context, common.Address, common.Hash) common.Hash
 	SetState(sdk.Context, common.Address, common.Hash, common.Hash)
-	GetModuleBalance(sdk.Context) *big.Int
 	AccountKeeper() *authkeeper.AccountKeeper
 	GetFeeCollectorAddress(sdk.Context) (common.Address, error)
 	GetNonce(sdk.Context, common.Address) uint64
