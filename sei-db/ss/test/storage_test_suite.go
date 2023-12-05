@@ -174,7 +174,7 @@ func (s *StorageTestSuite) TestDatabaseApplyChangeset() {
 	s.Require().NoError(err)
 	s.Require().Equal(int64(1), lv)
 
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 100; i++ {
 		ok, err := db.Has(storeKey1, 1, []byte(fmt.Sprintf("key%03d", i)))
 		s.Require().NoError(err)
 
@@ -676,4 +676,232 @@ func (s *StorageTestSuite) TestParallelWriteAndPruning() {
 	val, err = db.Get(storeKey1, version, []byte(fmt.Sprintf("key-%d-%03d", version-1, 0)))
 	s.Require().NoError(err)
 	s.Require().Equal([]byte(fmt.Sprintf("val-%d-%03d", version-1, 0)), val)
+}
+
+func (s *StorageTestSuite) TestDatabaseParallelDeleteIteration() {
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
+
+	s.Require().NoError(FillData(db, 100, 100))
+
+	wg := sync.WaitGroup{}
+	triggerStartCh := make(chan bool)
+
+	latestVersion := 100
+	kvCount := 100
+
+	// start a goroutine that deletes from the database at latest Version
+	wg.Add(1)
+	go func() {
+		<-triggerStartCh
+		defer wg.Done()
+
+		cs := &iavl.ChangeSet{}
+		cs.Pairs = []*iavl.KVPair{}
+		for j := 0; j < kvCount; j++ {
+			if j%10 == 0 {
+				cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: []byte(fmt.Sprintf("key%03d", j))})
+			}
+		}
+
+		ncs := &proto.NamedChangeSet{
+			Name:      storeKey1,
+			Changeset: *cs,
+		}
+		s.Require().NoError(db.ApplyChangeset(int64(latestVersion), ncs))
+	}()
+
+	// start a goroutine that iterates over the database
+	wg.Add(1)
+	go func() {
+		<-triggerStartCh
+		defer wg.Done()
+		// iterator without an end key over multiple versions
+		for v := int64(1); v < 5; v++ {
+			itr, err := db.Iterator(storeKey1, v, []byte("key000"), nil)
+			s.Require().NoError(err)
+
+			defer itr.Close()
+
+			var i, count int
+			for ; itr.Valid(); itr.Next() {
+				s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), itr.Key(), string(itr.Key()))
+				s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, v)), itr.Value())
+
+				i++
+				count++
+			}
+			s.Require().Equal(100, count)
+			s.Require().NoError(itr.Error())
+
+			// seek past domain, which should make the iterator invalid and produce an error
+			itr.Next()
+			s.Require().False(itr.Valid())
+		}
+	}()
+
+	// wait for the goroutines
+	close(triggerStartCh)
+	wg.Wait()
+
+	// Verify deletes
+	for j := 0; j < 100; j++ {
+		ok, err := db.Has(storeKey1, int64(latestVersion), []byte(fmt.Sprintf("key%03d", j)))
+		s.Require().NoError(err)
+
+		if j%10 == 0 {
+			s.Require().False(ok)
+		} else {
+			s.Require().True(ok)
+		}
+	}
+}
+
+func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
+
+	s.Require().NoError(FillData(db, 100, 1))
+
+	wg := sync.WaitGroup{}
+	triggerStartCh := make(chan bool)
+
+	latestVersion := int64(2)
+
+	// start a goroutine that writes to the database
+	wg.Add(1)
+	go func() {
+		<-triggerStartCh
+		defer wg.Done()
+
+		cs := &iavl.ChangeSet{}
+		cs.Pairs = []*iavl.KVPair{}
+
+		for i := 0; i < 50; i++ {
+			// Apply changeset for each key separately
+			cs := &iavl.ChangeSet{}
+			cs.Pairs = []*iavl.KVPair{{Key: []byte(fmt.Sprintf("key%03d", i)), Value: []byte(fmt.Sprintf("val%03d", i))}}
+			ncs := &proto.NamedChangeSet{
+				Name:      storeKey1,
+				Changeset: *cs,
+			}
+			s.Require().NoError(db.ApplyChangeset(latestVersion, ncs))
+		}
+	}()
+
+	// start a goroutine that deletes from the database
+	wg.Add(1)
+	go func() {
+		<-triggerStartCh
+		defer wg.Done()
+
+		cs := &iavl.ChangeSet{}
+		cs.Pairs = []*iavl.KVPair{}
+
+		for i := 50; i < 100; i++ {
+			// Apply changeset for each key separately
+			cs := &iavl.ChangeSet{}
+			cs.Pairs = []*iavl.KVPair{{Key: []byte(fmt.Sprintf("key%03d", i))}}
+			ncs := &proto.NamedChangeSet{
+				Name:      storeKey1,
+				Changeset: *cs,
+			}
+			s.Require().NoError(db.ApplyChangeset(latestVersion, ncs))
+		}
+	}()
+
+	// wait for the goroutines
+	close(triggerStartCh)
+	wg.Wait()
+
+	// Verify writes and deletes on latest version
+	for j := 0; j < 100; j++ {
+		ok, err := db.Has(storeKey1, int64(latestVersion), []byte(fmt.Sprintf("key%03d", j)))
+		s.Require().NoError(err)
+
+		if j >= 50 {
+			s.Require().False(ok)
+		} else {
+			s.Require().True(ok)
+		}
+	}
+}
+
+func (s *StorageTestSuite) TestParallelIterationAndPruning() {
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
+
+	s.Require().NoError(FillData(db, 10, 50))
+
+	latestVersion := 50
+	numHeightsPruned := 20
+	prunePeriod := 5
+
+	wg := sync.WaitGroup{}
+	triggerStartCh := make(chan bool)
+
+	// start a goroutine that prunes the database
+	wg.Add(1)
+	go func() {
+		<-triggerStartCh
+		defer wg.Done()
+		for i := 10; i <= latestVersion-numHeightsPruned; i += prunePeriod {
+			fmt.Printf("PRUNE %d\n", i)
+			s.Require().NoError(db.Prune(int64(i)))
+		}
+	}()
+
+	// start a goroutine that iterates over the database
+	wg.Add(1)
+	go func() {
+		<-triggerStartCh
+		defer wg.Done()
+		// iterator without an end key over multiple versions
+		for v := int64(latestVersion - numHeightsPruned + 1); v < int64(latestVersion); v++ {
+			itr, err := db.Iterator(storeKey1, v, []byte("key000"), nil)
+			s.Require().NoError(err)
+
+			defer itr.Close()
+
+			var i, count int
+			for ; itr.Valid(); itr.Next() {
+				s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), itr.Key(), string(itr.Key()))
+				s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, v)), itr.Value())
+
+				i++
+				count++
+			}
+			s.Require().Equal(10, count)
+			s.Require().NoError(itr.Error())
+
+			// seek past domain, which should make the iterator invalid and produce an error
+			itr.Next()
+			s.Require().False(itr.Valid())
+		}
+	}()
+
+	// wait for the goroutines
+	close(triggerStartCh)
+	wg.Wait()
+
+	// Ensure all keys are no longer present up to latestVersion - 20 and
+	// all keys are present after
+	for v := int64(1); v <= int64(latestVersion); v++ {
+		for i := 0; i < 10; i++ {
+			key := fmt.Sprintf("key%03d", i)
+			val := fmt.Sprintf("val%03d-%03d", i, v)
+
+			bz, err := db.Get(storeKey1, v, []byte(key))
+			s.Require().NoError(err)
+			if v <= int64(latestVersion-numHeightsPruned) {
+				fmt.Printf("version %d bytes %s\n", v, string(bz))
+				s.Require().Nil(bz)
+			} else {
+				s.Require().Equal([]byte(val), bz)
+			}
+		}
+	}
 }
