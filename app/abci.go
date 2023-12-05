@@ -38,7 +38,7 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 	return app.BaseApp.CheckTx(ctx, req)
 }
 
-func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.ResponseDeliverTx {
+func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
 	// ensure we carry the initial context from tracer here
 	ctx = ctx.WithTraceSpanContext(app.GetBaseApp().TracingInfo.GetContext())
@@ -46,7 +46,7 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx) abci.Respo
 	defer span.End()
 	// update context with trace span new context
 	ctx = ctx.WithTraceSpanContext(spanCtx)
-	return app.BaseApp.DeliverTx(ctx, req)
+	return app.BaseApp.DeliverTx(ctx, req, tx, checksum)
 }
 
 // DeliverTxBatch is not part of the ABCI specification, but this is here for code convention
