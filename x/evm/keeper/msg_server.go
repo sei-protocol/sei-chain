@@ -7,6 +7,7 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -58,7 +59,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
 			panic(pe)
 		}
-		err = server.writeReceipt(ctx, tx, emsg, serverRes, success)
+		err = server.writeReceipt(ctx, msg, tx, emsg, serverRes, success)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 			return
@@ -128,7 +129,7 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	return st.TransitionDb()
 }
 
-func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, success bool) error {
+func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, success bool) error {
 	cumulativeGasUsed := response.GasUsed
 	if ctx.BlockGasMeter() != nil {
 		limit := ctx.BlockGasMeter().Limit()
@@ -164,11 +165,7 @@ func (server msgServer) writeReceipt(ctx sdk.Context, tx *ethtypes.Transaction, 
 		receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
 	}
 
-	if sender, found := types.GetContextEVMAddress(ctx); found {
-		receipt.From = sender.Hex()
-	} else {
-		ctx.Logger().Error("sender cannot be found for EVM transaction")
-	}
+	receipt.From = common.BytesToAddress(origMsg.Derived.SenderEVMAddr).Hex()
 
 	return server.SetReceipt(ctx, tx.Hash(), receipt)
 }

@@ -10,7 +10,7 @@ import (
 func (s *DBImpl) AddRefund(gas uint64) {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, s.GetRefund()+gas)
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
+	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
 	store.Set(GasRefundKey, bz)
 }
 
@@ -24,12 +24,12 @@ func (s *DBImpl) SubRefund(gas uint64) {
 	}
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, refund-gas)
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
+	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
 	store.Set(GasRefundKey, bz)
 }
 
 func (s *DBImpl) GetRefund() uint64 {
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKeyPrefix)
+	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
 	bz := store.Get(GasRefundKey)
 	if bz == nil {
 		return 0
