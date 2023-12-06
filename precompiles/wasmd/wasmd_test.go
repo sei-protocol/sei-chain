@@ -8,6 +8,7 @@ import (
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
@@ -35,7 +36,7 @@ func TestAddress(t *testing.T) {
 
 func TestInstantiate(t *testing.T) {
 	testApp := app.Setup(false, false)
-	mockAddr, _ := testkeeper.MockAddressPair()
+	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
 	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper)
@@ -51,7 +52,6 @@ func TestInstantiate(t *testing.T) {
 	args, err := instantiateMethod.Inputs.Pack(
 		codeID,
 		mockAddr.String(),
-		mockAddr.String(),
 		[]byte("{}"),
 		"test",
 		amtsbz,
@@ -60,7 +60,7 @@ func TestInstantiate(t *testing.T) {
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
-	res, err := p.Run(&evm, append(p.InstantiateID, args...))
+	res, err := p.Run(&evm, mockEVMAddr, append(p.InstantiateID, args...))
 	require.Nil(t, err)
 	outputs, err := instantiateMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
@@ -72,30 +72,27 @@ func TestInstantiate(t *testing.T) {
 	args, _ = instantiateMethod.Inputs.Pack(
 		codeID+1,
 		mockAddr.String(),
-		mockAddr.String(),
 		[]byte("{}"),
 		"test",
 		amtsbz,
 	)
-	res, err = p.Run(&evm, append(p.InstantiateID, args...))
+	res, err = p.Run(&evm, mockEVMAddr, append(p.InstantiateID, args...))
 	require.NotNil(t, err)
 
 	// bad inputs
-	badArgs, _ := instantiateMethod.Inputs.Pack(codeID, "not bech32", mockAddr.String(), []byte("{}"), "test", amtsbz)
-	_, err = p.Run(&evm, append(p.InstantiateID, badArgs...))
+	badArgs, _ := instantiateMethod.Inputs.Pack(codeID, "not bech32", []byte("{}"), "test", amtsbz)
+	_, err = p.Run(&evm, mockEVMAddr, append(p.InstantiateID, badArgs...))
 	require.NotNil(t, err)
-	badArgs, _ = instantiateMethod.Inputs.Pack(codeID, mockAddr.String(), "not bech32", []byte("{}"), "test", amtsbz)
-	_, err = p.Run(&evm, append(p.InstantiateID, badArgs...))
-	require.NotNil(t, err)
-	badArgs, _ = instantiateMethod.Inputs.Pack(codeID, mockAddr.String(), mockAddr.String(), []byte("{}"), "test", []byte("bad coins"))
-	_, err = p.Run(&evm, append(p.InstantiateID, badArgs...))
+	badArgs, _ = instantiateMethod.Inputs.Pack(codeID, mockAddr.String(), []byte("{}"), "test", []byte("bad coins"))
+	_, err = p.Run(&evm, mockEVMAddr, append(p.InstantiateID, badArgs...))
 	require.NotNil(t, err)
 }
 
 func TestExecute(t *testing.T) {
 	testApp := app.Setup(false, false)
-	mockAddr, _ := testkeeper.MockAddressPair()
+	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
 	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper)
 	require.Nil(t, err)
@@ -113,13 +110,13 @@ func TestExecute(t *testing.T) {
 	require.Nil(t, err)
 	executeMethod, err := p.ABI.MethodById(p.ExecuteID)
 	require.Nil(t, err)
-	args, err := executeMethod.Inputs.Pack(contractAddr.String(), mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
+	args, err := executeMethod.Inputs.Pack(contractAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
-	res, err := p.Run(&evm, append(p.ExecuteID, args...))
+	res, err := p.Run(&evm, mockEVMAddr, append(p.ExecuteID, args...))
 	require.Nil(t, err)
 	outputs, err := executeMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
@@ -127,19 +124,16 @@ func TestExecute(t *testing.T) {
 	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string(outputs[0].([]byte)))
 
 	// bad contract address
-	args, _ = executeMethod.Inputs.Pack(mockAddr.String(), mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
-	res, err = p.Run(&evm, append(p.ExecuteID, args...))
+	args, _ = executeMethod.Inputs.Pack(mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
+	res, err = p.Run(&evm, mockEVMAddr, append(p.ExecuteID, args...))
 	require.NotNil(t, err)
 
 	// bad inputs
-	args, _ = executeMethod.Inputs.Pack("not bech32", mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
-	res, err = p.Run(&evm, append(p.ExecuteID, args...))
+	args, _ = executeMethod.Inputs.Pack("not bech32", []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
+	res, err = p.Run(&evm, mockEVMAddr, append(p.ExecuteID, args...))
 	require.NotNil(t, err)
-	args, _ = executeMethod.Inputs.Pack(contractAddr.String(), "not bech32", []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
-	res, err = p.Run(&evm, append(p.ExecuteID, args...))
-	require.NotNil(t, err)
-	args, _ = executeMethod.Inputs.Pack(contractAddr.String(), mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), []byte("bad coins"))
-	res, err = p.Run(&evm, append(p.ExecuteID, args...))
+	args, _ = executeMethod.Inputs.Pack(contractAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), []byte("bad coins"))
+	res, err = p.Run(&evm, mockEVMAddr, append(p.ExecuteID, args...))
 	require.NotNil(t, err)
 }
 
@@ -165,7 +159,7 @@ func TestQuery(t *testing.T) {
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
-	res, err := p.Run(&evm, append(p.QueryID, args...))
+	res, err := p.Run(&evm, common.Address{}, append(p.QueryID, args...))
 	require.Nil(t, err)
 	outputs, err := queryMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
@@ -174,14 +168,14 @@ func TestQuery(t *testing.T) {
 
 	// bad contract address
 	args, _ = queryMethod.Inputs.Pack(mockAddr.String(), []byte("{\"info\":{}}"))
-	res, err = p.Run(&evm, append(p.ExecuteID, args...))
+	res, err = p.Run(&evm, common.Address{}, append(p.ExecuteID, args...))
 	require.NotNil(t, err)
 
 	// bad input
 	args, _ = queryMethod.Inputs.Pack("not bech32", []byte("{\"info\":{}}"))
-	res, err = p.Run(&evm, append(p.ExecuteID, args...))
+	res, err = p.Run(&evm, common.Address{}, append(p.ExecuteID, args...))
 	require.NotNil(t, err)
 	args, _ = queryMethod.Inputs.Pack(contractAddr.String(), []byte("{\"bad\":{}}"))
-	res, err = p.Run(&evm, append(p.ExecuteID, args...))
+	res, err = p.Run(&evm, common.Address{}, append(p.ExecuteID, args...))
 	require.NotNil(t, err)
 }

@@ -40,3 +40,7 @@ func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 	return k.GetParams(ctx).ChainId.BigInt()
 }
+
+func (k *Keeper) WhitelistedCodehashesBankSend(ctx sdk.Context) []string {
+	return k.GetParams(ctx).WhitelistedCodehashesBankSend
+}

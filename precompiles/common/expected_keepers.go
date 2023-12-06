@@ -15,6 +15,9 @@ type BankKeeper interface {
 
 type EVMKeeper interface {
 	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
+	GetEVMAddress(sdk.Context, sdk.AccAddress) (common.Address, bool)
+	GetCodeHash(sdk.Context, common.Address) common.Hash
+	WhitelistedCodehashesBankSend(sdk.Context) []string
 }
 
 type WasmdKeeper interface {

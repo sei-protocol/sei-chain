@@ -5,8 +5,10 @@ import (
 
 	ecommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/precompiles/addr"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/json"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 )
 
@@ -34,6 +36,16 @@ func InitializePrecompiles(
 		return err
 	}
 	addPrecompileToVM(wasmdp, wasmdp.Address())
+	jsonp, err := json.NewPrecompile()
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(jsonp, jsonp.Address())
+	addrp, err := addr.NewPrecompile(evmKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(addrp, addrp.Address())
 	Initialized = true
 	return nil
 }

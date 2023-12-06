@@ -265,6 +265,9 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 
 func TestEVMPrecompiles(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeperWithPrecompiles()
+	params := k.GetParams(ctx)
+	params.WhitelistedCodehashesBankSend = append(params.WhitelistedCodehashesBankSend, "0x3071724680db53f64fe250bcb067e7f21280a0b6359486ba3a84a319eb3ef249")
+	k.SetParams(ctx, params)
 	code, err := os.ReadFile("../../../example/contracts/sendall/SendAll.bin")
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))

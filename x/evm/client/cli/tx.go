@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -26,6 +25,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -37,12 +37,6 @@ const (
 	FlagEVMChainID = "evm-chain-id"
 	FlagRPC        = "evm-rpc"
 )
-
-// Embed abi json file to the executable binary. Needed when importing as dependency.
-//
-//go:embed contract-artifacts/NativeSeiTokensERC20.bin
-//go:embed contract-artifacts/NativeSeiTokensERC20.abi
-var f embed.FS
 
 // GetTxCmd returns the transaction commands for this module
 func GetTxCmd() *cobra.Command {
@@ -275,23 +269,8 @@ func CmdDeployErc20() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
-			bytecodeString, err := f.ReadFile("contract-artifacts/NativeSeiTokensERC20.bin")
-			if err != nil {
-				fmt.Println("failed at reading bytecode")
-				return err
-			}
-
-			bytecode, err := hex.DecodeString(string(bytecodeString))
-			if err != nil {
-				return err
-			}
-
-			abi, err := f.ReadFile("contract-artifacts/NativeSeiTokensERC20.abi")
-			if err != nil {
-				fmt.Println("failed at reading abi")
-				return err
-			}
+			bytecode := artifacts.GetNativeSeiTokensERC20Bin()
+			abi := artifacts.GetNativeSeiTokensERC20ABI()
 			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
 			if err != nil {
 				fmt.Println("failed at parsing abi")
