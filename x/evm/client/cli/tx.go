@@ -57,31 +57,37 @@ func GetTxCmd() *cobra.Command {
 
 func CmdAssociateAddress() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "associate-address --rpc=<url> --from=<sender>",
+		Use:   "associate-address [optional priv key hex] --rpc=<url> --from=<sender>",
 		Short: "associate EVM and Sei address for the sender",
 		Long:  "",
-		Args:  cobra.NoArgs,
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
 				return err
 			}
-			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
-			kb := txf.Keybase()
+			var privHex string
+			if len(args) == 1 {
+				privHex = args[0]
+			} else {
+				txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
+				kb := txf.Keybase()
+				info, err := kb.Key(clientCtx.GetFromName())
+				if err != nil {
+					return err
+				}
+				localInfo, ok := info.(keyring.LocalInfo)
+				if !ok {
+					return errors.New("can only associate address for local keys")
+				}
+				priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
+				if err != nil {
+					return err
+				}
+				privHex = hex.EncodeToString(priv.Bytes())
+			}
+
 			emptyHash := common.Hash{}
-			info, err := kb.Key(clientCtx.GetFromName())
-			if err != nil {
-				return err
-			}
-			localInfo, ok := info.(keyring.LocalInfo)
-			if !ok {
-				return errors.New("can only associate address for local keys")
-			}
-			priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
-			if err != nil {
-				return err
-			}
-			privHex := hex.EncodeToString(priv.Bytes())
 			key, _ := crypto.HexToECDSA(privHex)
 			sig, err := crypto.Sign(emptyHash[:], key)
 			if err != nil {
