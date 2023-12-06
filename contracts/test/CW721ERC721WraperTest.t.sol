@@ -91,6 +91,14 @@ contract CW721ERC721WrapperTest is Test {
         vm.etch(ADDR_PRECOMPILE_ADDRESS, address(mockAddr).code);
     }
 
+    function testName() public {
+        assertEq(wrapper.name(), "name");
+    }
+
+    function testSymbol() public {
+        assertEq(wrapper.symbol(), "symbol");
+    }
+
     function testBalanceOf() public {
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,

@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
@@ -107,7 +108,7 @@ func (p Precompile) extractAsBytes(_ sdk.Context, method *abi.Method, args []int
 		return nil, fmt.Errorf("input does not contain key %s", key)
 	}
 
-	return method.Outputs.Pack(result)
+	return method.Outputs.Pack([]byte(result))
 }
 
 func (p Precompile) extractAsBytesList(_ sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
@@ -125,5 +126,5 @@ func (p Precompile) extractAsBytesList(_ sdk.Context, method *abi.Method, args [
 		return nil, fmt.Errorf("input does not contain key %s", key)
 	}
 
-	return method.Outputs.Pack(result)
+	return method.Outputs.Pack(utils.Map(result, func(r gjson.RawMessage) []byte { return []byte(r) }))
 }

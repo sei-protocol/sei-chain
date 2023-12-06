@@ -70,7 +70,7 @@ contract CW721ERC721Wrapper is ERC721 {
         return false;
     }
 
-    // Calls
+    // Transactions
     function transferFrom(address from, address to, uint256 tokenId) public override {
         if (to == address(0)) {
             revert ERC721InvalidReceiver(address(0));
