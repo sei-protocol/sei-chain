@@ -41,15 +41,21 @@ func FillData(db types.StateStore, numKeys int, versions int) error {
 }
 
 // Helper for creating the changeset and applying it to db
-// TODO: Accept list of keys / vals to create changeset with multiple kv pairs
-func DBApplyChangeset(db types.StateStore, version int64, storeKey string, key, val []byte) error {
+func DBApplyChangeset(db types.StateStore, version int64, storeKey string, key, val [][]byte) error {
 	if version <= 0 {
 		panic("version must be greater than 0")
 	}
 
-	cs := &iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{{Key: key, Value: val}},
+	if len(key) != len(val) {
+		panic("length of keys must match length of vals")
 	}
+
+	cs := &iavl.ChangeSet{}
+	cs.Pairs = []*iavl.KVPair{}
+	for j := 0; j < len(key); j++ {
+		cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: key[j], Value: val[j]})
+	}
+
 	ncs := &proto.NamedChangeSet{
 		Name:      storeKey,
 		Changeset: *cs,
