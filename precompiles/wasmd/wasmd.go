@@ -101,7 +101,7 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) Run(evm *vm.EVM, input []byte) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []byte, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err
@@ -109,37 +109,37 @@ func (p Precompile) Run(evm *vm.EVM, input []byte) (bz []byte, err error) {
 
 	switch method.Name {
 	case InstantiateMethod:
-		return p.instantiate(ctx, method, args)
+		return p.instantiate(ctx, method, caller, args)
 	case ExecuteMethod:
-		return p.execute(ctx, method, args)
+		return p.execute(ctx, method, caller, args)
 	case QueryMethod:
 		return p.query(ctx, method, args)
 	}
 	return
 }
 
-func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
-	pcommon.AssertArgsLength(args, 6)
+func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 5)
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
 	codeID := args[0].(uint64)
-	creatorAddrStr := args[1].(string)
-	creatorAddr, err := sdk.AccAddressFromBech32(creatorAddrStr)
-	if err != nil {
-		return nil, err
+	creatorAddr := sdk.AccAddress(caller[:])
+	if associatedAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller); found {
+		creatorAddr = associatedAddr
 	}
 	var adminAddr sdk.AccAddress
-	adminAddrStr := args[2].(string)
+	adminAddrStr := args[1].(string)
 	if len(adminAddrStr) > 0 {
-		adminAddr, err = sdk.AccAddressFromBech32(adminAddrStr)
+		adminAddrDecoded, err := sdk.AccAddressFromBech32(adminAddrStr)
 		if err != nil {
 			return nil, err
 		}
+		adminAddr = adminAddrDecoded
 	}
-	msg := args[3].([]byte)
-	label := args[4].(string)
+	msg := args[2].([]byte)
+	label := args[3].(string)
 	coins := sdk.NewCoins()
-	coinsBz := args[5].([]byte)
+	coinsBz := args[4].([]byte)
 	if err := json.Unmarshal(coinsBz, &coins); err != nil {
 		return nil, err
 	}
@@ -150,8 +150,8 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, args []inte
 	return method.Outputs.Pack(addr.String(), data)
 }
 
-func (p Precompile) execute(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
-	pcommon.AssertArgsLength(args, 4)
+func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 3)
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
 	contractAddrStr := args[0].(string)
@@ -160,14 +160,13 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, args []interfac
 	if err != nil {
 		return nil, err
 	}
-	senderAddrStr := args[1].(string)
-	senderAddr, err := sdk.AccAddressFromBech32(senderAddrStr)
-	if err != nil {
-		return nil, err
+	senderAddr := sdk.AccAddress(caller[:])
+	if associatedAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller); found {
+		senderAddr = associatedAddr
 	}
-	msg := args[2].([]byte)
+	msg := args[1].([]byte)
 	coins := sdk.NewCoins()
-	coinsBz := args[3].([]byte)
+	coinsBz := args[2].([]byte)
 	if err := json.Unmarshal(coinsBz, &coins); err != nil {
 		return nil, err
 	}

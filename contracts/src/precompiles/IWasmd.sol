@@ -12,14 +12,14 @@ interface IWasmd {
     function instantiate(
         uint64 codeID,
         string memory admin,
-        bytes memory msg,
+        bytes memory payload,
         string memory label,
         bytes memory coins
     ) external returns (string memory contractAddr, bytes memory data);
 
     function execute(
         string memory contractAddress,
-        bytes memory msg,
+        bytes memory payload,
         bytes memory coins
     ) external returns (bytes memory response);
 
