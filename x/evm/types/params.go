@@ -6,16 +6,19 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
 	"gopkg.in/yaml.v2"
 )
 
 var (
-	KeyBaseDenom          = []byte("KeyBaseDenom")
-	KeyPriorityNormalizer = []byte("KeyPriorityNormalizer")
-	KeyBaseFeePerGas      = []byte("KeyBaseFeePerGas")
-	KeyMinFeePerGas       = []byte("KeyMinFeePerGas")
-	KeyChainConfig        = []byte("KeyChainConfig")
-	KeyChainID            = []byte("KeyChainID")
+	KeyBaseDenom                     = []byte("KeyBaseDenom")
+	KeyPriorityNormalizer            = []byte("KeyPriorityNormalizer")
+	KeyBaseFeePerGas                 = []byte("KeyBaseFeePerGas")
+	KeyMinFeePerGas                  = []byte("KeyMinFeePerGas")
+	KeyChainConfig                   = []byte("KeyChainConfig")
+	KeyChainID                       = []byte("KeyChainID")
+	KeyWhitelistedCodeHashesBankSend = []byte("KeyWhitelistedCodeHashesBankSend")
 )
 
 const (
@@ -30,6 +33,7 @@ var DefaultPriorityNormalizer = sdk.NewDec(1)
 var DefaultBaseFeePerGas = sdk.NewDec(0)
 var DefaultMinFeePerGas = sdk.NewDec(1)
 var DefaultChainID = sdk.NewInt(713715)
+var DefaultWhitelistedCodeHashesBankSend = generateDefaultWhitelistedCodeHashesBankSend()
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -39,12 +43,13 @@ func ParamKeyTable() paramtypes.KeyTable {
 
 func DefaultParams() Params {
 	return Params{
-		BaseDenom:          DefaultBaseDenom,
-		PriorityNormalizer: DefaultPriorityNormalizer,
-		BaseFeePerGas:      DefaultBaseFeePerGas,
-		MinimumFeePerGas:   DefaultMinFeePerGas,
-		ChainConfig:        DefaultChainConfig(),
-		ChainId:            DefaultChainID,
+		BaseDenom:                     DefaultBaseDenom,
+		PriorityNormalizer:            DefaultPriorityNormalizer,
+		BaseFeePerGas:                 DefaultBaseFeePerGas,
+		MinimumFeePerGas:              DefaultMinFeePerGas,
+		ChainConfig:                   DefaultChainConfig(),
+		ChainId:                       DefaultChainID,
+		WhitelistedCodehashesBankSend: DefaultWhitelistedCodeHashesBankSend,
 	}
 }
 
@@ -56,6 +61,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyMinFeePerGas, &p.MinimumFeePerGas, validateMinFeePerGas),
 		paramtypes.NewParamSetPair(KeyChainConfig, &p.ChainConfig, validateChainConfig),
 		paramtypes.NewParamSetPair(KeyChainID, &p.ChainId, validateChainID),
+		paramtypes.NewParamSetPair(KeyWhitelistedCodeHashesBankSend, &p.WhitelistedCodehashesBankSend, validateWhitelistedCodeHashesBankSend),
 	}
 }
 
@@ -78,7 +84,10 @@ func (p Params) Validate() error {
 	if err := validateChainID(p.ChainId); err != nil {
 		return err
 	}
-	return validateChainConfig(p.ChainConfig)
+	if err := validateChainConfig(p.ChainConfig); err != nil {
+		return err
+	}
+	return validateWhitelistedCodeHashesBankSend(p.WhitelistedCodehashesBankSend)
 }
 
 func (p Params) String() string {
@@ -158,4 +167,19 @@ func validateChainID(i interface{}) error {
 	}
 
 	return nil
+}
+
+func validateWhitelistedCodeHashesBankSend(i interface{}) error {
+	_, ok := i.([]string)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	return nil
+}
+
+func generateDefaultWhitelistedCodeHashesBankSend() (res []string) {
+	h := crypto.Keccak256Hash(artifacts.GetNativeSeiTokensERC20Bin())
+	res = append(res, h.Hex())
+	return
 }

@@ -39,4 +39,8 @@ string minimum_fee_per_gas = 4 [
   (gogoproto.nullable)   = false,
   (gogoproto.jsontag) = "chain_id"
 ];
+  repeated string whitelisted_codehashes_bank_send = 7 [
+    (gogoproto.moretags)   = "yaml:\"whitelisted_codehashes_bank_send\"",
+    (gogoproto.jsontag) = "whitelisted_codehashes_bank_send"
+  ];
 }
