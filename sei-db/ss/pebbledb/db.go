@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 
 	"github.com/cockroachdb/pebble"
@@ -20,6 +21,8 @@ import (
 const (
 	VersionSize = 8
 
+	PrefixStore        = "s/k:"
+	LenPrefixStore     = 4
 	StorePrefixTpl     = "s/k:%s/"   // s/k:<storeKey>
 	latestVersionKey   = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
 	earliestVersionKey = "s/_earliest"
@@ -41,6 +44,10 @@ type Database struct {
 	config  config.StateStoreConfig
 	// Earliest version for db after pruning
 	earliestVersion int64
+
+	// Map of module to when each was last updated
+	// Used in pruning to skip over stores that have not been updated recently
+	storeKeyDirty sync.Map
 }
 
 func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
@@ -232,11 +239,19 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 		}
 	}
 
+	// Mark the store as updated
+	db.storeKeyDirty.Store(cs.Name, version)
+
 	return b.Write()
 }
 
 // Prune attempts to prune all versions up to and including the current version
 // Get the range of keys, manually iterate over them and delete them
+// We add a heuristic to skip over a module's keys during pruning if it hasn't been updated
+// since the last time pruning occurred.
+// NOTE: There is a rare case when a module's keys are skipped during pruning even though
+// it has been updated. This occurs when that module is updated in between pruning runs, the node after is restarted.
+// This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) error {
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
 
@@ -253,10 +268,12 @@ func (db *Database) Prune(version int64) error {
 		counter                                 int
 		prevKey, prevKeyEncoded, prevValEncoded []byte
 		prevVersionDecoded                      int64
+		prevStore                               string
 	)
 
 	for itr.First(); itr.Valid(); {
 		currKeyEncoded := slices.Clone(itr.Key())
+
 		// Ignore metadata entry for version during pruning
 		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
 			itr.Next()
@@ -267,6 +284,24 @@ func (db *Database) Prune(version int64) error {
 		currKey, currVersion, currOK := SplitMVCCKey(currKeyEncoded)
 		if !currOK {
 			return fmt.Errorf("invalid MVCC key")
+		}
+
+		storeKey, err := parseStoreKey(currKey)
+		if err != nil {
+			// XXX: This should never happen given we skip the metadata keys.
+			return err
+		}
+
+		// For every new module visited, check to see last time it was updated
+		if storeKey != prevStore {
+			prevStore = storeKey
+			updated, ok := db.storeKeyDirty.Load(storeKey)
+			versionUpdated, typeOk := updated.(int64)
+			// Skip a store's keys if version it was last updated is less than last prune height
+			if !ok || (typeOk && versionUpdated < db.earliestVersion) {
+				itr.SeekGE(storePrefix(storeKey + "0"))
+				continue
+			}
 		}
 
 		currVersionDecoded, err := decodeUint64Ascending(currVersion)
@@ -482,6 +517,25 @@ func prependStoreKey(storeKey string, key []byte) []byte {
 		return key
 	}
 	return append(storePrefix(storeKey), key...)
+}
+
+// Parses store from key with format "s/k:{store}/..."
+func parseStoreKey(key []byte) (string, error) {
+	// Convert byte slice to string only once
+	keyStr := string(key)
+
+	if !strings.HasPrefix(keyStr, PrefixStore) {
+		return "", fmt.Errorf("not a valid store key")
+	}
+
+	// Find the first occurrence of "/" after the prefix
+	slashIndex := strings.Index(keyStr[LenPrefixStore:], "/")
+	if slashIndex == -1 {
+		return "", fmt.Errorf("not a valid store key")
+	}
+
+	// Return the substring between the prefix and the first "/"
+	return keyStr[LenPrefixStore : LenPrefixStore+slashIndex], nil
 }
 
 func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {
