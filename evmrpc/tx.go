@@ -2,16 +2,22 @@ package evmrpc
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"math/big"
 	"strconv"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/client/config"
+	"github.com/cosmos/cosmos-sdk/codec/legacy"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -30,10 +36,11 @@ type TransactionAPI struct {
 	keeper      *keeper.Keeper
 	ctxProvider func(int64) sdk.Context
 	txConfig    client.TxConfig
+	homeDir     string
 }
 
-func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig) *TransactionAPI {
-	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig}
+func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, homeDir string) *TransactionAPI {
+	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, homeDir: homeDir}
 }
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
@@ -168,6 +175,44 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	}
 	res := hydrateTransaction(ethtx, big.NewInt(block.Block.Height), common.HexToHash(string(block.BlockID.Hash)), receipt)
 	return &res
+}
+
+func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (hexutil.Bytes, error) {
+	clientCtx := client.Context{}.WithViper("").WithHomeDir(t.homeDir)
+	clientCtx, err := config.ReadFromClientConfig(clientCtx)
+	if err != nil {
+		return nil, err
+	}
+	kb, err := client.NewKeyringFromBackend(clientCtx, keyring.BackendTest)
+	if err != nil {
+		return nil, err
+	}
+	keys, err := kb.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range keys {
+		localInfo, ok := key.(keyring.LocalInfo)
+		if !ok {
+			// will only show local key
+			continue
+		}
+		priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
+		if err != nil {
+			continue
+		}
+		privHex := hex.EncodeToString(priv.Bytes())
+		privKey, err := crypto.HexToECDSA(privHex)
+		if err != nil {
+			continue
+		}
+		if crypto.PubkeyToAddress(privKey.PublicKey).Hex() != addr.Hex() {
+			continue
+		}
+		dataHash := accounts.TextHash(data)
+		return crypto.Sign(dataHash, privKey)
+	}
+	return nil, errors.New("address does not have hosted key")
 }
 
 func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction {

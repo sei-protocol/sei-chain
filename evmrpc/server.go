@@ -24,6 +24,7 @@ func NewEVMHTTPServer(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfig client.TxConfig,
+	homeDir string,
 ) (EVMServer, error) {
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
@@ -45,7 +46,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir),
 		},
 		{
 			Namespace: "eth",
@@ -53,7 +54,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), homeDir),
 		},
 		{
 			Namespace: "eth",
@@ -91,6 +92,7 @@ func NewEVMWebSocketServer(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfig client.TxConfig,
+	homeDir string,
 ) (EVMServer, error) {
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
@@ -112,7 +114,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir),
 		},
 		{
 			Namespace: "eth",
@@ -120,7 +122,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), homeDir),
 		},
 		{
 			Namespace: "eth",
