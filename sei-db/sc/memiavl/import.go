@@ -73,7 +73,7 @@ func (mti *MultiTreeImporter) AddNode(node *types.SnapshotNode) {
 	mti.importer.Add(node)
 }
 
-func (mti *MultiTreeImporter) Close() error {
+func (mti *MultiTreeImporter) Finalize() error {
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {
 			return err
@@ -90,10 +90,15 @@ func (mti *MultiTreeImporter) Close() error {
 		return err
 	}
 
-	if err := updateCurrentSymlink(mti.dir, mti.snapshotDir); err != nil {
-		return err
+	return updateCurrentSymlink(mti.dir, mti.snapshotDir)
+}
+
+func (mti *MultiTreeImporter) Close() error {
+	var err error
+	if mti.importer != nil {
+		err = mti.importer.Close()
 	}
-	return mti.fileLock.Unlock()
+	return errors.Join(err, mti.fileLock.Unlock())
 }
 
 // TreeImporter import a single memiavl tree from state-sync snapshot

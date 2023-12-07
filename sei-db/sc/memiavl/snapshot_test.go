@@ -158,7 +158,6 @@ func TestDBSnapshotRestore(t *testing.T) {
 		require.NoError(t, db.ApplyChangeSets(cs))
 		_, err := db.Commit()
 		require.NoError(t, err)
-
 		testSnapshotRoundTrip(t, db)
 	}
 
@@ -185,11 +184,8 @@ func testSnapshotRoundTrip(t *testing.T, db *DB) {
 		require.NoError(t, importer.Add(item))
 	}
 
-	closeErr := importer.Close()
-	if closeErr != nil {
-		panic(closeErr)
-	}
-	require.NoError(t, closeErr)
+	require.NoError(t, importer.Finalize())
+	require.NoError(t, importer.Close())
 	require.NoError(t, exporter.Close())
 
 	db2, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: restoreDir})

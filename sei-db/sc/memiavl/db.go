@@ -787,7 +787,7 @@ func initEmptyDB(dir string, initialVersion uint32) error {
 	return updateCurrentSymlink(dir, snapshotDir)
 }
 
-// updateCurrentSymlink creates or replace the current symblic link atomically.
+// updateCurrentSymlink creates or replace the current symbolic link atomically.
 // it could fail under concurrent usage for tmp file conflicts.
 func updateCurrentSymlink(dir, snapshot string) error {
 	tmpPath := currentTmpPath(dir)
