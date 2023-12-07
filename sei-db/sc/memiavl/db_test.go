@@ -78,7 +78,9 @@ func TestRemoveSnapshotDir(t *testing.T) {
 	_, err = os.Stat(tmpDir)
 	require.False(t, os.IsNotExist(err))
 
-	db, err = OpenDB(logger.NewNopLogger(), 0, Options{})
+	db, err = OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir: dbDir,
+	})
 	require.NoError(t, err)
 
 	_, err = os.Stat(tmpDir)

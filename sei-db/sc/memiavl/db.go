@@ -85,7 +85,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (*DB, error
 	var (
 		err      error
 		fileLock FileLock
-		dir      = opts.Dir
 	)
 
 	if err := opts.Validate(); err != nil {
@@ -93,18 +92,21 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (*DB, error
 	}
 	opts.FillDefaults()
 
-	if err := createDBIfNotExist(dir, opts.InitialVersion); err != nil {
-		return nil, fmt.Errorf("fail to load db: %w", err)
+	if opts.CreateIfMissing {
+		if err := createDBIfNotExist(opts.Dir, opts.InitialVersion); err != nil {
+			return nil, fmt.Errorf("fail to load db: %w", err)
+		}
 	}
 
 	if !opts.ReadOnly {
-		fileLock, err = LockFile(filepath.Join(dir, LockFileName))
+		fileLock, err = LockFile(filepath.Join(opts.Dir, LockFileName))
 		if err != nil {
 			return nil, fmt.Errorf("fail to lock db: %w", err)
 		}
 
 		// cleanup any temporary directories left by interrupted snapshot rewrite
-		if err := removeTmpDirs(dir); err != nil {
+		fmt.Println(opts.Dir)
+		if err := removeTmpDirs(opts.Dir); err != nil {
 			return nil, fmt.Errorf("fail to cleanup tmp directories: %w", err)
 		}
 	}
@@ -112,21 +114,21 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (*DB, error
 	snapshot := "current"
 	if targetVersion > 0 {
 		// find the biggest snapshot version that's less than or equal to the target version
-		snapshotVersion, err := seekSnapshot(dir, targetVersion)
+		snapshotVersion, err := seekSnapshot(opts.Dir, targetVersion)
 		if err != nil {
 			return nil, fmt.Errorf("fail to seek snapshot: %w", err)
 		}
 		snapshot = snapshotName(snapshotVersion)
 	}
 
-	path := filepath.Join(dir, snapshot)
+	path := filepath.Join(opts.Dir, snapshot)
 	mtree, err := LoadMultiTree(path, opts.ZeroCopy, opts.CacheSize)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create rlog manager and open the rlog file
-	streamHandler, err := changelog.NewStream(logger, utils.GetChangelogPath(dir), changelog.Config{
+	streamHandler, err := changelog.NewStream(logger, utils.GetChangelogPath(opts.Dir), changelog.Config{
 		DisableFsync:    true,
 		ZeroCopy:        true,
 		WriteBufferSize: opts.AsyncCommitBuffer,
@@ -142,7 +144,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (*DB, error
 	}
 
 	if opts.LoadForOverwriting && targetVersion > 0 {
-		currentSnapshot, err := os.Readlink(currentPath(dir))
+		currentSnapshot, err := os.Readlink(currentPath(opts.Dir))
 		if err != nil {
 			return nil, fmt.Errorf("fail to read current version: %w", err)
 		}
@@ -150,7 +152,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (*DB, error
 		if snapshot != currentSnapshot {
 			// downgrade `"current"` link first
 			logger.Info("downgrade current link to %s", snapshot)
-			if err := updateCurrentSymlink(dir, snapshot); err != nil {
+			if err := updateCurrentSymlink(opts.Dir, snapshot); err != nil {
 				return nil, fmt.Errorf("fail to update current snapshot link: %w", err)
 			}
 		}
@@ -163,12 +165,12 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (*DB, error
 		}
 
 		// prune snapshots that's larger than the target version
-		if err := traverseSnapshots(dir, false, func(version int64) (bool, error) {
+		if err := traverseSnapshots(opts.Dir, false, func(version int64) (bool, error) {
 			if version <= targetVersion {
 				return true, nil
 			}
 
-			if err := atomicRemoveDir(filepath.Join(dir, snapshotName(version))); err != nil {
+			if err := atomicRemoveDir(filepath.Join(opts.Dir, snapshotName(version))); err != nil {
 				logger.Error("fail to prune snapshot, version: %d", version)
 			} else {
 				logger.Info("prune snapshot, version: %d", version)
@@ -184,7 +186,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (*DB, error
 	db := &DB{
 		MultiTree:          *mtree,
 		logger:             logger,
-		dir:                dir,
+		dir:                opts.Dir,
 		fileLock:           fileLock,
 		readOnly:           opts.ReadOnly,
 		streamHandler:      streamHandler,
