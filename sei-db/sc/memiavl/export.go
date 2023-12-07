@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
-
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/sc/types"
 )
 
@@ -29,16 +29,14 @@ func NewMultiTreeExporter(dir string, version uint32) (exporter *MultiTreeExport
 		db    *DB
 		mtree *MultiTree
 	)
-	curVersion, err := currentVersion(dir)
+	db, err = OpenDB(logger.NewNopLogger(), int64(version), Options{
+		Dir:                 dir,
+		ZeroCopy:            true,
+		ReadOnly:            true,
+		SnapshotWriterLimit: config.DefaultSnapshotWriterLimit,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load current version: %w", err)
-	}
-	if int64(version) > curVersion {
-		return nil, fmt.Errorf("MemIAVL snapshot is not created yet: height: %d", version)
-	}
-	mtree, err = LoadMultiTree(filepath.Join(dir, snapshotName(int64(version))), true, 0)
-	if err != nil {
-		return nil, fmt.Errorf("MemIAVL snapshot doesn't exist yet for version: %d, %w", version, err)
+		return nil, fmt.Errorf("invalid height: %d, %w", version, err)
 	}
 	return &MultiTreeExporter{
 		db:    db,
