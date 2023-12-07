@@ -185,7 +185,11 @@ func testSnapshotRoundTrip(t *testing.T, db *DB) {
 		require.NoError(t, importer.Add(item))
 	}
 
-	require.NoError(t, importer.Close())
+	closeErr := importer.Close()
+	if closeErr != nil {
+		panic(closeErr)
+	}
+	require.NoError(t, closeErr)
 	require.NoError(t, exporter.Close())
 
 	db2, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: restoreDir})
