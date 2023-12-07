@@ -17,10 +17,10 @@ func main() {
 
 	rootCmd.AddCommand(
 		benchmark.GenerateCmd(),
-		benchmark.BenchmarkWriteCmd(),
-		benchmark.BenchmarkReadCmd(),
-		benchmark.BenchmarkDBIterationCmd(),
-		benchmark.BenchmarkDBReverseIterationCmd(),
+		benchmark.DBWriteCmd(),
+		benchmark.DBRandomReadCmd(),
+		benchmark.DBIterationCmd(),
+		benchmark.DBReverseIterationCmd(),
 		operations.DumpDbCmd(),
 		operations.PruneCmd())
 	if err := rootCmd.Execute(); err != nil {

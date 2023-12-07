@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func BenchmarkDBReverseIterationCmd() *cobra.Command {
+func DBReverseIterationCmd() *cobra.Command {
 	benchmarkReverseIterationCmd := &cobra.Command{
 		Use:   "benchmark-reverse-iteration",
 		Short: "Benchmark reverse iteration is designed to measure reverse iteration performance of different db backends",

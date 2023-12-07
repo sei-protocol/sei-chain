@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func BenchmarkDBIterationCmd() *cobra.Command {
+func DBIterationCmd() *cobra.Command {
 	benchmarkForwardIterationCmd := &cobra.Command{
 		Use:   "benchmark-iteration",
 		Short: "Benchmark iteration is designed to measure forward iteration performance of different db backends",

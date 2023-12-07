@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func BenchmarkWriteCmd() *cobra.Command {
+func DBWriteCmd() *cobra.Command {
 	benchmarkWriteCmd := &cobra.Command{
 		Use:   "benchmark-write",
 		Short: "Benchmark write is designed to measure write performance of different db backends",

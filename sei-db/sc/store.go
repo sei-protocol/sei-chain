@@ -15,14 +15,13 @@ var _ types.Committer = (*CommitStore)(nil)
 type CommitStore struct {
 	logger logger.Logger
 	db     *memiavl.DB
-	config config.StateCommitConfig
 	opts   memiavl.Options
 }
 
 func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCommitConfig) *CommitStore {
 	scDir := homeDir
 	if config.Directory != "" {
-		homeDir = config.Directory
+		scDir = config.Directory
 	}
 	opts := memiavl.Options{
 		Dir:                 filepath.Join(scDir, "memiavl"),

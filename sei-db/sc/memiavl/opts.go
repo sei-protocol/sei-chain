@@ -45,13 +45,9 @@ func (opts Options) Validate() error {
 	return nil
 }
 
-func (opts Options) FillDefaults() {
+func (opts *Options) FillDefaults() {
 	if opts.SnapshotInterval <= 0 {
 		opts.SnapshotInterval = config.DefaultSnapshotInterval
-	}
-
-	if opts.SnapshotKeepRecent < 0 {
-		opts.SnapshotKeepRecent = config.DefaultSnapshotKeepRecent
 	}
 
 	if opts.SnapshotWriterLimit <= 0 {

@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func BenchmarkReadCmd() *cobra.Command {
+func DBRandomReadCmd() *cobra.Command {
 	benchmarkReadCmd := &cobra.Command{
 		Use:   "benchmark-read",
 		Short: "Benchmark read is designed to measure read performance of different db backends",
