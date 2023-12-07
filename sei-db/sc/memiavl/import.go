@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/types"
 )
@@ -98,7 +99,7 @@ func (mti *MultiTreeImporter) Close() error {
 	if mti.importer != nil {
 		err = mti.importer.Close()
 	}
-	return errors.Join(err, mti.fileLock.Unlock())
+	return errorutils.Join(err, mti.fileLock.Unlock())
 }
 
 // TreeImporter import a single memiavl tree from state-sync snapshot
