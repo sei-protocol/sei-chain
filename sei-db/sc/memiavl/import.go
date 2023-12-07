@@ -80,7 +80,7 @@ func (mti *MultiTreeImporter) Close() error {
 		}
 		mti.importer = nil
 	}
-	defer mti.fileLock.Unlock()
+	_ = mti.fileLock.Unlock()
 	tmpDir := mti.tmpDir()
 	if err := updateMetadataFile(tmpDir, mti.height); err != nil {
 		return err

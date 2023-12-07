@@ -2,6 +2,7 @@ package memiavl
 
 import (
 	"errors"
+
 	"github.com/sei-protocol/sei-db/config"
 )
 

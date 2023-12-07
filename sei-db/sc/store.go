@@ -133,6 +133,6 @@ func (cs *CommitStore) Importer(version int64) (types.Importer, error) {
 	return treeImporter, nil
 }
 
-func (c *CommitStore) Close() error {
-	return c.db.Close()
+func (cs *CommitStore) Close() error {
+	return cs.db.Close()
 }

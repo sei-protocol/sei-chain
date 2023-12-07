@@ -1,10 +1,11 @@
-package main
+package benchmark
 
 import (
 	"fmt"
 	"io/fs"
 	"os"
 
+	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss"
 	"github.com/sei-protocol/sei-db/tools/dbbackend"
 	"github.com/spf13/cobra"
@@ -64,8 +65,9 @@ func BenchmarkRead(inputKVDir string, numVersions int, outputDir string, dbBacke
 	}
 	// Iterate over files in directory
 	fmt.Printf("Reading Raw Keys and Values from %s\n", inputKVDir)
-
-	backend, err := ss.NewStateStoreDB(outputDir, dbBackend)
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Backend = dbBackend
+	backend, err := ss.NewStateStore(outputDir, ssConfig)
 	if err != nil {
 		panic(err)
 	}

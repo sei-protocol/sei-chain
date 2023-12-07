@@ -1,11 +1,13 @@
-package main
+package operations
 
 import (
 	"fmt"
 	"io/fs"
 	"os"
 
+	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss"
+	"github.com/sei-protocol/sei-db/tools/cmd/benchmark"
 	"github.com/sei-protocol/sei-db/tools/utils"
 	"github.com/spf13/cobra"
 )
@@ -42,7 +44,7 @@ func dump(cmd *cobra.Command, _ []string) {
 		panic("Must provide db backend")
 	}
 
-	_, isAcceptedBackend := ValidDBBackends[dbBackend]
+	_, isAcceptedBackend := benchmark.ValidDBBackends[dbBackend]
 	if !isAcceptedBackend {
 		panic(fmt.Sprintf("Unsupported db backend: %s\n", dbBackend))
 	}
@@ -70,7 +72,9 @@ func DumpDbData(dbBackend string, module string, outputDir string, dbDir string)
 	defer currentFile.Close()
 
 	// TODO: Defer Close Db
-	backend, err := ss.NewStateStoreDB(dbDir, dbBackend)
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Backend = dbBackend
+	backend, err := ss.NewStateStore(outputDir, ssConfig)
 	if err != nil {
 		panic(err)
 	}

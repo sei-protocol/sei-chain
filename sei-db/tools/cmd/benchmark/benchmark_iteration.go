@@ -1,8 +1,9 @@
-package main
+package benchmark
 
 import (
 	"fmt"
 
+	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss"
 	"github.com/sei-protocol/sei-db/tools/dbbackend"
 	"github.com/spf13/cobra"
@@ -59,8 +60,9 @@ func benchmarkForwardIteration(cmd *cobra.Command, args []string) {
 func BenchmarkDBIteration(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64, iterationSteps int) {
 	// Iterate over db at directory
 	fmt.Printf("Iterating Over DB at  %s\n", outputDir)
-
-	backend, err := ss.NewStateStoreDB(outputDir, dbBackend)
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Backend = dbBackend
+	backend, err := ss.NewStateStore(outputDir, ssConfig)
 	if err != nil {
 		panic(err)
 	}
