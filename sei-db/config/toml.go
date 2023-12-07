@@ -12,7 +12,7 @@ const DefaultConfigTemplate = `
 sc-enable = {{ .StateCommit.Enable }}
 
 # Directory defines the state-commit store directory, if not explicitly set, default to application home directory
-sc-directory = {{ .StateCommit.Directory }}
+sc-directory = "{{ .StateCommit.Directory }}"
 
 # ZeroCopy defines if memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
 # the zero-copied slices must not be retained beyond current block's execution.
@@ -44,7 +44,7 @@ ss-enable = {{ .StateStore.Enable }}
 
 # Directory defines the directory to store the state store db files
 # If not explicitly set, default to application home directory
-ss-db-directory = {{ .StateStore.DBDirectory }}
+ss-db-directory = "{{ .StateStore.DBDirectory }}"
 
 # DBBackend defines the backend database used for state-store.
 # Supported backends: pebbledb, rocksdb, sqlite
