@@ -80,7 +80,7 @@ func (mti *MultiTreeImporter) Close() error {
 		}
 		mti.importer = nil
 	}
-	_ = mti.fileLock.Unlock()
+
 	tmpDir := mti.tmpDir()
 	if err := updateMetadataFile(tmpDir, mti.height); err != nil {
 		return err
@@ -90,7 +90,10 @@ func (mti *MultiTreeImporter) Close() error {
 		return err
 	}
 
-	return updateCurrentSymlink(mti.dir, mti.snapshotDir)
+	if err := updateCurrentSymlink(mti.dir, mti.snapshotDir); err != nil {
+		return err
+	}
+	return mti.fileLock.Unlock()
 }
 
 // TreeImporter import a single memiavl tree from state-sync snapshot
