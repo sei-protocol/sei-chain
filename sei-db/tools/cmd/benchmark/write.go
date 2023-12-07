@@ -15,7 +15,7 @@ func DBWriteCmd() *cobra.Command {
 	benchmarkWriteCmd := &cobra.Command{
 		Use:   "benchmark-write",
 		Short: "Benchmark write is designed to measure write performance of different db backends",
-		Run:   benchmarkWrite,
+		Run:   executeWrite,
 	}
 
 	benchmarkWriteCmd.PersistentFlags().StringP("db-backend", "d", "", "DB Backend")
@@ -28,7 +28,7 @@ func DBWriteCmd() *cobra.Command {
 	return benchmarkWriteCmd
 }
 
-func benchmarkWrite(cmd *cobra.Command, args []string) {
+func executeWrite(cmd *cobra.Command, args []string) {
 	dbBackend, _ := cmd.Flags().GetString("db-backend")
 	rawKVInputDir, _ := cmd.Flags().GetString("raw-kv-input-dir")
 	outputDir, _ := cmd.Flags().GetString("output-dir")
@@ -53,11 +53,11 @@ func benchmarkWrite(cmd *cobra.Command, args []string) {
 		panic(fmt.Sprintf("Unsupported db backend: %s\n", dbBackend))
 	}
 
-	BenchmarkWrite(rawKVInputDir, numVersions, outputDir, dbBackend, concurrency, batchSize)
+	DBWrite(rawKVInputDir, numVersions, outputDir, dbBackend, concurrency, batchSize)
 }
 
 // BenchmarkWrite write latencies and throughput of db backend
-func BenchmarkWrite(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, batchSize int) {
+func DBWrite(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, batchSize int) {
 	// Create output directory
 	err := os.MkdirAll(outputDir, fs.ModePerm)
 	if err != nil {

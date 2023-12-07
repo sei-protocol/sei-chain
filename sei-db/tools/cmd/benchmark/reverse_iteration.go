@@ -13,7 +13,7 @@ func DBReverseIterationCmd() *cobra.Command {
 	benchmarkReverseIterationCmd := &cobra.Command{
 		Use:   "benchmark-reverse-iteration",
 		Short: "Benchmark reverse iteration is designed to measure reverse iteration performance of different db backends",
-		Run:   benchmarkReverseIteration,
+		Run:   executeReverseIteration,
 	}
 
 	benchmarkReverseIterationCmd.PersistentFlags().StringP("db-backend", "d", "", "DB Backend")
@@ -27,7 +27,7 @@ func DBReverseIterationCmd() *cobra.Command {
 	return benchmarkReverseIterationCmd
 }
 
-func benchmarkReverseIteration(cmd *cobra.Command, args []string) {
+func executeReverseIteration(cmd *cobra.Command, args []string) {
 	dbBackend, _ := cmd.Flags().GetString("db-backend")
 	rawKVInputDir, _ := cmd.Flags().GetString("raw-kv-input-dir")
 	outputDir, _ := cmd.Flags().GetString("output-dir")
@@ -53,11 +53,11 @@ func benchmarkReverseIteration(cmd *cobra.Command, args []string) {
 		panic(fmt.Sprintf("Unsupported db backend: %s\n", dbBackend))
 	}
 
-	BenchmarkDBReverseIteration(rawKVInputDir, numVersions, outputDir, dbBackend, concurrency, maxOps, iterationSteps)
+	DBReverseIteration(rawKVInputDir, numVersions, outputDir, dbBackend, concurrency, maxOps, iterationSteps)
 }
 
 // BenchmarkDBReverseIteration reverse iteration performance of db backend
-func BenchmarkDBReverseIteration(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64, iterationSteps int) {
+func DBReverseIteration(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64, iterationSteps int) {
 	// Reverse Iterate over db at directory
 	fmt.Printf("Iterating Over DB at  %s\n", outputDir)
 	ssConfig := config.DefaultStateStoreConfig()

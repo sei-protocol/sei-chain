@@ -13,7 +13,7 @@ func DBIterationCmd() *cobra.Command {
 	benchmarkForwardIterationCmd := &cobra.Command{
 		Use:   "benchmark-iteration",
 		Short: "Benchmark iteration is designed to measure forward iteration performance of different db backends",
-		Run:   benchmarkForwardIteration,
+		Run:   executeForwardIteration,
 	}
 
 	benchmarkForwardIterationCmd.PersistentFlags().StringP("db-backend", "d", "", "DB Backend")
@@ -27,7 +27,7 @@ func DBIterationCmd() *cobra.Command {
 	return benchmarkForwardIterationCmd
 }
 
-func benchmarkForwardIteration(cmd *cobra.Command, args []string) {
+func executeForwardIteration(cmd *cobra.Command, args []string) {
 	dbBackend, _ := cmd.Flags().GetString("db-backend")
 	rawKVInputDir, _ := cmd.Flags().GetString("raw-kv-input-dir")
 	outputDir, _ := cmd.Flags().GetString("output-dir")
@@ -53,11 +53,11 @@ func benchmarkForwardIteration(cmd *cobra.Command, args []string) {
 		panic(fmt.Sprintf("Unsupported db backend: %s\n", dbBackend))
 	}
 
-	BenchmarkDBIteration(rawKVInputDir, numVersions, outputDir, dbBackend, concurrency, maxOps, iterationSteps)
+	DBIteration(rawKVInputDir, numVersions, outputDir, dbBackend, concurrency, maxOps, iterationSteps)
 }
 
 // BenchmarkDBIteration read latencies and throughput of db backend
-func BenchmarkDBIteration(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64, iterationSteps int) {
+func DBIteration(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64, iterationSteps int) {
 	// Iterate over db at directory
 	fmt.Printf("Iterating Over DB at  %s\n", outputDir)
 	ssConfig := config.DefaultStateStoreConfig()

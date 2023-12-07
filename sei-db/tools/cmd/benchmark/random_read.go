@@ -15,7 +15,7 @@ func DBRandomReadCmd() *cobra.Command {
 	benchmarkReadCmd := &cobra.Command{
 		Use:   "benchmark-read",
 		Short: "Benchmark read is designed to measure read performance of different db backends",
-		Run:   benchmarkRead,
+		Run:   executeRandomRead,
 	}
 
 	benchmarkReadCmd.PersistentFlags().StringP("db-backend", "d", "", "DB Backend")
@@ -28,7 +28,7 @@ func DBRandomReadCmd() *cobra.Command {
 	return benchmarkReadCmd
 }
 
-func benchmarkRead(cmd *cobra.Command, args []string) {
+func executeRandomRead(cmd *cobra.Command, args []string) {
 	dbBackend, _ := cmd.Flags().GetString("db-backend")
 	rawKVInputDir, _ := cmd.Flags().GetString("raw-kv-input-dir")
 	outputDir, _ := cmd.Flags().GetString("output-dir")
@@ -53,11 +53,11 @@ func benchmarkRead(cmd *cobra.Command, args []string) {
 		panic(fmt.Sprintf("Unsupported db backend: %s\n", dbBackend))
 	}
 
-	BenchmarkRead(rawKVInputDir, numVersions, outputDir, dbBackend, concurrency, maxOps)
+	DBRandomRead(rawKVInputDir, numVersions, outputDir, dbBackend, concurrency, maxOps)
 }
 
 // BenchmarkRead read latencies and throughput of db backend
-func BenchmarkRead(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64) {
+func DBRandomRead(inputKVDir string, numVersions int, outputDir string, dbBackend string, concurrency int, maxOps int64) {
 	// Create output directory
 	err := os.MkdirAll(outputDir, fs.ModePerm)
 	if err != nil {
