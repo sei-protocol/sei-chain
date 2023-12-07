@@ -13,18 +13,16 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/cosmos/iavl"
+	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
+	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/changelog"
 	"github.com/sei-protocol/sei-db/stream/types"
 )
 
-const (
-	DefaultSnapshotInterval    = 10000
-	LockFileName               = "LOCK"
-	DefaultSnapshotWriterLimit = 4
-)
+const LockFileName = "LOCK"
 
 var errReadOnly = errors.New("db is read-only")
 
@@ -58,21 +56,17 @@ type DB struct {
 	// block interval to take a new snapshot
 	snapshotInterval uint32
 	// make sure only one snapshot rewrite is running
-	pruneSnapshotLock      sync.Mutex
-	triggerStateSyncExport func(height int64)
+	pruneSnapshotLock sync.Mutex
 
 	// the changelog stream persists all the changesets
 	streamHandler types.Stream[proto.ChangelogEntry]
-
-	// subscriber that listens to each commit
-	commitSubscriber types.Subscriber[proto.ChangelogEntry]
 
 	// pending change, will be written into rlog file in next Commit call
 	pendingLogEntry proto.ChangelogEntry
 
 	// The assumptions to concurrency:
 	// - The methods on DB are protected by a mutex
-	// - Each call of Load loads a separate instance, in query scenarios,
+	// - Each call of OpenDB loads a separate instance, in query scenarios,
 	//   it should be immutable, the cache stores will handle the temporary writes.
 	// - The DB for the state machine will handle writes through the Commit call,
 	//   this method is the sole entry point for tree modifications, and there's no concurrency internally
@@ -87,22 +81,22 @@ const (
 	SnapshotDirLen = len(SnapshotPrefix) + 20
 )
 
-func Load(dir string, opts Options) (*DB, error) {
-	if err := opts.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid options: %w", err)
-	}
-	opts.FillDefaults()
-
-	if opts.CreateIfMissing {
-		if err := createDBIfNotExist(dir, opts.InitialVersion); err != nil {
-			return nil, fmt.Errorf("fail to load db: %w", err)
-		}
-	}
-
+func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (*DB, error) {
 	var (
 		err      error
 		fileLock FileLock
+		dir      = opts.Dir
 	)
+
+	if err := opts.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid commit store options: %w", err)
+	}
+	opts.FillDefaults()
+
+	if err := createDBIfNotExist(dir, opts.InitialVersion); err != nil {
+		return nil, fmt.Errorf("fail to load db: %w", err)
+	}
+
 	if !opts.ReadOnly {
 		fileLock, err = LockFile(filepath.Join(dir, LockFileName))
 		if err != nil {
@@ -116,9 +110,9 @@ func Load(dir string, opts Options) (*DB, error) {
 	}
 
 	snapshot := "current"
-	if opts.TargetVersion > 0 {
+	if targetVersion > 0 {
 		// find the biggest snapshot version that's less than or equal to the target version
-		snapshotVersion, err := seekSnapshot(dir, opts.TargetVersion)
+		snapshotVersion, err := seekSnapshot(dir, targetVersion)
 		if err != nil {
 			return nil, fmt.Errorf("fail to seek snapshot: %w", err)
 		}
@@ -132,7 +126,7 @@ func Load(dir string, opts Options) (*DB, error) {
 	}
 
 	// Create rlog manager and open the rlog file
-	streamHandler, err := changelog.NewStream(opts.Logger, utils.GetChangelogPath(dir), changelog.Config{
+	streamHandler, err := changelog.NewStream(logger, utils.GetChangelogPath(dir), changelog.Config{
 		DisableFsync:    true,
 		ZeroCopy:        true,
 		WriteBufferSize: opts.AsyncCommitBuffer,
@@ -141,13 +135,13 @@ func Load(dir string, opts Options) (*DB, error) {
 		return nil, err
 	}
 
-	if opts.TargetVersion == 0 || int64(opts.TargetVersion) > mtree.Version() {
-		if err := mtree.Catchup(streamHandler, int64(opts.TargetVersion)); err != nil {
-			return nil, utils.Join(err, streamHandler.Close())
+	if targetVersion == 0 || targetVersion > mtree.Version() {
+		if err := mtree.Catchup(streamHandler, targetVersion); err != nil {
+			return nil, errorutils.Join(err, streamHandler.Close())
 		}
 	}
 
-	if opts.LoadForOverwriting && opts.TargetVersion > 0 {
+	if opts.LoadForOverwriting && targetVersion > 0 {
 		currentSnapshot, err := os.Readlink(currentPath(dir))
 		if err != nil {
 			return nil, fmt.Errorf("fail to read current version: %w", err)
@@ -155,29 +149,29 @@ func Load(dir string, opts Options) (*DB, error) {
 
 		if snapshot != currentSnapshot {
 			// downgrade `"current"` link first
-			opts.Logger.Info("downgrade current link to %s", snapshot)
+			logger.Info("downgrade current link to %s", snapshot)
 			if err := updateCurrentSymlink(dir, snapshot); err != nil {
 				return nil, fmt.Errorf("fail to update current snapshot link: %w", err)
 			}
 		}
 
 		// truncate the rlog file
-		opts.Logger.Info("truncate rlog after version: %d", opts.TargetVersion)
-		truncateIndex := utils.VersionToIndex(int64(opts.TargetVersion), mtree.initialVersion)
+		logger.Info("truncate rlog after version: %d", targetVersion)
+		truncateIndex := utils.VersionToIndex(targetVersion, mtree.initialVersion)
 		if err := streamHandler.TruncateAfter(truncateIndex); err != nil {
 			return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
 		}
 
 		// prune snapshots that's larger than the target version
 		if err := traverseSnapshots(dir, false, func(version int64) (bool, error) {
-			if version <= int64(opts.TargetVersion) {
+			if version <= targetVersion {
 				return true, nil
 			}
 
 			if err := atomicRemoveDir(filepath.Join(dir, snapshotName(version))); err != nil {
-				opts.Logger.Error("fail to prune snapshot, version: %d", version)
+				logger.Error("fail to prune snapshot, version: %d", version)
 			} else {
-				opts.Logger.Info("prune snapshot, version: %d", version)
+				logger.Info("prune snapshot, version: %d", version)
 			}
 			return false, nil
 		}); err != nil {
@@ -188,17 +182,15 @@ func Load(dir string, opts Options) (*DB, error) {
 	workerPool := pond.New(opts.SnapshotWriterLimit, opts.SnapshotWriterLimit*10)
 
 	db := &DB{
-		MultiTree:              *mtree,
-		logger:                 opts.Logger,
-		dir:                    dir,
-		fileLock:               fileLock,
-		readOnly:               opts.ReadOnly,
-		streamHandler:          streamHandler,
-		snapshotKeepRecent:     opts.SnapshotKeepRecent,
-		snapshotInterval:       opts.SnapshotInterval,
-		triggerStateSyncExport: opts.TriggerStateSyncExport,
-		commitSubscriber:       opts.CommitSubscriber,
-		snapshotWriterPool:     workerPool,
+		MultiTree:          *mtree,
+		logger:             logger,
+		dir:                dir,
+		fileLock:           fileLock,
+		readOnly:           opts.ReadOnly,
+		streamHandler:      streamHandler,
+		snapshotKeepRecent: opts.SnapshotKeepRecent,
+		snapshotInterval:   opts.SnapshotInterval,
+		snapshotWriterPool: workerPool,
 	}
 
 	if !db.readOnly && db.Version() == 0 && len(opts.InitialStores) > 0 {
@@ -208,10 +200,9 @@ func Load(dir string, opts Options) (*DB, error) {
 			upgrades = append(upgrades, &proto.TreeNameUpgrade{Name: name})
 		}
 		if err := db.ApplyUpgrades(upgrades); err != nil {
-			return nil, utils.Join(err, db.Close())
+			return nil, errorutils.Join(err, db.Close())
 		}
 	}
-
 	return db, nil
 }
 
@@ -334,7 +325,7 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 
 // checkAsyncTasks checks the status of background tasks non-blocking-ly and process the result
 func (db *DB) checkAsyncTasks() error {
-	return utils.Join(
+	return errorutils.Join(
 		db.streamHandler.CheckError(),
 		db.checkBackgroundSnapshotRewrite(),
 	)
@@ -389,11 +380,6 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		db.logger.Info("switched to new snapshot", "version", db.MultiTree.Version())
 
 		db.pruneSnapshots()
-
-		// trigger state-sync snapshot export
-		if db.triggerStateSyncExport != nil {
-			db.triggerStateSyncExport(db.SnapshotVersion())
-		}
 	default:
 	}
 
@@ -474,14 +460,6 @@ func (db *DB) Commit() (int64, error) {
 		}
 	}
 
-	// broadcast to subscriber if there's any
-	if db.commitSubscriber != nil {
-		err := db.commitSubscriber.ProcessEntry(db.pendingLogEntry)
-		if err != nil {
-			return 0, err
-		}
-	}
-
 	db.pendingLogEntry = proto.ChangelogEntry{}
 
 	if err := db.checkAsyncTasks(); err != nil {
@@ -525,7 +503,7 @@ func (db *DB) RewriteSnapshot() error {
 	tmpDir := snapshotDir + "-tmp"
 	path := filepath.Join(db.dir, tmpDir)
 	if err := db.MultiTree.WriteSnapshot(path, db.snapshotWriterPool); err != nil {
-		return utils.Join(err, os.RemoveAll(path))
+		return errorutils.Join(err, os.RemoveAll(path))
 	}
 	if err := os.Rename(path, filepath.Join(db.dir, snapshotDir)); err != nil {
 		return err
@@ -639,7 +617,7 @@ func (db *DB) Close() error {
 		db.fileLock = nil
 	}
 
-	return utils.Join(errs...)
+	return errorutils.Join(errs...)
 }
 
 // TreeByName wraps MultiTree.TreeByName to add a lock.
@@ -745,13 +723,13 @@ func parseVersion(name string) (int64, error) {
 
 // seekSnapshot find the biggest snapshot version that's smaller than or equal to the target version,
 // returns 0 if not found.
-func seekSnapshot(root string, targetVersion uint32) (int64, error) {
+func seekSnapshot(root string, targetVersion int64) (int64, error) {
 	var (
 		snapshotVersion int64
 		found           bool
 	)
 	if err := traverseSnapshots(root, false, func(version int64) (bool, error) {
-		if version <= int64(targetVersion) {
+		if version <= targetVersion {
 			found = true
 			snapshotVersion = version
 			return true, nil
@@ -798,7 +776,7 @@ func initEmptyDB(dir string, initialVersion uint32) error {
 	tmp := NewEmptyMultiTree(initialVersion, 0)
 	snapshotDir := snapshotName(0)
 	// create tmp worker pool
-	pool := pond.New(DefaultSnapshotWriterLimit, DefaultSnapshotWriterLimit*10)
+	pool := pond.New(config.DefaultSnapshotWriterLimit, config.DefaultSnapshotWriterLimit*10)
 	defer pool.Stop()
 
 	if err := tmp.WriteSnapshot(filepath.Join(dir, snapshotDir), pool); err != nil {

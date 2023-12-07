@@ -4,7 +4,7 @@ import (
 	"os"
 
 	"github.com/ledgerwatch/erigon-lib/mmap"
-	"github.com/sei-protocol/sei-db/common/utils"
+	"github.com/sei-protocol/sei-db/common/errors"
 )
 
 // MmapFile manage the resources of a mmap-ed file
@@ -42,7 +42,7 @@ func (m *MmapFile) Close() error {
 	if m.handle != nil {
 		err = mmap.Munmap(m.data, m.handle)
 	}
-	return utils.Join(err, m.file.Close())
+	return errors.Join(err, m.file.Close())
 }
 
 // Data returns the mmap-ed buffer

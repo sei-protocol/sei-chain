@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-db/sc/types"
 )
 
 var (
@@ -49,7 +49,7 @@ func (mti *MultiTreeImporter) tmpDir() string {
 
 func (mti *MultiTreeImporter) Add(item interface{}) error {
 	switch item := item.(type) {
-	case *ExportNode:
+	case *types.SnapshotNode:
 		mti.AddNode(item)
 		return nil
 	case string:
@@ -69,18 +69,18 @@ func (mti *MultiTreeImporter) AddTree(name string) error {
 	return nil
 }
 
-func (mti *MultiTreeImporter) AddNode(node *ExportNode) {
+func (mti *MultiTreeImporter) AddNode(node *types.SnapshotNode) {
 	mti.importer.Add(node)
 }
 
-func (mti *MultiTreeImporter) Finalize() error {
+func (mti *MultiTreeImporter) Close() error {
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {
 			return err
 		}
 		mti.importer = nil
 	}
-
+	defer mti.fileLock.Unlock()
 	tmpDir := mti.tmpDir()
 	if err := updateMetadataFile(tmpDir, mti.height); err != nil {
 		return err
@@ -93,22 +93,14 @@ func (mti *MultiTreeImporter) Finalize() error {
 	return updateCurrentSymlink(mti.dir, mti.snapshotDir)
 }
 
-func (mti *MultiTreeImporter) Close() error {
-	var err error
-	if mti.importer != nil {
-		err = mti.importer.Close()
-	}
-	return utils.Join(err, mti.fileLock.Unlock())
-}
-
 // TreeImporter import a single memiavl tree from state-sync snapshot
 type TreeImporter struct {
-	nodesChan chan *ExportNode
+	nodesChan chan *types.SnapshotNode
 	quitChan  chan error
 }
 
 func NewTreeImporter(dir string, version int64) *TreeImporter {
-	nodesChan := make(chan *ExportNode, nodeChanSize)
+	nodesChan := make(chan *types.SnapshotNode, nodeChanSize)
 	quitChan := make(chan error)
 	go func() {
 		defer close(quitChan)
@@ -117,7 +109,7 @@ func NewTreeImporter(dir string, version int64) *TreeImporter {
 	return &TreeImporter{nodesChan, quitChan}
 }
 
-func (ai *TreeImporter) Add(node *ExportNode) {
+func (ai *TreeImporter) Add(node *types.SnapshotNode) {
 	ai.nodesChan <- node
 }
 
@@ -133,8 +125,8 @@ func (ai *TreeImporter) Close() error {
 	return err
 }
 
-// doImport a stream of `ExportNode`s into a new snapshot.
-func doImport(dir string, version int64, nodes <-chan *ExportNode) (returnErr error) {
+// doImport a stream of `types.SnapshotNode`s into a new snapshot.
+func doImport(dir string, version int64, nodes <-chan *types.SnapshotNode) (returnErr error) {
 	if version > int64(math.MaxUint32) {
 		return errors.New("version overflows uint32")
 	}
@@ -170,7 +162,7 @@ type importer struct {
 	nodeStack []*MemNode
 }
 
-func (i *importer) Add(n *ExportNode) error {
+func (i *importer) Add(n *types.SnapshotNode) error {
 	if n.Version > int64(math.MaxUint32) {
 		return errors.New("version overflows uint32")
 	}

@@ -2,25 +2,20 @@ package memiavl
 
 import (
 	"errors"
-
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/stream/types"
+	"github.com/sei-protocol/sei-db/config"
 )
 
 type Options struct {
-	Logger          logger.Logger
+	Dir             string
 	CreateIfMissing bool
 	InitialVersion  uint32
 	ReadOnly        bool
 	// the initial stores when initialize the empty instance
-	InitialStores          []string
-	SnapshotKeepRecent     uint32
-	SnapshotInterval       uint32
-	TriggerStateSyncExport func(height int64)
-	CommitSubscriber       types.Subscriber[proto.ChangelogEntry]
-	// load the target version instead of latest version
-	TargetVersion uint32
+	InitialStores []string
+	// keep how many snapshots
+	SnapshotKeepRecent uint32
+	// how often to take a snapshot
+	SnapshotInterval uint32
 	// Buffer size for the asynchronous commit queue, -1 means synchronous commit,
 	// default to 0.
 	AsyncCommitBuffer int
@@ -28,19 +23,13 @@ type Options struct {
 	ZeroCopy bool
 	// CacheSize defines the cache's max entry size for each memiavl store.
 	CacheSize int
-	// LoadForOverwriting if true rollbacks the state, specifically the Load method will
+	// LoadForOverwriting if true rollbacks the state, specifically the OpenDB method will
 	// truncate the versions after the `TargetVersion`, the `TargetVersion` becomes the latest version.
 	// it do nothing if the target version is `0`.
 	LoadForOverwriting bool
 
 	// Limit the number of concurrent snapshot writers
 	SnapshotWriterLimit int
-
-	// SDK46Compatible defines if the root hash is compatible with cosmos-sdk 0.46 and before.
-	SdkBackwardCompatible bool
-
-	// ExportNonSnapshotVersion if true, the state snapshot can be exported at any version
-	ExportNonSnapshotVersion bool
 }
 
 func (opts Options) Validate() error {
@@ -55,16 +44,24 @@ func (opts Options) Validate() error {
 	return nil
 }
 
-func (opts *Options) FillDefaults() {
-	if opts.Logger == nil {
-		opts.Logger = logger.NewNopLogger()
+func (opts Options) FillDefaults() {
+	if opts.SnapshotInterval <= 0 {
+		opts.SnapshotInterval = config.DefaultSnapshotInterval
 	}
 
-	if opts.SnapshotInterval == 0 {
-		opts.SnapshotInterval = DefaultSnapshotInterval
+	if opts.SnapshotKeepRecent < 0 {
+		opts.SnapshotKeepRecent = config.DefaultSnapshotKeepRecent
 	}
 
 	if opts.SnapshotWriterLimit <= 0 {
-		opts.SnapshotWriterLimit = DefaultSnapshotWriterLimit
+		opts.SnapshotWriterLimit = config.DefaultSnapshotWriterLimit
+	}
+
+	if opts.AsyncCommitBuffer < 0 {
+		opts.AsyncCommitBuffer = config.DefaultAsyncCommitBuffer
+	}
+
+	if opts.CacheSize < 0 {
+		opts.CacheSize = config.DefaultCacheSize
 	}
 }

@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/types"
 	"github.com/tidwall/wal"
@@ -181,7 +181,7 @@ func (stream *Stream) Close() error {
 	stream.writeChannel = nil
 	stream.errSignal = nil
 	errClose := stream.log.Close()
-	return utils.Join(err, errClose)
+	return errorutils.Join(err, errClose)
 }
 
 // open opens the replay log, try to truncate the corrupted tail if there's any

@@ -166,7 +166,7 @@ func TestNewKey(t *testing.T) {
 	tree := New(0)
 
 	for i := 0; i < 4; i++ {
-		tree.set([]byte(fmt.Sprintf("key-%d", i)), []byte{1})
+		tree.Set([]byte(fmt.Sprintf("key-%d", i)), []byte{1})
 	}
 	_, _, err := tree.SaveVersion(true)
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestNewKey(t *testing.T) {
 	require.Equal(t, tree.root.Key(), []byte("key-2"))
 
 	// remove this key
-	tree.remove([]byte("key-2"))
+	tree.Remove([]byte("key-2"))
 
 	// check root node's key is changed
 	require.Equal(t, []byte("key-3"), tree.root.Key())

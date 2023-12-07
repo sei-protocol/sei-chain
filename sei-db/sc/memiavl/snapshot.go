@@ -8,7 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sei-protocol/sei-db/common/utils"
+	"github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/sc/types"
 )
 
 const (
@@ -47,14 +48,6 @@ type Snapshot struct {
 
 	// nil means empty snapshot
 	root *PersistedNode
-}
-
-// ExportNode contains exported node data.
-type ExportNode struct {
-	Key     []byte
-	Value   []byte
-	Version int64
-	Height  int8
 }
 
 func NewEmptySnapshot(version uint32) *Snapshot {
@@ -97,7 +90,7 @@ func OpenSnapshot(snapshotDir string) (*Snapshot, error) {
 		if kvsMap != nil {
 			errs = append(errs, kvsMap.Close())
 		}
-		return utils.Join(errs...)
+		return errors.Join(errs...)
 	}
 
 	if nodesMap, err = NewMmap(filepath.Join(snapshotDir, FileNameNodes)); err != nil {
@@ -193,7 +186,7 @@ func (snapshot *Snapshot) Close() error {
 
 	// reset to an empty tree
 	*snapshot = *NewEmptySnapshot(snapshot.version)
-	return utils.Join(errs...)
+	return errors.Join(errs...)
 }
 
 // IsEmpty returns if the snapshot is an empty tree.
@@ -305,14 +298,14 @@ func (snapshot *Snapshot) Export() *Exporter {
 	return newExporter(snapshot.export)
 }
 
-func (snapshot *Snapshot) export(callback func(*ExportNode) bool) {
+func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 	if snapshot.leavesLen() == 0 {
 		return
 	}
 
 	if snapshot.leavesLen() == 1 {
 		leaf := snapshot.Leaf(0)
-		callback(&ExportNode{
+		callback(&types.SnapshotNode{
 			Height:  0,
 			Version: int64(leaf.Version()),
 			Key:     leaf.Key(),
@@ -330,7 +323,7 @@ func (snapshot *Snapshot) export(callback func(*ExportNode) bool) {
 			// add more leaf nodes
 			leaf := snapshot.leavesLayout.Leaf(j)
 			key, value := snapshot.KeyValue(leaf.KeyOffset())
-			enode := &ExportNode{
+			enode := &types.SnapshotNode{
 				Height:  0,
 				Version: int64(leaf.Version()),
 				Key:     key,
@@ -343,7 +336,7 @@ func (snapshot *Snapshot) export(callback func(*ExportNode) bool) {
 				return
 			}
 		}
-		enode := &ExportNode{
+		enode := &types.SnapshotNode{
 			Height:  int8(node.Height()),
 			Version: int64(node.Version()),
 			Key:     snapshot.LeafKey(node.KeyLeaf()),

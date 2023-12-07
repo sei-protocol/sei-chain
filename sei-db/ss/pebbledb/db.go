@@ -10,7 +10,8 @@ import (
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
-	"github.com/sei-protocol/sei-db/common/utils"
+	errorutils "github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"golang.org/x/exp/slices"
@@ -37,11 +38,12 @@ var (
 
 type Database struct {
 	storage *pebble.DB
+	config  config.StateStoreConfig
 	// Earliest version for db after pruning
 	earliestVersion int64
 }
 
-func New(dataDir string) (*Database, error) {
+func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	cache := pebble.NewCache(1024 * 1024 * 32)
 	defer cache.Unref()
 	opts := &pebble.Options{
@@ -87,6 +89,7 @@ func New(dataDir string) (*Database, error) {
 
 	return &Database{
 		storage:         db,
+		config:          config,
 		earliestVersion: earliestVersion,
 	}, nil
 }
@@ -178,7 +181,7 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 
 	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion)
 	if err != nil {
-		if errors.Is(err, utils.ErrRecordNotFound) {
+		if errors.Is(err, errorutils.ErrRecordNotFound) {
 			return nil, nil
 		}
 
@@ -320,11 +323,11 @@ func (db *Database) Prune(version int64) error {
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, utils.ErrKeyEmpty
+		return nil, errorutils.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, utils.ErrStartAfterEnd
+		return nil, errorutils.ErrStartAfterEnd
 	}
 
 	lowerBound := MVCCEncode(prependStoreKey(storeKey, start), 0)
@@ -344,11 +347,11 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, utils.ErrKeyEmpty
+		return nil, errorutils.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, utils.ErrStartAfterEnd
+		return nil, errorutils.ErrStartAfterEnd
 	}
 
 	lowerBound := MVCCEncode(prependStoreKey(storeKey, start), 0)
@@ -368,7 +371,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
-func (db *Database) Import(version int64, ch <-chan types.ImportEntry, numWorkers int) error {
+func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
 	var wg sync.WaitGroup
 
 	worker := func() {
@@ -405,8 +408,8 @@ func (db *Database) Import(version int64, ch <-chan types.ImportEntry, numWorker
 		}
 	}
 
-	wg.Add(numWorkers)
-	for i := 0; i < numWorkers; i++ {
+	wg.Add(db.config.ImportNumWorkers)
+	for i := 0; i < db.config.ImportNumWorkers; i++ {
 		go worker()
 	}
 
@@ -495,11 +498,11 @@ func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 	defer func() {
-		err = utils.Join(err, itr.Close())
+		err = errorutils.Join(err, itr.Close())
 	}()
 
 	if !itr.Last() {
-		return nil, utils.ErrRecordNotFound
+		return nil, errorutils.ErrRecordNotFound
 	}
 
 	_, vBz, ok := SplitMVCCKey(itr.Key())

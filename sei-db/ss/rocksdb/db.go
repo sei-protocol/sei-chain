@@ -10,7 +10,8 @@ import (
 	"sync"
 
 	"github.com/linxGnu/grocksdb"
-	"github.com/sei-protocol/sei-db/common/utils"
+	"github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/sei-protocol/sei-db/ss/util"
@@ -36,6 +37,7 @@ var (
 
 type Database struct {
 	storage  *grocksdb.DB
+	config   config.StateStoreConfig
 	cfHandle *grocksdb.ColumnFamilyHandle
 
 	// tsLow reflects the full_history_ts_low CF value. Since pruning is done in
@@ -44,7 +46,7 @@ type Database struct {
 	tsLow int64
 }
 
-func New(dataDir string) (*Database, error) {
+func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	storage, cfHandle, err := OpenRocksDB(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open RocksDB: %w", err)
@@ -63,6 +65,7 @@ func New(dataDir string) (*Database, error) {
 
 	return &Database{
 		storage:  storage,
+		config:   config,
 		cfHandle: cfHandle,
 		tsLow:    tsLow,
 	}, nil
@@ -192,11 +195,11 @@ func (db *Database) Prune(version int64) error {
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, utils.ErrKeyEmpty
+		return nil, errors.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, utils.ErrStartAfterEnd
+		return nil, errors.ErrStartAfterEnd
 	}
 
 	prefix := storePrefix(storeKey)
@@ -208,11 +211,11 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, utils.ErrKeyEmpty
+		return nil, errors.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, utils.ErrStartAfterEnd
+		return nil, errors.ErrStartAfterEnd
 	}
 
 	prefix := storePrefix(storeKey)
@@ -224,7 +227,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
-func (db *Database) Import(version int64, ch <-chan types.ImportEntry, numWorkers int) error {
+func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
 	var wg sync.WaitGroup
 
 	worker := func() {
@@ -255,8 +258,8 @@ func (db *Database) Import(version int64, ch <-chan types.ImportEntry, numWorker
 		}
 	}
 
-	wg.Add(numWorkers)
-	for i := 0; i < numWorkers; i++ {
+	wg.Add(db.config.ImportNumWorkers)
+	for i := 0; i < db.config.ImportNumWorkers; i++ {
 		go worker()
 	}
 

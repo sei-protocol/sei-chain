@@ -10,13 +10,16 @@ import (
 	"time"
 
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRewriteSnapshot(t *testing.T) {
-	db, err := Load(t.TempDir(), Options{
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:             t.TempDir(),
 		CreateIfMissing: true,
 		InitialStores:   []string{"test"},
 	})
@@ -51,7 +54,8 @@ func TestRemoveSnapshotDir(t *testing.T) {
 	if err := os.MkdirAll(tmpDir, os.ModePerm); err != nil {
 		t.Fatalf("Failed to create dummy snapshot directory: %v", err)
 	}
-	db, err := Load(dbDir, Options{
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:                dbDir,
 		CreateIfMissing:    true,
 		InitialStores:      []string{"test"},
 		SnapshotKeepRecent: 0,
@@ -65,7 +69,8 @@ func TestRemoveSnapshotDir(t *testing.T) {
 	err = os.MkdirAll(tmpDir, os.ModePerm)
 	require.NoError(t, err)
 
-	_, err = Load(dbDir, Options{
+	_, err = OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:      dbDir,
 		ReadOnly: true,
 	})
 	require.NoError(t, err)
@@ -73,7 +78,7 @@ func TestRemoveSnapshotDir(t *testing.T) {
 	_, err = os.Stat(tmpDir)
 	require.False(t, os.IsNotExist(err))
 
-	db, err = Load(dbDir, Options{})
+	db, err = OpenDB(logger.NewNopLogger(), 0, Options{})
 	require.NoError(t, err)
 
 	_, err = os.Stat(tmpDir)
@@ -83,7 +88,8 @@ func TestRemoveSnapshotDir(t *testing.T) {
 }
 
 func TestRewriteSnapshotBackground(t *testing.T) {
-	db, err := Load(t.TempDir(), Options{
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:                t.TempDir(),
 		CreateIfMissing:    true,
 		InitialStores:      []string{"test"},
 		SnapshotKeepRecent: 0, // only a single snapshot is kept
@@ -123,7 +129,11 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 
 func TestRlog(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Load(dir, Options{CreateIfMissing: true, InitialStores: []string{"test", "delete"}})
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:             dir,
+		CreateIfMissing: true,
+		InitialStores:   []string{"test", "delete"},
+	})
 	require.NoError(t, err)
 
 	for _, changes := range ChangeSets {
@@ -155,7 +165,7 @@ func TestRlog(t *testing.T) {
 
 	require.NoError(t, db.Close())
 
-	db, err = Load(dir, Options{})
+	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
 	require.NoError(t, err)
 
 	require.Equal(t, "newtest", db.lastCommitInfo.StoreInfos[0].Name)
@@ -185,7 +195,11 @@ func TestInitialVersion(t *testing.T) {
 	value := "world"
 	for _, initialVersion := range []int64{0, 1, 100} {
 		dir := t.TempDir()
-		db, err := Load(dir, Options{CreateIfMissing: true, InitialStores: []string{name}})
+		db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+			Dir:             dir,
+			CreateIfMissing: true,
+			InitialStores:   []string{name},
+		})
 		require.NoError(t, err)
 		db.SetInitialVersion(initialVersion)
 		require.NoError(t, db.ApplyChangeSets(mockNameChangeSet(name, key, value)))
@@ -211,7 +225,7 @@ func TestInitialVersion(t *testing.T) {
 		}
 		require.NoError(t, db.Close())
 
-		db, err = Load(dir, Options{})
+		db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
 		require.NoError(t, err)
 		require.Equal(t, uint32(initialVersion), db.initialVersion)
 		require.Equal(t, v, db.Version())
@@ -256,7 +270,8 @@ func TestInitialVersion(t *testing.T) {
 
 func TestLoadVersion(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Load(dir, Options{
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:             dir,
 		CreateIfMissing: true,
 		InitialStores:   []string{"test"},
 	})
@@ -285,9 +300,9 @@ func TestLoadVersion(t *testing.T) {
 		if v == 0 {
 			continue
 		}
-		tmp, err := Load(dir, Options{
-			TargetVersion: uint32(v),
-			ReadOnly:      true,
+		tmp, err := OpenDB(logger.NewNopLogger(), int64(v), Options{
+			Dir:      dir,
+			ReadOnly: true,
 		})
 		require.NoError(t, err)
 		require.Equal(t, RefHashes[v-1], tmp.TreeByName("test").RootHash())
@@ -296,14 +311,19 @@ func TestLoadVersion(t *testing.T) {
 }
 
 func TestZeroCopy(t *testing.T) {
-	db, err := Load(t.TempDir(), Options{InitialStores: []string{"test", "test2"}, CreateIfMissing: true, ZeroCopy: true})
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:             t.TempDir(),
+		InitialStores:   []string{"test", "test2"},
+		CreateIfMissing: true,
+		ZeroCopy:        true,
+	})
 	require.NoError(t, err)
 	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "test", Changeset: ChangeSets[0]},
 	}))
 	_, err = db.Commit()
 	require.NoError(t, err)
-	require.NoError(t, utils.Join(
+	require.NoError(t, errors.Join(
 		db.RewriteSnapshot(),
 		db.Reload(),
 	))
@@ -360,7 +380,12 @@ func TestRlogIndexConversion(t *testing.T) {
 
 func TestEmptyValue(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Load(dir, Options{InitialStores: []string{"test"}, CreateIfMissing: true, ZeroCopy: true})
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:             dir,
+		InitialStores:   []string{"test"},
+		CreateIfMissing: true,
+		ZeroCopy:        true,
+	})
 	require.NoError(t, err)
 
 	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -385,7 +410,7 @@ func TestEmptyValue(t *testing.T) {
 
 	require.NoError(t, db.Close())
 
-	db, err = Load(dir, Options{ZeroCopy: true})
+	db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ZeroCopy: true})
 	require.NoError(t, err)
 	require.Equal(t, version, db.Version())
 }
@@ -393,45 +418,51 @@ func TestEmptyValue(t *testing.T) {
 func TestInvalidOptions(t *testing.T) {
 	dir := t.TempDir()
 
-	_, err := Load(dir, Options{ReadOnly: true})
+	_, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true})
 	require.Error(t, err)
 
-	_, err = Load(dir, Options{ReadOnly: true, CreateIfMissing: true})
+	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true, CreateIfMissing: true})
 	require.Error(t, err)
 
-	db, err := Load(dir, Options{CreateIfMissing: true})
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, CreateIfMissing: true})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	_, err = Load(dir, Options{LoadForOverwriting: true, ReadOnly: true})
+	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, LoadForOverwriting: true, ReadOnly: true})
 	require.Error(t, err)
 
-	_, err = Load(dir, Options{ReadOnly: true})
+	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true})
 	require.NoError(t, err)
 }
 
 func TestExclusiveLock(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := Load(dir, Options{CreateIfMissing: true})
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, CreateIfMissing: true})
 	require.NoError(t, err)
 
-	_, err = Load(dir, Options{})
+	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
 	require.Error(t, err)
 
-	_, err = Load(dir, Options{ReadOnly: true})
+	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true})
 	require.NoError(t, err)
 
 	require.NoError(t, db.Close())
 
-	_, err = Load(dir, Options{})
+	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
 	require.NoError(t, err)
 }
 
 func TestFastCommit(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := Load(dir, Options{CreateIfMissing: true, InitialStores: []string{"test"}, SnapshotInterval: 3, AsyncCommitBuffer: 10})
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:               dir,
+		CreateIfMissing:   true,
+		InitialStores:     []string{"test"},
+		SnapshotInterval:  3,
+		AsyncCommitBuffer: 10,
+	})
 	require.NoError(t, err)
 
 	cs := iavl.ChangeSet{
@@ -454,7 +485,13 @@ func TestFastCommit(t *testing.T) {
 }
 
 func TestRepeatedApplyChangeSet(t *testing.T) {
-	db, err := Load(t.TempDir(), Options{CreateIfMissing: true, InitialStores: []string{"test1", "test2"}, SnapshotInterval: 3, AsyncCommitBuffer: 10})
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:               t.TempDir(),
+		CreateIfMissing:   true,
+		InitialStores:     []string{"test1", "test2"},
+		SnapshotInterval:  3,
+		AsyncCommitBuffer: 10,
+	})
 	require.NoError(t, err)
 
 	err = db.ApplyChangeSets([]*proto.NamedChangeSet{

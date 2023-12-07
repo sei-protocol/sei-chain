@@ -1,4 +1,4 @@
-package utils
+package errors
 
 import (
 	"errors"
@@ -9,6 +9,7 @@ var (
 	ErrKeyEmpty       = errors.New("key empty")
 	ErrRecordNotFound = errors.New("record not found")
 	ErrStartAfterEnd  = errors.New("start key after end key")
+	ErrorExportDone   = errors.New("export is complete")
 )
 
 // Join returns an error that wraps the given errors.

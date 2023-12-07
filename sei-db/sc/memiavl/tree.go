@@ -7,11 +7,15 @@ import (
 	"math"
 	"sync"
 
+	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/iavl"
 	"github.com/cosmos/iavl/cache"
 	"github.com/sei-protocol/sei-db/common/utils"
+	"github.com/sei-protocol/sei-db/sc/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
+var _ types.Tree = (*Tree)(nil)
 var emptyHash = sha256.New().Sum(nil)
 
 func NewCache(cacheSize int) cache.Cache {
@@ -129,14 +133,14 @@ func (t *Tree) Copy(cacheSize int) *Tree {
 func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
 	for _, pair := range changeSet.Pairs {
 		if pair.Delete {
-			t.remove(pair.Key)
+			t.Remove(pair.Key)
 		} else {
-			t.set(pair.Key, pair.Value)
+			t.Set(pair.Key, pair.Value)
 		}
 	}
 }
 
-func (t *Tree) set(key, value []byte) {
+func (t *Tree) Set(key, value []byte) {
 	if value == nil {
 		// the value could be nil when replaying changes from write-ahead-log because of protobuf decoding
 		value = []byte{}
@@ -145,7 +149,7 @@ func (t *Tree) set(key, value []byte) {
 	t.addToCache(key, value)
 }
 
-func (t *Tree) remove(key []byte) {
+func (t *Tree) Remove(key []byte) {
 	_, t.root, _ = removeRecursive(t.root, key, t.version+1, t.cowVersion)
 	t.removeFromCache(key)
 }
@@ -226,7 +230,7 @@ func (t *Tree) Has(key []byte) bool {
 	return t.Get(key) != nil
 }
 
-func (t *Tree) Iterator(start, end []byte, ascending bool) *Iterator {
+func (t *Tree) Iterator(start, end []byte, ascending bool) dbm.Iterator {
 	return NewIterator(start, end, ascending, t.root, t.zeroCopy)
 }
 
@@ -267,9 +271,9 @@ func (t *Tree) Export() *Exporter {
 	}
 
 	// do normal post-order traversal export
-	return newExporter(func(callback func(node *ExportNode) bool) {
+	return newExporter(func(callback func(node *types.SnapshotNode) bool) {
 		t.ScanPostOrder(func(node Node) bool {
-			return callback(&ExportNode{
+			return callback(&types.SnapshotNode{
 				Key:     node.Key(),
 				Value:   node.Value(),
 				Version: int64(node.Version()),
@@ -323,4 +327,34 @@ func (t *Tree) getFromCache(key []byte) []byte {
 		}
 	}
 	return nil
+}
+
+// GetProof takes a key for creating existence or absence proof and returns the
+// appropriate merkle.Proof. Since this must be called after querying for the value, this function should never error
+// Thus, it will panic on error rather than returning it
+func (t *Tree) GetProof(key []byte) *ics23.CommitmentProof {
+	var (
+		commitmentProof *ics23.CommitmentProof
+		err             error
+	)
+	exists := t.Has(key)
+
+	if exists {
+		// value was found
+		commitmentProof, err = t.GetMembershipProof(key)
+		if err != nil {
+			// sanity check: If value was found, membership proof must be creatable
+			panic(fmt.Sprintf("unexpected value for empty proof: %s", err.Error()))
+		}
+	} else {
+		// value wasn't found
+		commitmentProof, err = t.GetNonMembershipProof(key)
+		if err != nil {
+			// sanity check: If value wasn't found, nonmembership proof must be creatable
+			panic(fmt.Sprintf("unexpected error for nonexistence proof: %s", err.Error()))
+		}
+	}
+
+	return commitmentProof
+
 }

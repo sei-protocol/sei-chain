@@ -2,9 +2,12 @@ package memiavl
 
 import (
 	"bytes"
+	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-db/common/utils"
 )
+
+var _ dbm.Iterator = (*Iterator)(nil)
 
 type Iterator struct {
 	// domain of iteration, end is exclusive

@@ -10,6 +10,7 @@ import (
 
 	"github.com/alitto/pond"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/types"
@@ -410,7 +411,7 @@ func (t *MultiTree) Close() error {
 	t.trees = nil
 	t.treesByName = nil
 	t.lastCommitInfo = proto.CommitInfo{}
-	return utils.Join(errs...)
+	return errors.Join(errs...)
 }
 
 func readMetadata(dir string) (*proto.MultiTreeMetadata, error) {

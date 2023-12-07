@@ -1,9 +1,13 @@
 package memiavl
 
 import (
+	"errors"
 	"testing"
 
+	errorutils "github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,7 +52,7 @@ func TestSnapshotEncodingRoundTrip(t *testing.T) {
 }
 
 func TestSnapshotExport(t *testing.T) {
-	expNodes := []*ExportNode{
+	expNodes := []*types.SnapshotNode{
 		{Key: []byte("hello"), Value: []byte("world1"), Version: 2, Height: 0},
 		{Key: []byte("hello1"), Value: []byte("world1"), Version: 2, Height: 0},
 		{Key: []byte("hello1"), Value: nil, Version: 3, Height: 1},
@@ -72,11 +76,11 @@ func TestSnapshotExport(t *testing.T) {
 	snapshot, err := OpenSnapshot(snapshotDir)
 	require.NoError(t, err)
 
-	var nodes []*ExportNode
+	var nodes []*types.SnapshotNode
 	exporter := snapshot.Export()
 	for {
 		node, err := exporter.Next()
-		if err == ErrorExportDone {
+		if errors.Is(err, errorutils.ErrorExportDone) {
 			break
 		}
 		require.NoError(t, err)
@@ -100,7 +104,7 @@ func TestSnapshotImportExport(t *testing.T) {
 	snapshot, err := OpenSnapshot(snapshotDir)
 	require.NoError(t, err)
 
-	ch := make(chan *ExportNode)
+	ch := make(chan *types.SnapshotNode)
 
 	go func() {
 		defer close(ch)
@@ -108,7 +112,7 @@ func TestSnapshotImportExport(t *testing.T) {
 		exporter := snapshot.Export()
 		for {
 			node, err := exporter.Next()
-			if err == ErrorExportDone {
+			if err == errorutils.ErrorExportDone {
 				break
 			}
 			require.NoError(t, err)
@@ -132,7 +136,8 @@ func TestSnapshotImportExport(t *testing.T) {
 }
 
 func TestDBSnapshotRestore(t *testing.T) {
-	db, err := Load(t.TempDir(), Options{
+	db, err := OpenDB(logger.NewNopLogger(), 0, Options{
+		Dir:               t.TempDir(),
 		CreateIfMissing:   true,
 		InitialStores:     []string{"test", "test2"},
 		AsyncCommitBuffer: -1,
@@ -164,7 +169,7 @@ func TestDBSnapshotRestore(t *testing.T) {
 }
 
 func testSnapshotRoundTrip(t *testing.T, db *DB) {
-	exporter, err := NewMultiTreeExporter(db.dir, uint32(db.Version()), true)
+	exporter, err := NewMultiTreeExporter(db.dir, uint32(db.Version()))
 	require.NoError(t, err)
 
 	restoreDir := t.TempDir()
@@ -173,18 +178,17 @@ func testSnapshotRoundTrip(t *testing.T, db *DB) {
 
 	for {
 		item, err := exporter.Next()
-		if err == ErrorExportDone {
+		if err == errorutils.ErrorExportDone {
 			break
 		}
 		require.NoError(t, err)
 		require.NoError(t, importer.Add(item))
 	}
 
-	require.NoError(t, importer.Finalize())
 	require.NoError(t, importer.Close())
 	require.NoError(t, exporter.Close())
 
-	db2, err := Load(restoreDir, Options{})
+	db2, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: restoreDir})
 	require.NoError(t, err)
 	require.Equal(t, db.LastCommitInfo(), db2.LastCommitInfo())
 
