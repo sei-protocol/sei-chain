@@ -131,9 +131,6 @@ enum ResourceType {
 
     KV_BANK_DEFERRED = 93; // child of KV
     KV_BANK_DEFERRED_MODULE_TX_INDEX = 95; // child of KV_BANK_DEFERRED
-
-    KV_EVM = 96; // child of KV
-    KV_EVM_BALANCE = 97; // child of KV_EVM
 }
 
 enum WasmMessageSubtype {
