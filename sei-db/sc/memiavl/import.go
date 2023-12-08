@@ -84,17 +84,15 @@ func (mti *MultiTreeImporter) Finalize() error {
 
 	tmpDir := mti.tmpDir()
 	if err := updateMetadataFile(tmpDir, mti.height); err != nil {
-		panic(err)
 		return err
 	}
 
 	if err := os.Rename(tmpDir, filepath.Join(mti.dir, mti.snapshotDir)); err != nil {
-		panic(err)
 		return err
 	}
 
 	if err := updateCurrentSymlink(mti.dir, mti.snapshotDir); err != nil {
-		panic(err)
+		return err
 	}
 	return nil
 }
@@ -233,6 +231,7 @@ func (i *importer) Add(n *types.SnapshotNode) error {
 func updateMetadataFile(dir string, height int64) (returnErr error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		panic(err)
 		return err
 	}
 	storeInfos := make([]proto.StoreInfo, 0, len(entries))
@@ -243,10 +242,12 @@ func updateMetadataFile(dir string, height int64) (returnErr error) {
 		name := e.Name()
 		snapshot, err := OpenSnapshot(filepath.Join(dir, name))
 		if err != nil {
+			panic(err)
 			return err
 		}
 		defer func() {
 			if err := snapshot.Close(); returnErr == nil {
+				panic(err)
 				returnErr = err
 			}
 		}()
@@ -268,6 +269,7 @@ func updateMetadataFile(dir string, height int64) (returnErr error) {
 	}
 	bz, err := metadata.Marshal()
 	if err != nil {
+		panic(err)
 		return err
 	}
 	return WriteFileSync(filepath.Join(dir, MetadataFileName), bz)
