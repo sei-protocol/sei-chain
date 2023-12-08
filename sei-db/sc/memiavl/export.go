@@ -39,6 +39,9 @@ func NewMultiTreeExporter(dir string, version uint32, supportExportNonSnapshotVe
 			ReadOnly:            true,
 			SnapshotWriterLimit: config.DefaultSnapshotWriterLimit,
 		})
+		if err != nil {
+			return nil, fmt.Errorf("invalid height: %d, %w", version, err)
+		}
 	} else {
 		curVersion, err := currentVersion(dir)
 		if err != nil {
@@ -53,9 +56,6 @@ func NewMultiTreeExporter(dir string, version uint32, supportExportNonSnapshotVe
 		}
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("invalid height: %d, %w", version, err)
-	}
 	return &MultiTreeExporter{
 		db:    db,
 		mtree: mtree,

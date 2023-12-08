@@ -84,14 +84,19 @@ func (mti *MultiTreeImporter) Finalize() error {
 
 	tmpDir := mti.tmpDir()
 	if err := updateMetadataFile(tmpDir, mti.height); err != nil {
+		panic(err)
 		return err
 	}
 
 	if err := os.Rename(tmpDir, filepath.Join(mti.dir, mti.snapshotDir)); err != nil {
+		panic(err)
 		return err
 	}
 
-	return updateCurrentSymlink(mti.dir, mti.snapshotDir)
+	if err := updateCurrentSymlink(mti.dir, mti.snapshotDir); err != nil {
+		panic(err)
+	}
+	return nil
 }
 
 func (mti *MultiTreeImporter) Close() error {

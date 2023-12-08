@@ -105,7 +105,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (*DB, error
 		}
 
 		// cleanup any temporary directories left by interrupted snapshot rewrite
-		fmt.Println(opts.Dir)
 		if err := removeTmpDirs(opts.Dir); err != nil {
 			return nil, fmt.Errorf("fail to cleanup tmp directories: %w", err)
 		}
