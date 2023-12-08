@@ -54,10 +54,6 @@ func (opts *Options) FillDefaults() {
 		opts.SnapshotWriterLimit = config.DefaultSnapshotWriterLimit
 	}
 
-	if opts.AsyncCommitBuffer < 0 {
-		opts.AsyncCommitBuffer = config.DefaultAsyncCommitBuffer
-	}
-
 	if opts.CacheSize < 0 {
 		opts.CacheSize = config.DefaultCacheSize
 	}
