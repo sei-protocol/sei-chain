@@ -30,6 +30,7 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 		SnapshotKeepRecent:  config.SnapshotKeepRecent,
 		SnapshotWriterLimit: config.SnapshotWriterLimit,
 		CacheSize:           config.CacheSize,
+		CreateIfMissing:     true,
 	}
 	commitStore := &CommitStore{
 		logger: logger,
