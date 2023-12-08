@@ -4,8 +4,7 @@
 package ss
 
 import (
-	"path/filepath"
-
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss/sqlite"
 	"github.com/sei-protocol/sei-db/ss/types"
@@ -13,11 +12,11 @@ import (
 
 func init() {
 	initializer := func(dir string, configs config.StateStoreConfig) (types.StateStore, error) {
-		dbDirectory := dir
+		dbHome := dir
 		if configs.DBDirectory != "" {
-			dbDirectory = configs.DBDirectory
+			dbHome = configs.DBDirectory
 		}
-		return sqlite.New(filepath.Join(dbDirectory, "sqlite"), configs)
+		return sqlite.New(utils.GetStateStorePath(dbHome, configs.Backend), configs)
 	}
 	RegisterBackend(SQLiteBackend, initializer)
 }

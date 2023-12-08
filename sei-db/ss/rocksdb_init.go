@@ -4,8 +4,7 @@
 package ss
 
 import (
-	"path/filepath"
-
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss/rocksdb"
 	"github.com/sei-protocol/sei-db/ss/types"
@@ -13,11 +12,11 @@ import (
 
 func init() {
 	initializer := func(dir string, configs config.StateStoreConfig) (types.StateStore, error) {
-		dbDirectory := dir
+		dbHome := dir
 		if configs.DBDirectory != "" {
-			dbDirectory = configs.DBDirectory
+			dbHome = configs.DBDirectory
 		}
-		return rocksdb.New(filepath.Join(dbDirectory, "rocksdb"), configs)
+		return rocksdb.New(utils.GetStateStorePath(dbHome, configs.Backend), configs)
 	}
 	RegisterBackend(RocksDBBackend, initializer)
 }

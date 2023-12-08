@@ -1,9 +1,8 @@
 package sc
 
 import (
-	"path/filepath"
-
 	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/memiavl"
@@ -24,7 +23,7 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 		scDir = config.Directory
 	}
 	opts := memiavl.Options{
-		Dir:                 filepath.Join(scDir, "memiavl"),
+		Dir:                 utils.GetCommitStorePath(scDir),
 		ZeroCopy:            config.ZeroCopy,
 		AsyncCommitBuffer:   config.AsyncCommitBuffer,
 		SnapshotInterval:    config.SnapshotInterval,

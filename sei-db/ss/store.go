@@ -56,7 +56,7 @@ func RecoverStateStore(homePath string, logger logger.Logger, stateStore types.S
 	}
 	streamHandler, err := changelog.NewStream(
 		logger,
-		utils.GetChangelogPath(utils.GetMemIavlDBPath(homePath)),
+		utils.GetChangelogPath(utils.GetChangelogPath(utils.GetCommitStorePath(homePath))),
 		changelog.Config{},
 	)
 	if err != nil {

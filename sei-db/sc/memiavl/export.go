@@ -30,12 +30,14 @@ func NewMultiTreeExporter(dir string, version uint32) (exporter *MultiTreeExport
 		db    *DB
 		mtree *MultiTree
 	)
+	fmt.Printf("Height is %d \n", version)
 	db, err = OpenDB(logger.NewNopLogger(), int64(version), Options{
 		Dir:                 dir,
 		ZeroCopy:            true,
 		ReadOnly:            true,
 		SnapshotWriterLimit: config.DefaultSnapshotWriterLimit,
 	})
+
 	if err != nil {
 		return nil, fmt.Errorf("invalid height: %d, %w", version, err)
 	}
