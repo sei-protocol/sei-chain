@@ -257,7 +257,6 @@ func updateMetadataFile(dir string, height int64) (returnErr error) {
 	}
 	bz, err := metadata.Marshal()
 	if err != nil {
-		panic(err)
 		return err
 	}
 	return WriteFileSync(filepath.Join(dir, MetadataFileName), bz)
