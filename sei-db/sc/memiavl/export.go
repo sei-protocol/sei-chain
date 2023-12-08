@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
@@ -25,18 +26,32 @@ type MultiTreeExporter struct {
 	exporter *Exporter
 }
 
-func NewMultiTreeExporter(dir string, version uint32) (exporter *MultiTreeExporter, err error) {
+func NewMultiTreeExporter(dir string, version uint32, supportExportNonSnapshotVersion bool) (exporter *MultiTreeExporter, err error) {
 	var (
 		db    *DB
 		mtree *MultiTree
 	)
 	fmt.Printf("Height is %d \n", version)
-	db, err = OpenDB(logger.NewNopLogger(), int64(version), Options{
-		Dir:                 dir,
-		ZeroCopy:            true,
-		ReadOnly:            true,
-		SnapshotWriterLimit: config.DefaultSnapshotWriterLimit,
-	})
+	if supportExportNonSnapshotVersion {
+		db, err = OpenDB(logger.NewNopLogger(), int64(version), Options{
+			Dir:                 dir,
+			ZeroCopy:            true,
+			ReadOnly:            true,
+			SnapshotWriterLimit: config.DefaultSnapshotWriterLimit,
+		})
+	} else {
+		curVersion, err := currentVersion(dir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load current version: %w", err)
+		}
+		if int64(version) > curVersion {
+			return nil, fmt.Errorf("snapshot is not created yet: height: %d", version)
+		}
+		mtree, err = LoadMultiTree(filepath.Join(dir, snapshotName(int64(version))), true, 0)
+		if err != nil {
+			return nil, fmt.Errorf("snapshot don't exists: height: %d, %w", version, err)
+		}
+	}
 
 	if err != nil {
 		return nil, fmt.Errorf("invalid height: %d, %w", version, err)
