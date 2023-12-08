@@ -247,7 +247,9 @@ func updateMetadataFile(dir string, height int64) (returnErr error) {
 		}
 		defer func() {
 			if err := snapshot.Close(); returnErr == nil {
-				panic(err)
+				if err != nil {
+					panic(err)
+				}
 				returnErr = err
 			}
 		}()
