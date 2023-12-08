@@ -258,7 +258,7 @@ ss-async-write-buffer = 100
 
 # KeepRecent defines the number of versions to keep in state store
 # Setting it to 0 means keep everything, default to 0
-ss-keep-recent = 1000
+ss-keep-recent = 10000
 
 # PruneIntervalSeconds defines the minimum interval in seconds + some random delay to trigger pruning.
 # It is more efficient to trigger pruning less frequently with large interval.
