@@ -31,7 +31,6 @@ func NewMultiTreeExporter(dir string, version uint32, supportExportNonSnapshotVe
 		db    *DB
 		mtree *MultiTree
 	)
-	fmt.Printf("Height is %d \n", version)
 	if supportExportNonSnapshotVersion {
 		db, err = OpenDB(logger.NewNopLogger(), int64(version), Options{
 			Dir:                 dir,

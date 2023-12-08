@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/sc/types"
 )
@@ -74,7 +73,7 @@ func (mti *MultiTreeImporter) AddNode(node *types.SnapshotNode) {
 	mti.importer.Add(node)
 }
 
-func (mti *MultiTreeImporter) Finalize() error {
+func (mti *MultiTreeImporter) Close() error {
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {
 			return err
@@ -94,15 +93,7 @@ func (mti *MultiTreeImporter) Finalize() error {
 	if err := updateCurrentSymlink(mti.dir, mti.snapshotDir); err != nil {
 		return err
 	}
-	return nil
-}
-
-func (mti *MultiTreeImporter) Close() error {
-	var err error
-	if mti.importer != nil {
-		err = mti.importer.Close()
-	}
-	return errorutils.Join(err, mti.fileLock.Unlock())
+	return mti.fileLock.Unlock()
 }
 
 // TreeImporter import a single memiavl tree from state-sync snapshot
@@ -231,7 +222,6 @@ func (i *importer) Add(n *types.SnapshotNode) error {
 func updateMetadataFile(dir string, height int64) (returnErr error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		panic(err)
 		return err
 	}
 	storeInfos := make([]proto.StoreInfo, 0, len(entries))
@@ -242,14 +232,10 @@ func updateMetadataFile(dir string, height int64) (returnErr error) {
 		name := e.Name()
 		snapshot, err := OpenSnapshot(filepath.Join(dir, name))
 		if err != nil {
-			panic(err)
 			return err
 		}
 		defer func() {
 			if err := snapshot.Close(); returnErr == nil {
-				if err != nil {
-					panic(err)
-				}
 				returnErr = err
 			}
 		}()
