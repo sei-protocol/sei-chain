@@ -2,21 +2,14 @@ package evmrpc
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"math/big"
 	"slices"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/common/math"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -56,40 +49,12 @@ func (i *InfoAPI) Coinbase() (common.Address, error) {
 }
 
 func (i *InfoAPI) Accounts() (res []common.Address) {
-	clientCtx := client.Context{}.WithViper("").WithHomeDir(i.homeDir)
-	clientCtx, err := config.ReadFromClientConfig(clientCtx)
+	kb, err := getTestKeyring(i.homeDir)
 	if err != nil {
-		i.ctxProvider(LatestCtxHeight).Logger().Error(fmt.Sprintf("reading from client config failed: %s", err))
 		return []common.Address{}
 	}
-	kb, err := client.NewKeyringFromBackend(clientCtx, keyring.BackendTest)
-	if err != nil {
-		i.ctxProvider(LatestCtxHeight).Logger().Error(fmt.Sprintf("creating keyring instance failed: %s", err))
-		return []common.Address{}
-	}
-	keys, err := kb.List()
-	if err != nil {
-		i.ctxProvider(LatestCtxHeight).Logger().Error(fmt.Sprintf("listing from keyring failed: %s", err))
-		return []common.Address{}
-	}
-	for _, key := range keys {
-		localInfo, ok := key.(keyring.LocalInfo)
-		if !ok {
-			// will only show local key
-			continue
-		}
-		priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
-		if err != nil {
-			i.ctxProvider(LatestCtxHeight).Logger().Error(fmt.Sprintf("failed to get privkey from local key info: %s", err))
-			continue
-		}
-		privHex := hex.EncodeToString(priv.Bytes())
-		privKey, err := crypto.HexToECDSA(privHex)
-		if err != nil {
-			i.ctxProvider(LatestCtxHeight).Logger().Error(fmt.Sprintf("failed to decode hex privkey: %s", err))
-			continue
-		}
-		res = append(res, crypto.PubkeyToAddress(privKey.PublicKey))
+	for addr := range getAddressPrivKeyMap(kb) {
+		res = append(res, common.HexToAddress(addr))
 	}
 	return
 }

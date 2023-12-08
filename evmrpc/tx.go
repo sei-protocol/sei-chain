@@ -2,16 +2,12 @@ package evmrpc
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"math/big"
 	"strconv"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
@@ -178,35 +174,12 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 }
 
 func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (hexutil.Bytes, error) {
-	clientCtx := client.Context{}.WithViper("").WithHomeDir(t.homeDir)
-	clientCtx, err := config.ReadFromClientConfig(clientCtx)
+	kb, err := getTestKeyring(t.homeDir)
 	if err != nil {
 		return nil, err
 	}
-	kb, err := client.NewKeyringFromBackend(clientCtx, keyring.BackendTest)
-	if err != nil {
-		return nil, err
-	}
-	keys, err := kb.List()
-	if err != nil {
-		return nil, err
-	}
-	for _, key := range keys {
-		localInfo, ok := key.(keyring.LocalInfo)
-		if !ok {
-			// will only show local key
-			continue
-		}
-		priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
-		if err != nil {
-			continue
-		}
-		privHex := hex.EncodeToString(priv.Bytes())
-		privKey, err := crypto.HexToECDSA(privHex)
-		if err != nil {
-			continue
-		}
-		if crypto.PubkeyToAddress(privKey.PublicKey).Hex() != addr.Hex() {
+	for taddr, privKey := range getAddressPrivKeyMap(kb) {
+		if taddr != addr.Hex() {
 			continue
 		}
 		dataHash := accounts.TextHash(data)
