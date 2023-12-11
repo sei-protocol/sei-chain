@@ -1,8 +1,6 @@
 package types
 
 import (
-	"errors"
-
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -70,20 +68,12 @@ func (msg *MsgEVMTransaction) IsAssociateTx() bool {
 }
 
 func MustGetEVMTransactionMessage(tx sdk.Tx) *MsgEVMTransaction {
-	msg, err := GetEVMTransactionMessage(tx)
-	if err != nil {
-		panic(err)
-	}
-	return msg
-}
-
-func GetEVMTransactionMessage(tx sdk.Tx) (*MsgEVMTransaction, error) {
 	if len(tx.GetMsgs()) != 1 {
-		return nil, errors.New("EVM transaction must have exactly 1 message")
+		panic("EVM transaction must have exactly 1 message")
 	}
 	msg, ok := tx.GetMsgs()[0].(*MsgEVMTransaction)
 	if !ok {
-		return nil, errors.New("not EVM message")
+		panic("not EVM message")
 	}
-	return msg, nil
+	return msg
 }

@@ -12,7 +12,6 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -48,14 +47,7 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 
 //nolint:revive
 func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	msg, err := evmtypes.GetEVMTransactionMessage(tx)
-	if err != nil {
-		// not EVM transaction
-		if err := p.associateAddressesForNonEVMTx(ctx, tx); err != nil {
-			return ctx, err
-		}
-		return next(ctx, tx, simulate)
-	}
+	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	if err := Preprocess(ctx, msg, p.evmKeeper.GetParams(ctx)); err != nil {
 		return ctx, err
 	}
@@ -93,39 +85,6 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	}
 
 	return next(ctx, tx, simulate)
-}
-
-func (p *EVMPreprocessDecorator) associateAddressesForNonEVMTx(ctx sdk.Context, tx sdk.Tx) error {
-	sigTx, ok := tx.(authsigning.SigVerifiableTx)
-	if !ok {
-		return sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid tx type")
-	}
-	pubkeys, err := sigTx.GetPubKeys()
-	if err != nil {
-		return err
-	}
-
-	for _, pk := range pubkeys {
-		if pk == nil {
-			continue
-		}
-		seiAddr := sdk.AccAddress(pk.Address())
-		if _, ok := p.evmKeeper.GetEVMAddress(ctx, seiAddr); ok {
-			continue
-		}
-		decompressed, err := btcec.ParsePubKey(pk.Bytes(), btcec.S256())
-		if err != nil {
-			return err
-		}
-		evmAddr, err := pubkeyToEVMAddress(decompressed.SerializeUncompressed())
-		if err != nil {
-			return err
-		}
-		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pk); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address, pubkey cryptotypes.PubKey) error {
