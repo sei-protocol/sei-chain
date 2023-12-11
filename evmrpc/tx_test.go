@@ -1,14 +1,31 @@
 package evmrpc_test
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"math/big"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/state"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/trie"
+	"github.com/ethereum/go-ethereum/trie/triedb/hashdb"
+	"github.com/sei-protocol/sei-chain/evmrpc/uniswapfactory"
+	"github.com/sei-protocol/sei-chain/evmrpc/uniswappool"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -186,4 +203,180 @@ func TestGetTransactionError(t *testing.T) {
 	EVMKeeper.SetReceipt(Ctx, h, &types.Receipt{VmError: "test error"})
 	resObj := sendRequestGood(t, "getTransactionErrorByHash", "0x1111111111111111111111111111111111111111111111111111111111111111")
 	require.Equal(t, "test error", resObj["result"])
+}
+
+func TestDuration(t *testing.T) {
+	chainConfig := params.AllDevChainProtocolChanges
+	_, author := testkeeper.MockAddressPair()
+	privKey := testkeeper.MockPrivateKey()
+	_, sender := testkeeper.PrivateKeyToAddresses(privKey)
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	gp := core.GasPool(10000000000)
+	initialGas := uint64(1000000000)
+	genesisConfig := new(core.Genesis)
+	genesisConfig.GasLimit = initialGas
+	genesisConfig.Config = params.AllDevChainProtocolChanges
+	genesisConfig.Coinbase = author
+	genesisConfig.Alloc = core.GenesisAlloc{
+		author: core.GenesisAccount{
+			Balance: big.NewInt(math.MaxInt64),
+		},
+		sender: core.GenesisAccount{
+			Balance: big.NewInt(math.MaxInt64),
+		},
+	}
+	header := ethtypes.Header{Number: big.NewInt(10), Difficulty: big.NewInt(0), BaseFee: big.NewInt(1)}
+
+	db := rawdb.NewMemoryDatabase()
+	triedb := trie.NewDatabase(db, &trie.Config{
+		Preimages: false,
+		HashDB:    hashdb.Defaults,
+	})
+	defer triedb.Close()
+	genesis := genesisConfig.MustCommit(db, triedb)
+	sdb := state.NewDatabaseWithNodeDB(db, triedb)
+	statedb, _ := state.New(genesis.Root(), sdb, nil)
+	usedGas := uint64(0)
+	vmConfig := vm.Config{NoBaseFee: true}
+	code, err := os.ReadFile("../../v3-core/contracts/bin/factory/UniswapV3Factory.bin")
+	require.Nil(t, err)
+	bz, err := hex.DecodeString(string(code))
+	require.Nil(t, err)
+	tx := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(100),
+		Gas:      20000000,
+		To:       nil,
+		Value:    big.NewInt(0),
+		Data:     bz,
+		Nonce:    0,
+	}
+	blockNum := big.NewInt(10)
+	signer := ethtypes.MakeSigner(chainConfig, blockNum, uint64(time.Now().Unix()))
+	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&tx), signer, key)
+	receipt, err := core.ApplyTransaction(
+		chainConfig,
+		nil,
+		&author,
+		&gp,
+		statedb,
+		&header,
+		signedTx,
+		&usedGas,
+		vmConfig,
+	)
+	unifacAddr := receipt.ContractAddress
+	require.Nil(t, err)
+
+	code, err = os.ReadFile("../contracts/TokenA.bin")
+	require.Nil(t, err)
+	bz, err = hex.DecodeString(string(code))
+	require.Nil(t, err)
+	tx = ethtypes.LegacyTx{
+		GasPrice: big.NewInt(100),
+		Gas:      50000000,
+		To:       nil,
+		Value:    big.NewInt(0),
+		Data:     bz,
+		Nonce:    1,
+	}
+	signedTx, err = ethtypes.SignTx(ethtypes.NewTx(&tx), signer, key)
+	receipt, err = core.ApplyTransaction(
+		chainConfig,
+		nil,
+		&author,
+		&gp,
+		statedb,
+		&header,
+		signedTx,
+		&usedGas,
+		vmConfig,
+	)
+	require.Nil(t, err)
+	TokenA := receipt.ContractAddress
+
+	code, err = os.ReadFile("../contracts/TokenB.bin")
+	require.Nil(t, err)
+	bz, err = hex.DecodeString(string(code))
+	require.Nil(t, err)
+	tx = ethtypes.LegacyTx{
+		GasPrice: big.NewInt(100),
+		Gas:      50000000,
+		To:       nil,
+		Value:    big.NewInt(0),
+		Data:     bz,
+		Nonce:    2,
+	}
+	signedTx, err = ethtypes.SignTx(ethtypes.NewTx(&tx), signer, key)
+	receipt, err = core.ApplyTransaction(
+		chainConfig,
+		nil,
+		&author,
+		&gp,
+		statedb,
+		&header,
+		signedTx,
+		&usedGas,
+		vmConfig,
+	)
+	require.Nil(t, err)
+	TokenB := receipt.ContractAddress
+	fmt.Println(unifacAddr)
+	fmt.Println(TokenA)
+	fmt.Println(TokenB)
+
+	facAbi, err := uniswapfactory.UniswapfactoryMetaData.GetAbi()
+	require.Nil(t, err)
+	bz, err = facAbi.Pack("createPool", TokenA, TokenB, big.NewInt(500))
+	require.Nil(t, err)
+	tx = ethtypes.LegacyTx{
+		GasPrice: big.NewInt(100),
+		Gas:      50000000,
+		To:       &unifacAddr,
+		Value:    big.NewInt(0),
+		Data:     bz,
+		Nonce:    3,
+	}
+	signedTx, err = ethtypes.SignTx(ethtypes.NewTx(&tx), signer, key)
+	receipt, err = core.ApplyTransaction(
+		chainConfig,
+		nil,
+		&author,
+		&gp,
+		statedb,
+		&header,
+		signedTx,
+		&usedGas,
+		vmConfig,
+	)
+	poolAddr := common.BytesToAddress(receipt.ReturnData)
+
+	poolAbi, err := uniswappool.UniswappoolMetaData.GetAbi()
+	require.Nil(t, err)
+	bz, err = poolAbi.Pack("swap", author, false, big.NewInt(10), big.NewInt(1), []byte{})
+	require.Nil(t, err)
+	tx = ethtypes.LegacyTx{
+		GasPrice: big.NewInt(100),
+		Gas:      50000000,
+		To:       &poolAddr,
+		Value:    big.NewInt(0),
+		Data:     bz,
+		Nonce:    4,
+	}
+	signedTx, err = ethtypes.SignTx(ethtypes.NewTx(&tx), signer, key)
+	start := time.Now()
+	receipt, err = core.ApplyTransaction(
+		chainConfig,
+		nil,
+		&author,
+		&gp,
+		statedb,
+		&header,
+		signedTx,
+		&usedGas,
+		vmConfig,
+	)
+	end := time.Now()
+	fmt.Println(end.UnixNano() - start.UnixNano())
+	require.NotNil(t, err)
 }
