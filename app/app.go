@@ -1653,7 +1653,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 		return ctx
 	}
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}
@@ -1663,7 +1663,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}
