@@ -23,7 +23,7 @@ const (
 	DefaultGRPCWebAddress = "0.0.0.0:9091"
 
 	// DefaultConcurrencyWorkers defines the default workers to use for concurrent transactions
-	DefaultConcurrencyWorkers = 10
+	DefaultConcurrencyWorkers = 20
 )
 
 // BaseConfig defines the server's basic configuration
