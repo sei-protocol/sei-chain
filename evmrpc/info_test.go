@@ -4,6 +4,12 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/client/config"
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/go-bip39"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/stretchr/testify/require"
 )
@@ -21,9 +27,23 @@ func TestChainID(t *testing.T) {
 }
 
 func TestAccounts(t *testing.T) {
-	resObj := sendRequestGood(t, "accounts")
-	result := resObj["result"].([]interface{})
-	require.Equal(t, 0, len(result))
+	homeDir := t.TempDir()
+	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir)
+	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
+	clientCtx, err := config.ReadFromClientConfig(clientCtx)
+	require.Nil(t, err)
+	kb, err := client.NewKeyringFromBackend(clientCtx, keyring.BackendTest)
+	require.Nil(t, err)
+	entropySeed, err := bip39.NewEntropy(256)
+	require.Nil(t, err)
+	mnemonic, err := bip39.NewMnemonic(entropySeed)
+	require.Nil(t, err)
+	algos, _ := kb.SupportedAlgorithms()
+	algo, err := keyring.NewSigningAlgoFromString(string(hd.Secp256k1Type), algos)
+	require.Nil(t, err)
+	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(api.Accounts()))
 }
 
 func TestCoinbase(t *testing.T) {
