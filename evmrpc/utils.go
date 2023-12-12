@@ -2,11 +2,18 @@ package evmrpc
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"encoding/hex"
 	"math/big"
 
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/client/config"
+	"github.com/cosmos/cosmos-sdk/codec/legacy"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -106,4 +113,40 @@ func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.B
 		numberPtr = &numberI64
 	}
 	return numberPtr, nil
+}
+
+func getTestKeyring(homeDir string) (keyring.Keyring, error) {
+	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
+	clientCtx, err := config.ReadFromClientConfig(clientCtx)
+	if err != nil {
+		return nil, err
+	}
+	return client.NewKeyringFromBackend(clientCtx, keyring.BackendTest)
+}
+
+func getAddressPrivKeyMap(kb keyring.Keyring) map[string]*ecdsa.PrivateKey {
+	res := map[string]*ecdsa.PrivateKey{}
+	keys, err := kb.List()
+	if err != nil {
+		return res
+	}
+	for _, key := range keys {
+		localInfo, ok := key.(keyring.LocalInfo)
+		if !ok {
+			// will only show local key
+			continue
+		}
+		priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
+		if err != nil {
+			continue
+		}
+		privHex := hex.EncodeToString(priv.Bytes())
+		privKey, err := crypto.HexToECDSA(privHex)
+		if err != nil {
+			continue
+		}
+		address := crypto.PubkeyToAddress(privKey.PublicKey)
+		res[address.Hex()] = privKey
+	}
+	return res
 }

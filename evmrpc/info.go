@@ -21,10 +21,11 @@ type InfoAPI struct {
 	keeper      *keeper.Keeper
 	ctxProvider func(int64) sdk.Context
 	txDecoder   sdk.TxDecoder
+	homeDir     string
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder) *InfoAPI {
-	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
+func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, homeDir string) *InfoAPI {
+	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, homeDir: homeDir}
 }
 
 type FeeHistoryResult struct {
@@ -47,8 +48,15 @@ func (i *InfoAPI) Coinbase() (common.Address, error) {
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
-func (i *InfoAPI) Accounts() []common.Address {
-	return []common.Address{}
+func (i *InfoAPI) Accounts() (res []common.Address) {
+	kb, err := getTestKeyring(i.homeDir)
+	if err != nil {
+		return []common.Address{}
+	}
+	for addr := range getAddressPrivKeyMap(kb) {
+		res = append(res, common.HexToAddress(addr))
+	}
+	return
 }
 
 func (i *InfoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
