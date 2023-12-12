@@ -8,7 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/client/config"
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -186,4 +193,28 @@ func TestGetTransactionError(t *testing.T) {
 	EVMKeeper.SetReceipt(Ctx, h, &types.Receipt{VmError: "test error"})
 	resObj := sendRequestGood(t, "getTransactionErrorByHash", "0x1111111111111111111111111111111111111111111111111111111111111111")
 	require.Equal(t, "test error", resObj["result"])
+}
+
+func TestSign(t *testing.T) {
+	homeDir := t.TempDir()
+	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir)
+	infoApi := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir)
+	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
+	clientCtx, err := config.ReadFromClientConfig(clientCtx)
+	require.Nil(t, err)
+	kb, err := client.NewKeyringFromBackend(clientCtx, keyring.BackendTest)
+	require.Nil(t, err)
+	entropySeed, err := bip39.NewEntropy(256)
+	require.Nil(t, err)
+	mnemonic, err := bip39.NewMnemonic(entropySeed)
+	require.Nil(t, err)
+	algos, _ := kb.SupportedAlgorithms()
+	algo, err := keyring.NewSigningAlgoFromString(string(hd.Secp256k1Type), algos)
+	require.Nil(t, err)
+	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
+	require.Nil(t, err)
+	account := infoApi.Accounts()[0]
+	signed, err := txApi.Sign(account, []byte("data"))
+	require.Nil(t, err)
+	require.NotEmpty(t, signed)
 }

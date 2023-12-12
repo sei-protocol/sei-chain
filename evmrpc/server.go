@@ -24,6 +24,7 @@ func NewEVMHTTPServer(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfig client.TxConfig,
+	homeDir string,
 ) (EVMServer, error) {
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
@@ -34,6 +35,7 @@ func NewEVMHTTPServer(
 	if err := httpServer.SetListenAddr(LocalAddress, config.HTTPPort); err != nil {
 		return nil, err
 	}
+	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -45,7 +47,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir),
 		},
 		{
 			Namespace: "eth",
@@ -53,15 +55,15 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), homeDir),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}),
+			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, tmClient, &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}),
+			Service:   NewSimulationAPI(ctxProvider, k, tmClient, simulateConfig),
 		},
 		{
 			Namespace: "net",
@@ -91,6 +93,7 @@ func NewEVMWebSocketServer(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfig client.TxConfig,
+	homeDir string,
 ) (EVMServer, error) {
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
@@ -101,6 +104,7 @@ func NewEVMWebSocketServer(
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
 	}
+	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -112,7 +116,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir),
 		},
 		{
 			Namespace: "eth",
@@ -120,15 +124,15 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), homeDir),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}),
+			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, tmClient, &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}),
+			Service:   NewSimulationAPI(ctxProvider, k, tmClient, simulateConfig),
 		},
 		{
 			Namespace: "net",
