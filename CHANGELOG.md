@@ -27,6 +27,13 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v3.4.0
+sei-chain:
+* [#1163](https://github.com/sei-protocol/sei-chain/pull/1163) Modify antehandler
+
+sei-wasmd:
+* [Full Changes](https://github.com/sei-protocol/sei-wasmd/compare/v0.0.3...v0.0.4) Refactor tx position and bump wasmvm version
+
 ## v3.3.0
 sei-ibc-go:
 * [#35](https://github.com/sei-protocol/sei-ibc-go/pull/35) Upgrade to Ibc v3.4.0
