@@ -27,7 +27,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
-## v3.4.0
+## v3.5.0
 sei-chain:
 * [#1163](https://github.com/sei-protocol/sei-chain/pull/1163) Modify antehandler
 
