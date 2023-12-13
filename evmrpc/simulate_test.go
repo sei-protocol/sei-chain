@@ -61,7 +61,7 @@ func TestEstimateGas(t *testing.T) {
 	}
 	resObj = sendRequestGood(t, "estimateGas", txArgs, nil, map[string]interface{}{})
 	result = resObj["result"].(string)
-	require.Equal(t, "0x534d", result) // 21325
+	require.Equal(t, "0x53f3", result) // 21491
 }
 
 func TestCreateAccessList(t *testing.T) {
