@@ -388,7 +388,6 @@ func (s *scheduler) prepareAndRunTask(wg *sync.WaitGroup, ctx sdk.Context, task 
 	defer eSpan.End()
 	task.Ctx = eCtx
 
-	s.prepareTask(task)
 	s.executeTask(task)
 
 	s.DoValidate(func() {
@@ -441,27 +440,58 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 	task.Ctx = ctx
 }
 
-// executeTask executes a single task
 func (s *scheduler) executeTask(task *deliverTxTask) {
-	dCtx, dSpan := s.traceSpan(task.Ctx, "SchedulerDeliverTx", task)
+	dCtx, dSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask", task)
 	defer dSpan.End()
 	task.Ctx = dCtx
 
-	resp := s.deliverTx(task.Ctx, task.Request)
+	s.prepareTask(task)
+
+	// Channel to signal the completion of deliverTx
+	doneCh := make(chan types.ResponseDeliverTx)
+
+	// Run deliverTx in a separate goroutine
+	go func() {
+		doneCh <- s.deliverTx(task.Ctx, task.Request)
+	}()
+
+	// Flag to mark if abort has happened
+	var abortOccurred bool
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	var abort *occ.Abort
+	// Drain the AbortCh in a non-blocking way
+	go func() {
+		defer wg.Done()
+		for abt := range task.AbortCh {
+			if !abortOccurred {
+				abortOccurred = true
+				abort = &abt
+			}
+		}
+	}()
+
+	// Wait for deliverTx to complete
+	resp := <-doneCh
 
 	close(task.AbortCh)
 
-	if abt, ok := <-task.AbortCh; ok {
+	wg.Wait()
+
+	// If abort has occurred, return, else set the response and status
+	if abortOccurred {
 		task.Status = statusAborted
-		task.Abort = &abt
+		task.Abort = abort
 		return
 	}
+
+	task.Status = statusExecuted
+	task.Response = &resp
 
 	// write from version store to multiversion stores
 	for _, v := range task.VersionStores {
 		v.WriteToMultiVersionStore()
 	}
-
-	task.Status = statusExecuted
-	task.Response = &resp
 }
