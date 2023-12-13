@@ -101,7 +101,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	return
 }
 
-func (s *SendAPI) SignTransaction(ctx context.Context, args apitypes.SendTxArgs, _ *string) (*ethapi.SignTransactionResult, error) {
+func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _ *string) (*ethapi.SignTransactionResult, error) {
 	var unsignedTx = args.ToTransaction()
 	signedTx, err := s.signTransaction(unsignedTx, args.From.Address().Hex())
 	if err != nil {
