@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -93,12 +92,14 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 }
 
 func (c *LoadTestClient) SetValidators() {
-	if strings.Contains(c.LoadTestConfig.MessageType, "staking") {
-		resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
-		if err != nil {
-			panic(err)
+	for _, mType := range c.LoadTestConfig.MessageTypes {
+		if mType == Staking {
+			resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
+			if err != nil {
+				panic(err)
+			}
+			c.Validators = resp.Validators
 		}
-		c.Validators = resp.Validators
 	}
 }
 
