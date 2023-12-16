@@ -24,22 +24,23 @@ but please do not over-use it. We try to keep all data structured
 and standard additions here would be better just to add to the Context struct
 */
 type Context struct {
-	ctx          context.Context
-	ms           MultiStore
-	header       tmproto.Header
-	headerHash   tmbytes.HexBytes
-	chainID      string
-	txBytes      []byte
-	logger       log.Logger
-	voteInfo     []abci.VoteInfo
-	gasMeter     GasMeter
-	occEnabled   bool
-	checkTx      bool
-	recheckTx    bool // if recheckTx == true, then checkTx must also be true
-	minGasPrice  DecCoins
-	consParams   *tmproto.ConsensusParams
-	eventManager *EventManager
-	priority     int64 // The tx priority, only relevant in CheckTx
+	ctx              context.Context
+	ms               MultiStore
+	header           tmproto.Header
+	headerHash       tmbytes.HexBytes
+	chainID          string
+	txBytes          []byte
+	logger           log.Logger
+	voteInfo         []abci.VoteInfo
+	gasMeter         GasMeter
+	occEnabled       bool
+	checkTx          bool
+	recheckTx        bool // if recheckTx == true, then checkTx must also be true
+	minGasPrice      DecCoins
+	consParams       *tmproto.ConsensusParams
+	eventManager     *EventManager
+	priority         int64                 // The tx priority, only relevant in CheckTx
+	pendingTxChecker abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
 
 	txBlockingChannels   acltypes.MessageAccessOpsChannelMapping
 	txCompletionChannels acltypes.MessageAccessOpsChannelMapping
@@ -114,6 +115,10 @@ func (c Context) EventManager() *EventManager {
 
 func (c Context) Priority() int64 {
 	return c.priority
+}
+
+func (c Context) PendingTxChecker() abci.PendingTxChecker {
+	return c.pendingTxChecker
 }
 
 func (c Context) TxCompletionChannels() acltypes.MessageAccessOpsChannelMapping {
@@ -346,6 +351,11 @@ func (c Context) WithMsgValidator(msgValidator *acltypes.MsgValidator) Context {
 
 func (c Context) WithTraceSpanContext(ctx context.Context) Context {
 	c.traceSpanContext = ctx
+	return c
+}
+
+func (c Context) WithPendingTxChecker(checker abci.PendingTxChecker) Context {
+	c.pendingTxChecker = checker
 	return c
 }
 
