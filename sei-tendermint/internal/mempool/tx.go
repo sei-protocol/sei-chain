@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/internal/libs/clist"
 	"github.com/tendermint/tendermint/types"
 )
@@ -72,9 +73,9 @@ func (wtx *WrappedTx) Size() int {
 // TxStore implements a thread-safe mapping of valid transaction(s).
 //
 // NOTE:
-// - Concurrent read-only access to a *WrappedTx object is OK. However, mutative
-//   access is not allowed. Regardless, it is not expected for the mempool to
-//   need mutative access.
+//   - Concurrent read-only access to a *WrappedTx object is OK. However, mutative
+//     access is not allowed. Regardless, it is not expected for the mempool to
+//     need mutative access.
 type TxStore struct {
 	mtx       sync.RWMutex
 	hashTxs   map[types.TxKey]*WrappedTx // primary index
@@ -290,4 +291,68 @@ func (wtl *WrappedTxList) Remove(wtx *WrappedTx) {
 
 		i++
 	}
+}
+
+type PendingTxs struct {
+	mtx *sync.Mutex
+	txs []PendingTxInfo
+}
+
+type PendingTxInfo struct {
+	tx              *WrappedTx
+	checkTxResponse *abci.ResponseCheckTxV2
+	txInfo          TxInfo
+}
+
+func NewPendingTxs() *PendingTxs {
+	return &PendingTxs{
+		mtx: &sync.Mutex{},
+		txs: []PendingTxInfo{},
+	}
+}
+
+func (p *PendingTxs) EvaluatePendingTransactions() (
+	acceptedTxs []PendingTxInfo,
+	rejectedTxs []PendingTxInfo,
+) {
+	poppedIndices := []int{}
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+	for i := 0; i < len(p.txs); i++ {
+		switch p.txs[i].checkTxResponse.Checker() {
+		case abci.Accepted:
+			acceptedTxs = append(acceptedTxs, p.txs[i])
+			poppedIndices = append(poppedIndices, i)
+		case abci.Rejected:
+			rejectedTxs = append(rejectedTxs, p.txs[i])
+			poppedIndices = append(poppedIndices, i)
+		}
+	}
+	p.popTxsAtIndices(poppedIndices)
+	return
+}
+
+// assume mtx is already acquired
+func (p *PendingTxs) popTxsAtIndices(indices []int) {
+	if len(indices) == 0 {
+		return
+	}
+	newTxs := []PendingTxInfo{}
+	start := 0
+	for _, idx := range indices {
+		newTxs = append(newTxs, p.txs[start:idx]...)
+		start = idx
+	}
+	newTxs = append(newTxs, p.txs[indices[len(indices)-1]:]...)
+	p.txs = newTxs
+}
+
+func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, txInfo TxInfo) {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+	p.txs = append(p.txs, PendingTxInfo{
+		tx:              tx,
+		checkTxResponse: resCheckTx,
+		txInfo:          txInfo,
+	})
 }

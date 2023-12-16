@@ -81,6 +81,10 @@ type TxMempool struct {
 	// index. i.e. older transactions are first.
 	timestampIndex *WrappedTxList
 
+	// pendingTxs stores transactions that are not valid yet but might become valid
+	// if its checker returns Accepted
+	pendingTxs *PendingTxs
+
 	// A read/write lock is used to safe guard updates, insertions and deletions
 	// from the mempool. A read-lock is implicitly acquired when executing CheckTx,
 	// however, a caller must explicitly grab a write-lock via Lock when updating
@@ -120,6 +124,7 @@ func NewTxMempool(
 		timestampIndex: NewWrappedTxList(func(wtx1, wtx2 *WrappedTx) bool {
 			return wtx1.timestamp.After(wtx2.timestamp) || wtx1.timestamp.Equal(wtx2.timestamp)
 		}),
+		pendingTxs:          NewPendingTxs(),
 		failedCheckTxCounts: map[types.NodeID]uint64{},
 		peerManager:         peerManager,
 	}
@@ -286,17 +291,25 @@ func (txmp *TxMempool) CheckTx(
 		height:    txmp.height,
 	}
 
-	// only add new transaction if checkTx passes
 	if err == nil {
-		err = txmp.addNewTransaction(wtx, res, txInfo)
+		// only add new transaction if checkTx passes and is not pending
+		if !res.IsPendingTransaction {
+			err = txmp.addNewTransaction(wtx, res.ResponseCheckTx, txInfo)
 
-		if err != nil {
-			return err
+			if err != nil {
+				return err
+			}
+		} else {
+			// otherwise add to pending txs store
+			if res.Checker == nil {
+				return errors.New("no checker available for pending transaction")
+			}
+			txmp.pendingTxs.Insert(wtx, res, txInfo)
 		}
 	}
 
 	if cb != nil {
-		cb(res)
+		cb(res.ResponseCheckTx)
 	}
 
 	return nil
@@ -470,6 +483,7 @@ func (txmp *TxMempool) Update(
 		}
 	}
 
+	txmp.handlePendingTransactions()
 	txmp.purgeExpiredTxs(blockHeight)
 
 	// If there any uncommitted transactions left in the mempool, we either
@@ -633,7 +647,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 //
 // This method is NOT executed for the initial CheckTx on a new transaction;
 // that case is handled by addNewTransaction instead.
-func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckTx) {
+func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckTxV2) {
 	if txmp.recheckCursor == nil {
 		return
 	}
@@ -676,10 +690,11 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 	if !txmp.txStore.IsTxRemoved(wtx.hash) {
 		var err error
 		if txmp.postCheck != nil {
-			err = txmp.postCheck(tx, res)
+			err = txmp.postCheck(tx, res.ResponseCheckTx)
 		}
 
-		if res.Code == abci.CodeTypeOK && err == nil {
+		// we will treat a transaction that turns pending in a recheck as invalid and evict it
+		if res.Code == abci.CodeTypeOK && err == nil && !res.IsPendingTransaction {
 			wtx.priority = res.Priority
 		} else {
 			txmp.logger.Debug(
@@ -902,4 +917,18 @@ func (txmp *TxMempool) AppendCheckTxErr(existingLogs string, log string) string 
 	builder.WriteString(log)
 
 	return builder.String()
+}
+
+func (txmp *TxMempool) handlePendingTransactions() {
+	accepted, rejected := txmp.pendingTxs.EvaluatePendingTransactions()
+	for _, tx := range accepted {
+		if err := txmp.addNewTransaction(tx.tx, tx.checkTxResponse.ResponseCheckTx, tx.txInfo); err != nil {
+			txmp.logger.Error(fmt.Sprintf("error adding pending transaction: %s", err))
+		}
+	}
+	if !txmp.config.KeepInvalidTxsInCache {
+		for _, tx := range rejected {
+			txmp.cache.Remove(tx.tx.tx)
+		}
+	}
 }

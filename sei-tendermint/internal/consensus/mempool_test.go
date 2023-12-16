@@ -308,18 +308,18 @@ func (app *CounterApplication) FinalizeBlock(_ context.Context, req *abci.Reques
 	return res, nil
 }
 
-func (app *CounterApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTx, error) {
+func (app *CounterApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
 	txValue := txAsUint64(req.Tx)
 	if txValue != uint64(app.mempoolTxCount) {
-		return &abci.ResponseCheckTx{
+		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
 			Code: code.CodeTypeBadNonce,
-		}, nil
+		}}, nil
 	}
 	app.mempoolTxCount++
-	return &abci.ResponseCheckTx{Code: code.CodeTypeOK}, nil
+	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: code.CodeTypeOK}}, nil
 }
 
 func txAsUint64(tx []byte) uint64 {

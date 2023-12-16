@@ -185,7 +185,7 @@ func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheck
 	if err != nil {
 		return nil, err
 	}
-	return &coretypes.ResultCheckTx{ResponseCheckTx: *res}, nil
+	return &coretypes.ResultCheckTx{ResponseCheckTx: *res.ResponseCheckTx}, nil
 }
 
 func (env *Environment) RemoveTx(ctx context.Context, req *coretypes.RequestRemoveTx) error {
