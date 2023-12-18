@@ -848,7 +848,9 @@ func New(
 			TracingInfo:         app.GetBaseApp().TracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 			CheckTxMemState:     app.CheckTxMemState,
-			EVMCheckTxTimeout:   app.evmRPCConfig.CheckTxTimeout,
+			LatestCtxGetter: func() sdk.Context {
+				return app.GetCheckCtx()
+			},
 		},
 	)
 	if err != nil {
