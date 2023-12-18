@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math/big"
 	"strings"
 	"sync"
@@ -20,6 +19,8 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
+const TxSearchPerPage = 10
+
 type FilterType byte
 
 const (
@@ -27,6 +28,11 @@ const (
 	LogsSubscription
 	BlocksSubscription
 )
+
+type offset struct {
+	nextPage    int
+	itemsToRead int // if a previous query ends on page 3 with only 8 items, then itemsToRead is set to (10-8)=2 so that the next query will not skip the two remaining
+}
 
 type filter struct {
 	typ      FilterType
@@ -37,7 +43,7 @@ type filter struct {
 	blockCursor string
 
 	// LogsSubscription
-	logsCursors map[common.Address]string
+	logsCursors map[common.Address]offset
 }
 
 type FilterAPI struct {
@@ -50,6 +56,11 @@ type FilterAPI struct {
 
 type FilterConfig struct {
 	timeout time.Duration
+}
+
+type EventItemDataWrapper struct {
+	Type  string          `json:"type"`
+	Value json.RawMessage `json:"value"`
 }
 
 func NewFilterAPI(tmClient rpcclient.Client, filterConfig *FilterConfig) *FilterAPI {
@@ -97,7 +108,7 @@ func (a *FilterAPI) NewFilter(
 		typ:         LogsSubscription,
 		fc:          crit,
 		deadline:    time.NewTimer(a.filterConfig.timeout),
-		logsCursors: make(map[common.Address]string),
+		logsCursors: make(map[common.Address]offset),
 	}
 	return &curFilterID, nil
 }
@@ -181,7 +192,7 @@ func (a *FilterAPI) GetFilterLogs(
 	}
 	filter.deadline.Reset(a.filterConfig.timeout)
 
-	noCursors := make(map[common.Address]string)
+	noCursors := make(map[common.Address]offset)
 	res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, noCursors)
 	if err != nil {
 		return nil, err
@@ -201,7 +212,7 @@ func (a *FilterAPI) GetLogs(
 	logs, _, err := a.getLogsOverAddresses(
 		ctx,
 		crit,
-		make(map[common.Address]string),
+		make(map[common.Address]offset),
 	)
 	return logs, err
 }
@@ -210,17 +221,17 @@ func (a *FilterAPI) GetLogs(
 func (a *FilterAPI) getLogsOverAddresses(
 	ctx context.Context,
 	crit filters.FilterCriteria,
-	cursors map[common.Address]string,
-) ([]*ethtypes.Log, map[common.Address]string, error) {
+	cursors map[common.Address]offset,
+) ([]*ethtypes.Log, map[common.Address]offset, error) {
 	res := make([]*ethtypes.Log, 0)
 	if len(crit.Addresses) == 0 {
 		crit.Addresses = append(crit.Addresses, common.Address{})
 	}
-	updatedAddrToCursor := make(map[common.Address]string)
+	updatedAddrToCursor := make(map[common.Address]offset)
 	for _, address := range crit.Addresses {
-		var cursor string
+		var cursor offset
 		if _, ok := cursors[address]; !ok {
-			cursor = ""
+			cursor = offset{nextPage: 1, itemsToRead: TxSearchPerPage}
 		} else {
 			cursor = cursors[address]
 		}
@@ -264,9 +275,13 @@ func (a *FilterAPI) getBlockHeadersAfter(
 		cursor = res.Newest
 
 		for _, item := range res.Items {
-			fmt.Println(string(item.Data))
+			wrapper := EventItemDataWrapper{}
+			err := json.Unmarshal(item.Data, &wrapper)
+			if err != nil {
+				return nil, "", err
+			}
 			block := tmtypes.EventDataNewBlock{}
-			err := json.Unmarshal(item.Data, &block)
+			err = json.Unmarshal(wrapper.Value, &block)
 			if err != nil {
 				return nil, "", err
 			}
@@ -274,11 +289,6 @@ func (a *FilterAPI) getBlockHeadersAfter(
 		}
 	}
 	return headers, cursor, nil
-}
-
-type LogDataWrapper struct {
-	Type  string          `json:"type"`
-	Value json.RawMessage `json:"value"`
 }
 
 // pulls logs from tendermint client for a single address.
@@ -289,39 +299,42 @@ func (a *FilterAPI) getLogs(
 	toBlock *big.Int,
 	address common.Address,
 	topics [][]common.Hash,
-	cursor string,
-) ([]*ethtypes.Log, string, error) {
-	builtQuery := getBuiltQuery(blockHash, fromBlock, toBlock, address, topics).Build()
-	hasMore := true
+	cursor offset,
+) ([]*ethtypes.Log, offset, error) {
+	builtQuery := getBuiltQuery(
+		NewTxSearchQueryBuilder(),
+		blockHash,
+		fromBlock,
+		toBlock,
+		address,
+		topics,
+	).Build()
+	page := cursor.nextPage
+	perPage := TxSearchPerPage
+	itemsToRead := cursor.itemsToRead
 	logs := []*ethtypes.Log{}
-	for hasMore {
-		res, err := a.tmClient.Events(ctx, &coretypes.RequestEvents{
-			Filter: &coretypes.EventFilter{Query: builtQuery},
-			After:  cursor,
-		})
+	for {
+		res, err := a.tmClient.TxSearch(ctx, builtQuery, false, &page, &perPage, "asc")
 		if err != nil {
-			return nil, "", err
+			return nil, offset{}, err
 		}
-		hasMore = res.More
-		cursor = res.Newest
-		for _, log := range res.Items {
-			wrapper := LogDataWrapper{}
-			err := json.Unmarshal(log.Data, &wrapper)
-			if err != nil {
-				return nil, "", err
-			}
-			eventData := tmtypes.EventDataTx{}
-			err = json.Unmarshal(wrapper.Value, &eventData)
-			if err != nil {
-				return nil, "", err
-			}
-			for _, event := range eventData.Result.Events {
+
+		txs := res.Txs
+		if perPage-itemsToRead < len(txs) {
+			txs = txs[perPage-itemsToRead:]
+		} else {
+			txs = []*coretypes.ResultTx{}
+		}
+		for _, tx := range txs {
+			for _, event := range tx.TxResult.Events {
 				// needs to do filtering again because the response contains all events
-				// of a transaction that contains any matching event
+				// of a transaction that contains any matching event.
+				// Once we rebase tendermint to a newer version that supports `match_events`
+				// keyword we can skip this step.
 				if event.Type != types.EventTypeEVMLog {
 					continue
 				}
-				contractMatched := false
+				contractMatched := address == common.Address{}
 				topicsMatched := len(topics) == 0
 				for _, attr := range event.Attributes {
 					if string(attr.Key) == types.AttributeTypeContractAddress {
@@ -339,13 +352,20 @@ func (a *FilterAPI) getLogs(
 				}
 				ethLog, err := encodeEventToLog(event)
 				if err != nil {
-					return nil, "", err
+					return nil, offset{}, err
 				}
 				logs = append(logs, ethLog)
 			}
 		}
+
+		if res.TotalCount < page*perPage {
+			return logs, offset{itemsToRead: page*perPage - res.TotalCount, nextPage: page}, nil
+		} else if res.TotalCount == page*perPage {
+			return logs, offset{itemsToRead: perPage, nextPage: page + 1}, nil
+		}
+		page++
+		itemsToRead = perPage
 	}
-	return logs, cursor, nil
 }
 
 func (a *FilterAPI) UninstallFilter(
@@ -386,13 +406,13 @@ func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
 }
 
 func getBuiltQuery(
+	q *QueryBuilder,
 	blockHash *common.Hash,
 	fromBlock *big.Int,
 	toBlock *big.Int,
 	address common.Address,
 	topics [][]common.Hash,
 ) *QueryBuilder {
-	q := NewTxQueryBuilder()
 	if blockHash != nil {
 		q = q.FilterBlockHash(blockHash.Hex())
 	}
