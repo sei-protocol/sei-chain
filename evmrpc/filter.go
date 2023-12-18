@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -261,6 +264,7 @@ func (a *FilterAPI) getBlockHeadersAfter(
 		cursor = res.Newest
 
 		for _, item := range res.Items {
+			fmt.Println(string(item.Data))
 			block := tmtypes.EventDataNewBlock{}
 			err := json.Unmarshal(item.Data, &block)
 			if err != nil {
@@ -270,6 +274,11 @@ func (a *FilterAPI) getBlockHeadersAfter(
 		}
 	}
 	return headers, cursor, nil
+}
+
+type LogDataWrapper struct {
+	Type  string          `json:"type"`
+	Value json.RawMessage `json:"value"`
 }
 
 // pulls logs from tendermint client for a single address.
@@ -296,16 +305,44 @@ func (a *FilterAPI) getLogs(
 		hasMore = res.More
 		cursor = res.Newest
 		for _, log := range res.Items {
-			abciEvent := abci.Event{}
-			err := json.Unmarshal(log.Data, &abciEvent)
+			wrapper := LogDataWrapper{}
+			err := json.Unmarshal(log.Data, &wrapper)
 			if err != nil {
 				return nil, "", err
 			}
-			ethLog, err := encodeEventToLog(abciEvent)
+			eventData := tmtypes.EventDataTx{}
+			err = json.Unmarshal(wrapper.Value, &eventData)
 			if err != nil {
 				return nil, "", err
 			}
-			logs = append(logs, ethLog)
+			for _, event := range eventData.Result.Events {
+				// needs to do filtering again because the response contains all events
+				// of a transaction that contains any matching event
+				if event.Type != types.EventTypeEVMLog {
+					continue
+				}
+				contractMatched := false
+				topicsMatched := len(topics) == 0
+				for _, attr := range event.Attributes {
+					if string(attr.Key) == types.AttributeTypeContractAddress {
+						if common.HexToAddress(string(attr.Value)) == address {
+							contractMatched = true
+						}
+					} else if string(attr.Key) == types.AttributeTypeTopics {
+						if matchTopics(topics, utils.Map(strings.Split(string(attr.Value), ","), common.HexToHash)) {
+							topicsMatched = true
+						}
+					}
+				}
+				if !contractMatched || !topicsMatched {
+					continue
+				}
+				ethLog, err := encodeEventToLog(event)
+				if err != nil {
+					return nil, "", err
+				}
+				logs = append(logs, ethLog)
+			}
 		}
 	}
 	return logs, cursor, nil
@@ -322,6 +359,29 @@ func (a *FilterAPI) UninstallFilter(
 		return false
 	}
 	delete(a.filters, filterID)
+	return true
+}
+
+func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
+	for i, topicList := range topics {
+		if len(topicList) == 0 {
+			// anything matches for this position
+			continue
+		}
+		if i >= len(eventTopics) {
+			return false
+		}
+		matched := false
+		for _, topic := range topicList {
+			if topic == eventTopics[i] {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
 	return true
 }
 
