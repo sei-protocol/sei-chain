@@ -63,7 +63,7 @@ func TestSendRawTransaction(t *testing.T) {
 	// bad server
 	resObj = sendRequestBad(t, "sendRawTransaction", payload)
 	errMap = resObj["error"].(map[string]interface{})
-	require.Equal(t, "res: 1, error: %!s(<nil>)", errMap["message"].(string))
+	require.Equal(t, ": invalid sequence", errMap["message"].(string))
 }
 
 func TestSendAssociateTransaction(t *testing.T) {
