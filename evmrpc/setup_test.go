@@ -499,7 +499,7 @@ func (m *MockBadClient) Subscribe(context.Context, string, string, ...int) (<-ch
 }
 
 func (m *MockBadClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
-	return &coretypes.ResultBroadcastTx{Code: 1, Codespace: "test", Log: "log"}, nil
+	return &coretypes.ResultBroadcastTx{Code: 3, Codespace: "test", Log: "log"}, nil
 }
 
 var EVMKeeper *keeper.Keeper

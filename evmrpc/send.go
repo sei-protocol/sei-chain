@@ -3,11 +3,11 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -79,23 +79,24 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if encodeErr != nil {
 		return hash, encodeErr
 	}
+
 	if s.sendConfig.slow {
 		res, broadcastError := s.tmClient.BroadcastTxCommit(ctx, txbz)
-		if broadcastError != nil || res == nil || res.CheckTx.Code != 0 {
-			code := -1
-			if res != nil {
-				code = int(res.CheckTx.Code)
-			}
-			return hash, fmt.Errorf("res: %d, error: %s", code, broadcastError)
+		if broadcastError != nil {
+			err = broadcastError
+		} else if res == nil {
+			err = errors.New("missing broadcast response")
+		} else if res.CheckTx.Code != 0 {
+			err = sdkerrors.ABCIError(sdkerrors.RootCodespace, res.CheckTx.Code, "")
 		}
 	} else {
 		res, broadcastError := s.tmClient.BroadcastTx(ctx, txbz)
-		if broadcastError != nil || res == nil || res.Code != 0 {
-			code := -1
-			if res != nil {
-				code = int(res.Code)
-			}
-			return hash, fmt.Errorf("res: %d, error: %s", code, broadcastError)
+		if broadcastError != nil {
+			err = broadcastError
+		} else if res == nil {
+			err = errors.New("missing broadcast response")
+		} else if res.Code != 0 {
+			err = sdkerrors.ABCIError(sdkerrors.RootCodespace, res.Code, "")
 		}
 	}
 	return
