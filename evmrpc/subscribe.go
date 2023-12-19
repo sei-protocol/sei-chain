@@ -84,7 +84,7 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 
 	resultEventAllAddrs := make(chan coretypes.ResultEvent, len(filter.Addresses)*a.subscriptonConfig.subscriptionCapacity)
 	for _, address := range filter.Addresses {
-		q := getBuiltQuery(filter.BlockHash, filter.FromBlock, filter.ToBlock, address, filter.Topics)
+		q := getBuiltQuery(NewTxQueryBuilder(), filter.BlockHash, filter.FromBlock, filter.ToBlock, address, filter.Topics)
 		subscriberID, subCh, err := a.subscriptionManager.Subscribe(context.Background(), q, a.subscriptonConfig.subscriptionCapacity)
 		if err != nil {
 			return nil, err

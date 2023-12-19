@@ -56,6 +56,7 @@ var UnconfirmedTx sdk.Tx
 var SConfig = evmrpc.SimulateConfig{GasCap: 10000000}
 
 var filterTimeoutDuration = 500 * time.Millisecond
+var TotalTxCount int = 11
 
 type MockClient struct {
 	mock.Client
@@ -280,6 +281,89 @@ func (c *MockClient) Unsubscribe(_ context.Context, _, _ string) error {
 	return nil
 }
 
+func (c *MockClient) TxSearch(
+	ctx context.Context,
+	query string,
+	prove bool,
+	page, perPage *int,
+	orderBy string,
+) (*coretypes.ResultTxSearch, error) {
+	if *page == 1 {
+		return &coretypes.ResultTxSearch{
+			TotalCount: TotalTxCount,
+			Txs: []*coretypes.ResultTx{
+				{
+					TxResult: abci.ExecTxResult{Events: []abci.Event{
+						{
+							Type: types.EventTypeEVMLog,
+							Attributes: []abci.EventAttribute{{
+								Key:   []byte(types.AttributeTypeContractAddress),
+								Value: []byte("0x1111111111111111111111111111111111111112"),
+							}, {
+								Key:   []byte(types.AttributeTypeTopics),
+								Value: []byte("0x0000000000000000000000000000000000000000000000000000000000000123"),
+							}, {
+								Key:   []byte(types.AttributeTypeBlockNumber),
+								Value: []byte("4"),
+							}},
+						},
+					}},
+				},
+				{
+					TxResult: abci.ExecTxResult{Events: []abci.Event{
+						{
+							Type: types.EventTypeEVMLog,
+							Attributes: []abci.EventAttribute{{
+								Key:   []byte(types.AttributeTypeContractAddress),
+								Value: []byte("0x1111111111111111111111111111111111111113"),
+							}, {
+								Key:   []byte(types.AttributeTypeTopics),
+								Value: []byte("0x0000000000000000000000000000000000000000000000000000000000000123,0x0000000000000000000000000000000000000000000000000000000000000456"),
+							}, {
+								Key:   []byte(types.AttributeTypeBlockNumber),
+								Value: []byte("4"),
+							}},
+						},
+					}},
+				},
+				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
+				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
+				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
+				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
+				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
+				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
+				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
+				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
+			},
+		}, nil
+	} else if *page == 2 {
+		return &coretypes.ResultTxSearch{
+			TotalCount: TotalTxCount,
+			Txs: []*coretypes.ResultTx{
+				{
+					TxResult: abci.ExecTxResult{Events: []abci.Event{
+						{
+							Type: types.EventTypeEVMLog,
+							Attributes: []abci.EventAttribute{{
+								Key:   []byte(types.AttributeTypeContractAddress),
+								Value: []byte("0x1111111111111111111111111111111111111113"),
+							}, {
+								Key:   []byte(types.AttributeTypeTopics),
+								Value: []byte("0x0000000000000000000000000000000000000000000000000000000000000123"),
+							}, {
+								Key:   []byte(types.AttributeTypeBlockNumber),
+								Value: []byte("4"),
+							}},
+						},
+					}},
+				},
+				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
+			},
+		}, nil
+	}
+	return &coretypes.ResultTxSearch{TotalCount: TotalTxCount, Txs: []*coretypes.ResultTx{}}, nil
+}
+
 func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
 	if strings.Contains(req.Filter.Query, "tm.event = 'NewBlock'") {
 		var cursor int
@@ -363,12 +447,20 @@ func buildSingleResultEvent(data interface{}, more bool, cursor string, event st
 	if err != nil {
 		panic(err)
 	}
+	wrappedData := evmrpc.EventItemDataWrapper{
+		Type:  "NewBlock",
+		Value: eventData,
+	}
+	bz, err := json.Marshal(wrappedData)
+	if err != nil {
+		panic(err)
+	}
 	return &coretypes.ResultEvents{
 		Items: []*coretypes.EventItem{
 			{
 				Cursor: cursor,
 				Event:  event,
-				Data:   eventData,
+				Data:   bz,
 			},
 		},
 		More:   more,

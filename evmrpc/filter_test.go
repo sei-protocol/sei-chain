@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -122,7 +123,7 @@ func TestFilterGetLogs(t *testing.T) {
 			check: func(t *testing.T, log map[string]interface{}) {
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", log["topics"].([]interface{})[0].(string))
 			},
-			wantLen: 1,
+			wantLen: 3,
 		},
 		{
 			name:      "multiple addresses, multiple topics",
@@ -147,7 +148,7 @@ func TestFilterGetLogs(t *testing.T) {
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", firstTopic)
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000456", secondTopic)
 			},
-			wantLen: 2,
+			wantLen: 1,
 		},
 		{
 			name:      "wildcard first topic",
@@ -169,6 +170,7 @@ func TestFilterGetLogs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			fmt.Println(tt.name)
 			filterCriteria := map[string]interface{}{
 				"fromBlock": tt.fromBlock,
 				"toBlock":   tt.toBlock,
@@ -209,7 +211,7 @@ func TestFilterGetFilterLogs(t *testing.T) {
 
 	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 1, len(logs))
+	require.Equal(t, 3, len(logs))
 	for _, log := range logs {
 		logObj := log.(map[string]interface{})
 		require.Equal(t, "0x4", logObj["blockNumber"].(string))
@@ -225,23 +227,25 @@ func TestFilterGetFilterLogs(t *testing.T) {
 func TestFilterGetFilterChanges(t *testing.T) {
 	t.Parallel()
 	filterCriteria := map[string]interface{}{
-		"fromBlock": "0x5",
+		"fromBlock": "0x4",
 	}
 	resObj := sendRequest(t, TestPort, "newFilter", filterCriteria)
 	filterId := int(resObj["result"].(float64))
 
+	TotalTxCount = 10
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 1, len(logs))
+	require.Equal(t, 2, len(logs))
 	logObj := logs[0].(map[string]interface{})
-	require.Equal(t, "0x5", logObj["blockNumber"].(string))
+	require.Equal(t, "0x4", logObj["blockNumber"].(string))
 
 	// another query
+	TotalTxCount = 11
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	logs = resObj["result"].([]interface{})
 	require.Equal(t, 1, len(logs))
 	logObj = logs[0].(map[string]interface{})
-	require.Equal(t, "0x6", logObj["blockNumber"].(string))
+	require.Equal(t, "0x4", logObj["blockNumber"].(string))
 
 	// error: filter id does not exist
 	nonExistingFilterId := 1000

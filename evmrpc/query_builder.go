@@ -37,6 +37,12 @@ func NewTxQueryBuilder() *QueryBuilder {
 	}
 }
 
+func NewTxSearchQueryBuilder() *QueryBuilder {
+	return &QueryBuilder{
+		conditions: []string{},
+	}
+}
+
 func (q *QueryBuilder) Build() string {
 	return strings.Join(q.conditions, " AND ")
 }
