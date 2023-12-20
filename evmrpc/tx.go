@@ -3,7 +3,9 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -25,7 +27,7 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
-const UnconfirmedTxQueryMaxPage = 5
+const UnconfirmedTxQueryMaxPage = 20
 
 type TransactionAPI struct {
 	tmClient    rpcclient.Client
@@ -83,6 +85,39 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 		return nil
 	}
 	return t.getTransactionWithBlock(block, index)
+}
+
+func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Address) (string, error) {
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	nonces := []int{}
+	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
+		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, nil)
+		if err != nil {
+			return "", err
+		}
+		if len(res.Txs) == 0 {
+			break
+		}
+		for _, tx := range res.Txs {
+			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
+			if etx != nil {
+				signer := ethtypes.MakeSigner(
+					t.keeper.GetChainConfig(sdkCtx).EthereumConfig(t.keeper.ChainID(sdkCtx)),
+					big.NewInt(sdkCtx.BlockHeight()),
+					uint64(sdkCtx.BlockTime().Second()),
+				)
+				from, _ := ethtypes.Sender(signer, etx)
+				if from == addr {
+					nonces = append(nonces, int(etx.Nonce()))
+				}
+			}
+		}
+		if page*30 >= res.Total {
+			break
+		}
+	}
+	sort.Ints(nonces)
+	return strings.Join(utils.Map(nonces, func(i int) string { return fmt.Sprintf("%d", i) }), ","), nil
 }
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
@@ -146,9 +181,9 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	pendingTxCnt := uint64(0)
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
-		pendingTxCnt := t.keeper.GetPendingTxCount(sdkCtx, address)
-		return (*hexutil.Uint64)(&pendingTxCnt), nil
+		pendingTxCnt = t.keeper.GetPendingTxCount(sdkCtx, address)
 	}
 
 	blkNr, err := GetBlockNumberByNrOrHash(ctx, t.tmClient, blockNrOrHash)
@@ -159,7 +194,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	if blkNr != nil {
 		sdkCtx = t.ctxProvider(*blkNr)
 	}
-	nonce := t.keeper.GetNonce(sdkCtx, address)
+	nonce := t.keeper.GetNonce(sdkCtx, address) + pendingTxCnt
 	return (*hexutil.Uint64)(&nonce), nil
 }
 

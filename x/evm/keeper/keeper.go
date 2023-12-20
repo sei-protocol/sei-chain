@@ -158,7 +158,7 @@ func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	return common.BytesToHash(header.Hash())
 }
 
-func (k *Keeper) IncrementPendingTxCount(ctx sdk.Context, addr common.Address) {
+func (k *Keeper) IncrementPendingTxCount(addr common.Address) {
 	k.evmTxCountsMtx.Lock()
 	defer k.evmTxCountsMtx.Unlock()
 	addrStr := addr.Hex()
@@ -166,7 +166,16 @@ func (k *Keeper) IncrementPendingTxCount(ctx sdk.Context, addr common.Address) {
 		k.evmTxCountsIncludingPending[addrStr] = cnt + 1
 		return
 	}
-	k.evmTxCountsIncludingPending[addrStr] = k.GetNonce(ctx, addr) + 1
+	k.evmTxCountsIncludingPending[addrStr] = 1
+}
+
+func (k *Keeper) DecrementPendingTxCount(addr common.Address) {
+	k.evmTxCountsMtx.Lock()
+	defer k.evmTxCountsMtx.Unlock()
+	addrStr := addr.Hex()
+	if cnt, ok := k.evmTxCountsIncludingPending[addrStr]; ok && cnt > 0 {
+		k.evmTxCountsIncludingPending[addrStr] = cnt - 1
+	}
 }
 
 func (k *Keeper) GetPendingTxCount(ctx sdk.Context, addr common.Address) uint64 {

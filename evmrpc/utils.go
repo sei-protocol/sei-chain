@@ -15,6 +15,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
@@ -60,7 +61,12 @@ func hydrateTransaction(
 	idx := hexutil.Uint64(receipt.TransactionIndex)
 	al := tx.AccessList()
 	v, r, s := tx.RawSignatureValues()
-	yparity := hexutil.Uint64(v.Sign())
+	v = ante.AdjustV(v, tx.Type(), tx.ChainId())
+	var yparity *hexutil.Uint64
+	if tx.Type() != ethtypes.LegacyTxType {
+		yp := hexutil.Uint64(v.Sign())
+		yparity = &yp
+	}
 	return RPCTransaction{
 		BlockHash:           &blockhash,
 		BlockNumber:         (*hexutil.Big)(blocknumber),
@@ -82,7 +88,7 @@ func hydrateTransaction(
 		V:                   (*hexutil.Big)(v),
 		S:                   (*hexutil.Big)(s),
 		R:                   (*hexutil.Big)(r),
-		YParity:             &yparity,
+		YParity:             yparity,
 	}
 }
 

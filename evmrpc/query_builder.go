@@ -65,7 +65,7 @@ func (q *QueryBuilder) FilterTopics(topics [][]string) *QueryBuilder {
 	if err != nil {
 		panic(err)
 	}
-	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s = MATCHES '%s'", types.EventTypeEVMLog, types.AttributeTypeTopics, pattern))
+	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s MATCHES '%s'", types.EventTypeEVMLog, types.AttributeTypeTopics, pattern))
 	return q
 }
 
@@ -90,12 +90,18 @@ func (q *QueryBuilder) FilterBlockNumber(blockNumber int64) *QueryBuilder {
 }
 
 func (q *QueryBuilder) FilterBlockNumberStart(blockNumber int64) *QueryBuilder {
-	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s >= '%d'", types.EventTypeEVMLog, types.AttributeTypeBlockNumber, blockNumber))
+	if blockNumber <= 0 {
+		return q
+	}
+	q.conditions = append(q.conditions, fmt.Sprintf("tx.height >= %d", blockNumber))
 	return q
 }
 
 func (q *QueryBuilder) FilterBlockNumberEnd(blockNumber int64) *QueryBuilder {
-	q.conditions = append(q.conditions, fmt.Sprintf("%s.%s <= '%d'", types.EventTypeEVMLog, types.AttributeTypeBlockNumber, blockNumber))
+	if blockNumber <= 0 {
+		return q
+	}
+	q.conditions = append(q.conditions, fmt.Sprintf("tx.height <= %d", blockNumber))
 	return q
 }
 
