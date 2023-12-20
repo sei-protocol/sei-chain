@@ -41,6 +41,7 @@ type Context struct {
 	eventManager     *EventManager
 	priority         int64                 // The tx priority, only relevant in CheckTx
 	pendingTxChecker abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
+	checkTxCallback  func(error)           // callback to make at the end of CheckTx. Input param is the error (nil-able) of `runMsgs`
 
 	txBlockingChannels   acltypes.MessageAccessOpsChannelMapping
 	txCompletionChannels acltypes.MessageAccessOpsChannelMapping
@@ -119,6 +120,10 @@ func (c Context) Priority() int64 {
 
 func (c Context) PendingTxChecker() abci.PendingTxChecker {
 	return c.pendingTxChecker
+}
+
+func (c Context) CheckTxCallback() func(error) {
+	return c.checkTxCallback
 }
 
 func (c Context) TxCompletionChannels() acltypes.MessageAccessOpsChannelMapping {
@@ -356,6 +361,11 @@ func (c Context) WithTraceSpanContext(ctx context.Context) Context {
 
 func (c Context) WithPendingTxChecker(checker abci.PendingTxChecker) Context {
 	c.pendingTxChecker = checker
+	return c
+}
+
+func (c Context) WithCheckTxCallback(checkTxCallback func(error)) Context {
+	c.checkTxCallback = checkTxCallback
 	return c
 }
 

@@ -157,8 +157,9 @@ type BaseApp struct { //nolint: maligned
 
 	ChainID string
 
-	votesInfoLock sync.RWMutex
-	commitLock    *sync.Mutex
+	votesInfoLock    sync.RWMutex
+	commitLock       *sync.Mutex
+	checkTxStateLock *sync.RWMutex
 
 	compactionInterval uint64
 
@@ -274,7 +275,8 @@ func NewBaseApp(
 		TracingInfo: &tracing.Info{
 			Tracer: &tr,
 		},
-		commitLock: &sync.Mutex{},
+		commitLock:       &sync.Mutex{},
+		checkTxStateLock: &sync.RWMutex{},
 	}
 
 	app.TracingInfo.SetContext(context.Background())
@@ -529,6 +531,8 @@ func (app *BaseApp) IsSealed() bool { return app.sealed }
 func (app *BaseApp) setCheckState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
 	ctx := sdk.NewContext(ms, header, true, app.logger).WithMinGasPrices(app.minGasPrices)
+	app.checkTxStateLock.Lock()
+	defer app.checkTxStateLock.Unlock()
 	if app.checkState == nil {
 		app.checkState = &state{
 			ms:  ms,
@@ -978,6 +982,9 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		// append the events in the order of occurrence
 		result.Events = append(anteEvents, result.Events...)
 	}
+	if ctx.CheckTxCallback() != nil {
+		ctx.CheckTxCallback()(err)
+	}
 	return gInfo, result, anteEvents, priority, pendingTxChecker, err
 }
 
@@ -1168,5 +1175,7 @@ func (app *BaseApp) ReloadDB() error {
 }
 
 func (app *BaseApp) GetCheckCtx() sdk.Context {
+	app.checkTxStateLock.RLock()
+	defer app.checkTxStateLock.RUnlock()
 	return app.checkState.ctx
 }
