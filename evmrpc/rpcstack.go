@@ -17,6 +17,7 @@
 package evmrpc
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"
@@ -158,7 +159,7 @@ func (h *HTTPServer) Start() error {
 	h.listener = listener
 	go func() {
 		if err := h.server.Serve(listener); err != nil {
-			h.log.Error(fmt.Sprintf("server existing due to %s\n", err))
+			h.log.Error(fmt.Sprintf("server exiting due to %s\n", err))
 		}
 	}()
 
@@ -199,6 +200,12 @@ func (h *HTTPServer) Start() error {
 }
 
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		panic(err)
+	}
+	r.Body = io.NopCloser(bytes.NewBuffer(body))
+	// fmt.Printf("EVMTEST-HTTP: received HTTP request with body %s\n", string(body))
 	// check if ws request and serve if ws enabled
 	ws := h.wsHandler.Load().(*rpcHandler)
 	if ws != nil && IsWebsocket(r) {

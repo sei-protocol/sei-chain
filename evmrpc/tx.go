@@ -103,7 +103,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 				)
 				from, _ := ethtypes.Sender(signer, etx)
 				v, r, s := etx.RawSignatureValues()
-				return &RPCTransaction{
+				res := RPCTransaction{
 					Type:     hexutil.Uint64(etx.Type()),
 					From:     from,
 					Gas:      hexutil.Uint64(etx.Gas()),
@@ -116,7 +116,8 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 					V:        (*hexutil.Big)(v),
 					R:        (*hexutil.Big)(r),
 					S:        (*hexutil.Big)(s),
-				}, nil
+				}
+				return &res, nil
 			}
 		}
 	}
@@ -144,12 +145,17 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 }
 
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
+		pendingTxCnt := t.keeper.GetPendingTxCount(sdkCtx, address)
+		return (*hexutil.Uint64)(&pendingTxCnt), nil
+	}
+
 	blkNr, err := GetBlockNumberByNrOrHash(ctx, t.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
 
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	if blkNr != nil {
 		sdkCtx = t.ctxProvider(*blkNr)
 	}

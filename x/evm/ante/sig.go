@@ -36,17 +36,25 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	if ctx.IsCheckTx() {
 		if txNonce < nextNonce {
 			return ctx, sdkerrors.ErrWrongSequence
-		} else if txNonce > nextNonce {
-			// transaction shall be added to mempool as a pending transaction
-			ctx = ctx.WithPendingTxChecker(func() abci.PendingTxCheckerResponse {
-				latestNonce := svd.evmKeeper.GetNonce(svd.latestCtxGetter(), evmAddr)
-				if txNonce < latestNonce {
-					return abci.Rejected
-				} else if txNonce == latestNonce {
-					return abci.Accepted
+		} else {
+			ctx = ctx.WithCheckTxCallback(func(e error) {
+				if e != nil {
+					return
 				}
-				return abci.Pending
+				svd.evmKeeper.IncrementPendingTxCount(ctx, evmAddr)
 			})
+			if txNonce > nextNonce {
+				// transaction shall be added to mempool as a pending transaction
+				ctx = ctx.WithPendingTxChecker(func() abci.PendingTxCheckerResponse {
+					latestNonce := svd.evmKeeper.GetNonce(svd.latestCtxGetter(), evmAddr)
+					if txNonce < latestNonce {
+						return abci.Rejected
+					} else if txNonce == latestNonce {
+						return abci.Accepted
+					}
+					return abci.Pending
+				})
+			}
 		}
 	} else if txNonce != nextNonce {
 		return ctx, sdkerrors.ErrWrongSequence
