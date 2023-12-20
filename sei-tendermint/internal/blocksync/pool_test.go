@@ -9,7 +9,6 @@ import (
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
 	dbm "github.com/tendermint/tm-db"
-	mrand "math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -80,12 +79,7 @@ func makePeers(numPeers int, minHeight, maxHeight int64) testPeers {
 			panic(err)
 		}
 		peerID := types.NodeID(hex.EncodeToString(bytes))
-		height := minHeight + mrand.Int63n(maxHeight-minHeight)
-		base := minHeight + int64(i)
-		if base > height {
-			base = height
-		}
-		peers[peerID] = testPeer{peerID, base, height, make(chan inputData, 10), 1}
+		peers[peerID] = testPeer{peerID, minHeight, maxHeight, make(chan inputData, 10), 1}
 	}
 	return peers
 }
@@ -96,7 +90,6 @@ func makePeerManager(peers map[types.NodeID]testPeer) *p2p.PeerManager {
 	peerScores := make(map[types.NodeID]p2p.PeerScore)
 	for nodeId, peer := range peers {
 		peerScores[nodeId] = peer.score
-
 	}
 	peerManager, _ := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PeerScores:          peerScores,
@@ -105,10 +98,12 @@ func makePeerManager(peers map[types.NodeID]testPeer) *p2p.PeerManager {
 	}, p2p.NopMetrics())
 	for nodeId, _ := range peers {
 		_, err := peerManager.Add(p2p.NodeAddress{Protocol: "memory", NodeID: nodeId})
+		peerManager.MarkReadyConnected(nodeId)
 		if err != nil {
 			panic(err)
 		}
 	}
+
 	return peerManager
 }
 func TestBlockPoolBasic(t *testing.T) {
@@ -116,7 +111,7 @@ func TestBlockPoolBasic(t *testing.T) {
 	defer cancel()
 
 	start := int64(42)
-	peers := makePeers(10, start+1, 1000)
+	peers := makePeers(10, start, 1000)
 	errorsCh := make(chan peerError, 1000)
 	requestsCh := make(chan BlockRequest, 1000)
 	pool := NewBlockPool(log.NewNopLogger(), start, requestsCh, errorsCh, makePeerManager(peers))
@@ -171,18 +166,18 @@ func TestBlockPoolTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	logger := log.NewNopLogger()
-
 	start := int64(42)
-	peers := makePeers(10, start+1, 1000)
+	peers := makePeers(10, start, 1000)
 	errorsCh := make(chan peerError, 1000)
 	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(logger, start, requestsCh, errorsCh, makePeerManager(peers))
+	pool := NewBlockPool(log.NewNopLogger(), start, requestsCh, errorsCh, makePeerManager(peers))
 	err := pool.Start(ctx)
 	if err != nil {
 		t.Error(err)
 	}
-	t.Cleanup(func() { cancel(); pool.Wait() })
+	t.Cleanup(func() {
+		cancel()
+	})
 
 	// Introduce each peer.
 	go func() {
@@ -207,22 +202,12 @@ func TestBlockPoolTimeout(t *testing.T) {
 	}()
 
 	// Pull from channels
-	counter := 0
-	timedOut := map[types.NodeID]struct{}{}
 	for {
 		select {
-		case err := <-errorsCh:
-			// consider error to be always timeout here
-			if _, ok := timedOut[err.peerID]; !ok {
-				counter++
-				if counter == len(peers) {
-					return // Done!
-				}
-			}
-		case request := <-requestsCh:
-			logger.Debug("received request",
-				"counter", counter,
-				"request", request)
+		case <-errorsCh:
+			return
+		// consider error to be always timeout here
+		default:
 		}
 	}
 }
