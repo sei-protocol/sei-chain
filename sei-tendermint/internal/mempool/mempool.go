@@ -177,7 +177,9 @@ func (txmp *TxMempool) Unlock() {
 // Size returns the number of valid transactions in the mempool. It is
 // thread-safe.
 func (txmp *TxMempool) Size() int {
-	return txmp.txStore.Size() + txmp.pendingTxs.Size()
+	txSize := txmp.txStore.Size()
+	pendingSize := txmp.pendingTxs.Size()
+	return txSize + pendingSize
 }
 
 // SizeBytes return the total sum in bytes of all the valid transactions in the

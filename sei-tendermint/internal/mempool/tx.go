@@ -343,7 +343,7 @@ func (p *PendingTxs) popTxsAtIndices(indices []int) {
 		newTxs = append(newTxs, p.txs[start:idx]...)
 		start = idx
 	}
-	newTxs = append(newTxs, p.txs[indices[len(indices)-1]:]...)
+	newTxs = append(newTxs, p.txs[start+1:]...)
 	p.txs = newTxs
 }
 
