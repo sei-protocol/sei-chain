@@ -177,7 +177,7 @@ func (txmp *TxMempool) Unlock() {
 // Size returns the number of valid transactions in the mempool. It is
 // thread-safe.
 func (txmp *TxMempool) Size() int {
-	return txmp.txStore.Size()
+	return txmp.txStore.Size() + txmp.pendingTxs.Size()
 }
 
 // SizeBytes return the total sum in bytes of all the valid transactions in the
@@ -436,6 +436,13 @@ func (txmp *TxMempool) ReapMaxTxs(max int) types.Txs {
 	txs := make([]types.Tx, 0, len(wTxs))
 	for _, wtx := range wTxs {
 		txs = append(txs, wtx.tx)
+	}
+	if len(txs) < max {
+		// retrieve more from pending txs
+		pending := txmp.pendingTxs.Peek(max - len(txs))
+		for _, ptx := range pending {
+			txs = append(txs, ptx.tx.tx)
+		}
 	}
 	return txs
 }

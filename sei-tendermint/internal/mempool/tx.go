@@ -294,7 +294,7 @@ func (wtl *WrappedTxList) Remove(wtx *WrappedTx) {
 }
 
 type PendingTxs struct {
-	mtx *sync.Mutex
+	mtx *sync.RWMutex
 	txs []PendingTxInfo
 }
 
@@ -306,7 +306,7 @@ type PendingTxInfo struct {
 
 func NewPendingTxs() *PendingTxs {
 	return &PendingTxs{
-		mtx: &sync.Mutex{},
+		mtx: &sync.RWMutex{},
 		txs: []PendingTxInfo{},
 	}
 }
@@ -355,4 +355,20 @@ func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, t
 		checkTxResponse: resCheckTx,
 		txInfo:          txInfo,
 	})
+}
+
+func (p *PendingTxs) Peek(max int) []PendingTxInfo {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+	// priority is fifo
+	if max > len(p.txs) {
+		return p.txs
+	}
+	return p.txs[:max]
+}
+
+func (p *PendingTxs) Size() int {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+	return len(p.txs)
 }
