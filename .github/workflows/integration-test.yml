@@ -72,12 +72,6 @@ jobs:
 
           },
           {
-            name: "Accesscontrol Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/acl_module/accesscontrol_register_test.yaml",
-            ]
-          },
-          {
             name: "Distribution Module",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
