@@ -27,6 +27,26 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v3.5.0
+sei-chain:
+* [#1164](https://github.com/sei-protocol/sei-chain/pull/1164) Bump wasmd
+* [#1163](https://github.com/sei-protocol/sei-chain/pull/1163) Update antehandler
+* [#1160](https://github.com/sei-protocol/sei-chain/pull/1160) Allow metrics script to query remote
+* [#1156](https://github.com/sei-protocol/sei-chain/pull/1156) Bump ledger version to support nano s
+* [#1155](https://github.com/sei-protocol/sei-chain/pull/1155) Allow loadtest client to take a list of grpc endpoints
+
+sei-cosmos:
+* [#383](https://github.com/sei-protocol/sei-cosmos/pull/383) Refactor wasm dependency behavior
+* [#353](https://github.com/sei-protocol/sei-cosmos/pull/353) Perf: Relax locking contention for cache and cachekv
+* [#331](https://github.com/sei-protocol/sei-cosmos/pull/331) Fast reject invalid consensus params
+
+sei-tendermint:
+* [#170](https://github.com/sei-protocol/sei-tendermint/pull/170) P2P: Optimize block pool requester retry and peer pick up logic
+* [#167](https://github.com/sei-protocol/sei-tendermint/pull/167) Perf: Increase buffer size for pubsub server to boost performance
+* [#164](https://github.com/sei-protocol/sei-tendermint/pull/164) Add regex support to query syntax
+* [#163](https://github.com/sei-protocol/sei-tendermint/pull/163) Reduce noisy tendermint logs
+* [#162](https://github.com/sei-protocol/sei-tendermint/pull/162) Use peermanager scores for blocksync peers and don't error out on block mismatch
+
 ## v3.3.0
 sei-ibc-go:
 * [#35](https://github.com/sei-protocol/sei-ibc-go/pull/35) Upgrade to Ibc v3.4.0
