@@ -36,27 +36,26 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	if ctx.IsCheckTx() {
 		if txNonce < nextNonce {
 			return ctx, sdkerrors.ErrWrongSequence
-		} else {
-			ctx = ctx.WithCheckTxCallback(func(e error) {
-				if e != nil {
-					return
-				}
-				svd.evmKeeper.IncrementPendingTxCount(evmAddr)
-			})
-			if txNonce > nextNonce {
-				// transaction shall be added to mempool as a pending transaction
-				ctx = ctx.WithPendingTxChecker(func() abci.PendingTxCheckerResponse {
-					latestCtx := svd.latestCtxGetter()
-					latestNonce := svd.evmKeeper.GetNonce(latestCtx, evmAddr)
-					if txNonce < latestNonce {
-						svd.evmKeeper.DecrementPendingTxCount(evmAddr)
-						return abci.Rejected
-					} else if txNonce == latestNonce {
-						return abci.Accepted
-					}
-					return abci.Pending
-				})
+		}
+		ctx = ctx.WithCheckTxCallback(func(e error) {
+			if e != nil {
+				return
 			}
+			svd.evmKeeper.IncrementPendingTxCount(evmAddr)
+		})
+		if txNonce > nextNonce {
+			// transaction shall be added to mempool as a pending transaction
+			ctx = ctx.WithPendingTxChecker(func() abci.PendingTxCheckerResponse {
+				latestCtx := svd.latestCtxGetter()
+				latestNonce := svd.evmKeeper.GetNonce(latestCtx, evmAddr)
+				if txNonce < latestNonce {
+					svd.evmKeeper.DecrementPendingTxCount(evmAddr)
+					return abci.Rejected
+				} else if txNonce == latestNonce {
+					return abci.Accepted
+				}
+				return abci.Pending
+			})
 		}
 	} else if txNonce != nextNonce {
 		return ctx, sdkerrors.ErrWrongSequence

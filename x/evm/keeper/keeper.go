@@ -178,11 +178,11 @@ func (k *Keeper) DecrementPendingTxCount(addr common.Address) {
 	}
 }
 
-func (k *Keeper) GetPendingTxCount(ctx sdk.Context, addr common.Address) uint64 {
+func (k *Keeper) GetPendingTxCount(addr common.Address) uint64 {
 	k.evmTxCountsMtx.RLock()
 	defer k.evmTxCountsMtx.RUnlock()
 	if cnt, ok := k.evmTxCountsIncludingPending[addr.Hex()]; ok {
 		return cnt
 	}
-	return k.GetNonce(ctx, addr)
+	return 0
 }

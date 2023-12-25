@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -28,6 +29,7 @@ import (
 )
 
 const UnconfirmedTxQueryMaxPage = 20
+const UnconfirmedTxQueryPerPage = 30
 
 type TransactionAPI struct {
 	tmClient    rpcclient.Client
@@ -58,7 +60,13 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	height := int64(receipt.BlockNumber)
 	blockRes, err := t.tmClient.BlockResults(ctx, &height)
 	if err != nil {
-		return nil, err
+		// retry once, since application DB and block DB are not committed atomically so it's possible for
+		// receipt to exist while block results aren't committed yet
+		time.Sleep(1 * time.Second)
+		blockRes, err = t.tmClient.BlockResults(ctx, &height)
+		if err != nil {
+			return nil, err
+		}
 	}
 	block, err := t.tmClient.Block(ctx, &height)
 	if err != nil {
@@ -90,8 +98,9 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Address) (string, error) {
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	nonces := []int{}
+	perPage := UnconfirmedTxQueryPerPage
 	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
-		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, nil)
+		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, &perPage)
 		if err != nil {
 			return "", err
 		}
@@ -112,7 +121,7 @@ func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Addre
 				}
 			}
 		}
-		if page*30 >= res.Total {
+		if page*perPage >= res.Total {
 			break
 		}
 	}
@@ -183,7 +192,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	pendingTxCnt := uint64(0)
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
-		pendingTxCnt = t.keeper.GetPendingTxCount(sdkCtx, address)
+		pendingTxCnt = t.keeper.GetPendingTxCount(address)
 	}
 
 	blkNr, err := GetBlockNumberByNrOrHash(ctx, t.tmClient, blockNrOrHash)
@@ -210,7 +219,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	if err != nil {
 		return nil
 	}
-	res := hydrateTransaction(ethtx, big.NewInt(block.Block.Height), common.HexToHash(string(block.BlockID.Hash)), receipt)
+	res := hydrateTransaction(ethtx, big.NewInt(block.Block.Height), common.HexToHash(block.BlockID.Hash.String()), receipt)
 	return &res
 }
 

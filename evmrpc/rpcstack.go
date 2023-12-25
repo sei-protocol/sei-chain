@@ -17,7 +17,6 @@
 package evmrpc
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"
@@ -200,11 +199,6 @@ func (h *HTTPServer) Start() error {
 }
 
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		panic(err)
-	}
-	r.Body = io.NopCloser(bytes.NewBuffer(body))
 	// fmt.Printf("EVMTEST-HTTP: received HTTP request with body %s\n", string(body))
 	// check if ws request and serve if ws enabled
 	ws := h.wsHandler.Load().(*rpcHandler)
