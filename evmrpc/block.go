@@ -87,12 +87,12 @@ func encodeTmBlock(
 	fullTx bool,
 ) (map[string]interface{}, error) {
 	number := big.NewInt(block.Block.Height)
-	blockhash := common.HexToHash(string(block.BlockID.Hash))
-	lastHash := common.HexToHash(string(block.Block.LastBlockID.Hash))
-	appHash := common.HexToHash(string(block.Block.AppHash))
-	txHash := common.HexToHash(string(block.Block.DataHash))
-	resultHash := common.HexToHash(string(block.Block.LastResultsHash))
-	miner := common.HexToAddress(string(block.Block.ProposerAddress))
+	blockhash := common.HexToHash(block.BlockID.Hash.String())
+	lastHash := common.HexToHash(block.Block.LastBlockID.Hash.String())
+	appHash := common.HexToHash(block.Block.AppHash.String())
+	txHash := common.HexToHash(block.Block.DataHash.String())
+	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
+	miner := common.HexToAddress(block.Block.ProposerAddress.String())
 	gasLimit, gasWanted := int64(0), int64(0)
 	transactions := []interface{}{}
 	for i, txRes := range blockRes.TxsResults {
@@ -129,7 +129,7 @@ func encodeTmBlock(
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 		"mixHash":          common.Hash{},           // inapplicable to Sei
 		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-		"logsBloom":        ethtypes.Bloom{},        // inapplicable to Sei
+		"logsBloom":        FullBloom(),             // inapplicable to Sei
 		"stateRoot":        appHash,
 		"miner":            miner,
 		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
@@ -145,4 +145,12 @@ func encodeTmBlock(
 		"baseFeePerGas":    (*hexutil.Big)(k.GetBaseFeePerGas(ctx).RoundInt().BigInt()),
 	}
 	return result, nil
+}
+
+func FullBloom() ethtypes.Bloom {
+	bz := []byte{}
+	for i := 0; i < ethtypes.BloomByteLength; i++ {
+		bz = append(bz, 255)
+	}
+	return ethtypes.BytesToBloom(bz)
 }

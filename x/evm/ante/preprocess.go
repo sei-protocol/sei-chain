@@ -48,7 +48,7 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 //nolint:revive
 func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
-	if err := Preprocess(ctx, msg, p.evmKeeper.GetParams(ctx)); err != nil {
+	if err := Preprocess(ctx, msg, p.evmKeeper.GetParams(ctx), p.evmKeeper.DecrementPendingTxCount); err != nil {
 		return ctx, err
 	}
 
@@ -110,7 +110,7 @@ func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk
 }
 
 // stateless
-func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, params evmtypes.Params) error {
+func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, params evmtypes.Params, pendingTxCntDecrementFunc func(common.Address)) error {
 	if msgEVMTransaction.Derived != nil {
 		// already preprocessed
 		return nil
@@ -147,11 +147,12 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 	}
 
 	V, R, S := ethTx.RawSignatureValues()
-	V = adjustV(V, ethTx.Type(), ethCfg.ChainID)
+	V = AdjustV(V, ethTx.Type(), ethCfg.ChainID)
 	evmAddr, seiAddr, seiPubkey, err := getAddresses(V, R, S, signer.Hash(ethTx))
 	if err != nil {
 		return err
 	}
+	pendingTxCntDecrementFunc(evmAddr)
 	msgEVMTransaction.Derived = &evmtypes.DerivedData{
 		SenderEVMAddr: evmAddr[:],
 		SenderSeiAddr: seiAddr,
@@ -273,7 +274,7 @@ func isTxTypeAllowed(version evmtypes.SignerVersion, txType uint8) bool {
 	return false
 }
 
-func adjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
+func AdjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
 	// Non-legacy TX always needs to be bumped by 27
 	if txType != ethtypes.LegacyTxType {
 		return new(big.Int).Add(V, big.NewInt(27))
