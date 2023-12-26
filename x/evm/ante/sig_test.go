@@ -135,6 +135,8 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 	})
 	require.Nil(t, err)
 	require.NotNil(t, newCtx.PendingTxChecker())
+	newCtx.CheckTxCallback()(err)
+	require.Equal(t, uint64(1), k.GetPendingTxCount(evmAddr))
 
 	// test checker
 	require.Equal(t, abci.Pending, newCtx.PendingTxChecker()())
