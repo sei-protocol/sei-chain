@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x8", resObj["number"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000006", resObj["parentHash"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000004", resObj["receiptsRoot"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["sha3Uncles"])
+	require.Equal(t, ethtypes.EmptyUncleHash.Hex(), resObj["sha3Uncles"])
 	require.Equal(t, "0x3b2", resObj["size"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000003", resObj["stateRoot"])
 	require.Equal(t, "0x65254651", resObj["timestamp"])
