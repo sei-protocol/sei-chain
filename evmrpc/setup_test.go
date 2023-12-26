@@ -62,28 +62,36 @@ type MockClient struct {
 	mock.Client
 }
 
+func mustHexToBytes(h string) []byte {
+	bz, err := hex.DecodeString(h)
+	if err != nil {
+		panic(err)
+	}
+	return bz
+}
+
 func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 	return &coretypes.ResultBlock{
 		BlockID: tmtypes.BlockID{
-			Hash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000001")),
+			Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000001")),
 		},
 		Block: &tmtypes.Block{
 			Header: tmtypes.Header{
 				ChainID:         "test",
 				Height:          height,
 				Time:            time.Unix(1696941649, 0),
-				DataHash:        bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000002")),
-				AppHash:         bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000003")),
-				LastResultsHash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000004")),
-				ProposerAddress: tmtypes.Address([]byte("0000000000000000000000000000000000000000000000000000000000000005")),
+				DataHash:        bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000002")),
+				AppHash:         bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000003")),
+				LastResultsHash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000004")),
+				ProposerAddress: tmtypes.Address(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000005")),
 				LastBlockID: tmtypes.BlockID{
-					Hash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000006")),
+					Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000006")),
 				},
-				LastCommitHash:     bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000007")),
-				ValidatorsHash:     bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000009")),
-				NextValidatorsHash: bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000A")),
-				ConsensusHash:      bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000B")),
-				EvidenceHash:       bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000E")),
+				LastCommitHash:     bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000007")),
+				ValidatorsHash:     bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000009")),
+				NextValidatorsHash: bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000A")),
+				ConsensusHash:      bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000B")),
+				EvidenceHash:       bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000E")),
 			},
 			Data: tmtypes.Data{
 				Txs: []tmtypes.Tx{func() []byte {
@@ -111,25 +119,25 @@ func (c *MockClient) mockEventDataNewBlockHeader(mockHeight uint64) *tmtypes.Eve
 
 			// prev block info
 			LastBlockID: tmtypes.BlockID{
-				Hash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000006")),
+				Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000006")),
 			},
 
 			// hashes of block data
-			LastCommitHash: bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000001")),
-			DataHash:       bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000002")),
+			LastCommitHash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000001")),
+			DataHash:       bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000002")),
 
-			ValidatorsHash:     bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000009")),
-			NextValidatorsHash: bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000A")),
-			ConsensusHash:      bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000B")),
-			EvidenceHash:       bytes.HexBytes([]byte("000000000000000000000000000000000000000000000000000000000000000E")),
-			AppHash:            bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000003")),
-			LastResultsHash:    bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000004")),
-			ProposerAddress:    tmtypes.Address([]byte("0000000000000000000000000000000000000000000000000000000000000005")),
+			ValidatorsHash:     bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000009")),
+			NextValidatorsHash: bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000A")),
+			ConsensusHash:      bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000B")),
+			EvidenceHash:       bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000E")),
+			AppHash:            bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000003")),
+			LastResultsHash:    bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000004")),
+			ProposerAddress:    tmtypes.Address(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000005")),
 		},
 		NumTxs: 5,
 		ResultFinalizeBlock: abci.ResponseFinalizeBlock{
 			TxResults: mockTxResult(),
-			AppHash:   bytes.HexBytes([]byte("0000000000000000000000000000000000000000000000000000000000000006")),
+			AppHash:   bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000006")),
 		},
 	}
 }
@@ -232,7 +240,7 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 		}()
 		return resCh, nil
 		// hardcoded test case for simplicity
-	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' AND evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
+	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' AND evm_log.topics MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
 		resCh := make(chan coretypes.ResultEvent, 5)
 		go func() {
 			for i := uint64(0); i < 5; i++ {
@@ -251,7 +259,7 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 			}
 		}()
 		return resCh, nil
-	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xc0ffee254729296a45a3885639AC7E10F9d54979' AND evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
+	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xc0ffee254729296a45a3885639AC7E10F9d54979' AND evm_log.topics MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
 		resCh := make(chan coretypes.ResultEvent, 5)
 		go func() {
 			for i := uint64(0); i < 5; i++ {
@@ -428,11 +436,11 @@ func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*c
 		}
 
 		// hardcode topic matches to match up with tests since doing the regex is too complicated
-		if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
+		if strings.Contains(req.Filter.Query, "evm_log.topics MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
 			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123"})
-		} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123)[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
+		} else if strings.Contains(req.Filter.Query, "evm_log.topics MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123)[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
 			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
-		} else if strings.Contains(req.Filter.Query, "evm_log.topics = MATCHES '\\[[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
+		} else if strings.Contains(req.Filter.Query, "evm_log.topics MATCHES '\\[[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
 			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
 		}
 
