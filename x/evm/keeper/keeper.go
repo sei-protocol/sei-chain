@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"fmt"
 	"math"
 	"math/big"
 	"sync"
@@ -31,6 +30,9 @@ type Keeper struct {
 	cachedFeeCollectorAddress    *common.Address
 	evmTxIndicesMtx              *sync.Mutex
 	evmTxIndices                 []int
+
+	evmTxCountsMtx              *sync.RWMutex
+	evmTxCountsIncludingPending map[string]uint64 // hex address to count; only written in CheckTx and read in RPC
 }
 
 func NewKeeper(
@@ -48,6 +50,8 @@ func NewKeeper(
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		evmTxIndicesMtx:              &sync.Mutex{},
 		evmTxIndices:                 []int{},
+		evmTxCountsIncludingPending:  map[string]uint64{},
+		evmTxCountsMtx:               &sync.RWMutex{},
 	}
 	return k
 }
@@ -87,6 +91,11 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	if err != nil {
 		return nil, err
 	}
+	r, err := ctx.BlockHeader().Time.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	rh := common.BytesToHash(r)
 	return &vm.BlockContext{
 		CanTransfer: core.CanTransfer,
 		Transfer:    core.Transfer,
@@ -97,7 +106,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		Time:        uint64(ctx.BlockHeader().Time.Unix()),
 		Difficulty:  big.NewInt(0),                               // only needed for PoW
 		BaseFee:     k.GetBaseFeePerGas(ctx).RoundInt().BigInt(), // feemarket not enabled
-		Random:      nil,                                         // not supported
+		Random:      &rh,
 	}, nil
 }
 
@@ -144,12 +153,36 @@ func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 		// too old, already pruned
 		return common.Hash{}
 	}
-	header, err := tmtypes.HeaderFromProto(&histInfo.Header)
-	if err != nil {
-		// parsing issue
-		ctx.Logger().Error(fmt.Sprintf("failed to parse historical info header %s due to %s", histInfo.Header.String(), err))
-		return common.Hash{}
-	}
+	header, _ := tmtypes.HeaderFromProto(&histInfo.Header)
 
 	return common.BytesToHash(header.Hash())
+}
+
+func (k *Keeper) IncrementPendingTxCount(addr common.Address) {
+	k.evmTxCountsMtx.Lock()
+	defer k.evmTxCountsMtx.Unlock()
+	addrStr := addr.Hex()
+	if cnt, ok := k.evmTxCountsIncludingPending[addrStr]; ok {
+		k.evmTxCountsIncludingPending[addrStr] = cnt + 1
+		return
+	}
+	k.evmTxCountsIncludingPending[addrStr] = 1
+}
+
+func (k *Keeper) DecrementPendingTxCount(addr common.Address) {
+	k.evmTxCountsMtx.Lock()
+	defer k.evmTxCountsMtx.Unlock()
+	addrStr := addr.Hex()
+	if cnt, ok := k.evmTxCountsIncludingPending[addrStr]; ok && cnt > 0 {
+		k.evmTxCountsIncludingPending[addrStr] = cnt - 1
+	}
+}
+
+func (k *Keeper) GetPendingTxCount(addr common.Address) uint64 {
+	k.evmTxCountsMtx.RLock()
+	defer k.evmTxCountsMtx.RUnlock()
+	if cnt, ok := k.evmTxCountsIncludingPending[addr.Hex()]; ok {
+		return cnt
+	}
+	return 0
 }

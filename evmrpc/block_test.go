@@ -1,7 +1,6 @@
 package evmrpc_test
 
 import (
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -47,15 +46,15 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0xa", resObj["gasLimit"])
 	require.Equal(t, "0x5", resObj["gasUsed"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["hash"])
-	require.Equal(t, "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", resObj["logsBloom"])
+	require.Equal(t, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", resObj["logsBloom"])
 	require.Equal(t, "0x0000000000000000000000000000000000000005", resObj["miner"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["mixHash"])
 	require.Equal(t, "0x0000000000000000", resObj["nonce"])
 	require.Equal(t, "0x8", resObj["number"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000006", resObj["parentHash"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000004", resObj["receiptsRoot"])
-	require.Equal(t, ethtypes.EmptyUncleHash.Hex(), resObj["sha3Uncles"])
-	require.Equal(t, "0x3b2", resObj["size"])
+	require.Equal(t, "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347", resObj["sha3Uncles"])
+	require.Equal(t, "0x272", resObj["size"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000003", resObj["stateRoot"])
 	require.Equal(t, "0x65254651", resObj["timestamp"])
 	tx := resObj["transactions"].([]interface{})[0].(map[string]interface{})
@@ -75,7 +74,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0", tx["type"])
 	require.Equal(t, []interface{}{}, tx["accessList"])
 	require.Equal(t, "0x1", tx["chainId"])
-	require.Equal(t, "0x1", tx["v"])
+	require.Equal(t, "0x1c", tx["v"])
 	require.Equal(t, "0x34125c09c6b1a57f5f571a242572129057b22612dd56ee3519c4f68bece0db03", tx["r"])
 	require.Equal(t, "0x3f4fe6f2512219bac6f9b4e4be1aa11d3ef79c5c2f1000ef6fa37389de0ff523", tx["s"])
 	require.Equal(t, "0x1", tx["yParity"])

@@ -32,7 +32,7 @@ func TestGetTxReceipt(t *testing.T) {
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 	resObj = resObj["result"].(map[string]interface{})
-	require.Equal(t, "0x3030303030303030303030303030303030303030303030303030303030303031", resObj["blockHash"].(string))
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["blockHash"].(string))
 	require.Equal(t, "0x8", resObj["blockNumber"].(string))
 	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["contractAddress"].(string))
 	require.Equal(t, "0x7b", resObj["cumulativeGasUsed"].(string))
@@ -109,7 +109,7 @@ func TestGetTransaction(t *testing.T) {
 		require.Equal(t, "0x0", resObj["type"].(string))
 		require.Equal(t, 0, len(resObj["accessList"].([]interface{})))
 		require.Equal(t, "0x1", resObj["chainId"].(string))
-		require.Equal(t, "0x1", resObj["v"].(string))
+		require.Equal(t, "0x1c", resObj["v"].(string))
 		require.Equal(t, "0x34125c09c6b1a57f5f571a242572129057b22612dd56ee3519c4f68bece0db03", resObj["r"].(string))
 		require.Equal(t, "0x3f4fe6f2512219bac6f9b4e4be1aa11d3ef79c5c2f1000ef6fa37389de0ff523", resObj["s"].(string))
 		require.Equal(t, "0x1", resObj["yParity"].(string))
@@ -193,6 +193,9 @@ func TestGetTransactionError(t *testing.T) {
 	EVMKeeper.SetReceipt(Ctx, h, &types.Receipt{VmError: "test error"})
 	resObj := sendRequestGood(t, "getTransactionErrorByHash", "0x1111111111111111111111111111111111111111111111111111111111111111")
 	require.Equal(t, "test error", resObj["result"])
+
+	resObj = sendRequestBad(t, "getTransactionReceipt", "0x1111111111111111111111111111111111111111111111111111111111111111")
+	require.Equal(t, "error block", resObj["error"].(map[string]interface{})["message"])
 }
 
 func TestSign(t *testing.T) {
@@ -217,4 +220,10 @@ func TestSign(t *testing.T) {
 	signed, err := txApi.Sign(account, []byte("data"))
 	require.Nil(t, err)
 	require.NotEmpty(t, signed)
+}
+
+func TestGetPendingNonces(t *testing.T) {
+	resObj := sendRequestGood(t, "getPendingNonces", "0x1111111111111111111111111111111111111113")
+	fmt.Println(resObj)
+	require.Equal(t, "", resObj["result"].(string))
 }

@@ -3,9 +3,12 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -25,7 +28,8 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
-const UnconfirmedTxQueryMaxPage = 5
+const UnconfirmedTxQueryMaxPage = 20
+const UnconfirmedTxQueryPerPage = 30
 
 type TransactionAPI struct {
 	tmClient    rpcclient.Client
@@ -56,7 +60,13 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	height := int64(receipt.BlockNumber)
 	blockRes, err := t.tmClient.BlockResults(ctx, &height)
 	if err != nil {
-		return nil, err
+		// retry once, since application DB and block DB are not committed atomically so it's possible for
+		// receipt to exist while block results aren't committed yet
+		time.Sleep(1 * time.Second)
+		blockRes, err = t.tmClient.BlockResults(ctx, &height)
+		if err != nil {
+			return nil, err
+		}
 	}
 	block, err := t.tmClient.Block(ctx, &height)
 	if err != nil {
@@ -85,6 +95,40 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	return t.getTransactionWithBlock(block, index)
 }
 
+func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Address) (string, error) {
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	nonces := []int{}
+	perPage := UnconfirmedTxQueryPerPage
+	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
+		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, &perPage)
+		if err != nil {
+			return "", err
+		}
+		if len(res.Txs) == 0 {
+			break
+		}
+		for _, tx := range res.Txs {
+			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
+			if etx != nil {
+				signer := ethtypes.MakeSigner(
+					t.keeper.GetChainConfig(sdkCtx).EthereumConfig(t.keeper.ChainID(sdkCtx)),
+					big.NewInt(sdkCtx.BlockHeight()),
+					uint64(sdkCtx.BlockTime().Second()),
+				)
+				from, _ := ethtypes.Sender(signer, etx)
+				if from == addr {
+					nonces = append(nonces, int(etx.Nonce()))
+				}
+			}
+		}
+		if page*perPage >= res.Total {
+			break
+		}
+	}
+	sort.Ints(nonces)
+	return strings.Join(utils.Map(nonces, func(i int) string { return fmt.Sprintf("%d", i) }), ","), nil
+}
+
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
@@ -103,7 +147,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 				)
 				from, _ := ethtypes.Sender(signer, etx)
 				v, r, s := etx.RawSignatureValues()
-				return &RPCTransaction{
+				res := RPCTransaction{
 					Type:     hexutil.Uint64(etx.Type()),
 					From:     from,
 					Gas:      hexutil.Uint64(etx.Gas()),
@@ -116,7 +160,8 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 					V:        (*hexutil.Big)(v),
 					R:        (*hexutil.Big)(r),
 					S:        (*hexutil.Big)(s),
-				}, nil
+				}
+				return &res, nil
 			}
 		}
 	}
@@ -144,16 +189,21 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 }
 
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	pendingTxCnt := uint64(0)
+	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
+		pendingTxCnt = t.keeper.GetPendingTxCount(address)
+	}
+
 	blkNr, err := GetBlockNumberByNrOrHash(ctx, t.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
 
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	if blkNr != nil {
 		sdkCtx = t.ctxProvider(*blkNr)
 	}
-	nonce := t.keeper.GetNonce(sdkCtx, address)
+	nonce := t.keeper.GetNonce(sdkCtx, address) + pendingTxCnt
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
@@ -169,7 +219,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	if err != nil {
 		return nil
 	}
-	res := hydrateTransaction(ethtx, big.NewInt(block.Block.Height), common.HexToHash(string(block.BlockID.Hash)), receipt)
+	res := hydrateTransaction(ethtx, big.NewInt(block.Block.Height), common.HexToHash(block.BlockID.Hash.String()), receipt)
 	return &res
 }
 

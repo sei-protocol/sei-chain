@@ -61,7 +61,7 @@ func TestEVMTransaction(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req, k.GetParams(ctx), k.DecrementPendingTxCount)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -95,7 +95,7 @@ func TestEVMTransaction(t *testing.T) {
 	require.Nil(t, err)
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req, k.GetParams(ctx), k.DecrementPendingTxCount)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -149,7 +149,7 @@ func TestEVMTransactionError(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req, k.GetParams(ctx), k.DecrementPendingTxCount)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err) // there should only be VM error, no msg-level error
 	require.NotEmpty(t, res.VmError)
@@ -201,7 +201,7 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract with insufficient gas
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req, k.GetParams(ctx), k.DecrementPendingTxCount)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err) // there should be no error on Sei level, since we don't want all state changes (like gas charge and receipt) to revert
 	require.Contains(t, res.VmError, "intrinsic gas too low")
@@ -249,7 +249,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req, k.GetParams(ctx), k.DecrementPendingTxCount)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -304,7 +304,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy SendAll contract
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req, k.GetParams(ctx), k.DecrementPendingTxCount)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(500000))
@@ -344,7 +344,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Nil(t, err)
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req, k.GetParams(ctx), k.DecrementPendingTxCount)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -365,7 +365,7 @@ func TestEVMAssociateTx(t *testing.T) {
 	require.Nil(t, err)
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req, k.GetParams(ctx), k.DecrementPendingTxCount)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Equal(t, types.MsgEVMTransactionResponse{}, *res)
