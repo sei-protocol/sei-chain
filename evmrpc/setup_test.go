@@ -58,6 +58,10 @@ var SConfig = evmrpc.SimulateConfig{GasCap: 10000000}
 var filterTimeoutDuration = 500 * time.Millisecond
 var TotalTxCount int = 11
 
+var MockBlockID = tmtypes.BlockID{
+	Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000001")),
+}
+
 type MockClient struct {
 	mock.Client
 }
@@ -70,29 +74,31 @@ func mustHexToBytes(h string) []byte {
 	return bz
 }
 
+func mockBlockHeader(height int64) tmtypes.Header {
+	return tmtypes.Header{
+		ChainID:         "test",
+		Height:          height,
+		Time:            time.Unix(1696941649, 0),
+		DataHash:        bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000002")),
+		AppHash:         bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000003")),
+		LastResultsHash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000004")),
+		ProposerAddress: tmtypes.Address(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000005")),
+		LastBlockID: tmtypes.BlockID{
+			Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000006")),
+		},
+		LastCommitHash:     bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000007")),
+		ValidatorsHash:     bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000009")),
+		NextValidatorsHash: bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000A")),
+		ConsensusHash:      bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000B")),
+		EvidenceHash:       bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000E")),
+	}
+}
+
 func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 	return &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{
-			Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000001")),
-		},
+		BlockID: MockBlockID,
 		Block: &tmtypes.Block{
-			Header: tmtypes.Header{
-				ChainID:         "test",
-				Height:          height,
-				Time:            time.Unix(1696941649, 0),
-				DataHash:        bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000002")),
-				AppHash:         bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000003")),
-				LastResultsHash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000004")),
-				ProposerAddress: tmtypes.Address(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000005")),
-				LastBlockID: tmtypes.BlockID{
-					Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000006")),
-				},
-				LastCommitHash:     bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000007")),
-				ValidatorsHash:     bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000009")),
-				NextValidatorsHash: bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000A")),
-				ConsensusHash:      bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000B")),
-				EvidenceHash:       bytes.HexBytes(mustHexToBytes("000000000000000000000000000000000000000000000000000000000000000E")),
-			},
+			Header: mockBlockHeader(height),
 			Data: tmtypes.Data{
 				Txs: []tmtypes.Tx{func() []byte {
 					bz, _ := Encoder(Tx)

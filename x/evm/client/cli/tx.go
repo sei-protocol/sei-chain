@@ -13,6 +13,7 @@ import (
 
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/spf13/cobra"
@@ -137,10 +138,10 @@ func CmdAssociateAddress() *cobra.Command {
 
 func CmdSend() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "send [to EVM address] [amount in usei] [nonce] --from=<sender> --gas-fee-cap=<cap> --gas-limit=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "send [to EVM address] [amount in usei] --from=<sender> --gas-fee-cap=<cap> --gas-limit=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
 		Short: "send usei to EVM address",
 		Long:  "",
-		Args:  cobra.ExactArgs(3),
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
@@ -163,12 +164,36 @@ func CmdSend() *cobra.Command {
 			privHex := hex.EncodeToString(priv.Bytes())
 			key, _ := crypto.HexToECDSA(privHex)
 
-			to := common.HexToAddress(args[0])
-			val, err := strconv.ParseUint(args[1], 10, 64)
+			rpc, err := cmd.Flags().GetString(FlagRPC)
 			if err != nil {
 				return err
 			}
-			nonce, err := strconv.ParseUint(args[2], 10, 64)
+			nonceQuery := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"%s\",\"latest\"],\"id\":\"send-cli\"}", crypto.PubkeyToAddress(key.PublicKey).Hex())
+			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(nonceQuery))
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return err
+			}
+			defer res.Body.Close()
+			resBody, err := io.ReadAll(res.Body)
+			if err != nil {
+				return err
+			}
+			resObj := map[string]interface{}{}
+			if err := json.Unmarshal(resBody, &resObj); err != nil {
+				return err
+			}
+			nonce := new(hexutil.Uint64)
+			if err := nonce.UnmarshalText([]byte(resObj["result"].(string))); err != nil {
+				return err
+			}
+
+			to := common.HexToAddress(args[0])
+			val, err := strconv.ParseUint(args[1], 10, 64)
 			if err != nil {
 				return err
 			}
@@ -185,7 +210,7 @@ func CmdSend() *cobra.Command {
 				return err
 			}
 			txData := ethtypes.DynamicFeeTx{
-				Nonce:     nonce,
+				Nonce:     uint64(*nonce),
 				GasFeeCap: new(big.Int).SetUint64(gasFeeCap),
 				Gas:       gasLimit,
 				To:        &to,
@@ -207,21 +232,17 @@ func CmdSend() *cobra.Command {
 			payload := "0x" + hex.EncodeToString(bz)
 
 			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"send\"}", payload)
-			rpc, err := cmd.Flags().GetString(FlagRPC)
-			if err != nil {
-				return err
-			}
-			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
+			req, err = http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
 			if err != nil {
 				return err
 			}
 			req.Header.Set("Content-Type", "application/json")
-			res, err := http.DefaultClient.Do(req)
+			res, err = http.DefaultClient.Do(req)
 			if err != nil {
 				return err
 			}
 			defer res.Body.Close()
-			resBody, err := io.ReadAll(res.Body)
+			resBody, err = io.ReadAll(res.Body)
 			if err != nil {
 				return err
 			}

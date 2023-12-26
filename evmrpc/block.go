@@ -7,6 +7,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -59,7 +60,7 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	return encodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
+	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
@@ -75,10 +76,10 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	if err != nil {
 		return nil, err
 	}
-	return encodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
+	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
-func encodeTmBlock(
+func EncodeTmBlock(
 	ctx sdk.Context,
 	block *coretypes.ResultBlock,
 	blockRes *coretypes.ResultBlockResults,
@@ -102,24 +103,30 @@ func encodeTmBlock(
 		if err != nil {
 			return nil, errors.New("failed to decode transaction")
 		}
-		if len(decoded.GetMsgs()) != 1 {
-			// EVM message must have exactly one message
-			continue
-		}
-		evmTx, ok := decoded.GetMsgs()[0].(*types.MsgEVMTransaction)
-		if !ok || evmTx.IsAssociateTx() {
-			continue
-		}
-		ethtx, _ := evmTx.AsTransaction()
-		hash := ethtx.Hash()
-		if !fullTx {
-			transactions = append(transactions, hash)
-		} else {
-			receipt, err := k.GetReceipt(ctx, hash)
-			if err != nil {
-				continue
+		for _, msg := range decoded.GetMsgs() {
+			switch m := msg.(type) {
+			case *types.MsgEVMTransaction:
+				if m.IsAssociateTx() {
+					continue
+				}
+				ethtx, _ := m.AsTransaction()
+				hash := ethtx.Hash()
+				if !fullTx {
+					transactions = append(transactions, hash)
+				} else {
+					receipt, err := k.GetReceipt(ctx, hash)
+					if err != nil {
+						continue
+					}
+					transactions = append(transactions, hydrateTransaction(ethtx, number, blockhash, receipt))
+				}
+			case *banktypes.MsgSend:
+				// bank send does not have an EVM tx hash, so we only consider fullTx case here
+				if !fullTx {
+					continue
+				}
+				transactions = append(transactions, hydrateBankSendTransaction(ctx, m, k))
 			}
-			transactions = append(transactions, hydrateTransaction(ethtx, number, blockhash, receipt))
 		}
 	}
 	result := map[string]interface{}{

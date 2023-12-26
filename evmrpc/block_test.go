@@ -1,9 +1,19 @@
 package evmrpc_test
 
 import (
+	"math/big"
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/sei-protocol/sei-chain/evmrpc"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
+	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/rpc/coretypes"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 func TestGetBlockByHash(t *testing.T) {
@@ -81,4 +91,48 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", resObj["transactionsRoot"])
 	require.Equal(t, []interface{}{}, resObj["uncles"])
 	require.Equal(t, "0x0", resObj["baseFeePerGas"])
+}
+
+func TestEncodeBankMsg(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	fromSeiAddr, _ := testkeeper.MockAddressPair()
+	toSeiAddr, _ := testkeeper.MockAddressPair()
+	b := TxConfig.NewTxBuilder()
+	b.SetMsgs(banktypes.NewMsgSend(fromSeiAddr, toSeiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))))
+	tx := b.GetTx()
+	resBlock := coretypes.ResultBlock{
+		BlockID: MockBlockID,
+		Block: &tmtypes.Block{
+			Header: mockBlockHeader(MockHeight),
+			Data: tmtypes.Data{
+				Txs: []tmtypes.Tx{func() []byte {
+					bz, _ := Encoder(tx)
+					return bz
+				}()},
+			},
+			LastCommit: &tmtypes.Commit{
+				Height: MockHeight - 1,
+			},
+		},
+	}
+	resBlockRes := coretypes.ResultBlockResults{
+		TxsResults: []*abci.ExecTxResult{
+			{
+				Data: func() []byte {
+					bz, _ := Encoder(tx)
+					return bz
+				}(),
+			},
+		},
+	}
+	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, k, Decoder, true)
+	require.Nil(t, err)
+	txs := res["transactions"].([]interface{})
+	require.Equal(t, 1, len(txs))
+	to := common.BytesToAddress(toSeiAddr)
+	require.Equal(t, evmrpc.RPCTransaction{
+		From:  common.BytesToAddress(fromSeiAddr),
+		To:    &to,
+		Value: (*hexutil.Big)(big.NewInt(10000000000000)),
+	}, txs[0])
 }
