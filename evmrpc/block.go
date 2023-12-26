@@ -126,10 +126,10 @@ func encodeTmBlock(
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,
 		"parentHash":       lastHash,
-		"nonce":            ethtypes.BlockNonce{}, // inapplicable to Sei
-		"mixHash":          common.Hash{},         // inapplicable to Sei
-		"sha3Uncles":       common.Hash{},         // inapplicable to Sei
-		"logsBloom":        ethtypes.Bloom{},      // inapplicable to Sei
+		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
+		"mixHash":          common.Hash{},           // inapplicable to Sei
+		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
+		"logsBloom":        ethtypes.Bloom{},        // inapplicable to Sei
 		"stateRoot":        appHash,
 		"miner":            miner,
 		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
