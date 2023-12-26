@@ -33,3 +33,21 @@ func TestGetHashFn(t *testing.T) {
 	require.Equal(t, common.Hash{}, f(uint64(ctx.BlockHeight())+1))
 	require.Equal(t, common.Hash{}, f(uint64(ctx.BlockHeight())-1))
 }
+
+func TestPendingTxCount(t *testing.T) {
+	k, _ := keeper.MockEVMKeeper()
+	_, evmAddr := keeper.MockAddressPair()
+	require.Equal(t, uint64(0), k.GetPendingTxCount(evmAddr))
+	k.IncrementPendingTxCount(evmAddr)
+	require.Equal(t, uint64(1), k.GetPendingTxCount(evmAddr))
+	k.IncrementPendingTxCount(evmAddr)
+	require.Equal(t, uint64(2), k.GetPendingTxCount(evmAddr))
+	k.DecrementPendingTxCount(evmAddr)
+	require.Equal(t, uint64(1), k.GetPendingTxCount(evmAddr))
+	k.DecrementPendingTxCount(evmAddr)
+	require.Equal(t, uint64(0), k.GetPendingTxCount(evmAddr))
+	k.DecrementPendingTxCount(evmAddr)
+	require.Equal(t, uint64(0), k.GetPendingTxCount(evmAddr))
+	k.IncrementPendingTxCount(evmAddr)
+	require.Equal(t, uint64(1), k.GetPendingTxCount(evmAddr))
+}
