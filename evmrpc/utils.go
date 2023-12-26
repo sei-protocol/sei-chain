@@ -10,12 +10,16 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
@@ -89,6 +93,32 @@ func hydrateTransaction(
 		S:                   (*hexutil.Big)(s),
 		R:                   (*hexutil.Big)(r),
 		YParity:             yparity,
+	}
+}
+
+func hydrateBankSendTransaction(ctx sdk.Context, msg *banktypes.MsgSend, k *keeper.Keeper) RPCTransaction {
+	useiAmount := msg.Amount.AmountOf(k.GetBaseDenom(ctx))
+	if useiAmount.IsZero() {
+		return RPCTransaction{}
+	}
+	value := new(big.Int).Mul(useiAmount.BigInt(), state.UseiToSweiMultiplier)
+	fromSeiAddr := sdk.MustAccAddressFromBech32(msg.FromAddress)
+	toSeiAddr := sdk.MustAccAddressFromBech32(msg.ToAddress)
+	var from, to common.Address
+	if fromAddr, ok := k.GetEVMAddress(ctx, fromSeiAddr); ok {
+		from = fromAddr
+	} else {
+		from = common.BytesToAddress(fromSeiAddr)
+	}
+	if toAddr, ok := k.GetEVMAddress(ctx, toSeiAddr); ok {
+		to = toAddr
+	} else {
+		to = common.BytesToAddress(toSeiAddr)
+	}
+	return RPCTransaction{
+		From:  from,
+		To:    &to,
+		Value: (*hexutil.Big)(value),
 	}
 }
 
