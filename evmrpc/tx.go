@@ -75,6 +75,14 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	return encodeReceipt(receipt, block.BlockID.Hash, blockRes.TxsResults[receipt.TransactionIndex])
 }
 
+func (t *TransactionAPI) GetVMError(hash common.Hash) (string, error) {
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
+	if err != nil {
+		return "", err
+	}
+	return receipt.VmError, nil
+}
+
 func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) *RPCTransaction {
 	blockNumber, err := getBlockNumber(ctx, t.tmClient, blockNr)
 	if err != nil {
