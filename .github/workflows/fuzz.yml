@@ -20,7 +20,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
-        go-version: 1.18
+        go-version: 1.19
 
     - name: Fuzz Place Order Msg
       run: go test github.com/sei-protocol/sei-chain/x/dex/keeper/msgserver -fuzz FuzzPlaceOrders -fuzztime 30s
