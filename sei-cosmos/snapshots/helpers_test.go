@@ -6,20 +6,20 @@ import (
 	"compress/zlib"
 	"crypto/sha256"
 	"errors"
+	"github.com/tendermint/tendermint/libs/log"
 	"io"
 	"io/ioutil"
 	"os"
 	"testing"
 	"time"
 
-	protoio "github.com/gogo/protobuf/io"
-	"github.com/stretchr/testify/require"
-	db "github.com/tendermint/tm-db"
-
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/snapshots/types"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	protoio "github.com/gogo/protobuf/io"
+	"github.com/stretchr/testify/require"
+	db "github.com/tendermint/tm-db"
 )
 
 func checksums(slice [][]byte) [][]byte {
@@ -156,7 +156,7 @@ func setupBusyManager(t *testing.T) *snapshots.Manager {
 	store, err := snapshots.NewStore(db.NewMemDB(), tempdir)
 	require.NoError(t, err)
 	hung := newHungSnapshotter()
-	mgr := snapshots.NewManager(store, hung)
+	mgr := snapshots.NewManager(store, hung, log.NewNopLogger())
 
 	go func() {
 		_, err := mgr.Create(1)

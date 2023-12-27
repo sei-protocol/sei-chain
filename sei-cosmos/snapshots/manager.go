@@ -9,9 +9,11 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/snapshots/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/tendermint/tendermint/libs/log"
 )
 
 const (
@@ -49,6 +51,7 @@ type restoreDone struct {
 //     errors via io.Pipe.CloseWithError().
 type Manager struct {
 	store      *Store
+	logger     log.Logger
 	multistore types.Snapshotter
 	extensions map[string]types.ExtensionSnapshotter
 
@@ -61,8 +64,9 @@ type Manager struct {
 }
 
 // NewManager creates a new manager.
-func NewManager(store *Store, multistore types.Snapshotter) *Manager {
+func NewManager(store *Store, multistore types.Snapshotter, logger log.Logger) *Manager {
 	return &Manager{
+		logger:     logger,
 		store:      store,
 		multistore: multistore,
 		extensions: make(map[string]types.ExtensionSnapshotter),
@@ -186,6 +190,7 @@ func (m *Manager) createSnapshot(height uint64, ch chan<- io.ReadCloser) {
 	}
 	defer streamWriter.Close()
 	if err := m.multistore.Snapshot(height, streamWriter); err != nil {
+		m.logger.Error("Snapshot creation failed", "err", err)
 		streamWriter.CloseWithError(err)
 		return
 	}
@@ -277,12 +282,14 @@ func (m *Manager) Restore(snapshot types.Snapshot) error {
 	chDone := make(chan restoreDone, 1)
 
 	go func() {
+		startTime := time.Now()
 		err := m.restoreSnapshot(snapshot, chChunks)
 		chDone <- restoreDone{
 			complete: err == nil,
 			err:      err,
 		}
 		close(chDone)
+		m.logger.Info(fmt.Sprintf("Restoring snapshot for version %d took %s", snapshot.Height, time.Since(startTime)))
 	}()
 
 	m.chRestore = chChunks

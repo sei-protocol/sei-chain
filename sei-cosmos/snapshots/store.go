@@ -10,11 +10,10 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/gogo/protobuf/proto"
-	db "github.com/tendermint/tm-db"
-
 	"github.com/cosmos/cosmos-sdk/snapshots/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/gogo/protobuf/proto"
+	db "github.com/tendermint/tm-db"
 )
 
 const (
@@ -275,14 +274,17 @@ func (s *Store) Save(
 		chunkHasher.Reset()
 		_, err = io.Copy(io.MultiWriter(file, chunkHasher, snapshotHasher), chunkBody)
 		if err != nil {
+			_ = os.RemoveAll(s.pathHeight(height))
 			return nil, sdkerrors.Wrapf(err, "failed to generate snapshot chunk %v", index)
 		}
 		err = file.Close()
 		if err != nil {
+			_ = os.RemoveAll(s.pathHeight(height))
 			return nil, sdkerrors.Wrapf(err, "failed to close snapshot chunk %v", index)
 		}
 		err = chunkBody.Close()
 		if err != nil {
+			_ = os.RemoveAll(s.pathHeight(height))
 			return nil, sdkerrors.Wrapf(err, "failed to close snapshot chunk %v", index)
 		}
 		snapshot.Metadata.ChunkHashes = append(snapshot.Metadata.ChunkHashes, chunkHasher.Sum(nil))

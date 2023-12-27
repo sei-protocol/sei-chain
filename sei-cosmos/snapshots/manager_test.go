@@ -4,16 +4,16 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/snapshots/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/libs/log"
 )
 
 func TestManager_List(t *testing.T) {
 	store := setupStore(t)
-	manager := snapshots.NewManager(store, nil)
+	manager := snapshots.NewManager(store, nil, log.NewNopLogger())
 
 	mgrList, err := manager.List()
 	require.NoError(t, err)
@@ -32,7 +32,7 @@ func TestManager_List(t *testing.T) {
 
 func TestManager_LoadChunk(t *testing.T) {
 	store := setupStore(t)
-	manager := snapshots.NewManager(store, nil)
+	manager := snapshots.NewManager(store, nil, log.NewNopLogger())
 
 	// Existing chunk should return body
 	chunk, err := manager.LoadChunk(2, 1, 1)
@@ -62,7 +62,7 @@ func TestManager_Take(t *testing.T) {
 		items: items,
 	}
 	expectChunks := snapshotItems(items)
-	manager := snapshots.NewManager(store, snapshotter)
+	manager := snapshots.NewManager(store, snapshotter, log.NewNopLogger())
 
 	// nil manager should return error
 	_, err := (*snapshots.Manager)(nil).Create(1)
@@ -98,7 +98,7 @@ func TestManager_Take(t *testing.T) {
 
 func TestManager_Prune(t *testing.T) {
 	store := setupStore(t)
-	manager := snapshots.NewManager(store, nil)
+	manager := snapshots.NewManager(store, nil, log.NewNopLogger())
 
 	pruned, err := manager.Prune(2)
 	require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestManager_Prune(t *testing.T) {
 func TestManager_Restore(t *testing.T) {
 	store := setupStore(t)
 	target := &mockSnapshotter{}
-	manager := snapshots.NewManager(store, target)
+	manager := snapshots.NewManager(store, target, log.NewNopLogger())
 
 	expectItems := [][]byte{
 		{1, 2, 3},
