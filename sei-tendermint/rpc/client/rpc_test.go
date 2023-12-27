@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-
 	"fmt"
 	"math"
 	"net/http"
@@ -22,7 +21,6 @@ import (
 	"github.com/tendermint/tendermint/crypto/encoding"
 	"github.com/tendermint/tendermint/internal/mempool"
 	rpccore "github.com/tendermint/tendermint/internal/rpc/core"
-
 	tmjson "github.com/tendermint/tendermint/libs/json"
 	"github.com/tendermint/tendermint/libs/log"
 	tmmath "github.com/tendermint/tendermint/libs/math"
@@ -497,9 +495,9 @@ func TestClientMethodCalls(t *testing.T) {
 					for i := int64(0); i < 3; i++ {
 						event := <-eventCh
 
-						blockEvent, ok := event.Data.(types.EventDataNewBlock)
+						blockEvent, ok := event.Data.(types.LegacyEventDataNewBlock)
 						if !ok {
-							blockEventPtr, okPtr := event.Data.(*types.EventDataNewBlock)
+							blockEventPtr, okPtr := event.Data.(*types.LegacyEventDataNewBlock)
 							if okPtr {
 								blockEvent = *blockEventPtr
 							}

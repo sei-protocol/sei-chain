@@ -327,7 +327,7 @@ type (
 type ResultEvent struct {
 	SubscriptionID string
 	Query          string
-	Data           types.EventData
+	Data           types.LegacyEventData
 	Events         []abci.Event
 }
 
