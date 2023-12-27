@@ -1174,6 +1174,10 @@ func (app *BaseApp) Close() error {
 	if err := app.appStore.db.Close(); err != nil {
 		return err
 	}
+	// close the underline database for storeV2
+	if err := app.cms.Close(); err != nil {
+		return err
+	}
 	return app.snapshotManager.Close()
 }
 

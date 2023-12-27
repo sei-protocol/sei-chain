@@ -229,3 +229,7 @@ func (kv kvStore) ReverseSubspaceIterator(prefix []byte) sdk.Iterator {
 func NewCommitMultiStore() sdk.CommitMultiStore {
 	return multiStore{kv: make(map[sdk.StoreKey]kvStore)}
 }
+
+func (ms multiStore) Close() error {
+	return nil
+}

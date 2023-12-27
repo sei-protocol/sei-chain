@@ -1197,3 +1197,7 @@ func flushPruningHeights(batch dbm.Batch, pruneHeights []int64) {
 
 	batch.Set([]byte(pruneHeightsKey), bz)
 }
+
+func (rs *Store) Close() error {
+	return rs.db.Close()
+}
