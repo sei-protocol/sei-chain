@@ -12,6 +12,7 @@ import (
 	"github.com/holiman/uint256"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -80,8 +81,8 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	})
 	require.NotNil(t, err)
 
-	amt := typedTx.Fee()
-	coinsAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt)))
+	amt := typedTx.Cost()
+	coinsAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt).Quo(sdk.NewIntFromBigInt(state.UseiToSweiMultiplier)).Add(sdk.OneInt())))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
 	seiAddr := sdk.AccAddress(msg.Derived.SenderSeiAddr)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, coinsAmt)
@@ -233,8 +234,8 @@ func TestEVMFeeCheckDecoratorLondon(t *testing.T) {
 	})
 	require.NotNil(t, err)
 
-	amt := typedTx.Fee()
-	coinsAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt)))
+	amt := typedTx.Cost()
+	coinsAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt).Quo(sdk.NewIntFromBigInt(state.UseiToSweiMultiplier)).Add(sdk.OneInt())))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
 	seiAddr := sdk.AccAddress(msg.Derived.SenderSeiAddr)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, coinsAmt)
