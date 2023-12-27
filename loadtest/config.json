@@ -45,17 +45,8 @@
     "constant": true,
     "loadtest_interval": 600,
     "message_types": [
-        "bank",
-        "dex",
-        "staking",
-        "failure_dex_malformed",
-        "failure_dex_invalid",
-        "collect_rewards",
-        "distribute_rewards",
-        "wasm_instantiate",
         "wasm_occ_iterator_write",
-        "wasm_occ_iterator_range",
-        "wasm_occ_parallel_write"
+        "wasm_occ_iterator_range"
     ],
     "run_oracle": false,
     "metrics_port": 9695,
