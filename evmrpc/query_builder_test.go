@@ -44,29 +44,29 @@ func TestGetTopicsRegex(t *testing.T) {
 			name:         "match first topic",
 			topics:       [][]string{{"a"}},
 			wantErr:      false,
-			wantMatch:    []string{"[a]", "[a,b]", "[a,a,a,a]"},
-			wantNotMatch: []string{"b", "[b]", "[b,a]", "[a,b"},
+			wantMatch:    []string{"a", "a,b", "a,a,a,a"},
+			wantNotMatch: []string{"b", "b", "b,a"},
 		},
 		{
 			name:         "match first topic with OR",
 			topics:       [][]string{{"a", "b"}}, // first topic can be a or b
 			wantErr:      false,
-			wantMatch:    []string{"[a]", "[a,b]", "[a,c,c,c]", "[b]", "[b,c]", "[b,c,c,c]"},
-			wantNotMatch: []string{"b", "[c]", "[c,a]", "[c,b"},
+			wantMatch:    []string{"a", "a,b", "a,c,c,c", "b", "b,c", "b,c,c,c"},
+			wantNotMatch: []string{"c", "c,a", "c,b"},
 		},
 		{
 			name:         "match second topic",
 			topics:       [][]string{{}, {"a"}},
 			wantErr:      false,
-			wantMatch:    []string{"[b,a]", "[c,a]", "[a,a,a]"},
-			wantNotMatch: []string{"b,a]", "[a,b,a]"},
+			wantMatch:    []string{"b,a", "c,a", "a,a,a"},
+			wantNotMatch: []string{"a,b,a"},
 		},
 		{
 			name:         "match second and fourth topic",
 			topics:       [][]string{{""}, {"a", "c"}, {""}, {"b", "d"}},
 			wantErr:      false,
-			wantMatch:    []string{"[d,a,c,b]", "[c,a,c,d,c]", "[a,c,b,d]"},
-			wantNotMatch: []string{"[a,a,a,a]", "[a,b]", "[c,a,b,c]"},
+			wantMatch:    []string{"d,a,c,b", "c,a,c,d,c", "a,c,b,d"},
+			wantNotMatch: []string{"a,a,a,a", "a,b", "c,a,b,c"},
 		},
 	}
 

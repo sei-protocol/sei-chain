@@ -116,6 +116,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 
 	evmAnteDecorators := []sdk.AnteFullDecorator{
 		evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewBasicDecorator()),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMFeeCheckDecorator(options.EVMKeeper)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMSigVerifyDecorator(options.EVMKeeper, options.LatestCtxGetter)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewGasLimitDecorator(options.EVMKeeper)),

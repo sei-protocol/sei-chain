@@ -246,7 +246,7 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 		}()
 		return resCh, nil
 		// hardcoded test case for simplicity
-	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' AND evm_log.topics MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
+	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' AND evm_log.topics MATCHES '^(0x0000000000000000000000000000000000000000000000000000000000000123).*'") {
 		resCh := make(chan coretypes.ResultEvent, 5)
 		go func() {
 			for i := uint64(0); i < 5; i++ {
@@ -265,7 +265,7 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 			}
 		}()
 		return resCh, nil
-	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xc0ffee254729296a45a3885639AC7E10F9d54979' AND evm_log.topics MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
+	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xc0ffee254729296a45a3885639AC7E10F9d54979' AND evm_log.topics MATCHES '^(0x0000000000000000000000000000000000000000000000000000000000000123).*'") {
 		resCh := make(chan coretypes.ResultEvent, 5)
 		go func() {
 			for i := uint64(0); i < 5; i++ {

@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"math/big"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -21,7 +22,9 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/tendermint/tendermint/libs/bytes"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
+	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
 const LatestCtxHeight int64 = -1
@@ -185,4 +188,46 @@ func getAddressPrivKeyMap(kb keyring.Keyring) map[string]*ecdsa.PrivateKey {
 		res[address.Hex()] = privKey
 	}
 	return res
+}
+
+func blockResultsWithRetry(ctx context.Context, client rpcclient.Client, height *int64) (*coretypes.ResultBlockResults, error) {
+	blockRes, err := client.BlockResults(ctx, height)
+	if err != nil {
+		// retry once, since application DB and block DB are not committed atomically so it's possible for
+		// receipt to exist while block results aren't committed yet
+		time.Sleep(1 * time.Second)
+		blockRes, err = client.BlockResults(ctx, height)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return blockRes, err
+}
+
+func blockWithRetry(ctx context.Context, client rpcclient.Client, height *int64) (*coretypes.ResultBlock, error) {
+	blockRes, err := client.Block(ctx, height)
+	if err != nil {
+		// retry once, since application DB and block DB are not committed atomically so it's possible for
+		// receipt to exist while block results aren't committed yet
+		time.Sleep(1 * time.Second)
+		blockRes, err = client.Block(ctx, height)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return blockRes, err
+}
+
+func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
+	blockRes, err := client.BlockByHash(ctx, hash)
+	if err != nil {
+		// retry once, since application DB and block DB are not committed atomically so it's possible for
+		// receipt to exist while block results aren't committed yet
+		time.Sleep(1 * time.Second)
+		blockRes, err = client.BlockByHash(ctx, hash)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return blockRes, err
 }

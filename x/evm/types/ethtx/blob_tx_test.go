@@ -77,7 +77,7 @@ func TestBlobTransaction(t *testing.T) {
 	require.Equal(t, tx.Nonce, tx.GetNonce())
 	to := tx.To
 	tx.To = ""
-	require.Nil(t, tx.GetTo())
+	require.Equal(t, &common.Address{}, tx.GetTo())
 	tx.To = to
 	require.Equal(t, common.HexToAddress(to), *tx.GetTo())
 	require.Equal(t, ethTx.Hash(), ethtypes.NewTx(tx.AsEthereumData()).Hash())

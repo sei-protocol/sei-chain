@@ -76,12 +76,17 @@ func GetTopicsRegex(topics [][]string) (string, error) {
 
 	topicRegex := func(topic []string) string {
 		if len(topic) == 0 {
-			return ""
+			return "([^,]+)"
+		}
+		for _, t := range topic {
+			if len(t) == 0 {
+				return "([^,]+)"
+			}
 		}
 		return fmt.Sprintf("(%s)", strings.Join(topic, "|"))
 	}
 
-	return fmt.Sprintf("\\[%s.*\\]", strings.Join(utils.Map(topics, topicRegex), "[^\\,]*,")), nil
+	return fmt.Sprintf("^%s.*", strings.Join(utils.Map(topics, topicRegex), ",")), nil
 }
 
 func (q *QueryBuilder) FilterBlockNumber(blockNumber int64) *QueryBuilder {

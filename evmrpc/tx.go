@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -58,17 +57,11 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	// critical path, whereas this query endpoint is not on the chain critical path, so we are making the tradeoff to
 	// sacrifice perf here.)
 	height := int64(receipt.BlockNumber)
-	blockRes, err := t.tmClient.BlockResults(ctx, &height)
+	blockRes, err := blockResultsWithRetry(ctx, t.tmClient, &height)
 	if err != nil {
-		// retry once, since application DB and block DB are not committed atomically so it's possible for
-		// receipt to exist while block results aren't committed yet
-		time.Sleep(1 * time.Second)
-		blockRes, err = t.tmClient.BlockResults(ctx, &height)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
-	block, err := t.tmClient.Block(ctx, &height)
+	block, err := blockWithRetry(ctx, t.tmClient, &height)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +81,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil
 	}
-	block, err := t.tmClient.Block(ctx, blockNumber)
+	block, err := blockWithRetry(ctx, t.tmClient, blockNumber)
 	if err != nil {
 		return nil
 	}
@@ -96,7 +89,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 }
 
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) *RPCTransaction {
-	block, err := t.tmClient.BlockByHash(ctx, blockHash[:])
+	block, err := blockByHashWithRetry(ctx, t.tmClient, blockHash[:])
 	if err != nil {
 		return nil
 	}
