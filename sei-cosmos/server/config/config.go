@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/spf13/viper"
-
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-db/config"
+	"github.com/spf13/viper"
 	tmcfg "github.com/tendermint/tendermint/config"
 )
 
@@ -185,12 +185,14 @@ type Config struct {
 	BaseConfig `mapstructure:",squash"`
 
 	// Telemetry defines the application telemetry configuration
-	Telemetry telemetry.Config `mapstructure:"telemetry"`
-	API       APIConfig        `mapstructure:"api"`
-	GRPC      GRPCConfig       `mapstructure:"grpc"`
-	Rosetta   RosettaConfig    `mapstructure:"rosetta"`
-	GRPCWeb   GRPCWebConfig    `mapstructure:"grpc-web"`
-	StateSync StateSyncConfig  `mapstructure:"state-sync"`
+	Telemetry   telemetry.Config         `mapstructure:"telemetry"`
+	API         APIConfig                `mapstructure:"api"`
+	GRPC        GRPCConfig               `mapstructure:"grpc"`
+	Rosetta     RosettaConfig            `mapstructure:"rosetta"`
+	GRPCWeb     GRPCWebConfig            `mapstructure:"grpc-web"`
+	StateSync   StateSyncConfig          `mapstructure:"state-sync"`
+	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
+	StateStore  config.StateStoreConfig  `mapstructure:"state-store"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -270,6 +272,8 @@ func DefaultConfig() *Config {
 			SnapshotKeepRecent: 2,
 			SnapshotDirectory:  "",
 		},
+		StateCommit: config.DefaultStateCommitConfig(),
+		StateStore:  config.DefaultStateStoreConfig(),
 	}
 }
 
@@ -351,6 +355,25 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			SnapshotInterval:   v.GetUint64("state-sync.snapshot-interval"),
 			SnapshotKeepRecent: v.GetUint32("state-sync.snapshot-keep-recent"),
 			SnapshotDirectory:  v.GetString("state-sync.snapshot-directory"),
+		},
+		StateCommit: config.StateCommitConfig{
+			Enable:              v.GetBool("state-commit.enable"),
+			Directory:           v.GetString("state-commit.directory"),
+			ZeroCopy:            v.GetBool("state-commit.zero-copy"),
+			AsyncCommitBuffer:   v.GetInt("state-commit.async-commit-buffer"),
+			SnapshotKeepRecent:  v.GetUint32("state-commit.snapshot-keep-recent"),
+			SnapshotInterval:    v.GetUint32("state-commit.snapshot-interval"),
+			SnapshotWriterLimit: v.GetInt("state-commit.snapshot-writer-limit"),
+			CacheSize:           v.GetInt("state-commit.cache-size"),
+		},
+		StateStore: config.StateStoreConfig{
+			Enable:               v.GetBool("state-store.enable"),
+			DBDirectory:          v.GetString("state-store.db-directory"),
+			Backend:              v.GetString("state-store.backend"),
+			AsyncWriteBuffer:     v.GetInt("state-store.async-write-buffer"),
+			KeepRecent:           v.GetInt("state-store.keep-recent"),
+			PruneIntervalSeconds: v.GetInt("state-store.prune-interval-seconds"),
+			ImportNumWorkers:     v.GetInt("state-store.import-num-workers"),
 		},
 	}, nil
 }

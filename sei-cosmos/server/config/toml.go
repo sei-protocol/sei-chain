@@ -7,6 +7,7 @@ import (
 	"os"
 	"text/template"
 
+	"github.com/sei-protocol/sei-db/config"
 	"github.com/spf13/viper"
 )
 
@@ -22,13 +23,15 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 # specified in this config (e.g. 0.25token1;0.0001token2).
 minimum-gas-prices = "{{ .BaseConfig.MinGasPrices }}"
 
-# default: the last 100 states are kept in addition to every 500th state; pruning at 10 block intervals
-# nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
-# everything: all saved states will be deleted, storing only the current and previous state; pruning at 10 block intervals
-# custom: allow pruning options to be manually specified through 'pruning-keep-recent', 'pruning-keep-every', and 'pruning-interval'
+# Pruning Strategies: 
+# - default: Keep the recent 362880 blocks and prune is triggered every 10 blocks
+# - nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
+# - everything: all saved states will be deleted, storing only the recent 2 blocks; pruning at every block
+# - custom: allow pruning options to be manually specified through 'pruning-keep-recent' and 'pruning-interval'
+# Pruning strategy is completely ignored when seidb is enabled
 pruning = "{{ .BaseConfig.Pruning }}"
 
-# These are applied if and only if the pruning strategy is custom.
+# These are applied if and only if the pruning strategy is custom, and seidb is not enabled
 pruning-keep-recent = "{{ .BaseConfig.PruningKeepRecent }}"
 pruning-keep-every = "{{ .BaseConfig.PruningKeepEvery }}"
 pruning-interval = "{{ .BaseConfig.PruningInterval }}"
@@ -237,7 +240,7 @@ snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 # default is emtpy which will then store under the app home directory same as before.
 snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
 
-`
+` + config.DefaultConfigTemplate
 
 var configTemplate *template.Template
 
