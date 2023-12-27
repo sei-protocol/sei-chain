@@ -53,7 +53,8 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		}
 	}
 
-	anteCharge := txData.Fee() // this would include blob fee if it's a blob tx
+	// fee + value
+	anteCharge := txData.Cost() // this would include blob fee if it's a blob tx
 
 	senderEVMAddr := common.BytesToAddress(evmtypes.MustGetEVMTransactionMessage(tx).Derived.SenderEVMAddr)
 	// check if the sender has enough balance to cover fees

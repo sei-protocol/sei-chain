@@ -133,8 +133,8 @@ func (a *FilterAPI) GetFilterChanges(
 	filterID uint64,
 ) (interface{}, error) {
 	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
-	a.filtersMu.Unlock()
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
@@ -152,22 +152,18 @@ func (a *FilterAPI) GetFilterChanges(
 		if err != nil {
 			return nil, err
 		}
-		a.filtersMu.Lock()
 		updatedFilter := a.filters[filterID]
 		updatedFilter.blockCursor = cursor
 		a.filters[filterID] = updatedFilter
-		a.filtersMu.Unlock()
 		return hashes, nil
 	case LogsSubscription:
 		res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, filter.logsCursors)
 		if err != nil {
 			return nil, err
 		}
-		a.filtersMu.Lock()
 		updatedFilter := a.filters[filterID]
 		updatedFilter.logsCursors = cursors
 		a.filters[filterID] = updatedFilter
-		a.filtersMu.Unlock()
 		return res, nil
 	default:
 		return nil, errors.New("unknown filter type")
@@ -179,8 +175,8 @@ func (a *FilterAPI) GetFilterLogs(
 	filterID uint64,
 ) ([]*ethtypes.Log, error) {
 	a.filtersMu.Lock()
+	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
-	a.filtersMu.Unlock()
 	if !ok {
 		return nil, errors.New("filter does not exist")
 	}
@@ -197,11 +193,9 @@ func (a *FilterAPI) GetFilterLogs(
 	if err != nil {
 		return nil, err
 	}
-	a.filtersMu.Lock()
 	updatedFilter := a.filters[filterID]
 	updatedFilter.logsCursors = cursors
 	a.filters[filterID] = updatedFilter
-	a.filtersMu.Unlock()
 	return res, nil
 }
 
