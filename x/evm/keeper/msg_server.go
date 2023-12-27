@@ -53,13 +53,16 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		return
 	}
 
-	success := true
 	defer func() {
 		if pe := recover(); pe != nil {
 			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
 			panic(pe)
 		}
-		err = server.writeReceipt(ctx, msg, tx, emsg, serverRes, success)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Got EVM state transition error (not VM error): %s", err))
+			return
+		}
+		err = server.writeReceipt(ctx, msg, tx, emsg, serverRes)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 			return
@@ -84,14 +87,13 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		Hash: tx.Hash().Hex(),
 	}
 	if applyErr != nil {
-		success = false
-		serverRes.VmError = applyErr.Error()
-		serverRes.GasUsed = tx.Gas() // all gas will be considered as used
+		// This should not happen, as anything that could cause applyErr is supposed to
+		// be checked in CheckTx first
+		err = applyErr
 	} else {
 		// if applyErr is nil then res must be non-nil
 		if res.Err != nil {
 			serverRes.VmError = res.Err.Error()
-			success = false
 		}
 		serverRes.GasUsed = res.UsedGas
 		serverRes.ReturnData = res.ReturnData
@@ -129,7 +131,7 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	return st.TransitionDb()
 }
 
-func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, success bool) error {
+func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse) error {
 	cumulativeGasUsed := response.GasUsed
 	if ctx.BlockGasMeter() != nil {
 		limit := ctx.BlockGasMeter().Limit()
@@ -159,7 +161,7 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 		}
 	}
 
-	if success {
+	if response.VmError == "" {
 		receipt.Status = uint32(ethtypes.ReceiptStatusSuccessful)
 	} else {
 		receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
