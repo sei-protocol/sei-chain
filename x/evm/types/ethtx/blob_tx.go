@@ -123,7 +123,7 @@ func (tx *BlobTx) GetNonce() uint64 { return tx.Nonce }
 
 func (tx *BlobTx) GetTo() *common.Address {
 	if tx.To == "" {
-		return nil
+		return &common.Address{}
 	}
 	to := common.HexToAddress(tx.To)
 	return &to
@@ -163,6 +163,7 @@ func (tx *BlobTx) AsEthereumData() ethtypes.TxData {
 		AccessList: tx.GetAccessList(),
 		BlobFeeCap: uint256.MustFromBig(tx.GetBlobFeeCap()),
 		BlobHashes: tx.GetBlobHashes(),
+		Sidecar:    sidecarToEthSidecar(tx.Sidecar),
 		V:          uint256.MustFromBig(v),
 		R:          uint256.MustFromBig(r),
 		S:          uint256.MustFromBig(s),
@@ -264,9 +265,23 @@ func (tx BlobTx) EffectiveCost(baseFee *big.Int) *big.Int {
 }
 
 func sidecarConverter(ethSidecar *ethtypes.BlobTxSidecar) *BlobTxSidecar {
+	if ethSidecar == nil {
+		return nil
+	}
 	return &BlobTxSidecar{
 		Blobs:       utils.Map(ethSidecar.Blobs, func(b kzg4844.Blob) []byte { return b[:] }),
 		Commitments: utils.Map(ethSidecar.Commitments, func(c kzg4844.Commitment) []byte { return c[:] }),
 		Proofs:      utils.Map(ethSidecar.Proofs, func(p kzg4844.Proof) []byte { return p[:] }),
+	}
+}
+
+func sidecarToEthSidecar(sidecar *BlobTxSidecar) *ethtypes.BlobTxSidecar {
+	if sidecar == nil {
+		return nil
+	}
+	return &ethtypes.BlobTxSidecar{
+		Blobs:       utils.Map(sidecar.Blobs, func(b []byte) kzg4844.Blob { return kzg4844.Blob(b) }),
+		Commitments: utils.Map(sidecar.Commitments, func(b []byte) kzg4844.Commitment { return kzg4844.Commitment(b) }),
+		Proofs:      utils.Map(sidecar.Proofs, func(p []byte) kzg4844.Proof { return kzg4844.Proof(p) }),
 	}
 }

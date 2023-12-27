@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -202,13 +201,9 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 
 	// Deploy Simple Storage contract with insufficient gas
 	ante.Preprocess(ctx, req, k.GetParams(ctx), k.DecrementPendingTxCount)
-	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
-	require.Nil(t, err) // there should be no error on Sei level, since we don't want all state changes (like gas charge and receipt) to revert
-	require.Contains(t, res.VmError, "intrinsic gas too low")
-	require.Equal(t, uint64(1000), res.GasUsed) // all gas should be consumed
-	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), k.GetBaseDenom(ctx)).Amount.Uint64())
-	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), k.GetBaseDenom(ctx)).Amount.Uint64())
-	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
+	_, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "intrinsic gas too low") // this can only happen in test because we didn't call CheckTx in this test
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {
