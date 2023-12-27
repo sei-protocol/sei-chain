@@ -6,11 +6,11 @@ package rocksdb
 import (
 	"bytes"
 
-	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/linxGnu/grocksdb"
+	"github.com/sei-protocol/sei-db/ss/types"
 )
 
-var _ types.Iterator = (*iterator)(nil)
+var _ types.DBIterator = (*iterator)(nil)
 
 type iterator struct {
 	source             *grocksdb.Iterator

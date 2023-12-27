@@ -1,8 +1,15 @@
 package config
 
 const (
-	DefaultCacheSize        = 100000
-	DefaultSnapshotInterval = 10000
+	DefaultSnapshotInterval    = 10000
+	DefaultSnapshotKeepRecent  = 1
+	DefaultSnapshotWriterLimit = 4
+	DefaultAsyncCommitBuffer   = 100
+	DefaultCacheSize           = 100000
+	DefaultSSKeepRecent        = 100000
+	DefaultSSPruneInterval     = 600
+	DefaultSSImportWorkers     = 1
+	DefaultSSAsyncBuffer       = 100
 )
 
 type StateCommitConfig struct {
@@ -10,6 +17,10 @@ type StateCommitConfig struct {
 	// If true, it will replace the existing IAVL db backend with memIAVL.
 	// defaults to false.
 	Enable bool `mapstructure:"enable"`
+
+	// Directory defines the state-commit store directory
+	// If not explicitly set, default to application home directory
+	Directory string `mapstructure:"directory"`
 
 	// ZeroCopy defines if the memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
 	// the zero-copied slices must not be retained beyond current block's execution.
@@ -29,6 +40,9 @@ type StateCommitConfig struct {
 	// SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 10000.
 	SnapshotInterval uint32 `mapstructure:"snapshot-interval"`
 
+	// SnapshotWriterLimit defines the concurrency for taking commit store snapshot
+	SnapshotWriterLimit int `mapstructure:"snapshot-writer-limit"`
+
 	// CacheSize defines the size of the cache for each memiavl store.
 	// defaults to 100000.
 	CacheSize int `mapstructure:"cache-size"`
@@ -38,6 +52,11 @@ type StateStoreConfig struct {
 
 	// Enable defines if the state-store should be enabled for historical queries.
 	Enable bool `mapstructure:"enable"`
+
+	// DBDirectory defines the directory to store the state store db files
+	// If not explicitly set, default to application home directory
+	// default to empty
+	DBDirectory string `mapstructure:"db-directory"`
 
 	// Backend defines the backend database used for state-store
 	// Supported backends: pebbledb, rocksdb
@@ -60,28 +79,23 @@ type StateStoreConfig struct {
 	// ImportNumWorkers defines the number of goroutines used during import
 	// defaults to 1
 	ImportNumWorkers int `mapstructure:"import-num-workers"`
-
-	// DBDirectory defines the directory to store the state store db files
-	// If not explicitly set, default to application home directory
-	// default to empty
-	DBDirectory string `mapstructure:"db-directory"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
-		AsyncCommitBuffer:  100,
+		AsyncCommitBuffer:  DefaultAsyncCommitBuffer,
 		CacheSize:          DefaultCacheSize,
 		SnapshotInterval:   DefaultSnapshotInterval,
-		SnapshotKeepRecent: 1,
+		SnapshotKeepRecent: DefaultSnapshotKeepRecent,
 	}
 }
 
 func DefaultStateStoreConfig() StateStoreConfig {
 	return StateStoreConfig{
 		Backend:              "pebbledb",
-		AsyncWriteBuffer:     100,
-		KeepRecent:           0,
-		PruneIntervalSeconds: 60,
-		ImportNumWorkers:     1,
+		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
+		KeepRecent:           DefaultSSKeepRecent,
+		PruneIntervalSeconds: DefaultSSPruneInterval,
+		ImportNumWorkers:     DefaultSSImportWorkers,
 	}
 }

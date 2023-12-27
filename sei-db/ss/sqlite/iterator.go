@@ -9,14 +9,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sei-protocol/sei-db/ss/types"
 	"golang.org/x/exp/slices"
 	// _ Import to register sqlite driver with database/sql.
 	_ "modernc.org/sqlite"
-
-	"github.com/cosmos/cosmos-sdk/store/types"
 )
 
-var _ types.Iterator = (*iterator)(nil)
+var _ types.DBIterator = (*iterator)(nil)
 
 type iterator struct {
 	statement  *sql.Stmt

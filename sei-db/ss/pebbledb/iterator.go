@@ -4,14 +4,12 @@ import (
 	"bytes"
 	"fmt"
 
-	"golang.org/x/exp/slices"
-
 	"github.com/cockroachdb/pebble"
-
-	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/sei-protocol/sei-db/ss/types"
+	"golang.org/x/exp/slices"
 )
 
-var _ types.Iterator = (*iterator)(nil)
+var _ types.DBIterator = (*iterator)(nil)
 
 // iterator implements the Iterator interface. It wraps a PebbleDB iterator
 // with added MVCC key handling logic. The iterator will iterate over the key space

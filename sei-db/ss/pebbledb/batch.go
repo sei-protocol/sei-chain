@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble"
-	"github.com/sei-protocol/sei-db/common/utils"
+	"github.com/sei-protocol/sei-db/common/errors"
 )
 
 type Batch struct {
@@ -60,7 +60,7 @@ func (b *Batch) Delete(storeKey string, key []byte) error {
 
 func (b *Batch) Write() (err error) {
 	defer func() {
-		err = utils.Join(err, b.batch.Close())
+		err = errors.Join(err, b.batch.Close())
 	}()
 
 	return b.batch.Commit(defaultWriteOpts)
