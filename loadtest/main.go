@@ -120,17 +120,17 @@ func startLoadtestWorkers(config Config) {
 		}
 	}()
 
-	if !config.Constant {
-		// Waits until SendTx is done processing before proceeding to write and validate TXs
-		client.GatherTxHashes()
-
-		// Records the resulting TxHash to file
-		client.WriteTxHashToFile()
-		fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
-
-		// Validate Tx will close the connection when it's done
-		//go client.ValidateTxs()
-	}
+	//if !config.Constant {
+	//	// Waits until SendTx is done processing before proceeding to write and validate TXs
+	//	client.GatherTxHashes()
+	//
+	//	// Records the resulting TxHash to file
+	//	client.WriteTxHashToFile()
+	//	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+	//
+	//	// Validate Tx will close the connection when it's done
+	//	//go client.ValidateTxs()
+	//}
 	// Wait for a termination signal
 	fmt.Println("Waiting for SIGINT...")
 	<-signals
