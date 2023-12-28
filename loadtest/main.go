@@ -77,11 +77,10 @@ func startLoadtestWorkers(config Config) {
 
 	txQueue := make(chan []byte, 100)
 	done := make(chan struct{})
-	numProducers := 10
-	numConsumers := 10
+	numProducers := 2
+	numConsumers := 2
 	var wg sync.WaitGroup
 
-	fmt.Printf("Setting os signals\n")
 	// Catch OS signals for graceful shutdon
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
