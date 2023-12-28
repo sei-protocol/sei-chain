@@ -3,12 +3,12 @@ package app
 import (
 	"context"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/x/evm/ante"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
+	"github.com/sei-protocol/sei-chain/x/evm/ante"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -49,13 +49,13 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 		return nil, err
 	}
 
-	if err := populateEVMSender(err, tx, resp); err != nil {
+	if err := populateEVMSender(tx, resp); err != nil {
 		return nil, err
 	}
 	return resp, nil
 }
 
-func populateEVMSender(err error, tx sdk.Tx, resp *abci.ResponseCheckTxV2) error {
+func populateEVMSender(tx sdk.Tx, resp *abci.ResponseCheckTxV2) error {
 	isEVM, err := ante.IsEVMMessage(tx)
 	if err != nil || !isEVM {
 		return err
