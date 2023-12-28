@@ -34,7 +34,7 @@ type Config struct {
 	GrpcEndpoints      string                `json:"grpc_endpoints"`
 	BlockchainEndpoint string                `json:"blockchain_endpoint"`
 	NodeURI            string                `json:"node_uri"`
-	TxsPerBlock        uint64                `json:"txs_per_block"`
+	TargetTps          uint64                `json:"target_tps"`
 	MsgsPerTx          uint64                `json:"msgs_per_tx"`
 	Rounds             uint64                `json:"rounds"`
 	MessageType        string                `json:"message_type"`
@@ -47,7 +47,6 @@ type Config struct {
 	PerMessageConfigs  MessageConfigs        `json:"message_configs"`
 	MetricsPort        uint64                `json:"metrics_port"`
 	Constant           bool                  `json:"constant"`
-	LoadInterval       int64                 `json:"loadtest_interval"`
 	TLS                bool                  `json:"tls"`
 }
 

@@ -7,8 +7,11 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -58,47 +61,60 @@ func run(config Config) {
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(config)
-	sleepDuration := time.Duration(config.LoadInterval) * time.Second
 
-	if config.Constant {
-		fmt.Printf("Running in constant mode with interval=%d\n", config.LoadInterval)
-		for {
-			fmt.Printf("Sleeping for %f seconds before next run...\n", sleepDuration.Seconds())
-			time.Sleep(sleepDuration)
-			runOnce(config)
-		}
-	} else {
-		runOnce(config)
-		fmt.Print("Sleeping for 60 seconds for metrics to be scraped...\n")
-		time.Sleep(time.Duration(60))
-	}
+	startLoadtestWorkers(config)
 }
 
-func runOnce(config Config) {
+// starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
+// workers continue running. If config.Constant is false, then we will gather load test results in a file
+func startLoadtestWorkers(config Config) {
 	client := NewLoadTestClient(config)
 	client.SetValidators()
-
-	if config.TxsPerBlock < config.MsgsPerTx {
-		panic("Must have more TxsPerBlock than MsgsPerTx")
-	}
 
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
-	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
-	workgroups, sendersList := client.BuildTxs()
+	txQueue := make(chan []byte, 100)
+	done := make(chan struct{})
+	numProducers := 10
+	numConsumers := 10
+	var wg sync.WaitGroup
 
-	go client.SendTxs(workgroups, sendersList)
+	// Catch OS signals for graceful shutdon
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
-	// Waits until SendTx is done processing before proceeding to write and validate TXs
-	client.GatherTxHashes()
+	numTxsPerProducerPerSecond := int(config.TargetTps) / numProducers
+	for i := 0; i < numProducers; i++ {
+		wg.Add(1)
+		go client.BuildTxs(txQueue, i, numTxsPerProducerPerSecond, &wg, done)
+	}
 
-	// Records the resulting TxHash to file
-	client.WriteTxHashToFile()
-	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+	for i := 0; i < numConsumers; i++ {
+		wg.Add(1)
+		go client.SendTxs(txQueue, i, &wg, done)
+	}
 
-	// Validate Tx will close the connection when it's done
-	go client.ValidateTxs()
+	defer close(done)
+	defer close(txQueue)
+	defer close(client.TxResponseChan)
+
+	if !config.Constant {
+		// Waits until SendTx is done processing before proceeding to write and validate TXs
+		client.GatherTxHashes()
+
+		// Records the resulting TxHash to file
+		client.WriteTxHashToFile()
+		fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+
+		// Validate Tx will close the connection when it's done
+		go client.ValidateTxs()
+	} else {
+		// Wait for a termination signal
+		<-signals
+
+	}
+
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors

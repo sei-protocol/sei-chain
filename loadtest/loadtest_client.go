@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
@@ -123,102 +122,54 @@ func (c *LoadTestClient) WriteTxHashToFile() {
 	}
 }
 
-func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [][]func()) {
+func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsPerProducerPerSecond int, wg *sync.WaitGroup, done <-chan struct{}) {
+	defer wg.Done()
+	ticker := time.NewTicker(100 * time.Millisecond) // Fires every 100ms
 	config := c.LoadTestConfig
-	numberOfAccounts := config.TxsPerBlock / config.MsgsPerTx * 2 // * 2 because we need two sets of accounts
-	activeAccounts := []int{}
-	inactiveAccounts := []int{}
-
-	for i := 0; i < int(numberOfAccounts); i++ {
-		if i%2 == 0 {
-			activeAccounts = append(activeAccounts, i)
-		} else {
-			inactiveAccounts = append(inactiveAccounts, i)
-		}
-	}
-
-	valKeys := c.SignerClient.GetValKeys()
-
-	for i := 0; i < int(config.Rounds); i++ {
-		fmt.Printf("Preparing %d-th round\n", i)
-
-		wg := &sync.WaitGroup{}
-		var senders []func()
-		workgroups = append(workgroups, wg)
-		c.generatedAdminMessageForBlock = false
-		for j, account := range activeAccounts {
-			accountIdentifier := fmt.Sprint(account)
-			accountKeyPath := c.SignerClient.GetTestAccountKeyPath(uint64(account))
-			key := c.SignerClient.GetKey(accountIdentifier, "test", accountKeyPath)
-
-			msgs, failureExpected, signer, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
-			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-			_ = txBuilder.SetMsgs(msgs...)
-			seqDelta := uint64(i / 2)
-			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-			if j == len(activeAccounts)-1 {
-				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
+	accountIdentifier := fmt.Sprint(producerId)
+	accountKeyPath := c.SignerClient.GetTestAccountKeyPath(uint64(producerId))
+	key := c.SignerClient.GetKey(accountIdentifier, "test", accountKeyPath)
+	count := 0
+	for {
+		select {
+		case <-done:
+			fmt.Printf("Stopping producer %d\n", producerId)
+			return
+		case <-ticker.C:
+			count = 0
+		default:
+			if count < numTxsPerProducerPerSecond/10 { // we check every 100ms, so numTxsPerProducer must be 1/10th
+				msgs, _, _, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
+				txBuilder := TestConfig.TxConfig.NewTxBuilder()
+				_ = txBuilder.SetMsgs(msgs...)
+				txBuilder.SetGasLimit(gas)
+				txBuilder.SetFeeAmount([]types.Coin{
+					types.NewCoin("usei", types.NewInt(fee)),
+				})
+				c.SignerClient.SignTx(c.ChainID, &txBuilder, key, 0)
+				txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
+				txQueue <- txBytes
+				count++
 			}
-			// Note: There is a potential race condition here with seqnos
-			// in which a later seqno is delievered before an earlier seqno
-			// In practice, we haven't run into this issue so we'll leave this
-			// as is.
-			sender := SendTx(signer, &txBuilder, mode, seqDelta, failureExpected, *c, gas, fee)
-			wg.Add(1)
-			senders = append(senders, func() {
-				defer wg.Done()
-				sender()
-			})
-		}
-
-		senders = append(senders, c.GenerateOracleSenders(i, config, valKeys, wg)...)
-
-		sendersList = append(sendersList, senders)
-		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
-	}
-
-	return workgroups, sendersList
-}
-
-func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []cryptotypes.PrivKey, waitGroup *sync.WaitGroup) []func() {
-	senders := []func(){}
-	if config.RunOracle && i%2 == 0 {
-		for _, valKey := range valKeys {
-			// generate oracle tx
-			msg := generateOracleMessage(valKey)
-			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-			_ = txBuilder.SetMsgs(msg)
-			seqDelta := uint64(i / 2)
-			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-			sender := SendTx(valKey, &txBuilder, mode, seqDelta, false, *c, 30000, 100000)
-			waitGroup.Add(1)
-			senders = append(senders, func() {
-				defer waitGroup.Done()
-				sender()
-			})
 		}
 	}
-	return senders
 }
 
-func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]func()) {
-	defer close(c.TxResponseChan)
+func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, consumerId int, wg *sync.WaitGroup, done <-chan struct{}) {
+	defer wg.Done()
 
-	lastHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
-	for i := 0; i < int(c.LoadTestConfig.Rounds); i++ {
-		newHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
-		for newHeight == lastHeight {
-			time.Sleep(10 * time.Millisecond)
-			newHeight = getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
+	for {
+		select {
+		case <-done:
+			fmt.Printf("Stopping consumer %d\n", consumerId)
+			return
+		case tx, ok := <-txQueue:
+			if !ok {
+				fmt.Printf("Stopping consumer %d\n", consumerId)
+			}
+			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, c.LoadTestConfig.Constant)
+
 		}
-		fmt.Printf("Sending %d-th block\n", i)
-		senders := sendersList[i]
-		wg := workgroups[i]
-		for _, sender := range senders {
-			go sender()
-		}
-		wg.Wait()
-		lastHeight = newHeight
 	}
 }
 
