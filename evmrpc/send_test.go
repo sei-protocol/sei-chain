@@ -74,6 +74,10 @@ func TestSendRawTransaction(t *testing.T) {
 }
 
 func TestSendAssociateTransaction(t *testing.T) {
+	evmrpc.RpcDebug = false
+	defer func() {
+		evmrpc.RpcDebug = true
+	}()
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
