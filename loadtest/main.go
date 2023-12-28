@@ -68,6 +68,7 @@ func run(config Config) {
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
 // workers continue running. If config.Constant is false, then we will gather load test results in a file
 func startLoadtestWorkers(config Config) {
+	fmt.Printf("Starting loadtest workers")
 	client := NewLoadTestClient(config)
 	client.SetValidators()
 
@@ -85,11 +86,13 @@ func startLoadtestWorkers(config Config) {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
 	numTxsPerProducerPerSecond := int(config.TargetTps) / numProducers
+	fmt.Printf("Starting loadtest producers")
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
 		go client.BuildTxs(txQueue, i, numTxsPerProducerPerSecond, &wg, done)
 	}
 
+	fmt.Printf("Starting loadtest consumers")
 	for i := 0; i < numConsumers; i++ {
 		wg.Add(1)
 		go client.SendTxs(txQueue, i, &wg, done)
