@@ -134,7 +134,7 @@ func printStats(startTime time.Time, producedCount *int64, sentCount *int64) {
 	produced := atomic.LoadInt64(producedCount)
 	sent := atomic.LoadInt64(sentCount)
 	sentTPS := float64(sent) / elapsed.Seconds()
-	fmt.Printf("Time: %v, Produced: %d, Sent: %d, TPS: %d\n", elapsed, produced, sent, sentTPS)
+	fmt.Printf("Time: %v, Produced: %d, Sent: %d, TPS: %f\n", elapsed, produced, sent, sentTPS)
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors
