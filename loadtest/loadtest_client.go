@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -149,7 +148,8 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsP
 					types.NewCoin("usei", types.NewInt(fee)),
 				})
 				// Use random seqno to get around txs that might already be seen in mempool
-				c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(rand.Intn(math.MaxInt)))
+
+				c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(time.Now().Unix()+int64(count)))
 				txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
 				txQueue <- txBytes
 				atomic.AddInt64(producedCount, 1)

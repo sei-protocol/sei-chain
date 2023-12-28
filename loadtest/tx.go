@@ -61,9 +61,10 @@ func SendTx(
 	}
 	if grpcRes.TxResponse.Code != 0 {
 		fmt.Printf("Error: %d, %s\n", grpcRes.TxResponse.Code, grpcRes.TxResponse.RawLog)
+	} else {
+		if !constant { // only track txs if we're not running constant load
+			loadtestClient.AppendTxHash(grpcRes.TxResponse.TxHash)
+		}
+		atomic.AddInt64(sentCount, 1)
 	}
-	if !constant { // only track txs if we're not running constant load
-		loadtestClient.AppendTxHash(grpcRes.TxResponse.TxHash)
-	}
-	atomic.AddInt64(sentCount, 1)
 }
