@@ -48,7 +48,8 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 	}
 }
 
-var RpcDebug = true
+// TODO: remove this, this is a hack to get tests to pass while we do our debug log
+var RPCDebug = true
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
 	if s.sendConfig.slow {
@@ -84,7 +85,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	}
 
 	//TODO: remove this log line
-	if RpcDebug {
+	if RPCDebug {
 		ethTx, _ := msg.AsTransaction()
 		fmt.Printf("SendRawTransaction: nonce=%d\n", ethTx.Nonce())
 	}

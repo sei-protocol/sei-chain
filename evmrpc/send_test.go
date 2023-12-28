@@ -27,9 +27,9 @@ func TestMnemonicToPrivateKey(t *testing.T) {
 
 func TestSendRawTransaction(t *testing.T) {
 	//TODO: remove this hack to make this test pass
-	evmrpc.RpcDebug = false
+	evmrpc.RPCDebug = false
 	defer func() {
-		evmrpc.RpcDebug = true
+		evmrpc.RPCDebug = true
 	}()
 
 	// build tx
@@ -74,9 +74,9 @@ func TestSendRawTransaction(t *testing.T) {
 }
 
 func TestSendAssociateTransaction(t *testing.T) {
-	evmrpc.RpcDebug = false
+	evmrpc.RPCDebug = false
 	defer func() {
-		evmrpc.RpcDebug = true
+		evmrpc.RPCDebug = true
 	}()
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
