@@ -210,8 +210,8 @@ func (pool *BlockPool) IsCaughtUp() bool {
 	pool.mtx.RLock()
 	defer pool.mtx.RUnlock()
 
-	// Need at least 1 peer to be considered caught up.
-	if len(pool.peers) == 0 {
+	// Need at least 2 peers to be considered caught up.
+	if len(pool.peers) <= 1 {
 		return false
 	}
 
