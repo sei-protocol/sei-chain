@@ -59,8 +59,8 @@ func init() {
 
 func run(config Config) {
 	// Start metrics collector in another thread
-	metricsServer := MetricsServer{}
-	go metricsServer.StartMetricsClient(config)
+	//metricsServer := MetricsServer{}
+	//go metricsServer.StartMetricsClient(config)
 
 	startLoadtestWorkers(config)
 }
@@ -82,6 +82,7 @@ func startLoadtestWorkers(config Config) {
 	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
+	fmt.Printf("Registering sigint")
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
@@ -131,6 +132,7 @@ func startLoadtestWorkers(config Config) {
 		//go client.ValidateTxs()
 	}
 	// Wait for a termination signal
+	fmt.Println("Waiting for SIGINT...")
 	<-signals
 	fmt.Println("SIGINT received, shutting down...")
 	close(done)
