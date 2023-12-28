@@ -23,10 +23,11 @@ var TestingStoreKeyToResourceTypePrefixMap = acltypes.StoreKeyToResourceTypePref
 		acltypes.ResourceType_Mem: acltypes.EmptyPrefix,
 	},
 	banktypes.StoreKey: {
-		acltypes.ResourceType_KV_BANK:          acltypes.EmptyPrefix,
-		acltypes.ResourceType_KV_BANK_BALANCES: banktypes.BalancesPrefix,
-		acltypes.ResourceType_KV_BANK_SUPPLY:   banktypes.SupplyKey,
-		acltypes.ResourceType_KV_BANK_DENOM:    banktypes.DenomMetadataPrefix,
+		acltypes.ResourceType_KV_BANK:             acltypes.EmptyPrefix,
+		acltypes.ResourceType_KV_BANK_BALANCES:    banktypes.BalancesPrefix,
+		acltypes.ResourceType_KV_BANK_SUPPLY:      banktypes.SupplyKey,
+		acltypes.ResourceType_KV_BANK_DENOM:       banktypes.DenomMetadataPrefix,
+		acltypes.ResourceType_KV_BANK_WEI_BALANCE: banktypes.WeiBalancesPrefix,
 	},
 	banktypes.DeferredCacheStoreKey: {
 		acltypes.ResourceType_KV_BANK_DEFERRED:                 acltypes.EmptyPrefix,

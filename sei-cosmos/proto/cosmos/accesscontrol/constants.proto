@@ -146,8 +146,10 @@ enum ResourceType {
     KV_EVM_CODE = 106; // child of KV_EVM
     KV_EVM_CODE_SIZE = 107; // child of KV_EVM
 
-    KV_DEX_MEM_CONTRACTS_TO_PROCESS = 108; // child of KV_DEX_MEM
-    KV_DEX_MEM_DOWNSTREAM_CONTRACTS = 109; // child of KV_DEX_MEM
+    KV_BANK_WEI_BALANCE = 108; // child of KV_BANK
+
+    KV_DEX_MEM_CONTRACTS_TO_PROCESS = 109; // child of KV_DEX_MEM
+    KV_DEX_MEM_DOWNSTREAM_CONTRACTS = 110; // child of KV_DEX_MEM
 }
 
 enum WasmMessageSubtype {
