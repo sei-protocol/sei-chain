@@ -3,7 +3,6 @@ package baseapp
 import (
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -30,13 +29,11 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
-	"github.com/cosmos/iavl"
 )
 
 const (
@@ -163,8 +160,6 @@ type BaseApp struct { //nolint: maligned
 
 	compactionInterval uint64
 
-	orphanConfig *iavl.Options
-
 	TmConfig *tmcfg.Config
 
 	TracingInfo *tracing.Info
@@ -290,9 +285,6 @@ func NewBaseApp(
 		panic("must pass --chain-id when calling 'seid start' or set in ~/.sei/config/client.toml")
 	}
 	app.startCompactionRoutine(db)
-	if app.orphanConfig != nil {
-		app.cms.(*rootmulti.Store).SetOrphanConfig(app.orphanConfig)
-	}
 
 	return app
 }
@@ -443,11 +435,7 @@ func (app *BaseApp) init() error {
 	app.setCheckState(tmproto.Header{})
 	app.Seal()
 
-	if app.cms == nil {
-		return errors.New("root multistore must not be nil")
-	}
-
-	return app.cms.GetPruning().Validate()
+	return nil
 }
 
 func (app *BaseApp) setMinGasPrices(gasPrices sdk.DecCoins) {
@@ -460,10 +448,6 @@ func (app *BaseApp) setHaltHeight(haltHeight uint64) {
 
 func (app *BaseApp) setHaltTime(haltTime uint64) {
 	app.haltTime = haltTime
-}
-
-func (app *BaseApp) setOrphanConfig(opts *iavl.Options) {
-	app.orphanConfig = opts
 }
 
 func (app *BaseApp) setMinRetainBlocks(minRetainBlocks uint64) {
