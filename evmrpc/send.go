@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -47,6 +48,11 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 	}
 }
 
+func RecoverAddressFromSignature(evmTx *ethtypes.Transaction) (common.Address, error) {
+	signer := ethtypes.NewEIP155Signer(evmTx.ChainId())
+	return signer.Sender(evmTx)
+}
+
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
 	if s.sendConfig.slow {
 		s.slowMu.Lock()
@@ -78,6 +84,15 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	txbz, encodeErr := s.txConfig.TxEncoder()(txBuilder.GetTx())
 	if encodeErr != nil {
 		return hash, encodeErr
+	}
+
+	//TODO: remove this log line
+	evmTx, _ := msg.AsTransaction()
+	addr, err := RecoverAddressFromSignature(evmTx)
+	if err != nil {
+		fmt.Printf("failed to recover address from signature: %v\n", err)
+	} else {
+		fmt.Printf("SendRawTransaction: address=%s, nonce=%d\n", addr.Hex(), txData.GetNonce())
 	}
 
 	if s.sendConfig.slow {

@@ -1,8 +1,10 @@
 package keeper
 
 import (
+	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -33,6 +35,9 @@ type Keeper struct {
 
 	evmTxCountsMtx              *sync.RWMutex
 	evmTxCountsIncludingPending map[string]uint64 // hex address to count; only written in CheckTx and read in RPC
+
+	// list of next nonces
+	pendingNonces map[string][]uint64
 }
 
 func NewKeeper(
@@ -52,6 +57,7 @@ func NewKeeper(
 		evmTxIndices:                 []int{},
 		evmTxCountsIncludingPending:  map[string]uint64{},
 		evmTxCountsMtx:               &sync.RWMutex{},
+		pendingNonces:                make(map[string][]uint64),
 	}
 	return k
 }
@@ -167,6 +173,57 @@ func (k *Keeper) IncrementPendingTxCount(addr common.Address) {
 		return
 	}
 	k.evmTxCountsIncludingPending[addrStr] = 1
+}
+
+func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, withPending bool) uint64 {
+	k.evmTxCountsMtx.RLock()
+	defer k.evmTxCountsMtx.RUnlock()
+
+	latest := k.GetNonce(ctx, addr)
+	nextNonce := latest
+	if !withPending {
+		return nextNonce
+	}
+
+	pending, ok := k.pendingNonces[addr.Hex()]
+	if !ok {
+		return nextNonce
+	}
+
+	// find next nonce not in pending
+	for _, n := range pending {
+		if n == nextNonce {
+			nextNonce++
+			continue
+		}
+		// found a hole in nonces, return this nextNonce
+		return nextNonce
+	}
+	return nextNonce
+}
+
+func (k *Keeper) AddPendingNonce(addr common.Address, nonce uint64) {
+	k.evmTxCountsMtx.Lock()
+	defer k.evmTxCountsMtx.Unlock()
+	addrStr := addr.Hex()
+	k.pendingNonces[addrStr] = append(k.pendingNonces[addrStr], nonce)
+	slices.Sort(k.pendingNonces[addrStr])
+}
+
+func (k *Keeper) RemovePendingNonce(addr common.Address, nonce uint64) {
+	k.evmTxCountsMtx.Lock()
+	defer k.evmTxCountsMtx.Unlock()
+	addrStr := addr.Hex()
+	if _, ok := k.pendingNonces[addrStr]; !ok {
+		return
+	}
+	for i, n := range k.pendingNonces[addrStr] {
+		if n == nonce {
+			k.pendingNonces[addrStr] = append(k.pendingNonces[addrStr][:i], k.pendingNonces[addrStr][i+1:]...)
+			return
+		}
+	}
+	fmt.Println(len(k.pendingNonces))
 }
 
 func (k *Keeper) DecrementPendingTxCount(addr common.Address) {

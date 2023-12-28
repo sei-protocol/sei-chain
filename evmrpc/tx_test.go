@@ -1,8 +1,13 @@
 package evmrpc_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"
 	"strings"
@@ -232,4 +237,86 @@ func TestGetVMError(t *testing.T) {
 	require.Equal(t, "", resObj["result"].(string))
 	resObj = sendRequestGood(t, "getVMError", "0x78b0bd7fe9ccc8ae8a61eae9315586cf2a406dacf129313e6c5769db7cd14374")
 	require.Equal(t, "not found", resObj["error"].(map[string]interface{})["message"])
+}
+
+func TestCalculateNextNonce(t *testing.T) {
+	scenarios := []struct {
+		name          string
+		pendingNonces []uint64
+		latestNonce   uint64
+		withPending   bool
+		expectedNonce uint64
+		handler       func(addr common.Address)
+	}{
+		{
+			name:          "Without pending nonces",
+			pendingNonces: []uint64{5, 6, 7},
+			withPending:   false,
+			latestNonce:   5,
+			expectedNonce: 5,
+		},
+		{
+			name:          "With pending nonces",
+			pendingNonces: []uint64{5, 6, 7},
+			withPending:   true,
+			latestNonce:   5,
+			expectedNonce: 8,
+		},
+		{
+			name:          "With pending nonces with a skip",
+			pendingNonces: []uint64{5, 6, 7, 8, 10, 11},
+			withPending:   true,
+			latestNonce:   5,
+			expectedNonce: 9,
+		},
+		{
+			name:          "With pending nonces no pending",
+			pendingNonces: []uint64{},
+			withPending:   true,
+			latestNonce:   5,
+			expectedNonce: 5,
+		},
+		{
+			name:          "With pending nonces first skipped",
+			pendingNonces: []uint64{6, 7, 8, 9},
+			withPending:   true,
+			latestNonce:   5,
+			expectedNonce: 5,
+		},
+		{
+			name:          "With pending nonces and removal",
+			pendingNonces: []uint64{5, 6, 7},
+			withPending:   true,
+			latestNonce:   5,
+			expectedNonce: 6,
+			handler: func(addr common.Address) {
+				EVMKeeper.RemovePendingNonce(addr, 6)
+			},
+		},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			// generate private ethereum key
+
+			privateKey, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+			assert.NoError(t, err)
+			addr := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+			EVMKeeper.SetNonce(Ctx, addr, s.latestNonce)
+
+			// Add pending nonces
+			for _, nonce := range s.pendingNonces {
+				EVMKeeper.AddPendingNonce(addr, nonce)
+			}
+
+			if s.handler != nil {
+				s.handler(addr)
+			}
+
+			// Test CalculateNextNonce
+			nextNonce := EVMKeeper.CalculateNextNonce(Ctx, addr, s.withPending)
+			require.Equal(t, s.expectedNonce, nextNonce)
+		})
+	}
 }
