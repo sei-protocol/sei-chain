@@ -1,4 +1,4 @@
-- name: Test withdraw vested tokens and rewards should withdraw all unlocked tokens
+- name: Test withdraw unvested tokens and rewards
   inputs:
     # query and store the gringotts contract address
     - cmd: tail -1 integration_test/contracts/gringotts-contract-addr.txt |cut -d "," -f 1
@@ -14,4 +14,4 @@
       env: RESULT
   verifiers:
     - type: eval
-      expr: RESULT > 0
+      expr: RESULT == 0

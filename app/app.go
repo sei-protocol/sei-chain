@@ -123,8 +123,6 @@ import (
 	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-	"github.com/sei-protocol/sei-db/sc"
-	"github.com/sei-protocol/sei-db/ss"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -370,9 +368,7 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	// setup seiDB if it's enabled in config
-	bAppOptions, scStore := sc.SetupStateCommit(logger, homePath, appOpts, baseAppOptions)
-
+	bAppOptions := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
 	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
@@ -780,14 +776,6 @@ func New(
 	app.ProcessProposalMemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
 	app.MemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
 
-	qms, err := ss.SetupStateStore(logger, homePath, app.CommitMultiStore(), scStore, appOpts, keys, tkeys, memKeys)
-	if err != nil {
-		panic(err)
-	}
-	if qms != nil {
-		app.SetQueryMultiStore(qms)
-	}
-
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
 	app.SetBeginBlocker(app.BeginBlocker)
@@ -831,8 +819,6 @@ func New(
 
 	// Register snapshot extensions to enable state-sync for wasm.
 	if manager := app.SnapshotManager(); manager != nil {
-		manager.SetStateCommitStore(app.CommitMultiStore())
-		manager.SetStateStore(app.QueryMultiStore())
 		err := manager.RegisterExtensions(
 			wasmkeeper.NewWasmSnapshotter(app.CommitMultiStore(), &app.WasmKeeper),
 		)
@@ -840,7 +826,6 @@ func New(
 			panic(fmt.Errorf("failed to register snapshot extension: %s", err))
 		}
 	}
-
 	fmt.Println("Loading latest version at time: ", time.Now().Format(time.RFC3339))
 	loadVersionHandler := func() error {
 		if err := app.LoadLatestVersion(); err != nil {
