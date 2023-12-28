@@ -119,9 +119,6 @@ func startLoadtestWorkers(config Config) {
 			}
 		}
 	}()
-	defer close(done)
-	defer close(txQueue)
-	defer close(client.TxResponseChan)
 
 	if !config.Constant {
 		// Waits until SendTx is done processing before proceeding to write and validate TXs
@@ -136,9 +133,12 @@ func startLoadtestWorkers(config Config) {
 	} else {
 		// Wait for a termination signal
 		<-signals
+		fmt.Println("SIGINT received, shutting down...")
+		close(done)
 
 	}
-
+	close(txQueue)
+	close(client.TxResponseChan)
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors

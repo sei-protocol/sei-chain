@@ -126,7 +126,7 @@ func (c *LoadTestClient) WriteTxHashToFile() {
 
 func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsPerProducerPerSecond int, wg *sync.WaitGroup, done <-chan struct{}, producedCount *int64) {
 	defer wg.Done()
-	ticker := time.NewTicker(1 * time.Second) // Fires every 100ms
+	ticker := time.NewTicker(1 * time.Second)
 	config := c.LoadTestConfig
 	accountIdentifier := fmt.Sprint(producerId)
 	accountKeyPath := c.SignerClient.GetTestAccountKeyPath(uint64(producerId))
