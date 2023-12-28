@@ -147,7 +147,7 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsP
 				txBuilder.SetFeeAmount([]types.Coin{
 					types.NewCoin("usei", types.NewInt(fee)),
 				})
-				c.SignerClient.SignTx(c.ChainID, &txBuilder, key, 0)
+				c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(rand.Intn(10000000)))
 				txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
 				txQueue <- txBytes
 				count++
