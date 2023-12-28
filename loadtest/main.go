@@ -81,7 +81,7 @@ func startLoadtestWorkers(config Config) {
 	numConsumers := 2
 	var wg sync.WaitGroup
 
-	// Catch OS signals for graceful shutdon
+	// Catch OS signals for graceful shutdown
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
@@ -128,14 +128,13 @@ func startLoadtestWorkers(config Config) {
 		fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
 
 		// Validate Tx will close the connection when it's done
-		go client.ValidateTxs()
-	} else {
-		// Wait for a termination signal
-		<-signals
-		fmt.Println("SIGINT received, shutting down...")
-		close(done)
-
+		//go client.ValidateTxs()
 	}
+	// Wait for a termination signal
+	<-signals
+	fmt.Println("SIGINT received, shutting down...")
+	close(done)
+	wg.Wait()
 	close(txQueue)
 	close(client.TxResponseChan)
 }
