@@ -138,7 +138,7 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsP
 		case <-ticker.C:
 			count = 0
 		default:
-			if count < 10/10 { // we check every 100ms, so numTxsPerProducer must be 1/10th
+			if count < 100 { // we check every 100ms, so numTxsPerProducer must be 1/10th
 				fmt.Printf("Producer %d created message\n", producerId)
 				msgs, _, _, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
 				txBuilder := TestConfig.TxConfig.NewTxBuilder()
