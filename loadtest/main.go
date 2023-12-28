@@ -85,7 +85,10 @@ func startLoadtestWorkers(config Config) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
-	numTxsPerProducerPerSecond := int(config.TargetTps) / numProducers
+	numTxsPerProducerPerSecond := 1
+	if int(config.TargetTps) > numProducers {
+		numTxsPerProducerPerSecond = int(config.TargetTps) / numProducers
+	}
 	fmt.Printf("Starting loadtest producers\n")
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
