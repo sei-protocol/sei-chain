@@ -139,6 +139,7 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsP
 			count = 0
 		default:
 			if count < numTxsPerProducerPerSecond/10 { // we check every 100ms, so numTxsPerProducer must be 1/10th
+				fmt.Printf("Producer %d created message\n", producerId)
 				msgs, _, _, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
 				txBuilder := TestConfig.TxConfig.NewTxBuilder()
 				_ = txBuilder.SetMsgs(msgs...)
@@ -167,6 +168,7 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, consumerId int, wg *sync
 			if !ok {
 				fmt.Printf("Stopping consumer %d\n", consumerId)
 			}
+			fmt.Printf("Consumer %d sent message\n", consumerId)
 			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, c.LoadTestConfig.Constant)
 
 		}
