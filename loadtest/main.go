@@ -81,18 +81,19 @@ func startLoadtestWorkers(config Config) {
 	numConsumers := 10
 	var wg sync.WaitGroup
 
+	fmt.Printf("Setting os signals\n")
 	// Catch OS signals for graceful shutdon
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
 	numTxsPerProducerPerSecond := int(config.TargetTps) / numProducers
-	fmt.Printf("Starting loadtest producers")
+	fmt.Printf("Starting loadtest producers\n")
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
 		go client.BuildTxs(txQueue, i, numTxsPerProducerPerSecond, &wg, done)
 	}
 
-	fmt.Printf("Starting loadtest consumers")
+	fmt.Printf("Starting loadtest consumers\n")
 	for i := 0; i < numConsumers; i++ {
 		wg.Add(1)
 		go client.SendTxs(txQueue, i, &wg, done)
