@@ -159,7 +159,6 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	var msgs []sdk.Msg
 	messageTypes := strings.Split(config.MessageType, ",")
 	messageType := c.getRandomMessageType(messageTypes)
-	fmt.Printf("Message type: %s\n", messageType)
 
 	defer IncrTxMessageType(messageType)
 

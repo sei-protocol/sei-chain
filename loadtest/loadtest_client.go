@@ -171,8 +171,7 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, consumerId int, wg *sync
 			if !ok {
 				fmt.Printf("Stopping consumer %d\n", consumerId)
 			}
-			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, c.LoadTestConfig.Constant)
-			atomic.AddInt64(sentCount, 1)
+			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, c.LoadTestConfig.Constant, sentCount)
 		}
 	}
 }

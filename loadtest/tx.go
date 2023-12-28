@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -15,6 +16,7 @@ func SendTx(
 	failureExpected bool,
 	loadtestClient LoadTestClient,
 	constant bool,
+	sentCount *int64,
 ) {
 	grpcRes, err := loadtestClient.GetTxClient().BroadcastTx(
 		context.Background(),
@@ -32,6 +34,10 @@ func SendTx(
 
 		if grpcRes == nil || grpcRes.TxResponse == nil {
 			return
+		}
+		if grpcRes.TxResponse.Code == 0 {
+			atomic.AddInt64(sentCount, 1)
+
 		}
 	}
 
@@ -55,7 +61,9 @@ func SendTx(
 	}
 	if grpcRes.TxResponse.Code != 0 {
 		fmt.Printf("Error: %d, %s\n", grpcRes.TxResponse.Code, grpcRes.TxResponse.RawLog)
-	} else if !constant { // only track txs if we're not running constant load
+	}
+	if !constant { // only track txs if we're not running constant load
 		loadtestClient.AppendTxHash(grpcRes.TxResponse.TxHash)
 	}
+	atomic.AddInt64(sentCount, 1)
 }
