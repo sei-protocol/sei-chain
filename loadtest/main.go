@@ -82,7 +82,6 @@ func startLoadtestWorkers(config Config) {
 	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
-	fmt.Printf("Registering sigint")
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
@@ -121,15 +120,11 @@ func startLoadtestWorkers(config Config) {
 	}()
 
 	// Wait for a termination signal
-	fmt.Println("Waiting for SIGINT...")
 	<-signals
 	fmt.Println("SIGINT received, shutting down...")
 	close(done)
-	fmt.Println("Clsoed done, waiting for wg")
 	wg.Wait()
-	fmt.Println("Finished wg wait, closing other resources")
 	close(txQueue)
-	close(client.TxResponseChan)
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors

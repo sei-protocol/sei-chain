@@ -5,21 +5,17 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
 	"crypto/tls"
 
-	"github.com/k0kubun/pp/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -28,12 +24,8 @@ type LoadTestClient struct {
 	LoadTestConfig     Config
 	TestConfig         EncodingConfig
 	TxClients          []typestx.ServiceClient
-	TxHashFile         *os.File
 	SignerClient       *SignerClient
 	ChainID            string
-	TxHashList         []string
-	TxResponseChan     chan *string
-	TxHashListMutex    *sync.Mutex
 	GrpcConns          []*grpc.ClientConn
 	StakingQueryClient stakingtypes.QueryClient
 	// Staking specific variables
@@ -68,22 +60,12 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 		GrpcConns[i] = grpcConn
 	}
 
-	// setup output files
-	userHomeDir, _ := os.UserHomeDir()
-	_ = os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
-	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
-	_ = os.Remove(filename)
-	outputFile, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	return &LoadTestClient{
 		LoadTestConfig:                config,
 		TestConfig:                    TestConfig,
 		TxClients:                     TxClients,
-		TxHashFile:                    outputFile,
 		SignerClient:                  NewSignerClient(config.NodeURI),
 		ChainID:                       config.ChainID,
-		TxHashList:                    []string{},
-		TxResponseChan:                make(chan *string),
-		TxHashListMutex:               &sync.Mutex{},
 		GrpcConns:                     GrpcConns,
 		StakingQueryClient:            stakingtypes.NewQueryClient(GrpcConns[0]),
 		DelegationMap:                 map[string]map[string]int{},
@@ -106,21 +88,6 @@ func (c *LoadTestClient) SetValidators() {
 func (c *LoadTestClient) Close() {
 	for _, grpcConn := range c.GrpcConns {
 		_ = grpcConn.Close()
-	}
-}
-
-func (c *LoadTestClient) AppendTxHash(txHash string) {
-	c.TxResponseChan <- &txHash
-}
-
-func (c *LoadTestClient) WriteTxHashToFile() {
-	fmt.Printf("Writing Tx Hashes to: %s \n", c.TxHashFile.Name())
-	file := c.TxHashFile
-	for _, txHash := range c.TxHashList {
-		txHashLine := fmt.Sprintf("%s\n", txHash)
-		if _, err := file.WriteString(txHashLine); err != nil {
-			panic(err)
-		}
 	}
 }
 
@@ -173,86 +140,9 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, consumerId int, wg *sync
 			if !ok {
 				fmt.Printf("Stopping consumer %d\n", consumerId)
 			}
-			fmt.Printf("Sendint tx %d\n", consumerId)
-			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, c.LoadTestConfig.Constant, sentCount)
+			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
 		}
 	}
-}
-
-func (c *LoadTestClient) GatherTxHashes() {
-	for txHash := range c.TxResponseChan {
-		c.TxHashList = append(c.TxHashList, *txHash)
-	}
-	fmt.Printf("Transactions Sent=%d\n", len(c.TxHashList))
-}
-
-func (c *LoadTestClient) ValidateTxs() {
-	defer c.Close()
-	numTxs := len(c.TxHashList)
-	resultChan := make(chan *types.TxResponse, numTxs)
-	var waitGroup sync.WaitGroup
-
-	if numTxs == 0 {
-		return
-	}
-
-	for _, txHash := range c.TxHashList {
-		waitGroup.Add(1)
-		go func(txHash string) {
-			defer waitGroup.Done()
-			resultChan <- c.GetTxResponse(txHash)
-		}(txHash)
-	}
-
-	go func() {
-		waitGroup.Wait()
-		close(resultChan)
-	}()
-
-	fmt.Printf("Validating %d Transactions... \n", len(c.TxHashList))
-	waitGroup.Wait()
-
-	notCommittedTxs := 0
-	responseCodeMap := map[int]int{}
-	responseStringMap := map[string]int{}
-	for result := range resultChan {
-		// If the result is nil then that means the transaction was not committed
-		if result == nil {
-			notCommittedTxs++
-			continue
-		}
-		code := result.Code
-		codeString := "ok"
-		if code != 0 {
-			codespace := result.Codespace
-			err := sdkerrors.ABCIError(codespace, code, fmt.Sprintf("Error code=%d ", code))
-			codeString = err.Error()
-		}
-		responseStringMap[codeString]++
-		responseCodeMap[int(code)]++
-	}
-
-	fmt.Printf("Transactions not committed: %d\n", notCommittedTxs)
-	pp.Printf("Response Code Mapping: \n %s \n", responseStringMap)
-	IncrTxNotCommitted(notCommittedTxs)
-	for reason, count := range responseStringMap {
-		IncrTxProcessCode(reason, count)
-	}
-}
-
-func (c *LoadTestClient) GetTxResponse(hash string) *types.TxResponse {
-	grpcRes, err := c.GetTxClient().GetTx(
-		context.Background(),
-		&typestx.GetTxRequest{
-			Hash: hash,
-		},
-	)
-	fmt.Printf("Validated: %s\n", hash)
-	if err != nil {
-		fmt.Println(err)
-		return nil
-	}
-	return grpcRes.TxResponse
 }
 
 func (c *LoadTestClient) GetTxClient() typestx.ServiceClient {
