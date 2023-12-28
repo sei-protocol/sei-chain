@@ -1,0 +1,46 @@
+- name: Test penalty counts for oracle process
+  inputs:
+    # Get slashing window
+    - cmd: seid q oracle params --output json | jq -r ".params.slash_window"
+      env: ORACLE_SLASH_WINDOW
+    # Get vote period
+    - cmd: seid q oracle params --output json | jq -r ".params.vote_period"
+      env: VOTE_PERIOD
+    # Get current height
+    - cmd: seid q block | jq -r ".block.header.height"
+      env: BLOCK_HEIGHT
+    # calculate progress in slash window
+    - cmd: expr $BLOCK_HEIGHT % $ORACLE_SLASH_WINDOW
+      env: WINDOW_PROGRESS
+    # get expected number of penalty counts
+    - cmd: expr \( $WINDOW_PROGRESS + 1 \)  / $VOTE_PERIOD
+      env: EXPECTED_COUNTS
+    # Get admin val addr
+    - cmd: printf "12345678\n" | seid keys show node_admin --bech val --output json | jq -r ".address"
+      env: ADMIN_VAL_ADDR
+    # get vote penalty counts
+    - cmd: seid q oracle vote-penalty-counter $ADMIN_VAL_ADDR --height $BLOCK_HEIGHT --output json | jq -r ".vote_penalty_counter"
+      env: PENALTY_JSON
+    # get success counts
+    - cmd: echo $PENALTY_JSON | jq -r ".success_count"
+      env: SUCCESS_COUNT
+    # get abstain counts
+    - cmd: echo $PENALTY_JSON | jq -r ".abstain_count"
+      env: ABSTAIN_COUNT
+    # get miss counts
+    - cmd: echo $PENALTY_JSON | jq -r ".miss_count"
+      env: MISS_COUNT
+    # calculate total
+    - cmd: expr $SUCCESS_COUNT + $ABSTAIN_COUNT + $MISS_COUNT
+      env: TOTAL_COUNT
+    # calculate success rate
+    - cmd: expr $(expr $SUCCESS_COUNT \* 100 ) / $TOTAL_COUNT
+      env: SUCCESS_PERCENT
+  verifiers:
+    # verify total counts GEQ expected: not asserting equal due to block movement between evaluation
+    - type: eval
+      expr: TOTAL_COUNT == EXPECTED_COUNTS or TOTAL_COUNT == EXPECTED_COUNTS + 1
+    # verify success rate > 5% to ensure some successes and that theyre about slash threshold
+    - type: eval
+      expr: SUCCESS_PERCENT >= 5
+
