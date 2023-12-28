@@ -25,14 +25,17 @@ func SendTx(
 			TxBytes: txBytes,
 		},
 	)
+	fmt.Printf("Finished broadcasting tx\n")
 	if err != nil {
 		if failureExpected {
 			fmt.Printf("Error: %s\n", err)
 		} else {
+			fmt.Printf("Finished broadcasting tx-err\n")
 			panic(err)
 		}
 
 		if grpcRes == nil || grpcRes.TxResponse == nil {
+			fmt.Printf("Finished broadcasting tx - nill response\n")
 			return
 		}
 		if grpcRes.TxResponse.Code == 0 {
