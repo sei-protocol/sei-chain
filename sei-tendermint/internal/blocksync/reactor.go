@@ -559,7 +559,7 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 				)
 				continue
 
-			case r.pool.IsCaughtUp() && r.previousMaxPeerHeight < r.pool.MaxPeerHeight():
+			case r.pool.IsCaughtUp() && r.previousMaxPeerHeight <= r.pool.MaxPeerHeight():
 				r.logger.Info("switching to consensus reactor", "height", height)
 
 			case time.Since(lastAdvance) > syncTimeout:
