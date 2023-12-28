@@ -112,9 +112,8 @@ func startLoadtestWorkers(config Config) {
 			case <-ticker.C:
 				elapsed := time.Since(start)
 				fmt.Printf("Time: %v, Produced: %d, Sent: %d\n", elapsed, producedCount, sentCount)
-			case <-signals:
+			case <-done:
 				ticker.Stop()
-				close(done)
 				return
 			}
 		}
