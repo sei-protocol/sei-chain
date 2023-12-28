@@ -26,6 +26,7 @@ type ViewKeeper interface {
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
 	LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
 	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+	GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int
 
 	IterateAccountBalances(ctx sdk.Context, addr sdk.AccAddress, cb func(coin sdk.Coin) (stop bool))
 	IterateAllBalances(ctx sdk.Context, cb func(address sdk.AccAddress, coin sdk.Coin) (stop bool))
@@ -231,4 +232,18 @@ func (k BaseViewKeeper) getAccountStore(ctx sdk.Context, addr sdk.AccAddress) pr
 	store := ctx.KVStore(k.storeKey)
 
 	return prefix.NewStore(store, types.CreateAccountBalancesPrefix(addr))
+}
+
+func (k BaseViewKeeper) GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int {
+	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.WeiBalancesPrefix)
+	val := store.Get(addr)
+	if val == nil {
+		return sdk.ZeroInt()
+	}
+	res := new(sdk.Int)
+	if err := res.Unmarshal(val); err != nil {
+		// should never happen
+		panic(err)
+	}
+	return *res
 }

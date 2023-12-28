@@ -21,10 +21,13 @@ const (
 
 	// QuerierRoute defines the module's query routing key
 	QuerierRoute = ModuleName
+
+	WeiEscrowName = "weiescrow"
 )
 
 // KVStore keys
 var (
+	WeiBalancesPrefix = []byte{0x04}
 	// BalancesPrefix is the prefix for the account balances store. We use a byte
 	// (instead of `[]byte("balances")` to save some disk space).
 	DeferredCachePrefix = []byte{0x03}
