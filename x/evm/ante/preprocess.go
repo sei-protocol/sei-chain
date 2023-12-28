@@ -48,7 +48,7 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 //nolint:revive
 func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
-	if err := Preprocess(ctx, msg, p.evmKeeper.GetParams(ctx), p.evmKeeper.DecrementPendingTxCount); err != nil {
+	if err := Preprocess(ctx, msg, p.evmKeeper.GetParams(ctx), p.evmKeeper.RemovePendingNonce); err != nil {
 		return ctx, err
 	}
 
@@ -110,7 +110,7 @@ func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk
 }
 
 // stateless
-func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, params evmtypes.Params, pendingTxCntDecrementFunc func(common.Address)) error {
+func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, params evmtypes.Params, removePendingNonce func(common.Address, uint64)) error {
 	if msgEVMTransaction.Derived != nil {
 		// already preprocessed
 		return nil
@@ -152,7 +152,7 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 	if err != nil {
 		return err
 	}
-	pendingTxCntDecrementFunc(evmAddr)
+	removePendingNonce(evmAddr, ethTx.Nonce())
 	msgEVMTransaction.Derived = &evmtypes.DerivedData{
 		SenderEVMAddr: evmAddr[:],
 		SenderSeiAddr: seiAddr,

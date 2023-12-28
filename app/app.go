@@ -1403,7 +1403,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			typedTxs = append(typedTxs, nil)
 		} else {
 			if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
-				if err := evmante.Preprocess(ctx, evmtypes.MustGetEVMTransactionMessage(typedTx), app.EvmKeeper.GetParams(ctx), app.EvmKeeper.DecrementPendingTxCount); err != nil {
+				if err := evmante.Preprocess(ctx, evmtypes.MustGetEVMTransactionMessage(typedTx), app.EvmKeeper.GetParams(ctx), app.EvmKeeper.RemovePendingNonce); err != nil {
 					ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
 					typedTxs = append(typedTxs, nil)
 					continue

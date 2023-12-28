@@ -41,7 +41,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			if e != nil {
 				return
 			}
-			svd.evmKeeper.IncrementPendingTxCount(evmAddr)
+			svd.evmKeeper.AddPendingNonce(evmAddr, txNonce)
 		})
 		if txNonce > nextNonce {
 			// transaction shall be added to mempool as a pending transaction
@@ -49,7 +49,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 				latestCtx := svd.latestCtxGetter()
 				latestNonce := svd.evmKeeper.GetNonce(latestCtx, evmAddr)
 				if txNonce < latestNonce {
-					svd.evmKeeper.DecrementPendingTxCount(evmAddr)
+					svd.evmKeeper.RemovePendingNonce(evmAddr, txNonce)
 					return abci.Rejected
 				} else if txNonce == latestNonce {
 					return abci.Accepted
