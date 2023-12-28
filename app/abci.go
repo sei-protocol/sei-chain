@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"github.com/sei-protocol/sei-chain/x/evm/ante"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -35,7 +38,38 @@ func (app *App) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.Re
 func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
 	_, span := app.GetBaseApp().TracingInfo.Start("CheckTx")
 	defer span.End()
-	return app.BaseApp.CheckTx(ctx, req)
+	resp, err := app.BaseApp.CheckTx(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+
+	// For EVM, populate sender on the response so that mempool can decide to dedupe
+	tx, err := app.txDecoder(req.Tx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := populateEVMSender(err, tx, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func populateEVMSender(err error, tx sdk.Tx, resp *abci.ResponseCheckTxV2) error {
+	isEVM, err := ante.IsEVMMessage(tx)
+	if err != nil || !isEVM {
+		return err
+	}
+
+	evmMsg := types.MustGetEVMTransactionMessage(tx)
+	evmTx, _ := evmMsg.AsTransaction()
+	fromAddress, err := types.RecoverAddressFromSignature(evmTx)
+	if err != nil {
+		return err
+	}
+	// sender is used for de-duping in the mempool (key in a map)
+	resp.Sender = fmt.Sprintf("%s|%d", fromAddress.Hex(), evmTx.Nonce())
+	return nil
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
