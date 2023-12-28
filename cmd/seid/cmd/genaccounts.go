@@ -2,14 +2,18 @@ package cmd
 
 import (
 	"bufio"
+	"crypto/ecdsa"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/cosmos/cosmos-sdk/server"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -47,17 +51,18 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 
 			config.SetRoot(clientCtx.HomeDir)
 
+			inBuf := bufio.NewReader(cmd.InOrStdin())
+			keyringBackend, _ := cmd.Flags().GetString(flags.FlagKeyringBackend)
+
+			// attempt to lookup address from Keybase if no address was provided
+			kb, err := keyring.New(sdk.KeyringServiceName(), keyringBackend, clientCtx.HomeDir, inBuf)
+			if err != nil {
+				return err
+			}
+
 			addr, err := sdk.AccAddressFromBech32(args[0])
 			if err != nil {
-				inBuf := bufio.NewReader(cmd.InOrStdin())
-				keyringBackend, _ := cmd.Flags().GetString(flags.FlagKeyringBackend)
-
-				// attempt to lookup address from Keybase if no address was provided
-				kb, err := keyring.New(sdk.KeyringServiceName(), keyringBackend, clientCtx.HomeDir, inBuf)
-				if err != nil {
-					return err
-				}
-
+				// this args[0] is for the key name so "admin"
 				info, err := kb.Key(args[0])
 				if err != nil {
 					return fmt.Errorf("failed to get address from Keybase: %w", err)
@@ -65,6 +70,17 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 
 				addr = info.GetAddress()
 			}
+
+			// get private key of addr
+			pk, err := getPrivateKeyOfAddr(kb, addr)
+			if err != nil {
+				return err
+			}
+
+			// print out the eth address of the private key
+			ethAddr := crypto.PubkeyToAddress(pk.PublicKey)
+			// TODO: connect these accounts
+			fmt.Println("ETH address funded = ", ethAddr.Hex())
 
 			coins, err := sdk.ParseCoinsNormalized(args[1])
 			if err != nil {
@@ -176,4 +192,33 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 	flags.AddQueryFlagsToCmd(cmd)
 
 	return cmd
+}
+
+func getPrivateKeyOfAddr(kb keyring.Keyring, addr sdk.Address) (*ecdsa.PrivateKey, error) {
+	keys, err := kb.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range keys {
+		localInfo, ok := key.(keyring.LocalInfo)
+		if !ok {
+			// will only show local key
+			return nil, errors.New("not local key")
+		}
+		if localInfo.GetAddress().Equals(addr) {
+			priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
+			if err != nil {
+				return nil, err
+			}
+			privHex := hex.EncodeToString(priv.Bytes())
+			fmt.Println("privKeyHex = ", privHex)
+			// Need to use private key to convert to sei address here
+			privKey, err := crypto.HexToECDSA(privHex)
+			if err != nil {
+				return nil, err
+			}
+			return privKey, nil
+		}
+	}
+	return nil, errors.New("not found")
 }
