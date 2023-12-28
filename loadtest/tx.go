@@ -40,6 +40,8 @@ func SendTx(
 		}
 		if grpcRes.TxResponse.Code == 0 {
 			atomic.AddInt64(sentCount, 1)
+		} else {
+			fmt.Printf("Finished broadcasting tx nonzero resp code: %d\n", grpcRes.TxResponse.Code)
 
 		}
 	}
