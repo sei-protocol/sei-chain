@@ -75,7 +75,7 @@ func startLoadtestWorkers(config Config) {
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
-	txQueue := make(chan []byte, 100)
+	txQueue := make(chan []byte, 10000)
 	done := make(chan struct{})
 	numProducers := 2
 	numConsumers := 2
@@ -89,18 +89,36 @@ func startLoadtestWorkers(config Config) {
 	if int(config.TargetTps) > numProducers {
 		numTxsPerProducerPerSecond = int(config.TargetTps) / numProducers
 	}
+
+	ticker := time.NewTicker(1 * time.Second)
+	start := time.Now()
+	var producedCount int64 = 0
+	var sentCount int64 = 0
 	fmt.Printf("Starting loadtest producers\n")
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
-		go client.BuildTxs(txQueue, i, numTxsPerProducerPerSecond, &wg, done)
+		go client.BuildTxs(txQueue, i, numTxsPerProducerPerSecond, &wg, done, &producedCount)
 	}
 
 	fmt.Printf("Starting loadtest consumers\n")
 	for i := 0; i < numConsumers; i++ {
 		wg.Add(1)
-		go client.SendTxs(txQueue, i, &wg, done)
+		go client.SendTxs(txQueue, i, &wg, done, &sentCount)
 	}
-
+	// Statistics reporting goroutine
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				elapsed := time.Since(start)
+				fmt.Printf("Time: %v, Produced: %d, Sent: %d\n", elapsed, producedCount, sentCount)
+			case <-signals:
+				ticker.Stop()
+				close(done)
+				return
+			}
+		}
+	}()
 	defer close(done)
 	defer close(txQueue)
 	defer close(client.TxResponseChan)

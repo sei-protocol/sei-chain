@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/types"
@@ -122,7 +124,7 @@ func (c *LoadTestClient) WriteTxHashToFile() {
 	}
 }
 
-func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsPerProducerPerSecond int, wg *sync.WaitGroup, done <-chan struct{}) {
+func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsPerProducerPerSecond int, wg *sync.WaitGroup, done <-chan struct{}, producedCount *int64) {
 	defer wg.Done()
 	ticker := time.NewTicker(100 * time.Millisecond) // Fires every 100ms
 	config := c.LoadTestConfig
@@ -138,8 +140,7 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsP
 		case <-ticker.C:
 			count = 0
 		default:
-			if count < 2 { // we check every 100ms, so numTxsPerProducer must be 1/10th
-				fmt.Printf("Producer %d created message\n", producerId)
+			if count < numTxsPerProducerPerSecond/100 { // we check every 100ms, so numTxsPerProducer must be 1/10th
 				msgs, _, _, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
 				txBuilder := TestConfig.TxConfig.NewTxBuilder()
 				_ = txBuilder.SetMsgs(msgs...)
@@ -147,16 +148,18 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsP
 				txBuilder.SetFeeAmount([]types.Coin{
 					types.NewCoin("usei", types.NewInt(fee)),
 				})
-				c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(rand.Intn(10000000)))
+				// Use random seqno to get around txs that might already be seen in mempool
+				c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(rand.Intn(math.MaxInt)))
 				txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
 				txQueue <- txBytes
+				atomic.AddInt64(producedCount, 1)
 				count++
 			}
 		}
 	}
 }
 
-func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, consumerId int, wg *sync.WaitGroup, done <-chan struct{}) {
+func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, consumerId int, wg *sync.WaitGroup, done <-chan struct{}, sentCount *int64) {
 	defer wg.Done()
 
 	for {
@@ -168,9 +171,8 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, consumerId int, wg *sync
 			if !ok {
 				fmt.Printf("Stopping consumer %d\n", consumerId)
 			}
-			fmt.Printf("Consumer %d sent message\n", consumerId)
 			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, c.LoadTestConfig.Constant)
-
+			atomic.AddInt64(sentCount, 1)
 		}
 	}
 }
