@@ -47,6 +47,13 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 	ops = appendRWBalanceOps(ops, state.GetCoinbaseAddress(ctx))
 	sender := sdk.AccAddress(evmMsg.Derived.SenderSeiAddr)
 	ops = appendRWBalanceOps(ops, sender)
+	ops = append(ops,
+		sdkacltypes.AccessOperation{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_WEI_BALANCE,
+			IdentifierTemplate: hex.EncodeToString(append(banktypes.WeiBalancesPrefix, sender...)),
+		},
+	)
 
 	tx, _ := evmMsg.AsTransaction()
 	toAddress := tx.To()

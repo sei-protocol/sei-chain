@@ -17,7 +17,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 		return
 	}
 
-	s.err = s.k.BankKeeper().SendCoinsWithoutAccCreation(s.ctx, s.getSeiAddress(evmAddr), s.middleManAddress, s.bigIntAmtToCoins(amt))
+	s.send(s.getSeiAddress(evmAddr), s.middleManAddress, amt)
 }
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
@@ -29,11 +29,13 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 		return
 	}
 
-	s.err = s.k.BankKeeper().SendCoinsWithoutAccCreation(s.ctx, s.middleManAddress, s.getSeiAddress(evmAddr), s.bigIntAmtToCoins(amt))
+	s.send(s.middleManAddress, s.getSeiAddress(evmAddr), amt)
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
-	return s.coinToBigIntAmt(s.k.BankKeeper().GetBalance(s.ctx, s.getSeiAddress(evmAddr), s.k.GetBaseDenom(s.ctx)))
+	usei := s.k.BankKeeper().GetBalance(s.ctx, s.getSeiAddress(evmAddr), s.k.GetBaseDenom(s.ctx)).Amount
+	wei := s.k.BankKeeper().GetWeiBalance(s.ctx, s.getSeiAddress(evmAddr))
+	return usei.Mul(sdk.NewIntFromBigInt(UseiToSweiMultiplier)).Add(wei).BigInt()
 }
 
 // should only be called during simulation
@@ -41,20 +43,20 @@ func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int) {
 	if !s.simulation {
 		panic("should never call SetBalance in a non-simulation setting")
 	}
-	// Fields that were denominated in usei will be converted to swei (1usei = 10^12swei)
-	// for existing Ethereum application (which assumes 18 decimal points) to display properly.
-	amt = new(big.Int).Quo(amt, UseiToSweiMultiplier)
 	seiAddr := s.getSeiAddress(evmAddr)
-	balance := s.k.BankKeeper().GetBalance(s.ctx, seiAddr, s.k.GetBaseDenom(s.ctx))
-	if err := s.k.BankKeeper().SendCoinsFromAccountToModule(s.ctx, seiAddr, types.ModuleName, sdk.NewCoins(balance)); err != nil {
-		panic(err)
+	moduleAddr := s.k.AccountKeeper().GetModuleAddress(types.ModuleName)
+	s.send(seiAddr, moduleAddr, s.GetBalance(evmAddr))
+	if s.err != nil {
+		panic(s.err)
 	}
-	coinsAmt := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(amt)))
+	usei, _ := SplitUseiWeiAmount(amt)
+	coinsAmt := sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(usei).Add(sdk.OneInt())))
 	if err := s.k.BankKeeper().MintCoins(s.ctx, types.ModuleName, coinsAmt); err != nil {
 		panic(err)
 	}
-	if err := s.k.BankKeeper().SendCoinsFromModuleToAccount(s.ctx, types.ModuleName, seiAddr, coinsAmt); err != nil {
-		panic(err)
+	s.send(moduleAddr, seiAddr, amt)
+	if s.err != nil {
+		panic(s.err)
 	}
 }
 
@@ -69,14 +71,7 @@ func (s *DBImpl) getSeiAddress(evmAddr common.Address) (seiAddr sdk.AccAddress) 
 	return
 }
 
-func (s *DBImpl) bigIntAmtToCoins(amt *big.Int) sdk.Coins {
-	// Fields that were denominated in usei will be converted to swei (1usei = 10^12swei)
-	// for existing Ethereum application (which assumes 18 decimal points) to display properly.
-	amt = new(big.Int).Quo(amt, UseiToSweiMultiplier)
-	return sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(amt)))
-}
-
-func (s *DBImpl) coinToBigIntAmt(coin sdk.Coin) *big.Int {
-	balanceInUsei := coin.Amount.BigInt()
-	return new(big.Int).Mul(balanceInUsei, UseiToSweiMultiplier)
+func (s *DBImpl) send(from sdk.AccAddress, to sdk.AccAddress, amt *big.Int) {
+	usei, wei := SplitUseiWeiAmount(amt)
+	s.err = s.k.BankKeeper().SendCoinsAndWei(s.ctx, from, to, nil, s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(usei), sdk.NewIntFromBigInt(wei))
 }

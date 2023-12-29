@@ -64,10 +64,11 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 		aclsdktypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS: dextypes.KeyPrefix(dextypes.MemDownstreamContracts),
 	},
 	banktypes.StoreKey: {
-		aclsdktypes.ResourceType_KV_BANK:          aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_KV_BANK_BALANCES: banktypes.BalancesPrefix,
-		aclsdktypes.ResourceType_KV_BANK_SUPPLY:   banktypes.SupplyKey,
-		aclsdktypes.ResourceType_KV_BANK_DENOM:    banktypes.DenomMetadataPrefix,
+		aclsdktypes.ResourceType_KV_BANK:             aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV_BANK_BALANCES:    banktypes.BalancesPrefix,
+		aclsdktypes.ResourceType_KV_BANK_SUPPLY:      banktypes.SupplyKey,
+		aclsdktypes.ResourceType_KV_BANK_DENOM:       banktypes.DenomMetadataPrefix,
+		aclsdktypes.ResourceType_KV_BANK_WEI_BALANCE: banktypes.WeiBalancesPrefix,
 	},
 	banktypes.DeferredCacheStoreKey: {
 		aclsdktypes.ResourceType_KV_BANK_DEFERRED:                 aclsdktypes.EmptyPrefix,

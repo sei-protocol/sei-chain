@@ -75,8 +75,8 @@ func cacheTxContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 func (suite *KeeperTestSuite) buildSendMsgTo(to common.Address, amt *big.Int) *types.MsgEVMTransaction {
 	txData := ethtypes.DynamicFeeTx{
 		Nonce:     0,
-		GasFeeCap: big.NewInt(1),
-		Gas:       21000,
+		GasFeeCap: big.NewInt(1000000000),
+		Gas:       30000,
 		To:        &to,
 		Value:     amt,
 		Data:      []byte(""),

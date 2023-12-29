@@ -109,10 +109,13 @@ func (s *DBImpl) GetStorageRoot(common.Address) common.Hash {
 func (s *DBImpl) Copy() vm.StateDB {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore())
 	return &DBImpl{
-		ctx:             newCtx,
-		snapshottedCtxs: append(s.snapshottedCtxs, s.ctx),
-		k:               s.k,
-		err:             s.err,
+		ctx:              newCtx,
+		snapshottedCtxs:  append(s.snapshottedCtxs, s.ctx),
+		k:                s.k,
+		middleManAddress: s.middleManAddress,
+		coinbaseAddress:  s.coinbaseAddress,
+		simulation:       s.simulation,
+		err:              s.err,
 	}
 }
 

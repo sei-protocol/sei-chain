@@ -159,18 +159,21 @@ func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	evmTxIndices := am.keeper.GetEVMTxIndices()
+	denom := am.keeper.GetBaseDenom(ctx)
 	for _, idx := range evmTxIndices {
 		middleManAddress := state.GetMiddleManAddress(sdk.Context{}.WithTxIndex(idx))
-		balances := am.keeper.BankKeeper().GetAllBalances(ctx, middleManAddress)
-		if !balances.IsZero() {
-			if err := am.keeper.BankKeeper().SendCoinsFromAccountToModule(ctx, middleManAddress, types.ModuleName, balances); err != nil {
+		balance := am.keeper.BankKeeper().GetBalance(ctx, middleManAddress, denom)
+		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, middleManAddress)
+		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
+			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, middleManAddress, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), nil, denom, balance.Amount, weiBalance); err != nil {
 				panic(err)
 			}
 		}
 		coinbaseAddress := state.GetCoinbaseAddress(sdk.Context{}.WithTxIndex(idx))
-		balances = am.keeper.BankKeeper().GetAllBalances(ctx, coinbaseAddress)
-		if !balances.IsZero() {
-			if err := am.keeper.BankKeeper().SendCoinsFromAccountToModule(ctx, coinbaseAddress, authtypes.FeeCollectorName, balances); err != nil {
+		balance = am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom)
+		weiBalance = am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
+		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
+			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), nil, denom, balance.Amount, weiBalance); err != nil {
 				panic(err)
 			}
 		}
