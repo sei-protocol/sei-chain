@@ -224,6 +224,7 @@ var (
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		dexmoduletypes.ModuleName:      nil,
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
+		banktypes.WeiEscrowName:        nil,
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
