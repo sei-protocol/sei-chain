@@ -138,6 +138,14 @@ func (r *ParallelRunner) wrapRunnable(contractAddr types.ContractAddress) {
 		if err := recover(); err != nil {
 			r.sdkCtx.Logger().Error(fmt.Sprintf("panic in parallel runner recovered: %s", err))
 		}
+
+		atomic.AddInt64(&r.inProgressCnt, -1) // this has to happen after any potential increment to readyCnt
+		select {
+		case r.someContractFinished <- struct{}{}:
+		case <-r.done:
+			// make sure other goroutines can also receive from 'done'
+			r.done <- struct{}{}
+		}
 	}()
 
 	contractInfo, _ := r.contractAddrToInfo.Load(contractAddr)
@@ -164,13 +172,5 @@ func (r *ParallelRunner) wrapRunnable(contractAddr types.ContractAddress) {
 				atomic.AddInt64(&r.readyCnt, 1)
 			}
 		}
-	}
-
-	atomic.AddInt64(&r.inProgressCnt, -1) // this has to happen after any potential increment to readyCnt
-	select {
-	case r.someContractFinished <- struct{}{}:
-	case <-r.done:
-		// make sure other goroutines can also receive from 'done'
-		r.done <- struct{}{}
 	}
 }

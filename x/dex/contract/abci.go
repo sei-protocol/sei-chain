@@ -58,7 +58,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	handleDeposits(spanCtx, cachedCtx, env, keeper, tracer)
 
 	runner := NewParallelRunner(func(contract types.ContractInfoV2) {
-		orderMatchingRunnable(spanCtx, cachedCtx, env, keeper, contract, tracer)
+		OrderMatchingRunnable(spanCtx, cachedCtx, env, keeper, contract, tracer)
 	}, validContractsInfo, cachedCtx)
 
 	_, err := logging.LogIfNotDoneAfter(ctx.Logger(), func() (struct{}, error) {
@@ -227,7 +227,7 @@ func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env 
 	}
 }
 
-func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
+func OrderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
 	defer func() {
 		if err := recover(); err != nil {
 			msg := fmt.Sprintf("PANIC RECOVERED during order matching: %s", err)
@@ -237,7 +237,7 @@ func orderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 			}
 		}
 	}()
-	_, span := (*tracer).Start(ctx, "orderMatchingRunnable")
+	_, span := (*tracer).Start(ctx, "OrderMatchingRunnable")
 	defer span.End()
 	defer telemetry.MeasureSince(time.Now(), "dex", "order_matching_runnable")
 	defer func() {
