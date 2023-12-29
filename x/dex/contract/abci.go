@@ -230,6 +230,7 @@ func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env 
 func OrderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *environment, keeper *keeper.Keeper, contractInfo types.ContractInfoV2, tracer *otrace.Tracer) {
 	defer func() {
 		if err := recover(); err != nil {
+			telemetry.IncrCounter(1, "recovered_panics")
 			msg := fmt.Sprintf("PANIC RECOVERED during order matching: %s", err)
 			sdkContext.Logger().Error(msg)
 			if env != nil {

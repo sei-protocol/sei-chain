@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/utils/logging"
@@ -136,6 +137,7 @@ func (r *ParallelRunner) Run() {
 func (r *ParallelRunner) wrapRunnable(contractAddr types.ContractAddress) {
 	defer func() {
 		if err := recover(); err != nil {
+			telemetry.IncrCounter(1, "recovered_panics")
 			r.sdkCtx.Logger().Error(fmt.Sprintf("panic in parallel runner recovered: %s", err))
 		}
 

@@ -306,6 +306,7 @@ func (am AppModule) getPriceToDelete(
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
 	defer func() {
 		if err := recover(); err != nil {
+			telemetry.IncrCounter(1, "recovered_panics")
 			ctx.Logger().Error(fmt.Sprintf("panic in endblock recovered: %s", err))
 		}
 	}()
