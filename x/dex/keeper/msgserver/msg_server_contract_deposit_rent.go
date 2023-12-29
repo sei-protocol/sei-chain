@@ -38,7 +38,7 @@ func (k msgServer) ContractDepositRent(goCtx context.Context, msg *types.MsgCont
 	if err != nil {
 		return nil, err
 	}
-	if err := k.BankKeeper.SendCoins(ctx, senderAddr, k.AccountKeeper.GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(msg.Amount))))); err != nil {
+	if err := k.BankKeeper.SendCoins(ctx, senderAddr, k.AccountKeeper.GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewIntFromUint64(msg.Amount)))); err != nil {
 		return nil, err
 	}
 

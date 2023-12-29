@@ -2,6 +2,7 @@ package dex
 
 import (
 	"errors"
+	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -142,7 +143,7 @@ func (d CheckDexGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 	if dexGasRequired == 0 {
 		return next(ctx, tx, simulate)
 	}
-	dexFeeRequired := sdk.NewDecWithPrec(int64(dexGasRequired), 0).Mul(params.SudoCallGasPrice).RoundInt()
+	dexFeeRequired := sdk.NewDecFromBigInt(new(big.Int).SetUint64(dexGasRequired)).Mul(params.SudoCallGasPrice).RoundInt()
 	feeTx, ok := tx.(sdk.FeeTx)
 	if !ok {
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
