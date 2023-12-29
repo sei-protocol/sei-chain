@@ -190,16 +190,14 @@ func HandleExecutionForContract(
 }
 
 // Emit metrics for settlements
-func EmitSettlementMetrics(settlements []*types.SettlementEntry) int64 {
+func EmitSettlementMetrics(settlements []*types.SettlementEntry) {
 	if len(settlements) > 0 {
 		telemetry.ModuleSetGauge(
 			types.ModuleName,
 			float32(len(settlements)),
 			"num_settlements",
 		)
-		var totalQuantity int64
 		for _, s := range settlements {
-			totalQuantity += s.Quantity.RoundInt().Int64()
 			telemetry.IncrCounter(
 				1,
 				"num_settlements_order_type_"+s.GetOrderType(),
@@ -217,12 +215,5 @@ func EmitSettlementMetrics(settlements []*types.SettlementEntry) int64 {
 				"num_settlements_price_denom_"+s.GetPriceDenom(),
 			)
 		}
-		telemetry.ModuleSetGauge(
-			types.ModuleName,
-			float32(totalQuantity),
-			"num_total_order_quantity_in_settlements",
-		)
-		return totalQuantity
 	}
-	return 0
 }
