@@ -27,7 +27,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -138,7 +137,7 @@ func CmdAssociateAddress() *cobra.Command {
 
 func CmdSend() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "send [to EVM address] [amount in usei] --from=<sender> --gas-fee-cap=<cap> --gas-limit=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "send [to EVM address] [amount in wei] --from=<sender> --gas-fee-cap=<cap> --gas-limit=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
 		Short: "send usei to EVM address",
 		Long:  "",
 		Args:  cobra.ExactArgs(2),
@@ -193,9 +192,9 @@ func CmdSend() *cobra.Command {
 			}
 
 			to := common.HexToAddress(args[0])
-			val, err := strconv.ParseUint(args[1], 10, 64)
-			if err != nil {
-				return err
+			val, success := new(big.Int).SetString(args[1], 10)
+			if !success {
+				return fmt.Errorf("%s is an invalid amount to send", args[1])
 			}
 			gasFeeCap, err := cmd.Flags().GetUint64(FlagGasFeeCap)
 			if err != nil {
@@ -214,7 +213,7 @@ func CmdSend() *cobra.Command {
 				GasFeeCap: new(big.Int).SetUint64(gasFeeCap),
 				Gas:       gasLimit,
 				To:        &to,
-				Value:     new(big.Int).Mul(new(big.Int).SetUint64(val), state.UseiToSweiMultiplier),
+				Value:     val,
 				Data:      []byte(""),
 				ChainID:   new(big.Int).SetUint64(chainID),
 			}
