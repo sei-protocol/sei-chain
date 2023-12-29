@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -56,6 +55,7 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 }
 
 func populateEVMSender(tx sdk.Tx, resp *abci.ResponseCheckTxV2) error {
+	// if not evm message, no properties are needed
 	isEVM, err := ante.IsEVMMessage(tx)
 	if err != nil || !isEVM {
 		return err
@@ -67,8 +67,14 @@ func populateEVMSender(tx sdk.Tx, resp *abci.ResponseCheckTxV2) error {
 	if err != nil {
 		return err
 	}
+
+	resp.EVMTxProperties = &abci.EVMTxProperties{
+		FromAddressHex: fromAddress.Hex(),
+		Nonce:          evmTx.Nonce(),
+	}
+
 	// sender is used for de-duping in the mempool (key in a map)
-	resp.Sender = fmt.Sprintf("%s|%d", fromAddress.Hex(), evmTx.Nonce())
+	resp.Sender = resp.EvmKey()
 	return nil
 }
 
