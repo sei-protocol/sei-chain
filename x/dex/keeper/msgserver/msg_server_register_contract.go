@@ -200,7 +200,7 @@ func (k msgServer) HandleDepositOrRefund(ctx sdk.Context, msg *types.MsgRegister
 	if existingContract, err := k.GetContract(ctx, msg.Contract.ContractAddr); err != nil {
 		// brand new contract
 		if msg.Contract.RentBalance > 0 {
-			if err := k.BankKeeper.SendCoins(ctx, creatorAddr, k.AccountKeeper.GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(msg.Contract.RentBalance))))); err != nil {
+			if err := k.BankKeeper.SendCoins(ctx, creatorAddr, k.AccountKeeper.GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewIntFromUint64(msg.Contract.RentBalance)))); err != nil {
 				return err
 			}
 		}
@@ -211,13 +211,13 @@ func (k msgServer) HandleDepositOrRefund(ctx sdk.Context, msg *types.MsgRegister
 		if msg.Contract.RentBalance < existingContract.RentBalance {
 			// refund
 			refundAmount := existingContract.RentBalance - msg.Contract.RentBalance
-			if err := k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(refundAmount))))); err != nil {
+			if err := k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewIntFromUint64(refundAmount)))); err != nil {
 				return err
 			}
 		} else if msg.Contract.RentBalance > existingContract.RentBalance {
 			// deposit
 			depositAmount := msg.Contract.RentBalance - existingContract.RentBalance
-			if err := k.BankKeeper.SendCoins(ctx, creatorAddr, k.AccountKeeper.GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(depositAmount))))); err != nil {
+			if err := k.BankKeeper.SendCoins(ctx, creatorAddr, k.AccountKeeper.GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewIntFromUint64(depositAmount)))); err != nil {
 				return err
 			}
 		}

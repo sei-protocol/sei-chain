@@ -1,8 +1,6 @@
 package exchange
 
 import (
-	"math"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	cache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
@@ -16,7 +14,7 @@ func MatchMarketOrders(
 	blockOrders *cache.BlockOrders,
 ) ExecutionOutcome {
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
-	minPrice, maxPrice := sdk.NewDecFromInt(sdk.NewIntFromUint64(math.MaxInt64)), sdk.OneDec().Neg()
+	minPrice, maxPrice := sdk.OneDec().Neg(), sdk.OneDec().Neg()
 	settlements := []*types.SettlementEntry{}
 	allTakerSettlements := []*types.SettlementEntry{}
 	for _, marketOrder := range marketOrders {
@@ -86,7 +84,9 @@ func MatchMarketOrder(
 		*totalPrice = totalPrice.Add(
 			executed.Mul(entry.GetPrice()),
 		)
-		*minPrice = sdk.MinDec(*minPrice, entry.GetPrice())
+		if minPrice.IsNegative() || minPrice.GT(entry.GetPrice()) {
+			*minPrice = entry.GetPrice()
+		}
 		*maxPrice = sdk.MaxDec(*maxPrice, entry.GetPrice())
 
 		takerSettlements, makerSettlements := Settle(
@@ -174,7 +174,9 @@ func MatchFOKMarketOrder(
 			*totalPrice = totalPrice.Add(
 				executedQuantities[i].Mul(entryPrices[i]),
 			)
-			*minPrice = sdk.MinDec(*minPrice, entryPrices[i])
+			if minPrice.IsNegative() || minPrice.GT(entryPrices[i]) {
+				*minPrice = entryPrices[i]
+			}
 			*maxPrice = sdk.MaxDec(*maxPrice, entryPrices[i])
 		}
 	} else {
@@ -247,7 +249,9 @@ func MatchByValueFOKMarketOrder(
 			*totalPrice = totalPrice.Add(
 				executedQuantities[i].Mul(entryPrices[i]),
 			)
-			*minPrice = sdk.MinDec(*minPrice, entryPrices[i])
+			if minPrice.IsNegative() || minPrice.GT(entryPrices[i]) {
+				*minPrice = entryPrices[i]
+			}
 			*maxPrice = sdk.MaxDec(*maxPrice, entryPrices[i])
 		}
 	} else {

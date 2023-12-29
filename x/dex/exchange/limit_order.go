@@ -2,7 +2,6 @@ package exchange
 
 import (
 	"fmt"
-	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/dex/keeper"
@@ -15,7 +14,7 @@ func MatchLimitOrders(
 ) ExecutionOutcome {
 	settlements := []*types.SettlementEntry{}
 	totalExecuted, totalPrice := sdk.ZeroDec(), sdk.ZeroDec()
-	minPrice, maxPrice := sdk.NewDecFromInt(sdk.NewIntFromUint64(math.MaxInt64)), sdk.OneDec().Neg()
+	minPrice, maxPrice := sdk.OneDec().Neg(), sdk.OneDec().Neg()
 
 	for longEntry, shortEntry := orderbook.Longs.Next(ctx), orderbook.Shorts.Next(ctx); longEntry != nil && shortEntry != nil && longEntry.GetPrice().GTE(shortEntry.GetPrice()); longEntry, shortEntry = orderbook.Longs.Next(ctx), orderbook.Shorts.Next(ctx) {
 		var executed sdk.Dec
@@ -30,7 +29,9 @@ func MatchLimitOrders(
 				longEntry.GetPrice().Add(shortEntry.GetPrice()),
 			),
 		)
-		minPrice = sdk.MinDec(minPrice, shortEntry.GetPrice())
+		if minPrice.IsNegative() || minPrice.GT(shortEntry.GetPrice()) {
+			minPrice = shortEntry.GetPrice()
+		}
 		maxPrice = sdk.MaxDec(maxPrice, longEntry.GetPrice())
 
 		newSettlements := SettleFromBook(

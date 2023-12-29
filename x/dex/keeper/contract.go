@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"errors"
+	"math"
+	"math/big"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -67,7 +69,10 @@ func (k Keeper) GetContractGasLimit(ctx sdk.Context, contractAddr sdk.AccAddress
 	if gasPrice.LTE(sdk.ZeroDec()) {
 		return 0, errors.New("invalid gas price: must be positive")
 	}
-	gasDec := sdk.NewDec(int64(rentBalance)).Quo(gasPrice)
+	gasDec := sdk.NewDecFromBigInt(new(big.Int).SetUint64(rentBalance)).Quo(gasPrice)
+	if gasDec.GT(sdk.NewDecFromBigInt(new(big.Int).SetUint64(math.MaxUint64))) {
+		return math.MaxUint64, nil
+	}
 	return gasDec.TruncateInt().Uint64(), nil // round down
 }
 
@@ -100,15 +105,19 @@ func (k Keeper) ChargeRentForGas(ctx sdk.Context, contractAddr string, gasUsed u
 		return err
 	}
 	params := k.GetParams(ctx)
-	gasFee := sdk.NewDec(int64(gasUsed)).Mul(params.SudoCallGasPrice).RoundInt().Int64()
-	if gasFee > int64(contract.RentBalance) {
+	gasFeeDec := sdk.NewDecFromBigInt(new(big.Int).SetUint64(gasUsed)).Mul(params.SudoCallGasPrice)
+	if gasFeeDec.GT(sdk.NewDecFromBigInt(new(big.Int).SetUint64(math.MaxUint64))) {
+		gasFeeDec = sdk.NewDecFromBigInt(new(big.Int).SetUint64(math.MaxUint64))
+	}
+	gasFee := gasFeeDec.RoundInt().Uint64()
+	if gasFee > contract.RentBalance {
 		contract.RentBalance = 0
 		if err := k.SetContract(ctx, &contract); err != nil {
 			return err
 		}
 		return types.ErrInsufficientRent
 	}
-	contract.RentBalance -= uint64(gasFee)
+	contract.RentBalance -= gasFee
 	return k.SetContract(ctx, &contract)
 }
 
@@ -126,7 +135,7 @@ func (k Keeper) GetRentsForContracts(ctx sdk.Context, contractAddrs []string) ma
 func (k Keeper) DoUnregisterContractWithRefund(ctx sdk.Context, contract types.ContractInfoV2) error {
 	k.DoUnregisterContract(ctx, contract)
 	creatorAddr, _ := sdk.AccAddressFromBech32(contract.Creator)
-	return k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewInt(int64(contract.RentBalance)))))
+	return k.BankKeeper.SendCoins(ctx, k.AccountKeeper.GetModuleAddress(types.ModuleName), creatorAddr, sdk.NewCoins(sdk.NewCoin(appparams.BaseCoinUnit, sdk.NewIntFromBigInt(new(big.Int).SetUint64(contract.RentBalance)))))
 }
 
 // Contract unregistration will remove all orderbook data stored for the contract
