@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/utils/logging"
@@ -134,6 +135,21 @@ func (r *ParallelRunner) Run() {
 }
 
 func (r *ParallelRunner) wrapRunnable(contractAddr types.ContractAddress) {
+	defer func() {
+		if err := recover(); err != nil {
+			telemetry.IncrCounter(1, "recovered_panics")
+			r.sdkCtx.Logger().Error(fmt.Sprintf("panic in parallel runner recovered: %s", err))
+		}
+
+		atomic.AddInt64(&r.inProgressCnt, -1) // this has to happen after any potential increment to readyCnt
+		select {
+		case r.someContractFinished <- struct{}{}:
+		case <-r.done:
+			// make sure other goroutines can also receive from 'done'
+			r.done <- struct{}{}
+		}
+	}()
+
 	contractInfo, _ := r.contractAddrToInfo.Load(contractAddr)
 	r.runnable(*contractInfo)
 
@@ -158,13 +174,5 @@ func (r *ParallelRunner) wrapRunnable(contractAddr types.ContractAddress) {
 				atomic.AddInt64(&r.readyCnt, 1)
 			}
 		}
-	}
-
-	atomic.AddInt64(&r.inProgressCnt, -1) // this has to happen after any potential increment to readyCnt
-	select {
-	case r.someContractFinished <- struct{}{}:
-	case <-r.done:
-		// make sure other goroutines can also receive from 'done'
-		r.done <- struct{}{}
 	}
 }

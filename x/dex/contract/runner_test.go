@@ -29,6 +29,10 @@ func idleRunnable(_ types.ContractInfoV2) {
 	atomic.AddInt64(&counter, 1)
 }
 
+func panicRunnable(_ types.ContractInfoV2) {
+	panic("")
+}
+
 func dependencyCheckRunnable(contractInfo types.ContractInfoV2) {
 	if contractInfo.ContractAddr == "C" {
 		_, hasA := dependencyCheck.Load("A")
@@ -125,4 +129,13 @@ func TestRunnerParallelContractWithInvalidDependency(t *testing.T) {
 	runner.Run()
 	_, hasC := dependencyCheck.Load("C")
 	require.False(t, hasC)
+}
+
+func TestRunnerPanicContract(t *testing.T) {
+	contractInfo := types.ContractInfoV2{
+		ContractAddr:            "A",
+		NumIncomingDependencies: 0,
+	}
+	runner := contract.NewParallelRunner(panicRunnable, []types.ContractInfoV2{contractInfo}, sdkCtx)
+	require.NotPanics(t, runner.Run)
 }
