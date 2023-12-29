@@ -25,3 +25,9 @@ func GetCoinbaseAddress(ctx sdk.Context) sdk.AccAddress {
 	binary.BigEndian.PutUint64(txIndexBz, uint64(ctx.TxIndex()))
 	return sdk.AccAddress(append(CoinbaseAddressPrefix, txIndexBz...))
 }
+
+func SplitUseiWeiAmount(amt *big.Int) (usei *big.Int, wei *big.Int) {
+	wei = new(big.Int).Mod(amt, UseiToSweiMultiplier)
+	usei = new(big.Int).Quo(amt, UseiToSweiMultiplier)
+	return
+}
