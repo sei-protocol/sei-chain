@@ -25,7 +25,7 @@ func NewEVMFeeCheckDecorator(evmKeeper *evmkeeper.Keeper) *EVMFeeCheckDecorator 
 func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	// only check fee in CheckTx (similar to normal Sei tx)
 	if !ctx.IsCheckTx() || simulate {
-		return ctx, nil
+		return next(ctx, tx, simulate)
 	}
 
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
