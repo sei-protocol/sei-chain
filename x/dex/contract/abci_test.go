@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -31,4 +32,12 @@ func TestTransferRentFromDexToCollector(t *testing.T) {
 	require.Equal(t, int64(20), dexBalance.Amount.Int64())
 	collectorBalance := bankkeeper.GetBalance(ctx, testApp.AccountKeeper.GetModuleAddress(authtypes.FeeCollectorName), "usei")
 	require.Equal(t, int64(80), collectorBalance.Amount.Int64())
+}
+
+func TestOrderMatchingRunnablePanicHandler(t *testing.T) {
+	testApp := keepertest.TestApp()
+	ctx := testApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
+	require.NotPanics(t, func() {
+		contract.OrderMatchingRunnable(context.Background(), ctx, nil, nil, types.ContractInfoV2{}, nil)
+	})
 }

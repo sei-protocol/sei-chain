@@ -3,7 +3,6 @@ package contract
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	otrace "go.opentelemetry.io/otel/trace"
@@ -130,16 +129,17 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 	cancelResults := []*types.Cancellation{}
 	settlements := []*types.SettlementEntry{}
 
-	mu := sync.Mutex{}
-	wg := sync.WaitGroup{}
+	// mu := sync.Mutex{}
+	// wg := sync.WaitGroup{}
 
 	for _, pair := range registeredPairs {
-		wg.Add(1)
+		// wg.Add(1)
 
 		pair := pair
 		pairCtx := ctx.WithMultiStore(multi.NewStore(ctx.MultiStore(), GetPerPairWhitelistMap(contractAddr, pair))).WithEventManager(sdk.NewEventManager())
-		go func() {
-			defer wg.Done()
+		// go func() {
+		func() {
+			// defer wg.Done()
 			pairCopy := pair
 			pairStr := types.GetPairString(&pairCopy)
 			orderbook, found := orderBooks.Load(pairStr)
@@ -150,8 +150,8 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 			orderIDToSettledQuantities := GetOrderIDToSettledQuantities(pairSettlements)
 			PrepareCancelUnfulfilledMarketOrders(pairCtx, typedContractAddr, pairCopy, orderIDToSettledQuantities)
 
-			mu.Lock()
-			defer mu.Unlock()
+			// mu.Lock()
+			// defer mu.Unlock()
 			orders, cancels := GetMatchResults(ctx, typedContractAddr, pairCopy)
 			orderResults = append(orderResults, orders...)
 			cancelResults = append(cancelResults, cancels...)
@@ -160,7 +160,7 @@ func ExecutePairsInParallel(ctx sdk.Context, contractAddr string, dexkeeper *kee
 			ctx.EventManager().EmitEvents(pairCtx.EventManager().Events())
 		}()
 	}
-	wg.Wait()
+	// wg.Wait()
 	dexkeeper.SetMatchResult(ctx, contractAddr, types.NewMatchResult(orderResults, cancelResults, settlements))
 
 	return settlements
