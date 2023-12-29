@@ -36,7 +36,6 @@ type Config struct {
 	NodeURI            string                `json:"node_uri"`
 	TargetTps          uint64                `json:"target_tps"`
 	MsgsPerTx          uint64                `json:"msgs_per_tx"`
-	Rounds             uint64                `json:"rounds"`
 	MessageType        string                `json:"message_type"`
 	RunOracle          bool                  `json:"run_oracle"`
 	PriceDistr         NumericDistribution   `json:"price_distribution"`
