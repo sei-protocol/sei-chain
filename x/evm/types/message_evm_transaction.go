@@ -3,7 +3,6 @@ package types
 import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -66,11 +65,6 @@ func (msg *MsgEVMTransaction) IsAssociateTx() bool {
 	}
 	_, ok := txData.(*ethtx.AssociateTx)
 	return ok
-}
-
-func RecoverAddressFromSignature(evmTx *ethtypes.Transaction) (common.Address, error) {
-	signer := ethtypes.NewEIP155Signer(evmTx.ChainId())
-	return signer.Sender(evmTx)
 }
 
 func MustGetEVMTransactionMessage(tx sdk.Tx) *MsgEVMTransaction {
