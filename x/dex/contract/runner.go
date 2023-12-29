@@ -134,6 +134,12 @@ func (r *ParallelRunner) Run() {
 }
 
 func (r *ParallelRunner) wrapRunnable(contractAddr types.ContractAddress) {
+	defer func() {
+		if err := recover(); err != nil {
+			r.sdkCtx.Logger().Error(fmt.Sprintf("panic in parallel runner recovered: %s", err))
+		}
+	}()
+
 	contractInfo, _ := r.contractAddrToInfo.Load(contractAddr)
 	r.runnable(*contractInfo)
 

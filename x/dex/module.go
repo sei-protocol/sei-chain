@@ -304,6 +304,11 @@ func (am AppModule) getPriceToDelete(
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abci.ValidatorUpdate) {
+	defer func() {
+		if err := recover(); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("panic in endblock recovered: %s", err))
+		}
+	}()
 	_, span := am.tracingInfo.Start("DexEndBlock")
 	defer span.End()
 	defer dexutils.GetMemState(ctx.Context()).Clear(ctx)
