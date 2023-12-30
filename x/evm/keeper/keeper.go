@@ -31,11 +31,11 @@ type Keeper struct {
 	accountKeeper *authkeeper.AccountKeeper
 	stakingKeeper *stakingkeeper.Keeper
 
-	cachedFeeCollectorAddressMtx sync.RWMutex
+	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
-	evmTxIndicesMtx              sync.Mutex
+	evmTxIndicesMtx              *sync.Mutex
 	evmTxIndices                 []int
-	nonceMx                      sync.RWMutex
+	nonceMx                      *sync.RWMutex
 	pendingNonces                map[string][]uint64
 	completedNonces              *lru.LRU[string, bool]
 }
@@ -52,14 +52,17 @@ func NewKeeper(
 		panic(fmt.Sprintf("could not create lru: %v", err))
 	}
 	k := &Keeper{
-		storeKey:        storeKey,
-		Paramstore:      paramstore,
-		bankKeeper:      bankKeeper,
-		accountKeeper:   accountKeeper,
-		stakingKeeper:   stakingKeeper,
-		evmTxIndices:    []int{},
-		pendingNonces:   make(map[string][]uint64),
-		completedNonces: cn,
+		storeKey:                     storeKey,
+		Paramstore:                   paramstore,
+		bankKeeper:                   bankKeeper,
+		accountKeeper:                accountKeeper,
+		stakingKeeper:                stakingKeeper,
+		evmTxIndices:                 []int{},
+		pendingNonces:                make(map[string][]uint64),
+		completedNonces:              cn,
+		nonceMx:                      &sync.RWMutex{},
+		evmTxIndicesMtx:              &sync.Mutex{},
+		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 	}
 	return k
 }
