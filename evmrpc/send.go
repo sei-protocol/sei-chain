@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -48,9 +47,6 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 	}
 }
 
-// TODO: remove this, this is a hack to get tests to pass while we do our debug log
-var RPCDebug = true
-
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
 	if s.sendConfig.slow {
 		s.slowMu.Lock()
@@ -82,12 +78,6 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	txbz, encodeErr := s.txConfig.TxEncoder()(txBuilder.GetTx())
 	if encodeErr != nil {
 		return hash, encodeErr
-	}
-
-	//TODO: remove this log line
-	if RPCDebug {
-		ethTx, _ := msg.AsTransaction()
-		fmt.Printf("SendRawTransaction: nonce=%d\n", ethTx.Nonce())
 	}
 
 	if s.sendConfig.slow {

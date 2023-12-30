@@ -41,6 +41,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			if e != nil {
 				return
 			}
+			//should there be a limit to the number of pending nonces for an address?
 			svd.evmKeeper.AddPendingNonce(evmAddr, txNonce)
 		})
 		if txNonce > nextNonce {
@@ -49,7 +50,6 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 				latestCtx := svd.latestCtxGetter()
 				latestNonce := svd.evmKeeper.GetNonce(latestCtx, evmAddr)
 				if txNonce < latestNonce {
-					svd.evmKeeper.RemovePendingNonce(evmAddr, txNonce)
 					return abci.Rejected
 				} else if txNonce == latestNonce {
 					return abci.Accepted

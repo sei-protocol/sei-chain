@@ -2,7 +2,6 @@ package evmrpc_test
 
 import (
 	"encoding/hex"
-	"github.com/sei-protocol/sei-chain/evmrpc"
 	"math/big"
 	"testing"
 
@@ -26,12 +25,6 @@ func TestMnemonicToPrivateKey(t *testing.T) {
 }
 
 func TestSendRawTransaction(t *testing.T) {
-	//TODO: remove this hack to make this test pass
-	evmrpc.RPCDebug = false
-	defer func() {
-		evmrpc.RPCDebug = true
-	}()
-
 	// build tx
 	to := common.HexToAddress("010203")
 	txData := ethtypes.DynamicFeeTx{
@@ -74,10 +67,6 @@ func TestSendRawTransaction(t *testing.T) {
 }
 
 func TestSendAssociateTransaction(t *testing.T) {
-	evmrpc.RPCDebug = false
-	defer func() {
-		evmrpc.RPCDebug = true
-	}()
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)

@@ -4,9 +4,11 @@ import (
 	"math"
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -34,20 +36,113 @@ func TestGetHashFn(t *testing.T) {
 	require.Equal(t, common.Hash{}, f(uint64(ctx.BlockHeight())-1))
 }
 
-func TestPendingTxCount(t *testing.T) {
-	k, _ := keeper.MockEVMKeeper()
-	_, evmAddr := keeper.MockAddressPair()
-	require.Equal(t, uint64(0), k.GetPendingTxCount(evmAddr))
-	k.IncrementPendingTxCount(evmAddr)
-	require.Equal(t, uint64(1), k.GetPendingTxCount(evmAddr))
-	k.IncrementPendingTxCount(evmAddr)
-	require.Equal(t, uint64(2), k.GetPendingTxCount(evmAddr))
-	k.DecrementPendingTxCount(evmAddr)
-	require.Equal(t, uint64(1), k.GetPendingTxCount(evmAddr))
-	k.DecrementPendingTxCount(evmAddr)
-	require.Equal(t, uint64(0), k.GetPendingTxCount(evmAddr))
-	k.DecrementPendingTxCount(evmAddr)
-	require.Equal(t, uint64(0), k.GetPendingTxCount(evmAddr))
-	k.IncrementPendingTxCount(evmAddr)
-	require.Equal(t, uint64(1), k.GetPendingTxCount(evmAddr))
+func TestKeeper_CalculateNextNonce(t *testing.T) {
+	address1 := common.BytesToAddress([]byte("addr1"))
+	//address2 := common.BytesToAddress([]byte("addr2"))
+	tests := []struct {
+		name          string
+		address       common.Address
+		pending       bool
+		setup         func(ctx sdk.Context, k *evmkeeper.Keeper)
+		expectedNonce uint64
+	}{
+		{
+			name:          "latest block, no latest stored",
+			address:       address1,
+			pending:       false,
+			expectedNonce: 0,
+		},
+		{
+			name:    "latest block, latest stored",
+			address: address1,
+			pending: false,
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				k.SetNonce(ctx, address1, 50)
+			},
+			expectedNonce: 50,
+		},
+		{
+			name:    "latest block, latest stored with pending nonces",
+			address: address1,
+			pending: false,
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				k.SetNonce(ctx, address1, 50)
+				// because pending:false, these won't matter
+				k.AddPendingNonce(address1, 50)
+				k.AddPendingNonce(address1, 51)
+			},
+			expectedNonce: 50,
+		},
+		{
+			name:    "pending block, nonce should follow the last pending",
+			address: address1,
+			pending: true,
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				k.SetNonce(ctx, address1, 50)
+				k.AddPendingNonce(address1, 50)
+				k.AddPendingNonce(address1, 51)
+			},
+			expectedNonce: 52,
+		},
+		{
+			name:    "pending block, nonce should be the value of hole",
+			address: address1,
+			pending: true,
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				k.SetNonce(ctx, address1, 50)
+				k.AddPendingNonce(address1, 50)
+				// missing 51, so nonce = 51
+				k.AddPendingNonce(address1, 52)
+			},
+			expectedNonce: 51,
+		},
+		{
+			name:    "pending block, removed nonces should also be skipped",
+			address: address1,
+			pending: true,
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				k.SetNonce(ctx, address1, 50)
+				k.AddPendingNonce(address1, 50)
+				k.AddPendingNonce(address1, 51)
+				k.RemovePendingNonce(address1, 50, true)
+				k.RemovePendingNonce(address1, 51, true)
+			},
+			expectedNonce: 52,
+		},
+		{
+			name:    "pending block, hole created by non-success removal",
+			address: address1,
+			pending: true,
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				k.SetNonce(ctx, address1, 50)
+				k.AddPendingNonce(address1, 50)
+				k.AddPendingNonce(address1, 51)
+				k.RemovePendingNonce(address1, 50, false)
+			},
+			expectedNonce: 50,
+		},
+		{
+			name:    "pending block, skipped nonces all in pending",
+			address: address1,
+			pending: true,
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				// next expected for latest is 50, but 51,52 were sent
+				k.SetNonce(ctx, address1, 50)
+				k.AddPendingNonce(address1, 51)
+				k.AddPendingNonce(address1, 52)
+			},
+			expectedNonce: 50,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			k, ctx := keeper.MockEVMKeeper()
+			if test.setup != nil {
+				test.setup(ctx, k)
+			}
+			next := k.CalculateNextNonce(ctx, test.address, test.pending)
+			require.Equal(t, test.expectedNonce, next)
+		})
+	}
 }

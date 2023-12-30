@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
 	"io"
 	"os"
 	"path/filepath"
@@ -1365,6 +1366,11 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 	return txResults, ctx
 }
 
+type addressNonce struct {
+	address common.Address
+	nonce   uint64
+}
+
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
@@ -1397,6 +1403,15 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	typedTxs := []sdk.Tx{}
+
+	// keep up with address/nonce pairs and remove them from pending at the end of the block
+	nonces := make([]*addressNonce, 0, len(txs))
+	defer func() {
+		for _, n := range nonces {
+			app.EvmKeeper.RemovePendingNonce(n.address, n.nonce, true)
+		}
+	}()
+
 	for i, tx := range txs {
 		typedTx, err := app.txDecoder(tx)
 		if err != nil {
@@ -1404,11 +1419,18 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			typedTxs = append(typedTxs, nil)
 		} else {
 			if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
-				if err := evmante.Preprocess(ctx, evmtypes.MustGetEVMTransactionMessage(typedTx), app.EvmKeeper.GetParams(ctx), app.EvmKeeper.RemovePendingNonce); err != nil {
+				msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
+				if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.GetParams(ctx)); err != nil {
 					ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
 					typedTxs = append(typedTxs, nil)
 					continue
 				}
+				// if we can parse the tx, we know the nonce to remove
+				etx, _ := msg.AsTransaction()
+				nonces = append(nonces, &addressNonce{
+					address: common.BytesToAddress(msg.Derived.SenderEVMAddr),
+					nonce:   etx.Nonce(),
+				})
 			}
 			typedTxs = append(typedTxs, typedTx)
 		}
