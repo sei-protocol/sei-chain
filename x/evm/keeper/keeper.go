@@ -2,6 +2,11 @@ package keeper
 
 import (
 	"fmt"
+	"math"
+	"math/big"
+	"slices"
+	"sync"
+
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -14,10 +19,6 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2/simplelru"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	tmtypes "github.com/tendermint/tendermint/types"
-	"math"
-	"math/big"
-	"slices"
-	"sync"
 )
 
 var zeroAddress = common.HexToAddress("0x0000000000000000000000000000000000000000")
