@@ -190,7 +190,7 @@ func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, includ
 	}
 
 	// get the pending nonces (nil is fine)
-	pending, _ := k.pendingNonces[addr.Hex()]
+	pending := k.pendingNonces[addr.Hex()]
 
 	// Check each nonce starting from latest until we find a gap
 	// That gap is the next nonce we should use.
