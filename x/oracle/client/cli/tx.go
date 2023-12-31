@@ -68,11 +68,6 @@ where "terra1..." is the address you want to delegate your voting rights to.
 			}
 
 			msgs := []sdk.Msg{types.NewMsgDelegateFeedConsent(validator, feeder)}
-			for _, msg := range msgs {
-				if err := msg.ValidateBasic(); err != nil {
-					return err
-				}
-			}
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msgs...)
 		},
@@ -127,11 +122,6 @@ $ seid tx oracle aggregate-vote 1234 8888.0ukrw,1.243uusd,0.99usdr seivaloper1..
 			}
 
 			msgs := []sdk.Msg{types.NewMsgAggregateExchangeRateVote(exchangeRatesStr, voter, validator)}
-			for _, msg := range msgs {
-				if err := msg.ValidateBasic(); err != nil {
-					return err
-				}
-			}
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msgs...)
 		},
