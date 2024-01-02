@@ -2,6 +2,11 @@ package keeper
 
 import (
 	"fmt"
+	"math"
+	"math/big"
+	"slices"
+	"sync"
+
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -12,16 +17,10 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
 	lru "github.com/hashicorp/golang-lru/v2/simplelru"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	tmtypes "github.com/tendermint/tendermint/types"
-	"math"
-	"math/big"
-	"slices"
-	"strconv"
-	"sync"
-)
 
-var zeroAddress = common.HexToAddress("0x0000000000000000000000000000000000000000")
+	"github.com/sei-protocol/sei-chain/x/evm/types"
+)
 
 type Keeper struct {
 	storeKey   sdk.StoreKey
@@ -204,7 +203,6 @@ func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, includ
 	for {
 		// if it's not in pending and not completed, then it's the next nonce
 		if !sortedListContains(pending, nextNonce) && !k.completedNonces.Contains(nonceCacheKey(addr, nextNonce)) {
-			fmt.Printf("Nonce: CalculateNonce nonce=%d, pendingLen=%d, pending=%s\n", nextNonce, len(pending), uint64SliceToRangeString(pending))
 			return nextNonce
 		}
 		nextNonce++
@@ -229,7 +227,6 @@ func sortedListContains(slice []uint64, item uint64) bool {
 func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce uint64) {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
-	k.PrintNonceAction("AddPendingNonce", key, addr, nonce)
 
 	addrStr := addr.Hex()
 	k.keyToNonce[key] = &addressNoncePair{
@@ -238,10 +235,6 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 	}
 	k.pendingNonces[addrStr] = append(k.pendingNonces[addrStr], nonce)
 	slices.Sort(k.pendingNonces[addrStr])
-}
-
-func (k *Keeper) PrintNonceAction(action string, key tmtypes.TxKey, addr common.Address, nonce uint64) {
-	//fmt.Printf("Nonce %X, %s: %s %d %s\n", key, addr.Hex(), action, nonce, uint64SliceToRangeString(k.pendingNonces[addr.Hex()]))
 }
 
 // ExpirePendingNonce removes a pending nonce from the keeper but leaves a hole
@@ -257,7 +250,6 @@ func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
 
 	delete(k.keyToNonce, key)
 
-	defer k.PrintNonceAction("ExpirePendingNonce", key, tx.address, tx.nonce)
 	addr := tx.address.Hex()
 	for i, n := range k.pendingNonces[addr] {
 		if n == tx.nonce {
@@ -270,7 +262,6 @@ func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
 			return
 		}
 	}
-	return
 }
 
 // CompletePendingNonce removes a pending nonce from the keeper
@@ -285,8 +276,6 @@ func (k *Keeper) CompletePendingNonce(key tmtypes.TxKey) {
 	}
 	address := acctNonce.address
 	nonce := acctNonce.nonce
-
-	defer k.PrintNonceAction("CompletePendingNonce", key, address, nonce)
 
 	delete(k.keyToNonce, key)
 	k.completedNonces.Add(nonceCacheKey(address, nonce), true)
@@ -306,43 +295,7 @@ func (k *Keeper) CompletePendingNonce(key tmtypes.TxKey) {
 			if len(k.pendingNonces[addrStr]) == 0 {
 				delete(k.pendingNonces, addrStr)
 			}
-
 			return
 		}
 	}
-}
-
-// TODO: just used for debugging (converts [1,2,3] to the string [1-3])
-func uint64SliceToRangeString(slice []uint64) string {
-	if len(slice) == 0 {
-		return "[]"
-	}
-
-	var result string
-	start := slice[0]
-	end := start
-
-	addRange := func() {
-		if start == end {
-			result += strconv.FormatUint(start, 10) + ", "
-		} else {
-			result += strconv.FormatUint(start, 10) + "-" + strconv.FormatUint(end, 10) + ", "
-		}
-	}
-
-	for i := 1; i < len(slice); i++ {
-		if slice[i] == end+1 {
-			end = slice[i]
-		} else {
-			addRange()
-			start = slice[i]
-			end = start
-		}
-	}
-
-	// Add the last range
-	addRange()
-
-	// Remove the last comma and space, then add brackets
-	return "[" + result[:len(result)-2] + "]"
 }
