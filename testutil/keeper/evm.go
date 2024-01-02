@@ -13,6 +13,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 var mockKeeper *evmkeeper.Keeper
@@ -28,7 +29,7 @@ func MockEVMKeeperWithPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
 	testApp := app.Setup(false, true)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 	k := testApp.EvmKeeper
-	k.InitGenesis(ctx)
+	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
 
 	// mint some coins to a sei address
 	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
@@ -52,7 +53,7 @@ func MockEVMKeeper() (*evmkeeper.Keeper, sdk.Context) {
 	testApp := app.Setup(false, false)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 	k := testApp.EvmKeeper
-	k.InitGenesis(ctx)
+	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
 
 	// mint some coins to a sei address
 	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
