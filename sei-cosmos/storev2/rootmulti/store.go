@@ -790,3 +790,17 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 
 	return nil
 }
+
+// SetKVStores implements types.CommitMultiStore.
+func (*Store) SetKVStores(handler func(key types.StoreKey, s types.KVStore) types.CacheWrap) types.MultiStore {
+	panic("unimplemented")
+}
+
+// StoreKeys implements types.CommitMultiStore.
+func (s *Store) StoreKeys() []types.StoreKey {
+	res := make([]types.StoreKey, len(s.storeKeys))
+	for _, sk := range s.storeKeys {
+		res = append(res, sk)
+	}
+	return res
+}
