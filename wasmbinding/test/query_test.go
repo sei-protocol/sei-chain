@@ -136,6 +136,7 @@ func TestWasmGetOracleTwaps(t *testing.T) {
 		oracletypes.NewPriceSnapshotItem(oracleutils.MicroAtomDenom, oracletypes.OracleExchangeRate{ExchangeRate: sdk.NewDec(20), LastUpdate: sdk.NewInt(10)}),
 	}}
 	testWrapper.App.OracleKeeper.AddPriceSnapshot(testWrapper.Ctx, priceSnapshot)
+	testWrapper.App.OracleKeeper.SetVoteTarget(testWrapper.Ctx, oracleutils.MicroAtomDenom)
 
 	testWrapper.Ctx = testWrapper.Ctx.WithBlockHeight(14).WithBlockTime(time.Unix(3700, 0))
 

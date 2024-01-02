@@ -118,6 +118,33 @@ func (k Keeper) IterateBaseExchangeRates(ctx sdk.Context, handler func(denom str
 	}
 }
 
+func (k Keeper) RemoveExcessFeeds(ctx sdk.Context) {
+	// get actives
+	excessActives := make(map[string]struct{})
+	k.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
+		excessActives[denom] = struct{}{}
+		return false
+	})
+	// get vote targets
+	k.IterateVoteTargets(ctx, func(denom string, denomInfo types.Denom) (stop bool) {
+		// remove vote targets from actives
+		delete(excessActives, denom)
+		return false
+	})
+	// compare
+	activesToClear := make([]string, len(excessActives))
+	i := 0
+	for denom := range excessActives {
+		activesToClear[i] = denom
+		i++
+	}
+	sort.Strings(activesToClear)
+	for _, denom := range activesToClear {
+		// clear exchange rates
+		k.DeleteBaseExchangeRate(ctx, denom)
+	}
+}
+
 //-----------------------------------
 // Oracle delegation logic
 
@@ -452,6 +479,13 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 	denomToTimeWeightedMap := make(map[string]sdk.Dec)
 	denomDurationMap := make(map[string]int64)
 
+	// get targets - only calculate for the targets
+	targetsMap := make(map[string]struct{})
+	k.IterateVoteTargets(ctx, func(denom string, denomInfo types.Denom) (stop bool) {
+		targetsMap[denom] = struct{}{}
+		return false
+	})
+
 	k.IteratePriceSnapshotsReverse(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
 		stop = false
 		snapshotTimestamp := snapshot.SnapshotTimestamp
@@ -468,6 +502,9 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 		snapshotPriceItems := snapshot.PriceSnapshotItems
 		for _, priceItem := range snapshotPriceItems {
 			denom := priceItem.Denom
+			if _, ok := targetsMap[denom]; !ok {
+				continue
+			}
 
 			_, exists := denomToTimeWeightedMap[denom]
 			if !exists {
