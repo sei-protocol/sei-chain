@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/storev2/rootmulti"
@@ -45,11 +46,11 @@ func SetupSeiDB(
 		logger.Info("SeiDB is disabled, falling back to IAVL")
 		return baseAppOptions
 	}
-	logger.Info("SeiDB is enabled, running node with StoreV2 commit store")
+	logger.Info("SeiDB SC is enabled, running node with StoreV2 commit store")
 	scConfig := parseSCConfigs(appOpts)
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
-		logger.Info(fmt.Sprintf("StateStore is also enabled, running %s database for historical state", ssConfig.Backend))
+		logger.Info(fmt.Sprintf("SeiDB StateStore is enabled, running %s for historical state", ssConfig.Backend))
 	}
 	validateConfigs(appOpts)
 
@@ -94,6 +95,7 @@ func validateConfigs(appOpts servertypes.AppOptions) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	ssEnabled := cast.ToBool(appOpts.Get(FlagSSEnable))
 	snapshotExportInterval := cast.ToUint64(appOpts.Get(FlagSnapshotInterval))
+	// Make sure when snapshot is enabled, we should enable SS store
 	if snapshotExportInterval > 0 && scEnabled {
 		if !ssEnabled {
 			panic(fmt.Sprintf("Config validation failed, SeiDB SS store needs to be enabled when snapshot interval %d > 0", snapshotExportInterval))
