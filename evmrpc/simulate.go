@@ -211,6 +211,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		Difficulty: common.Big0,
 		Number:     blockNumber,
 		BaseFee:    b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
+		GasLimit:   b.config.GasCap,
 	}
 }
 
