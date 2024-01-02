@@ -2,11 +2,6 @@ package keeper
 
 import (
 	"fmt"
-	"math"
-	"math/big"
-	"slices"
-	"sync"
-
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -19,6 +14,11 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2/simplelru"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	tmtypes "github.com/tendermint/tendermint/types"
+	"math"
+	"math/big"
+	"slices"
+	"strconv"
+	"sync"
 )
 
 var zeroAddress = common.HexToAddress("0x0000000000000000000000000000000000000000")
@@ -38,6 +38,12 @@ type Keeper struct {
 	nonceMx                      *sync.RWMutex
 	pendingNonces                map[string][]uint64
 	completedNonces              *lru.LRU[string, bool]
+	keyToNonce                   map[tmtypes.TxKey]*addressNoncePair
+}
+
+type addressNoncePair struct {
+	address common.Address
+	nonce   uint64
 }
 
 func NewKeeper(
@@ -63,6 +69,7 @@ func NewKeeper(
 		nonceMx:                      &sync.RWMutex{},
 		evmTxIndicesMtx:              &sync.Mutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
+		keyToNonce:                   make(map[tmtypes.TxKey]*addressNoncePair),
 	}
 	return k
 }
@@ -176,13 +183,12 @@ func nonceCacheKey(addr common.Address, nonce uint64) string {
 
 // CalculateNextNonce calculates the next nonce for an address
 // If includePending is true, it will consider pending nonces
-// If includePending is false, it will only return the latest nonce
+// If includePending is false, it will only return the next nonce from GetNonce
 func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, includePending bool) uint64 {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
 
-	latest := k.GetNonce(ctx, addr)
-	nextNonce := latest
+	nextNonce := k.GetNonce(ctx, addr)
 
 	// we only want the latest nonce if we're not including pending
 	if !includePending {
@@ -198,6 +204,7 @@ func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, includ
 	for {
 		// if it's not in pending and not completed, then it's the next nonce
 		if !sortedListContains(pending, nextNonce) && !k.completedNonces.Contains(nonceCacheKey(addr, nextNonce)) {
+			fmt.Printf("Nonce: CalculateNonce nonce=%d, pendingLen=%d, pending=%s\n", nextNonce, len(pending), uint64SliceToRangeString(pending))
 			return nextNonce
 		}
 		nextNonce++
@@ -219,36 +226,79 @@ func sortedListContains(slice []uint64, item uint64) bool {
 }
 
 // AddPendingNonce adds a pending nonce to the keeper
-func (k *Keeper) AddPendingNonce(addr common.Address, nonce uint64) {
+func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce uint64) {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
+	k.PrintNonceAction("AddPendingNonce", key, addr, nonce)
+
 	addrStr := addr.Hex()
+	k.keyToNonce[key] = &addressNoncePair{
+		address: addr,
+		nonce:   nonce,
+	}
 	k.pendingNonces[addrStr] = append(k.pendingNonces[addrStr], nonce)
 	slices.Sort(k.pendingNonces[addrStr])
 }
 
-// RemovePendingNonce removes a pending nonce from the keeper
-// success means this transaction was processed and this nonce is used
-func (k *Keeper) RemovePendingNonce(addr common.Address, nonce uint64, success bool) {
-	// geth calls this with the burn address and there isn't any reason to track it
-	if addr == zeroAddress {
+func (k *Keeper) PrintNonceAction(action string, key tmtypes.TxKey, addr common.Address, nonce uint64) {
+	//fmt.Printf("Nonce %X, %s: %s %d %s\n", key, addr.Hex(), action, nonce, uint64SliceToRangeString(k.pendingNonces[addr.Hex()]))
+}
+
+// ExpirePendingNonce removes a pending nonce from the keeper but leaves a hole
+// so that a future transaction must use this nonce
+func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
+	k.nonceMx.Lock()
+	defer k.nonceMx.Unlock()
+	tx, ok := k.keyToNonce[key]
+
+	if !ok {
 		return
 	}
+
+	delete(k.keyToNonce, key)
+
+	defer k.PrintNonceAction("ExpirePendingNonce", key, tx.address, tx.nonce)
+	addr := tx.address.Hex()
+	for i, n := range k.pendingNonces[addr] {
+		if n == tx.nonce {
+			// remove nonce but keep prior nonces in the slice (unlike the completion scenario)
+			k.pendingNonces[addr] = append(k.pendingNonces[addr][:i], k.pendingNonces[addr][i+1:]...)
+			// If the slice is empty, delete the key from the map
+			if len(k.pendingNonces[addr]) == 0 {
+				delete(k.pendingNonces, addr)
+			}
+			return
+		}
+	}
+	return
+}
+
+// CompletePendingNonce removes a pending nonce from the keeper
+// success means this transaction was processed and this nonce is used
+func (k *Keeper) CompletePendingNonce(key tmtypes.TxKey) {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
 
-	addrStr := addr.Hex()
-
-	if success {
-		k.completedNonces.Add(nonceCacheKey(addr, nonce), true)
+	acctNonce, ok := k.keyToNonce[key]
+	if !ok {
+		return
 	}
+	address := acctNonce.address
+	nonce := acctNonce.nonce
 
+	defer k.PrintNonceAction("CompletePendingNonce", key, address, nonce)
+
+	delete(k.keyToNonce, key)
+	k.completedNonces.Add(nonceCacheKey(address, nonce), true)
+
+	addrStr := address.Hex()
 	if _, ok := k.pendingNonces[addrStr]; !ok {
 		return
 	}
 
 	for i, n := range k.pendingNonces[addrStr] {
-		if success && n >= nonce {
+		if n >= nonce {
+			// remove the nonce and all prior nonces from the slice
 			copy(k.pendingNonces[addrStr], k.pendingNonces[addrStr][i+1:])
 			k.pendingNonces[addrStr] = k.pendingNonces[addrStr][:len(k.pendingNonces[addrStr])-i-1]
 
@@ -258,10 +308,41 @@ func (k *Keeper) RemovePendingNonce(addr common.Address, nonce uint64, success b
 			}
 
 			return
-		} else if !success && n == nonce {
-			// only remove that one item (it is eligible to be used)
-			k.pendingNonces[addrStr] = append(k.pendingNonces[addrStr][:i], k.pendingNonces[addrStr][i+1:]...)
-			return
 		}
 	}
+}
+
+// TODO: just used for debugging (converts [1,2,3] to the string [1-3])
+func uint64SliceToRangeString(slice []uint64) string {
+	if len(slice) == 0 {
+		return "[]"
+	}
+
+	var result string
+	start := slice[0]
+	end := start
+
+	addRange := func() {
+		if start == end {
+			result += strconv.FormatUint(start, 10) + ", "
+		} else {
+			result += strconv.FormatUint(start, 10) + "-" + strconv.FormatUint(end, 10) + ", "
+		}
+	}
+
+	for i := 1; i < len(slice); i++ {
+		if slice[i] == end+1 {
+			end = slice[i]
+		} else {
+			addRange()
+			start = slice[i]
+			end = start
+		}
+	}
+
+	// Add the last range
+	addRange()
+
+	// Remove the last comma and space, then add brackets
+	return "[" + result[:len(result)-2] + "]"
 }

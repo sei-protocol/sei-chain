@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	tmtypes "github.com/tendermint/tendermint/types"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"
@@ -1366,11 +1366,6 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 	return txResults, ctx
 }
 
-type addressNonce struct {
-	address common.Address
-	nonce   uint64
-}
-
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
@@ -1405,32 +1400,28 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	typedTxs := []sdk.Tx{}
 
 	// keep up with address/nonce pairs and remove them from pending at the end of the block
-	nonces := make([]*addressNonce, 0, len(txs))
+	evmTxs := make([]tmtypes.TxKey, 0, len(txs))
 	defer func() {
-		for _, n := range nonces {
-			app.EvmKeeper.RemovePendingNonce(n.address, n.nonce, true)
+		for _, key := range evmTxs {
+			app.EvmKeeper.CompletePendingNonce(key)
 		}
 	}()
 
 	for i, tx := range txs {
 		typedTx, err := app.txDecoder(tx)
+		// get txkey from tx
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("error decoding transaction at index %d due to %s", i, err))
 			typedTxs = append(typedTxs, nil)
 		} else {
 			if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
+				evmTxs = append(evmTxs, tmtypes.Tx(tx).Key())
 				msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
 				if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.GetParams(ctx)); err != nil {
 					ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
 					typedTxs = append(typedTxs, nil)
 					continue
 				}
-				// if we can parse the tx, we know the nonce to remove
-				etx, _ := msg.AsTransaction()
-				nonces = append(nonces, &addressNonce{
-					address: common.BytesToAddress(msg.Derived.SenderEVMAddr),
-					nonce:   etx.Nonce(),
-				})
 			}
 			typedTxs = append(typedTxs, typedTx)
 		}

@@ -1,7 +1,10 @@
 package keeper_test
 
 import (
+	"github.com/tendermint/tendermint/libs/rand"
+	tmtypes "github.com/tendermint/tendermint/types"
 	"math"
+	"sync"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -38,7 +41,8 @@ func TestGetHashFn(t *testing.T) {
 
 func TestKeeper_CalculateNextNonce(t *testing.T) {
 	address1 := common.BytesToAddress([]byte("addr1"))
-	//address2 := common.BytesToAddress([]byte("addr2"))
+	key1 := tmtypes.TxKey(rand.NewRand().Bytes(32))
+	key2 := tmtypes.TxKey(rand.NewRand().Bytes(32))
 	tests := []struct {
 		name          string
 		address       common.Address
@@ -68,8 +72,8 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				k.SetNonce(ctx, address1, 50)
 				// because pending:false, these won't matter
-				k.AddPendingNonce(address1, 50)
-				k.AddPendingNonce(address1, 51)
+				k.AddPendingNonce(key1, address1, 50)
+				k.AddPendingNonce(key2, address1, 51)
 			},
 			expectedNonce: 50,
 		},
@@ -79,8 +83,8 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			pending: true,
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				k.SetNonce(ctx, address1, 50)
-				k.AddPendingNonce(address1, 50)
-				k.AddPendingNonce(address1, 51)
+				k.AddPendingNonce(key1, address1, 50)
+				k.AddPendingNonce(key2, address1, 51)
 			},
 			expectedNonce: 52,
 		},
@@ -90,34 +94,34 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			pending: true,
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				k.SetNonce(ctx, address1, 50)
-				k.AddPendingNonce(address1, 50)
+				k.AddPendingNonce(key1, address1, 50)
 				// missing 51, so nonce = 51
-				k.AddPendingNonce(address1, 52)
+				k.AddPendingNonce(key2, address1, 52)
 			},
 			expectedNonce: 51,
 		},
 		{
-			name:    "pending block, removed nonces should also be skipped",
+			name:    "pending block, completed nonces should also be skipped",
 			address: address1,
 			pending: true,
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				k.SetNonce(ctx, address1, 50)
-				k.AddPendingNonce(address1, 50)
-				k.AddPendingNonce(address1, 51)
-				k.RemovePendingNonce(address1, 50, true)
-				k.RemovePendingNonce(address1, 51, true)
+				k.AddPendingNonce(key1, address1, 50)
+				k.AddPendingNonce(key2, address1, 51)
+				k.CompletePendingNonce(key1)
+				k.CompletePendingNonce(key2)
 			},
 			expectedNonce: 52,
 		},
 		{
-			name:    "pending block, hole created by non-success removal",
+			name:    "pending block, hole created by expiration",
 			address: address1,
 			pending: true,
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				k.SetNonce(ctx, address1, 50)
-				k.AddPendingNonce(address1, 50)
-				k.AddPendingNonce(address1, 51)
-				k.RemovePendingNonce(address1, 50, false)
+				k.AddPendingNonce(key1, address1, 50)
+				k.AddPendingNonce(key2, address1, 51)
+				k.ExpirePendingNonce(key1)
 			},
 			expectedNonce: 50,
 		},
@@ -128,10 +132,32 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				// next expected for latest is 50, but 51,52 were sent
 				k.SetNonce(ctx, address1, 50)
-				k.AddPendingNonce(address1, 51)
-				k.AddPendingNonce(address1, 52)
+				k.AddPendingNonce(key1, address1, 51)
+				k.AddPendingNonce(key2, address1, 52)
 			},
 			expectedNonce: 50,
+		},
+		{
+			name:    "try 1000 nonces concurrently",
+			address: address1,
+			pending: true,
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				// next expected for latest is 50, but 51,52 were sent
+				k.SetNonce(ctx, address1, 50)
+				wg := sync.WaitGroup{}
+				for i := 50; i < 1000; i++ {
+					wg.Add(1)
+					go func(nonce int) {
+						defer wg.Done()
+						key := tmtypes.TxKey(rand.NewRand().Bytes(32))
+						// call this just to exercise locks
+						k.CalculateNextNonce(ctx, address1, true)
+						k.AddPendingNonce(key, address1, uint64(nonce))
+					}(i)
+				}
+				wg.Wait()
+			},
+			expectedNonce: 1000,
 		},
 	}
 

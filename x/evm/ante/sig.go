@@ -1,12 +1,14 @@
 package ante
 
 import (
+	"fmt"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 type EVMSigVerifyDecorator struct {
@@ -41,15 +43,23 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			if e != nil {
 				return
 			}
-			//should there be a limit to the number of pending nonces for an address?
-			svd.evmKeeper.AddPendingNonce(evmAddr, txNonce)
+			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
+			svd.evmKeeper.AddPendingNonce(txKey, evmAddr, txNonce)
 		})
+
+		// if the mempool expires a transaction, this handler is invoked
+		ctx = ctx.WithExpireTxHandler(func() {
+			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
+			svd.evmKeeper.ExpirePendingNonce(txKey)
+		})
+
 		if txNonce > nextNonce {
 			// transaction shall be added to mempool as a pending transaction
 			ctx = ctx.WithPendingTxChecker(func() abci.PendingTxCheckerResponse {
 				latestCtx := svd.latestCtxGetter()
 				latestNonce := svd.evmKeeper.GetNonce(latestCtx, evmAddr)
 				if txNonce < latestNonce {
+					fmt.Printf("Nonce: %s %s %d\n", "Rejected", evmAddr.Hex(), txNonce)
 					return abci.Rejected
 				} else if txNonce == latestNonce {
 					return abci.Accepted
@@ -58,6 +68,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			})
 		}
 	} else if txNonce != nextNonce {
+		fmt.Printf("Nonce: %s %s %d\n", "Wrong Sequence", evmAddr.Hex(), txNonce)
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 
