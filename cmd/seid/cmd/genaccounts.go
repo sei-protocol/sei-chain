@@ -22,6 +22,8 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+	"github.com/sei-protocol/sei-chain/x/evm"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -39,6 +41,7 @@ func AddGenesisAccountCmd(defaultNodeHome string) *cobra.Command {
 the account address or key name and a list of initial coins. If a key name is given,
 the address will be looked up in the local Keybase. The list of initial tokens must
 contain valid denominations. Accounts may optionally be supplied with vesting parameters.
+The associated EVM address will also be created and funded with the same account balance.
 `,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -77,10 +80,8 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 				return err
 			}
 
-			// print out the eth address of the private key
 			ethAddr := crypto.PubkeyToAddress(pk.PublicKey)
-			// TODO: connect these accounts
-			fmt.Println("ETH address funded = ", ethAddr.Hex())
+			fmt.Printf("ETH address funded = %s, private key = %x\n", ethAddr.Hex(), pk.D)
 
 			coins, err := sdk.ParseCoinsNormalized(args[1])
 			if err != nil {
@@ -133,6 +134,20 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal genesis state: %w", err)
 			}
+
+			// associate the eth address with the sei address through the genesis file
+			evmGenState := evm.GetGenesisStateFromAppState(depCdc, appState)
+			fmt.Println("In genaccounts, attempting to associate eth address", ethAddr.Hex(), "with sei address", addr.String())
+			seiEthAddrAssociation := evmtypes.AddressAssociation{
+				SeiAddress: addr.String(),
+				EthAddress: ethAddr.Hex(),
+			}
+			evmGenState.AddressAssociations = append(evmGenState.AddressAssociations, &seiEthAddrAssociation)
+			evmGenStateBz, err := cdc.MarshalJSON(evmGenState)
+			if err != nil {
+				return fmt.Errorf("failed to marshal evm genesis state: %w", err)
+			}
+			appState[evmtypes.ModuleName] = evmGenStateBz
 
 			authGenState := authtypes.GetGenesisStateFromAppState(cdc, appState)
 
