@@ -1,15 +1,12 @@
 package keeper
 
 import (
-	"fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
-	fmt.Println("Address mapping set for", seiAddress.String(), "to", evmAddress)
 	store := ctx.KVStore(k.storeKey)
 	store.Set(types.EVMAddressToSeiAddressKey(evmAddress), seiAddress)
 	store.Set(types.SeiAddressToEVMAddressKey(seiAddress), evmAddress[:])
