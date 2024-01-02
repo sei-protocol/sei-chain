@@ -150,6 +150,9 @@ func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address) error
 			return nil
 		}
 	}
+	if p.evmKeeper.IsCodeHashWhitelistedForBankSend(ctx, codeHash) {
+		return nil
+	}
 	return fmt.Errorf("caller %s with code hash %s is not whitelisted for arbirary bank send", caller.Hex(), codeHash.Hex())
 }
 

@@ -44,15 +44,3 @@ func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 func (k *Keeper) WhitelistedCodehashesBankSend(ctx sdk.Context) []string {
 	return k.GetParams(ctx).WhitelistedCodehashesBankSend
 }
-
-func (k *Keeper) AddWhitelistedCodehashesBankSend(ctx sdk.Context, h string) {
-	p := k.GetParams(ctx)
-	m := make(map[string]struct{})
-	for _, s := range p.WhitelistedCodehashesBankSend {
-		m[s] = struct{}{}
-	}
-	if _, ok := m[h]; !ok {
-		p.WhitelistedCodehashesBankSend = append(p.WhitelistedCodehashesBankSend, h)
-		k.SetParams(ctx, p)
-	}
-}

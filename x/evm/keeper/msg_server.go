@@ -76,7 +76,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		if serverRes.VmError == "" && tx.To() == nil && artifacts.IsCodeNativeSeiTokensERC20Wrapper(tx.Data()) {
 			codeHash := server.GetCodeHash(ctx, common.HexToAddress(receipt.ContractAddress))
 			if (codeHash != common.Hash{}) {
-				server.AddWhitelistedCodehashesBankSend(ctx, codeHash.Hex())
+				server.AddCodeHashWhitelistedForBankSend(ctx, codeHash)
 			}
 		}
 
