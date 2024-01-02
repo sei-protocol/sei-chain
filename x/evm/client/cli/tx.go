@@ -87,7 +87,10 @@ func CmdAssociateAddress() *cobra.Command {
 			}
 
 			emptyHash := common.Hash{}
-			key, _ := crypto.HexToECDSA(privHex)
+			key, err := crypto.HexToECDSA(privHex)
+			if err != nil {
+				return err
+			}
 			sig, err := crypto.Sign(emptyHash[:], key)
 			if err != nil {
 				return err
