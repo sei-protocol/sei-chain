@@ -68,7 +68,7 @@ func (store *Store) GetStoreType() types.StoreType {
 func (store *Store) getFromCache(key []byte) []byte {
 	if cv, ok := store.cache.Load(conv.UnsafeBytesToStr(key)); ok {
 		return cv.(*types.CValue).Value()
-	} 
+	}
 	return store.parent.Get(key)
 }
 
@@ -132,21 +132,9 @@ func (store *Store) Write() {
 		}
 	}
 
-	// Clear the cache using the map clearing idiom
-	// and not allocating fresh objects.
-	// Please see https://bencher.orijtech.com/perfclinic/mapclearing/
-	store.cache.Range(func(key, value any) bool {
-		store.cache.Delete(key)
-		return true
-	})
-	store.deleted.Range(func(key, value any) bool {
-		store.deleted.Delete(key)
-		return true
-	})
-	store.unsortedCache.Range(func(key, value any) bool {
-		store.deleted.Delete(key)
-		return true
-	})
+	store.cache = &sync.Map{}
+	store.deleted = &sync.Map{}
+	store.unsortedCache = &sync.Map{}
 	store.sortedCache = dbm.NewMemDB()
 }
 
