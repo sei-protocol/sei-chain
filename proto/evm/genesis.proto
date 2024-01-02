@@ -6,7 +6,14 @@ import "evm/params.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
+// AddressAssociation represents an association between a Cosmos and an Ethereum address.
+message AddressAssociation {
+  string sei_address = 1;    // Sei address
+  string eth_address = 2;    // Ethereum address
+}
+
 // GenesisState defines the evm module's genesis state.
 message GenesisState {
   Params params = 1 [(gogoproto.nullable) = false];
+  repeated AddressAssociation address_associations = 2; // List of address associations
 }
