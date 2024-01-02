@@ -18,6 +18,6 @@ func (k Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 	k.SetAddressMapping(ctx, seiAddrFc, GetCoinbaseAddress())
 
 	for _, addr := range genState.AddressAssociations {
-		k.SetAddressMapping(ctx, sdk.AccAddress(addr.SeiAddress), common.HexToAddress(addr.EthAddress))
+		k.SetAddressMapping(ctx, sdk.MustAccAddressFromBech32(addr.SeiAddress), common.HexToAddress(addr.EthAddress))
 	}
 }
