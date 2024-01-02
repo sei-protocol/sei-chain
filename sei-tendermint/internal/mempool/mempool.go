@@ -492,8 +492,8 @@ func (txmp *TxMempool) Update(
 		}
 	}
 
-	txmp.handlePendingTransactions()
 	txmp.purgeExpiredTxs(blockHeight)
+	txmp.handlePendingTransactions()
 
 	// If there any uncommitted transactions left in the mempool, we either
 	// initiate re-CheckTx per remaining transaction or notify that remaining
@@ -844,7 +844,7 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool) {
 
 // purgeExpiredTxs removes all transactions that have exceeded their respective
 // height- and/or time-based TTLs from their respective indexes. Every expired
-// transaction will be removed from the mempool, but preserved in the cache.
+// transaction will be removed from the mempool, but preserved in the cache (except for pending txs).
 //
 // NOTE: purgeExpiredTxs must only be called during TxMempool#Update in which
 // the caller has a write-lock on the mempool and so we can safely iterate over
@@ -890,6 +890,8 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 	for _, wtx := range expiredTxs {
 		txmp.removeTx(wtx, false)
 	}
+
+	txmp.pendingTxs.PurgeExpired(txmp.config.TTLNumBlocks, blockHeight, txmp.config.TTLDuration, now, txmp.cache.Remove)
 }
 
 func (txmp *TxMempool) notifyTxsAvailable() {

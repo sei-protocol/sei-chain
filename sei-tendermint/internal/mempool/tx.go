@@ -372,3 +372,41 @@ func (p *PendingTxs) Size() int {
 	defer p.mtx.RUnlock()
 	return len(p.txs)
 }
+
+func (p *PendingTxs) PurgeExpired(ttlNumBlock int64, blockHeight int64, ttlDuration time.Duration, now time.Time, cb func(types.Tx)) {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+
+	if len(p.txs) == 0 {
+		return
+	}
+
+	// txs retains the ordering of insertion
+	if ttlNumBlock > 0 {
+		idxFirstNotExpiredTx := len(p.txs)
+		for i, ptx := range p.txs {
+			if (blockHeight - ptx.tx.height) <= ttlNumBlock {
+				idxFirstNotExpiredTx = i
+			} else {
+				cb(ptx.tx.tx)
+			}
+		}
+		p.txs = p.txs[idxFirstNotExpiredTx:]
+	}
+
+	if len(p.txs) == 0 {
+		return
+	}
+
+	if ttlDuration > 0 {
+		idxFirstNotExpiredTx := len(p.txs)
+		for i, ptx := range p.txs {
+			if now.Sub(ptx.tx.timestamp) <= ttlDuration {
+				idxFirstNotExpiredTx = i
+			} else {
+				cb(ptx.tx.tx)
+			}
+		}
+		p.txs = p.txs[idxFirstNotExpiredTx:]
+	}
+}
