@@ -1,8 +1,6 @@
 package ante
 
 import (
-	"fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
@@ -61,7 +59,6 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 				latestCtx := svd.latestCtxGetter()
 				latestNonce := svd.evmKeeper.GetNonce(latestCtx, evmAddr)
 				if txNonce < latestNonce {
-					fmt.Printf("Nonce: %s %s %d\n", "Rejected", evmAddr.Hex(), txNonce)
 					return abci.Rejected
 				} else if txNonce == latestNonce {
 					return abci.Accepted
@@ -70,7 +67,6 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			})
 		}
 	} else if txNonce != nextNonce {
-		fmt.Printf("Nonce: %s %s %d\n", "Wrong Sequence", evmAddr.Hex(), txNonce)
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 
