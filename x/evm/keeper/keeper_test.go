@@ -1,8 +1,6 @@
 package keeper_test
 
 import (
-	"github.com/tendermint/tendermint/libs/rand"
-	tmtypes "github.com/tendermint/tendermint/types"
 	"math"
 	"sync"
 	"testing"
@@ -14,6 +12,8 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/libs/rand"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 func TestGetChainID(t *testing.T) {
