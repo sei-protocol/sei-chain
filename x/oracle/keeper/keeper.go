@@ -132,7 +132,7 @@ func (k Keeper) RemoveExcessFeeds(ctx sdk.Context) {
 		return false
 	})
 	// compare
-	activesToClear := []string{}
+	var activesToClear []string
 	for denom := range excessActives {
 		activesToClear = append(activesToClear, denom)
 	}
