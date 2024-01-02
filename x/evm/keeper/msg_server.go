@@ -12,6 +12,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -62,7 +63,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			ctx.Logger().Error(fmt.Sprintf("Got EVM state transition error (not VM error): %s", err))
 			return
 		}
-		err = server.writeReceipt(ctx, msg, tx, emsg, serverRes)
+		receipt, err := server.writeReceipt(ctx, msg, tx, emsg, serverRes)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 			return
@@ -71,6 +72,12 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to finalize EVM stateDB: %s", err))
 			return
+		}
+		if serverRes.VmError == "" && tx.To() == nil && artifacts.IsCodeNativeSeiTokensERC20Wrapper(tx.Data()) {
+			codeHash := server.GetCodeHash(ctx, common.HexToAddress(receipt.ContractAddress))
+			if (codeHash != common.Hash{}) {
+				server.AddWhitelistedCodehashesBankSend(ctx, codeHash.Hex())
+			}
 		}
 
 		// GasUsed in serverRes is in EVM's gas unit, not Sei's gas unit.
@@ -131,7 +138,7 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	return st.TransitionDb()
 }
 
-func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse) error {
+func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse) (*types.Receipt, error) {
 	cumulativeGasUsed := response.GasUsed
 	if ctx.BlockGasMeter() != nil {
 		limit := ctx.BlockGasMeter().Limit()
@@ -169,5 +176,5 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 
 	receipt.From = common.BytesToAddress(origMsg.Derived.SenderEVMAddr).Hex()
 
-	return server.SetReceipt(ctx, tx.Hash(), receipt)
+	return receipt, server.SetReceipt(ctx, tx.Hash(), receipt)
 }
