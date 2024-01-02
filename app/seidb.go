@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/storev2/rootmulti"
@@ -10,6 +12,7 @@ import (
 )
 
 const (
+	// SC Store configs
 	FlagSCEnable              = "state-commit.sc-enable"
 	FlagSCDirectory           = "state-commit.sc-directory"
 	FlagSCAsyncCommitBuffer   = "state-commit.sc-async-commit-buffer"
@@ -19,6 +22,7 @@ const (
 	FlagSCSnapshotWriterLimit = "state-commit.sc-snapshot-writer-limit"
 	FlagSCCacheSize           = "state-commit.sc-cache-size"
 
+	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
 	FlagSSDirectory         = "state-store.ss-db-directory"
 	FlagSSBackend           = "state-store.ss-backend"
@@ -26,6 +30,9 @@ const (
 	FlagSSKeepRecent        = "state-store.ss-keep-recent"
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
+
+	// Other configs
+	FlagSnapshotInterval = "state-sync.snapshot-interval"
 )
 
 func SetupSeiDB(
@@ -36,11 +43,16 @@ func SetupSeiDB(
 ) []func(*baseapp.BaseApp) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
+		logger.Info("SeiDB is disabled, falling back to IAVL")
 		return baseAppOptions
 	}
-	logger.Info("SeiDB is enabled, replacing with StoreV2 RMS")
+	logger.Info("SeiDB SC is enabled, running node with StoreV2 commit store")
 	scConfig := parseSCConfigs(appOpts)
 	ssConfig := parseSSConfigs(appOpts)
+	if ssConfig.Enable {
+		logger.Info(fmt.Sprintf("SeiDB StateStore is enabled, running %s for historical state", ssConfig.Backend))
+	}
+	validateConfigs(appOpts)
 
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
@@ -76,5 +88,17 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 		PruneIntervalSeconds: cast.ToInt(appOpts.Get(FlagSSPruneInterval)),
 		ImportNumWorkers:     cast.ToInt(appOpts.Get(FlagSSImportNumWorkers)),
 		DBDirectory:          cast.ToString(appOpts.Get(FlagSSDirectory)),
+	}
+}
+
+func validateConfigs(appOpts servertypes.AppOptions) {
+	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
+	ssEnabled := cast.ToBool(appOpts.Get(FlagSSEnable))
+	snapshotExportInterval := cast.ToUint64(appOpts.Get(FlagSnapshotInterval))
+	// Make sure when snapshot is enabled, we should enable SS store
+	if snapshotExportInterval > 0 && scEnabled {
+		if !ssEnabled {
+			panic(fmt.Sprintf("Config validation failed, SeiDB SS store needs to be enabled when snapshot interval %d > 0", snapshotExportInterval))
+		}
 	}
 }
