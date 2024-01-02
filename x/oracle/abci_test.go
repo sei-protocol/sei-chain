@@ -640,7 +640,6 @@ func makeAggregateVote(t *testing.T, input keeper.TestInput, h sdk.Handler, heig
 	require.NoError(t, err)
 }
 
-// TODO: test when we remove an oracle feed
 func TestEndWindowClearExcessFeeds(t *testing.T) {
 	input, _ := setup(t)
 	params := input.OracleKeeper.GetParams(input.Ctx)
