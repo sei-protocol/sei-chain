@@ -12,19 +12,13 @@ import (
 // Implements Iterator.
 type memIterator struct {
 	types.Iterator
-
-	mvStore      MultiVersionStore
-	writeset     WriteSet
-	index        int
-	abortChannel chan occtypes.Abort
-	ReadsetHandler
+	mvkv *VersionIndexedStore
 }
 
 func (store *VersionIndexedStore) newMemIterator(
 	start, end []byte,
 	items *dbm.MemDB,
 	ascending bool,
-	readsetHandler ReadsetHandler,
 ) *memIterator {
 	var iter types.Iterator
 	var err error
@@ -43,40 +37,25 @@ func (store *VersionIndexedStore) newMemIterator(
 	}
 
 	return &memIterator{
-		Iterator:       iter,
-		mvStore:        store.multiVersionStore,
-		index:          store.transactionIndex,
-		abortChannel:   store.abortChannel,
-		writeset:       store.GetWriteset(),
-		ReadsetHandler: readsetHandler,
+		Iterator: iter,
+		mvkv:     store,
 	}
 }
 
-// try to get value from the writeset, otherwise try to get from multiversion store, otherwise try to get from parent iterator
+// try to get value from the writeset, otherwise try to get from multiversion store, otherwise try to get from parent
 func (mi *memIterator) Value() []byte {
 	key := mi.Iterator.Key()
+	// TODO: verify that this is correct
+	return mi.mvkv.Get(key)
+}
 
-	// try fetch from writeset - return if exists
-	if val, ok := mi.writeset[string(key)]; ok {
-		return val
-	}
+type validationIterator struct {
+	types.Iterator
 
-	// get the value from the multiversion store
-	val := mi.mvStore.GetLatestBeforeIndex(mi.index, key)
-
-	// if we have an estiamte, write to abort channel
-	if val.IsEstimate() {
-		mi.abortChannel <- occtypes.NewEstimateAbort(val.Index())
-	}
-
-	// need to update readset
-	// if we have a deleted value, return nil
-	if val.IsDeleted() {
-		defer mi.ReadsetHandler.UpdateReadSet(key, nil)
-		return nil
-	}
-	defer mi.ReadsetHandler.UpdateReadSet(key, val.Value())
-	return val.Value()
+	mvStore      MultiVersionStore
+	writeset     WriteSet
+	index        int
+	abortChannel chan occtypes.Abort
 }
 
 func (store *Store) newMVSValidationIterator(
@@ -86,7 +65,7 @@ func (store *Store) newMVSValidationIterator(
 	ascending bool,
 	writeset WriteSet,
 	abortChannel chan occtypes.Abort,
-) *memIterator {
+) *validationIterator {
 	var iter types.Iterator
 	var err error
 
@@ -103,12 +82,35 @@ func (store *Store) newMVSValidationIterator(
 		panic(err)
 	}
 
-	return &memIterator{
-		Iterator:       iter,
-		mvStore:        store,
-		index:          index,
-		abortChannel:   abortChannel,
-		ReadsetHandler: NoOpHandler{},
-		writeset:       writeset,
+	return &validationIterator{
+		Iterator:     iter,
+		mvStore:      store,
+		index:        index,
+		abortChannel: abortChannel,
+		writeset:     writeset,
 	}
+}
+
+// try to get value from the writeset, otherwise try to get from multiversion store, otherwise try to get from parent iterator
+func (vi *validationIterator) Value() []byte {
+	key := vi.Iterator.Key()
+
+	// try fetch from writeset - return if exists
+	if val, ok := vi.writeset[string(key)]; ok {
+		return val
+	}
+
+	// get the value from the multiversion store
+	val := vi.mvStore.GetLatestBeforeIndex(vi.index, key)
+
+	// if we have an estimate, write to abort channel
+	if val.IsEstimate() {
+		vi.abortChannel <- occtypes.NewEstimateAbort(val.Index())
+	}
+
+	// if we have a deleted value, return nil
+	if val.IsDeleted() {
+		return nil
+	}
+	return val.Value()
 }

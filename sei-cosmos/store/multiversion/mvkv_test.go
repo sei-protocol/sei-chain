@@ -375,15 +375,17 @@ func TestIterator(t *testing.T) {
 	mvs.SetEstimatedWriteset(1, 1, map[string][]byte{
 		"key2": []byte("value1_b"),
 	})
-
+	// need to reset readset
+	abortC2 := make(chan scheduler.Abort)
+	visNew := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 3, abortC2)
 	go func() {
 		// new iter
-		iter4 := vis.Iterator([]byte("000"), []byte("key5"))
+		iter4 := visNew.Iterator([]byte("000"), []byte("key5"))
 		defer iter4.Close()
 		for ; iter4.Valid(); iter4.Next() {
 		}
 	}()
-	abort := <-abortC // read the abort from the channel
+	abort := <-abortC2 // read the abort from the channel
 	require.Equal(t, 1, abort.DependentTxIdx)
 
 }

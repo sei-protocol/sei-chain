@@ -78,8 +78,6 @@ type VersionIndexedStore struct {
 	iterateset Iterateset
 	// TODO: need to add iterateset here as well
 
-	// dirty keys that haven't been sorted yet for iteration
-	dirtySet map[string]struct{}
 	// used for iterators - populated at the time of iterator instantiation
 	// TODO: when we want to perform iteration, we need to move all the dirty keys (writeset and readset) into the sortedTree and then combine with the iterators for the underlying stores
 	sortedStore *dbm.MemDB // always ascending sorted
@@ -102,7 +100,6 @@ func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersion
 		readset:           make(map[string][]byte),
 		writeset:          make(map[string][]byte),
 		iterateset:        []iterationTracker{},
-		dirtySet:          make(map[string]struct{}),
 		sortedStore:       dbm.NewMemDB(),
 		parent:            parent,
 		multiVersionStore: multiVersionStore,
@@ -231,7 +228,7 @@ func (store *VersionIndexedStore) Delete(key []byte) {
 	// defer telemetry.MeasureSince(time.Now(), "store", "mvkv", "delete")
 
 	types.AssertValidKey(key)
-	store.setValue(key, nil, true, true)
+	store.setValue(key, nil)
 }
 
 // Has implements types.KVStore.
@@ -248,7 +245,7 @@ func (store *VersionIndexedStore) Set(key []byte, value []byte) {
 	// defer telemetry.MeasureSince(time.Now(), "store", "mvkv", "set")
 
 	types.AssertValidKey(key)
-	store.setValue(key, value, false, true)
+	store.setValue(key, value)
 }
 
 // Iterator implements types.KVStore.
@@ -278,11 +275,15 @@ func (store *VersionIndexedStore) iterator(start []byte, end []byte, ascending b
 	for key := range store.writeset {
 		memDB.Set([]byte(key), []byte{})
 	}
+	// also add readset elements such that they fetch from readset instead of parent
+	for key := range store.readset {
+		memDB.Set([]byte(key), []byte{})
+	}
 
 	var parent, memIterator types.Iterator
 
 	// make a memIterator
-	memIterator = store.newMemIterator(start, end, memDB, ascending, store)
+	memIterator = store.newMemIterator(start, end, memDB, ascending)
 
 	if ascending {
 		parent = store.parent.Iterator(start, end)
@@ -293,7 +294,7 @@ func (store *VersionIndexedStore) iterator(start []byte, end []byte, ascending b
 	mergeIterator := NewMVSMergeIterator(parent, memIterator, ascending, store)
 
 	iterationTracker := NewIterationTracker(start, end, ascending, store.writeset)
-	trackedIterator := NewTrackedIterator(mergeIterator, iterationTracker, store)
+	trackedIterator := NewTrackedIterator(mergeIterator, iterationTracker, store, store)
 
 	// mergeIterator
 	return trackedIterator
@@ -326,14 +327,11 @@ func (v *VersionIndexedStore) GetWorkingHash() ([]byte, error) {
 }
 
 // Only entrypoint to mutate writeset
-func (store *VersionIndexedStore) setValue(key, value []byte, deleted bool, dirty bool) {
+func (store *VersionIndexedStore) setValue(key, value []byte) {
 	types.AssertValidKey(key)
 
 	keyStr := string(key)
 	store.writeset[keyStr] = value
-	if dirty {
-		store.dirtySet[keyStr] = struct{}{}
-	}
 }
 
 func (store *VersionIndexedStore) WriteToMultiVersionStore() {
@@ -358,9 +356,10 @@ func (store *VersionIndexedStore) WriteEstimatesToMultiVersionStore() {
 func (store *VersionIndexedStore) UpdateReadSet(key []byte, value []byte) {
 	// add to readset
 	keyStr := string(key)
-	store.readset[keyStr] = value
-	// add to dirty set
-	store.dirtySet[keyStr] = struct{}{}
+	// TODO: maybe only add if not already existing?
+	if _, ok := store.readset[keyStr]; !ok {
+		store.readset[keyStr] = value
+	}
 }
 
 // Write implements types.CacheWrap so this store can exist on the cache multi store
