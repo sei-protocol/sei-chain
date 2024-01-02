@@ -242,6 +242,8 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 
 func (Precompile) IsTransaction(method string) bool {
 	switch method {
+	case SendMethod:
+		return true
 	case SendFromCallerMethod:
 		return true
 	case SendFromOriginMethod:
