@@ -104,7 +104,11 @@ func (c *lruCache) Remove(key []byte) Node {
 }
 
 func (c *lruCache) remove(e *list.Element) Node {
-	removed := c.ll.Remove(e).(Node)
-	delete(c.dict, ibytes.UnsafeBytesToStr(removed.GetCacheKey()))
-	return removed
+	element := c.ll.Remove(e)
+	if element != nil {
+		node := element.(Node)
+		delete(c.dict, ibytes.UnsafeBytesToStr(node.GetCacheKey()))
+		return node
+	}
+	return nil
 }
