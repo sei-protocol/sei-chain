@@ -80,7 +80,6 @@ The associated EVM address will also be created and funded with the same account
 			}
 
 			ethAddr := crypto.PubkeyToAddress(pk.PublicKey)
-			fmt.Printf("ETH address funded = %s, private key = %x\n", ethAddr.Hex(), pk.D)
 
 			coins, err := sdk.ParseCoinsNormalized(args[1])
 			if err != nil {
@@ -136,7 +135,6 @@ The associated EVM address will also be created and funded with the same account
 
 			// associate the eth address with the sei address through the genesis file
 			evmGenState := evm.GetGenesisStateFromAppState(depCdc, appState)
-			fmt.Println("In genaccounts, attempting to associate eth address", ethAddr.Hex(), "with sei address", addr.String())
 			seiEthAddrAssociation := evmtypes.AddressAssociation{
 				SeiAddress: addr.String(),
 				EthAddress: ethAddr.Hex(),
@@ -194,6 +192,9 @@ The associated EVM address will also be created and funded with the same account
 			}
 
 			genDoc.AppState = appStateJSON
+
+			fmt.Printf("ETH address funded = %s with private key = 0x%x\n", ethAddr.Hex(), pk.D)
+
 			return genutil.ExportGenesisFile(genDoc, genFile)
 		},
 	}
@@ -225,7 +226,6 @@ func getPrivateKeyOfAddr(kb keyring.Keyring, addr sdk.Address) (*ecdsa.PrivateKe
 				return nil, err
 			}
 			privHex := hex.EncodeToString(priv.Bytes())
-			fmt.Println("privKeyHex = ", privHex)
 			// Need to use private key to convert to sei address here
 			privKey, err := crypto.HexToECDSA(privHex)
 			if err != nil {
