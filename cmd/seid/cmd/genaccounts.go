@@ -73,7 +73,6 @@ The associated EVM address will also be created and funded with the same account
 				addr = info.GetAddress()
 			}
 
-			// get private key of addr
 			pk, err := getPrivateKeyOfAddr(kb, addr)
 			if err != nil {
 				return err
