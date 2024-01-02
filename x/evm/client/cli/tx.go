@@ -8,7 +8,6 @@ import (
 	"io"
 	"math/big"
 	"net/http"
-	"strconv"
 	"strings"
 
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
@@ -167,7 +166,7 @@ func CmdSend() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nonceQuery := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"%s\",\"latest\"],\"id\":\"send-cli\"}", crypto.PubkeyToAddress(key.PublicKey).Hex())
+			nonceQuery := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"%s\",\"pending\"],\"id\":\"send-cli\"}", crypto.PubkeyToAddress(key.PublicKey).Hex())
 			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(nonceQuery))
 			if err != nil {
 				return err
@@ -268,10 +267,10 @@ type Response struct {
 
 func CmdDeployErc20() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deploy-erc20 [denom] [nonce] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "deploy-erc20 [denom] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
 		Short: "Deploy ERC20 contract for a native Sei token",
 		Long:  "",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			err = sdk.ValidateDenom(args[0])
 			if err != nil {
@@ -279,10 +278,6 @@ func CmdDeployErc20() *cobra.Command {
 			}
 			denom := args[0]
 
-			nonce, err := strconv.ParseUint(args[1], 10, 64)
-			if err != nil {
-				return err
-			}
 			gasFeeCap, err := cmd.Flags().GetUint64(FlagGasFeeCap)
 			if err != nil {
 				return err
@@ -333,8 +328,36 @@ func CmdDeployErc20() *cobra.Command {
 			privHex := hex.EncodeToString(priv.Bytes())
 			key, _ := crypto.HexToECDSA(privHex)
 
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			nonceQuery := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"%s\",\"pending\"],\"id\":\"send-cli\"}", crypto.PubkeyToAddress(key.PublicKey).Hex())
+			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(nonceQuery))
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return err
+			}
+			defer res.Body.Close()
+			resBody, err := io.ReadAll(res.Body)
+			if err != nil {
+				return err
+			}
+			resObj := map[string]interface{}{}
+			if err := json.Unmarshal(resBody, &resObj); err != nil {
+				return err
+			}
+			nonce := new(hexutil.Uint64)
+			if err := nonce.UnmarshalText([]byte(resObj["result"].(string))); err != nil {
+				return err
+			}
+
 			txData := ethtypes.DynamicFeeTx{
-				Nonce:     nonce,
+				Nonce:     uint64(*nonce),
 				GasFeeCap: new(big.Int).SetUint64(gasFeeCap),
 				Gas:       gasLimit,
 				Value:     big.NewInt(0),
@@ -355,22 +378,18 @@ func CmdDeployErc20() *cobra.Command {
 			payload := "0x" + hex.EncodeToString(bz)
 
 			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"deploy-erc20\"}", payload)
-			rpc, err := cmd.Flags().GetString(FlagRPC)
-			if err != nil {
-				return err
-			}
-			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
+			req, err = http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
 			if err != nil {
 				return err
 			}
 			req.Header.Set("Content-Type", "application/json")
-			res, err := http.DefaultClient.Do(req)
+			res, err = http.DefaultClient.Do(req)
 			if err != nil {
 				return err
 			}
 			defer res.Body.Close()
 
-			resBody, err := io.ReadAll(res.Body)
+			resBody, err = io.ReadAll(res.Body)
 			if err != nil {
 				return err
 			}
