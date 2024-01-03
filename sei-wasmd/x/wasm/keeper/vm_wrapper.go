@@ -1,12 +1,16 @@
 package keeper
 
 import (
+	"errors"
 	"sync"
+	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 	wasmvm "github.com/CosmWasm/wasmvm"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 )
+
+const CreateTimeout time.Duration = 5 * time.Second
 
 type VMWrapper struct {
 	types.WasmerEngine
@@ -21,10 +25,23 @@ func NewVMWrapper(inner types.WasmerEngine) types.WasmerEngine {
 	}
 }
 
-func (w *VMWrapper) Create(code wasmvm.WasmCode) (wasmvm.Checksum, error) {
+func (w *VMWrapper) Create(code wasmvm.WasmCode) (checksum wasmvm.Checksum, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.WasmerEngine.Create(code)
+	timer := time.NewTimer(CreateTimeout)
+	done := make(chan struct{}, 1)
+	go func() {
+		checksum, err = w.WasmerEngine.Create(code)
+		done <- struct{}{}
+	}()
+	select {
+	case <-done:
+		timer.Stop()
+		return
+	case <-timer.C:
+		err = errors.New("create wasm code timed out")
+		return
+	}
 }
 
 func (w *VMWrapper) Instantiate(
