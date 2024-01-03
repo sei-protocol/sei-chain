@@ -49,4 +49,10 @@ coverage.out
 
 # example artifacts
 example/cosmwasm/echo/target
+<<<<<<< HEAD
 example/cosmwasm/cw20/target
+=======
+
+# Solidity contracts artifacts
+contracts/artifacts
+>>>>>>> 8d6a5c9e (wip)
