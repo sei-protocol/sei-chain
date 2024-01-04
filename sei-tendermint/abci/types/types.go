@@ -247,11 +247,13 @@ const (
 )
 
 type PendingTxChecker func() PendingTxCheckerResponse
+type ExpireTxHandler func()
 
-// V2 response type contains non-protobuf fields, so non-local ABCI clients will not be able
+// ResponseCheckTxV2 response type contains non-protobuf fields, so non-local ABCI clients will not be able
 // to utilize the new fields in V2 type (but still be backwards-compatible)
 type ResponseCheckTxV2 struct {
 	*ResponseCheckTx
 	IsPendingTransaction bool
 	Checker              PendingTxChecker // must not be nil if IsPendingTransaction is true
+	ExpireTxHandler      ExpireTxHandler
 }

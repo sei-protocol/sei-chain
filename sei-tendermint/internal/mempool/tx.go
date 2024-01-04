@@ -64,6 +64,9 @@ type WrappedTx struct {
 	// transaction in the mempool can be evicted when it is simultaneously having
 	// a reCheckTx callback executed.
 	removed bool
+
+	// this is the callback that can be called when a transaction expires
+	expiredCallback func(removeFromCache bool)
 }
 
 func (wtx *WrappedTx) Size() int {
@@ -295,10 +298,10 @@ func (wtl *WrappedTxList) Remove(wtx *WrappedTx) {
 
 type PendingTxs struct {
 	mtx *sync.RWMutex
-	txs []PendingTxInfo
+	txs []TxWithResponse
 }
 
-type PendingTxInfo struct {
+type TxWithResponse struct {
 	tx              *WrappedTx
 	checkTxResponse *abci.ResponseCheckTxV2
 	txInfo          TxInfo
@@ -307,13 +310,12 @@ type PendingTxInfo struct {
 func NewPendingTxs() *PendingTxs {
 	return &PendingTxs{
 		mtx: &sync.RWMutex{},
-		txs: []PendingTxInfo{},
+		txs: []TxWithResponse{},
 	}
 }
-
 func (p *PendingTxs) EvaluatePendingTransactions() (
-	acceptedTxs []PendingTxInfo,
-	rejectedTxs []PendingTxInfo,
+	acceptedTxs []TxWithResponse,
+	rejectedTxs []TxWithResponse,
 ) {
 	poppedIndices := []int{}
 	p.mtx.Lock()
@@ -337,7 +339,7 @@ func (p *PendingTxs) popTxsAtIndices(indices []int) {
 	if len(indices) == 0 {
 		return
 	}
-	newTxs := []PendingTxInfo{}
+	newTxs := []TxWithResponse{}
 	start := 0
 	for _, idx := range indices {
 		newTxs = append(newTxs, p.txs[start:idx]...)
@@ -350,14 +352,14 @@ func (p *PendingTxs) popTxsAtIndices(indices []int) {
 func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, txInfo TxInfo) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
-	p.txs = append(p.txs, PendingTxInfo{
+	p.txs = append(p.txs, TxWithResponse{
 		tx:              tx,
 		checkTxResponse: resCheckTx,
 		txInfo:          txInfo,
 	})
 }
 
-func (p *PendingTxs) Peek(max int) []PendingTxInfo {
+func (p *PendingTxs) Peek(max int) []TxWithResponse {
 	p.mtx.RLock()
 	defer p.mtx.RUnlock()
 	// priority is fifo
@@ -373,7 +375,7 @@ func (p *PendingTxs) Size() int {
 	return len(p.txs)
 }
 
-func (p *PendingTxs) PurgeExpired(ttlNumBlock int64, blockHeight int64, ttlDuration time.Duration, now time.Time, cb func(types.Tx)) {
+func (p *PendingTxs) PurgeExpired(ttlNumBlock int64, blockHeight int64, ttlDuration time.Duration, now time.Time, cb func(wtx *WrappedTx)) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -385,10 +387,12 @@ func (p *PendingTxs) PurgeExpired(ttlNumBlock int64, blockHeight int64, ttlDurat
 	if ttlNumBlock > 0 {
 		idxFirstNotExpiredTx := len(p.txs)
 		for i, ptx := range p.txs {
+			// once found, we can break because these are ordered
 			if (blockHeight - ptx.tx.height) <= ttlNumBlock {
 				idxFirstNotExpiredTx = i
+				break
 			} else {
-				cb(ptx.tx.tx)
+				cb(ptx.tx)
 			}
 		}
 		p.txs = p.txs[idxFirstNotExpiredTx:]
@@ -401,10 +405,12 @@ func (p *PendingTxs) PurgeExpired(ttlNumBlock int64, blockHeight int64, ttlDurat
 	if ttlDuration > 0 {
 		idxFirstNotExpiredTx := len(p.txs)
 		for i, ptx := range p.txs {
+			// once found, we can break because these are ordered
 			if now.Sub(ptx.tx.timestamp) <= ttlDuration {
 				idxFirstNotExpiredTx = i
+				break
 			} else {
-				cb(ptx.tx.tx)
+				cb(ptx.tx)
 			}
 		}
 		p.txs = p.txs[idxFirstNotExpiredTx:]
