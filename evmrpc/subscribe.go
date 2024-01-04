@@ -38,7 +38,6 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, ctxProvider func(int64) sdk.C
 }
 
 func (a *SubscriptionAPI) NewHeads(ctx context.Context) (*rpc.Subscription, error) {
-	fmt.Println("SubscriptionAPI: in newHeads")
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
