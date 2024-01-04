@@ -42,6 +42,7 @@ type Context struct {
 	priority         int64                 // The tx priority, only relevant in CheckTx
 	pendingTxChecker abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
 	checkTxCallback  func(error)           // callback to make at the end of CheckTx. Input param is the error (nil-able) of `runMsgs`
+	expireTxHandler  func()                // callback that the mempool invokes when a tx is expired
 
 	txBlockingChannels   acltypes.MessageAccessOpsChannelMapping
 	txCompletionChannels acltypes.MessageAccessOpsChannelMapping
@@ -116,6 +117,10 @@ func (c Context) EventManager() *EventManager {
 
 func (c Context) Priority() int64 {
 	return c.priority
+}
+
+func (c Context) ExpireTxHandler() abci.ExpireTxHandler {
+	return c.expireTxHandler
 }
 
 func (c Context) PendingTxChecker() abci.PendingTxChecker {
@@ -366,6 +371,11 @@ func (c Context) WithPendingTxChecker(checker abci.PendingTxChecker) Context {
 
 func (c Context) WithCheckTxCallback(checkTxCallback func(error)) Context {
 	c.checkTxCallback = checkTxCallback
+	return c
+}
+
+func (c Context) WithExpireTxHandler(expireTxHandler func()) Context {
+	c.expireTxHandler = expireTxHandler
 	return c
 }
 
