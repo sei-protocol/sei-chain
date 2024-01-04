@@ -4,9 +4,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
+	abci "github.com/tendermint/tendermint/abci/types"
+	tmtypes "github.com/tendermint/tendermint/types"
+
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 type EVMSigVerifyDecorator struct {
@@ -41,15 +43,22 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			if e != nil {
 				return
 			}
-			svd.evmKeeper.IncrementPendingTxCount(evmAddr)
+			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
+			svd.evmKeeper.AddPendingNonce(txKey, evmAddr, txNonce)
 		})
+
+		// if the mempool expires a transaction, this handler is invoked
+		ctx = ctx.WithExpireTxHandler(func() {
+			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
+			svd.evmKeeper.ExpirePendingNonce(txKey)
+		})
+
 		if txNonce > nextNonce {
 			// transaction shall be added to mempool as a pending transaction
 			ctx = ctx.WithPendingTxChecker(func() abci.PendingTxCheckerResponse {
 				latestCtx := svd.latestCtxGetter()
 				latestNonce := svd.evmKeeper.GetNonce(latestCtx, evmAddr)
 				if txNonce < latestNonce {
-					svd.evmKeeper.DecrementPendingTxCount(evmAddr)
 					return abci.Rejected
 				} else if txNonce == latestNonce {
 					return abci.Accepted
