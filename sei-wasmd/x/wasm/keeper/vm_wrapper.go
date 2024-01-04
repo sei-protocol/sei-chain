@@ -10,7 +10,7 @@ import (
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 )
 
-const CreateTimeout time.Duration = 5 * time.Second
+const CreateTimeout time.Duration = 15 * time.Second
 
 type VMWrapper struct {
 	types.WasmerEngine
