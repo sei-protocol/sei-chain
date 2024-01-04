@@ -191,9 +191,10 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
-	pendingTxCnt := uint64(0)
+
+	var pending bool
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
-		pendingTxCnt = t.keeper.GetPendingTxCount(address)
+		pending = true
 	}
 
 	blkNr, err := GetBlockNumberByNrOrHash(ctx, t.tmClient, blockNrOrHash)
@@ -204,7 +205,8 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	if blkNr != nil {
 		sdkCtx = t.ctxProvider(*blkNr)
 	}
-	nonce := t.keeper.GetNonce(sdkCtx, address) + pendingTxCnt
+
+	nonce := t.keeper.CalculateNextNonce(sdkCtx, address, pending)
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
