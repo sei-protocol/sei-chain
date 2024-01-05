@@ -60,13 +60,15 @@ func TestInstantiate(t *testing.T) {
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
-	res, err := p.Run(&evm, mockEVMAddr, append(p.InstantiateID, args...))
+	suppliedGas := uint64(1000000)
+	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, append(p.InstantiateID, args...), suppliedGas)
 	require.Nil(t, err)
 	outputs, err := instantiateMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(outputs))
 	require.Equal(t, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", outputs[0].(string))
 	require.Empty(t, outputs[1].([]byte))
+	require.Equal(t, uint64(900735), g)
 
 	// non-existent code ID
 	args, _ = instantiateMethod.Inputs.Pack(
@@ -76,15 +78,16 @@ func TestInstantiate(t *testing.T) {
 		"test",
 		amtsbz,
 	)
-	res, err = p.Run(&evm, mockEVMAddr, append(p.InstantiateID, args...))
+	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, append(p.InstantiateID, args...), suppliedGas)
 	require.NotNil(t, err)
+	require.Equal(t, uint64(0), g)
 
 	// bad inputs
 	badArgs, _ := instantiateMethod.Inputs.Pack(codeID, "not bech32", []byte("{}"), "test", amtsbz)
-	_, err = p.Run(&evm, mockEVMAddr, append(p.InstantiateID, badArgs...))
+	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, append(p.InstantiateID, badArgs...), suppliedGas)
 	require.NotNil(t, err)
 	badArgs, _ = instantiateMethod.Inputs.Pack(codeID, mockAddr.String(), []byte("{}"), "test", []byte("bad coins"))
-	_, err = p.Run(&evm, mockEVMAddr, append(p.InstantiateID, badArgs...))
+	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, append(p.InstantiateID, badArgs...), suppliedGas)
 	require.NotNil(t, err)
 }
 
@@ -116,25 +119,30 @@ func TestExecute(t *testing.T) {
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
-	res, err := p.Run(&evm, mockEVMAddr, append(p.ExecuteID, args...))
+	suppliedGas := uint64(1000000)
+	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas)
 	require.Nil(t, err)
 	outputs, err := executeMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(outputs))
 	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string(outputs[0].([]byte)))
+	require.Equal(t, uint64(915757), g)
 
 	// bad contract address
 	args, _ = executeMethod.Inputs.Pack(mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
-	res, err = p.Run(&evm, mockEVMAddr, append(p.ExecuteID, args...))
+	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas)
 	require.NotNil(t, err)
+	require.Equal(t, uint64(0), g)
 
 	// bad inputs
 	args, _ = executeMethod.Inputs.Pack("not bech32", []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
-	res, err = p.Run(&evm, mockEVMAddr, append(p.ExecuteID, args...))
+	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas)
 	require.NotNil(t, err)
+	require.Equal(t, uint64(0), g)
 	args, _ = executeMethod.Inputs.Pack(contractAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), []byte("bad coins"))
-	res, err = p.Run(&evm, mockEVMAddr, append(p.ExecuteID, args...))
+	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas)
 	require.NotNil(t, err)
+	require.Equal(t, uint64(0), g)
 }
 
 func TestQuery(t *testing.T) {
@@ -159,23 +167,28 @@ func TestQuery(t *testing.T) {
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
-	res, err := p.Run(&evm, common.Address{}, append(p.QueryID, args...))
+	suppliedGas := uint64(1000000)
+	res, g, err := p.RunAndCalculateGas(&evm, common.Address{}, append(p.QueryID, args...), suppliedGas)
 	require.Nil(t, err)
 	outputs, err := queryMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(outputs))
 	require.Equal(t, "{\"message\":\"query test\"}", string(outputs[0].([]byte)))
+	require.Equal(t, uint64(928203), g)
 
 	// bad contract address
 	args, _ = queryMethod.Inputs.Pack(mockAddr.String(), []byte("{\"info\":{}}"))
-	res, err = p.Run(&evm, common.Address{}, append(p.ExecuteID, args...))
+	res, g, err = p.RunAndCalculateGas(&evm, common.Address{}, append(p.ExecuteID, args...), suppliedGas)
 	require.NotNil(t, err)
+	require.Equal(t, uint64(0), g)
 
 	// bad input
 	args, _ = queryMethod.Inputs.Pack("not bech32", []byte("{\"info\":{}}"))
-	res, err = p.Run(&evm, common.Address{}, append(p.ExecuteID, args...))
+	res, g, err = p.RunAndCalculateGas(&evm, common.Address{}, append(p.ExecuteID, args...), suppliedGas)
 	require.NotNil(t, err)
+	require.Equal(t, uint64(0), g)
 	args, _ = queryMethod.Inputs.Pack(contractAddr.String(), []byte("{\"bad\":{}}"))
-	res, err = p.Run(&evm, common.Address{}, append(p.ExecuteID, args...))
+	res, g, err = p.RunAndCalculateGas(&evm, common.Address{}, append(p.ExecuteID, args...), suppliedGas)
 	require.NotNil(t, err)
+	require.Equal(t, uint64(0), g)
 }
