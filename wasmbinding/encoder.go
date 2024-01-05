@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
+	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 )
 
@@ -19,6 +20,7 @@ type SeiWasmMessage struct {
 	BurnTokens   json.RawMessage `json:"burn_tokens,omitempty"`
 	ChangeAdmin  json.RawMessage `json:"change_admin,omitempty"`
 	SetMetadata  json.RawMessage `json:"set_metadata,omitempty"`
+	CallEVM      json.RawMessage `json:"call_evm,omitempty"`
 }
 
 func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage, _ wasmvmtypes.MessageInfo, _ wasmtypes.CodeInfo) ([]sdk.Msg, error) {
@@ -41,6 +43,8 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage, _ wasmvmtypes.Mes
 		return tokenfactorywasm.EncodeTokenFactoryChangeAdmin(parsedMessage.ChangeAdmin, sender)
 	case parsedMessage.SetMetadata != nil:
 		return tokenfactorywasm.EncodeTokenFactorySetMetadata(parsedMessage.SetMetadata, sender)
+	case parsedMessage.CallEVM != nil:
+		return evmwasm.EncodeCallEVM(parsedMessage.CallEVM, sender)
 	default:
 		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
 	}
