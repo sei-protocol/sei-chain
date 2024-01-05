@@ -2,6 +2,7 @@ package wasmbinding
 
 import (
 	"encoding/json"
+	"errors"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
@@ -10,6 +11,8 @@ import (
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbindings "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
+	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
+	evmbindings "github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
 	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
 	oraclebindings "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -23,15 +26,17 @@ type QueryPlugin struct {
 	dexHandler          dexwasm.DexWasmQueryHandler
 	epochHandler        epochwasm.EpochWasmQueryHandler
 	tokenfactoryHandler tokenfactorywasm.TokenFactoryWasmQueryHandler
+	evmHandler          evmwasm.EVMQueryHandler
 }
 
 // NewQueryPlugin returns a reference to a new QueryPlugin.
-func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler, dh *dexwasm.DexWasmQueryHandler, eh *epochwasm.EpochWasmQueryHandler, th *tokenfactorywasm.TokenFactoryWasmQueryHandler) *QueryPlugin {
+func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler, dh *dexwasm.DexWasmQueryHandler, eh *epochwasm.EpochWasmQueryHandler, th *tokenfactorywasm.TokenFactoryWasmQueryHandler, evmh *evmwasm.EVMQueryHandler) *QueryPlugin {
 	return &QueryPlugin{
 		oracleHandler:       *oh,
 		dexHandler:          *dh,
 		epochHandler:        *eh,
 		tokenfactoryHandler: *th,
+		evmHandler:          *evmh,
 	}
 }
 
@@ -186,5 +191,19 @@ func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.Ra
 		return bz, nil
 	default:
 		return nil, tokenfactorytypes.ErrUnknownSeiTokenFactoryQuery
+	}
+}
+
+func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
+	var parsedQuery evmbindings.SeiEVMQuery
+	if err := json.Unmarshal(queryData, &parsedQuery); err != nil {
+		return nil, errors.New("invalid EVM query")
+	}
+	switch {
+	case parsedQuery.StaticCall != nil:
+		c := parsedQuery.StaticCall
+		return qp.evmHandler.HandleStaticCall(ctx, c.From, c.To, c.Data)
+	default:
+		return nil, errors.New("unknown EVM query")
 	}
 }

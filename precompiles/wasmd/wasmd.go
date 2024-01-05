@@ -5,6 +5,8 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -27,6 +29,8 @@ var _ vm.PrecompiledContract = &Precompile{}
 //
 //go:embed abi.json
 var f embed.FS
+
+var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 
 type Precompile struct {
 	pcommon.Precompile
@@ -101,11 +105,17 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []byte, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, input []byte, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
+	gasLimitBigInt := new(big.Int).Mul(new(big.Int).SetUint64(suppliedGas), gasMultipler.RoundInt().BigInt())
+	if gasLimitBigInt.Cmp(MaxUint64BigInt) > 0 {
+		gasLimitBigInt = MaxUint64BigInt
+	}
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(gasLimitBigInt.Uint64()))
 
 	switch method.Name {
 	case InstantiateMethod:
@@ -118,7 +128,19 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 	return
 }
 
-func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+func (p Precompile) Run(*vm.EVM, common.Address, []byte) ([]byte, error) {
+	panic("static gas Run is not implemented for dynamic gas precompile")
+}
+
+func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
 	pcommon.AssertArgsLength(args, 5)
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
@@ -132,7 +154,8 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	if len(adminAddrStr) > 0 {
 		adminAddrDecoded, err := sdk.AccAddressFromBech32(adminAddrStr)
 		if err != nil {
-			return nil, err
+			rerr = err
+			return
 		}
 		adminAddr = adminAddrDecoded
 	}
@@ -141,16 +164,28 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	coins := sdk.NewCoins()
 	coinsBz := args[4].([]byte)
 	if err := json.Unmarshal(coinsBz, &coins); err != nil {
-		return nil, err
+		rerr = err
+		return
 	}
 	addr, data, err := p.wasmdKeeper.Instantiate(ctx, codeID, creatorAddr, adminAddr, msg, label, coins)
 	if err != nil {
-		return nil, err
+		rerr = err
+		return
 	}
-	return method.Outputs.Pack(addr.String(), data)
+	ret, rerr = method.Outputs.Pack(addr.String(), data)
+	remainingGas = p.getRemainingGas(ctx)
+	return
 }
 
-func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
 	pcommon.AssertArgsLength(args, 3)
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
@@ -158,7 +193,8 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 	// addresses will be sent in Sei format
 	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
 	if err != nil {
-		return nil, err
+		rerr = err
+		return
 	}
 	senderAddr := sdk.AccAddress(caller[:])
 	if associatedAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller); found {
@@ -168,28 +204,50 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 	coins := sdk.NewCoins()
 	coinsBz := args[2].([]byte)
 	if err := json.Unmarshal(coinsBz, &coins); err != nil {
-		return nil, err
+		rerr = err
+		return
 	}
 	res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
 	if err != nil {
-		return nil, err
+		rerr = err
+		return
 	}
-	return method.Outputs.Pack(res)
+	ret, rerr = method.Outputs.Pack(res)
+	remainingGas = p.getRemainingGas(ctx)
+	return
 }
 
-func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
 	pcommon.AssertArgsLength(args, 2)
 
 	contractAddrStr := args[0].(string)
 	// addresses will be sent in Sei format
 	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
 	if err != nil {
-		return nil, err
+		rerr = err
+		return
 	}
 	req := args[1].([]byte)
 	res, err := p.wasmdViewKeeper.QuerySmart(ctx, contractAddr, req)
 	if err != nil {
-		return nil, err
+		rerr = err
+		return
 	}
-	return method.Outputs.Pack(res)
+	ret, rerr = method.Outputs.Pack(res)
+	remainingGas = p.getRemainingGas(ctx)
+	return
+}
+
+func (p Precompile) getRemainingGas(ctx sdk.Context) uint64 {
+	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
+	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
+	return new(big.Int).Mul(new(big.Int).SetUint64(seiGasRemaining), gasMultipler.RoundInt().BigInt()).Uint64()
 }
