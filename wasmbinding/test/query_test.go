@@ -22,6 +22,7 @@ import (
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbinding "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
+	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
 	oraclebinding "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -42,7 +43,8 @@ func SetupWasmbindingTest(t *testing.T) (*app.TestWrapper, func(ctx sdk.Context,
 	dh := dexwasm.NewDexWasmQueryHandler(&testWrapper.App.DexKeeper)
 	eh := epochwasm.NewEpochWasmQueryHandler(&testWrapper.App.EpochKeeper)
 	th := tokenfactorywasm.NewTokenFactoryWasmQueryHandler(&testWrapper.App.TokenFactoryKeeper)
-	qp := wasmbinding.NewQueryPlugin(oh, dh, eh, th)
+	evmh := evmwasm.NewEVMQueryHandler(&testWrapper.App.EvmKeeper)
+	qp := wasmbinding.NewQueryPlugin(oh, dh, eh, th, evmh)
 	return testWrapper, wasmbinding.CustomQuerier(qp)
 }
 

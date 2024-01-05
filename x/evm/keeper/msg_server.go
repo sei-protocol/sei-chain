@@ -109,7 +109,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	return
 }
 
-func (server msgServer) getGasPool(ctx sdk.Context) (sdk.Context, core.GasPool) {
+func (k *Keeper) getGasPool(ctx sdk.Context) (sdk.Context, core.GasPool) {
 	if ctx.BlockGasMeter() == nil {
 		ctx = ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
 	}
@@ -126,7 +126,7 @@ func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction)
 	return core.TransactionToMessage(tx, signer, nil)
 }
 
-func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB vm.StateDB, gp core.GasPool) (*core.ExecutionResult, error) {
+func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
 	blockCtx, err := server.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
@@ -134,6 +134,7 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	cfg := server.GetChainConfig(ctx).EthereumConfig(server.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
 	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
+	stateDB.SetEVM(evmInstance)
 	st := core.NewStateTransition(evmInstance, msg, &gp)
 	return st.TransitionDb()
 }
