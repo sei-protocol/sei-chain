@@ -44,6 +44,11 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	return s
 }
 
+func (s *DBImpl) SetEVM(evm *vm.EVM) {
+	s.ctx = types.SetCtxEVM(s.ctx, evm)
+	s.snapshottedCtxs = utils.Map(s.snapshottedCtxs, func(ctx sdk.Context) sdk.Context { return types.SetCtxEVM(ctx, evm) })
+}
+
 // AddPreimage records a SHA3 preimage seen by the VM.
 // AddPreimage performs a no-op since the EnablePreimageRecording flag is disabled
 // on the vm.Config during state transitions. No store trie preimages are written
