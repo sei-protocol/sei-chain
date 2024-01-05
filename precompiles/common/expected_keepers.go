@@ -19,6 +19,7 @@ type EVMKeeper interface {
 	GetCodeHash(sdk.Context, common.Address) common.Hash
 	WhitelistedCodehashesBankSend(sdk.Context) []string
 	IsCodeHashWhitelistedForBankSend(ctx sdk.Context, h common.Hash) bool
+	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
 }
 
 type WasmdKeeper interface {
