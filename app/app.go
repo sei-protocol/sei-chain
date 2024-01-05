@@ -557,6 +557,7 @@ func New(
 			appCodec,
 			app.TransferKeeper,
 			app.AccessControlKeeper,
+			&app.EvmKeeper,
 		),
 		wasmOpts...,
 	)

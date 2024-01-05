@@ -174,10 +174,14 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	return b.getHeader(big.NewInt(height)), nil
 }
 
-func (b *Backend) GetEVM(_ context.Context, msg *core.Message, state vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) *vm.EVM {
+func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) *vm.EVM {
 	txContext := core.NewEVMTxContext(msg)
 	context, _ := b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
-	return vm.NewEVM(*context, txContext, state, b.ChainConfig(), *vmConfig)
+	evm := vm.NewEVM(*context, txContext, stateDB, b.ChainConfig(), *vmConfig)
+	if dbImpl, ok := stateDB.(*state.DBImpl); ok {
+		dbImpl.SetEVM(evm)
+	}
+	return evm
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
