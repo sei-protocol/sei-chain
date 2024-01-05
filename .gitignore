@@ -5,8 +5,9 @@ release/
 .vscode/
 .DS_Store
 build/
+cache/
 
-Local .terraform directories
+# Local .terraform directories
 **/.terraform
 
 # .tfstate files
@@ -45,3 +46,6 @@ integration_test/**/*.txt
 # Coverage Files
 coverage.html
 coverage.out
+
+# example artifacts
+example/cosmwasm/echo/target

@@ -14,6 +14,7 @@ import (
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -61,10 +62,11 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 		aclsdktypes.ResourceType_KV_DEX_MEM_DEPOSIT: dextypes.KeyPrefix(dextypes.MemDepositKey),
 	},
 	banktypes.StoreKey: {
-		aclsdktypes.ResourceType_KV_BANK:          aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_KV_BANK_BALANCES: banktypes.BalancesPrefix,
-		aclsdktypes.ResourceType_KV_BANK_SUPPLY:   banktypes.SupplyKey,
-		aclsdktypes.ResourceType_KV_BANK_DENOM:    banktypes.DenomMetadataPrefix,
+		aclsdktypes.ResourceType_KV_BANK:             aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV_BANK_BALANCES:    banktypes.BalancesPrefix,
+		aclsdktypes.ResourceType_KV_BANK_SUPPLY:      banktypes.SupplyKey,
+		aclsdktypes.ResourceType_KV_BANK_DENOM:       banktypes.DenomMetadataPrefix,
+		aclsdktypes.ResourceType_KV_BANK_WEI_BALANCE: banktypes.WeiBalancesPrefix,
 	},
 	banktypes.DeferredCacheStoreKey: {
 		aclsdktypes.ResourceType_KV_BANK_DEFERRED:                 aclsdktypes.EmptyPrefix,
@@ -149,5 +151,19 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 		aclsdktypes.ResourceType_KV_WASM_CONTRACT_CODE_HISTORY: wasmtypes.ContractCodeHistoryElementPrefix,
 		aclsdktypes.ResourceType_KV_WASM_CONTRACT_BY_CODE_ID:   wasmtypes.ContractByCodeIDAndCreatedSecondaryIndexPrefix,
 		aclsdktypes.ResourceType_KV_WASM_PINNED_CODE_INDEX:     wasmtypes.PinnedCodeIndexPrefix,
+	},
+	evmtypes.StoreKey: {
+		aclsdktypes.ResourceType_KV_EVM:                   aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_BALANCE:           aclsdktypes.EmptyPrefix, // EVM_BALANCE is deprecated and not used anymore
+		aclsdktypes.ResourceType_KV_EVM_TRANSIENT:         evmtypes.TransientStateKeyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_ACCOUNT_TRANSIENT: evmtypes.AccountTransientStateKeyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_MODULE_TRANSIENT:  evmtypes.TransientModuleStateKeyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_NONCE:             evmtypes.NonceKeyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_RECEIPT:           evmtypes.ReceiptKeyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_S2E:               evmtypes.SeiAddressToEVMAddressKeyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_E2S:               evmtypes.EVMAddressToSeiAddressKeyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_CODE_HASH:         evmtypes.CodeHashKeyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_CODE:              evmtypes.CodeKeyPrefix,
+		aclsdktypes.ResourceType_KV_EVM_CODE_SIZE:         evmtypes.CodeSizeKeyPrefix,
 	},
 }

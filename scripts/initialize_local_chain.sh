@@ -36,7 +36,7 @@ make install
 ~/go/bin/seid init demo --chain-id sei-chain
 ~/go/bin/seid keys add $keyname --keyring-backend test
 # add the key as a genesis account with massive balances of several different tokens
-~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom
+~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom --keyring-backend test
 # gentx for account
 ~/go/bin/seid gentx $keyname 7000000000000000usei --chain-id sei-chain --keyring-backend test
 # add validator information to genesis file
@@ -76,6 +76,12 @@ else
   CONFIG_PATH="$HOME/.sei/config/config.toml"
 fi
 
+if [ ! -z "$2" ]; then
+  APP_PATH="$2"
+else
+  APP_PATH="$HOME/.sei/config/app.toml"
+fi
+
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   sed -i 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
   sed -i 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
@@ -83,6 +89,7 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   sed -i 's/timeout_precommit =.*/timeout_precommit = "2000ms"/g' $CONFIG_PATH
   sed -i 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
   sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
+  # sed -i 's/slow = false/slow = true/g' $APP_PATH
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
   sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
@@ -91,6 +98,7 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/unsafe-vote-timeout-override =.*/unsafe-vote-timeout-override = "2s"/g' $CONFIG_PATH
   sed -i '' 's/unsafe-vote-timeout-delta-override =.*/unsafe-vote-timeout-delta-override = "2s"/g' $CONFIG_PATH
   sed -i '' 's/unsafe-commit-timeout-override =.*/unsafe-commit-timeout-override = "2s"/g' $CONFIG_PATH
+  # sed -i '' 's/slow = false/slow = true/g' $APP_PATH
 else
   printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
   printf "###         Consensus Configuration Options         ###\n"
