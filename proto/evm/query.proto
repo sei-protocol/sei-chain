@@ -22,6 +22,7 @@ message QuerySeiAddressByEVMAddressRequest {
 
 message QuerySeiAddressByEVMAddressResponse {
     string sei_address = 1;
+    bool associated = 2;
 }
 
 message QueryEVMAddressBySeiAddressRequest {
@@ -30,4 +31,5 @@ message QueryEVMAddressBySeiAddressRequest {
 
 message QueryEVMAddressBySeiAddressResponse {
     string evm_address = 1;
+    bool associated = 2;
 }

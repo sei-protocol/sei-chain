@@ -49,3 +49,4 @@ coverage.out
 
 # example artifacts
 example/cosmwasm/echo/target
+example/cosmwasm/cw20/target
