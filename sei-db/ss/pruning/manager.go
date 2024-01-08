@@ -1,6 +1,7 @@
 package pruning
 
 import (
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -47,7 +48,7 @@ func (m *Manager) Start() {
 				if err := m.stateStore.Prune(pruneVersion); err != nil {
 					m.logger.Error("failed to prune versions till", "version", pruneVersion, "err", err)
 				}
-				m.logger.Info("Pruned state store till version %d took %s\n", pruneVersion, time.Since(pruneStartTime))
+				m.logger.Info(fmt.Sprintf("Pruned state store till version %d took %s\n", pruneVersion, time.Since(pruneStartTime)))
 			}
 
 			// Generate a random percentage (between 0% and 100%) of the fixed interval as a delay
