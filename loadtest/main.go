@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -40,6 +42,14 @@ const (
 )
 
 var FromMili = sdk.NewDec(1000000)
+
+type BlockData struct {
+	Txs []string `json:"txs"`
+}
+
+type BlockHeader struct {
+	Time string `json:"time"`
+}
 
 func init() {
 	cdc := codec.NewLegacyAmino()
@@ -95,6 +105,10 @@ func startLoadtestWorkers(config Config) {
 	start := time.Now()
 	var producedCount int64 = 0
 	var sentCount int64 = 0
+	var blockHeights []int
+	var blockTimes []string
+	var txCounts []int
+	var startHeight = getLastHeight(config.BlockchainEndpoint)
 	fmt.Printf("Starting loadtest producers\n")
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
@@ -111,7 +125,23 @@ func startLoadtestWorkers(config Config) {
 		for {
 			select {
 			case <-ticker.C:
-				printStats(start, &producedCount, &sentCount)
+				currHeight := getLastHeight(config.BlockchainEndpoint)
+
+				for i := startHeight; i <= currHeight; i++ {
+					numTxs, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
+					if err != nil {
+						fmt.Printf("Encountered error scraping data: %s\n", err)
+						return
+					}
+					blockHeights = append(blockHeights, i)
+					blockTimes = append(blockTimes, blockTime)
+					txCounts = append(txCounts, numTxs)
+				}
+
+				printStats(start, &producedCount, &sentCount, blockHeights, blockTimes, txCounts)
+				startHeight = currHeight
+				start = time.Now()
+
 			case <-done:
 				ticker.Stop()
 				return
@@ -126,15 +156,19 @@ func startLoadtestWorkers(config Config) {
 	wg.Wait()
 	close(txQueue)
 	fmt.Println("Final stats:")
-	printStats(start, &producedCount, &sentCount)
+	printStats(start, &producedCount, &sentCount, blockHeights, blockTimes, txCounts)
 }
 
-func printStats(startTime time.Time, producedCount *int64, sentCount *int64) {
+func printStats(startTime time.Time, producedCount *int64, sentCount *int64, blockHeights []int, blockTimes []string, txCounts []int) {
 	elapsed := time.Since(startTime)
 	produced := atomic.LoadInt64(producedCount)
 	sent := atomic.LoadInt64(sentCount)
-	sentTPS := float64(sent) / elapsed.Seconds()
-	fmt.Printf("Time: %v, Produced: %d, Sent: %d, TPS: %f\n", elapsed, produced, sent, sentTPS)
+	totalTxs := 0
+	for _, txCount := range txCounts {
+		totalTxs += txCount
+	}
+	tps := float64(totalTxs) / elapsed.Seconds()
+	fmt.Printf("High Level - Time: %v, Produced: %d, Sent: %d, TPS: %f\nBreakdown - Block Heights %v, Block Times: %v", elapsed, produced, sent, tps, blockHeights, blockTimes)
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors
@@ -540,6 +574,35 @@ func getLastHeight(blockchainEndpoint string) int {
 		panic(err)
 	}
 	return height
+}
+
+func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, error) {
+
+	resp, err := http.Get(blockchainEndpoint + "/block?height=" + height)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return 0, "", err
+	}
+
+	var blockResponse struct {
+		Result struct {
+			Block struct {
+				Header BlockHeader `json:"header"`
+				Data   BlockData   `json:"data"`
+			} `json:"block"`
+		} `json:"result"`
+	}
+	err = json.Unmarshal(body, &blockResponse)
+	if err != nil {
+		return 0, "", err
+	}
+
+	return len(blockResponse.Result.Block.Data.Txs), blockResponse.Result.Block.Header.Time, nil
 }
 
 func GetDefaultConfigFilePath() string {
