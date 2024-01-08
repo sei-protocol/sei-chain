@@ -5,7 +5,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
@@ -41,9 +40,6 @@ func (s *MetricsServer) StartMetricsClient(config Config) {
 		EnableHostnameLabel:     true,
 		EnableServiceLabel:      true,
 		PrometheusRetentionTime: 600,
-		GlobalLabels: [][]string{
-			{"constant_mode", strconv.FormatBool(config.Constant)},
-		},
 	})
 	if err != nil {
 		panic(err)

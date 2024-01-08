@@ -45,7 +45,6 @@ type Config struct {
 	ContractDistr      ContractDistributions `json:"contract_distribution"`
 	PerMessageConfigs  MessageConfigs        `json:"message_configs"`
 	MetricsPort        uint64                `json:"metrics_port"`
-	Constant           bool                  `json:"constant"`
 	TLS                bool                  `json:"tls"`
 }
 

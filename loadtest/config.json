@@ -1,9 +1,9 @@
 {
     "grpc_endpoints": "127.0.0.1:9090",
-    "blockchain_endpoint": "http://localhost:26657/blockchain",
+    "blockchain_endpoint": "http://localhost:26657",
     "node_uri": "tcp://localhost:26657",
     "tls": false,
-    "msgs_per_tx": 10,
+    "msgs_per_tx": 1,
     "chain_id": "sei-loadtest-testnet",
     "target_tps": 500,
     "price_distribution": {
@@ -41,8 +41,6 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
-    "constant": true,
-    "loadtest_interval": 600,
     "message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
     "run_oracle": false,
     "metrics_port": 9695,
