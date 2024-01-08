@@ -25,6 +25,7 @@ import (
 	"github.com/sei-protocol/sei-db/sc"
 	sctypes "github.com/sei-protocol/sei-db/sc/types"
 	"github.com/sei-protocol/sei-db/ss"
+	"github.com/sei-protocol/sei-db/ss/pruning"
 	sstypes "github.com/sei-protocol/sei-db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/log"
@@ -46,6 +47,7 @@ type Store struct {
 	storeKeys      map[string]types.StoreKey
 	ckvStores      map[types.StoreKey]types.CommitKVStore
 	pendingChanges chan VersionedChangesets
+	pruningManager *pruning.Manager
 }
 
 type VersionedChangesets struct {
@@ -78,6 +80,9 @@ func NewStore(
 		}
 		store.ssStore = ssStore
 		go store.StateStoreCommit()
+		store.pruningManager = pruning.NewPruningManager(
+			logger, ssStore, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds))
+		store.pruningManager.Start()
 	}
 	return store
 
