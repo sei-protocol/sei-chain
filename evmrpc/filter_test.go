@@ -201,7 +201,6 @@ func TestFilterGetLogs(t *testing.T) {
 }
 
 func TestFilterGetFilterLogs(t *testing.T) {
-	t.Parallel()
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x4",
 		"toBlock":   "0x4",
