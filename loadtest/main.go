@@ -168,7 +168,18 @@ func printStats(startTime time.Time, producedCount *int64, sentCount *int64, blo
 		totalTxs += txCount
 	}
 	tps := float64(totalTxs) / elapsed.Seconds()
-	fmt.Printf("High Level - Time: %v, Produced: %d, Sent: %d, TPS: %f\nBreakdown - Block Heights %v, Block Times: %v\n", elapsed, produced, sent, tps, blockHeights, blockTimes)
+	var totalDuration time.Duration
+	var prevTime time.Time
+	for i, blockTimeStr := range blockTimes {
+		blockTime, _ := time.Parse(time.RFC3339Nano, blockTimeStr)
+		if i > 0 {
+			duration := blockTime.Sub(prevTime)
+			totalDuration += duration
+		}
+		prevTime = blockTime
+	}
+	avgDuration := totalDuration.Milliseconds() / int64(len(blockTimes)-1)
+	fmt.Printf("High Level - Time: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\n Block Heights %v\n", elapsed, produced, sent, tps, avgDuration, blockHeights)
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors
