@@ -6,7 +6,6 @@
     "msgs_per_tx": 10,
     "chain_id": "sei-loadtest-testnet",
     "target_tps": 500,
-    "rounds": 5,
     "price_distribution": {
         "min": "45",
         "max": "55",
