@@ -101,7 +101,7 @@ func startLoadtestWorkers(config Config) {
 		numTxsPerProducerPerSecond = int(config.TargetTps) / numProducers
 	}
 
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	start := time.Now()
 	var producedCount int64 = 0
 	var sentCount int64 = 0
@@ -156,8 +156,6 @@ func startLoadtestWorkers(config Config) {
 	close(done)
 	wg.Wait()
 	close(txQueue)
-	fmt.Println("Final stats:")
-	printStats(start, &producedCount, &sentCount, blockHeights, blockTimes, txCounts)
 }
 
 func printStats(startTime time.Time, producedCount *int64, sentCount *int64, blockHeights []int, blockTimes []string, txCounts []int) {
@@ -181,7 +179,7 @@ func printStats(startTime time.Time, producedCount *int64, sentCount *int64, blo
 	}
 	if len(blockTimes)-1 < 1 {
 
-		fmt.Printf("Unable to calculate stats, not enough data. Skipping...")
+		fmt.Printf("Unable to calculate stats, not enough data. Skipping...\n")
 	} else {
 		avgDuration := totalDuration.Milliseconds() / int64(len(blockTimes)-1)
 		fmt.Printf("High Level - Time: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, produced, sent, tps, avgDuration, blockHeights)
