@@ -141,6 +141,7 @@ func startLoadtestWorkers(config Config) {
 				printStats(start, &producedCount, &sentCount, blockHeights, blockTimes, txCounts)
 				startHeight = currHeight
 				start = time.Now()
+				blockHeights, blockTimes, txCounts = nil, nil, nil
 
 			case <-done:
 				ticker.Stop()
@@ -179,7 +180,7 @@ func printStats(startTime time.Time, producedCount *int64, sentCount *int64, blo
 		prevTime = blockTime
 	}
 	avgDuration := totalDuration.Milliseconds() / int64(len(blockTimes)-1)
-	fmt.Printf("High Level - Time: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\n Block Heights %v\n", elapsed, produced, sent, tps, avgDuration, blockHeights)
+	fmt.Printf("High Level - Time: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, produced, sent, tps, avgDuration, blockHeights)
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors
