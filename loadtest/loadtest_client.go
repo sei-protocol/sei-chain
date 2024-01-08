@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"golang.org/x/time/rate"
 	"math"
 	"math/rand"
 	"strings"
@@ -93,21 +94,18 @@ func (c *LoadTestClient) Close() {
 
 func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsPerProducerPerSecond int, wg *sync.WaitGroup, done <-chan struct{}, producedCount *int64) {
 	defer wg.Done()
-	ticker := time.NewTicker(1 * time.Second)
 	config := c.LoadTestConfig
 	accountIdentifier := fmt.Sprint(producerId)
 	accountKeyPath := c.SignerClient.GetTestAccountKeyPath(uint64(producerId))
 	key := c.SignerClient.GetKey(accountIdentifier, "test", accountKeyPath)
-	count := 0
+	rateLimiter := rate.NewLimiter(rate.Limit(numTxsPerProducerPerSecond), numTxsPerProducerPerSecond)
 	for {
 		select {
 		case <-done:
 			fmt.Printf("Stopping producer %d\n", producerId)
 			return
-		case <-ticker.C:
-			count = 0
 		default:
-			if count < numTxsPerProducerPerSecond {
+			if rateLimiter.Allow() {
 				msgs, _, _, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
 				txBuilder := TestConfig.TxConfig.NewTxBuilder()
 				_ = txBuilder.SetMsgs(msgs...)
@@ -121,7 +119,6 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsP
 				txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
 				txQueue <- txBytes
 				atomic.AddInt64(producedCount, 1)
-				count++
 			}
 		}
 	}
