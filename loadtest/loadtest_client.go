@@ -140,7 +140,7 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, consumerId int, wg *sync
 			if !ok {
 				fmt.Printf("Stopping consumer %d\n", consumerId)
 			}
-			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
+			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
 		}
 	}
 }
