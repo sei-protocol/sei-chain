@@ -587,24 +587,23 @@ func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, erro
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Printf("Error parasing block data: %s\n", err)
+		fmt.Printf("Error reading block data: %s\n", err)
 		return 0, "", err
 	}
 
 	var blockResponse struct {
-		Result struct {
-			Block struct {
-				Header BlockHeader `json:"header"`
-				Data   BlockData   `json:"data"`
-			} `json:"block"`
-		} `json:"result"`
+		Block struct {
+			Header BlockHeader `json:"header"`
+			Data   BlockData   `json:"data"`
+		} `json:"block"`
 	}
 	err = json.Unmarshal(body, &blockResponse)
 	if err != nil {
+		fmt.Printf("Error reading block data: %s\n", err)
 		return 0, "", err
 	}
 
-	return len(blockResponse.Result.Block.Data.Txs), blockResponse.Result.Block.Header.Time, nil
+	return len(blockResponse.Block.Data.Txs), blockResponse.Block.Header.Time, nil
 }
 
 func GetDefaultConfigFilePath() string {
