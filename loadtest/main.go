@@ -168,7 +168,7 @@ func printStats(startTime time.Time, producedCount *int64, sentCount *int64, blo
 		totalTxs += txCount
 	}
 	tps := float64(totalTxs) / elapsed.Seconds()
-	fmt.Printf("High Level - Time: %v, Produced: %d, Sent: %d, TPS: %f\nBreakdown - Block Heights %v, Block Times: %v", elapsed, produced, sent, tps, blockHeights, blockTimes)
+	fmt.Printf("High Level - Time: %v, Produced: %d, Sent: %d, TPS: %f\nBreakdown - Block Heights %v, Block Times: %v\n", elapsed, produced, sent, tps, blockHeights, blockTimes)
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors
@@ -580,12 +580,14 @@ func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, erro
 
 	resp, err := http.Get(blockchainEndpoint + "/block?height=" + height)
 	if err != nil {
+		fmt.Printf("Error query block data: %s\n", err)
 		return 0, "", err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		fmt.Printf("Error parasing block data: %s\n", err)
 		return 0, "", err
 	}
 
