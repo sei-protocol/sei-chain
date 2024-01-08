@@ -182,7 +182,7 @@ func printStats(startTime time.Time, producedCount *int64, sentCount *int64, blo
 		fmt.Printf("Unable to calculate stats, not enough data. Skipping...\n")
 	} else {
 		avgDuration := totalDuration.Milliseconds() / int64(len(blockTimes)-1)
-		fmt.Printf("High Level - Time: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, produced, sent, tps, avgDuration, blockHeights)
+		fmt.Printf("High Level - Time Elapsed: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, produced, sent, tps, avgDuration, blockHeights)
 	}
 }
 
