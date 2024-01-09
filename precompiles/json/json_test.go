@@ -1,6 +1,7 @@
 package json_test
 
 import (
+	"math/big"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -84,5 +85,39 @@ func TestExtractAsBytesList(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, 1, len(output))
 		require.Equal(t, output[0].([][]byte), test.expectedOutput)
+	}
+}
+
+func TestExtractAsUint256(t *testing.T) {
+	stateDB := &state.DBImpl{}
+	stateDB.WithCtx(sdk.Context{})
+	evm := &vm.EVM{StateDB: stateDB}
+	p, err := json.NewPrecompile()
+	require.Nil(t, err)
+	method, err := p.MethodById(p.ExtractAsUint256ID)
+	require.Nil(t, err)
+	n := new(big.Int)
+	n.SetString("12345678901234567890", 10)
+	for _, test := range []struct {
+		body           []byte
+		expectedOutput *big.Int
+	}{
+		{
+			[]byte("{\"key\":\"12345678901234567890\"}"),
+			n,
+		}, {
+			[]byte("{\"key\":\"0\"}"),
+			big.NewInt(0),
+		},
+	} {
+		args, err := method.Inputs.Pack(test.body, "key")
+		require.Nil(t, err)
+		input := append(p.ExtractAsUint256ID, args...)
+		res, err := p.Run(evm, common.Address{}, input)
+		require.Nil(t, err)
+		output, err := method.Outputs.Unpack(res)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(output))
+		require.Equal(t, 0, output[0].(*big.Int).Cmp(test.expectedOutput))
 	}
 }

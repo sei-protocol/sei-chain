@@ -5,6 +5,8 @@ import (
 	"embed"
 	gjson "encoding/json"
 	"fmt"
+	"math/big"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -17,6 +19,7 @@ import (
 const (
 	ExtractAsBytesMethod     = "extractAsBytes"
 	ExtractAsBytesListMethod = "extractAsBytesList"
+	ExtractAsUint256Method   = "extractAsUint256"
 )
 
 const JSONAddress = "0x0000000000000000000000000000000000001003"
@@ -35,6 +38,7 @@ type Precompile struct {
 
 	ExtractAsBytesID     []byte
 	ExtractAsBytesListID []byte
+	ExtractAsUint256ID   []byte
 }
 
 func NewPrecompile() (*Precompile, error) {
@@ -59,6 +63,8 @@ func NewPrecompile() (*Precompile, error) {
 			p.ExtractAsBytesID = m.ID
 		case ExtractAsBytesListMethod:
 			p.ExtractAsBytesListID = m.ID
+		case ExtractAsUint256Method:
+			p.ExtractAsUint256ID = m.ID
 		}
 	}
 
@@ -89,6 +95,14 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte) (bz []byte,
 		return p.extractAsBytes(ctx, method, args)
 	case ExtractAsBytesListMethod:
 		return p.extractAsBytesList(ctx, method, args)
+	case ExtractAsUint256Method:
+		byteArr := make([]byte, 32)
+		uint_, err := p.ExtractAsUint256(ctx, method, args)
+		if err != nil {
+			return nil, err
+		}
+		uint_.FillBytes(byteArr)
+		return byteArr, nil
 	}
 	return
 }
@@ -127,4 +141,32 @@ func (p Precompile) extractAsBytesList(_ sdk.Context, method *abi.Method, args [
 	}
 
 	return method.Outputs.Pack(utils.Map(result, func(r gjson.RawMessage) []byte { return []byte(r) }))
+}
+
+func (p Precompile) ExtractAsUint256(_ sdk.Context, _ *abi.Method, args []interface{}) (*big.Int, error) {
+	pcommon.AssertArgsLength(args, 2)
+
+	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
+	bz := args[0].([]byte)
+	decoded := map[string]gjson.RawMessage{}
+	if err := gjson.Unmarshal(bz, &decoded); err != nil {
+		return nil, err
+	}
+	key := args[1].(string)
+	result, ok := decoded[key]
+	if !ok {
+		return nil, fmt.Errorf("input does not contain key %s", key)
+	}
+
+	// Assuming result is your byte slice
+	// Convert byte slice to string and trim quotation marks
+	strValue := strings.Trim(string(result), "\"")
+
+	// Convert the string to big.Int
+	value, success := new(big.Int).SetString(strValue, 10)
+	if !success {
+		return nil, fmt.Errorf("failed to convert %s to big.Int", strValue)
+	}
+
+	return value, nil
 }
