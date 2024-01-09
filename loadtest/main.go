@@ -95,11 +95,6 @@ func startLoadtestWorkers(config Config) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
-	numTxsPerProducerPerSecond := 1
-	if int(config.TargetTps) > numProducers {
-		numTxsPerProducerPerSecond = int(config.TargetTps) / numProducers
-	}
-
 	ticker := time.NewTicker(5 * time.Second)
 	start := time.Now()
 	var producedCount int64 = 0
@@ -111,11 +106,11 @@ func startLoadtestWorkers(config Config) {
 	fmt.Printf("Starting loadtest producers\n")
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
-		go client.BuildTxs(txQueue, i, numTxsPerProducerPerSecond, &wg, done, &producedCount)
+		go client.BuildTxs(txQueue, i, &wg, done, &producedCount)
 	}
 
 	fmt.Printf("Starting loadtest consumers\n")
-	go client.SendTxs(txQueue, done, &sentCount)
+	go client.SendTxs(txQueue, done, &sentCount, int(config.TargetTps))
 	// Statistics reporting goroutine
 	go func() {
 		for {
