@@ -106,7 +106,6 @@ func startLoadtestWorkers(config Config) {
 	var sentCount int64 = 0
 	var blockHeights []int
 	var blockTimes []string
-	var txCounts []int
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
 	fmt.Printf("Starting loadtest producers\n")
 	for i := 0; i < numProducers; i++ {
@@ -124,20 +123,19 @@ func startLoadtestWorkers(config Config) {
 				currHeight := getLastHeight(config.BlockchainEndpoint)
 
 				for i := startHeight; i <= currHeight; i++ {
-					numTxs, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
+					_, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
 					if err != nil {
 						fmt.Printf("Encountered error scraping data: %s\n", err)
 						return
 					}
 					blockHeights = append(blockHeights, i)
 					blockTimes = append(blockTimes, blockTime)
-					txCounts = append(txCounts, numTxs)
 				}
 
-				printStats(start, &producedCount, &sentCount, blockHeights, blockTimes, txCounts)
+				printStats(start, &producedCount, &sentCount, blockHeights, blockTimes)
 				startHeight = currHeight
 				start = time.Now()
-				blockHeights, blockTimes, txCounts = nil, nil, nil
+				blockHeights, blockTimes = nil, nil
 
 			case <-done:
 				ticker.Stop()
@@ -154,15 +152,11 @@ func startLoadtestWorkers(config Config) {
 	close(txQueue)
 }
 
-func printStats(startTime time.Time, producedCount *int64, sentCount *int64, blockHeights []int, blockTimes []string, txCounts []int) {
+func printStats(startTime time.Time, producedCount *int64, sentCount *int64, blockHeights []int, blockTimes []string) {
 	elapsed := time.Since(startTime)
 	produced := atomic.LoadInt64(producedCount)
 	sent := atomic.LoadInt64(sentCount)
-	totalTxs := 0
-	for _, txCount := range txCounts {
-		totalTxs += txCount
-	}
-	tps := float64(totalTxs) / elapsed.Seconds()
+	tps := float64(sent) / elapsed.Seconds()
 	var totalDuration time.Duration
 	var prevTime time.Time
 	for i, blockTimeStr := range blockTimes {
