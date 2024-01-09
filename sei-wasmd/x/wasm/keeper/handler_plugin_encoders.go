@@ -21,7 +21,7 @@ import (
 
 type (
 	BankEncoder         func(sender sdk.AccAddress, msg *wasmvmtypes.BankMsg) ([]sdk.Msg, error)
-	CustomEncoder       func(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error)
+	CustomEncoder       func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error)
 	DistributionEncoder func(sender sdk.AccAddress, msg *wasmvmtypes.DistributionMsg) ([]sdk.Msg, error)
 	StakingEncoder      func(sender sdk.AccAddress, msg *wasmvmtypes.StakingMsg) ([]sdk.Msg, error)
 	StargateEncoder     func(sender sdk.AccAddress, msg *wasmvmtypes.StargateMsg) ([]sdk.Msg, error)
@@ -31,7 +31,7 @@ type (
 
 type MessageEncoders struct {
 	Bank         func(sender sdk.AccAddress, msg *wasmvmtypes.BankMsg) ([]sdk.Msg, error)
-	Custom       func(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error)
+	Custom       func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error)
 	Distribution func(sender sdk.AccAddress, msg *wasmvmtypes.DistributionMsg) ([]sdk.Msg, error)
 	IBC          func(ctx sdk.Context, sender sdk.AccAddress, contractIBCPortID string, msg *wasmvmtypes.IBCMsg) ([]sdk.Msg, error)
 	Staking      func(sender sdk.AccAddress, msg *wasmvmtypes.StakingMsg) ([]sdk.Msg, error)
@@ -84,12 +84,12 @@ func (e MessageEncoders) Merge(o *MessageEncoders) MessageEncoders {
 	return e
 }
 
-func (e MessageEncoders) Encode(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg) ([]sdk.Msg, error) {
+func (e MessageEncoders) Encode(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error) {
 	switch {
 	case msg.Bank != nil:
 		return e.Bank(contractAddr, msg.Bank)
 	case msg.Custom != nil:
-		return e.Custom(contractAddr, msg.Custom)
+		return e.Custom(contractAddr, msg.Custom, info)
 	case msg.Distribution != nil:
 		return e.Distribution(contractAddr, msg.Distribution)
 	case msg.IBC != nil:
@@ -125,7 +125,7 @@ func EncodeBankMsg(sender sdk.AccAddress, msg *wasmvmtypes.BankMsg) ([]sdk.Msg, 
 	return []sdk.Msg{&sdkMsg}, nil
 }
 
-func NoCustomMsg(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
+func NoCustomMsg(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error) {
 	return nil, sdkerrors.Wrap(types.ErrUnknownMsg, "custom variant not supported")
 }
 
