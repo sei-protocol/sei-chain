@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
@@ -69,8 +69,8 @@ func init() {
 
 func run(config Config) {
 	// Start metrics collector in another thread
-	//metricsServer := MetricsServer{}
-	//go metricsServer.StartMetricsClient(config)
+	metricsServer := MetricsServer{}
+	go metricsServer.StartMetricsClient(config)
 
 	startLoadtestWorkers(config)
 }
@@ -575,7 +575,7 @@ func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, erro
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Printf("Error reading block data: %s\n", err)
 		return 0, "", err
