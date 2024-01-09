@@ -167,10 +167,10 @@ func (itr *iterator) Next() {
 		if bytes.Equal(tmpKey, currKey) {
 			if itr.source.NextPrefix() {
 				itr.Next()
+			} else {
+				itr.valid = false
+				return
 			}
-
-			itr.valid = false
-			return
 		}
 
 		// The cursor might now be pointing at a key/value pair that is tombstoned.

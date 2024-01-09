@@ -388,16 +388,12 @@ func (s *StorageTestSuite) TestDatabaseIteratorLooping() {
 
 	defer itr.Close()
 
-	// All keys should be present; All odd keys should have a value that reflects
-	// version 49, and all even keys should have a value that reflects the desired
-	// version, 69.
 	count := 0
 	for ; itr.Valid(); itr.Next() {
-		fmt.Printf("itr key %+X\n", itr.Key())
 		count++
 	}
 
-	s.Require().Equal(1, count)
+	s.Require().Equal(3, count)
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorNoDomain() {
