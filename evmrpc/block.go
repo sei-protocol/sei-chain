@@ -47,8 +47,17 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	if err != nil {
 		return nil
 	}
-	cnt := hexutil.Uint(len(block.Block.Txs))
-	return &cnt
+	cnt := 0
+	// Only count eth txs
+	for _, tx := range block.Block.Txs {
+		ethtx := getEthTxForTxBz(tx, a.txConfig.TxDecoder())
+		if ethtx != nil {
+			cnt += 1
+		}
+
+	}
+	cntHex := hexutil.Uint(cnt)
+	return &cntHex
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (map[string]interface{}, error) {
