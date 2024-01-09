@@ -329,9 +329,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			indices = append(indices, i)
 		}
 		rand.Shuffle(100, func(i, j int) {
-			temp := indices[i]
-			indices[i] = indices[j]
-			indices[j] = temp
+			indices[i], indices[j] = indices[j], indices[i]
 		})
 		values := [][]uint64{}
 		num_values := rand.Int()%100 + 1
@@ -356,9 +354,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		start := rand.Uint32() % 100
 		end := rand.Uint32() % 100
 		if start > end {
-			temp := start
-			start = end
-			end = temp
+			start, end = end, start
 		}
 		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
 			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
