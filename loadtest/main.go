@@ -89,7 +89,6 @@ func startLoadtestWorkers(config Config) {
 	txQueue := make(chan []byte, 10000)
 	done := make(chan struct{})
 	numProducers := 5
-	numConsumers := 5
 	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
@@ -116,7 +115,7 @@ func startLoadtestWorkers(config Config) {
 	}
 
 	fmt.Printf("Starting loadtest consumers\n")
-	go client.SendTxs(txQueue, &wg, done, &sentCount)
+	go client.SendTxs(txQueue, done, &sentCount)
 	// Statistics reporting goroutine
 	go func() {
 		for {
