@@ -165,10 +165,8 @@ func (itr *iterator) Next() {
 		// There exists cases where the SeekLT() call moved us back to the same key
 		// we started at, so we must move to next key, i.e. two keys forward.
 		if bytes.Equal(tmpKey, currKey) {
-			if itr.source.SeekGE(MVCCEncode(nextKey, 0)) {
-				if itr.source.NextPrefix() {
-					itr.Next()
-				}
+			if itr.source.NextPrefix() {
+				itr.Next()
 			}
 
 			itr.valid = false

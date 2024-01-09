@@ -380,6 +380,8 @@ func (s *StorageTestSuite) TestDatabaseIteratorLooping() {
 	// Both below are greater
 	s.Require().NoError(DBApplyChangeset(db, 58833605, storeKey1, [][]byte{[]byte("keyC")}, [][]byte{[]byte("value004")}))
 	s.Require().NoError(DBApplyChangeset(db, 58833606, storeKey1, [][]byte{[]byte("keyD")}, [][]byte{[]byte("value006")}))
+	s.Require().NoError(DBApplyChangeset(db, 58827507, storeKey1, [][]byte{[]byte("keyE")}, [][]byte{[]byte("value006")}))
+	s.Require().NoError(DBApplyChangeset(db, 58827508, storeKey1, [][]byte{[]byte("keyF")}, [][]byte{[]byte("value007")}))
 
 	itr, err := db.Iterator(storeKey1, 58831525, []byte("keyA"), nil)
 	s.Require().NoError(err)
@@ -391,6 +393,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorLooping() {
 	// version, 69.
 	count := 0
 	for ; itr.Valid(); itr.Next() {
+		fmt.Printf("itr key %+X\n", itr.Key())
 		count++
 	}
 
