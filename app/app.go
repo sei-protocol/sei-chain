@@ -1360,16 +1360,20 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	// TODO after OCC release, remove this check and call ProcessTXsWithOCC directly
 	if ctx.IsOCCEnabled() {
-		return app.ProcessTXsWithOCC(ctx, txs)
+		return app.ProcessTXsWithOCC(ctx, txs, typedTxs)
 	}
 	return app.BuildDependenciesAndRunTxs(ctx, txs, typedTxs, absoluteIndices)
 }
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
-func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
+func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	for txIndex, tx := range txs {
-		deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
+		deliverTxEntry := &sdk.DeliverTxEntry{
+			Request:  abci.RequestDeliverTx{Tx: tx},
+			SdkTx:    typedTxs[txIndex],
+			Checksum: sha256.Sum256(tx),
+		}
 		// get prefill estimate
 		estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.txDecoder, app.GetAnteDepGenerator(), txIndex, tx)
 		// if no error, then we assign the mapped writesets for prefill estimate
