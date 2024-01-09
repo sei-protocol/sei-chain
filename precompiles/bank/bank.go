@@ -8,7 +8,6 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -19,7 +18,6 @@ import (
 const (
 	SendMethod           = "send"
 	SendFromCallerMethod = "sendFromCaller"
-	SendFromOriginMethod = "sendFromOrigin"
 	BalanceMethod        = "balance"
 	NameMethod           = "name"
 	SymbolMethod         = "symbol"
@@ -78,8 +76,6 @@ func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (
 			p.SendID = m.ID
 		case SendFromCallerMethod:
 			p.SendFromCallerID = m.ID
-		case SendFromOriginMethod:
-			p.SendFromOriginID = m.ID
 		case "balance":
 			p.BalanceID = m.ID
 		case "name":
@@ -127,8 +123,6 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 		return p.send(ctx, method, args)
 	case SendFromCallerMethod:
 		return p.send(ctx, method, append([]interface{}{caller}, args...))
-	case SendFromOriginMethod:
-		return p.send(ctx, method, append([]interface{}{evm.TxContext.Origin}, args...))
 	case BalanceMethod:
 		return p.balance(ctx, method, args)
 	case NameMethod:
@@ -248,8 +242,6 @@ func (Precompile) IsTransaction(method string) bool {
 	case SendMethod:
 		return true
 	case SendFromCallerMethod:
-		return true
-	case SendFromOriginMethod:
 		return true
 	default:
 		return false
