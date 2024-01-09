@@ -5,6 +5,12 @@ import "gogoproto/gogo.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
+message Log {
+  string address = 1;
+  repeated string topics = 2;
+  bytes data = 3;
+}
+
 message Receipt {
     uint32 tx_type = 1 [
       (gogoproto.moretags) = "yaml:\"tx_type\""
@@ -42,4 +48,6 @@ message Receipt {
       string vm_error = 12 [
         (gogoproto.moretags) = "yaml:\"vm_error\""
       ];
+      repeated Log logs = 13;
+      bytes logsBloom = 14;
 }
