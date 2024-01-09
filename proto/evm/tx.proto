@@ -29,6 +29,7 @@ message MsgInternalEVMCall {
   ];
   string to = 3;
   bytes data = 4;
+  string fromContract = 5;
 }
 
 message MsgInternalEVMCallResponse {}
