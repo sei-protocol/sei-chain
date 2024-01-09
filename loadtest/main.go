@@ -104,6 +104,7 @@ func startLoadtestWorkers(config Config) {
 	start := time.Now()
 	var producedCount int64 = 0
 	var sentCount int64 = 0
+	var prevSentCount int64 = 0
 	var blockHeights []int
 	var blockTimes []string
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
@@ -132,7 +133,7 @@ func startLoadtestWorkers(config Config) {
 					blockTimes = append(blockTimes, blockTime)
 				}
 
-				printStats(start, &producedCount, &sentCount, blockHeights, blockTimes)
+				printStats(start, &producedCount, &sentCount, &prevSentCount, blockHeights, blockTimes)
 				startHeight = currHeight
 				start = time.Now()
 				blockHeights, blockTimes = nil, nil
@@ -152,11 +153,12 @@ func startLoadtestWorkers(config Config) {
 	close(txQueue)
 }
 
-func printStats(startTime time.Time, producedCount *int64, sentCount *int64, blockHeights []int, blockTimes []string) {
+func printStats(startTime time.Time, producedCount *int64, sentCount *int64, prevSentCount *int64, blockHeights []int, blockTimes []string) {
 	elapsed := time.Since(startTime)
 	produced := atomic.LoadInt64(producedCount)
 	sent := atomic.LoadInt64(sentCount)
-	tps := float64(sent) / elapsed.Seconds()
+	tps := float64(sent-*prevSentCount) / elapsed.Seconds()
+	prevSentCount = &sent
 	var totalDuration time.Duration
 	var prevTime time.Time
 	for i, blockTimeStr := range blockTimes {
