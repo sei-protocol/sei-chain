@@ -27,7 +27,14 @@ const (
 	WasmMintNft          string = "wasm_mint_nft"
 	Vortex               string = "vortex"
 	WasmInstantiate      string = "wasm_instantiate"
+	WasmOccIteratorWrite string = "wasm_occ_iterator_write"
+	WasmOccIteratorRange string = "wasm_occ_iterator_range"
+	WasmOccParallelWrite string = "wasm_occ_parallel_write"
 )
+
+type WasmIteratorWriteMsg struct {
+	Values [][]uint64 `json:"values"`
+}
 
 type Config struct {
 	ChainID            string                `json:"chain_id"`
@@ -36,7 +43,7 @@ type Config struct {
 	NodeURI            string                `json:"node_uri"`
 	TargetTps          uint64                `json:"target_tps"`
 	MsgsPerTx          uint64                `json:"msgs_per_tx"`
-	MessageType        string                `json:"message_type"`
+	MessageTypes       []string              `json:"message_types"`
 	RunOracle          bool                  `json:"run_oracle"`
 	PriceDistr         NumericDistribution   `json:"price_distribution"`
 	QuantityDistr      NumericDistribution   `json:"quantity_distribution"`
@@ -46,6 +53,7 @@ type Config struct {
 	PerMessageConfigs  MessageConfigs        `json:"message_configs"`
 	MetricsPort        uint64                `json:"metrics_port"`
 	TLS                bool                  `json:"tls"`
+	SeiTesterAddress   string                `json:"sei_tester_address"`
 }
 
 type EncodingConfig struct {
