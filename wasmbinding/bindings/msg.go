@@ -50,5 +50,5 @@ type CancelOrders struct {
 type CallEVM struct {
 	Value *sdk.Int `json:"value"`
 	To    string   `json:"to"`
-	Data  []byte   `json:"data"`
+	Data  string   `json:"data"` // base64
 }
