@@ -1,8 +1,13 @@
 package wasm
 
 import (
+	"encoding/base64"
+	"encoding/json"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
+	"github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
@@ -22,4 +27,26 @@ func (h *EVMQueryHandler) HandleStaticCall(ctx sdk.Context, from string, to stri
 		toAddr = &toSeiAddr
 	}
 	return h.k.StaticCallEVM(ctx, fromAddr, toAddr, data)
+}
+
+func (h *EVMQueryHandler) HandleERC20TransferPayload(ctx sdk.Context, recipient string, amount *sdk.Int) ([]byte, error) {
+	addr, err := sdk.AccAddressFromBech32(recipient)
+	if err != nil {
+		return nil, err
+	}
+	abi, err := artifacts.ArtifactsMetaData.GetAbi()
+	if err != nil {
+		return nil, err
+	}
+	evmAddr, found := h.k.GetEVMAddress(ctx, addr)
+	if !found {
+		evmAddr = common.Address{}
+		evmAddr.SetBytes(addr)
+	}
+	bz, err := abi.Pack("transfer", evmAddr, amount.BigInt())
+	if err != nil {
+		return nil, err
+	}
+	res := bindings.ERC20TransferPayloadResponse{EncodedPayload: base64.StdEncoding.EncodeToString(bz)}
+	return json.Marshal(res)
 }
