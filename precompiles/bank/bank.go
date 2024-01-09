@@ -44,7 +44,6 @@ type Precompile struct {
 
 	SendID           []byte
 	SendFromCallerID []byte
-	SendFromOriginID []byte
 	BalanceID        []byte
 	NameID           []byte
 	SymbolID         []byte
