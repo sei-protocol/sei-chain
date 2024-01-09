@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"golang.org/x/time/rate"
 	"math"
 	"math/rand"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
