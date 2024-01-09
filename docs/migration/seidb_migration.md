@@ -22,7 +22,7 @@ Minimum Specs
 Recommended Specs:
 - CPU: 8 cores or above
 - Memory: 32GB or above
-- Disk: 5000 IOPs & 250MBps or above
+- Disk: 3000 IOPs & 250MBps or above
 - Network: 10Gbps
 
 ## SeiDB Introduction
