@@ -18,7 +18,7 @@ func NewMessageInternalEVMCall(from sdk.AccAddress, to string, value *sdk.Int, d
 }
 
 func (msg *MsgInternalEVMCall) GetSigners() []sdk.AccAddress {
-	return []sdk.AccAddress{sdk.MustAccAddressFromBech32(msg.Sender)}
+	return []sdk.AccAddress{sdk.MustAccAddressFromBech32(msg.FromContract)}
 }
 
 func (msg *MsgInternalEVMCall) ValidateBasic() error {
