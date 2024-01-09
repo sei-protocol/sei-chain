@@ -12,4 +12,6 @@ interface IJson {
     function extractAsBytes(bytes memory input, string memory key) external view returns (bytes memory response);
 
     function extractAsBytesList(bytes memory input, string memory key) external view returns (bytes[] memory response);
+
+    function extractAsUint256(bytes memory input, string memory key) external view returns (uint256 response);
 }
