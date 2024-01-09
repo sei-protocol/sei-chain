@@ -35,17 +35,18 @@ describe("CW20ERC20WrapperTest", function () {
     let cW20ERC20Wrapper;
 
     before(async function () {
+        // fund addresses with SEI
+        console.log("funding addresses with SEI...")
+        await fundwithSei(deployerAddrETH);
+        await fundwithSei(secondAnvilAddrETH);
+        await fundwithSei(thirdAnvilAddrETH);
+
         let signers = await hre.ethers.getSigners();
         const deployer = signers[0];
         deployerAddrETH = await deployer.getAddress();
         deployerAddrSEI = await getSeiAddr(deployerAddrETH);
         console.log("deployer address ETH = ", deployerAddrETH);
         console.log("deployer address SEI = ", deployerAddrSEI);
-
-        // fund addresses with SEI
-        await fundwithSei(deployerAddrETH);
-        await fundwithSei(secondAnvilAddrETH);
-        await fundwithSei(thirdAnvilAddrETH);
 
         console.log("deploying wasm...")
         let codeId = await deployWasm();
