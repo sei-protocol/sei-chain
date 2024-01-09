@@ -375,6 +375,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorLooping() {
 	s.Require().NoError(err)
 	defer db.Close()
 
+	// Forward Iteration
 	// Less than iterator version
 	s.Require().NoError(DBApplyChangeset(db, 58827506, storeKey1, [][]byte{[]byte("keyC")}, [][]byte{[]byte("value003")}))
 	// Both below are greater
@@ -382,6 +383,10 @@ func (s *StorageTestSuite) TestDatabaseIteratorLooping() {
 	s.Require().NoError(DBApplyChangeset(db, 58833606, storeKey1, [][]byte{[]byte("keyD")}, [][]byte{[]byte("value006")}))
 	s.Require().NoError(DBApplyChangeset(db, 58827507, storeKey1, [][]byte{[]byte("keyE")}, [][]byte{[]byte("value006")}))
 	s.Require().NoError(DBApplyChangeset(db, 58827508, storeKey1, [][]byte{[]byte("keyF")}, [][]byte{[]byte("value007")}))
+	// Another case of a loop
+	s.Require().NoError(DBApplyChangeset(db, 58827509, storeKey1, [][]byte{[]byte("keyG")}, [][]byte{[]byte("value008")}))
+	s.Require().NoError(DBApplyChangeset(db, 58831545, storeKey1, [][]byte{[]byte("keyG")}, [][]byte{[]byte("value009")}))
+	s.Require().NoError(DBApplyChangeset(db, 58831565, storeKey1, [][]byte{[]byte("keyH")}, [][]byte{[]byte("value010")}))
 
 	itr, err := db.Iterator(storeKey1, 58831525, []byte("keyA"), nil)
 	s.Require().NoError(err)
@@ -393,7 +398,20 @@ func (s *StorageTestSuite) TestDatabaseIteratorLooping() {
 		count++
 	}
 
-	s.Require().Equal(3, count)
+	s.Require().Equal(4, count)
+
+	// Reverse Iteration
+	itr, err = db.Iterator(storeKey1, 58831525, nil, []byte("keyZ"))
+	s.Require().NoError(err)
+
+	defer itr.Close()
+
+	count = 0
+	for ; itr.Valid(); itr.Next() {
+		count++
+	}
+
+	s.Require().Equal(4, count)
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorNoDomain() {
