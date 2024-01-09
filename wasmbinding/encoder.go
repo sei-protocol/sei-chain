@@ -44,7 +44,7 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage, _ wasmvmtypes.Mes
 	case parsedMessage.SetMetadata != nil:
 		return tokenfactorywasm.EncodeTokenFactorySetMetadata(parsedMessage.SetMetadata, sender)
 	case parsedMessage.CallEVM != nil:
-		return evmwasm.EncodeCallEVM(parsedMessage.CallEVM, sender)
+		return evmwasm.EncodeCallEVM(parsedMessage.CallEVM, sender, info)
 	default:
 		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
 	}
