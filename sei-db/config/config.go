@@ -3,7 +3,7 @@ package config
 const (
 	DefaultSnapshotInterval    = 10000
 	DefaultSnapshotKeepRecent  = 1
-	DefaultSnapshotWriterLimit = 4
+	DefaultSnapshotWriterLimit = 1
 	DefaultAsyncCommitBuffer   = 100
 	DefaultCacheSize           = 100000
 	DefaultSSKeepRecent        = 100000
@@ -69,11 +69,12 @@ type StateStoreConfig struct {
 	AsyncWriteBuffer int `mapstructure:"async-write-buffer"`
 
 	// KeepRecent defines the number of versions to keep in state store
-	// Setting it to 0 means keep all, default to 0
+	// Setting it to 0 means keep everything.
+	// Default to keep the last 100,000 blocks
 	KeepRecent int `mapstructure:"keep-recent"`
 
 	// PruneIntervalSeconds defines the interval in seconds to trigger pruning
-	// default to 60 seconds
+	// default to every 600 seconds
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
 
 	// ImportNumWorkers defines the number of goroutines used during import
