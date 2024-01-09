@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/sei-protocol/sei-db/common/utils"
 )
 
 // MVCCComparer returns a PebbleDB Comparer with encoding and decoding routines
@@ -137,20 +138,25 @@ func (f mvccKeyFormatter) Format(s fmt.State, verb rune) {
 
 // SplitMVCCKey accepts an MVCC key and returns the "user" key, the MVCC version,
 // and a boolean indicating if the provided key is an MVCC key.
+//
+// Note, internally, we must make a copy of the provided mvccKey argument, which
+// typically comes from the Key() method as it's not safe.
 func SplitMVCCKey(mvccKey []byte) (key, version []byte, ok bool) {
 	if len(mvccKey) == 0 {
 		return nil, nil, false
 	}
 
-	n := len(mvccKey) - 1
-	tsLen := int(mvccKey[n])
+	mvccKeyCopy := utils.Clone(mvccKey)
+
+	n := len(mvccKeyCopy) - 1
+	tsLen := int(mvccKeyCopy[n])
 	if n < tsLen {
 		return nil, nil, false
 	}
 
-	key = mvccKey[:n-tsLen]
+	key = mvccKeyCopy[:n-tsLen]
 	if tsLen > 0 {
-		version = mvccKey[n-tsLen+1 : len(mvccKey)-1]
+		version = mvccKeyCopy[n-tsLen+1 : len(mvccKeyCopy)-1]
 	}
 
 	return key, version, true
