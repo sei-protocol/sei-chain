@@ -32,7 +32,6 @@ import (
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 var TestConfig EncodingConfig
@@ -447,17 +446,6 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx
 		})
 	}
 	return orderPlacements
-}
-
-func generateOracleMessage(key cryptotypes.PrivKey) sdk.Msg {
-	valAddr := sdk.ValAddress(key.PubKey().Address()).String()
-	addr := sdk.AccAddress(key.PubKey().Address()).String()
-	msg := &oracletypes.MsgAggregateExchangeRateVote{
-		ExchangeRates: "1usei,2uatom",
-		Feeder:        addr,
-		Validator:     valAddr,
-	}
-	return msg
 }
 
 func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
