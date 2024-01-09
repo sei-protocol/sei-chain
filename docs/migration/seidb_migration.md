@@ -9,7 +9,7 @@ your nodes can still run with the same old storage as before without performing 
 
 ## Prerequisite
 - Please update your golang version to 1.19+
-- Upgrade Sei-Chain to v3.6.0 or higher versions is required
+- Sei-Chain v3.6.0 or higher versions is required
 - Migrating to SeiDB requires a full state sync which would wipe out all your existing data
 
 ## Hardware Recommendation
@@ -39,15 +39,15 @@ which aims to improve the overall state access performance and tackle any potent
 	- Archive node becomes unmanageable, not able to keep up with the latest block
 - Slow state sync (export & import)
 	- Exporting or importing a state snapshot could take hours to complete when state grows large
-- Slow catching up (block sync) time
+- Slow catching up (block sync) speed
 	- Block sync is not fast enough, could take hours to catch up to the latest height
 
-### Benefits Migrating to SeiDB
+### Benefits migrating to SeiDB
 - Disk size growth rate reduced by 90%
-- Avoid performance degradation and the need to perform constant state sync
-- Commit becomes async, commit latency improved by 200x
-- Faster state sync, overall state sync speed improved by at least 10x
-- Faster block sync, catching up speed improved by 2x
+- Avoid performance degradation over time and the need to perform frequent state sync
+- Commits becomes fully async, commit latency improved by 200x
+- Faster state sync, overall state sync speed improved by at least 10x after migration
+- Faster block sync, catching up speed improved by 2x after migration
 
 ## Migration Steps
 
@@ -116,25 +116,25 @@ ss-import-num-workers = 1
 
 ### Step 2: Tune configs based on node role
 If you are migrating a Validator Node:
-- Set sc-enable = true
-- Set ss-enable = false
+- Set `sc-enable = true`
+- Set `ss-enable = false`
 
 If you are migrating a Full Node:
-- Set sc-enable = true
-- Set ss-enable = true
-- Set ss-keep-recent based on your needs
+- Set `sc-enable = true`
+- Set `ss-enable = true`
+- Set `ss-keep-recent` based on your needs
 
 Note:
 Once SeiDB is enabled, the original pruning configs will be ignored, such as
 ```bash
-# The following configs will be ignored and not take effect is SeiDB is enabled
+# The following configs will be ignored and won't take effect if SeiDB is enabled
 pruning = "custom"
 pruning-keep-recent = "10000"
 pruning-keep-every = "0"
 pruning-interval = "1000"
 ```
 
-PebbleDB will be used as the default and recommended backend database for full node.
+`PebbleDB` will be used as the default and recommended backend database for full node.
 If you wan to try out RocksDB, please follow [this guide](https://github.com/facebook/rocksdb/blob/master/INSTALL.md) to set up RocksDB environment.
 
 ### Step 3: State Sync
@@ -146,7 +146,7 @@ Use the traditional steps to state sync your node. Here's a script for convenien
 export TRUST_HEIGHT_DELTA=10000
 export MONIKER="<moniker>"
 export CHAIN_ID="<chain_id>"
-export PRIMARY_ENDPOINT="<rpc_endpoints>"
+export PRIMARY_ENDPOINT="<rpc_endpoint>"
 export SEID_HOME="/root/.sei"
 
 # Step 1: stop seid
