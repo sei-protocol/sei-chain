@@ -116,10 +116,7 @@ func startLoadtestWorkers(config Config) {
 	}
 
 	fmt.Printf("Starting loadtest consumers\n")
-	for i := 0; i < numConsumers; i++ {
-		wg.Add(1)
-		go client.SendTxs(txQueue, i, &wg, done, &sentCount)
-	}
+	go client.SendTxs(txQueue, &wg, done, &sentCount)
 	// Statistics reporting goroutine
 	go func() {
 		for {

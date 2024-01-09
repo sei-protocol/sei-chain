@@ -124,20 +124,19 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, numTxsP
 	}
 }
 
-func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, consumerId int, wg *sync.WaitGroup, done <-chan struct{}, sentCount *int64) {
-	defer wg.Done()
+func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64) {
 
 	for {
 
 		select {
 		case <-done:
-			fmt.Printf("Stopping consumer %d\n", consumerId)
+			fmt.Printf("Stopping consumers\n")
 			return
 		case tx, ok := <-txQueue:
 			if !ok {
-				fmt.Printf("Stopping consumer %d\n", consumerId)
+				fmt.Printf("Stopping consumers\n")
 			}
-			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_ASYNC, false, *c, sentCount)
+			go SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
 		}
 	}
 }
