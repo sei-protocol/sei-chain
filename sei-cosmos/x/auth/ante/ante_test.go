@@ -1152,3 +1152,61 @@ func (suite *AnteTestSuite) TestAnteHandlerReCheck() {
 	_, err = suite.anteHandler(suite.ctx, tx, false)
 	suite.Require().NotNil(err, "antehandler on recheck did not fail once feePayer no longer has sufficient funds")
 }
+
+func (suite *AnteTestSuite) TestDisableSeqNo() {
+	suite.SetupTest(false) // setup
+	authParams := types.Params{
+		MaxMemoCharacters:      types.DefaultMaxMemoCharacters,
+		TxSigLimit:             types.DefaultTxSigLimit,
+		TxSizeCostPerByte:      types.DefaultTxSizeCostPerByte,
+		SigVerifyCostED25519:   types.DefaultSigVerifyCostED25519,
+		SigVerifyCostSecp256k1: types.DefaultSigVerifyCostSecp256k1,
+		DisableSeqnoCheck:      true,
+	}
+	suite.app.AccountKeeper.SetParams(suite.ctx, authParams)
+
+	// Same data for every test cases
+	accounts := suite.CreateTestAccounts(1)
+	feeAmount := testdata.NewTestFeeAmount()
+	gasLimit := testdata.NewTestGasLimit()
+
+	// Variable data per test case
+	var (
+		accNums []uint64
+		msgs    []sdk.Msg
+		privs   []cryptotypes.PrivKey
+		accSeqs []uint64
+	)
+
+	testCases := []TestCase{
+		{
+			"good tx from one signer",
+			func() {
+				msg := testdata.NewTestMsg(accounts[0].acc.GetAddress())
+				msgs = []sdk.Msg{msg}
+
+				privs, accNums, accSeqs = []cryptotypes.PrivKey{accounts[0].priv}, []uint64{0}, []uint64{0}
+			},
+			false,
+			true,
+			nil,
+		},
+		{
+			"test sending it again succeeds (disable seqno check is true)",
+			func() {
+				privs, accNums, accSeqs = []cryptotypes.PrivKey{accounts[0].priv}, []uint64{0}, []uint64{0}
+			},
+			false,
+			true,
+			nil,
+		},
+	}
+	for _, tc := range testCases {
+		suite.Run(fmt.Sprintf("Case %s", tc.desc), func() {
+			suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
+			tc.malleate()
+
+			suite.RunTestCase(privs, msgs, feeAmount, gasLimit, accNums, accSeqs, suite.ctx.ChainID(), tc)
+		})
+	}
+}
