@@ -532,13 +532,9 @@ func (k Keeper) UpdateWritesetsWithAccessOps(accessOps []acltypes.AccessOperatio
 }
 
 // GenerateEstimatedWritesets utilizes the existing patterns for access operation generation to estimate the writesets for a transaction
-func (k Keeper) GenerateEstimatedWritesets(ctx sdk.Context, txDecoder sdk.TxDecoder, anteDepGen sdk.AnteDepGenerator, txIndex int, txBytes []byte) (sdk.MappedWritesets, error) {
+func (k Keeper) GenerateEstimatedWritesets(ctx sdk.Context, anteDepGen sdk.AnteDepGenerator, txIndex int, tx sdk.Tx) (sdk.MappedWritesets, error) {
 	storeKeyMap := k.GetStoreKeyMap(ctx)
 	writesets := make(sdk.MappedWritesets)
-	tx, err := txDecoder(txBytes)
-	if err != nil {
-		return nil, err
-	}
 	// generate antedeps accessOps for tx
 	anteDeps, err := anteDepGen([]acltypes.AccessOperation{}, tx, txIndex)
 	if err != nil {

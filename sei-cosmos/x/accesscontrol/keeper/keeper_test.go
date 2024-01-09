@@ -2660,10 +2660,8 @@ func TestGenerateEstimatedDependencies(t *testing.T) {
 	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
 	err := txBuilder.SetMsgs(msgs...)
 	require.NoError(t, err)
-	bz, err := simapp.MakeTestEncodingConfig().TxConfig.TxEncoder()(txBuilder.GetTx())
-	require.NoError(t, err)
 
-	writesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, simapp.MakeTestEncodingConfig().TxConfig.TxDecoder(), app.GetAnteDepGenerator(), 0, bz)
+	writesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), 0, txBuilder.GetTx())
 	require.NoError(t, err)
 
 	// check writesets
