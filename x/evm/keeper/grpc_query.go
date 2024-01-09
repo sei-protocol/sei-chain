@@ -26,12 +26,13 @@ func (q Querier) SeiAddressByEVMAddress(c context.Context, req *types.QuerySeiAd
 	if req.EvmAddress == "" {
 		return nil, sdkerrors.ErrInvalidRequest
 	}
-	addr, found := q.Keeper.GetSeiAddress(ctx, common.HexToAddress(req.EvmAddress))
+	evmAddr := common.HexToAddress(req.EvmAddress)
+	addr, found := q.Keeper.GetSeiAddress(ctx, evmAddr)
 	if !found {
-		return nil, sdkerrors.ErrNotFound
+		return &types.QuerySeiAddressByEVMAddressResponse{SeiAddress: sdk.AccAddress(evmAddr[:]).String(), Associated: false}, nil
 	}
 
-	return &types.QuerySeiAddressByEVMAddressResponse{SeiAddress: addr.String()}, nil
+	return &types.QuerySeiAddressByEVMAddressResponse{SeiAddress: addr.String(), Associated: true}, nil
 }
 
 func (q Querier) EVMAddressBySeiAddress(c context.Context, req *types.QueryEVMAddressBySeiAddressRequest) (*types.QueryEVMAddressBySeiAddressResponse, error) {
@@ -39,10 +40,13 @@ func (q Querier) EVMAddressBySeiAddress(c context.Context, req *types.QueryEVMAd
 	if req.SeiAddress == "" {
 		return nil, sdkerrors.ErrInvalidRequest
 	}
+	seiAddr := sdk.MustAccAddressFromBech32(req.SeiAddress)
 	addr, found := q.Keeper.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(req.SeiAddress))
 	if !found {
-		return nil, sdkerrors.ErrNotFound
+		addr = common.Address{}
+		addr.SetBytes(seiAddr)
+		return &types.QueryEVMAddressBySeiAddressResponse{EvmAddress: addr.Hex(), Associated: false}, nil
 	}
 
-	return &types.QueryEVMAddressBySeiAddressResponse{EvmAddress: addr.Hex()}, nil
+	return &types.QueryEVMAddressBySeiAddressResponse{EvmAddress: addr.Hex(), Associated: true}, nil
 }

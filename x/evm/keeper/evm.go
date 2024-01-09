@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"fmt"
 	"math"
 	"math/big"
 
@@ -91,6 +92,7 @@ func (k *Keeper) callEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Addres
 	if val != nil {
 		value = val.BigInt()
 	}
+	fmt.Printf("EVMTEST: %s sending to %s with %s and %s\n", sender.Hex(), to, string(data), value)
 	ret, leftoverGas, err := f(vm.AccountRef(sender), to, data, evmGasRemaining.Uint64(), value)
 	ctx.GasMeter().ConsumeGas(ctx.GasMeter().Limit()-new(big.Int).Mul(new(big.Int).SetUint64(leftoverGas), multiplier).Uint64(), "call EVM")
 	if err != nil {

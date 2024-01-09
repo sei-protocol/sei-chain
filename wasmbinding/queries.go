@@ -203,6 +203,9 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.StaticCall != nil:
 		c := parsedQuery.StaticCall
 		return qp.evmHandler.HandleStaticCall(ctx, c.From, c.To, c.Data)
+	case parsedQuery.ERC20TransferPayload != nil:
+		c := parsedQuery.ERC20TransferPayload
+		return qp.evmHandler.HandleERC20TransferPayload(ctx, c.Recipient, c.Amount)
 	default:
 		return nil, errors.New("unknown EVM query")
 	}
