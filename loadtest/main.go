@@ -158,7 +158,7 @@ func printStats(startTime time.Time, producedCount *int64, sentCount *int64, pre
 	produced := atomic.LoadInt64(producedCount)
 	sent := atomic.LoadInt64(sentCount)
 	tps := float64(sent-*prevSentCount) / elapsed.Seconds()
-	prevSentCount = &sent
+	*prevSentCount = sent
 	var totalDuration time.Duration
 	var prevTime time.Time
 	for i, blockTimeStr := range blockTimes {
