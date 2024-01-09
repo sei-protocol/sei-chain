@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/sei-protocol/sei-db/common/utils"
 )
 
 // MVCCComparer returns a PebbleDB Comparer with encoding and decoding routines
@@ -145,7 +146,7 @@ func SplitMVCCKey(mvccKey []byte) (key, version []byte, ok bool) {
 		return nil, nil, false
 	}
 
-	mvccKeyCopy := bytes.Clone(mvccKey)
+	mvccKeyCopy := utils.Clone(mvccKey)
 
 	n := len(mvccKeyCopy) - 1
 	tsLen := int(mvccKeyCopy[n])
