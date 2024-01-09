@@ -117,8 +117,7 @@ func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
 
 func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
 	var msgs []sdk.Msg
-	messageTypes := strings.Split(config.MessageType, ",")
-	messageType := c.getRandomMessageType(messageTypes)
+	messageType := c.getRandomMessageType(config.MessageTypes)
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	fmt.Printf("Message type: %s\n", messageType)
 
@@ -324,30 +323,73 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			ContractAddr: contract,
 			Funds:        amount,
 		}}
-
+	case WasmOccIteratorWrite:
+		// generate some values for indices 1-100
+		indices := []int{}
+		for i := 0; i < 100; i++ {
+			indices = append(indices, i)
+		}
+		rand.Shuffle(100, func(i, j int) {
+			indices[i], indices[j] = indices[j], indices[i]
+		})
+		values := [][]uint64{}
+		num_values := rand.Int()%100 + 1
+		for x := 0; x < num_values; x++ {
+			values = append(values, []uint64{uint64(indices[x]), rand.Uint64() % 12345})
+		}
+		contract := config.SeiTesterAddress
+		msgData := WasmIteratorWriteMsg{
+			Values: values,
+		}
+		jsonData, err := json.Marshal(msgData)
+		if err != nil {
+			panic(err)
+		}
+		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_iterator_write\":%s}", jsonData))),
+		}}
+	case WasmOccIteratorRange:
+		contract := config.SeiTesterAddress
+		start := rand.Uint32() % 100
+		end := rand.Uint32() % 100
+		if start > end {
+			start, end = end, start
+		}
+		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_iterator_range\":{\"start\": %d, \"end\": %d}}", start, end))),
+		}}
+	case WasmOccParallelWrite:
+		contract := config.SeiTesterAddress
+		// generate random value
+		value := rand.Uint64()
+		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_parallelism\":{\"value\": %d}}", value))),
+		}}
 	default:
-		fmt.Printf("Unrecognized message type %s", config.MessageType)
+		fmt.Printf("Unrecognized message type %s", messageType)
 	}
 
-	if strings.Contains(config.MessageType, "failure") {
+	if strings.Contains(messageType, "failure") {
 		return msgs, true, signer, gas, int64(fee)
 	}
 	return msgs, false, signer, gas, int64(fee)
 }
 
 func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
-	if config.MessageType == "failure_bank_malformed" {
-		orderType = -1
-	} else {
-		msgType := config.MsgTypeDistr.SampleDexMsgs()
-		switch msgType {
-		case Limit:
-			orderType = dextypes.OrderType_LIMIT
-		case Market:
-			orderType = dextypes.OrderType_MARKET
-		default:
-			panic(fmt.Sprintf("Unknown message type %s\n", msgType))
-		}
+	msgType := config.MsgTypeDistr.SampleDexMsgs()
+	switch msgType {
+	case Limit:
+		orderType = dextypes.OrderType_LIMIT
+	case Market:
+		orderType = dextypes.OrderType_MARKET
+	default:
+		panic(fmt.Sprintf("Unknown message type %s\n", msgType))
 	}
 	return orderType
 }
