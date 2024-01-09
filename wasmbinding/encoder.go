@@ -22,7 +22,7 @@ type SeiWasmMessage struct {
 	CallEVM      json.RawMessage `json:"call_evm,omitempty"`
 }
 
-func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
+func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error) {
 	var parsedMessage SeiWasmMessage
 	if err := json.Unmarshal(msg, &parsedMessage); err != nil {
 		return []sdk.Msg{}, sdkerrors.Wrap(err, "Error parsing Sei Wasm Message")
@@ -43,7 +43,7 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error
 	case parsedMessage.SetMetadata != nil:
 		return tokenfactorywasm.EncodeTokenFactorySetMetadata(parsedMessage.SetMetadata, sender)
 	case parsedMessage.CallEVM != nil:
-		return evmwasm.EncodeCallEVM(parsedMessage.CallEVM, sender)
+		return evmwasm.EncodeCallEVM(parsedMessage.CallEVM, sender, info)
 	default:
 		return []sdk.Msg{}, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Wasm Message"}
 	}

@@ -419,7 +419,7 @@ func CmdDeployErc20() *cobra.Command {
 	}
 
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
-	cmd.Flags().Uint64(FlagGas, 21000, "Gas limit for the transaction")
+	cmd.Flags().Uint64(FlagGas, 5000000, "Gas limit for the transaction")
 	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	flags.AddTxFlagsToCmd(cmd)
