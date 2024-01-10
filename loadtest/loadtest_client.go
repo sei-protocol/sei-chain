@@ -153,7 +153,7 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 				defer sem.Release(1)
 
 				if err := rateLimiter.Wait(context.Background()); err == nil {
-					SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+					SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
 				}
 			}(tx)
 		}
