@@ -57,9 +57,7 @@ func SendTx(
 			}
 		}
 	}
-	if grpcRes.TxResponse.Code != 0 {
-		fmt.Printf("Error: %d, %s\n", grpcRes.TxResponse.Code, grpcRes.TxResponse.RawLog)
-	} else {
+	if grpcRes.TxResponse.Code == 0 {
 		atomic.AddInt64(sentCount, 1)
 	}
 }

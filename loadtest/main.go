@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"golang.org/x/time/rate"
 	"io"
 	"math/rand"
 	"net/http"
@@ -104,14 +103,13 @@ func startLoadtestWorkers(config Config) {
 	var blockTimes []string
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
 	fmt.Printf("Starting loadtest producers\n")
-	rateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
-		go client.BuildTxs(txQueue, i, &wg, done, &producedCount, rateLimiter)
+		go client.BuildTxs(txQueue, i, &wg, done, &producedCount)
 	}
 
 	fmt.Printf("Starting loadtest consumers\n")
-	go client.SendTxs(txQueue, done, &sentCount, int(config.TargetTps))
+	go client.SendTxs(txQueue, done, &sentCount, int(config.TargetTps), &wg)
 	// Statistics reporting goroutine
 	go func() {
 		for {
