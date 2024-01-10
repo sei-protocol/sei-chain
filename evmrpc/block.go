@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	tmtypes "github.com/tendermint/tendermint/types"
 	"math/big"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -38,8 +39,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil
 	}
-	cnt := hexutil.Uint(len(block.Block.Txs))
-	return &cnt
+	return a.getEvmTxCount(block.Block.Txs)
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) *hexutil.Uint {
@@ -47,17 +47,7 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	if err != nil {
 		return nil
 	}
-	cnt := 0
-	// Only count eth txs
-	for _, tx := range block.Block.Txs {
-		ethtx := getEthTxForTxBz(tx, a.txConfig.TxDecoder())
-		if ethtx != nil {
-			cnt += 1
-		}
-
-	}
-	cntHex := hexutil.Uint(cnt)
-	return &cntHex
+	return a.getEvmTxCount(block.Block.Txs)
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (map[string]interface{}, error) {
@@ -169,4 +159,19 @@ func FullBloom() ethtypes.Bloom {
 		bz = append(bz, 255)
 	}
 	return ethtypes.BytesToBloom(bz)
+}
+
+// filters out non-evm txs
+func (a *BlockAPI) getEvmTxCount(txs tmtypes.Txs) *hexutil.Uint {
+	cnt := 0
+	// Only count eth txs
+	for _, tx := range txs {
+		ethtx := getEthTxForTxBz(tx, a.txConfig.TxDecoder())
+		if ethtx != nil {
+			cnt += 1
+		}
+
+	}
+	cntHex := hexutil.Uint(cnt)
+	return &cntHex
 }
