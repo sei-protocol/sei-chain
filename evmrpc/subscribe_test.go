@@ -123,18 +123,18 @@ func TestSubscribeNewLogs(t *testing.T) {
 
 func TestSubscriptionManager(t *testing.T) {
 	manager := evmrpc.NewSubscriptionManager(&MockClient{})
-	res, subCh, err := manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
+	res, subCh, err := manager.Subscribe(context.Background(), evmrpc.NewHeadQueryBuilder(), 10)
 	require.Nil(t, err)
 	require.NotNil(t, subCh)
 	require.Equal(t, 1, int(res))
 
-	res, subCh, err = manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
+	res, subCh, err = manager.Subscribe(context.Background(), evmrpc.NewHeadQueryBuilder(), 10)
 	require.Nil(t, err)
 	require.NotNil(t, subCh)
 	require.Equal(t, 2, int(res))
 
 	badManager := evmrpc.NewSubscriptionManager(&MockBadClient{})
-	_, subCh, err = badManager.Subscribe(context.Background(), mockQueryBuilder(), 10)
+	_, subCh, err = badManager.Subscribe(context.Background(), evmrpc.NewHeadQueryBuilder(), 10)
 	require.NotNil(t, err)
 	require.Nil(t, subCh)
 }
