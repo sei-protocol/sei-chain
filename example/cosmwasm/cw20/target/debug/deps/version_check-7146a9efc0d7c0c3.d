@@ -1,0 +1,10 @@
+/Users/tonychen/repos/sei-chain/example/cosmwasm/cw20/target/debug/deps/version_check-7146a9efc0d7c0c3.rmeta: /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/lib.rs /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/version.rs /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/channel.rs /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/date.rs
+
+/Users/tonychen/repos/sei-chain/example/cosmwasm/cw20/target/debug/deps/libversion_check-7146a9efc0d7c0c3.rlib: /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/lib.rs /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/version.rs /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/channel.rs /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/date.rs
+
+/Users/tonychen/repos/sei-chain/example/cosmwasm/cw20/target/debug/deps/version_check-7146a9efc0d7c0c3.d: /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/lib.rs /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/version.rs /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/channel.rs /Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/date.rs
+
+/Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/lib.rs:
+/Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/version.rs:
+/Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/channel.rs:
+/Users/tonychen/.cargo/registry/src/mirrors.ustc.edu.cn-61ef6e0cd06fb9b8/version_check-0.9.4/src/date.rs:
