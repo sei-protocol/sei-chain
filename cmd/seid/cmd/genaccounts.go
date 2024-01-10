@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/spf13/cobra"
 
@@ -41,7 +42,7 @@ func AddGenesisAccountCmd(defaultNodeHome string) *cobra.Command {
 the account address or key name and a list of initial coins. If a key name is given,
 the address will be looked up in the local Keybase. The list of initial tokens must
 contain valid denominations. Accounts may optionally be supplied with vesting parameters.
-The association between the sei address and the eth address will also be created here.
+The association between the sei address and the eth address will also be created here if using keyring-backend test.
 `,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -72,13 +73,14 @@ The association between the sei address and the eth address will also be created
 
 				addr = info.GetAddress()
 			}
-
-			pk, err := getPrivateKeyOfAddr(kb, addr)
-			if err != nil {
-				return err
+			var ethAddr common.Address
+			if keyringBackend == keyring.BackendTest {
+				pk, err := getPrivateKeyOfAddr(kb, addr)
+				if err != nil {
+					return err
+				}
+				ethAddr = crypto.PubkeyToAddress(pk.PublicKey)
 			}
-
-			ethAddr := crypto.PubkeyToAddress(pk.PublicKey)
 
 			coins, err := sdk.ParseCoinsNormalized(args[1])
 			if err != nil {
@@ -131,19 +133,20 @@ The association between the sei address and the eth address will also be created
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal genesis state: %w", err)
 			}
-
-			// associate the eth address with the sei address through the genesis file
-			evmGenState := evm.GetGenesisStateFromAppState(depCdc, appState)
-			seiEthAddrAssociation := evmtypes.AddressAssociation{
-				SeiAddress: addr.String(),
-				EthAddress: ethAddr.Hex(),
+			if keyringBackend == keyring.BackendTest {
+				// associate the eth address with the sei address through the genesis file
+				evmGenState := evm.GetGenesisStateFromAppState(depCdc, appState)
+				seiEthAddrAssociation := evmtypes.AddressAssociation{
+					SeiAddress: addr.String(),
+					EthAddress: ethAddr.Hex(),
+				}
+				evmGenState.AddressAssociations = append(evmGenState.AddressAssociations, &seiEthAddrAssociation)
+				evmGenStateBz, err := cdc.MarshalJSON(evmGenState)
+				if err != nil {
+					return fmt.Errorf("failed to marshal evm genesis state: %w", err)
+				}
+				appState[evmtypes.ModuleName] = evmGenStateBz
 			}
-			evmGenState.AddressAssociations = append(evmGenState.AddressAssociations, &seiEthAddrAssociation)
-			evmGenStateBz, err := cdc.MarshalJSON(evmGenState)
-			if err != nil {
-				return fmt.Errorf("failed to marshal evm genesis state: %w", err)
-			}
-			appState[evmtypes.ModuleName] = evmGenStateBz
 
 			authGenState := authtypes.GetGenesisStateFromAppState(cdc, appState)
 
@@ -191,8 +194,6 @@ The association between the sei address and the eth address will also be created
 			}
 
 			genDoc.AppState = appStateJSON
-
-			fmt.Printf("ETH address funded = %s with private key = 0x%x\n", ethAddr.Hex(), pk.D)
 
 			return genutil.ExportGenesisFile(genDoc, genFile)
 		},
