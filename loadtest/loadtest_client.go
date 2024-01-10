@@ -124,37 +124,6 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *syn
 	}
 }
 
-//func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int) {
-//	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
-//	wg := sync.WaitGroup{}
-//
-//	for {
-//
-//		select {
-//		case <-done:
-//			fmt.Printf("Stopping consumers\n")
-//			wg.Wait()
-//			return
-//		case tx, ok := <-txQueue:
-//			if !ok {
-//				fmt.Printf("Stopping consumers\n")
-//				wg.Wait()
-//				return
-//			}
-//			wg.Add(1)
-//			go func(tx []byte) {
-//				defer wg.Done()
-//				// Wait blocks until the limiter allows another event.
-//				if err := rateLimiter.Wait(context.Background()); err == nil {
-//					SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
-//				} else {
-//					fmt.Printf("Error waiting for rate limiter: %v\n", err)
-//				}
-//			}(tx)
-//		}
-//	}
-//}
-
 func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
 	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
 	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
@@ -174,7 +143,7 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 			}
 
 			if err := sem.Acquire(context.Background(), 1); err != nil {
-				fmt.Printf("Failed to acquire semaphore: %v", err)
+				fmt.Printf("Failed to acquire semaphore: %s", err)
 				break
 			}
 
@@ -183,12 +152,9 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 				defer wg.Done()
 				defer sem.Release(1)
 
-				if err := rateLimiter.Wait(context.Background()); err != nil {
-					fmt.Printf("Error waiting for rate limiter: %v\n", err)
-					return
+				if err := rateLimiter.Wait(context.Background()); err == nil {
+					SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
 				}
-
-				SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
 			}(tx)
 		}
 	}
