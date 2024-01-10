@@ -93,7 +93,7 @@ func (c *LoadTestClient) Close() {
 	}
 }
 
-func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *sync.WaitGroup, done <-chan struct{}, producedCount *int64) {
+func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *sync.WaitGroup, done <-chan struct{}, producedCount *int64, rateLimiter *rate.Limiter) {
 	defer wg.Done()
 	config := c.LoadTestConfig
 	accountIdentifier := fmt.Sprint(producerId)
@@ -106,38 +106,52 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *syn
 			fmt.Printf("Stopping producer %d\n", producerId)
 			return
 		default:
-			msgs, _, _, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
-			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-			_ = txBuilder.SetMsgs(msgs...)
-			txBuilder.SetGasLimit(gas)
-			txBuilder.SetFeeAmount([]types.Coin{
-				types.NewCoin("usei", types.NewInt(fee)),
-			})
-			// Use random seqno to get around txs that might already be seen in mempool
+			if rateLimiter.Allow() {
+				msgs, _, _, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
+				txBuilder := TestConfig.TxConfig.NewTxBuilder()
+				_ = txBuilder.SetMsgs(msgs...)
+				txBuilder.SetGasLimit(gas)
+				txBuilder.SetFeeAmount([]types.Coin{
+					types.NewCoin("usei", types.NewInt(fee)),
+				})
+				// Use random seqno to get around txs that might already be seen in mempool
 
-			c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(rand.Intn(math.MaxInt)))
-			txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
-			txQueue <- txBytes
-			atomic.AddInt64(producedCount, 1)
+				c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(rand.Intn(math.MaxInt)))
+				txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
+				txQueue <- txBytes
+				atomic.AddInt64(producedCount, 1)
+			}
 		}
 	}
 }
 
 func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int) {
-	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
+	//rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
+	wg := sync.WaitGroup{}
+
 	for {
 
 		select {
 		case <-done:
 			fmt.Printf("Stopping consumers\n")
+			wg.Wait()
 			return
 		case tx, ok := <-txQueue:
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
+				wg.Wait()
+				return
 			}
-			if rateLimiter.Allow() {
-				go SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
-			}
+			wg.Add(1)
+			go func(tx []byte) {
+				defer wg.Done()
+				// Wait blocks until the limiter allows another event.
+				//if err := rateLimiter.Wait(context.Background()); err == nil {
+				SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+				//} else {
+				//	fmt.Printf("Error waiting for rate limiter: %v\n", err)
+				//}
+			}(tx)
 		}
 	}
 }
