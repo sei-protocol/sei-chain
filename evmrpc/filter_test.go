@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,7 +94,7 @@ func TestFilterUninstall(t *testing.T) {
 func TestFilterGetLogs(t *testing.T) {
 	tests := []struct {
 		name      string
-		blockHash common.Hash
+		blockHash *common.Hash
 		fromBlock string
 		toBlock   string
 		addrs     []common.Address
@@ -110,23 +112,21 @@ func TestFilterGetLogs(t *testing.T) {
 			check: func(t *testing.T, log map[string]interface{}) {
 				require.Equal(t, "0x1111111111111111111111111111111111111112", log["address"].(string))
 			},
-			wantLen: 1,
+			wantLen: 2,
 		},
 		{
 			name:      "filter by single topic",
-			blockHash: common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
-			fromBlock: "0x3",
-			toBlock:   "0x3",
+			fromBlock: "0x2",
+			toBlock:   "0x2",
 			topics:    [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
 			wantErr:   false,
 			check: func(t *testing.T, log map[string]interface{}) {
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", log["topics"].([]interface{})[0].(string))
 			},
-			wantLen: 3,
+			wantLen: 4,
 		},
 		{
 			name:      "multiple addresses, multiple topics",
-			blockHash: common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
 			fromBlock: "0x2",
 			toBlock:   "0x2",
 			addrs: []common.Address{
@@ -147,11 +147,10 @@ func TestFilterGetLogs(t *testing.T) {
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", firstTopic)
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000456", secondTopic)
 			},
-			wantLen: 1,
+			wantLen: 2,
 		},
 		{
 			name:      "wildcard first topic",
-			blockHash: common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
 			fromBlock: "0x2",
 			toBlock:   "0x2",
 			topics: [][]common.Hash{
@@ -163,7 +162,7 @@ func TestFilterGetLogs(t *testing.T) {
 				secondTopic := log["topics"].([]interface{})[1].(string)
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000456", secondTopic)
 			},
-			wantLen: 1,
+			wantLen: 3,
 		},
 	}
 
@@ -176,7 +175,7 @@ func TestFilterGetLogs(t *testing.T) {
 				"address":   tt.addrs,
 				"topics":    tt.topics,
 			}
-			if tt.blockHash != (common.Hash{}) {
+			if tt.blockHash != nil {
 				filterCriteria["blockHash"] = tt.blockHash.Hex()
 			}
 			if len(tt.fromBlock) > 0 || len(tt.toBlock) > 0 {
@@ -201,18 +200,18 @@ func TestFilterGetLogs(t *testing.T) {
 
 func TestFilterGetFilterLogs(t *testing.T) {
 	filterCriteria := map[string]interface{}{
-		"fromBlock": "0x4",
-		"toBlock":   "0x4",
+		"fromBlock": "0x2",
+		"toBlock":   "0x2",
 	}
 	resObj := sendRequestGood(t, "newFilter", filterCriteria)
 	filterId := int(resObj["result"].(float64))
 
 	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 3, len(logs))
+	require.Equal(t, 4, len(logs))
 	for _, log := range logs {
 		logObj := log.(map[string]interface{})
-		require.Equal(t, "0x4", logObj["blockNumber"].(string))
+		require.Equal(t, "0x2", logObj["blockNumber"].(string))
 	}
 
 	// error: filter id does not exist
@@ -223,27 +222,41 @@ func TestFilterGetFilterLogs(t *testing.T) {
 }
 
 func TestFilterGetFilterChanges(t *testing.T) {
-	t.Parallel()
 	filterCriteria := map[string]interface{}{
-		"fromBlock": "0x4",
+		"fromBlock": "0x2",
 	}
 	resObj := sendRequest(t, TestPort, "newFilter", filterCriteria)
 	filterId := int(resObj["result"].(float64))
 
-	TotalTxCount = 10
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 2, len(logs))
+	require.Equal(t, 4, len(logs))
 	logObj := logs[0].(map[string]interface{})
-	require.Equal(t, "0x4", logObj["blockNumber"].(string))
+	require.Equal(t, "0x2", logObj["blockNumber"].(string))
 
 	// another query
-	TotalTxCount = 11
+	bloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111112"),
+		Topics:  []common.Hash{},
+	}}}})
+	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900005"), &types.Receipt{
+		BlockNumber: 9,
+		LogsBloom:   bloom[:],
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111114",
+		}},
+	})
+	EVMKeeper.SetTxHashesOnHeight(Ctx, 9, []common.Hash{
+		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900005"),
+	})
+	EVMKeeper.SetBlockBloom(Ctx, 9, []ethtypes.Bloom{bloom})
+	Ctx = Ctx.WithBlockHeight(9)
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
+	Ctx = Ctx.WithBlockHeight(8)
 	logs = resObj["result"].([]interface{})
 	require.Equal(t, 1, len(logs))
 	logObj = logs[0].(map[string]interface{})
-	require.Equal(t, "0x4", logObj["blockNumber"].(string))
+	require.Equal(t, "0x9", logObj["blockNumber"].(string))
 
 	// error: filter id does not exist
 	nonExistingFilterId := 1000
