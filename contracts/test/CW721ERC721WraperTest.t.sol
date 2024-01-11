@@ -53,6 +53,10 @@ contract MockJson is IJson {
     function extractAsBytesList(bytes memory, string memory) external pure returns (bytes[] memory) {
         return new bytes[](0);
     }
+
+    function extractAsUint256(bytes memory input, string memory key) external view returns (uint256 response) {
+        return 0;
+    }
 }
 
 contract MockAddr is IAddr {
