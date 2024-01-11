@@ -633,7 +633,6 @@ func init() {
 	)
 	EVMKeeper.SetNonce(Ctx, common.HexToAddress("0x1234567890123456789012345678901234567890"), 1)
 
-	fmt.Println("setting chain id for tx = ", chainId)
 	unconfirmedTxData := ethtypes.DynamicFeeTx{
 		Nonce:     2,
 		GasFeeCap: big.NewInt(10),
