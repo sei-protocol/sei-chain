@@ -129,6 +129,7 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
 	sem := semaphore.NewWeighted(int64(maxConcurrent))
 
+	i := 0
 	for {
 		select {
 		case <-done:
@@ -148,14 +149,22 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 			}
 
 			wg.Add(1)
-			go func(tx []byte) {
-				defer wg.Done()
-				defer sem.Release(1)
+			i += 1
+			if i == maxConcurrent {
+				SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+				i = 0
 
-				if err := rateLimiter.Wait(context.Background()); err == nil {
-					SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
-				}
-			}(tx)
+			} else {
+				go func(tx []byte) {
+					defer wg.Done()
+					defer sem.Release(1)
+
+					if err := rateLimiter.Wait(context.Background()); err == nil {
+						SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
+					}
+				}(tx)
+			}
+
 		}
 	}
 }
