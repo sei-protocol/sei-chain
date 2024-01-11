@@ -143,14 +143,14 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 				return
 			}
 
-			if err := sem.Acquire(context.Background(), 1); err != nil {
-				fmt.Printf("Failed to acquire semaphore: %s", err)
-				break
-			}
+			//if err := sem.Acquire(context.Background(), 1); err != nil {
+			//	fmt.Printf("Failed to acquire semaphore: %s", err)
+			//	break
+			//}
 
 			wg.Add(1)
 			i += 1
-			if i == maxConcurrent {
+			if i >= maxConcurrent {
 				SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
 				i = 0
 
