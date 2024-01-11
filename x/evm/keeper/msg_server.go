@@ -12,6 +12,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -63,7 +64,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			ctx.Logger().Error(fmt.Sprintf("Got EVM state transition error (not VM error): %s", err))
 			return
 		}
-		receipt, err := server.writeReceipt(ctx, msg, tx, emsg, serverRes)
+		receipt, err := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 			return
@@ -73,6 +74,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			ctx.Logger().Error(fmt.Sprintf("failed to finalize EVM stateDB: %s", err))
 			return
 		}
+		bloom := ethtypes.Bloom{}
+		bloom.SetBytes(receipt.LogsBloom)
+		server.AppendToEvmTxDeferredInfo(ctx.TxIndex(), bloom, tx.Hash())
 		if serverRes.VmError == "" && tx.To() == nil && artifacts.IsCodeNativeSeiTokensERC20Wrapper(tx.Data()) {
 			codeHash := server.GetCodeHash(ctx, common.HexToAddress(receipt.ContractAddress))
 			if (codeHash != common.Hash{}) {
@@ -139,7 +143,7 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	return st.TransitionDb()
 }
 
-func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse) (*types.Receipt, error) {
+func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, stateDB *state.DBImpl) (*types.Receipt, error) {
 	cumulativeGasUsed := response.GasUsed
 	if ctx.BlockGasMeter() != nil {
 		limit := ctx.BlockGasMeter().Limit()
@@ -149,6 +153,8 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 		}
 	}
 
+	ethLogs := stateDB.GetAllLogs()
+	bloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: ethLogs}})
 	receipt := &types.Receipt{
 		TxType:            uint32(tx.Type()),
 		CumulativeGasUsed: cumulativeGasUsed,
@@ -158,6 +164,8 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 		TransactionIndex:  uint32(ctx.TxIndex()),
 		EffectiveGasPrice: tx.GasPrice().Uint64(),
 		VmError:           response.VmError,
+		Logs:              utils.Map(ethLogs, ConvertEthLog),
+		LogsBloom:         bloom[:],
 	}
 
 	if msg.To == nil {

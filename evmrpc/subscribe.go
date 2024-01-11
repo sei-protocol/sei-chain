@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -17,23 +17,26 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
+const SleepInterval = 5 * time.Second
+
 type SubscriptionAPI struct {
 	tmClient            rpcclient.Client
-	ctxProvider         func(int64) sdk.Context
 	subscriptionManager *SubscriptionManager
 	subscriptonConfig   *SubscriptionConfig
+
+	logFetcher *LogFetcher
 }
 
 type SubscriptionConfig struct {
 	subscriptionCapacity int
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, ctxProvider func(int64) sdk.Context, subscriptionConfig *SubscriptionConfig) *SubscriptionAPI {
+func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig) *SubscriptionAPI {
 	return &SubscriptionAPI{
 		tmClient:            tmClient,
-		ctxProvider:         ctxProvider,
 		subscriptionManager: NewSubscriptionManager(tmClient),
 		subscriptonConfig:   subscriptionConfig,
+		logFetcher:          logFetcher,
 	}
 }
 
@@ -82,51 +85,44 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 
 	rpcSub := notifier.CreateSubscription()
 
-	resultEventAllAddrs := make(chan coretypes.ResultEvent, len(filter.Addresses)*a.subscriptonConfig.subscriptionCapacity)
-	for _, address := range filter.Addresses {
-		q := getBuiltQuery(NewTxQueryBuilder(), filter.BlockHash, filter.FromBlock, filter.ToBlock, address, filter.Topics)
-		subscriberID, subCh, err := a.subscriptionManager.Subscribe(context.Background(), q, a.subscriptonConfig.subscriptionCapacity)
-		if err != nil {
-			return nil, err
-		}
+	if filter.BlockHash != nil {
 		go func() {
-			defer func() {
-				_ = a.subscriptionManager.Unsubscribe(context.Background(), subscriberID)
-			}()
-			for {
-				select {
-				case res := <-subCh:
-					resultEventAllAddrs <- res
-				case <-rpcSub.Err():
-					return
-				case <-notifier.Closed():
+			logs, _, err := a.logFetcher.GetLogsByFilters(ctx, *filter, 0)
+			if err != nil {
+				_ = notifier.Notify(rpcSub.ID, err)
+				return
+			}
+			for _, log := range logs {
+				if err := notifier.Notify(rpcSub.ID, log); err != nil {
 					return
 				}
 			}
 		}()
+		return rpcSub, nil
 	}
 
 	go func() {
+		begin := int64(0)
 		for {
-			res := <-resultEventAllAddrs
-			for _, abciEvent := range res.Events {
-				ethLog, err := encodeEventToLog(abciEvent)
-				if err != nil {
-					if err == ErrInvalidEventAttribute {
-						continue
-					}
-					err = notifier.Notify(rpcSub.ID, err)
-					if err != nil {
-						return
-					}
-				}
-				err = notifier.Notify(rpcSub.ID, ethLog)
-				if err != nil {
+			logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, *filter, begin)
+			if err != nil {
+				_ = notifier.Notify(rpcSub.ID, err)
+				return
+			}
+			for _, log := range logs {
+				if err := notifier.Notify(rpcSub.ID, log); err != nil {
 					return
 				}
 			}
+			if filter.ToBlock != nil && lastToHeight >= filter.ToBlock.Int64() {
+				return
+			}
+			begin = lastToHeight
+
+			time.Sleep(SleepInterval)
 		}
 	}()
+
 	return rpcSub, nil
 }
 

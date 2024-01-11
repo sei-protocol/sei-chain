@@ -6,6 +6,8 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -32,12 +34,14 @@ func TestABCI(t *testing.T) {
 	require.Nil(t, err)
 	s.AddBalance(feeCollectorAddr, big.NewInt(2000000000000))
 	require.Nil(t, s.Finalize())
+	k.AppendToEvmTxDeferredInfo(1, ethtypes.Bloom{}, common.Hash{})
 	// 3rd tx
 	s = state.NewDBImpl(ctx.WithTxIndex(3), k, false)
 	s.SubBalance(evmAddr2, big.NewInt(5000000000000))
 	s.AddBalance(evmAddr1, big.NewInt(5000000000000))
 	require.Nil(t, s.Finalize())
 	m.EndBlock(ctx, abci.RequestEndBlock{})
+	k.AppendToEvmTxDeferredInfo(3, ethtypes.Bloom{}, common.Hash{})
 	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
 
@@ -48,6 +52,7 @@ func TestABCI(t *testing.T) {
 	s.SubBalance(evmAddr2, big.NewInt(3000000000000))
 	s.AddBalance(evmAddr1, big.NewInt(2000000000000))
 	require.Nil(t, s.Finalize())
+	k.AppendToEvmTxDeferredInfo(2, ethtypes.Bloom{}, common.Hash{})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
 	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())

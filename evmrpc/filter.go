@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/big"
-	"strings"
+	"fmt"
 	"sync"
 	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -29,11 +29,6 @@ const (
 	BlocksSubscription
 )
 
-type offset struct {
-	nextPage    int
-	itemsToRead int // if a previous query ends on page 3 with only 8 items, then itemsToRead is set to (10-8)=2 so that the next query will not skip the two remaining
-}
-
 type filter struct {
 	typ      FilterType
 	fc       filters.FilterCriteria
@@ -43,7 +38,7 @@ type filter struct {
 	blockCursor string
 
 	// LogsSubscription
-	logsCursors map[common.Address]offset
+	lastToHeight int64
 }
 
 type FilterAPI struct {
@@ -52,6 +47,7 @@ type FilterAPI struct {
 	filtersMu    sync.Mutex
 	filters      map[uint64]filter
 	filterConfig *FilterConfig
+	logFetcher   *LogFetcher
 }
 
 type FilterConfig struct {
@@ -63,7 +59,7 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, filterConfig *FilterConfig) *FilterAPI {
+func NewFilterAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, filterConfig *FilterConfig) *FilterAPI {
 	filters := make(map[uint64]filter)
 	api := &FilterAPI{
 		tmClient:     tmClient,
@@ -71,6 +67,7 @@ func NewFilterAPI(tmClient rpcclient.Client, filterConfig *FilterConfig) *Filter
 		filtersMu:    sync.Mutex{},
 		filters:      filters,
 		filterConfig: filterConfig,
+		logFetcher:   logFetcher,
 	}
 
 	go api.timeoutLoop(filterConfig.timeout)
@@ -105,10 +102,10 @@ func (a *FilterAPI) NewFilter(
 	curFilterID := a.nextFilterID
 	a.nextFilterID++
 	a.filters[curFilterID] = filter{
-		typ:         LogsSubscription,
-		fc:          crit,
-		deadline:    time.NewTimer(a.filterConfig.timeout),
-		logsCursors: make(map[common.Address]offset),
+		typ:          LogsSubscription,
+		fc:           crit,
+		deadline:     time.NewTimer(a.filterConfig.timeout),
+		lastToHeight: 0,
 	}
 	return &curFilterID, nil
 }
@@ -157,14 +154,22 @@ func (a *FilterAPI) GetFilterChanges(
 		a.filters[filterID] = updatedFilter
 		return hashes, nil
 	case LogsSubscription:
-		res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, filter.logsCursors)
+		// filter by hash would have no updates if it has previously queried for this crit
+		if filter.fc.BlockHash != nil && filter.lastToHeight > 0 {
+			return nil, nil
+		}
+		// filter with a ToBlock would have no updates if it has previously queried for this crit
+		if filter.fc.ToBlock != nil && filter.lastToHeight >= filter.fc.ToBlock.Int64() {
+			return nil, nil
+		}
+		logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, filter.lastToHeight)
 		if err != nil {
 			return nil, err
 		}
 		updatedFilter := a.filters[filterID]
-		updatedFilter.logsCursors = cursors
+		updatedFilter.lastToHeight = lastToHeight + 1
 		a.filters[filterID] = updatedFilter
-		return res, nil
+		return logs, nil
 	default:
 		return nil, errors.New("unknown filter type")
 	}
@@ -188,63 +193,22 @@ func (a *FilterAPI) GetFilterLogs(
 	}
 	filter.deadline.Reset(a.filterConfig.timeout)
 
-	noCursors := make(map[common.Address]offset)
-	res, cursors, err := a.getLogsOverAddresses(ctx, filter.fc, noCursors)
+	logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, 0)
 	if err != nil {
 		return nil, err
 	}
 	updatedFilter := a.filters[filterID]
-	updatedFilter.logsCursors = cursors
+	updatedFilter.lastToHeight = lastToHeight
 	a.filters[filterID] = updatedFilter
-	return res, nil
+	return logs, nil
 }
 
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) ([]*ethtypes.Log, error) {
-	logs, _, err := a.getLogsOverAddresses(
-		ctx,
-		crit,
-		make(map[common.Address]offset),
-	)
+	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
 	return logs, err
-}
-
-// pulls logs from tendermint client over multiple addresses.
-func (a *FilterAPI) getLogsOverAddresses(
-	ctx context.Context,
-	crit filters.FilterCriteria,
-	cursors map[common.Address]offset,
-) ([]*ethtypes.Log, map[common.Address]offset, error) {
-	res := make([]*ethtypes.Log, 0)
-	if len(crit.Addresses) == 0 {
-		crit.Addresses = append(crit.Addresses, common.Address{})
-	}
-	updatedAddrToCursor := make(map[common.Address]offset)
-	for _, address := range crit.Addresses {
-		var cursor offset
-		if _, ok := cursors[address]; !ok {
-			cursor = offset{nextPage: 1, itemsToRead: TxSearchPerPage}
-		} else {
-			cursor = cursors[address]
-		}
-		resAddr, cursor, err := a.getLogs(
-			ctx,
-			crit.BlockHash,
-			crit.FromBlock,
-			crit.ToBlock,
-			address,
-			crit.Topics,
-			cursor,
-		)
-		if err != nil {
-			return nil, nil, err
-		}
-		res = append(res, resAddr...)
-		updatedAddrToCursor[address] = cursor
-	}
-	return res, updatedAddrToCursor, nil
 }
 
 // get block headers after a certain cursor. Can use an empty string cursor
@@ -285,83 +249,6 @@ func (a *FilterAPI) getBlockHeadersAfter(
 	return headers, cursor, nil
 }
 
-// pulls logs from tendermint client for a single address.
-func (a *FilterAPI) getLogs(
-	ctx context.Context,
-	blockHash *common.Hash,
-	fromBlock *big.Int,
-	toBlock *big.Int,
-	address common.Address,
-	topics [][]common.Hash,
-	cursor offset,
-) ([]*ethtypes.Log, offset, error) {
-	builtQuery := getBuiltQuery(
-		NewTxSearchQueryBuilder(),
-		blockHash,
-		fromBlock,
-		toBlock,
-		address,
-		topics,
-	).Build()
-	page := cursor.nextPage
-	perPage := TxSearchPerPage
-	itemsToRead := cursor.itemsToRead
-	logs := []*ethtypes.Log{}
-	for {
-		res, err := a.tmClient.TxSearch(ctx, builtQuery, false, &page, &perPage, "asc")
-		if err != nil {
-			return nil, offset{}, err
-		}
-
-		txs := res.Txs
-		if perPage-itemsToRead < len(txs) {
-			txs = txs[perPage-itemsToRead:]
-		} else {
-			txs = []*coretypes.ResultTx{}
-		}
-		for _, tx := range txs {
-			for _, event := range tx.TxResult.Events {
-				// needs to do filtering again because the response contains all events
-				// of a transaction that contains any matching event.
-				// Once we rebase tendermint to a newer version that supports `match_events`
-				// keyword we can skip this step.
-				if event.Type != types.EventTypeEVMLog {
-					continue
-				}
-				contractMatched := address == common.Address{}
-				topicsMatched := len(topics) == 0
-				for _, attr := range event.Attributes {
-					if string(attr.Key) == types.AttributeTypeContractAddress {
-						if common.HexToAddress(string(attr.Value)) == address {
-							contractMatched = true
-						}
-					} else if string(attr.Key) == types.AttributeTypeTopics {
-						if matchTopics(topics, utils.Map(strings.Split(string(attr.Value), ","), common.HexToHash)) {
-							topicsMatched = true
-						}
-					}
-				}
-				if !contractMatched || !topicsMatched {
-					continue
-				}
-				ethLog, err := encodeEventToLog(event)
-				if err != nil {
-					return nil, offset{}, err
-				}
-				logs = append(logs, ethLog)
-			}
-		}
-
-		if res.TotalCount < page*perPage {
-			return logs, offset{itemsToRead: page*perPage - res.TotalCount, nextPage: page}, nil
-		} else if res.TotalCount == page*perPage {
-			return logs, offset{itemsToRead: perPage, nextPage: page + 1}, nil
-		}
-		page++
-		itemsToRead = perPage
-	}
-}
-
 func (a *FilterAPI) UninstallFilter(
 	_ context.Context,
 	filterID uint64,
@@ -374,6 +261,95 @@ func (a *FilterAPI) UninstallFilter(
 	}
 	delete(a.filters, filterID)
 	return true
+}
+
+type LogFetcher struct {
+	tmClient    rpcclient.Client
+	k           *keeper.Keeper
+	ctxProvider func(int64) sdk.Context
+}
+
+func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
+	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
+	if crit.BlockHash != nil {
+		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:])
+		if err != nil {
+			return nil, 0, err
+		}
+		return f.GetLogsForBlock(ctx, block, crit, bloomIndexes), block.Block.Height, nil
+	}
+	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
+	begin, end := int64(0), latest
+	if crit.FromBlock != nil {
+		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
+	}
+	if crit.ToBlock != nil {
+		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
+	}
+	if lastToHeight > begin {
+		begin = lastToHeight
+	}
+	blockHeights := f.FindBlockesByBloom(begin, end, bloomIndexes)
+	res := []*ethtypes.Log{}
+	for _, height := range blockHeights {
+		h := height
+		block, err := blockWithRetry(ctx, f.tmClient, &h)
+		if err != nil {
+			return nil, 0, err
+		}
+		res = append(res, f.GetLogsForBlock(ctx, block, crit, bloomIndexes)...)
+	}
+
+	return res, end, nil
+}
+
+func (f *LogFetcher) GetLogsForBlock(ctx context.Context, block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
+	possibleLogs := f.FindLogsByBloom(block.Block.Height, filters)
+	matchedLogs := utils.Filter(possibleLogs, func(l *ethtypes.Log) bool { return f.IsLogExactMatch(l, crit) })
+	for i, l := range matchedLogs {
+		l.BlockHash = common.Hash(block.BlockID.Hash)
+		l.Index = uint(i)
+	}
+	return matchedLogs
+}
+
+func (f *LogFetcher) FindBlockesByBloom(begin, end int64, filters [][]bloomIndexes) (res []int64) {
+	//TODO: parallelize
+	ctx := f.ctxProvider(LatestCtxHeight)
+	for height := begin; height <= end; height++ {
+		blockBloom := f.k.GetBlockBloom(ctx, height)
+		if MatchFilters(blockBloom, filters) {
+			res = append(res, height)
+		}
+	}
+	return
+}
+
+func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (res []*ethtypes.Log) {
+	ctx := f.ctxProvider(LatestCtxHeight)
+	txHashes := f.k.GetTxHashesOnHeight(ctx, height)
+	for _, hash := range txHashes {
+		receipt, err := f.k.GetReceipt(ctx, hash)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+			continue
+		}
+		if MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
+			res = append(res, keeper.GetLogsForTx(receipt)...)
+		}
+	}
+	return
+}
+
+func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCriteria) bool {
+	addrMatch := len(crit.Addresses) == 0
+	for _, addrFilter := range crit.Addresses {
+		if log.Address == addrFilter {
+			addrMatch = true
+			break
+		}
+	}
+	return addrMatch && matchTopics(crit.Topics, log.Topics)
 }
 
 func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
@@ -397,37 +373,4 @@ func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
 		}
 	}
 	return true
-}
-
-func getBuiltQuery(
-	q *QueryBuilder,
-	blockHash *common.Hash,
-	fromBlock *big.Int,
-	toBlock *big.Int,
-	address common.Address,
-	topics [][]common.Hash,
-) *QueryBuilder {
-	if blockHash != nil {
-		q = q.FilterBlockHash(blockHash.Hex())
-	}
-	if fromBlock != nil {
-		q = q.FilterBlockNumberStart(fromBlock.Int64())
-	}
-	if toBlock != nil {
-		q = q.FilterBlockNumberEnd(toBlock.Int64())
-	}
-	if (address != common.Address{}) {
-		q = q.FilterContractAddress(address.Hex())
-	}
-	if len(topics) > 0 {
-		topicsStrs := make([][]string, len(topics))
-		for i, topic := range topics {
-			topicsStrs[i] = make([]string, len(topic))
-			for j, t := range topic {
-				topicsStrs[i][j] = t.Hex()
-			}
-		}
-		q = q.FilterTopics(topicsStrs)
-	}
-	return q
 }

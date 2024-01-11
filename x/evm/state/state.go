@@ -6,6 +6,7 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -79,12 +80,16 @@ func (s *DBImpl) Snapshot() int {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore())
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
+	s.snapshottedLogs = append(s.snapshottedLogs, s.logs)
+	s.logs = []*ethtypes.Log{}
 	return len(s.snapshottedCtxs) - 1
 }
 
 func (s *DBImpl) RevertToSnapshot(rev int) {
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
+	s.logs = s.snapshottedLogs[rev]
+	s.snapshottedLogs = s.snapshottedLogs[:rev]
 	s.Snapshot()
 }
 
