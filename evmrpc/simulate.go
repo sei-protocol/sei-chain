@@ -68,7 +68,8 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
 	}
-	return ethapi.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, s.backend.RPCGasCap())
+	estimate, err := ethapi.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, s.backend.RPCGasCap())
+	return estimate, err
 }
 
 func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (hexutil.Bytes, error) {
@@ -216,6 +217,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		Number:     blockNumber,
 		BaseFee:    b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
 		GasLimit:   b.config.GasCap,
+		Time:       uint64(time.Now().Unix()),
 	}
 }
 
