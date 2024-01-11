@@ -171,7 +171,6 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 			}
 
 		}
-		time.Sleep(1 * time.Second)
 		lastHeight = newHeight
 	}
 }

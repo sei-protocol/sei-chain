@@ -1308,6 +1308,10 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	startTime := time.Now()
+	defer func() {
+		fmt.Printf("PSUDEBUG - Process block time ms: %d\n", time.Now().Sub(startTime).Milliseconds())
+	}()
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
 
@@ -1333,27 +1337,39 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			ProposerAddress: ctx.BlockHeader().ProposerAddress,
 		},
 	}
-
+	beginBlockStart := time.Now()
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
+	fmt.Printf("PSUDEBUG - Begin block time ms: %d\n", time.Now().Sub(beginBlockStart).Milliseconds())
+
 	events = append(events, beginBlockResp.Events...)
 
 	txResults := make([]*abci.ExecTxResult, len(txs))
+	partitionPrioritizedTxsStart := time.Now()
 	prioritizedTxs, otherTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs)
+	fmt.Printf("PSUDEBUG - Partition Prioritized Txs ms: %d\n", time.Now().Sub(partitionPrioritizedTxsStart).Milliseconds())
 
 	// run the prioritized txs
+	buildDependenciesAndRunTxsStart := time.Now()
 	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs)
+	fmt.Printf("PSUDEBUG - BuildDependenciesAndRunTxs1 ms: %d\n", time.Now().Sub(buildDependenciesAndRunTxsStart).Milliseconds())
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
 	}
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
+	writeDeferredBalanceStart := time.Now()
 	deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
+	fmt.Printf("PSUDEBUG - writeDeferredBalanceStart ms: %d\n", time.Now().Sub(writeDeferredBalanceStart).Milliseconds())
+
 	events = append(events, deferredWriteEvents...)
 
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
+	buildDependenciesAndRunTxsStart2 := time.Now()
 	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, otherTxs)
+	fmt.Printf("PSUDEBUG - buildDependenciesAndRunTxsStart2 ms: %d\n", time.Now().Sub(buildDependenciesAndRunTxsStart2).Milliseconds())
+
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}
