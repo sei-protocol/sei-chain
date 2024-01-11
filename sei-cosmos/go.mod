@@ -19,6 +19,7 @@ require (
 	github.com/gogo/protobuf v1.3.3
 	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.3
+	github.com/google/btree v1.1.2
 	github.com/gorilla/handlers v1.5.1
 	github.com/gorilla/mux v1.8.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
@@ -186,7 +187,7 @@ replace (
 	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.31
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.2.38
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.2.38-evm-rebase
 	// latest grpc doesn't work with with our modified proto compiler, so we need to enforce
 	// the following version across all dependencies.
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
