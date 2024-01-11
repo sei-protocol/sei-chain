@@ -128,8 +128,15 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
 	//sem := semaphore.NewWeighted(int64(maxConcurrent))
 
-	i := 0
+	//i := 0
+	lastHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
 	for {
+		newHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
+		for newHeight == lastHeight {
+			time.Sleep(10 * time.Millisecond)
+			newHeight = getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
+		}
+
 		select {
 		case <-done:
 			fmt.Printf("Stopping consumers\n")
@@ -148,21 +155,26 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 			//}
 
 			wg.Add(1)
-			i += 1
-			if i >= maxConcurrent {
-				SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
-				i = 0
+			for i := 0; i < maxConcurrent; i++ {
 
-			} else {
-				//go func(tx []byte) {
-				//	defer wg.Done()
-				//	defer sem.Release(1)
-
-				if err := rateLimiter.Wait(context.Background()); err == nil {
-					SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
-				}
-				//}(tx)
+				SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
 			}
+			SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+			lastHeight = newHeight
+			//if i >= maxConcurrent {
+			//	SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+			//	i = 0
+			//
+			//} else {
+			//go func(tx []byte) {
+			//	defer wg.Done()
+			//	defer sem.Release(1)
+
+			//if err := rateLimiter.Wait(context.Background()); err == nil {
+			//	SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
+			//}
+			//}(tx)
+			//}
 
 		}
 	}
