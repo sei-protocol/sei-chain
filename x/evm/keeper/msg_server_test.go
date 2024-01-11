@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/example/contracts/echo"
 	"github.com/sei-protocol/sei-chain/example/contracts/sendall"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -364,4 +365,87 @@ func TestEVMAssociateTx(t *testing.T) {
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Equal(t, types.MsgEVMTransactionResponse{}, *res)
+}
+
+func TestEVMBlockEnv(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	code, err := os.ReadFile("../../../example/contracts/echo/Echo.bin")
+	require.Nil(t, err)
+	bz, err := hex.DecodeString(string(code))
+	require.Nil(t, err)
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	txData := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      200000,
+		To:       nil,
+		Value:    big.NewInt(0),
+		Data:     bz,
+		Nonce:    0,
+	}
+	chainID := k.ChainID(ctx)
+	evmParams := k.GetParams(ctx)
+	chainCfg := evmParams.GetChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err := types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt)
+
+	msgServer := keeper.NewMsgServerImpl(k)
+
+	// Deploy Simple Storage contract
+	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.Nil(t, err)
+	require.LessOrEqual(t, res.GasUsed, uint64(200000))
+	require.Empty(t, res.VmError)
+	require.NotEmpty(t, res.ReturnData)
+	require.NotEmpty(t, res.Hash)
+	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
+	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx), k.GetBaseDenom(ctx)).Amount.Uint64())
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	require.NotNil(t, receipt)
+	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), receipt.Status)
+
+	// send transaction to the contract
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	abi, err := echo.EchoMetaData.GetAbi()
+	require.Nil(t, err)
+	bz, err = abi.Pack("setTime", big.NewInt(1))
+	require.Nil(t, err)
+	txData = ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      200000,
+		To:       &contractAddr,
+		Value:    big.NewInt(0),
+		Data:     bz,
+		Nonce:    1,
+	}
+	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err = ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err = types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.Nil(t, err)
+	require.LessOrEqual(t, res.GasUsed, uint64(200000))
+	require.Empty(t, res.VmError)
+	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	require.NotNil(t, receipt)
+	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), receipt.Status)
 }
