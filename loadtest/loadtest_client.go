@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"golang.org/x/sync/semaphore"
 	"math"
 	"math/rand"
 	"strings"
@@ -127,7 +126,7 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *syn
 func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
 	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
 	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
-	sem := semaphore.NewWeighted(int64(maxConcurrent))
+	//sem := semaphore.NewWeighted(int64(maxConcurrent))
 
 	i := 0
 	for {
