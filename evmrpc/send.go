@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -140,6 +141,8 @@ func (s *SendAPI) signTransaction(unsignedTx *ethtypes.Transaction, from string)
 	if !ok {
 		return nil, errors.New("from address does not have hosted key")
 	}
-	signer := ethtypes.LatestSignerForChainID(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
+	chainId := s.keeper.ChainID(s.ctxProvider(LatestCtxHeight))
+	fmt.Println("chainId = ", chainId)
+	signer := ethtypes.LatestSignerForChainID(chainId)
 	return ethtypes.SignTx(unsignedTx, signer, privKey)
 }

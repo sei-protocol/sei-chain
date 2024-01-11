@@ -65,6 +65,9 @@ type Config struct {
 	// checkTx timeout for sig verify
 	CheckTxTimeout time.Duration `mapstructure:"checktx_timeout"`
 
+	// max number of txs to pull from mempool
+	MaxTxPoolTxs uint64 `mapstructure:"max_tx_pool_txs"`
+
 	// controls whether to have txns go through one by one
 	Slow bool `mapstructure:"slow"`
 }
@@ -84,6 +87,7 @@ var DefaultConfig = Config{
 	WSOrigins:            "*",
 	FilterTimeout:        120 * time.Second,
 	CheckTxTimeout:       5 * time.Second,
+	MaxTxPoolTxs:         1000,
 	Slow:                 false,
 }
 
@@ -101,6 +105,7 @@ const (
 	flagCORSOrigins          = "evm.cors_origins"
 	flagWSOrigins            = "evm.ws_origins"
 	flagFilterTimeout        = "evm.filter_timeout"
+	flagMaxTxPoolTxs         = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout       = "evm.checktx_timeout"
 	flagSlow                 = "evm.slow"
 )
@@ -175,6 +180,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagCheckTxTimeout); v != nil {
 		if cfg.CheckTxTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxTxPoolTxs); v != nil {
+		if cfg.MaxTxPoolTxs, err = cast.ToUint64E(v); err != nil {
 			return cfg, err
 		}
 	}
