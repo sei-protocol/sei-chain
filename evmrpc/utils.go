@@ -113,7 +113,7 @@ func hydratePendingTransaction(
 	signer := ethtypes.NewCancunSigner(tx.ChainId())
 	fromAddr, err := signer.Sender(tx)
 	if err != nil {
-		return RPCTransaction{} 
+		return RPCTransaction{}
 	}
 	return RPCTransaction{
 		From:                fromAddr,
