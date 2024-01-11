@@ -110,8 +110,13 @@ func hydratePendingTransaction(
 		yparity = &yp
 	}
 	al := tx.AccessList()
-
+	signer := ethtypes.NewCancunSigner(tx.ChainId())
+	fromAddr, err := signer.Sender(tx)
+	if err != nil {
+		return RPCTransaction{} 
+	}
 	return RPCTransaction{
+		From:                fromAddr,
 		Gas:                 hexutil.Uint64(tx.Gas()),
 		GasPrice:            (*hexutil.Big)(tx.GasPrice()),
 		GasFeeCap:           (*hexutil.Big)(tx.GasFeeCap()),
