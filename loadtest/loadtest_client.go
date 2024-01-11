@@ -134,44 +134,42 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 			time.Sleep(10 * time.Millisecond)
 			newHeight = getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
 		}
-
-		select {
-		case <-done:
-			fmt.Printf("Stopping consumers\n")
-			wg.Wait()
-			return
-		case tx, ok := <-txQueue:
-			if !ok {
+		for i := 0; i < maxConcurrent; i++ {
+			select {
+			case <-done:
 				fmt.Printf("Stopping consumers\n")
 				wg.Wait()
 				return
-			}
+			case tx, ok := <-txQueue:
+				if !ok {
+					fmt.Printf("Stopping consumers\n")
+					wg.Wait()
+					return
+				}
 
-			//if err := sem.Acquire(context.Background(), 1); err != nil {
-			//	fmt.Printf("Failed to acquire semaphore: %s", err)
-			//	break
-			//}
+				//if err := sem.Acquire(context.Background(), 1); err != nil {
+				//	fmt.Printf("Failed to acquire semaphore: %s", err)
+				//	break
+				//}
 
-			wg.Add(1)
-			for i := 0; i < maxConcurrent; i++ {
-
+				wg.Add(1)
 				go SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
-			}
-			lastHeight = newHeight
-			//if i >= maxConcurrent {
-			//	SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
-			//	i = 0
-			//
-			//} else {
-			//go func(tx []byte) {
-			//	defer wg.Done()
-			//	defer sem.Release(1)
+				lastHeight = newHeight
+				//if i >= maxConcurrent {
+				//	SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+				//	i = 0
+				//
+				//} else {
+				//go func(tx []byte) {
+				//	defer wg.Done()
+				//	defer sem.Release(1)
 
-			//if err := rateLimiter.Wait(context.Background()); err == nil {
-			//	SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
-			//}
-			//}(tx)
-			//}
+				//if err := rateLimiter.Wait(context.Background()); err == nil {
+				//	SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
+				//}
+				//}(tx)
+				//}
+			}
 
 		}
 	}
