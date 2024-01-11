@@ -2,11 +2,11 @@ package evmrpc
 
 import (
 	"context"
-	"fmt"
+	"math/big"
 	"strconv"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/ethereum/go-ethereum/core/types"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
@@ -34,31 +34,25 @@ func (t *TxPoolAPI) Content(ctx context.Context) map[string]map[string]map[strin
 		"queued":  make(map[string]map[string]*RPCTransaction),
 	}
 
-	// this doesnt work for some reason @Tony
-	// resNumUnconfirmedTxs, err := t.tmClient.NumUnconfirmedTxs(ctx)
-	// if err != nil {
-	// 	return nil
-	// }
-	// totalQuery := resNumUnconfirmedTxs.Total
-	// fmt.Println("total query = ", totalQuery)
-
 	total := t.txPoolConfig.maxNumTxs
 	resUnconfirmedTxs, err := t.tmClient.UnconfirmedTxs(ctx, nil, &total)
 	if err != nil {
-		fmt.Println("error getting unconfirmed txs = ", err)
 		return nil
 	}
-	fmt.Println("resUnconfirmedTxs total = ", resUnconfirmedTxs.Total)
-	fmt.Println("resUnconfirmedTxs count = ", resUnconfirmedTxs.Count)
-	fmt.Println("len(txs) = ", len(resUnconfirmedTxs.Txs))
+
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	signer := ethtypes.MakeSigner(
+		t.keeper.GetChainConfig(sdkCtx).EthereumConfig(t.keeper.ChainID(sdkCtx)),
+		big.NewInt(sdkCtx.BlockHeight()),
+		uint64(sdkCtx.BlockTime().Second()),
+	)
 
 	for _, tx := range resUnconfirmedTxs.Txs {
 		ethTx := getEthTxForTxBz(tx, t.txDecoder)
 		if ethTx == nil { // not an evm tx
 			continue
 		}
-		signer := types.NewCancunSigner(ethTx.ChainId())
-		fromAddr, err := signer.Sender(ethTx)
+		fromAddr, err := ethtypes.Sender(signer, ethTx)
 		if err != nil {
 			return nil
 		}
@@ -74,6 +68,5 @@ func (t *TxPoolAPI) Content(ctx context.Context) map[string]map[string]map[strin
 			content["pending"][fromAddr.String()][nonceStr] = &res
 		}
 	}
-	fmt.Println("returning content = ", content)
 	return content
 }

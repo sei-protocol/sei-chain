@@ -14,7 +14,9 @@ func NewDynamicFeeTx(tx *ethtypes.Transaction) (*DynamicFeeTx, error) {
 	if err := ValidateEthTx(tx); err != nil {
 		return nil, err
 	}
+	// chainId := sdk.NewIntFromBigInt(tx.ChainId())
 	txData := &DynamicFeeTx{
+		// ChainID:  &chainId,
 		Nonce:    tx.Nonce(),
 		Data:     tx.Data(),
 		GasLimit: tx.Gas(),
