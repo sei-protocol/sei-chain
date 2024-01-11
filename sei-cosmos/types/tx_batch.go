@@ -11,6 +11,7 @@ type DeliverTxEntry struct {
 	Request            abci.RequestDeliverTx
 	SdkTx              Tx
 	Checksum           [32]byte
+	AbsoluteIndex      int
 	EstimatedWritesets MappedWritesets
 }
 

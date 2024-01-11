@@ -53,6 +53,7 @@ type deliverTxTask struct {
 	Request       types.RequestDeliverTx
 	SdkTx         sdk.Tx
 	Checksum      [32]byte
+	AbsoluteIndex int
 	Response      *types.ResponseDeliverTx
 	VersionStores map[sdk.StoreKey]*multiversion.VersionIndexedStore
 }
@@ -180,12 +181,13 @@ func toTasks(reqs []*sdk.DeliverTxEntry) []*deliverTxTask {
 	res := make([]*deliverTxTask, 0, len(reqs))
 	for idx, r := range reqs {
 		res = append(res, &deliverTxTask{
-			Request:      r.Request,
-			SdkTx:        r.SdkTx,
-			Checksum:     r.Checksum,
-			Index:        idx,
-			Status:       statusPending,
-			Dependencies: map[int]struct{}{},
+			Request:       r.Request,
+			SdkTx:         r.SdkTx,
+			Checksum:      r.Checksum,
+			AbsoluteIndex: r.AbsoluteIndex,
+			Index:         idx,
+			Status:        statusPending,
+			Dependencies:  map[int]struct{}{},
 		})
 	}
 	return res
@@ -474,7 +476,7 @@ func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask)
 
 // prepareTask initializes the context and version stores for a task
 func (s *scheduler) prepareTask(task *deliverTxTask) {
-	ctx := task.Ctx.WithTxIndex(task.Index)
+	ctx := task.Ctx.WithTxIndex(task.AbsoluteIndex)
 
 	_, span := s.traceSpan(ctx, "SchedulerPrepare", task)
 	defer span.End()
