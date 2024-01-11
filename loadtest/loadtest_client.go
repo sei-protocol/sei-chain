@@ -10,8 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/time/rate"
-
 	"github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -124,7 +122,7 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *syn
 }
 
 func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
-	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
+	//rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
 	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
 	//sem := semaphore.NewWeighted(int64(maxConcurrent))
 
