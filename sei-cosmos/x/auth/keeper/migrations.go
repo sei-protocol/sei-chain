@@ -41,3 +41,9 @@ func (m Migrator) Migrate1to2(ctx sdk.Context) error {
 
 	return iterErr
 }
+
+func (m Migrator) Migrate2to3(ctx sdk.Context) error {
+	defaultParams := types.DefaultParams()
+	m.keeper.SetParams(ctx, defaultParams)
+	return nil
+}
