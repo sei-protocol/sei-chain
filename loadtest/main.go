@@ -87,7 +87,7 @@ func startLoadtestWorkers(config Config) {
 
 	txQueue := make(chan []byte, 10000)
 	done := make(chan struct{})
-	numProducers := 5
+	numProducers := 1000
 	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
