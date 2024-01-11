@@ -1359,13 +1359,14 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs [
 }
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
-func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
+func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	for txIndex, tx := range txs {
 		deliverTxEntry := &sdk.DeliverTxEntry{
-			Request:  abci.RequestDeliverTx{Tx: tx},
-			SdkTx:    typedTxs[txIndex],
-			Checksum: sha256.Sum256(tx),
+			Request:       abci.RequestDeliverTx{Tx: tx},
+			SdkTx:         typedTxs[txIndex],
+			Checksum:      sha256.Sum256(tx),
+			AbsoluteIndex: absoluteIndices[txIndex],
 		}
 		// get prefill estimate
 		estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.txDecoder, app.GetAnteDepGenerator(), txIndex, tx)
