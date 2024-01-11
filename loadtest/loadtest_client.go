@@ -155,6 +155,7 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 			wg.Add(1)
 			for i := 0; i < maxConcurrent; i++ {
 
+				fmt.Printf("%s\n", i)
 				go SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
 			}
 			lastHeight = newHeight

@@ -17,6 +17,7 @@ func SendTx(
 	loadtestClient LoadTestClient,
 	sentCount *int64,
 ) {
+	fmt.Printf("PSUDEBUG - sending txs")
 	grpcRes, err := loadtestClient.GetTxClient().BroadcastTx(
 		context.Background(),
 		&typestx.BroadcastTxRequest{
