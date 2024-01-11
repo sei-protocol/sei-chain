@@ -155,14 +155,14 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 				i = 0
 
 			} else {
-				go func(tx []byte) {
-					defer wg.Done()
-					defer sem.Release(1)
+				//go func(tx []byte) {
+				//	defer wg.Done()
+				//	defer sem.Release(1)
 
-					if err := rateLimiter.Wait(context.Background()); err == nil {
-						SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
-					}
-				}(tx)
+				if err := rateLimiter.Wait(context.Background()); err == nil {
+					SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_ASYNC, false, *c, sentCount)
+				}
+				//}(tx)
 			}
 
 		}

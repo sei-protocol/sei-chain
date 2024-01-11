@@ -94,7 +94,7 @@ func startLoadtestWorkers(config Config) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	start := time.Now()
 	var producedCount int64 = 0
 	var sentCount int64 = 0
