@@ -31,7 +31,7 @@ var (
 
 // EchoMetaData contains all meta data concerning the Echo contract.
 var EchoMetaData = &bind.MetaData{
-	ABI: "[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"echo\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"pure\",\"type\":\"function\"}]",
+	ABI: "[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"echo\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"epoch\",\"type\":\"uint256\"}],\"name\":\"setTime\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"timestamps\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
 }
 
 // EchoABI is the input ABI used to generate the binding from.
@@ -209,4 +209,56 @@ func (_Echo *EchoSession) Echo(value *big.Int) (*big.Int, error) {
 // Solidity: function echo(uint256 value) pure returns(uint256)
 func (_Echo *EchoCallerSession) Echo(value *big.Int) (*big.Int, error) {
 	return _Echo.Contract.Echo(&_Echo.CallOpts, value)
+}
+
+// Timestamps is a free data retrieval call binding the contract method 0x8bc33af3.
+//
+// Solidity: function timestamps(uint256 ) view returns(uint256)
+func (_Echo *EchoCaller) Timestamps(opts *bind.CallOpts, arg0 *big.Int) (*big.Int, error) {
+	var out []interface{}
+	err := _Echo.contract.Call(opts, &out, "timestamps", arg0)
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// Timestamps is a free data retrieval call binding the contract method 0x8bc33af3.
+//
+// Solidity: function timestamps(uint256 ) view returns(uint256)
+func (_Echo *EchoSession) Timestamps(arg0 *big.Int) (*big.Int, error) {
+	return _Echo.Contract.Timestamps(&_Echo.CallOpts, arg0)
+}
+
+// Timestamps is a free data retrieval call binding the contract method 0x8bc33af3.
+//
+// Solidity: function timestamps(uint256 ) view returns(uint256)
+func (_Echo *EchoCallerSession) Timestamps(arg0 *big.Int) (*big.Int, error) {
+	return _Echo.Contract.Timestamps(&_Echo.CallOpts, arg0)
+}
+
+// SetTime is a paid mutator transaction binding the contract method 0x3beb26c4.
+//
+// Solidity: function setTime(uint256 epoch) returns()
+func (_Echo *EchoTransactor) SetTime(opts *bind.TransactOpts, epoch *big.Int) (*types.Transaction, error) {
+	return _Echo.contract.Transact(opts, "setTime", epoch)
+}
+
+// SetTime is a paid mutator transaction binding the contract method 0x3beb26c4.
+//
+// Solidity: function setTime(uint256 epoch) returns()
+func (_Echo *EchoSession) SetTime(epoch *big.Int) (*types.Transaction, error) {
+	return _Echo.Contract.SetTime(&_Echo.TransactOpts, epoch)
+}
+
+// SetTime is a paid mutator transaction binding the contract method 0x3beb26c4.
+//
+// Solidity: function setTime(uint256 epoch) returns()
+func (_Echo *EchoTransactorSession) SetTime(epoch *big.Int) (*types.Transaction, error) {
+	return _Echo.Contract.SetTime(&_Echo.TransactOpts, epoch)
 }
