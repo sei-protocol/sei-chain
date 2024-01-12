@@ -23,7 +23,11 @@ func SendTx(
 		},
 	)
 
-	if grpcRes.TxResponse.Code == 0 {
+	if failureExpected {
 		atomic.AddInt64(sentCount, 1)
+		return
+	} else if grpcRes != nil && grpcRes.TxResponse.Code == 0 {
+		atomic.AddInt64(sentCount, 1)
+		return
 	}
 }
