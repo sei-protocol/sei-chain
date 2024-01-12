@@ -169,9 +169,8 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, keys []
 //	}
 //}
 
-func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int) {
+func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
 	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
-	wg := sync.WaitGroup{}
 	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
 	sem := semaphore.NewWeighted(int64(maxConcurrent))
 
