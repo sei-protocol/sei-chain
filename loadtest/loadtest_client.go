@@ -298,6 +298,7 @@ func (c *LoadTestClient) GetTxResponse(hash string) *types.TxResponse {
 	return grpcRes.TxResponse
 }
 
+//nolint:staticcheck
 func (c *LoadTestClient) GetTxClient() typestx.ServiceClient {
 	rand.Seed(time.Now().Unix())
 	return c.TxClients[rand.Int()%len(c.TxClients)]

@@ -11,7 +11,7 @@ import (
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
-const LocalAddress = "127.0.0.1"
+const LocalAddress = "0.0.0.0"
 
 type EVMServer interface {
 	Start() error
@@ -72,6 +72,10 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "eth",
 			Service:   NewFilterAPI(tmClient, &FilterConfig{timeout: config.FilterTimeout}),
+		},
+		{
+			Namespace: "txpool",
+			Service:   NewTxPoolAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), &TxPoolConfig{maxNumTxs: int(config.MaxTxPoolTxs)}),
 		},
 		{
 			Namespace: "web3",
