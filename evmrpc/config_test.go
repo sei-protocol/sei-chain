@@ -23,6 +23,7 @@ type opts struct {
 	wsOrigins            interface{}
 	filterTimeout        interface{}
 	checkTxTimeout       interface{}
+	maxTxPoolTxs         interface{}
 	slow                 interface{}
 }
 
@@ -69,6 +70,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.checktx_timeout" {
 		return o.checkTxTimeout
 	}
+	if k == "evm.max_tx_pool_txs" {
+		return o.maxTxPoolTxs
+	}
 	if k == "evm.slow" {
 		return o.slow
 	}
@@ -91,6 +95,7 @@ func TestReadConfig(t *testing.T) {
 		"",
 		time.Duration(5),
 		time.Duration(5),
+		1000,
 		false,
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
@@ -149,6 +154,10 @@ func TestReadConfig(t *testing.T) {
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.checkTxTimeout = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+	badOpts = goodOpts
+	badOpts.maxTxPoolTxs = "bad"
 	_, err = evmrpc.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 	badOpts = goodOpts

@@ -99,6 +99,44 @@ func hydrateTransaction(
 	}
 }
 
+func hydratePendingTransaction(
+	tx *ethtypes.Transaction,
+) RPCTransaction {
+	v, r, s := tx.RawSignatureValues()
+	v = ante.AdjustV(v, tx.Type(), tx.ChainId())
+	var yparity *hexutil.Uint64
+	if tx.Type() != ethtypes.LegacyTxType {
+		yp := hexutil.Uint64(v.Sign())
+		yparity = &yp
+	}
+	al := tx.AccessList()
+	signer := ethtypes.NewCancunSigner(tx.ChainId())
+	fromAddr, err := signer.Sender(tx)
+	if err != nil {
+		return RPCTransaction{}
+	}
+	return RPCTransaction{
+		From:                fromAddr,
+		Gas:                 hexutil.Uint64(tx.Gas()),
+		GasPrice:            (*hexutil.Big)(tx.GasPrice()),
+		GasFeeCap:           (*hexutil.Big)(tx.GasFeeCap()),
+		GasTipCap:           (*hexutil.Big)(tx.GasTipCap()),
+		MaxFeePerBlobGas:    (*hexutil.Big)(tx.BlobGasFeeCap()),
+		Hash:                tx.Hash(),
+		Input:               tx.Data(),
+		Nonce:               hexutil.Uint64(tx.Nonce()),
+		To:                  tx.To(),
+		Value:               (*hexutil.Big)(tx.Value()),
+		Accesses:            &al,
+		ChainID:             (*hexutil.Big)(tx.ChainId()),
+		BlobVersionedHashes: tx.BlobHashes(),
+		V:                   (*hexutil.Big)(v),
+		S:                   (*hexutil.Big)(s),
+		R:                   (*hexutil.Big)(r),
+		YParity:             yparity,
+	}
+}
+
 func hydrateBankSendTransaction(ctx sdk.Context, msg *banktypes.MsgSend, k *keeper.Keeper) RPCTransaction {
 	useiAmount := msg.Amount.AmountOf(k.GetBaseDenom(ctx))
 	if useiAmount.IsZero() {
