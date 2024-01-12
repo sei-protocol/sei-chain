@@ -66,14 +66,30 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 	userHomeDir, _ := os.UserHomeDir()
 	files, _ := os.ReadDir(filepath.Join(userHomeDir, "test_accounts"))
 	var testAccountsKeys []cryptotypes.PrivKey
+	var wg sync.WaitGroup
+	keysChan := make(chan cryptotypes.PrivKey, maxAccounts)
 	fmt.Printf("Loading accounts\n")
 	for i, file := range files {
-		testAccountsKeys = append(testAccountsKeys, sc.GetKey(fmt.Sprint(i), "test", filepath.Join(userHomeDir, "test_accounts", file.Name())))
 		if i >= maxAccounts {
 			break
 		}
+		wg.Add(1)
+		go func(i int, fileName string) {
+			defer wg.Done()
+			key := sc.GetKey(fmt.Sprint(i), "test", filepath.Join(userHomeDir, "test_accounts", fileName))
+			keysChan <- key
+		}(i, file.Name())
 	}
-	return testAccountsKeys
+	wg.Wait()
+	close(keysChan)
+	// Collect keys from the channel
+	idx := 0
+	for key := range keysChan {
+		testAccountsKeys[idx] = key
+		idx++
+	}
+
+	return testAccountsKeys[:idx]
 }
 
 func (sc *SignerClient) GetAdminAccountKeyPath() string {

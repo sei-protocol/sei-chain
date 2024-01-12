@@ -87,7 +87,7 @@ func startLoadtestWorkers(config Config) {
 
 	txQueue := make(chan []byte, 10000)
 	done := make(chan struct{})
-	numProducers := 5
+	numProducers := 1000
 	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
@@ -109,6 +109,10 @@ func startLoadtestWorkers(config Config) {
 		wg.Add(1)
 		go client.BuildTxs(txQueue, i, keys, &wg, done, &producedCount)
 	}
+	// Give producers some time to populate queue
+	if config.TargetTps > 1000 {
+		time.Sleep(5 * time.Second)
+	}
 
 	fmt.Printf("Starting loadtest consumers\n")
 	go client.SendTxs(txQueue, done, &sentCount, int(config.TargetTps), &wg)
@@ -128,6 +132,7 @@ func startLoadtestWorkers(config Config) {
 					blockHeights = append(blockHeights, i)
 					blockTimes = append(blockTimes, blockTime)
 				}
+				fmt.Printf("TxQueue len: %d", len(txQueue))
 
 				printStats(start, &producedCount, &sentCount, &prevSentCount, blockHeights, blockTimes)
 				startHeight = currHeight
