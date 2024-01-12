@@ -21,7 +21,7 @@ import (
 )
 
 func TestGetTxReceipt(t *testing.T) {
-	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0x78b0bd7fe9ccc8ae8a61eae9315586cf2a406dacf129313e6c5769db7cd14372\"],\"id\":\"test\"}"
+	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}"
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -81,7 +81,7 @@ func TestGetTxReceipt(t *testing.T) {
 func TestGetTransaction(t *testing.T) {
 	bodyByBlockNumberAndIndex := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionByBlockNumberAndIndex\",\"params\":[\"0x8\",\"0x0\"],\"id\":\"test\"}"
 	bodyByBlockHashAndIndex := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionByBlockHashAndIndex\",\"params\":[\"0x0000000000000000000000000000000000000000000000000000000000000001\",\"0x0\"],\"id\":\"test\"}"
-	bodyByHash := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionByHash\",\"params\":[\"0x78b0bd7fe9ccc8ae8a61eae9315586cf2a406dacf129313e6c5769db7cd14372\"],\"id\":\"test\"}"
+	bodyByHash := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionByHash\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}"
 	for _, body := range []string{bodyByBlockNumberAndIndex, bodyByBlockHashAndIndex, bodyByHash} {
 		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 		require.Nil(t, err)
@@ -100,7 +100,7 @@ func TestGetTransaction(t *testing.T) {
 		require.Equal(t, "0xa", resObj["gasPrice"].(string))
 		require.Equal(t, "0xa", resObj["maxFeePerGas"].(string))
 		require.Equal(t, "0x0", resObj["maxPriorityFeePerGas"].(string))
-		require.Equal(t, "0x78b0bd7fe9ccc8ae8a61eae9315586cf2a406dacf129313e6c5769db7cd14372", resObj["hash"].(string))
+		require.Equal(t, "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e", resObj["hash"].(string))
 		require.Equal(t, "0x616263", resObj["input"].(string))
 		require.Equal(t, "0x1", resObj["nonce"].(string))
 		require.Equal(t, "0x0000000000000000000000000000000000010203", resObj["to"].(string))
@@ -108,10 +108,10 @@ func TestGetTransaction(t *testing.T) {
 		require.Equal(t, "0x3e8", resObj["value"].(string))
 		require.Equal(t, "0x0", resObj["type"].(string))
 		require.Equal(t, 0, len(resObj["accessList"].([]interface{})))
-		require.Equal(t, "0x1", resObj["chainId"].(string))
-		require.Equal(t, "0x1c", resObj["v"].(string))
-		require.Equal(t, "0x34125c09c6b1a57f5f571a242572129057b22612dd56ee3519c4f68bece0db03", resObj["r"].(string))
-		require.Equal(t, "0x3f4fe6f2512219bac6f9b4e4be1aa11d3ef79c5c2f1000ef6fa37389de0ff523", resObj["s"].(string))
+		require.Equal(t, "0xae3f3", resObj["chainId"].(string))
+		require.Equal(t, "0x1b", resObj["v"].(string))
+		require.Equal(t, "0xa1ac0e5b8202742e54ae7af350ed855313cc4f9861c2d75a0e541b4aff7c981e", resObj["r"].(string))
+		require.Equal(t, "0x288b16881aed9640cd360403b9db1ce3961b29af0b00158311856d1446670996", resObj["s"].(string))
 		require.Equal(t, "0x1", resObj["yParity"].(string))
 	}
 
@@ -130,9 +130,9 @@ func TestGetTransaction(t *testing.T) {
 }
 
 func TestGetPendingTransactionByHash(t *testing.T) {
-	resObj := sendRequestGood(t, "getTransactionByHash", "0x74452c2b9b4482f34eba843725cc99625bc89fe55d9a67d4a506e584ba1f334b")
+	resObj := sendRequestGood(t, "getTransactionByHash", "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e")
 	result := resObj["result"].(map[string]interface{})
-	require.Equal(t, "0x2", result["nonce"])
+	require.Equal(t, "0x1", result["nonce"])
 }
 
 func TestGetTransactionCount(t *testing.T) {
@@ -228,8 +228,8 @@ func TestGetPendingNonces(t *testing.T) {
 }
 
 func TestGetVMError(t *testing.T) {
-	resObj := sendRequestGood(t, "getVMError", "0x78b0bd7fe9ccc8ae8a61eae9315586cf2a406dacf129313e6c5769db7cd14372")
+	resObj := sendRequestGood(t, "getVMError", "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e")
 	require.Equal(t, "", resObj["result"].(string))
-	resObj = sendRequestGood(t, "getVMError", "0x78b0bd7fe9ccc8ae8a61eae9315586cf2a406dacf129313e6c5769db7cd14374")
+	resObj = sendRequestGood(t, "getVMError", "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872f")
 	require.Equal(t, "not found", resObj["error"].(map[string]interface{})["message"])
 }

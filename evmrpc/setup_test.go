@@ -489,7 +489,12 @@ func (c *MockClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.Result
 
 func (c *MockClient) UnconfirmedTxs(ctx context.Context, page, perPage *int) (*coretypes.ResultUnconfirmedTxs, error) {
 	tx, _ := Encoder(UnconfirmedTx)
-	return &coretypes.ResultUnconfirmedTxs{Txs: []tmtypes.Tx{tx}}, nil
+	return &coretypes.ResultUnconfirmedTxs{
+		Count:      1,
+		Total:      1,
+		TotalBytes: int64(len(tx)),
+		Txs:        []tmtypes.Tx{tx},
+	}, nil
 }
 
 type MockBadClient struct {
@@ -557,6 +562,7 @@ func init() {
 	fmt.Printf("wsServer started with config = %+v\n", goodConfig)
 	time.Sleep(1 * time.Second)
 
+	chainId := big.NewInt(types.DefaultChainID.Int64())
 	to := common.HexToAddress("010203")
 	txData := ethtypes.DynamicFeeTx{
 		Nonce:     1,
@@ -565,7 +571,7 @@ func init() {
 		To:        &to,
 		Value:     big.NewInt(1000),
 		Data:      []byte("abc"),
-		ChainID:   big.NewInt(1),
+		ChainID:   chainId,
 	}
 	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
 	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
@@ -573,7 +579,7 @@ func init() {
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	evmParams := EVMKeeper.GetParams(Ctx)
-	ethCfg := evmParams.GetChainConfig().EthereumConfig(big.NewInt(1))
+	ethCfg := evmParams.GetChainConfig().EthereumConfig(chainId)
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
 	tx := ethtypes.NewTx(&txData)
 	tx, err = ethtypes.SignTx(tx, signer, key)
@@ -634,7 +640,7 @@ func init() {
 		To:        &to,
 		Value:     big.NewInt(2000),
 		Data:      []byte("abc"),
-		ChainID:   big.NewInt(1),
+		ChainID:   chainId,
 	}
 	tx = ethtypes.NewTx(&unconfirmedTxData)
 	tx, err = ethtypes.SignTx(tx, signer, key)
