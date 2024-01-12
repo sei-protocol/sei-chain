@@ -146,8 +146,9 @@ func writeHTTPResponse(w http.ResponseWriter, log log.Logger, rsp rpctypes.RPCRe
 		return
 	}
 	statusCode := http.StatusOK
-	// If there's any error for lag is high, override the status code
+	// If there's any error for lag is high, override the status code and response body
 	if rsp.Error != nil && rsp.Error.Code == int(rpctypes.CodeLagIsHighError) {
+		body = rsp.Result
 		statusCode = http.StatusExpectationFailed
 	}
 	w.Header().Set("Content-Type", "application/json")
