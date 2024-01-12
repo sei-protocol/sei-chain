@@ -126,49 +126,6 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, keys []
 	}
 }
 
-//func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
-//	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
-//	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
-//	sem := semaphore.NewWeighted(int64(maxConcurrent))
-//
-//	lastHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
-//	for {
-//		newHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
-//		for newHeight == lastHeight {
-//			time.Sleep(10 * time.Millisecond)
-//			newHeight = getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
-//		}
-//		for i := 0; i < maxConcurrent; i++ {
-//			select {
-//			case <-done:
-//				fmt.Printf("Stopping consumers\n")
-//				wg.Wait()
-//				return
-//			case tx, ok := <-txQueue:
-//				if !ok {
-//					fmt.Printf("Stopping consumers\n")
-//					wg.Wait()
-//					return
-//				}
-//
-//				if err := sem.Acquire(context.Background(), 1); err != nil {
-//					fmt.Printf("Failed to acquire semaphore: %s", err)
-//					break
-//				}
-//
-//				wg.Add(1)
-//				go func(tx []byte) {
-//					defer wg.Done()
-//					defer sem.Release(1)
-//					SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
-//				}(tx)
-//			}
-//
-//		}
-//		lastHeight = newHeight
-//	}
-//}
-
 func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
 	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
 	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
@@ -201,7 +158,6 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 					fmt.Printf("Error waiting for rate limiter: %v\n", err)
 					return
 				}
-
 				SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
 			}(tx)
 		}
