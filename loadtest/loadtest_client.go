@@ -148,9 +148,8 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 				fmt.Printf("Failed to acquire semaphore: %v", err)
 				break
 			}
-
-			wg.Add(1)
 			go func(tx []byte) {
+				wg.Add(1)
 				defer wg.Done()
 				defer sem.Release(1)
 
