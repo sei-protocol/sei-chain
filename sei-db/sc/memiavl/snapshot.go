@@ -2,6 +2,7 @@ package memiavl
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -350,8 +351,8 @@ func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 }
 
 // WriteSnapshot save the IAVL tree to a new snapshot directory.
-func (t *Tree) WriteSnapshot(snapshotDir string) error {
-	return writeSnapshot(snapshotDir, t.version, func(w *snapshotWriter) (uint32, error) {
+func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
+	return writeSnapshot(ctx, snapshotDir, t.version, func(w *snapshotWriter) (uint32, error) {
 		if t.root == nil {
 			return 0, nil
 		}
@@ -363,6 +364,7 @@ func (t *Tree) WriteSnapshot(snapshotDir string) error {
 }
 
 func writeSnapshot(
+	ctx context.Context,
 	dir string, version uint32,
 	doWrite func(*snapshotWriter) (uint32, error),
 ) (returnErr error) {
@@ -408,7 +410,7 @@ func writeSnapshot(
 	leavesWriter := bufio.NewWriterSize(fpLeaves, bufIOSize)
 	kvsWriter := bufio.NewWriterSize(fpKVs, bufIOSize)
 
-	w := newSnapshotWriter(nodesWriter, leavesWriter, kvsWriter)
+	w := newSnapshotWriter(ctx, nodesWriter, leavesWriter, kvsWriter)
 	leaves, err := doWrite(w)
 	if err != nil {
 		return err
@@ -461,6 +463,9 @@ func writeSnapshot(
 }
 
 type snapshotWriter struct {
+	// context for cancel the writing process
+	ctx context.Context
+
 	nodesWriter, leavesWriter, kvWriter io.Writer
 
 	// count how many nodes have been written
@@ -470,8 +475,9 @@ type snapshotWriter struct {
 	kvsOffset uint64
 }
 
-func newSnapshotWriter(nodesWriter, leavesWriter, kvsWriter io.Writer) *snapshotWriter {
+func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter io.Writer) *snapshotWriter {
 	return &snapshotWriter{
+		ctx:          ctx,
 		nodesWriter:  nodesWriter,
 		leavesWriter: leavesWriter,
 		kvWriter:     kvsWriter,
@@ -503,6 +509,11 @@ func (w *snapshotWriter) writeKeyValue(key, value []byte) error {
 }
 
 func (w *snapshotWriter) writeLeaf(version uint32, key, value, hash []byte) error {
+	select {
+	case <-w.ctx.Done():
+		return w.ctx.Err()
+	default:
+	}
 	var buf [SizeLeafWithoutHash]byte
 	binary.LittleEndian.PutUint32(buf[OffsetLeafVersion:], version)
 	binary.LittleEndian.PutUint32(buf[OffsetLeafKeyLen:], uint32(len(key)))

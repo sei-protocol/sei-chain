@@ -1,6 +1,7 @@
 package memiavl
 
 import (
+	"context"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func TestRewriteSnapshot(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, i+1, int(v))
 			require.Equal(t, RefHashes[i], db.lastCommitInfo.StoreInfos[0].CommitId.Hash)
-			require.NoError(t, db.RewriteSnapshot())
+			require.NoError(t, db.RewriteSnapshot(context.Background()))
 			require.NoError(t, db.Reload())
 		})
 	}
@@ -250,7 +251,7 @@ func TestInitialVersion(t *testing.T) {
 		// the nodes are created with version 1, which is compatible with iavl behavior: https://github.com/cosmos/iavl/pull/660
 		require.Equal(t, info.CommitId.Hash, HashNode(newLeafNode([]byte(key), []byte(value), 1)))
 
-		require.NoError(t, db.RewriteSnapshot())
+		require.NoError(t, db.RewriteSnapshot(context.Background()))
 		require.NoError(t, db.Reload())
 
 		db.ApplyUpgrades([]*proto.TreeNameUpgrade{{Name: name2}})
@@ -326,7 +327,7 @@ func TestZeroCopy(t *testing.T) {
 	_, err = db.Commit()
 	require.NoError(t, err)
 	require.NoError(t, errors.Join(
-		db.RewriteSnapshot(),
+		db.RewriteSnapshot(context.Background()),
 		db.Reload(),
 	))
 

@@ -1,6 +1,7 @@
 package memiavl
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -51,6 +52,8 @@ type DB struct {
 
 	// result channel of snapshot rewrite goroutine
 	snapshotRewriteChan chan snapshotResult
+	// context cancel function to cancel the snapshot rewrite goroutine
+	snapshotRewriteCancelFunc context.CancelFunc
 	// the number of old snapshots to keep (excluding the latest one)
 	snapshotKeepRecent uint32
 	// block interval to take a new snapshot
@@ -352,6 +355,7 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 	select {
 	case result := <-db.snapshotRewriteChan:
 		db.snapshotRewriteChan = nil
+		db.snapshotRewriteCancelFunc = nil
 
 		if result.mtree == nil {
 			// background snapshot rewrite failed
@@ -380,7 +384,7 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 		if err := db.reloadMultiTree(result.mtree); err != nil {
 			return fmt.Errorf("switch multitree failed: %w", err)
 		}
-		db.logger.Info("switched to new snapshot", "version", db.MultiTree.Version())
+		db.logger.Info("switched to new memiavl snapshot", "version", db.MultiTree.Version())
 
 		db.pruneSnapshots()
 	default:
@@ -494,7 +498,7 @@ func (db *DB) copy(cacheSize int) *DB {
 }
 
 // RewriteSnapshot writes the current version of memiavl into a snapshot, and update the `current` symlink.
-func (db *DB) RewriteSnapshot() error {
+func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
@@ -505,7 +509,7 @@ func (db *DB) RewriteSnapshot() error {
 	snapshotDir := snapshotName(db.lastCommitInfo.Version)
 	tmpDir := snapshotDir + "-tmp"
 	path := filepath.Join(db.dir, tmpDir)
-	if err := db.MultiTree.WriteSnapshot(path, db.snapshotWriterPool); err != nil {
+	if err := db.MultiTree.WriteSnapshot(ctx, path, db.snapshotWriterPool); err != nil {
 		return errorutils.Join(err, os.RemoveAll(path))
 	}
 	if err := os.Rename(path, filepath.Join(db.dir, snapshotDir)); err != nil {
@@ -573,15 +577,17 @@ func (db *DB) rewriteSnapshotBackground() error {
 		return errors.New("there's another ongoing snapshot rewriting process")
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	ch := make(chan snapshotResult)
 	db.snapshotRewriteChan = ch
+	db.snapshotRewriteCancelFunc = cancel
 
 	cloned := db.copy(0)
 	go func() {
 		defer close(ch)
 
 		cloned.logger.Info("start rewriting snapshot", "version", cloned.Version())
-		if err := cloned.RewriteSnapshot(); err != nil {
+		if err := cloned.RewriteSnapshot(ctx); err != nil {
 			ch <- snapshotResult{err: err}
 			return
 		}
@@ -611,8 +617,17 @@ func (db *DB) Close() error {
 	defer db.mtx.Unlock()
 
 	errs := []error{
-		db.streamHandler.Close(), db.MultiTree.Close(),
+		db.streamHandler.Close(),
 	}
+	if db.snapshotRewriteChan != nil {
+		db.snapshotRewriteCancelFunc()
+		<-db.snapshotRewriteChan
+		db.snapshotRewriteChan = nil
+		db.snapshotRewriteCancelFunc = nil
+	}
+
+	errs = append(errs, db.MultiTree.Close())
+
 	db.streamHandler = nil
 
 	if db.fileLock != nil {
@@ -682,7 +697,7 @@ func (db *DB) WriteSnapshot(dir string) error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
-	return db.MultiTree.WriteSnapshot(dir, db.snapshotWriterPool)
+	return db.MultiTree.WriteSnapshot(context.Background(), dir, db.snapshotWriterPool)
 }
 
 func snapshotName(version int64) string {
@@ -782,7 +797,7 @@ func initEmptyDB(dir string, initialVersion uint32) error {
 	pool := pond.New(config.DefaultSnapshotWriterLimit, config.DefaultSnapshotWriterLimit*10)
 	defer pool.Stop()
 
-	if err := tmp.WriteSnapshot(filepath.Join(dir, snapshotDir), pool); err != nil {
+	if err := tmp.WriteSnapshot(context.Background(), filepath.Join(dir, snapshotDir), pool); err != nil {
 		return err
 	}
 	return updateCurrentSymlink(dir, snapshotDir)
