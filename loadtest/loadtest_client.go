@@ -127,6 +127,8 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, keys []
 }
 
 func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
 	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
 	sem := semaphore.NewWeighted(int64(maxConcurrent))
@@ -135,16 +137,14 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 		select {
 		case <-done:
 			fmt.Printf("Stopping consumers\n")
-			wg.Wait()
 			return
 		case tx, ok := <-txQueue:
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
-				wg.Wait()
 				return
 			}
 
-			if err := sem.Acquire(context.Background(), 1); err != nil {
+			if err := sem.Acquire(ctx, 1); err != nil {
 				fmt.Printf("Failed to acquire semaphore: %v", err)
 				break
 			}
@@ -154,7 +154,7 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 				defer wg.Done()
 				defer sem.Release(1)
 
-				if err := rateLimiter.Wait(context.Background()); err != nil {
+				if err := rateLimiter.Wait(ctx); err != nil {
 					fmt.Printf("Error waiting for rate limiter: %v\n", err)
 					return
 				}

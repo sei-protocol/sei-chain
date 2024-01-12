@@ -132,7 +132,6 @@ func startLoadtestWorkers(config Config) {
 					blockHeights = append(blockHeights, i)
 					blockTimes = append(blockTimes, blockTime)
 				}
-				fmt.Printf("TxQueue len: %d", len(txQueue))
 
 				printStats(start, &producedCount, &sentCount, &prevSentCount, blockHeights, blockTimes)
 				startHeight = currHeight
