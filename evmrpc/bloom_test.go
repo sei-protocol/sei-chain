@@ -25,4 +25,28 @@ func TestMatchBloom(t *testing.T) {
 		[][]common.Hash{{common.HexToHash("0x036285defb58e7bdfda894dd4f86e1c7c826522ae0755f0017a2155b4c58022e")}},
 	)
 	require.True(t, evmrpc.MatchFilters(bloom, filters))
+
+	filters = evmrpc.EncodeFilters(
+		[]common.Address{common.HexToAddress("0x797C2dBE5736D0096914Cd1f9A7330403c71d301")},
+		[][]common.Hash{},
+	)
+	require.True(t, evmrpc.MatchFilters(bloom, filters))
+
+	filters = evmrpc.EncodeFilters(
+		[]common.Address{},
+		[][]common.Hash{{common.HexToHash("0x036285defb58e7bdfda894dd4f86e1c7c826522ae0755f0017a2155b4c58022e")}},
+	)
+	require.True(t, evmrpc.MatchFilters(bloom, filters))
+
+	filters = evmrpc.EncodeFilters(
+		[]common.Address{common.HexToAddress("0x797C2dBE5736D0096914Cd1f9A7330403c71d302")},
+		[][]common.Hash{},
+	)
+	require.False(t, evmrpc.MatchFilters(bloom, filters))
+
+	filters = evmrpc.EncodeFilters(
+		[]common.Address{},
+		[][]common.Hash{{common.HexToHash("0x036285defb58e7bdfda894dd4f86e1c7c826522ae0755f0017a2155b4c58022f")}},
+	)
+	require.False(t, evmrpc.MatchFilters(bloom, filters))
 }
