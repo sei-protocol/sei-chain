@@ -60,11 +60,13 @@ var upgradesList = []string{
 	"3.0.6",
 	"3.0.7",
 	"3.0.8",
+	// We change naming convention to prepend version with "v"
 	"v3.0.9",
 	"v3.1.1",
 	"v3.2.1",
 	"v3.3.0",
 	"v3.5.0",
+	"v3.6.1",
 }
 
 // if there is an override list, use that instead, for integration tests
