@@ -43,6 +43,11 @@ type LoadTestClient struct {
 func NewLoadTestClient(config Config) *LoadTestClient {
 	var dialOptions []grpc.DialOption
 
+	dialOptions = append(dialOptions, grpc.WithDefaultCallOptions(
+		grpc.MaxCallRecvMsgSize(20*1024*1024),
+		grpc.MaxCallSendMsgSize(20*1024*1024)),
+	)
+	dialOptions = append(dialOptions, grpc.WithBlock())
 	// NOTE: Will likely need to whitelist node from elb rate limits - add ip to producer ip set
 	if config.TLS {
 		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
