@@ -66,7 +66,17 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 	userHomeDir, _ := os.UserHomeDir()
 	files, _ := os.ReadDir(filepath.Join(userHomeDir, "test_accounts"))
 	var testAccountsKeys []cryptotypes.PrivKey
+	fmt.Printf("Loading accounts\n")
 	for i, file := range files {
+		if i == len(files)/4 {
+			fmt.Printf("Loading accounts 1/4 done")
+		}
+		if i == len(files)/2 {
+			fmt.Printf("Loading accounts 1/2 done")
+		}
+		if i == 3*len(files)/4 {
+			fmt.Printf("Loading accounts 3/4 done")
+		}
 		testAccountsKeys = append(testAccountsKeys, sc.GetKey(fmt.Sprint(i), "test", file.Name()))
 		if i >= maxAccounts {
 			break
