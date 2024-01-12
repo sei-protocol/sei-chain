@@ -666,12 +666,21 @@ func sendRequestBad(t *testing.T, method string, params ...interface{}) map[stri
 	return sendRequest(t, TestBadPort, method, params...)
 }
 
+// nolint:deadcode
+func sendRequestGoodWithNamespace(t *testing.T, namespace string, method string, params ...interface{}) map[string]interface{} {
+	return sendRequestWithNamespace(t, namespace, TestPort, method, params...)
+}
+
 func sendRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
+	return sendRequestWithNamespace(t, "eth", port, method, params...)
+}
+
+func sendRequestWithNamespace(t *testing.T, namespace string, port int, method string, params ...interface{}) map[string]interface{} {
 	paramsFormatted := ""
 	if len(params) > 0 {
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_%s\",\"params\":[%s],\"id\":\"test\"}", method, paramsFormatted)
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_%s\",\"params\":[%s],\"id\":\"test\"}", namespace, method, paramsFormatted)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
