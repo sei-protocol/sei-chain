@@ -8,6 +8,7 @@ import (
 )
 
 func SendTx(
+	ctx context.Context,
 	txBytes []byte,
 	mode typestx.BroadcastMode,
 	failureExpected bool,
@@ -16,7 +17,7 @@ func SendTx(
 ) {
 
 	grpcRes, err := loadtestClient.GetTxClient().BroadcastTx(
-		context.Background(),
+		ctx,
 		&typestx.BroadcastTxRequest{
 			Mode:    mode,
 			TxBytes: txBytes,

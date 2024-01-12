@@ -162,7 +162,7 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 				if err := rateLimiter.Wait(localCtx); err != nil {
 					return
 				}
-				SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+				SendTx(ctx, tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
 			}(tx)
 		}
 	}
