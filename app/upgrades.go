@@ -67,7 +67,7 @@ var upgradesList = []string{
 	"v3.3.0",
 	"v3.5.0",
 	// SeiDB is available after v3.6.0
-	"v3.6.0",
+	"v3.6.1",
 }
 
 // if there is an override list, use that instead, for integration tests
