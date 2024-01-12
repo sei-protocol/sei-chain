@@ -550,6 +550,7 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 	return msgs
 }
 
+// nolint
 func getLastHeight(blockchainEndpoint string) int {
 	out, err := exec.Command("curl", blockchainEndpoint+"/blockchain").Output()
 	if err != nil {
