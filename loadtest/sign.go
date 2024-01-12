@@ -77,7 +77,7 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 		if i == 3*len(files)/4 {
 			fmt.Printf("Loading accounts 3/4 done")
 		}
-		testAccountsKeys = append(testAccountsKeys, sc.GetKey(fmt.Sprint(i), "test", filepath.Join(userHomeDir, file.Name())))
+		testAccountsKeys = append(testAccountsKeys, sc.GetKey(fmt.Sprint(i), "test", filepath.Join(userHomeDir, "test_accounts", file.Name())))
 		if i >= maxAccounts {
 			break
 		}
