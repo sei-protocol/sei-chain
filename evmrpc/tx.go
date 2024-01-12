@@ -114,7 +114,7 @@ func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Addre
 				signer := ethtypes.MakeSigner(
 					t.keeper.GetChainConfig(sdkCtx).EthereumConfig(t.keeper.ChainID(sdkCtx)),
 					big.NewInt(sdkCtx.BlockHeight()),
-					uint64(sdkCtx.BlockTime().Second()),
+					uint64(sdkCtx.BlockTime().Unix()),
 				)
 				from, _ := ethtypes.Sender(signer, etx)
 				if from == addr {
@@ -144,7 +144,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 				signer := ethtypes.MakeSigner(
 					t.keeper.GetChainConfig(sdkCtx).EthereumConfig(t.keeper.ChainID(sdkCtx)),
 					big.NewInt(sdkCtx.BlockHeight()),
-					uint64(sdkCtx.BlockTime().Second()),
+					uint64(sdkCtx.BlockTime().Unix()),
 				)
 				from, _ := ethtypes.Sender(signer, etx)
 				v, r, s := etx.RawSignatureValues()
