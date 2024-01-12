@@ -35,15 +35,44 @@ func TestTxPoolContent(t *testing.T) {
 			tx := txn.(map[string]interface{})
 			require.Nil(t, tx["blockNumber"])
 			require.Nil(t, tx["blockHash"])
-			require.Equal(t, tx["chainId"], "0xae3f3")
 			require.Equal(t, strings.ToLower(tx["from"].(string)), strings.ToLower(fromAddr))
-			require.NotZero(t, tx["v"])
-			require.NotZero(t, tx["r"])
-			require.NotZero(t, tx["s"])
+			requireNotZeroHex(t, tx["gas"].(string))
+			requireNotZeroHex(t, tx["gasPrice"].(string))
+			// maxFeePerGas
+			requireNotZeroHex(t, tx["maxFeePerGas"].(string))
+			// maxPriorityFeePerGas
+			// hash
+			requireNotZeroHex(t, tx["hash"].(string))
+			// input
+			requireNotZeroHex(t, tx["input"].(string))
+			// nonce -- can be 0
+			// to
+			requireNotZeroHex(t, tx["to"].(string))
+			// transactionIndex -- not set yet for pending
+			// value
+			requireNotZeroHex(t, tx["value"].(string))
+			// type -- can be 0
+			// acccesslist-- can be any array value
+			require.Equal(t, tx["chainId"], "0xae3f3") // 713715
+			requireNotZeroHex(t, tx["v"].(string))
+			requireNotZeroHex(t, tx["r"].(string))
+			requireNotZeroHex(t, tx["s"].(string))
 		}
 	}
 
 	// check queued has nothing in it
 	queuedMap := resObj["queued"].(map[string]interface{})
 	require.Equal(t, 0, len(queuedMap))
+}
+
+func requireNotZeroHex(t *testing.T, hexStr string) {
+	if strings.HasPrefix(hexStr, "0x") {
+		hexStr = hexStr[2:]
+	}
+	for i := 0; i < len(hexStr); i++ {
+		if hexStr[i] != '0' {
+			return // not all zeros
+		}
+	}
+	t.Errorf("requireNotZeroHex: %s is all zeros", hexStr)
 }
