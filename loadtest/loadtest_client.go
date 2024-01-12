@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"math"
 	"math/rand"
 	"strings"
@@ -96,12 +97,9 @@ func (c *LoadTestClient) Close() {
 	}
 }
 
-func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *sync.WaitGroup, done <-chan struct{}, producedCount *int64) {
+func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, keys []cryptotypes.PrivKey, wg *sync.WaitGroup, done <-chan struct{}, producedCount *int64) {
 	defer wg.Done()
 	config := c.LoadTestConfig
-	accountIdentifier := fmt.Sprint(producerId)
-	accountKeyPath := c.SignerClient.GetTestAccountKeyPath(uint64(producerId))
-	key := c.SignerClient.GetKey(accountIdentifier, "test", accountKeyPath)
 
 	for {
 		select {
@@ -109,6 +107,7 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *syn
 			fmt.Printf("Stopping producer %d\n", producerId)
 			return
 		default:
+			key := keys[atomic.LoadInt64(producedCount)%int64(len(keys))]
 			msgs, _, _, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msgs...)

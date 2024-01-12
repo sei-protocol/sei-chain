@@ -87,7 +87,7 @@ func startLoadtestWorkers(config Config) {
 
 	txQueue := make(chan []byte, 10000)
 	done := make(chan struct{})
-	numProducers := 1000
+	numProducers := 5
 	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
@@ -103,9 +103,11 @@ func startLoadtestWorkers(config Config) {
 	var blockTimes []string
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
 	fmt.Printf("Starting loadtest producers\n")
+	// preload all accounts
+	keys := client.SignerClient.GetAllTestAccountsKeys()
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
-		go client.BuildTxs(txQueue, i, &wg, done, &producedCount)
+		go client.BuildTxs(txQueue, i, keys, &wg, done, &producedCount)
 	}
 
 	fmt.Printf("Starting loadtest consumers\n")
