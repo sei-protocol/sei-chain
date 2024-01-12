@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/time/rate"
 	"math"
 	"math/rand"
 	"strings"
@@ -124,57 +126,86 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, keys []
 	}
 }
 
-func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
-	//rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
-	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
-	//sem := semaphore.NewWeighted(int64(maxConcurrent))
+//func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
+//	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
+//	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
+//	sem := semaphore.NewWeighted(int64(maxConcurrent))
+//
+//	lastHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
+//	for {
+//		newHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
+//		for newHeight == lastHeight {
+//			time.Sleep(10 * time.Millisecond)
+//			newHeight = getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
+//		}
+//		for i := 0; i < maxConcurrent; i++ {
+//			select {
+//			case <-done:
+//				fmt.Printf("Stopping consumers\n")
+//				wg.Wait()
+//				return
+//			case tx, ok := <-txQueue:
+//				if !ok {
+//					fmt.Printf("Stopping consumers\n")
+//					wg.Wait()
+//					return
+//				}
+//
+//				if err := sem.Acquire(context.Background(), 1); err != nil {
+//					fmt.Printf("Failed to acquire semaphore: %s", err)
+//					break
+//				}
+//
+//				wg.Add(1)
+//				go func(tx []byte) {
+//					defer wg.Done()
+//					defer sem.Release(1)
+//					SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+//				}(tx)
+//			}
+//
+//		}
+//		lastHeight = newHeight
+//	}
+//}
 
-	//i := 0
-	lastHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
+func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int) {
+	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
+	wg := sync.WaitGroup{}
+	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
+	sem := semaphore.NewWeighted(int64(maxConcurrent))
+
 	for {
-		newHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
-		for newHeight == lastHeight {
-			time.Sleep(10 * time.Millisecond)
-			newHeight = getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
-		}
-		for i := 0; i < maxConcurrent; i++ {
-			select {
-			case <-done:
+		select {
+		case <-done:
+			fmt.Printf("Stopping consumers\n")
+			wg.Wait()
+			return
+		case tx, ok := <-txQueue:
+			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				wg.Wait()
 				return
-			case tx, ok := <-txQueue:
-				if !ok {
-					fmt.Printf("Stopping consumers\n")
-					wg.Wait()
+			}
+
+			if err := sem.Acquire(context.Background(), 1); err != nil {
+				fmt.Printf("Failed to acquire semaphore: %v", err)
+				break
+			}
+
+			wg.Add(1)
+			go func(tx []byte) {
+				defer wg.Done()
+				defer sem.Release(1)
+
+				if err := rateLimiter.Wait(context.Background()); err != nil {
+					fmt.Printf("Error waiting for rate limiter: %v\n", err)
 					return
 				}
 
-				//if err := sem.Acquire(context.Background(), 1); err != nil {
-				//	fmt.Printf("Failed to acquire semaphore: %s", err)
-				//	break
-				//}
-
-				wg.Add(1)
-				go SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
-				//if i >= maxConcurrent {
-				//	SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
-				//	i = 0
-				//
-				//} else {
-				//go func(tx []byte) {
-				//	defer wg.Done()
-				//	defer sem.Release(1)
-
-				//if err := rateLimiter.Wait(context.Background()); err == nil {
-				//	SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_SYNC, false, *c, sentCount)
-				//}
-				//}(tx)
-				//}
-			}
-
+				SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+			}(tx)
 		}
-		lastHeight = newHeight
 	}
 }
 
