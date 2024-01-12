@@ -44,7 +44,7 @@ func (t *TxPoolAPI) Content(ctx context.Context) map[string]map[string]map[strin
 	signer := ethtypes.MakeSigner(
 		t.keeper.GetChainConfig(sdkCtx).EthereumConfig(t.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Second()),
+		uint64(sdkCtx.BlockTime().Unix()),
 	)
 
 	for _, tx := range resUnconfirmedTxs.Txs {
