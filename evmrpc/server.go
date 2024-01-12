@@ -11,7 +11,7 @@ import (
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
-const LocalAddress = "127.0.0.1"
+const LocalAddress = "0.0.0.0"
 
 type EVMServer interface {
 	Start() error
