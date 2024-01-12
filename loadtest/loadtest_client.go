@@ -117,11 +117,16 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, keys []
 				types.NewCoin("usei", types.NewInt(fee)),
 			})
 			// Use random seqno to get around txs that might already be seen in mempool
-
 			c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(rand.Intn(math.MaxInt)))
 			txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
-			txQueue <- txBytes
-			atomic.AddInt64(producedCount, 1)
+			select {
+			case txQueue <- txBytes:
+				atomic.AddInt64(producedCount, 1)
+			case <-done:
+				// Exit if done signal is received while trying to send to txQueue
+				fmt.Printf("Stopping producer %d due to done signal while sending to txQueue\n", producerId)
+				return
+			}
 		}
 	}
 }
