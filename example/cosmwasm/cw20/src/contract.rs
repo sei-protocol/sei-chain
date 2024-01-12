@@ -48,7 +48,7 @@ pub fn execute_transfer(
 
     let querier = EvmQuerier::new(&deps.querier);
     let payload = querier.erc20_transfer_payload(recipient.clone(), amount)?;
-    let msg = EvmMsg::CallEvm { value: Uint128::zero(), to: erc_addr.into_string(), data: payload.encoded_payload };
+    let msg = EvmMsg::DelegateCallEvm { to: erc_addr.into_string(), data: payload.encoded_payload };
     let res = Response::new()
         .add_attribute("action", "transfer")
         .add_attribute("from", info.sender)
