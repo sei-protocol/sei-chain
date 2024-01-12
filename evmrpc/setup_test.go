@@ -51,6 +51,7 @@ var TxConfig = EncodingConfig.TxConfig
 var Encoder = TxConfig.TxEncoder()
 var Decoder = TxConfig.TxDecoder()
 var Tx sdk.Tx
+var TxNonEvm sdk.Tx
 var UnconfirmedTx sdk.Tx
 
 var SConfig = evmrpc.SimulateConfig{GasCap: 10000000}
@@ -100,10 +101,16 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 		Block: &tmtypes.Block{
 			Header: mockBlockHeader(height),
 			Data: tmtypes.Data{
-				Txs: []tmtypes.Tx{func() []byte {
-					bz, _ := Encoder(Tx)
-					return bz
-				}()},
+				Txs: []tmtypes.Tx{
+					func() []byte {
+						bz, _ := Encoder(Tx)
+						return bz
+					}(),
+					func() []byte {
+						bz, _ := Encoder(TxNonEvm)
+						return bz
+					}(),
+				},
 			},
 			LastCommit: &tmtypes.Commit{
 				Height: MockHeight - 1,
@@ -599,6 +606,7 @@ func init() {
 		panic(err)
 	}
 	Tx = b.GetTx()
+	TxNonEvm = app.TestTx{}
 	if err := EVMKeeper.SetReceipt(Ctx, tx.Hash(), &types.Receipt{
 		From:              "0x1234567890123456789012345678901234567890",
 		To:                "0x1234567890123456789012345678901234567890",
