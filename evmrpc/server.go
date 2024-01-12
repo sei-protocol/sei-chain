@@ -74,10 +74,6 @@ func NewEVMHTTPServer(
 			Service:   NewFilterAPI(tmClient, &FilterConfig{timeout: config.FilterTimeout}),
 		},
 		{
-			Namespace: "txpool",
-			Service:   NewTxPoolAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), &TxPoolConfig{maxNumTxs: int(config.MaxTxPoolTxs)}),
-		},
-		{
 			Namespace: "sei",
 			Service:   NewAssociationAPI(tmClient, k, ctxProvider, txConfig.TxDecoder()),
 		},

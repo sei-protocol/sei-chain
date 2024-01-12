@@ -34,7 +34,7 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 	sig := make([]byte, 65)
 	copy(sig[0:32], req.R.ToInt().Bytes())
 	copy(sig[32:64], req.S.ToInt().Bytes())
-	sig[64] = byte(req.V.ToInt().Uint64() - 27) // Adjust V value
+	sig[64] = byte(req.V.ToInt().Uint64())
 
 	// Recover the public key from the signature
 	publicKey, err := crypto.SigToPub(crypto.Keccak256([]byte("")), sig)
