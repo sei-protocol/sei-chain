@@ -1334,7 +1334,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		},
 	}
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
-
 	events = append(events, beginBlockResp.Events...)
 
 	txResults := make([]*abci.ExecTxResult, len(txs))
@@ -1348,14 +1347,12 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
 	deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
-
 	events = append(events, deferredWriteEvents...)
 
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
 	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, otherTxs)
-
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}
