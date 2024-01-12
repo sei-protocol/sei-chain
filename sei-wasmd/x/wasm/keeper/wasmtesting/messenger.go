@@ -3,25 +3,26 @@ package wasmtesting
 import (
 	"errors"
 
+	"github.com/CosmWasm/wasmd/x/wasm/types"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 type MockMessageHandler struct {
-	DispatchMsgFn func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo) (events []sdk.Event, data [][]byte, err error)
+	DispatchMsgFn func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error)
 }
 
-func (m *MockMessageHandler) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo) (events []sdk.Event, data [][]byte, err error) {
+func (m *MockMessageHandler) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 	if m.DispatchMsgFn == nil {
 		panic("not expected to be called")
 	}
-	return m.DispatchMsgFn(ctx, contractAddr, contractIBCPortID, msg, info)
+	return m.DispatchMsgFn(ctx, contractAddr, contractIBCPortID, msg, info, codeInfo)
 }
 
 func NewCapturingMessageHandler() (*MockMessageHandler, *[]wasmvmtypes.CosmosMsg) {
 	var messages []wasmvmtypes.CosmosMsg
 	return &MockMessageHandler{
-		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo) (events []sdk.Event, data [][]byte, err error) {
+		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 			messages = append(messages, msg)
 			// return one data item so that this doesn't cause an error in submessage processing (it takes the first element from data)
 			return nil, [][]byte{{1}}, nil
@@ -31,7 +32,7 @@ func NewCapturingMessageHandler() (*MockMessageHandler, *[]wasmvmtypes.CosmosMsg
 
 func NewErroringMessageHandler() *MockMessageHandler {
 	return &MockMessageHandler{
-		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo) (events []sdk.Event, data [][]byte, err error) {
+		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 			return nil, nil, errors.New("test, ignore")
 		},
 	}

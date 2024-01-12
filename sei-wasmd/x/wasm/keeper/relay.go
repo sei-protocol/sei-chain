@@ -140,7 +140,7 @@ func (k Keeper) OnRecvPacket(
 		return nil, sdkerrors.Wrap(types.ErrExecuteFailed, res.Err)
 	}
 	// note submessage reply results can overwrite the `Acknowledgement` data
-	return k.handleContractResponse(ctx, contractAddr, contractInfo.IBCPortID, res.Ok.Messages, res.Ok.Attributes, res.Ok.Acknowledgement, res.Ok.Events, wasmvmtypes.MessageInfo{})
+	return k.handleContractResponse(ctx, contractAddr, contractInfo.IBCPortID, res.Ok.Messages, res.Ok.Attributes, res.Ok.Acknowledgement, res.Ok.Events, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
 }
 
 // OnAckPacket calls the contract to handle the "acknowledgement" data which can contain success or failure of a packet
@@ -202,6 +202,6 @@ func (k Keeper) OnTimeoutPacket(
 }
 
 func (k Keeper) handleIBCBasicContractResponse(ctx sdk.Context, addr sdk.AccAddress, id string, res *wasmvmtypes.IBCBasicResponse) error {
-	_, err := k.handleContractResponse(ctx, addr, id, res.Messages, res.Attributes, nil, res.Events, wasmvmtypes.MessageInfo{})
+	_, err := k.handleContractResponse(ctx, addr, id, res.Messages, res.Attributes, nil, res.Events, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
 	return err
 }

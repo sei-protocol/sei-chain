@@ -25,13 +25,13 @@ func TestMessageHandlerChainDispatch(t *testing.T) {
 	capturingHandler, gotMsgs := wasmtesting.NewCapturingMessageHandler()
 
 	alwaysUnknownMsgHandler := &wasmtesting.MockMessageHandler{
-		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo) (events []sdk.Event, data [][]byte, err error) {
+		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 			return nil, nil, types.ErrUnknownMsg
 		},
 	}
 
 	assertNotCalledHandler := &wasmtesting.MockMessageHandler{
-		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo) (events []sdk.Event, data [][]byte, err error) {
+		DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 			t.Fatal("not expected to be called")
 			return
 		},
@@ -54,7 +54,7 @@ func TestMessageHandlerChainDispatch(t *testing.T) {
 		},
 		"stops iteration on handler error": {
 			handlers: []Messenger{&wasmtesting.MockMessageHandler{
-				DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo) (events []sdk.Event, data [][]byte, err error) {
+				DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, _ types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 					return nil, nil, types.ErrInvalidMsg
 				},
 			}, assertNotCalledHandler},
@@ -63,8 +63,8 @@ func TestMessageHandlerChainDispatch(t *testing.T) {
 		"return events when handle": {
 			handlers: []Messenger{
 				&wasmtesting.MockMessageHandler{
-					DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo) (events []sdk.Event, data [][]byte, err error) {
-						_, data, _ = capturingHandler.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg, info)
+					DispatchMsgFn: func(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+						_, data, _ = capturingHandler.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg, info, codeInfo)
 						return []sdk.Event{sdk.NewEvent("myEvent", sdk.NewAttribute("foo", "bar"))}, data, nil
 					},
 				},
@@ -82,7 +82,7 @@ func TestMessageHandlerChainDispatch(t *testing.T) {
 
 			// when
 			h := MessageHandlerChain{spec.handlers}
-			gotEvents, gotData, gotErr := h.DispatchMsg(sdk.Context{}, RandomAccountAddress(t), "anyPort", myMsg, wasmvmtypes.MessageInfo{})
+			gotEvents, gotData, gotErr := h.DispatchMsg(sdk.Context{}, RandomAccountAddress(t), "anyPort", myMsg, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
 
 			// then
 			require.True(t, spec.expErr.Is(gotErr), "exp %v but got %#+v", spec.expErr, gotErr)
@@ -125,7 +125,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 	}{
 		"all good": {
 			srcRoute: capturingMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
 				myMsg := types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
 					Contract: RandomBech32AccountAddress(t),
@@ -137,7 +137,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 		},
 		"multiple output msgs": {
 			srcRoute: capturingMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
 				first := &types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
 					Contract: RandomBech32AccountAddress(t),
@@ -154,7 +154,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 		},
 		"invalid sdk message rejected": {
 			srcRoute: capturingMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
 				invalidMsg := types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
 					Contract: RandomBech32AccountAddress(t),
@@ -166,7 +166,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 		},
 		"invalid sender rejected": {
 			srcRoute: capturingMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
 				invalidMsg := types.MsgExecuteContract{
 					Sender:   RandomBech32AccountAddress(t),
 					Contract: RandomBech32AccountAddress(t),
@@ -178,7 +178,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 		},
 		"unroutable message rejected": {
 			srcRoute: noRouteMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
 				myMsg := types.MsgExecuteContract{
 					Sender:   myContractAddr.String(),
 					Contract: RandomBech32AccountAddress(t),
@@ -190,7 +190,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 		},
 		"encoding error passed": {
 			srcRoute: capturingMessageRouter,
-			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo) ([]sdk.Msg, error) {
+			srcEncoder: func(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.MessageInfo, _ types.CodeInfo) ([]sdk.Msg, error) {
 				myErr := types.ErrUnpinContractFailed // any error that is not used
 				return nil, myErr
 			},
@@ -204,7 +204,7 @@ func TestSDKMessageHandlerDispatch(t *testing.T) {
 			// when
 			ctx := sdk.Context{}
 			h := NewSDKMessageHandler(spec.srcRoute, MessageEncoders{Custom: spec.srcEncoder})
-			gotEvents, gotData, gotErr := h.DispatchMsg(ctx, myContractAddr, "myPort", myContractMessage, wasmvmtypes.MessageInfo{})
+			gotEvents, gotData, gotErr := h.DispatchMsg(ctx, myContractAddr, "myPort", myContractMessage, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
 
 			// then
 			require.True(t, spec.expErr.Is(gotErr), "exp %v but got %#+v", spec.expErr, gotErr)
@@ -308,7 +308,7 @@ func TestIBCRawPacketHandler(t *testing.T) {
 			capturedPacket = nil
 			// when
 			h := NewIBCRawPacketHandler(spec.chanKeeper, spec.capKeeper)
-			data, evts, gotErr := h.DispatchMsg(ctx, RandomAccountAddress(t), ibcPort, wasmvmtypes.CosmosMsg{IBC: &wasmvmtypes.IBCMsg{SendPacket: &spec.srcMsg}}, wasmvmtypes.MessageInfo{})
+			data, evts, gotErr := h.DispatchMsg(ctx, RandomAccountAddress(t), ibcPort, wasmvmtypes.CosmosMsg{IBC: &wasmvmtypes.IBCMsg{SendPacket: &spec.srcMsg}}, wasmvmtypes.MessageInfo{}, types.CodeInfo{})
 			// then
 			require.True(t, spec.expErr.Is(gotErr), "exp %v but got %#+v", spec.expErr, gotErr)
 			if spec.expErr != nil {
