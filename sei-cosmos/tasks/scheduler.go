@@ -260,6 +260,9 @@ func (s *scheduler) shouldRerun(task *deliverTxTask) bool {
 
 	// validated tasks can become unvalidated if an earlier re-run task now conflicts
 	case statusExecuted, statusValidated:
+		// With the current scheduler, we won't actually get to this step if a previous task has already been determined to be invalid,
+		// since we choose to fail fast and mark the subsequent tasks as invalid as well.
+		// TODO: in a future async scheduler that no longer exhaustively validates in order, we may need to carefully handle the `valid=true` with conflicts case
 		if valid, conflicts := s.findConflicts(task); !valid {
 			s.invalidateTask(task)
 

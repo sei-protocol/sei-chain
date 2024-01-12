@@ -236,7 +236,7 @@ func (s *Store) ClearReadset(index int) {
 }
 
 func (s *Store) ClearIterateset(index int) {
-	s.txReadSets.Delete(index)
+	s.txIterateSets.Delete(index)
 }
 
 // CollectIteratorItems implements MultiVersionStore. It will return a memDB containing all of the keys present in the multiversion store within the iteration range prior to (exclusive of) the index.
