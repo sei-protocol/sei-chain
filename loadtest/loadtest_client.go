@@ -160,7 +160,6 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 				defer sem.Release(1)
 
 				if err := rateLimiter.Wait(localCtx); err != nil {
-					fmt.Printf("Error waiting for rate limiter: %v\n", err)
 					return
 				}
 				SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)

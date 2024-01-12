@@ -149,10 +149,8 @@ func startLoadtestWorkers(config Config) {
 	<-signals
 	fmt.Println("SIGINT received, shutting down...")
 	close(done)
-	fmt.Println("closed done")
 
 	wg.Wait()
-	fmt.Println("wg wait complete")
 	close(txQueue)
 }
 
