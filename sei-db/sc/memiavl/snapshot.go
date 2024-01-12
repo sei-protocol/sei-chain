@@ -356,6 +356,7 @@ func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
 		if t.root == nil {
 			return 0, nil
 		}
+
 		if err := w.writeRecursive(t.root); err != nil {
 			return 0, err
 		}
@@ -509,11 +510,6 @@ func (w *snapshotWriter) writeKeyValue(key, value []byte) error {
 }
 
 func (w *snapshotWriter) writeLeaf(version uint32, key, value, hash []byte) error {
-	select {
-	case <-w.ctx.Done():
-		return w.ctx.Err()
-	default:
-	}
 	var buf [SizeLeafWithoutHash]byte
 	binary.LittleEndian.PutUint32(buf[OffsetLeafVersion:], version)
 	binary.LittleEndian.PutUint32(buf[OffsetLeafKeyLen:], uint32(len(key)))
@@ -556,6 +552,11 @@ func (w *snapshotWriter) writeBranch(version, size uint32, height, preTrees uint
 // writeRecursive write the node recursively in depth-first post-order,
 // returns `(nodeIndex, err)`.
 func (w *snapshotWriter) writeRecursive(node Node) error {
+	select {
+	case <-w.ctx.Done():
+		return w.ctx.Err()
+	default:
+	}
 	if node.IsLeaf() {
 		return w.writeLeaf(node.Version(), node.Key(), node.Value(), node.Hash())
 	}
