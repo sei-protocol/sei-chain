@@ -10,6 +10,7 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type EVMFeeCheckDecorator struct {
@@ -63,8 +64,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	}
 
 	// calculate the priority by dividing the total fee with the native gas limit (i.e. the effective native gas price)
-	priority := new(big.Int).Quo(new(big.Int).Quo(anteCharge, state.UseiToSweiMultiplier), new(big.Int).SetUint64(txData.GetGas()))
-	priority = new(big.Int).Quo(priority, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
+	priority := fc.CalculatePriority(ctx, txData)
 	ctx = ctx.WithPriority(priority.Int64())
 
 	return next(ctx, tx, simulate)
@@ -78,4 +78,22 @@ func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context) *big.Int {
 // lowest allowed fee per gas
 func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 	return fc.evmKeeper.GetMinimumFeePerGas(ctx).RoundInt().BigInt()
+}
+
+func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
+	if txData.GetGasFeeCap() == nil {
+		return big.NewInt(0)
+	}
+	fee := txData.Fee()
+	tipCapPct := big.NewInt(0)
+	if txData.GetGasTipCap() != nil {
+		tipCapPct = new(big.Int).Quo(txData.GetGasTipCap(), txData.GetGasFeeCap())
+		if tipCapPct.Cmp(big.NewInt(1)) > 0 {
+			tipCapPct = big.NewInt(1)
+		}
+	}
+	discountedFee := new(big.Int).Mul(fee, tipCapPct)
+	adjustedFee := new(big.Int).Quo(discountedFee, state.UseiToSweiMultiplier)
+	nativeGasPrice := new(big.Int).Quo(adjustedFee, new(big.Int).SetUint64(txData.GetGas()))
+	return new(big.Int).Quo(nativeGasPrice, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
 }
