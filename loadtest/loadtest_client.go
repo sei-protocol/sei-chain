@@ -124,7 +124,6 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, keys []
 				atomic.AddInt64(producedCount, 1)
 			case <-done:
 				// Exit if done signal is received while trying to send to txQueue
-				fmt.Printf("Stopping producer %d due to done signal while sending to txQueue\n", producerId)
 				return
 			}
 		}
@@ -132,7 +131,7 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, keys []
 }
 
 func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
 	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
