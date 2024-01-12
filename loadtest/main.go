@@ -78,7 +78,7 @@ func run(config Config) {
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
 // workers continue running. If config.Constant is false, then we will gather load test results in a file
 func startLoadtestWorkers(config Config) {
-	fmt.Printf("Starting loadtest workers")
+	fmt.Printf("Starting loadtest workers\n")
 	client := NewLoadTestClient(config)
 	client.SetValidators()
 
@@ -104,7 +104,7 @@ func startLoadtestWorkers(config Config) {
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
 	fmt.Printf("Starting loadtest producers\n")
 	// preload all accounts
-	keys := client.SignerClient.GetAllTestAccountsKeys()
+	keys := client.SignerClient.GetTestAccountsKeys(int(config.TargetTps))
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
 		go client.BuildTxs(txQueue, i, keys, &wg, done, &producedCount)

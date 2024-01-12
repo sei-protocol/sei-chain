@@ -62,12 +62,15 @@ func NewSignerClient(nodeURI string) *SignerClient {
 	}
 }
 
-func (sc *SignerClient) GetAllTestAccountsKeys() []cryptotypes.PrivKey {
+func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivKey {
 	userHomeDir, _ := os.UserHomeDir()
 	files, _ := os.ReadDir(filepath.Join(userHomeDir, "test_accounts"))
 	var testAccountsKeys []cryptotypes.PrivKey
 	for i, file := range files {
 		testAccountsKeys = append(testAccountsKeys, sc.GetKey(fmt.Sprint(i), "test", file.Name()))
+		if i >= maxAccounts {
+			break
+		}
 	}
 	return testAccountsKeys
 }
