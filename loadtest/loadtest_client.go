@@ -6,6 +6,7 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
+	"google.golang.org/grpc/connectivity"
 	"math"
 	"math/rand"
 	"strings"
@@ -65,6 +66,22 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 			dialOptions...)
 		TxClients[i] = typestx.NewServiceClient(grpcConn)
 		GrpcConns[i] = grpcConn
+		// spin up goroutine for monitoring and reconnect purposes
+		go func() {
+			for {
+				state := grpcConn.GetState()
+				if state == connectivity.TransientFailure || state == connectivity.Shutdown {
+					fmt.Println("GRPC Connection lost, attempting to reconnect...")
+					for {
+						if grpcConn.WaitForStateChange(context.Background(), state) {
+							break
+						}
+						time.Sleep(10 * time.Second)
+					}
+				}
+				time.Sleep(10 * time.Second)
+			}
+		}()
 	}
 
 	return &LoadTestClient{
