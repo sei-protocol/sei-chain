@@ -13,3 +13,7 @@ make build-linux
 make build-price-feeder-linux
 mkdir -p build/generated
 echo "DONE" > build/generated/build.complete
+
+# install foundry
+# TODO: can move to own script
+RUN curl -L https://foundry.paradigm.xyz | bash && source /root/.bashrc && foundryup
