@@ -484,7 +484,12 @@ func buildSingleResultEvent(data interface{}, more bool, cursor string, event st
 }
 
 func (c *MockClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
-	return &coretypes.ResultBroadcastTx{Code: 0}, nil
+	fmt.Println("In mock client broadcast tx")
+	return &coretypes.ResultBroadcastTx{Code: 0, Hash: []byte("0x123")}, nil
+}
+
+func (c *MockClient) BroadcastTxCommit(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
+	panic("not implemented")
 }
 
 func (c *MockClient) UnconfirmedTxs(ctx context.Context, page, perPage *int) (*coretypes.ResultUnconfirmedTxs, error) {
@@ -624,6 +629,11 @@ func init() {
 		common.HexToAddress("0x1234567890123456789023456789012345678901"),
 		common.BytesToHash([]byte("key")),
 		common.BytesToHash([]byte("value")),
+	)
+	EVMKeeper.SetAddressMapping(
+		Ctx,
+		sdk.MustAccAddressFromBech32("sei1mf0llhmqane5w2y8uynmghmk2w4mh0xll9seym"),
+		common.HexToAddress("0x1df809C639027b465B931BD63Ce71c8E5834D9d6"),
 	)
 	EVMKeeper.SetNonce(Ctx, common.HexToAddress("0x1234567890123456789012345678901234567890"), 1)
 

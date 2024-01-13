@@ -5,9 +5,10 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
@@ -16,10 +17,11 @@ type AssociationAPI struct {
 	keeper      *keeper.Keeper
 	ctxProvider func(int64) sdk.Context
 	txDecoder   sdk.TxDecoder
+	sendAPI     *SendAPI
 }
 
-func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder) *AssociationAPI {
-	return &AssociationAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
+func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, sendAPI *SendAPI) *AssociationAPI {
+	return &AssociationAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, sendAPI: sendAPI}
 }
 
 type AssociateRequest struct {
@@ -28,30 +30,37 @@ type AssociateRequest struct {
 	V *hexutil.Big `json:"v"`
 }
 
-func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (map[string]string, error) {
-	fmt.Println("In Associate")
-	// Create a signature from r, s, v
-	sig := make([]byte, 65)
-	copy(sig[0:32], req.R.ToInt().Bytes())
-	copy(sig[32:64], req.S.ToInt().Bytes())
-	sig[64] = byte(req.V.ToInt().Uint64())
-
-	// Recover the public key from the signature
-	publicKey, err := crypto.SigToPub(crypto.Keccak256([]byte("")), sig)
+func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) error {
+	associateTx := ethtx.AssociateTx{
+		V: req.V.ToInt().Bytes(),
+		R: req.R.ToInt().Bytes(),
+		S: req.S.ToInt().Bytes(),
+	}
+	data, err := associateTx.Marshal()
 	if err != nil {
-		return nil, fmt.Errorf("failed to recover public key: %v", err)
+		return err
+	}
+	_, err = t.sendAPI.SendRawTransaction(ctx, hexutil.Bytes(data))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *AssociationAPI) GetSeiAddress(ctx context.Context, ethAddress common.Address) (string, error) {
+	seiAddress, found := t.keeper.GetSeiAddress(t.ctxProvider(LatestCtxHeight), ethAddress)
+	if !found {
+		return "", fmt.Errorf("failed to find Sei address for %s", ethAddress.Hex())
 	}
 
-	// Get the Ethereum address from the public key
-	ethAddress := crypto.PubkeyToAddress(*publicKey)
+	return seiAddress.String(), nil
+}
 
-	// Convert the Ethereum address to a SEI address
-	// This is a placeholder - replace with your actual conversion logic
-	seiAddress := ethAddress.Hex() // replace with your conversion logic
+func (t *AssociationAPI) GetEVMAddress(ctx context.Context, seiAddress string) (string, error) {
+	ethAddress, found := t.keeper.GetEVMAddress(t.ctxProvider(LatestCtxHeight), sdk.MustAccAddressFromBech32(seiAddress))
+	if !found {
+		return "", fmt.Errorf("failed to find EVM address for %s", seiAddress)
+	}
 
-	// Return the addresses
-	return map[string]string{
-		"ethAddress": ethAddress.Hex(),
-		"seiAddress": seiAddress,
-	}, nil
+	return ethAddress.Hex(), nil
 }

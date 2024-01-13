@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -48,6 +49,7 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 }
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
+	fmt.Println("In sendRawTransaction")
 	if s.sendConfig.slow {
 		s.slowMu.Lock()
 		defer s.slowMu.Unlock()
@@ -81,6 +83,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	}
 
 	if s.sendConfig.slow {
+		fmt.Println("Calling BroadcastTxCommit")
 		res, broadcastError := s.tmClient.BroadcastTxCommit(ctx, txbz)
 		if broadcastError != nil {
 			err = broadcastError
@@ -90,6 +93,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 			err = sdkerrors.ABCIError(sdkerrors.RootCodespace, res.CheckTx.Code, "")
 		}
 	} else {
+		fmt.Println("Calling BroadcastTx")
 		res, broadcastError := s.tmClient.BroadcastTx(ctx, txbz)
 		if broadcastError != nil {
 			err = broadcastError
