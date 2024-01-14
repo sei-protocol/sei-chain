@@ -31,16 +31,39 @@ type AssociateRequest struct {
 }
 
 func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) error {
+	/// Old code [START]
 	associateTx := ethtx.AssociateTx{
-		V: req.V.ToInt().Bytes(),
 		R: req.R.ToInt().Bytes(),
 		S: req.S.ToInt().Bytes(),
+		V: req.V.ToInt().Bytes(),
 	}
+	/// Old code [END]
+
+	// ///// New code [START]
+	// vBytes, err := req.V.MarshalText()
+	// if err != nil {
+	// 	return err
+	// }
+	// rBytes, err := req.R.MarshalText()
+	// if err != nil {
+	// 	return err
+	// }
+	// sBytes, err := req.S.MarshalText()
+	// if err != nil {
+	// 	return err
+	// }
+	// associateTx := ethtx.AssociateTx{
+	// 	V: vBytes,
+	// 	R: rBytes,
+	// 	S: sBytes,
+	// }
+	// ///// New code [END]
+
 	data, err := associateTx.Marshal()
 	if err != nil {
 		return err
 	}
-	_, err = t.sendAPI.SendRawTransaction(ctx, hexutil.Bytes(data))
+	_, err = t.sendAPI.SendRawTransaction(ctx, data)
 	if err != nil {
 		return err
 	}

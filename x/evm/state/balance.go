@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -33,6 +34,7 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
+	fmt.Println("Assocation: In evm's GetBalance")
 	usei := s.k.BankKeeper().GetBalance(s.ctx, s.getSeiAddress(evmAddr), s.k.GetBaseDenom(s.ctx)).Amount
 	wei := s.k.BankKeeper().GetWeiBalance(s.ctx, s.getSeiAddress(evmAddr))
 	return usei.Mul(sdk.NewIntFromBigInt(UseiToSweiMultiplier)).Add(wei).BigInt()
