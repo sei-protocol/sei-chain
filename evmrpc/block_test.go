@@ -1,9 +1,6 @@
 package evmrpc_test
 
 import (
-	"math/big"
-	"testing"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -14,6 +11,8 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
+	"math/big"
+	"testing"
 )
 
 func TestGetBlockByHash(t *testing.T) {
@@ -64,7 +63,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000006", resObj["parentHash"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000004", resObj["receiptsRoot"])
 	require.Equal(t, "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347", resObj["sha3Uncles"])
-	require.Equal(t, "0x272", resObj["size"])
+	require.Equal(t, "0x276", resObj["size"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000003", resObj["stateRoot"])
 	require.Equal(t, "0x65254651", resObj["timestamp"])
 	tx := resObj["transactions"].([]interface{})[0].(map[string]interface{})
@@ -75,7 +74,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0xa", tx["gasPrice"])
 	require.Equal(t, "0xa", tx["maxFeePerGas"])
 	require.Equal(t, "0x0", tx["maxPriorityFeePerGas"])
-	require.Equal(t, "0x78b0bd7fe9ccc8ae8a61eae9315586cf2a406dacf129313e6c5769db7cd14372", tx["hash"])
+	require.Equal(t, "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e", tx["hash"])
 	require.Equal(t, "0x616263", tx["input"])
 	require.Equal(t, "0x1", tx["nonce"])
 	require.Equal(t, "0x0000000000000000000000000000000000010203", tx["to"])
@@ -83,10 +82,10 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x3e8", tx["value"])
 	require.Equal(t, "0x0", tx["type"])
 	require.Equal(t, []interface{}{}, tx["accessList"])
-	require.Equal(t, "0x1", tx["chainId"])
-	require.Equal(t, "0x1c", tx["v"])
-	require.Equal(t, "0x34125c09c6b1a57f5f571a242572129057b22612dd56ee3519c4f68bece0db03", tx["r"])
-	require.Equal(t, "0x3f4fe6f2512219bac6f9b4e4be1aa11d3ef79c5c2f1000ef6fa37389de0ff523", tx["s"])
+	require.Equal(t, "0xae3f3", tx["chainId"])
+	require.Equal(t, "0x1b", tx["v"])
+	require.Equal(t, "0xa1ac0e5b8202742e54ae7af350ed855313cc4f9861c2d75a0e541b4aff7c981e", tx["r"])
+	require.Equal(t, "0x288b16881aed9640cd360403b9db1ce3961b29af0b00158311856d1446670996", tx["s"])
 	require.Equal(t, "0x1", tx["yParity"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", resObj["transactionsRoot"])
 	require.Equal(t, []interface{}{}, resObj["uncles"])

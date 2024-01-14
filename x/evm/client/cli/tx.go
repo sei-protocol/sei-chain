@@ -213,6 +213,7 @@ func CmdSend() *cobra.Command {
 			txData := ethtypes.DynamicFeeTx{
 				Nonce:     uint64(*nonce),
 				GasFeeCap: new(big.Int).SetUint64(gasFeeCap),
+				GasTipCap: new(big.Int).SetUint64(gasFeeCap),
 				Gas:       gasLimit,
 				To:        &to,
 				Value:     val,
@@ -362,6 +363,7 @@ func CmdDeployErc20() *cobra.Command {
 			txData := ethtypes.DynamicFeeTx{
 				Nonce:     uint64(*nonce),
 				GasFeeCap: new(big.Int).SetUint64(gasFeeCap),
+				GasTipCap: new(big.Int).SetUint64(gasFeeCap),
 				Gas:       gasLimit,
 				Value:     big.NewInt(0),
 				Data:      contractData,
