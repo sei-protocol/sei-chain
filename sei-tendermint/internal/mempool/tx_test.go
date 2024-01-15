@@ -229,3 +229,75 @@ func TestWrappedTxList_Remove(t *testing.T) {
 	sort.Ints(expected)
 	require.Equal(t, expected, got)
 }
+
+func TestPendingTxsPopTxsGood(t *testing.T) {
+	pendingTxs := NewPendingTxs()
+	for _, test := range []struct {
+		origLen    int
+		popIndices []int
+		expected   []int
+	}{
+		{
+			origLen:    1,
+			popIndices: []int{},
+			expected:   []int{0},
+		}, {
+			origLen:    1,
+			popIndices: []int{0},
+			expected:   []int{},
+		}, {
+			origLen:    2,
+			popIndices: []int{0},
+			expected:   []int{1},
+		}, {
+			origLen:    2,
+			popIndices: []int{1},
+			expected:   []int{0},
+		}, {
+			origLen:    2,
+			popIndices: []int{0, 1},
+			expected:   []int{},
+		}, {
+			origLen:    3,
+			popIndices: []int{1},
+			expected:   []int{0, 2},
+		}, {
+			origLen:    3,
+			popIndices: []int{0, 2},
+			expected:   []int{1},
+		}, {
+			origLen:    3,
+			popIndices: []int{0, 1, 2},
+			expected:   []int{},
+		}, {
+			origLen:    5,
+			popIndices: []int{0, 1, 4},
+			expected:   []int{2, 3},
+		}, {
+			origLen:    5,
+			popIndices: []int{1, 3},
+			expected:   []int{0, 2, 4},
+		},
+	} {
+		pendingTxs.txs = []TxWithResponse{}
+		for i := 0; i < test.origLen; i++ {
+			pendingTxs.txs = append(pendingTxs.txs, TxWithResponse{txInfo: TxInfo{SenderID: uint16(i)}})
+		}
+		pendingTxs.popTxsAtIndices(test.popIndices)
+		require.Equal(t, len(test.expected), len(pendingTxs.txs))
+		for i, e := range test.expected {
+			require.Equal(t, e, int(pendingTxs.txs[i].txInfo.SenderID))
+		}
+	}
+}
+
+func TestPendingTxsPopTxsBad(t *testing.T) {
+	pendingTxs := NewPendingTxs()
+	// out of range
+	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{0}) })
+	// out of order
+	pendingTxs.txs = []TxWithResponse{{}, {}, {}}
+	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{1, 0}) })
+	// duplicate
+	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{2, 2}) })
+}

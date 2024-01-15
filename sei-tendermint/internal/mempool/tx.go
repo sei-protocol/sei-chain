@@ -342,10 +342,16 @@ func (p *PendingTxs) popTxsAtIndices(indices []int) {
 	newTxs := []TxWithResponse{}
 	start := 0
 	for _, idx := range indices {
+		if idx <= start-1 {
+			panic("indices popped from pending tx store should be sorted without duplicate")
+		}
+		if idx >= len(p.txs) {
+			panic("indices popped from pending tx store out of range")
+		}
 		newTxs = append(newTxs, p.txs[start:idx]...)
-		start = idx
+		start = idx + 1
 	}
-	newTxs = append(newTxs, p.txs[start+1:]...)
+	newTxs = append(newTxs, p.txs[start:]...)
 	p.txs = newTxs
 }
 
