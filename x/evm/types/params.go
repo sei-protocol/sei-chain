@@ -12,13 +12,14 @@ import (
 )
 
 var (
-	KeyBaseDenom                     = []byte("KeyBaseDenom")
-	KeyPriorityNormalizer            = []byte("KeyPriorityNormalizer")
-	KeyBaseFeePerGas                 = []byte("KeyBaseFeePerGas")
-	KeyMinFeePerGas                  = []byte("KeyMinFeePerGas")
-	KeyChainConfig                   = []byte("KeyChainConfig")
-	KeyChainID                       = []byte("KeyChainID")
-	KeyWhitelistedCodeHashesBankSend = []byte("KeyWhitelistedCodeHashesBankSend")
+	KeyBaseDenom                              = []byte("KeyBaseDenom")
+	KeyPriorityNormalizer                     = []byte("KeyPriorityNormalizer")
+	KeyBaseFeePerGas                          = []byte("KeyBaseFeePerGas")
+	KeyMinFeePerGas                           = []byte("KeyMinFeePerGas")
+	KeyChainConfig                            = []byte("KeyChainConfig")
+	KeyChainID                                = []byte("KeyChainID")
+	KeyWhitelistedCodeHashesBankSend          = []byte("KeyWhitelistedCodeHashesBankSend")
+	KeyWhitelistedCwCodeHashesForDelegateCall = []byte("KeyWhitelistedCwCodeHashesForDelegateCall")
 )
 
 const (
@@ -34,6 +35,7 @@ var DefaultBaseFeePerGas = sdk.NewDec(0)
 var DefaultMinFeePerGas = sdk.NewDec(1)
 var DefaultChainID = sdk.NewInt(713715)
 var DefaultWhitelistedCodeHashesBankSend = generateDefaultWhitelistedCodeHashesBankSend()
+var DefaultWhitelistedCwCodeHashesForDelegateCall = [][]byte{}
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -43,13 +45,14 @@ func ParamKeyTable() paramtypes.KeyTable {
 
 func DefaultParams() Params {
 	return Params{
-		BaseDenom:                     DefaultBaseDenom,
-		PriorityNormalizer:            DefaultPriorityNormalizer,
-		BaseFeePerGas:                 DefaultBaseFeePerGas,
-		MinimumFeePerGas:              DefaultMinFeePerGas,
-		ChainConfig:                   DefaultChainConfig(),
-		ChainId:                       DefaultChainID,
-		WhitelistedCodehashesBankSend: DefaultWhitelistedCodeHashesBankSend,
+		BaseDenom:                              DefaultBaseDenom,
+		PriorityNormalizer:                     DefaultPriorityNormalizer,
+		BaseFeePerGas:                          DefaultBaseFeePerGas,
+		MinimumFeePerGas:                       DefaultMinFeePerGas,
+		ChainConfig:                            DefaultChainConfig(),
+		ChainId:                                DefaultChainID,
+		WhitelistedCodehashesBankSend:          DefaultWhitelistedCodeHashesBankSend,
+		WhitelistedCwCodeHashesForDelegateCall: DefaultWhitelistedCwCodeHashesForDelegateCall,
 	}
 }
 
@@ -62,6 +65,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyChainConfig, &p.ChainConfig, validateChainConfig),
 		paramtypes.NewParamSetPair(KeyChainID, &p.ChainId, validateChainID),
 		paramtypes.NewParamSetPair(KeyWhitelistedCodeHashesBankSend, &p.WhitelistedCodehashesBankSend, validateWhitelistedCodeHashesBankSend),
+		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &p.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
 	}
 }
 
@@ -87,7 +91,10 @@ func (p Params) Validate() error {
 	if err := validateChainConfig(p.ChainConfig); err != nil {
 		return err
 	}
-	return validateWhitelistedCodeHashesBankSend(p.WhitelistedCodehashesBankSend)
+	if err := validateWhitelistedCodeHashesBankSend(p.WhitelistedCodehashesBankSend); err != nil {
+		return err
+	}
+	return validateWhitelistedCwHashesForDelegateCall(p.WhitelistedCwCodeHashesForDelegateCall)
 }
 
 func (p Params) String() string {
@@ -175,6 +182,14 @@ func validateWhitelistedCodeHashesBankSend(i interface{}) error {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
+	return nil
+}
+
+func validateWhitelistedCwHashesForDelegateCall(i interface{}) error {
+	_, ok := i.([][]byte)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
 	return nil
 }
 

@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"errors"
 	"math"
 	"math/big"
 
@@ -23,6 +24,23 @@ func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEV
 		to = &addr
 	}
 	ret, err := k.CallEVM(ctx, sdk.MustAccAddressFromBech32(req.Sender), to, req.Value, req.Data)
+	if err != nil {
+		return nil, err
+	}
+	return &sdk.Result{Data: ret}, nil
+}
+
+func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgInternalEVMDelegateCall) (*sdk.Result, error) {
+	if !k.IsCWCodeHashWhitelistedForEVMDelegateCall(ctx, req.CodeHash) {
+		return nil, errors.New("code hash not authorized to make EVM delegate call")
+	}
+	var to *common.Address
+	if req.To != "" {
+		addr := k.SeiAddrToEvmAddr(ctx, sdk.MustAccAddressFromBech32(req.To))
+		to = &addr
+	}
+	zeroInt := sdk.ZeroInt()
+	ret, err := k.CallEVM(ctx, sdk.MustAccAddressFromBech32(req.Sender), to, &zeroInt, req.Data)
 	if err != nil {
 		return nil, err
 	}

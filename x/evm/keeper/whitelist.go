@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -39,4 +40,13 @@ func (k *Keeper) GetCodeHashWhitelistedForBankSend(ctx sdk.Context) *types.White
 		return nil
 	}
 	return w
+}
+
+func (k *Keeper) IsCWCodeHashWhitelistedForEVMDelegateCall(ctx sdk.Context, h []byte) bool {
+	for _, w := range k.WhitelistedCwCodeHashesForDelegateCall(ctx) {
+		if bytes.Equal(w, h) {
+			return true
+		}
+	}
+	return false
 }
