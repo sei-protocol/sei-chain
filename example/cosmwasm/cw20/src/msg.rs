@@ -56,8 +56,7 @@ impl From<EvmMsg> for CosmosMsg<EvmMsg> {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EvmMsg {
-    CallEvm {
-        value: Uint128,
+    DelegateCallEvm {
         to: String,
         data: String, // base64 encoded
     },
