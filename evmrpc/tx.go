@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -20,7 +19,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/bytes"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -52,20 +50,12 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		}
 		return nil, err
 	}
-	// can only get tx from block results, since Tx() endpoint requires tendermint-level tx hash which is not available
-	// here (we can potentially store tendermint-level tx hash in receipt but that requires calculating sha256 in the chain
-	// critical path, whereas this query endpoint is not on the chain critical path, so we are making the tradeoff to
-	// sacrifice perf here.)
 	height := int64(receipt.BlockNumber)
-	blockRes, err := blockResultsWithRetry(ctx, t.tmClient, &height)
-	if err != nil {
-		return nil, err
-	}
 	block, err := blockWithRetry(ctx, t.tmClient, &height)
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(receipt, block.BlockID.Hash, blockRes.TxsResults[receipt.TransactionIndex])
+	return encodeReceipt(receipt, block.BlockID.Hash)
 }
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (string, error) {
@@ -258,20 +248,16 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 	return ethtx
 }
 
-func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes, txRes *abci.ExecTxResult) (map[string]interface{}, error) {
-	logs := []*ethtypes.Log{}
-	for _, e := range txRes.Events {
-		if e.Type != types.EventTypeEVMLog {
-			continue
-		}
-		log, err := encodeEventToLog(e)
-		if err != nil {
-			return nil, err
-		}
-		logs = append(logs, log)
+func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes) (map[string]interface{}, error) {
+	bh := common.HexToHash(blockHash.String())
+	logs := keeper.GetLogsForTx(receipt)
+	for _, log := range logs {
+		log.BlockHash = bh
 	}
+	bloom := ethtypes.Bloom{}
+	bloom.SetBytes(receipt.LogsBloom)
 	fields := map[string]interface{}{
-		"blockHash":         common.HexToHash(blockHash.String()),
+		"blockHash":         bh,
 		"blockNumber":       hexutil.Uint64(receipt.BlockNumber),
 		"transactionHash":   common.HexToHash(receipt.TxHashHex),
 		"transactionIndex":  hexutil.Uint64(receipt.TransactionIndex),
@@ -280,7 +266,7 @@ func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes, txRes *abci
 		"gasUsed":           hexutil.Uint64(receipt.GasUsed),
 		"cumulativeGasUsed": hexutil.Uint64(receipt.CumulativeGasUsed),
 		"logs":              logs,
-		"logsBloom":         ethtypes.Bloom{}, // inapplicable to Sei
+		"logsBloom":         bloom,
 		"type":              hexutil.Uint(receipt.TxType),
 		"effectiveGasPrice": (*hexutil.Big)(big.NewInt(int64(receipt.EffectiveGasPrice))),
 		"status":            hexutil.Uint(receipt.Status),
@@ -291,48 +277,4 @@ func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes, txRes *abci
 		fields["contractAddress"] = nil
 	}
 	return fields, nil
-}
-
-var ErrInvalidEventAttribute = errors.New("invalid event attribute")
-
-func encodeEventToLog(e abci.Event) (*ethtypes.Log, error) {
-	log := ethtypes.Log{}
-	for _, a := range e.Attributes {
-		switch string(a.Key) {
-		case types.AttributeTypeContractAddress:
-			log.Address = common.HexToAddress(string(a.Value))
-		case types.AttributeTypeTopics:
-			log.Topics = utils.Map(strings.Split(string(a.Value), ","), common.HexToHash)
-		case types.AttributeTypeData:
-			log.Data = a.Value
-		case types.AttributeTypeBlockNumber:
-			i, err := strconv.ParseUint(string(a.Value), 10, 64)
-			if err != nil {
-				return nil, err
-			}
-			log.BlockNumber = i
-		case types.AttributeTypeTxIndex:
-			i, err := strconv.ParseUint(string(a.Value), 10, 32)
-			if err != nil {
-				return nil, err
-			}
-			log.TxIndex = uint(i)
-		case types.AttributeTypeIndex:
-			i, err := strconv.ParseUint(string(a.Value), 10, 32)
-			if err != nil {
-				return nil, err
-			}
-			log.Index = uint(i)
-		case types.AttributeTypeBlockHash:
-			log.BlockHash = common.HexToHash(string(a.Value))
-		case types.AttributeTypeTxHash:
-			log.TxHash = common.HexToHash(string(a.Value))
-		case types.AttributeTypeRemoved:
-			log.Removed = string(a.Value) == "true"
-		default:
-			return nil, ErrInvalidEventAttribute
-		}
-
-	}
-	return &log, nil
 }
