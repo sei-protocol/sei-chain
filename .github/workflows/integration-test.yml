@@ -94,7 +94,7 @@ jobs:
           {
             name: "Hardhat tests",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/evm_module/hardhat_test.yaml"
+              "python3 integration_test/scripts/runner.py integration_test/evm_module/hardhat_test.yaml",
               "./scripts/hardhat.sh"
             ]
           },
