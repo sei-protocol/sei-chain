@@ -67,7 +67,7 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 	userHomeDir, _ := os.UserHomeDir()
 	files, _ := os.ReadDir(filepath.Join(userHomeDir, "test_accounts"))
 
-	var testAccountsKeys = make([]cryptotypes.PrivKey, math.Min(float64(len(files)), float64(maxAccounts)))
+	var testAccountsKeys = make([]cryptotypes.PrivKey, int(math.Min(float64(len(files)), float64(maxAccounts))))
 	var wg sync.WaitGroup
 	keysChan := make(chan cryptotypes.PrivKey, maxAccounts)
 	fmt.Printf("Loading accounts\n")
