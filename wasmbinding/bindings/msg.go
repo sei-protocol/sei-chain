@@ -52,3 +52,8 @@ type CallEVM struct {
 	To    string   `json:"to"`
 	Data  string   `json:"data"` // base64
 }
+
+type DelegateCallEVM struct {
+	To   string `json:"to"`
+	Data string `json:"data"` // base64
+}
