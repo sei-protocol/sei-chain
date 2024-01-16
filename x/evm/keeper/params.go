@@ -44,3 +44,7 @@ func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 func (k *Keeper) WhitelistedCodehashesBankSend(ctx sdk.Context) []string {
 	return k.GetParams(ctx).WhitelistedCodehashesBankSend
 }
+
+func (k *Keeper) WhitelistedCwCodeHashesForDelegateCall(ctx sdk.Context) [][]byte {
+	return k.GetParams(ctx).WhitelistedCwCodeHashesForDelegateCall
+}

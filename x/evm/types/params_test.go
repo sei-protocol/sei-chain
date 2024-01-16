@@ -9,13 +9,14 @@ import (
 
 func TestDefaultParams(t *testing.T) {
 	require.Equal(t, types.Params{
-		BaseDenom:                     types.DefaultBaseDenom,
-		PriorityNormalizer:            types.DefaultPriorityNormalizer,
-		BaseFeePerGas:                 types.DefaultBaseFeePerGas,
-		MinimumFeePerGas:              types.DefaultMinFeePerGas,
-		ChainConfig:                   types.DefaultChainConfig(),
-		ChainId:                       types.DefaultChainID,
-		WhitelistedCodehashesBankSend: types.DefaultWhitelistedCodeHashesBankSend,
+		BaseDenom:                              types.DefaultBaseDenom,
+		PriorityNormalizer:                     types.DefaultPriorityNormalizer,
+		BaseFeePerGas:                          types.DefaultBaseFeePerGas,
+		MinimumFeePerGas:                       types.DefaultMinFeePerGas,
+		ChainConfig:                            types.DefaultChainConfig(),
+		ChainId:                                types.DefaultChainID,
+		WhitelistedCodehashesBankSend:          types.DefaultWhitelistedCodeHashesBankSend,
+		WhitelistedCwCodeHashesForDelegateCall: types.DefaultWhitelistedCwCodeHashesForDelegateCall,
 	}, types.DefaultParams())
 
 	require.Nil(t, types.DefaultParams().Validate())
