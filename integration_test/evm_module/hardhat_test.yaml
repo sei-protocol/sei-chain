@@ -1,0 +1,16 @@
+- name: Hardhat Test
+  inputs:
+    # Get admin addr
+    - cmd: printf "12345678\n" | seid keys list --output json | jq ".[] | select (.name==\"admin\")" | jq -r .address
+      env: ADMIN_ADDR
+    # Send funds from admin to first anvil address
+    - cmd: printf "12345678\n" | seid tx evm send 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 10000000000000000000 --from admin
+    # check balance of first anvil address
+    - cmd: cast balance 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --rpc-url http://127.0.0.1:8545
+      env: ANVIL_1_BALANCE
+    # hardhat setup
+    - cmd: printf "12345678\n" | seid tx evm send 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 10000000000000000000 --from admin
+  verifiers:
+    # verify that balance of first anvil address is 10 SEI
+    - type: eval
+      expr: ANVIL_1_BALANCE == 10000000000000000000
