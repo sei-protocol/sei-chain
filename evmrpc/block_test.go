@@ -1,6 +1,9 @@
 package evmrpc_test
 
 import (
+	"math/big"
+	"testing"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -11,8 +14,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
-	"math/big"
-	"testing"
 )
 
 func TestGetBlockByHash(t *testing.T) {
@@ -90,6 +91,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", resObj["transactionsRoot"])
 	require.Equal(t, []interface{}{}, resObj["uncles"])
 	require.Equal(t, "0x0", resObj["baseFeePerGas"])
+	require.Equal(t, "0x0", resObj["totalDifficulty"])
 }
 
 func TestEncodeBankMsg(t *testing.T) {

@@ -287,6 +287,8 @@ func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes, txRes *abci
 	}
 	if receipt.ContractAddress != "" {
 		fields["contractAddress"] = common.HexToAddress(receipt.ContractAddress)
+	} else {
+		fields["contractAddress"] = nil
 	}
 	return fields, nil
 }
