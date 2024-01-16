@@ -3,9 +3,12 @@ package evm
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	// this line is used by starport scaffolding # 1
 
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -18,6 +21,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/client/cli"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/migrations"
@@ -158,15 +162,17 @@ func (AppModule) ConsensusVersion() uint64 { return 3 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
-	am.keeper.ClearEVMTxIndices()
+	am.keeper.ClearEvmTxDeferredInfo()
 }
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	evmTxIndices := am.keeper.GetEVMTxIndices()
+	evmTxDeferredInfoList := am.keeper.GetEVMTxDeferredInfo()
+	sort.SliceStable(evmTxDeferredInfoList, func(i, j int) bool { return evmTxDeferredInfoList[i].TxIndx < evmTxDeferredInfoList[j].TxIndx })
 	denom := am.keeper.GetBaseDenom(ctx)
-	for _, idx := range evmTxIndices {
+	for _, deferredInfo := range evmTxDeferredInfoList {
+		idx := deferredInfo.TxIndx
 		middleManAddress := state.GetMiddleManAddress(sdk.Context{}.WithTxIndex(idx))
 		balance := am.keeper.BankKeeper().GetBalance(ctx, middleManAddress, denom)
 		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, middleManAddress)
@@ -184,5 +190,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 			}
 		}
 	}
+	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }))
+	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) ethtypes.Bloom { return i.TxBloom }))
 	return []abci.ValidatorUpdate{}
 }
