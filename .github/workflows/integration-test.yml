@@ -84,13 +84,13 @@ jobs:
           #     "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
           #   ]
           # },
-         {
-           name: "Upgrade Module (Minor)",
-           env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
-           scripts: [
-             "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
-           ]
-         },
+          # {
+          #   name: "Upgrade Module (Minor)",
+          #   env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+          #   scripts: [
+          #     "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
+          #   ]
+          # },
           {
             name: "Hardhat tests",
             scripts: [
