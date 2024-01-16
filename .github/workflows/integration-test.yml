@@ -97,7 +97,7 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/evm_module/hardhat_test.yaml"
               "./scripts/hardhat.sh"
             ]
-          }
+          },
         ]
     steps:
       - uses: actions/checkout@v3
@@ -107,14 +107,14 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: '16'
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 16
-          cache: 'npm'
-        run: |
-          cd contracts
-          npm ci
+      # - uses: actions/checkout@v4
+      # - uses: actions/setup-node@v4
+      #   with:
+      #     node-version: 16
+      #     cache: 'npm'
+      #   run: |
+      #     cd contracts
+      #     npm ci
 
       - name: Pyyaml
         run: |
