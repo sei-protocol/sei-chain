@@ -33,6 +33,8 @@ var (
 	NonceKeyPrefix                         = []byte{0x0a}
 	ReceiptKeyPrefix                       = []byte{0x0b}
 	WhitelistedCodeHashesForBankSendPrefix = []byte{0x0c}
+	BlockBloomPrefix                       = []byte{0x0d}
+	TxHashesPrefix                         = []byte{0x0e}
 )
 
 func EVMAddressToSeiAddressKey(evmAddress common.Address) []byte {
@@ -65,6 +67,18 @@ func TransientModuleStateKey(ctx sdk.Context) []byte {
 
 func ReceiptKey(txHash common.Hash) []byte {
 	return append(ReceiptKeyPrefix, txHash[:]...)
+}
+
+func BlockBloomKey(height int64) []byte {
+	bz := make([]byte, 8)
+	binary.BigEndian.PutUint64(bz, uint64(height))
+	return append(BlockBloomPrefix, bz...)
+}
+
+func TxHashesKey(height int64) []byte {
+	bz := make([]byte, 8)
+	binary.BigEndian.PutUint64(bz, uint64(height))
+	return append(TxHashesPrefix, bz...)
 }
 
 func getTxIndexBz(ctx sdk.Context) []byte {
