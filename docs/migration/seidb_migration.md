@@ -145,7 +145,7 @@ DEBUG_LEVEL=0 make shared_lib install-shared
 
 export LD_LIBRARY_PATH=/usr/local/lib
 ```
-If you run into any issues during installation, please refeference [this guide](https://github.com/facebook/rocksdb/blob/master/INSTALL.md).
+If you run into any issues during installation, please reference [this guide](https://github.com/facebook/rocksdb/blob/master/INSTALL.md).
 
 Once that is complete, you will need to add the following CGO flags:
 ```bash
