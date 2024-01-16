@@ -29,10 +29,19 @@ message MsgInternalEVMCall {
   ];
   string to = 3;
   bytes data = 4;
-  string fromContract = 5;
 }
 
 message MsgInternalEVMCallResponse {}
+
+message MsgInternalEVMDelegateCall {
+  string sender = 1;
+  bytes codeHash = 2;
+  string to = 3;
+  bytes data = 4;
+  string fromContract = 5;
+}
+
+message MsgInternalEVMDelegateCallResponse {}
 
 enum SignerVersion {
   LONDON = 0;
