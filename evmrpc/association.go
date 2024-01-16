@@ -2,11 +2,12 @@ package evmrpc
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -25,39 +26,34 @@ func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 }
 
 type AssociateRequest struct {
-	R *hexutil.Big `json:"r"`
-	S *hexutil.Big `json:"s"`
-	V *hexutil.Big `json:"v"`
+	R string `json:"r"`
+	S string `json:"s"`
+	V string `json:"v"`
 }
 
 func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) error {
 	/// Old code [START]
-	associateTx := ethtx.AssociateTx{
-		R: req.R.ToInt().Bytes(),
-		S: req.S.ToInt().Bytes(),
-		V: req.V.ToInt().Bytes(),
+	rBytes, err := decodeHexString(req.R)
+	if err != nil {
+		return err
 	}
-	/// Old code [END]
+	sBytes, err := decodeHexString(req.S)
+	if err != nil {
+		return err
+	}
+	vBytes, err := decodeHexString(req.V)
+	if err != nil {
+		return err
+	}
 
-	// ///// New code [START]
-	// vBytes, err := req.V.MarshalText()
-	// if err != nil {
-	// 	return err
-	// }
-	// rBytes, err := req.R.MarshalText()
-	// if err != nil {
-	// 	return err
-	// }
-	// sBytes, err := req.S.MarshalText()
-	// if err != nil {
-	// 	return err
-	// }
-	// associateTx := ethtx.AssociateTx{
-	// 	V: vBytes,
-	// 	R: rBytes,
-	// 	S: sBytes,
-	// }
-	// ///// New code [END]
+	associateTx := ethtx.AssociateTx{
+		V: vBytes,
+		R: rBytes,
+		S: sBytes,
+	}
+
+	/// Delete later, but try to recover the address from the signature
+	
 
 	data, err := associateTx.Marshal()
 	if err != nil {
@@ -86,4 +82,12 @@ func (t *AssociationAPI) GetEVMAddress(ctx context.Context, seiAddress string) (
 	}
 
 	return ethAddress.Hex(), nil
+}
+
+func decodeHexString(hexString string) ([]byte, error) {
+	trimmed := strings.TrimPrefix(hexString, "0x")
+	if len(trimmed)%2 != 0 {
+		trimmed = "0" + trimmed
+	}
+	return hex.DecodeString(trimmed)
 }

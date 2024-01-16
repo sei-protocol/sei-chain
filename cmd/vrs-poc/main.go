@@ -2,13 +2,14 @@ package main
 
 import (
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 func main() {
@@ -19,44 +20,71 @@ func main() {
 	// }
 	// pkStr := hex.EncodeToString(crypto.FromECDSA(privateKey))
 
-	////// Or use this
-	pkStr := "7ffb23cf52c91528f212155d7030fda09bb19a577f794ef8ad2f86cfe9aa2066"
+	// //////////////////// Use this [START]
+	// ////// Or use this [START]
+	// pkStr := "7ffb23cf52c91528f212155d7030fda09bb19a577f794ef8ad2f86cfe9aa2066"
 
-	// Decode the hex string to a byte slice
-	privateKeyBytes, err := hex.DecodeString(pkStr)
+	// // Decode the hex string to a byte slice
+	// privateKeyBytes, err := hex.DecodeString(pkStr)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// // Generate a new ecdsa.PrivateKey based on the S256 curve
+	// privateKey := new(ecdsa.PrivateKey)
+	// privateKey.PublicKey.Curve = elliptic.P256()
+	// privateKey.D = new(big.Int).SetBytes(privateKeyBytes)
+	// privateKey.PublicKey.X, privateKey.PublicKey.Y = privateKey.PublicKey.Curve.ScalarBaseMult(privateKeyBytes)
+	// ////// Or use this [END]
+
+	// fmt.Println("pkStr = ", pkStr)
+	// fmt.Println("privateKey = ", privateKey)
+	// addr := getAddressFromPrivateKey(pkStr)
+	// fmt.Println("addr = ", addr)
+
+	// // You can convert it to a hex string if needed
+	// privateKeyHex := hex.EncodeToString(crypto.FromECDSA(privateKey))
+	// log.Println("Private Key:", privateKeyHex)
+
+	// data := []byte("")
+	// signature, err := crypto.Sign(crypto.Keccak256Hash(data).Bytes(), privateKey)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// rHex := hex.EncodeToString(signature[:32])
+	// sHex := hex.EncodeToString(signature[32:64])
+	// vHex := hex.EncodeToString([]byte{signature[64]})
+
+	// fmt.Printf("r = 0x%v\n", rHex)
+	// fmt.Printf("s = 0x%v\n", sHex)
+	// fmt.Printf("v = 0x%v\n", vHex)
+	// //////////////////// Use this [END]
+
+	privHex := "7ffb23cf52c91528f212155d7030fda09bb19a577f794ef8ad2f86cfe9aa2066"
+	emptyHash := common.Hash{}
+	data := emptyHash[:]
+	fmt.Println("data = ", data)
+	key, err := crypto.HexToECDSA(privHex)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-
-	// Generate a new ecdsa.PrivateKey based on the S256 curve
-	privateKey := new(ecdsa.PrivateKey)
-	privateKey.PublicKey.Curve = elliptic.P256()
-	privateKey.D = new(big.Int).SetBytes(privateKeyBytes)
-	privateKey.PublicKey.X, privateKey.PublicKey.Y = privateKey.PublicKey.Curve.ScalarBaseMult(privateKeyBytes)
-	////// Or use this [END]
-
-	fmt.Println("pkStr = ", pkStr)
-	fmt.Println("privateKey = ", privateKey)
-	addr := getAddressFromPrivateKey(pkStr)
-	fmt.Println("addr = ", addr)
-
-	// You can convert it to a hex string if needed
-	privateKeyHex := hex.EncodeToString(crypto.FromECDSA(privateKey))
-	log.Println("Private Key:", privateKeyHex)
-
-	data := []byte("")
-	signature, err := crypto.Sign(crypto.Keccak256Hash(data).Bytes(), privateKey)
+	signature, err := crypto.Sign(data, key)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
-
-	rHex := hex.EncodeToString(signature[:32])
-	sHex := hex.EncodeToString(signature[32:64])
-	vHex := hex.EncodeToString([]byte{signature[64]})
-
-	fmt.Printf("r = 0x%v\n", rHex)
-	fmt.Printf("s = 0x%v\n", sHex)
-	fmt.Printf("v = 0x%v\n", vHex)
+	R, S, _, err := ethtx.DecodeSignature(signature)
+	if err != nil {
+		panic(err)
+	}
+	V := big.NewInt(int64(signature[64]))
+	rHex := hex.EncodeToString(R.Bytes())
+	sHex := hex.EncodeToString(S.Bytes())
+	vHex := hex.EncodeToString(V.Bytes())
+	fmt.Println("R = ", rHex)
+	fmt.Println("S = ", sHex)
+	fmt.Println("V = ", vHex)
+	// txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes()}
 
 	// reconstruct the signature from v,r,s, make sure you get the same address
 	publicKeyECDSA, err := crypto.SigToPub(crypto.Keccak256Hash(data).Bytes(), signature)

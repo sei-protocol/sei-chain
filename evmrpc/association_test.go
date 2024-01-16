@@ -28,6 +28,8 @@ func TestAssocation(t *testing.T) {
 		"v": fmt.Sprintf("0x%v", new(big.Int).SetBytes([]byte{signature[64]}).Text(16)),
 	}
 
+	fmt.Println("txArgs", txArgs)
+
 	body := sendRequestGoodWithNamespace(t, "sei", "associate", txArgs)
 	require.Equal(t, body["result"], nil)
 }
