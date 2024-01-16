@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	"sync/atomic"
+
+	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 )
 
 func SendTx(

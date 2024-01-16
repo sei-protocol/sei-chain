@@ -3,16 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"golang.org/x/sync/semaphore"
-	"golang.org/x/time/rate"
-	"google.golang.org/grpc/connectivity"
 	"math"
 	"math/rand"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/time/rate"
+	"google.golang.org/grpc/connectivity"
 
 	"github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
