@@ -1,11 +1,9 @@
 package state
 
 import (
-	"fmt"
-	"strings"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -15,6 +13,9 @@ import (
 type DBImpl struct {
 	ctx             sdk.Context
 	snapshottedCtxs []sdk.Context
+
+	logs            []*ethtypes.Log
+	snapshottedLogs [][]*ethtypes.Log
 	// If err is not nil at the end of the execution, the transaction will be rolled
 	// back.
 	err error
@@ -63,27 +64,6 @@ func (s *DBImpl) Finalize() error {
 		return s.err
 	}
 
-	logs, err := s.GetAllLogs()
-	if err != nil {
-		return err
-	}
-	for _, l := range logs {
-		s.snapshottedCtxs[0].EventManager().EmitEvent(sdk.NewEvent(
-			types.EventTypeEVMLog,
-			sdk.NewAttribute(types.AttributeTypeContractAddress, l.Address.Hex()),
-			sdk.NewAttribute(types.AttributeTypeTopics, strings.Join(
-				utils.Map(l.Topics, func(h common.Hash) string { return h.Hex() }), ",",
-			)),
-			sdk.NewAttribute(types.AttributeTypeData, string(l.Data)),
-			sdk.NewAttribute(types.AttributeTypeBlockHash, l.BlockHash.Hex()),
-			sdk.NewAttribute(types.AttributeTypeBlockNumber, fmt.Sprintf("%d", l.BlockNumber)),
-			sdk.NewAttribute(types.AttributeTypeTxHash, l.TxHash.Hex()),
-			sdk.NewAttribute(types.AttributeTypeTxIndex, fmt.Sprintf("%d", l.TxIndex)),
-			sdk.NewAttribute(types.AttributeTypeIndex, fmt.Sprintf("%d", l.Index)),
-			sdk.NewAttribute(types.AttributeTypeRemoved, fmt.Sprintf("%t", l.Removed)),
-		))
-	}
-
 	// remove transient states
 	// write cache to underlying
 	s.flushCtx(s.ctx)
@@ -91,7 +71,6 @@ func (s *DBImpl) Finalize() error {
 	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
 		s.flushCtx(s.snapshottedCtxs[i])
 	}
-	s.k.AppendToEVMTxIndices(s.ctx.TxIndex())
 	return nil
 }
 
@@ -116,6 +95,8 @@ func (s *DBImpl) Copy() vm.StateDB {
 	return &DBImpl{
 		ctx:              newCtx,
 		snapshottedCtxs:  append(s.snapshottedCtxs, s.ctx),
+		logs:             []*ethtypes.Log{},
+		snapshottedLogs:  append(s.snapshottedLogs, s.logs),
 		k:                s.k,
 		middleManAddress: s.middleManAddress,
 		coinbaseAddress:  s.coinbaseAddress,
