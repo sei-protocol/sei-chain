@@ -21,7 +21,6 @@ CMD ["/usr/bin/deploy.sh"]
 STOPSIGNAL SIGTERM
 
 COPY scripts/deploy.sh /usr/bin/deploy.sh
-COPY scripts/setup_evm.sh /usr/bin/setup_evm.sh
 COPY scripts/step0_build.sh /usr/bin/build.sh
 COPY scripts/step1_configure_init.sh /usr/bin/configure_init.sh
 COPY scripts/step2_genesis.sh /usr/bin/genesis.sh
