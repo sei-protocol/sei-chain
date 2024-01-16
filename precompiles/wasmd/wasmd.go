@@ -110,8 +110,8 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, input
 	if err != nil {
 		return nil, 0, err
 	}
-	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
-	gasLimitBigInt := new(big.Int).Mul(new(big.Int).SetUint64(suppliedGas), gasMultipler.RoundInt().BigInt())
+	gasMultiplier := p.evmKeeper.GetPriorityNormalizer(ctx)
+	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultiplier).RoundInt().BigInt()
 	if gasLimitBigInt.Cmp(MaxUint64BigInt) > 0 {
 		gasLimitBigInt = MaxUint64BigInt
 	}
@@ -247,7 +247,7 @@ func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{
 }
 
 func (p Precompile) getRemainingGas(ctx sdk.Context) uint64 {
-	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
+	gasMultiplier := p.evmKeeper.GetPriorityNormalizer(ctx)
 	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
-	return new(big.Int).Mul(new(big.Int).SetUint64(seiGasRemaining), gasMultipler.RoundInt().BigInt()).Uint64()
+	return sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(gasMultiplier).RoundInt().Uint64()
 }
