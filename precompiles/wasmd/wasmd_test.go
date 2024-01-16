@@ -68,7 +68,7 @@ func TestInstantiate(t *testing.T) {
 	require.Equal(t, 2, len(outputs))
 	require.Equal(t, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", outputs[0].(string))
 	require.Empty(t, outputs[1].([]byte))
-	require.Equal(t, uint64(900735), g)
+	require.Equal(t, uint64(899594), g)
 
 	// non-existent code ID
 	args, _ = instantiateMethod.Inputs.Pack(
@@ -126,7 +126,7 @@ func TestExecute(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 1, len(outputs))
 	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string(outputs[0].([]byte)))
-	require.Equal(t, uint64(915757), g)
+	require.Equal(t, uint64(914616), g)
 
 	// bad contract address
 	args, _ = executeMethod.Inputs.Pack(mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
@@ -174,7 +174,7 @@ func TestQuery(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 1, len(outputs))
 	require.Equal(t, "{\"message\":\"query test\"}", string(outputs[0].([]byte)))
-	require.Equal(t, uint64(928203), g)
+	require.Equal(t, uint64(927062), g)
 
 	// bad contract address
 	args, _ = queryMethod.Inputs.Pack(mockAddr.String(), []byte("{\"info\":{}}"))
