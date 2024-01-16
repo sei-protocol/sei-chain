@@ -69,7 +69,6 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml"
             ]
-
           },
           {
             name: "Distribution Module",
