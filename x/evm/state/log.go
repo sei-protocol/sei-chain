@@ -1,11 +1,8 @@
 package state
 
 import (
-	"encoding/json"
-
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 type Logs struct {
@@ -13,41 +10,18 @@ type Logs struct {
 }
 
 func (s *DBImpl) AddLog(l *ethtypes.Log) {
-	// TODO: potentially decorate log with block/tx metadata
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
-	logs := Logs{Ls: []*ethtypes.Log{}}
-	ls, err := s.GetAllLogs()
-	if err != nil {
-		s.err = err
-		return
-	}
-	logs.Ls = append(ls, l)
-	logsbz, err := json.Marshal(&logs)
-	if err != nil {
-		s.err = err
-		return
-	}
-	store.Set(LogsKey, logsbz)
+	s.logs = append(s.logs, l)
 }
 
-func (s *DBImpl) GetAllLogs() ([]*ethtypes.Log, error) {
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
-	logsbz := store.Get(LogsKey)
-	logs := Logs{Ls: []*ethtypes.Log{}}
-	if logsbz == nil {
-		return []*ethtypes.Log{}, nil
+func (s *DBImpl) GetAllLogs() []*ethtypes.Log {
+	res := []*ethtypes.Log{}
+	for _, logs := range s.snapshottedLogs {
+		res = append(res, logs...)
 	}
-	if err := json.Unmarshal(logsbz, &logs); err != nil {
-		return []*ethtypes.Log{}, err
-	}
-	return logs.Ls, nil
+	res = append(res, s.logs...)
+	return res
 }
 
 func (s *DBImpl) GetLogs(common.Hash, uint64, common.Hash) []*ethtypes.Log {
-	logs, err := s.GetAllLogs()
-	if err != nil {
-		s.err = err
-		return []*ethtypes.Log{}
-	}
-	return logs
+	return s.GetAllLogs()
 }
