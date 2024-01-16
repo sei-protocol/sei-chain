@@ -331,8 +331,7 @@ func (db *Database) Prune(version int64) error {
 				}
 
 				counter = 0
-				batch = db.storage.NewBatch()
-				defer batch.Close()
+				batch.Reset()
 			}
 		}
 
