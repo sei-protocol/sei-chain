@@ -64,7 +64,7 @@ func TestSubscribeNewLogs(t *testing.T) {
 	t.Parallel()
 	data := map[string]interface{}{
 		"address": []common.Address{
-			common.HexToAddress("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"),
+			common.HexToAddress("0x1111111111111111111111111111111111111112"),
 			common.HexToAddress("0xc0ffee254729296a45a3885639AC7E10F9d54979"),
 		},
 		"topics": [][]common.Hash{
@@ -105,7 +105,7 @@ func TestSubscribeNewLogs(t *testing.T) {
 				t.Fatal("Subscription ID does not match")
 			}
 			resultMap := paramMap["result"].(map[string]interface{})
-			if resultMap["address"] != "0xc0ffee254729296a45a3885639ac7e10f9d54979" && resultMap["address"] != "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" {
+			if resultMap["address"] != "0x1111111111111111111111111111111111111112" && resultMap["address"] != "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" {
 				t.Fatalf("Unexpected address, got %v", resultMap["address"])
 			}
 			firstTopic := resultMap["topics"].([]interface{})[0].(string)
@@ -123,18 +123,18 @@ func TestSubscribeNewLogs(t *testing.T) {
 
 func TestSubscriptionManager(t *testing.T) {
 	manager := evmrpc.NewSubscriptionManager(&MockClient{})
-	res, subCh, err := manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
+	res, subCh, err := manager.Subscribe(context.Background(), evmrpc.NewHeadQueryBuilder(), 10)
 	require.Nil(t, err)
 	require.NotNil(t, subCh)
 	require.Equal(t, 1, int(res))
 
-	res, subCh, err = manager.Subscribe(context.Background(), mockQueryBuilder(), 10)
+	res, subCh, err = manager.Subscribe(context.Background(), evmrpc.NewHeadQueryBuilder(), 10)
 	require.Nil(t, err)
 	require.NotNil(t, subCh)
 	require.Equal(t, 2, int(res))
 
 	badManager := evmrpc.NewSubscriptionManager(&MockBadClient{})
-	_, subCh, err = badManager.Subscribe(context.Background(), mockQueryBuilder(), 10)
+	_, subCh, err = badManager.Subscribe(context.Background(), evmrpc.NewHeadQueryBuilder(), 10)
 	require.NotNil(t, err)
 	require.Nil(t, subCh)
 }

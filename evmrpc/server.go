@@ -71,7 +71,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewFilterAPI(tmClient, &FilterConfig{timeout: config.FilterTimeout}),
+			Service:   NewFilterAPI(tmClient, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider}, &FilterConfig{timeout: config.FilterTimeout}),
 		},
 		{
 			Namespace: "txpool",
@@ -144,7 +144,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSubscriptionAPI(tmClient, ctxProvider, &SubscriptionConfig{subscriptionCapacity: 100}),
+			Service:   NewSubscriptionAPI(tmClient, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider}, &SubscriptionConfig{subscriptionCapacity: 100}),
 		},
 		{
 			Namespace: "web3",
