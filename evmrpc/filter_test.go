@@ -90,7 +90,6 @@ func TestFilterUninstall(t *testing.T) {
 }
 
 func TestFilterGetLogs(t *testing.T) {
-	t.Parallel()
 	tests := []struct {
 		name      string
 		blockHash common.Hash
