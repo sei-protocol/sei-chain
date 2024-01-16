@@ -15,6 +15,7 @@ import (
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	lru "github.com/hashicorp/golang-lru/v2/simplelru"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -32,12 +33,18 @@ type Keeper struct {
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
-	evmTxIndicesMtx              *sync.Mutex
-	evmTxIndices                 []int
+	evmTxDeferredInfoMtx         *sync.Mutex
+	evmTxDeferredInfoList        []EvmTxDeferredInfo
 	nonceMx                      *sync.RWMutex
 	pendingNonces                map[string][]uint64
 	completedNonces              *lru.LRU[string, bool]
 	keyToNonce                   map[tmtypes.TxKey]*addressNoncePair
+}
+
+type EvmTxDeferredInfo struct {
+	TxIndx  int
+	TxHash  common.Hash
+	TxBloom ethtypes.Bloom
 }
 
 type addressNoncePair struct {
@@ -62,11 +69,11 @@ func NewKeeper(
 		bankKeeper:                   bankKeeper,
 		accountKeeper:                accountKeeper,
 		stakingKeeper:                stakingKeeper,
-		evmTxIndices:                 []int{},
+		evmTxDeferredInfoList:        []EvmTxDeferredInfo{},
 		pendingNonces:                make(map[string][]uint64),
 		completedNonces:              cn,
 		nonceMx:                      &sync.RWMutex{},
-		evmTxIndicesMtx:              &sync.Mutex{},
+		evmTxDeferredInfoMtx:         &sync.Mutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*addressNoncePair),
 	}
@@ -148,20 +155,24 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 	}
 }
 
-func (k *Keeper) ClearEVMTxIndices() {
+func (k *Keeper) ClearEvmTxDeferredInfo() {
 	// no need to acquire mutex here since it's only called by BeginBlock
-	k.evmTxIndices = []int{}
+	k.evmTxDeferredInfoList = []EvmTxDeferredInfo{}
 }
 
-func (k *Keeper) GetEVMTxIndices() []int {
+func (k *Keeper) GetEVMTxDeferredInfo() []EvmTxDeferredInfo {
 	// no need to acquire mutex here since it's only called by EndBlock
-	return k.evmTxIndices
+	return k.evmTxDeferredInfoList
 }
 
-func (k *Keeper) AppendToEVMTxIndices(idx int) {
-	k.evmTxIndicesMtx.Lock()
-	defer k.evmTxIndicesMtx.Unlock()
-	k.evmTxIndices = append(k.evmTxIndices, idx)
+func (k *Keeper) AppendToEvmTxDeferredInfo(idx int, bloom ethtypes.Bloom, txHash common.Hash) {
+	k.evmTxDeferredInfoMtx.Lock()
+	defer k.evmTxDeferredInfoMtx.Unlock()
+	k.evmTxDeferredInfoList = append(k.evmTxDeferredInfoList, EvmTxDeferredInfo{
+		TxIndx:  idx,
+		TxBloom: bloom,
+		TxHash:  txHash,
+	})
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
