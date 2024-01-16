@@ -78,7 +78,7 @@ func run(config Config) {
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
 // workers continue running. If config.Constant is false, then we will gather load test results in a file
 func startLoadtestWorkers(config Config) {
-	fmt.Printf("Starting loadtest workers")
+	fmt.Printf("Starting loadtest workers\n")
 	client := NewLoadTestClient(config)
 	client.SetValidators()
 
@@ -87,14 +87,14 @@ func startLoadtestWorkers(config Config) {
 
 	txQueue := make(chan []byte, 10000)
 	done := make(chan struct{})
-	numProducers := 5
+	numProducers := 1000
 	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	start := time.Now()
 	var producedCount int64 = 0
 	var sentCount int64 = 0
@@ -103,13 +103,19 @@ func startLoadtestWorkers(config Config) {
 	var blockTimes []string
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
 	fmt.Printf("Starting loadtest producers\n")
+	// preload all accounts
+	keys := client.SignerClient.GetTestAccountsKeys(int(config.TargetTps))
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
-		go client.BuildTxs(txQueue, i, &wg, done, &producedCount)
+		go client.BuildTxs(txQueue, i, keys, &wg, done, &producedCount)
+	}
+	// Give producers some time to populate queue
+	if config.TargetTps > 1000 {
+		time.Sleep(5 * time.Second)
 	}
 
 	fmt.Printf("Starting loadtest consumers\n")
-	go client.SendTxs(txQueue, done, &sentCount, int(config.TargetTps))
+	go client.SendTxs(txQueue, done, &sentCount, int(config.TargetTps), &wg)
 	// Statistics reporting goroutine
 	go func() {
 		for {
@@ -143,6 +149,7 @@ func startLoadtestWorkers(config Config) {
 	<-signals
 	fmt.Println("SIGINT received, shutting down...")
 	close(done)
+
 	wg.Wait()
 	close(txQueue)
 }

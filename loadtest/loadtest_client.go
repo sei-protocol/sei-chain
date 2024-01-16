@@ -10,7 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
+	"google.golang.org/grpc/connectivity"
 
 	"github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
@@ -45,7 +48,11 @@ type LoadTestClient struct {
 func NewLoadTestClient(config Config) *LoadTestClient {
 	var dialOptions []grpc.DialOption
 
-	// NOTE: Will likely need to whitelist node from elb rate limits - add ip to producer ip set
+	dialOptions = append(dialOptions, grpc.WithDefaultCallOptions(
+		grpc.MaxCallRecvMsgSize(20*1024*1024),
+		grpc.MaxCallSendMsgSize(20*1024*1024)),
+	)
+	dialOptions = append(dialOptions, grpc.WithBlock())
 	if config.TLS {
 		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
 	} else {
@@ -60,6 +67,22 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 			dialOptions...)
 		TxClients[i] = typestx.NewServiceClient(grpcConn)
 		GrpcConns[i] = grpcConn
+		// spin up goroutine for monitoring and reconnect purposes
+		go func() {
+			for {
+				state := grpcConn.GetState()
+				if state == connectivity.TransientFailure || state == connectivity.Shutdown {
+					fmt.Println("GRPC Connection lost, attempting to reconnect...")
+					for {
+						if grpcConn.WaitForStateChange(context.Background(), state) {
+							break
+						}
+						time.Sleep(10 * time.Second)
+					}
+				}
+				time.Sleep(10 * time.Second)
+			}
+		}()
 	}
 
 	return &LoadTestClient{
@@ -93,12 +116,9 @@ func (c *LoadTestClient) Close() {
 	}
 }
 
-func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *sync.WaitGroup, done <-chan struct{}, producedCount *int64) {
+func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, keys []cryptotypes.PrivKey, wg *sync.WaitGroup, done <-chan struct{}, producedCount *int64) {
 	defer wg.Done()
 	config := c.LoadTestConfig
-	accountIdentifier := fmt.Sprint(producerId)
-	accountKeyPath := c.SignerClient.GetTestAccountKeyPath(uint64(producerId))
-	key := c.SignerClient.GetKey(accountIdentifier, "test", accountKeyPath)
 
 	for {
 		select {
@@ -106,6 +126,7 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *syn
 			fmt.Printf("Stopping producer %d\n", producerId)
 			return
 		default:
+			key := keys[atomic.LoadInt64(producedCount)%int64(len(keys))]
 			msgs, _, _, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
 			txBuilder := TestConfig.TxConfig.NewTxBuilder()
 			_ = txBuilder.SetMsgs(msgs...)
@@ -114,19 +135,27 @@ func (c *LoadTestClient) BuildTxs(txQueue chan<- []byte, producerId int, wg *syn
 				types.NewCoin("usei", types.NewInt(fee)),
 			})
 			// Use random seqno to get around txs that might already be seen in mempool
-
 			c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(rand.Intn(math.MaxInt)))
 			txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
-			txQueue <- txBytes
-			atomic.AddInt64(producedCount, 1)
+			select {
+			case txQueue <- txBytes:
+				atomic.AddInt64(producedCount, 1)
+			case <-done:
+				// Exit if done signal is received while trying to send to txQueue
+				return
+			}
 		}
 	}
 }
 
-func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int) {
+func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, sentCount *int64, rateLimit int, wg *sync.WaitGroup) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
-	for {
+	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
+	sem := semaphore.NewWeighted(int64(maxConcurrent))
 
+	for {
 		select {
 		case <-done:
 			fmt.Printf("Stopping consumers\n")
@@ -134,10 +163,25 @@ func (c *LoadTestClient) SendTxs(txQueue <-chan []byte, done <-chan struct{}, se
 		case tx, ok := <-txQueue:
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
+				return
 			}
-			if rateLimiter.Allow() {
-				go SendTx(tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+
+			if err := sem.Acquire(ctx, 1); err != nil {
+				fmt.Printf("Failed to acquire semaphore: %v", err)
+				break
 			}
+			wg.Add(1)
+			go func(tx []byte) {
+				localCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+				defer cancel()
+				defer wg.Done()
+				defer sem.Release(1)
+
+				if err := rateLimiter.Wait(localCtx); err != nil {
+					return
+				}
+				SendTx(ctx, tx, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+			}(tx)
 		}
 	}
 }
