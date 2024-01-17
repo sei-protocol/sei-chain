@@ -8,6 +8,7 @@ from io import BytesIO
 
 # Mapping of env to chain_id
 ENV_TO_CHAIN_ID = {
+    "local": None,
     "devnet": "arctic-1",
     "testnet": "atlantic-2"
 }
@@ -56,7 +57,6 @@ def install_latest_release():
         raise Exception(f"Error downloading sei binary {latest_version}")
     zip_file = zipfile.ZipFile(BytesIO(response.content))
     zip_file.extractall(".")
-    print("TEST" + zip_file.namelist()[0])
     os.chdir(zip_file.namelist()[0])
     run_command("make install")
 
@@ -87,17 +87,23 @@ def take_manual_inputs():
     # Manual input prompts
     print(
         """Please choose an environment:
-        1. devnet (arctic-1)
-        2. testnet (atlantic-2)"""
+        1. local
+        2. devnet (arctic-1)
+        3. testnet (atlantic-2)"""
     )
     choice = input("Enter choice:")
-    while choice not in ['1', '2']:
-        print("Invalid input. Please enter '1' or '2'.")
+    while choice not in ['1', '2', '3']:
+        print("Invalid input. Please enter '1', '2' or '3'.")
         choice = input("Enter choice:")
 
-    env = "devnet" if choice == "1" else "testnet"
-    moniker = input("Enter moniker: ")
-    return env, moniker
+    env = ""
+    if choice == "1":
+        env = "local"
+    elif choice == "2":
+        env = "devnet"
+    elif choice == "3":
+        env = "testnet"
+    return env
 
 def get_state_sync_params(rpc_url):
     trust_height_delta = 40000 # may need to tune
@@ -129,16 +135,18 @@ def run_command(command):
 
 def main():
     print_ascii_and_intro()
-    # env, node_type, moniker = take_manual_inputs()
-    # TODO remove
-    env, moniker = "devnet", "hpilip"
-    print(f"Setting up a node in {env} with moniker: {moniker}")
+    env = take_manual_inputs()
+    moniker = "demo"
+    print(f"Setting up a node in {env}")
     chain_id = ENV_TO_CHAIN_ID[env]
-    rpc_url = get_rpc_server(chain_id)
-    rpc_url="http://18.191.12.108:26657"
-
     # Install binary
     install_latest_release()
+    # Short circuit and run init local script
+    if env == "local":
+        run_command("chmod +x scripts/initialize_local_chain.sh")
+        run_command("scripts/initialize_local_chain.sh")
+
+    rpc_url = get_rpc_server(chain_id)
 
     # Remove previous sei data
     run_command("rm -rf $HOME/.sei")
