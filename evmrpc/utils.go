@@ -192,6 +192,15 @@ func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.B
 	return numberPtr, nil
 }
 
+func getHeightFromBigIntBlockNumber(latest int64, blockNumber *big.Int) int64 {
+	switch blockNumber.Int64() {
+	case rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64(), rpc.SafeBlockNumber.Int64(), rpc.PendingBlockNumber.Int64():
+		return latest
+	default:
+		return blockNumber.Int64()
+	}
+}
+
 func getTestKeyring(homeDir string) (keyring.Keyring, error) {
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)

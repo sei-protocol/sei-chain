@@ -24,5 +24,4 @@ type EVMKeeper interface {
 	GetFeeCollectorAddress(sdk.Context) (common.Address, error)
 	GetNonce(sdk.Context, common.Address) uint64
 	SetNonce(sdk.Context, common.Address, uint64)
-	AppendToEVMTxIndices(int)
 }
