@@ -80,6 +80,6 @@ reverse_first_set=$($seidbin q wasm list-code --reverse --count-total --limit 40
 echo "300 forward first set $forward_first_set"
 echo ""
 echo "300 reverse first set $reverse_first_set"
-echo ""
+echo "done"
 
 exit 0
