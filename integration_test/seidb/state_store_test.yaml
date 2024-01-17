@@ -15,8 +15,11 @@
     # Verify 100 stored wasm contracts at first height
     - cmd: seid q wasm list-code --count-total --limit 400 --height $FIRST_SET_BLOCK_HEIGHT --output json | jq -r ".code_infos | length"
       env: FIRST_SET_LIST_CODE_LENGTH
+     # Get height from first set
+    - cmd: tail -1 integration_test/contracts/wasm_first_set_block_height.txt
+      env: FIRST_SET_BLOCK_HEIGHT_COPY
     # Verify 100 stored wasm contracts at first height reverse
-    - cmd: seid q wasm list-code --reverse --count-total --limit 400 --height $FIRST_SET_BLOCK_HEIGHT --output json | jq -r ".code_infos | length"
+    - cmd: seid q wasm list-code --reverse --count-total --limit 400 --height $FIRST_SET_BLOCK_HEIGHT_COPY --output json | jq -r ".code_infos | length"
       env: FIRST_SET_LIST_CODE_LENGTH_REVERSE
     # Get height from second set
     - cmd: tail -1 integration_test/contracts/wasm_second_set_block_height.txt
