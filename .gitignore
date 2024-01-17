@@ -19,8 +19,6 @@ yarn.lock
 # node ignores
 oracle/node_modules/
 node_modules/
-package-lock.json
-*/package-lock.json
 
 # test coverage output
 c.out
