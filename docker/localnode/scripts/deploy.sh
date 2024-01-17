@@ -14,10 +14,6 @@ echo "GOBIN=$GOPATH/bin" >> /root/.bashrc
 echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH" >> /root/.bashrc
 /bin/bash -c "source /root/.bashrc"
 mkdir -p $GOBIN
-
-# echo "calling setup_evm.sh in deploy.sh"
-# /usr/bin/setup_evm.sh
-
 # Step 0: Build on node 0
 if [ "$NODE_ID" = 0 ] && [ -z "$SKIP_BUILD" ]
 then
