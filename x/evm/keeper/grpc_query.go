@@ -29,7 +29,7 @@ func (q Querier) SeiAddressByEVMAddress(c context.Context, req *types.QuerySeiAd
 	evmAddr := common.HexToAddress(req.EvmAddress)
 	addr, found := q.Keeper.GetSeiAddress(ctx, evmAddr)
 	if !found {
-		return &types.QuerySeiAddressByEVMAddressResponse{SeiAddress: sdk.AccAddress(evmAddr[:]).String(), Associated: false}, nil
+		return &types.QuerySeiAddressByEVMAddressResponse{Associated: false}, nil
 	}
 
 	return &types.QuerySeiAddressByEVMAddressResponse{SeiAddress: addr.String(), Associated: true}, nil
