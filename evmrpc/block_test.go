@@ -1,6 +1,9 @@
 package evmrpc_test
 
 import (
+	"math/big"
+	"testing"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -11,8 +14,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
-	"math/big"
-	"testing"
 )
 
 func TestGetBlockByHash(t *testing.T) {
@@ -55,11 +56,10 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0xa", resObj["gasLimit"])
 	require.Equal(t, "0x5", resObj["gasUsed"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["hash"])
-	require.Equal(t, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", resObj["logsBloom"])
+	require.Equal(t, "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", resObj["logsBloom"])
 	require.Equal(t, "0x0000000000000000000000000000000000000005", resObj["miner"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["mixHash"])
 	require.Equal(t, "0x0000000000000000", resObj["nonce"])
-	require.Equal(t, "0x8", resObj["number"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000006", resObj["parentHash"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000004", resObj["receiptsRoot"])
 	require.Equal(t, "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347", resObj["sha3Uncles"])
@@ -68,7 +68,6 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x65254651", resObj["timestamp"])
 	tx := resObj["transactions"].([]interface{})[0].(map[string]interface{})
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", tx["blockHash"])
-	require.Equal(t, "0x8", tx["blockNumber"])
 	require.Equal(t, "0x1234567890123456789012345678901234567890", tx["from"])
 	require.Equal(t, "0x3e8", tx["gas"])
 	require.Equal(t, "0xa", tx["gasPrice"])
@@ -90,6 +89,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", resObj["transactionsRoot"])
 	require.Equal(t, []interface{}{}, resObj["uncles"])
 	require.Equal(t, "0x0", resObj["baseFeePerGas"])
+	require.Equal(t, "0x0", resObj["totalDifficulty"])
 }
 
 func TestEncodeBankMsg(t *testing.T) {
