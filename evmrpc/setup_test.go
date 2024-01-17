@@ -10,7 +10,6 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -155,40 +154,6 @@ func (c *MockClient) mockEventDataNewBlockHeader(mockHeight uint64) *tmtypes.Eve
 	}
 }
 
-func mockEventDataTx(mockHeight uint64, addr common.Address, topics []common.Hash) *tmtypes.EventDataTx {
-	topicsStrs := utils.Map(topics, func(hash common.Hash) string { return hash.Hex() })
-	abciEvent := abci.Event{
-		Type: types.EventTypeEVMLog,
-		Attributes: []abci.EventAttribute{
-			{
-				Key:   []byte(types.AttributeTypeContractAddress),
-				Value: []byte(addr.Hex()),
-			}, {
-				Key:   []byte(types.AttributeTypeTopics),
-				Value: []byte(strings.Join(topicsStrs, ",")),
-			},
-		},
-	}
-	eventData := &tmtypes.EventDataTx{
-		TxResult: abci.TxResult{
-			Height: int64(mockHeight + 200000),
-			Index:  0,
-			Tx:     common.Hex2Bytes("0x123"),
-			Result: abci.ExecTxResult{
-				Code:      0,
-				Data:      common.Hex2Bytes("0x456"),
-				Log:       "log",
-				Info:      "info",
-				GasWanted: 10,
-				GasUsed:   5,
-				Events:    []abci.Event{abciEvent},
-				Codespace: "codespace",
-			},
-		},
-	}
-	return eventData
-}
-
 func mockTxResult() []*abci.ExecTxResult {
 	return []*abci.ExecTxResult{
 		{
@@ -210,8 +175,12 @@ func (c *MockClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) 
 	return &coretypes.ResultGenesis{Genesis: &tmtypes.GenesisDoc{InitialHeight: 1}}, nil
 }
 
-func (c *MockClient) Block(context.Context, *int64) (*coretypes.ResultBlock, error) {
-	return c.mockBlock(MockHeight), nil
+func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
+	height := int64(MockHeight)
+	if h != nil {
+		height = *h
+	}
+	return c.mockBlock(height), nil
 }
 
 func (c *MockClient) BlockByHash(context.Context, bytes.HexBytes) (*coretypes.ResultBlock, error) {
@@ -219,7 +188,6 @@ func (c *MockClient) BlockByHash(context.Context, bytes.HexBytes) (*coretypes.Re
 }
 
 func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlockResults, error) {
-	abciEvent := NewABCIEventBuilder().SetBlockNum(8).Build()
 	return &coretypes.ResultBlockResults{
 		TxsResults: []*abci.ExecTxResult{
 			{
@@ -229,9 +197,6 @@ func (c *MockClient) BlockResults(context.Context, *int64) (*coretypes.ResultBlo
 				}(),
 				GasWanted: 10,
 				GasUsed:   5,
-				Events: []abci.Event{
-					abciEvent,
-				},
 			},
 		},
 	}, nil
@@ -253,136 +218,12 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 		}()
 		return resCh, nil
 		// hardcoded test case for simplicity
-	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' AND evm_log.topics MATCHES '^(0x0000000000000000000000000000000000000000000000000000000000000123).*'") {
-		resCh := make(chan coretypes.ResultEvent, 5)
-		go func() {
-			for i := uint64(0); i < 5; i++ {
-				eventData := mockEventDataTx(
-					i+1,
-					common.HexToAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
-					[]common.Hash{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")},
-				)
-				resCh <- coretypes.ResultEvent{
-					SubscriptionID: subscriber,
-					Query:          query,
-					Data:           *eventData,
-					Events:         eventData.ABCIEvents(),
-				}
-				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
-			}
-		}()
-		return resCh, nil
-	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = '0xc0ffee254729296a45a3885639AC7E10F9d54979' AND evm_log.topics MATCHES '^(0x0000000000000000000000000000000000000000000000000000000000000123).*'") {
-		resCh := make(chan coretypes.ResultEvent, 5)
-		go func() {
-			for i := uint64(0); i < 5; i++ {
-				eventData := mockEventDataTx(
-					i+1,
-					common.HexToAddress("0xc0ffee254729296a45a3885639AC7E10F9d54979"),
-					[]common.Hash{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")},
-				)
-				resCh <- coretypes.ResultEvent{
-					SubscriptionID: subscriber,
-					Query:          query,
-					Data:           *eventData,
-					Events:         eventData.ABCIEvents(),
-				}
-				time.Sleep(20 * time.Millisecond) // sleep a little to simulate real events
-			}
-		}()
-		return resCh, nil
-	} else if strings.Contains(query, "tm.event = 'Tx' AND evm_log.contract_address = 'test contract' AND evm_log.block_hash = 'block hash' AND evm_log.block_number = '1' AND evm_log.tx_hash = 'tx hash' AND evm_log.tx_idx = '2' AND evm_log.idx = '3' AND evm_log.topics CONTAINS 'topic a' AND evm_log.topics CONTAINS 'topic b'") {
-		resCh := make(chan coretypes.ResultEvent)
-		return resCh, nil
 	}
 	return nil, errors.New("unknown query")
 }
 
 func (c *MockClient) Unsubscribe(_ context.Context, _, _ string) error {
 	return nil
-}
-
-func (c *MockClient) TxSearch(
-	ctx context.Context,
-	query string,
-	prove bool,
-	page, perPage *int,
-	orderBy string,
-) (*coretypes.ResultTxSearch, error) {
-	if *page == 1 {
-		return &coretypes.ResultTxSearch{
-			TotalCount: TotalTxCount,
-			Txs: []*coretypes.ResultTx{
-				{
-					TxResult: abci.ExecTxResult{Events: []abci.Event{
-						{
-							Type: types.EventTypeEVMLog,
-							Attributes: []abci.EventAttribute{{
-								Key:   []byte(types.AttributeTypeContractAddress),
-								Value: []byte("0x1111111111111111111111111111111111111112"),
-							}, {
-								Key:   []byte(types.AttributeTypeTopics),
-								Value: []byte("0x0000000000000000000000000000000000000000000000000000000000000123"),
-							}, {
-								Key:   []byte(types.AttributeTypeBlockNumber),
-								Value: []byte("4"),
-							}},
-						},
-					}},
-				},
-				{
-					TxResult: abci.ExecTxResult{Events: []abci.Event{
-						{
-							Type: types.EventTypeEVMLog,
-							Attributes: []abci.EventAttribute{{
-								Key:   []byte(types.AttributeTypeContractAddress),
-								Value: []byte("0x1111111111111111111111111111111111111113"),
-							}, {
-								Key:   []byte(types.AttributeTypeTopics),
-								Value: []byte("0x0000000000000000000000000000000000000000000000000000000000000123,0x0000000000000000000000000000000000000000000000000000000000000456"),
-							}, {
-								Key:   []byte(types.AttributeTypeBlockNumber),
-								Value: []byte("4"),
-							}},
-						},
-					}},
-				},
-				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
-				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
-				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
-				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
-				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
-				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
-				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
-				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
-			},
-		}, nil
-	} else if *page == 2 {
-		return &coretypes.ResultTxSearch{
-			TotalCount: TotalTxCount,
-			Txs: []*coretypes.ResultTx{
-				{
-					TxResult: abci.ExecTxResult{Events: []abci.Event{
-						{
-							Type: types.EventTypeEVMLog,
-							Attributes: []abci.EventAttribute{{
-								Key:   []byte(types.AttributeTypeContractAddress),
-								Value: []byte("0x1111111111111111111111111111111111111113"),
-							}, {
-								Key:   []byte(types.AttributeTypeTopics),
-								Value: []byte("0x0000000000000000000000000000000000000000000000000000000000000123"),
-							}, {
-								Key:   []byte(types.AttributeTypeBlockNumber),
-								Value: []byte("4"),
-							}},
-						},
-					}},
-				},
-				{TxResult: abci.ExecTxResult{Events: []abci.Event{}}},
-			},
-		}, nil
-	}
-	return &coretypes.ResultTxSearch{TotalCount: TotalTxCount, Txs: []*coretypes.ResultTx{}}, nil
 }
 
 func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
@@ -404,60 +245,6 @@ func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*c
 		}
 		newCursor := strconv.FormatInt(int64(cursor)+1, 10)
 		return buildSingleResultEvent(data, false, newCursor, "event"), nil
-	} else if strings.Contains(req.Filter.Query, "tm.event = 'Tx'") {
-		eb := NewABCIEventBuilder()
-
-		// assume newCursor is block number for testing purposes
-		var newCursor string
-		if req.After != "" {
-			cursorAfter, err := strconv.Atoi(req.After)
-			if err != nil {
-				panic("invalid cursor")
-			}
-			nextBlockNum := cursorAfter + 1
-			eb = eb.SetBlockNum(nextBlockNum)
-			newCursor = strconv.FormatInt(int64(nextBlockNum), 10)
-		} else {
-			var startBlock int
-			re := regexp.MustCompile(`evm_log.block_number >= '(\d+?)'`)
-			matches := re.FindStringSubmatch(req.Filter.Query)
-			if len(matches) == 2 {
-				var err error
-				startBlock, err = strconv.Atoi(matches[1])
-				if err != nil {
-					return nil, err
-				}
-				eb = eb.SetBlockNum(startBlock)
-				newCursor = strconv.FormatInt(int64(startBlock), 10)
-			}
-		}
-
-		var blockHash string
-		re := regexp.MustCompile(`evm_log.block_hash = '(.+?)'`)
-		matches := re.FindStringSubmatch(req.Filter.Query)
-		if len(matches) == 2 {
-			blockHash = matches[1]
-			eb = eb.SetBlockHash(blockHash)
-		}
-
-		var contractAddress string
-		re = regexp.MustCompile(`evm_log.contract_address = '(.+?)'.*`)
-		matches = re.FindStringSubmatch(req.Filter.Query)
-		if len(matches) == 2 {
-			contractAddress = matches[1]
-			eb = eb.SetContractAddress(contractAddress)
-		}
-
-		// hardcode topic matches to match up with tests since doing the regex is too complicated
-		if strings.Contains(req.Filter.Query, "evm_log.topics MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123).*\\]'") {
-			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123"})
-		} else if strings.Contains(req.Filter.Query, "evm_log.topics MATCHES '\\[(0x0000000000000000000000000000000000000000000000000000000000000123)[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
-			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
-		} else if strings.Contains(req.Filter.Query, "evm_log.topics MATCHES '\\[[^\\,]*,(0x0000000000000000000000000000000000000000000000000000000000000456).*\\]'") {
-			eb = eb.SetTopics([]string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"})
-		}
-
-		return buildSingleResultEvent(eb.Build(), false, newCursor, "event"), nil
 	} else {
 		panic("unknown query")
 	}
@@ -619,6 +406,10 @@ func init() {
 		GasUsed:           55,
 		Status:            0,
 		EffectiveGasPrice: 10,
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111111",
+			Topics:  []string{"0x1111111111111111111111111111111111111111111111111111111111111111", "0x1111111111111111111111111111111111111111111111111111111111111112"},
+		}},
 	}); err != nil {
 		panic(err)
 	}
@@ -668,6 +459,72 @@ func init() {
 		panic(err)
 	}
 	UnconfirmedTx = b.GetTx()
+
+	setupLogs()
+}
+
+func setupLogs() {
+	// block height 2
+	bloom1 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111112"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
+		},
+	}, {
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111112"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+		},
+	}}}})
+	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"), &types.Receipt{
+		BlockNumber: 2,
+		LogsBloom:   bloom1[:],
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111112",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
+		}, {
+			Address: "0x1111111111111111111111111111111111111112",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123"},
+		}},
+	})
+	bloom2 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111113"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
+		},
+	}}}})
+	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"), &types.Receipt{
+		BlockNumber: 2,
+		LogsBloom:   bloom2[:],
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111113",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
+		}},
+	})
+	bloom3 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111114"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
+		},
+	}}}})
+	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900003"), &types.Receipt{
+		BlockNumber: 2,
+		LogsBloom:   bloom3[:],
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111114",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
+		}},
+	})
+	EVMKeeper.SetTxHashesOnHeight(Ctx, 2, []common.Hash{
+		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"),
+		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"),
+		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900003"),
+	})
+	EVMKeeper.SetBlockBloom(Ctx, 2, []ethtypes.Bloom{bloom1, bloom2, bloom3})
+
 }
 
 //nolint:deadcode
@@ -807,111 +664,6 @@ func formatParam(p interface{}) string {
 		return fmt.Sprintf("{%s}", strings.Join(kvs, ","))
 	default:
 		panic("did not match on type")
-	}
-}
-
-type ABCIEventBuilder struct {
-	contractAddress string
-	blockHash       string
-	blockNum        int
-	data            string
-	index           int
-	txIndex         int
-	removed         bool
-	topics          []string
-	txHash          common.Hash
-}
-
-func NewABCIEventBuilder() *ABCIEventBuilder {
-	return &ABCIEventBuilder{
-		contractAddress: "0x1111111111111111111111111111111111111111111111111111111111111111",
-		blockHash:       "0x1111111111111111111111111111111111111111111111111111111111111111",
-		blockNum:        8,
-		data:            "xyz",
-		index:           1,
-		txIndex:         2,
-		removed:         true,
-		topics:          []string{"0x1111111111111111111111111111111111111111111111111111111111111111,0x1111111111111111111111111111111111111111111111111111111111111112"},
-		txHash:          common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111113"),
-	}
-}
-
-func (b *ABCIEventBuilder) SetContractAddress(contractAddress string) *ABCIEventBuilder {
-	b.contractAddress = contractAddress
-	return b
-}
-
-func (b *ABCIEventBuilder) SetBlockHash(blockHash string) *ABCIEventBuilder {
-	b.blockHash = blockHash
-	return b
-}
-
-func (b *ABCIEventBuilder) SetBlockNum(blockNum int) *ABCIEventBuilder {
-	b.blockNum = blockNum
-	return b
-}
-
-func (b *ABCIEventBuilder) SetData(data string) *ABCIEventBuilder {
-	b.data = data
-	return b
-}
-
-func (b *ABCIEventBuilder) SetIndex(index int) *ABCIEventBuilder {
-	b.index = index
-	return b
-}
-
-func (b *ABCIEventBuilder) SetTxIndex(txIndex int) *ABCIEventBuilder {
-	b.txIndex = txIndex
-	return b
-}
-
-func (b *ABCIEventBuilder) SetRemoved(removed bool) *ABCIEventBuilder {
-	b.removed = removed
-	return b
-}
-
-func (b *ABCIEventBuilder) SetTopics(topics []string) *ABCIEventBuilder {
-	b.topics = topics
-	return b
-}
-
-func (b *ABCIEventBuilder) SetTxHash(txHash common.Hash) *ABCIEventBuilder {
-	b.txHash = txHash
-	return b
-}
-
-func (b *ABCIEventBuilder) Build() abci.Event {
-	return abci.Event{
-		Type: types.EventTypeEVMLog,
-		Attributes: []abci.EventAttribute{{
-			Key:   []byte(types.AttributeTypeContractAddress),
-			Value: []byte(b.contractAddress),
-		}, {
-			Key:   []byte(types.AttributeTypeBlockHash),
-			Value: []byte(b.blockHash),
-		}, {
-			Key:   []byte(types.AttributeTypeBlockNumber),
-			Value: []byte(fmt.Sprintf("%d", b.blockNum)),
-		}, {
-			Key:   []byte(types.AttributeTypeData),
-			Value: []byte(b.data),
-		}, {
-			Key:   []byte(types.AttributeTypeIndex),
-			Value: []byte(fmt.Sprintf("%d", b.index)),
-		}, {
-			Key:   []byte(types.AttributeTypeTxIndex),
-			Value: []byte(fmt.Sprintf("%d", b.txIndex)),
-		}, {
-			Key:   []byte(types.AttributeTypeRemoved),
-			Value: []byte(fmt.Sprintf("%t", b.removed)),
-		}, {
-			Key:   []byte(types.AttributeTypeTopics),
-			Value: []byte(strings.Join(b.topics, ",")),
-		}, {
-			Key:   []byte(types.AttributeTypeTxHash),
-			Value: []byte(b.txHash.Hex()),
-		}},
 	}
 }
 

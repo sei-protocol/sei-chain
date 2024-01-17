@@ -25,6 +25,10 @@ func (r *CustomRouter) Handler(msg sdk.Msg) baseapp.MsgServiceHandler {
 		return func(ctx sdk.Context, _ sdk.Msg) (*sdk.Result, error) {
 			return r.evmKeeper.HandleInternalEVMCall(ctx, m)
 		}
+	case *evmtypes.MsgInternalEVMDelegateCall:
+		return func(ctx sdk.Context, _ sdk.Msg) (*sdk.Result, error) {
+			return r.evmKeeper.HandleInternalEVMDelegateCall(ctx, m)
+		}
 	default:
 		return r.MessageRouter.Handler(msg)
 	}
