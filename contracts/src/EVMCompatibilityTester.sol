@@ -102,7 +102,7 @@ contract EVMCompatibilityTester {
     }
 
 
-    function testRevert(bool value) public {
+    function revertIfFalse(bool value) public {
         boolVar = value;
         require(value == true, "value must be true");
     }
