@@ -1,6 +1,6 @@
 - name: Hardhat Test
   inputs:
-    # hardhat setup
+    # Fund owner account in hardhat tests
     - cmd: printf "12345678\n" | seid tx evm send 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 10000000000000000000 --from admin
   verifiers:
     - type: eval
