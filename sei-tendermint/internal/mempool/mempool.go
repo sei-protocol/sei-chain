@@ -182,6 +182,11 @@ func (txmp *TxMempool) Size() int {
 	return txSize + pendingSize
 }
 
+// PendingSize returns the number of pending transactions in the mempool.
+func (txmp *TxMempool) PendingSize() int {
+	return txmp.pendingTxs.Size()
+}
+
 // SizeBytes return the total sum in bytes of all the valid transactions in the
 // mempool. It is thread-safe.
 func (txmp *TxMempool) SizeBytes() int64 {
@@ -292,6 +297,7 @@ func (txmp *TxMempool) CheckTx(
 		timestamp: time.Now().UTC(),
 		height:    txmp.height,
 		expiredCallback: func(removeFromCache bool) {
+			txmp.metrics.ExpiredTxs.Add(1)
 			if removeFromCache {
 				txmp.cache.Remove(tx)
 			}
@@ -519,6 +525,7 @@ func (txmp *TxMempool) Update(
 	}
 
 	txmp.metrics.Size.Set(float64(txmp.Size()))
+	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
 	return nil
 }
 
@@ -638,6 +645,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 
 	txmp.metrics.TxSizeBytes.Observe(float64(wtx.Size()))
 	txmp.metrics.Size.Set(float64(txmp.Size()))
+	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
 
 	txmp.insertTx(wtx)
 	txmp.logger.Debug(
@@ -745,6 +753,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 	}
 
 	txmp.metrics.Size.Set(float64(txmp.Size()))
+	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
 }
 
 // updateReCheckTxs updates the recheck cursors using the gossipIndex. For

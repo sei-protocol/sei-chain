@@ -214,6 +214,7 @@ func TestTxMempool_Size(t *testing.T) {
 	txmp := setup(t, client, 0)
 	txs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(txs), txmp.Size())
+	require.Equal(t, 0, txmp.PendingSize())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
 
 	rawTxs := make([]types.Tx, len(txs))

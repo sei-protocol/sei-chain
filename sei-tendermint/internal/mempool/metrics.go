@@ -18,6 +18,9 @@ type Metrics struct {
 	// Number of uncommitted transactions in the mempool.
 	Size metrics.Gauge
 
+	// Number of pending transactions in mempool
+	PendingSize metrics.Gauge
+
 	// Histogram of transaction sizes in bytes.
 	TxSizeBytes metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"1,3,7"`
 
@@ -37,6 +40,12 @@ type Metrics struct {
 	// CheckTx.
 	//metrics:Number of evicted transactions.
 	EvictedTxs metrics.Counter
+
+	// ExpiredTxs defines the number of expired transactions. These are valid
+	// transactions that passed CheckTx and existed in the mempool but were not
+	// get picked up in time and eventually got expired and removed from mempool
+	//metrics:Number of expired transactions.
+	ExpiredTxs metrics.Counter
 
 	// Number of times transactions are rechecked in the mempool.
 	RecheckTimes metrics.Counter
