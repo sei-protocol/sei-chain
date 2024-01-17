@@ -5,7 +5,6 @@ RUN rm -rf build/generated
 RUN wget https://go.dev/dl/go1.21.4.linux-amd64.tar.gz
 RUN tar -xvf go1.21.4.linux-amd64.tar.gz
 RUN mv go /usr/local/
-RUN curl -L https://foundry.paradigm.xyz | bash && /root/.foundry/bin/foundryup 
 SHELL ["/bin/bash", "-c"]
 
 
