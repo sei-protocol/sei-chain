@@ -13,7 +13,7 @@ echo "$beginning_block_height" > $seihome/integration_test/contracts/wasm_beginn
 echo "$keyname"  > $seihome/integration_test/contracts/wasm_creator_id.txt
 
 # store first set of contracts
-for i in {1..100}
+for i in {1..200}
 do
     echo "Storing first set contract #$i..."
     store_result=$(printf "12345678\n" | $seidbin tx wasm store integration_test/contracts/mars.wasm -y --from="$keyname" --chain-id="$chainid" --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
@@ -28,7 +28,7 @@ echo "$first_set_block_height" > $seihome/integration_test/contracts/wasm_first_
 sleep 20s
 
 # store second set of contracts
-for i in {101..200}
+for i in {201..400}
 do
     echo "Storing second set contract #$i..."
     store_result=$(printf "12345678\n" | $seidbin tx wasm store integration_test/contracts/saturn.wasm -y --from="$keyname" --chain-id="$chainid" --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
@@ -43,7 +43,7 @@ echo "$second_set_block_height" > $seihome/integration_test/contracts/wasm_secon
 sleep 20s
 
 # store third set of contracts
-for i in {201..300}
+for i in {401..600}
 do
     echo "Storing third set contract #$i..."
     store_result=$(printf "12345678\n" | $seidbin tx wasm store integration_test/contracts/venus.wasm -y --from="$keyname" --chain-id="$chainid" --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
@@ -55,7 +55,7 @@ done
 third_set_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
 echo "$third_set_block_height" > $seihome/integration_test/contracts/wasm_third_set_block_height.txt
 
-
-# seid q wasm list store
+num_stored=$(seid q wasm list-code --count-total --limit 800 --output json | jq -r ".code_infos | length")
+echo $num_stored
 
 exit 0
