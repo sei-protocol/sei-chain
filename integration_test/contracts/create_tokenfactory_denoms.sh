@@ -13,7 +13,7 @@ echo "$beginning_block_height" > $seihome/integration_test/contracts/tfk_beginni
 echo "$keyname"  > $seihome/integration_test/contracts/tfk_creator_id.txt
 
 # create first set of tokenfactory denoms
-for i in {1..200}
+for i in {1..100}
 do
     echo "Creating first set of tokenfactory denoms #$i..."
     create_denom_result=$(printf "12345678\n" | $seidbin tx tokenfactory create-denom "$i" -y --from="$keyname" --chain-id="$chainid" --gas=500000 --fees=100000usei --broadcast-mode=block --output=json)
@@ -28,7 +28,7 @@ echo "$first_set_block_height" > $seihome/integration_test/contracts/tfk_first_s
 sleep 20s
 
 # create second set of tokenfactory denoms
-for i in {201..400}
+for i in {101..200}
 do
     echo "Creating first set of tokenfactory denoms #$i..."
     create_denom_result=$(printf "12345678\n" | $seidbin tx tokenfactory create-denom "$i" -y --from="$keyname" --chain-id="$chainid" --gas=500000 --fees=100000usei --broadcast-mode=block --output=json)
@@ -42,7 +42,7 @@ echo "$second_set_block_height" > $seihome/integration_test/contracts/tfk_second
 sleep 20s
 
 # create third set of tokenfactory denoms
-for i in {401..600}
+for i in {201..300}
 do
     echo "Creating first set of tokenfactory denoms #$i..."
     create_denom_result=$(printf "12345678\n" | $seidbin tx tokenfactory create-denom "$i" -y --from="$keyname" --chain-id="$chainid" --gas=500000 --fees=100000usei --broadcast-mode=block --output=json)
