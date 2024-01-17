@@ -25,8 +25,8 @@ done
 first_set_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
 echo "$first_set_block_height" > $seihome/integration_test/contracts/wasm_first_set_block_height.txt
 
-forward_first_set=$(seid q wasm list-code --count-total --limit 400 --height $first_set_block_height --output json)
-reverse_first_set=$(seid q wasm list-code --reverse --count-total --limit 400 --height $first_set_block_height --output json)
+forward_first_set=$($seidbin q wasm list-code --count-total --limit 400 --height $first_set_block_height --output json)
+reverse_first_set=$($seidbin q wasm list-code --reverse --count-total --limit 400 --height $first_set_block_height --output json)
 
 echo "100 forward first set $forward_first_set"
 echo ""
@@ -48,8 +48,8 @@ done
 second_set_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
 echo "$second_set_block_height" > $seihome/integration_test/contracts/wasm_second_set_block_height.txt
 
-forward_first_set=$(seid q wasm list-code --count-total --limit 400 --height $first_set_block_height --output json)
-reverse_first_set=$(seid q wasm list-code --reverse --count-total --limit 400 --height $first_set_block_height --output json)
+forward_first_set=$($seidbin q wasm list-code --count-total --limit 400 --height $first_set_block_height --output json)
+reverse_first_set=$($seidbin q wasm list-code --reverse --count-total --limit 400 --height $first_set_block_height --output json)
 
 echo "200 forward first set $forward_first_set"
 echo ""
@@ -74,8 +74,8 @@ echo "$third_set_block_height" > $seihome/integration_test/contracts/wasm_third_
 num_stored=$(seid q wasm list-code --count-total --limit 400 --output json | jq -r ".code_infos | length")
 echo $num_stored
 
-forward_first_set=$(seid q wasm list-code --count-total --limit 400 --height $first_set_block_height --output json)
-reverse_first_set=$(seid q wasm list-code --reverse --count-total --limit 400 --height $first_set_block_height --output json)
+forward_first_set=$($seidbin q wasm list-code --count-total --limit 400 --height $first_set_block_height --output json)
+reverse_first_set=$($seidbin q wasm list-code --reverse --count-total --limit 400 --height $first_set_block_height --output json)
 
 echo "300 forward first set $forward_first_set"
 echo ""
