@@ -325,14 +325,11 @@ describe("EVM Test", function () {
 
         // Create a filter to get logs
         const filter = {
-          fromBlock: 'latest',
+          fromBlock: 0,
           toBlock: 'latest',
           address: await evmTester.getAddress(),
           topics: [ethers.id("BoolSet(address,bool)")]
         };
-
-        console.log(filter)
-
         // Get the logs
         const logs = await ethers.provider.getLogs(filter);
         expect(logs).to.be.an('array').that.is.not.empty;
