@@ -3,7 +3,6 @@ package ante
 import (
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"math/big"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -48,7 +47,6 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 
 //nolint:revive
 func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	fmt.Println("Association: In ante handler")
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	if err := Preprocess(ctx, msg, p.evmKeeper.GetParams(ctx)); err != nil {
 		return ctx, err
@@ -60,11 +58,9 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	derived := msg.Derived
 	seiAddr := sdk.AccAddress(derived.SenderSeiAddr)
 	evmAddr := common.BytesToAddress(derived.SenderEVMAddr)
-	fmt.Printf("Association: In ante handler, SEI address: %s, EVM address: %s\n", seiAddr, evmAddr.Hex())
 	pubkey := &secp256k1.PubKey{Key: derived.Pubkey}
 	isAssociateTx := derived.IsAssociate
 	_, isAssociated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
-	fmt.Printf("isAssociateTx: %t, isAssociated: %t\n", isAssociateTx, isAssociated)
 	if isAssociateTx && isAssociated {
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
 	} else if isAssociateTx {
@@ -72,15 +68,7 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		baseDenom := p.evmKeeper.GetBaseDenom(ctx)
 		seiBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, baseDenom).Amount
 		castBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), baseDenom).Amount
-		fmt.Printf("Association: SEI balance: %v, CAST balance: %v\n", seiBalance, castBalance)
-		isBelowThreshold := new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt()).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0
-		fmt.Printf("Association: Is below threshold: %t\n", isBelowThreshold)
-		sumBalances := new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt())
-		BalanceThresholdBigInt := new(big.Int).SetUint64(BalanceThreshold)
-		fmt.Printf("Association: sumBalances: %v\n", sumBalances)
-		fmt.Printf("Association: BalanceThresholdBigInt: %v\n", BalanceThresholdBigInt)
 		if new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt()).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
-			fmt.Println("Association: Insufficient balance")
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
 		}
 		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
@@ -96,7 +84,6 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		}
 	}
 
-	fmt.Println("Association: Calling next")
 	return next(ctx, tx, simulate)
 }
 

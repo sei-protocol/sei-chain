@@ -32,7 +32,6 @@ type AssociateRequest struct {
 }
 
 func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) error {
-	/// Old code [START]
 	rBytes, err := decodeHexString(req.R)
 	if err != nil {
 		return err
@@ -51,9 +50,6 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) e
 		R: rBytes,
 		S: sBytes,
 	}
-
-	/// Delete later, but try to recover the address from the signature
-	
 
 	data, err := associateTx.Marshal()
 	if err != nil {

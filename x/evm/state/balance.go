@@ -1,7 +1,6 @@
 package state
 
 import (
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"

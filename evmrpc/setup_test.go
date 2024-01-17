@@ -491,12 +491,7 @@ func buildSingleResultEvent(data interface{}, more bool, cursor string, event st
 }
 
 func (c *MockClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
-	fmt.Println("In mock client broadcast tx")
 	return &coretypes.ResultBroadcastTx{Code: 0, Hash: []byte("0x123")}, nil
-}
-
-func (c *MockClient) BroadcastTxCommit(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
-	panic("not implemented")
 }
 
 func (c *MockClient) UnconfirmedTxs(ctx context.Context, page, perPage *int) (*coretypes.ResultUnconfirmedTxs, error) {

@@ -38,7 +38,6 @@ func CmdQuerySeiAddress() *cobra.Command {
 
 			queryClient := types.NewQueryClient(clientCtx)
 
-			fmt.Println("in sei-addr cmd")
 			res, err := queryClient.SeiAddressByEVMAddress(context.Background(), &types.QuerySeiAddressByEVMAddressRequest{EvmAddress: args[0]})
 			if err != nil {
 				return err

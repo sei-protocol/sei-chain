@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -49,7 +48,6 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 }
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
-	fmt.Println("Association: In sendRawTransaction")
 	if s.sendConfig.slow {
 		s.slowMu.Lock()
 		defer s.slowMu.Unlock()
@@ -57,7 +55,6 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	var txData ethtx.TxData
 	associateTx := ethtx.AssociateTx{}
 	if associateTx.Unmarshal(input) == nil {
-		fmt.Println("Association: Send raw transaction is an associate transaction")
 		txData = &associateTx
 	} else {
 		tx := new(ethtypes.Transaction)
@@ -75,16 +72,6 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return
 	}
 
-	// why does this not work??
-	// fmt.Println("Association: SendRawTx: trying to derive msg")
-	// derived := msg.Derived
-	// fmt.Println("Association: SendRawTx: getting evm addr")
-	// evmAddr := common.BytesToAddress(derived.SenderEVMAddr)
-	// fmt.Println("Association: SendRawTx: getting sei addr")
-	// seiAddr := sdk.AccAddress(derived.SenderSeiAddr)
-	// fmt.Println("Association: SendRawTx: Sei address: ", seiAddr)
-	// fmt.Println("Association: SendRawTx: EVM address: ", evmAddr)
-
 	txBuilder := s.txConfig.NewTxBuilder()
 	if err = txBuilder.SetMsgs(msg); err != nil {
 		return
@@ -95,7 +82,6 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	}
 
 	if s.sendConfig.slow {
-		fmt.Println("Association: Calling BroadcastTxCommit")
 		res, broadcastError := s.tmClient.BroadcastTxCommit(ctx, txbz)
 		if broadcastError != nil {
 			err = broadcastError
@@ -105,7 +91,6 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 			err = sdkerrors.ABCIError(sdkerrors.RootCodespace, res.CheckTx.Code, "")
 		}
 	} else {
-		fmt.Println("Association: Calling BroadcastTx")
 		res, broadcastError := s.tmClient.BroadcastTx(ctx, txbz)
 		if broadcastError != nil {
 			err = broadcastError
