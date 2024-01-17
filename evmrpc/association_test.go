@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,8 @@ func TestAssocation(t *testing.T) {
 	}
 
 	// Sign an empty payload
-	signature, err := crypto.Sign(crypto.Keccak256([]byte("")), privateKey)
+	emptyHash := common.Hash{}
+	signature, err := crypto.Sign(emptyHash[:], privateKey)
 	if err != nil {
 		log.Fatalf("Failed to sign payload: %v", err)
 	}
@@ -27,8 +29,6 @@ func TestAssocation(t *testing.T) {
 		"s": fmt.Sprintf("0x%v", new(big.Int).SetBytes(signature[32:64]).Text(16)),
 		"v": fmt.Sprintf("0x%v", new(big.Int).SetBytes([]byte{signature[64]}).Text(16)),
 	}
-
-	fmt.Println("txArgs", txArgs)
 
 	body := sendRequestGoodWithNamespace(t, "sei", "associate", txArgs)
 	require.Equal(t, body["result"], nil)
