@@ -25,7 +25,7 @@ done
 first_set_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
 echo "$first_set_block_height" > $seihome/integration_test/contracts/tfk_first_set_block_height.txt
 
-sleep 20s
+sleep 5s
 
 # create second set of tokenfactory denoms
 for i in {101..200}
@@ -39,7 +39,7 @@ done
 second_set_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
 echo "$second_set_block_height" > $seihome/integration_test/contracts/tfk_second_set_block_height.txt
 
-sleep 20s
+sleep 5s
 
 # create third set of tokenfactory denoms
 for i in {201..300}

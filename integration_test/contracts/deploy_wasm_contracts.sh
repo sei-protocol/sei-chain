@@ -25,7 +25,7 @@ done
 first_set_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
 echo "$first_set_block_height" > $seihome/integration_test/contracts/wasm_first_set_block_height.txt
 
-sleep 20s
+sleep 5s
 
 # store second set of contracts
 for i in {101..200}
@@ -40,7 +40,7 @@ done
 second_set_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
 echo "$second_set_block_height" > $seihome/integration_test/contracts/wasm_second_set_block_height.txt
 
-sleep 20s
+sleep 5s
 
 # store third set of contracts
 for i in {201..300}
