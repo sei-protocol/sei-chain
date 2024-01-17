@@ -1412,24 +1412,22 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTx
 // BuildDependenciesAndRunTxs deprecated, use ProcessTXsWithOCC instead
 // Deprecated: this will be removed after OCC releases
 func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
-	var txResults []*abci.ExecTxResult
+	// dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), typedTxs)
 
-	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), typedTxs)
+	// switch err {
+	// case nil:
+	// 	txResults, ctx = app.ProcessTxs(ctx, txs, typedTxs, dependencyDag, app.ProcessBlockConcurrent, absoluteTxIndices)
+	// case acltypes.ErrGovMsgInBlock:
+	// 	ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
+	// 	txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
+	// 	metrics.IncrDagBuildErrorCounter(metrics.GovMsgInBlock)
+	// default:
+	// 	ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
+	// 	txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
+	// 	metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
+	// }
 
-	switch err {
-	case nil:
-		txResults, ctx = app.ProcessTxs(ctx, txs, typedTxs, dependencyDag, app.ProcessBlockConcurrent, absoluteTxIndices)
-	case acltypes.ErrGovMsgInBlock:
-		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
-		txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
-		metrics.IncrDagBuildErrorCounter(metrics.GovMsgInBlock)
-	default:
-		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
-		txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
-		metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
-	}
-
-	return txResults, ctx
+	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
