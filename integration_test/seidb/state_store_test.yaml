@@ -39,21 +39,17 @@
   verifiers:
     # Verify number of wasm codes at each height
     - type: eval
-      expr: WASM_LIST_CODE_LENGTH == 300
+      expr: ( FIRST_SET_LIST_CODE_LENGTH - BEGINNING_LIST_CODE_LENGTH ) == 100
     - type: eval
-      expr: BEGINNING_LIST_CODE_LENGTH == 0
+      expr: ( FIRST_SET_LIST_CODE_LENGTH_REVERSE - BEGINNING_LIST_CODE_LENGTH ) == 100
     - type: eval
-      expr: FIRST_SET_LIST_CODE_LENGTH == 100
+      expr: ( SECOND_SET_LIST_CODE_LENGTH - BEGINNING_LIST_CODE_LENGTH ) == 200
     - type: eval
-      expr: FIRST_SET_LIST_CODE_LENGTH_REVERSE == 100
+      expr: ( SECOND_SET_LIST_CODE_LENGTH_REVERSE - BEGINNING_LIST_CODE_LENGTH ) == 200
     - type: eval
-      expr: SECOND_SET_LIST_CODE_LENGTH == 200
+      expr: ( THIRD_SET_LIST_CODE_LENGTH - BEGINNING_LIST_CODE_LENGTH ) == 300
     - type: eval
-      expr: SECOND_SET_LIST_CODE_LENGTH_REVERSE == 200
-    - type: eval
-      expr: THIRD_SET_LIST_CODE_LENGTH == 300
-    - type: eval
-      expr: THIRD_SET_LIST_CODE_LENGTH_REVERSE == 300
+      expr: ( THIRD_SET_LIST_CODE_LENGTH_REVERSE - BEGINNING_LIST_CODE_LENGTH ) == 300
 
 - name: Test state store historical data checking specific wasm codes
   inputs:
@@ -123,10 +119,8 @@
   verifiers:
     # Verify number of wasm codes at each height
     - type: eval
-      expr: BEGINNING_TFK_DENOMS == 0
+      expr: ( FIRST_SET_TFK_DENOMS - BEGINNING_TFK_DENOMS ) == 100
     - type: eval
-      expr: FIRST_SET_TFK_DENOMS == 100
+      expr: ( SECOND_SET_TFK_DENOMS - BEGINNING_TFK_DENOMS ) == 200
     - type: eval
-      expr: SECOND_SET_TFK_DENOMS == 200
-    - type: eval
-      expr: THIRD_SET_TFK_DENOMS == 300
+      expr: ( THIRD_SET_TFK_DENOMS - BEGINNING_TFK_DENOMS ) == 300
