@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"time"
 
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -31,27 +32,33 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig}
 }
 
-func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) *hexutil.Uint {
+func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBlockTransactionCountByNumber", startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	block, err := blockWithRetry(ctx, a.tmClient, numberPtr)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return a.getEvmTxCount(block.Block.Txs)
+	return a.getEvmTxCount(block.Block.Txs), nil
 }
 
-func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) *hexutil.Uint {
+func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBlockTransactionCountByHash", startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:])
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return a.getEvmTxCount(block.Block.Txs)
+	return a.getEvmTxCount(block.Block.Txs), nil
 }
 
-func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (map[string]interface{}, error) {
+func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBlockByHash", startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:])
 	if err != nil {
 		return nil, err
@@ -63,7 +70,9 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
-func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
+func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBlockByNumber", startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
