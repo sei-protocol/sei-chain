@@ -61,7 +61,7 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	}
 
 	if valid {
-		_, currKeyVersion, ok := SplitMVCCKey(itr.source.Key())
+		currKey, currKeyVersion, ok := SplitMVCCKey(itr.source.Key())
 		if !ok {
 			// XXX: This should not happen as that would indicate we have a malformed
 			// MVCC value.
@@ -73,9 +73,11 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 			panic(err)
 		}
 
-		// Edge case: the first key has multiple versions so we need to do a seek
 		if curKeyVersionDecoded > itr.version {
 			itr.Next()
+		} else {
+			// Seek to the largest version of that key <= requested iterator version
+			itr.valid = itr.source.SeekLT(MVCCEncode(currKey, itr.version+1))
 		}
 	}
 
@@ -115,7 +117,7 @@ func (itr *iterator) Value() []byte {
 	return slices.Clone(val)
 }
 
-func (itr *iterator) NextForward() {
+func (itr *iterator) nextForward() {
 	if !itr.source.Valid() {
 		itr.valid = false
 		return
@@ -127,8 +129,6 @@ func (itr *iterator) NextForward() {
 		// MVCC key.
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
-
-	fmt.Printf("currKey %s\n", string(currKey))
 
 	next := itr.source.NextPrefix()
 
@@ -149,8 +149,6 @@ func (itr *iterator) NextForward() {
 			return
 		}
 
-		fmt.Printf("nextKey %s\n", string(nextKey))
-
 		// Move the iterator to the closest version to the desired version, so we
 		// append the current iterator key to the prefix and seek to that key.
 		itr.valid = itr.source.SeekLT(MVCCEncode(nextKey, itr.version+1))
@@ -163,14 +161,11 @@ func (itr *iterator) NextForward() {
 			return
 		}
 
-		fmt.Printf("tmpKey %s\n", string(tmpKey))
-
 		// There exists cases where the SeekLT() call moved us back to the same key
 		// we started at, so we must move to next key, i.e. two keys forward.
 		if bytes.Equal(tmpKey, currKey) {
-			fmt.Printf("recursive loop back")
 			if itr.source.NextPrefix() {
-				itr.NextForward()
+				itr.nextForward()
 
 				tmpKey, tmpKeyVersion, ok = SplitMVCCKey(itr.source.Key())
 				if !ok {
@@ -191,17 +186,14 @@ func (itr *iterator) NextForward() {
 			panic(err)
 		}
 
-		fmt.Printf("after - tmpKey %s tmpKeyVersionDecoded %d\n", string(tmpKey), tmpKeyVersionDecoded)
-
 		if tmpKeyVersionDecoded > itr.version {
-			fmt.Printf("recursive greater version")
-			itr.NextForward()
+			itr.nextForward()
 		}
 
 		// The cursor might now be pointing at a key/value pair that is tombstoned.
 		// If so, we must move the cursor.
 		if itr.valid && itr.cursorTombstoned() {
-			itr.NextForward()
+			itr.nextForward()
 		}
 
 		return
@@ -210,7 +202,7 @@ func (itr *iterator) NextForward() {
 	itr.valid = false
 }
 
-func (itr *iterator) NextReverse() {
+func (itr *iterator) nextReverse() {
 	if !itr.source.Valid() {
 		itr.valid = false
 		return
@@ -260,13 +252,13 @@ func (itr *iterator) NextReverse() {
 		}
 
 		if tmpKeyVersionDecoded > itr.version {
-			itr.NextReverse()
+			itr.nextReverse()
 		}
 
 		// The cursor might now be pointing at a key/value pair that is tombstoned.
 		// If so, we must move the cursor.
 		if itr.valid && itr.cursorTombstoned() {
-			itr.NextReverse()
+			itr.nextReverse()
 		}
 
 		return
@@ -277,9 +269,9 @@ func (itr *iterator) NextReverse() {
 
 func (itr *iterator) Next() {
 	if itr.reverse {
-		itr.NextReverse()
+		itr.nextReverse()
 	} else {
-		itr.NextForward()
+		itr.nextForward()
 	}
 }
 
