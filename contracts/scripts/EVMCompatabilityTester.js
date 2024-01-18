@@ -1,6 +1,8 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
-
+var crypto = require('crypto');
+// import {sendTransactionAndCheckGas} from "./testUtils"
+// const { sendTransactionAndCheckGas } = require("./testUtils");
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -14,12 +16,47 @@ function debug(msg) {
   console.log(msg)
 }
 
+async function sendTransactionAndCheckGas(sender, recipient, amount) {
+  // Get the balance of the sender before the transaction
+  const balanceBefore = await ethers.provider.getBalance(sender.address);
+
+  // Send the transaction
+  const tx = await sender.sendTransaction({
+    to: recipient.address,
+    value: amount
+  });
+
+  // Wait for the transaction to be mined and get the receipt
+  const receipt = await tx.wait();
+
+  // Get the balance of the sender after the transaction
+  const balanceAfter = await ethers.provider.getBalance(sender.address);
+
+  // Calculate the total cost of the transaction (amount + gas fees)
+  const gasPrice = tx.gasPrice;
+  const gasUsed = receipt.gasUsed;
+  const totalCost = gasPrice * gasUsed + BigInt(amount);
+
+  // Check that the sender's balance decreased by the total cost
+  if (balanceBefore - balanceAfter === totalCost) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function generateWallet() {
+  const wallet = ethers.Wallet.createRandom();
+  return wallet.connect(ethers.provider);
+}
+
 describe("EVM Test", function () {
 
   describe("EVMCompatibilityTester", function () {
     let evmTester;
     let testToken;
     let owner;
+    let owner2;
 
     // This function deploys a new instance of the contract before each test
     beforeEach(async function () {
@@ -27,7 +64,9 @@ describe("EVM Test", function () {
         return
       }
       let signers = await ethers.getSigners();
-      owner = signers[0]
+      owner = signers[0];
+      owner2 = signers[1];
+
       debug(`OWNER = ${owner.address}`)
 
       const TestToken = await ethers.getContractFactory("TestToken")
@@ -225,8 +264,63 @@ describe("EVM Test", function () {
       });
     })
 
-    describe("JSON-RPC", function() {
+    describe("Gas tests", function() {
+      it("Should deduct correct amount of gas on transfer", async function () {
+        const balanceBefore = await ethers.provider.getBalance(owner);
 
+        const feeData = await ethers.provider.getFeeData();
+        const gasPrice = Number(feeData.gasPrice);
+
+        const zero = ethers.parseUnits('0', 'ether')
+        const txResponse = await owner.sendTransaction({
+          to: owner.address,
+          value: zero
+        });
+        const receipt = await txResponse.wait();
+
+        const balanceAfter = await ethers.provider.getBalance(owner);
+
+        const diff = balanceBefore - balanceAfter;
+        expect(diff).to.equal(21000 * gasPrice);
+
+        const success = await sendTransactionAndCheckGas(owner, owner, 0)
+        expect(success).to.be.true
+      });
+
+      it.only("Balances around 1usei work properly", async function () {
+        const randomWallet = generateWallet();
+        const usei = ethers.parseUnits("1", 12);
+        const twoWei = ethers.parseUnits("2", 0);
+        console.log("twoWei = ", twoWei)
+
+        // check that randomWallet initially has 0 balance
+        const randomWalletBalance = await ethers.provider.getBalance(randomWallet.address);
+        expect(randomWalletBalance).to.equal(0);
+
+        // send 1 usei to randomWallet 
+        console.log("type of owner = ", owner)
+        console.log("type of randomWallet = ", randomWallet)
+        const tx = await owner.sendTransaction({
+          to: randomWallet.address,
+          value: usei
+        });
+        await tx.wait();
+
+        // check that randomWallet now has 1 usei
+        const randomWalletBalance1Usei = await ethers.provider.getBalance(randomWallet.address);
+        expect(randomWalletBalance1Usei).to.equal(usei);
+
+        // randomWallet to send 2 wei out to drop below 1 usei
+        const success = await sendTransactionAndCheckGas(randomWallet, owner, twoWei);
+        expect(success).to.be.true;
+
+        // then get another 2 wei to get back above 1 usei
+        const success2 = await sendTransactionAndCheckGas(owner, randomWallet, twoWei);
+        expect(success2).to.be.true;
+      });
+    })
+
+    describe("JSON-RPC", function() {
       it("Should retrieve a transaction by its hash", async function () {
         // Send a transaction to get its hash
         const txResponse = await evmTester.setBoolVar(true);
@@ -395,11 +489,6 @@ describe("EVM Test", function () {
         const isContract = code !== '0x';
         expect(isContract).to.be.true;
       });
-
     });
-
-
-
   });
-
 });
