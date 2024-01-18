@@ -60,6 +60,10 @@ describe("EVM Test", function () {
         const receipt = await txResponse.wait();
         const newTokenAddress = receipt.logs[0].address;
         expect(newTokenAddress).to.not.equal(testerAddress);
+        const TestToken = await ethers.getContractFactory("TestToken")
+        const tokenInstance = await TestToken.attach(newTokenAddress);
+        const bal = await tokenInstance.balanceOf(await owner.getAddress());
+        expect(bal).to.equal(100);
       });
     })
 
