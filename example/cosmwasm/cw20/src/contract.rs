@@ -31,6 +31,9 @@ pub fn execute(
         ExecuteMsg::Transfer { recipient, amount } => {
             execute_transfer(deps, env, info, recipient, amount)
         },
+        ExecuteMsg::TransferFrom { owner, recipient, amount } => {
+            execute_transfer_from(deps, env, info, owner, recipient, amount)
+        },
         _ => Result::Ok(Response::new())
     }
 }
@@ -53,6 +56,33 @@ pub fn execute_transfer(
         .add_attribute("action", "transfer")
         .add_attribute("from", info.sender)
         .add_attribute("to", recipient)
+        .add_attribute("amount", amount)
+        .add_message(msg);
+
+    Ok(res)
+}
+
+pub fn execute_transfer_from(
+    deps: DepsMut<EvmQueryWrapper>,
+    _env: Env,
+    info: MessageInfo,
+    owner: String,
+    recipient: String,
+    amount: Uint128,
+) -> Result<Response<EvmMsg>, ContractError> {
+    deps.api.addr_validate(&owner)?;
+    deps.api.addr_validate(&recipient)?;
+
+    let erc_addr = ERC20_ADDRESS.load(deps.storage)?;
+
+    let querier = EvmQuerier::new(&deps.querier);
+    let payload = querier.erc20_transfer_from_payload(owner.clone(), recipient.clone(), amount)?;
+    let msg = EvmMsg::DelegateCallEvm { to: erc_addr.into_string(), data: payload.encoded_payload };
+    let res = Response::new()
+        .add_attribute("action", "transfer")
+        .add_attribute("from", owner)
+        .add_attribute("to", recipient)
+        .add_attribute("by", info.sender)
         .add_attribute("amount", amount)
         .add_message(msg);
 

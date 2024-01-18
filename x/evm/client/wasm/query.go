@@ -50,3 +50,35 @@ func (h *EVMQueryHandler) HandleERC20TransferPayload(ctx sdk.Context, recipient 
 	res := bindings.ERC20TransferPayloadResponse{EncodedPayload: base64.StdEncoding.EncodeToString(bz)}
 	return json.Marshal(res)
 }
+
+func (h *EVMQueryHandler) HandleERC20TransferFromPayload(ctx sdk.Context, owner string, recipient string, amount *sdk.Int) ([]byte, error) {
+	ownerAddr, err := sdk.AccAddressFromBech32(owner)
+	if err != nil {
+		return nil, err
+	}
+
+	recipientAddr, err := sdk.AccAddressFromBech32(recipient)
+	if err != nil {
+		return nil, err
+	}
+	abi, err := artifacts.ArtifactsMetaData.GetAbi()
+	if err != nil {
+		return nil, err
+	}
+	ownerEvmAddr, found := h.k.GetEVMAddress(ctx, ownerAddr)
+	if !found {
+		ownerEvmAddr = common.Address{}
+		ownerEvmAddr.SetBytes(ownerAddr)
+	}
+	recipientEvmAddr, found := h.k.GetEVMAddress(ctx, recipientAddr)
+	if !found {
+		recipientEvmAddr = common.Address{}
+		recipientEvmAddr.SetBytes(recipientAddr)
+	}
+	bz, err := abi.Pack("transferFrom", ownerEvmAddr, recipientEvmAddr, amount.BigInt())
+	if err != nil {
+		return nil, err
+	}
+	res := bindings.ERC20TransferFromPayloadResponse{EncodedPayload: base64.StdEncoding.EncodeToString(bz)}
+	return json.Marshal(res)
+}

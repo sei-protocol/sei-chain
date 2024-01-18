@@ -206,6 +206,9 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.ERC20TransferPayload != nil:
 		c := parsedQuery.ERC20TransferPayload
 		return qp.evmHandler.HandleERC20TransferPayload(ctx, c.Recipient, c.Amount)
+	case parsedQuery.ERC20TransferFromPayload != nil:
+		c := parsedQuery.ERC20TransferFromPayload
+		return qp.evmHandler.HandleERC20TransferFromPayload(ctx, c.Owner, c.Recipient, c.Amount)
 	default:
 		return nil, errors.New("unknown EVM query")
 	}

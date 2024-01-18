@@ -36,6 +36,11 @@ pub enum EvmQuery {
         recipient: String,
         amount: Uint128,
     },
+    Erc20TransferFromPayload {
+        owner: String,
+        recipient: String,
+        amount: Uint128,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

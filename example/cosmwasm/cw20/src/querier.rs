@@ -23,4 +23,17 @@ impl<'a> EvmQuerier<'a> {
 
         self.querier.query(&request)
     }
+
+    // returns base64-encoded bytes
+    pub fn erc20_transfer_from_payload(&self, owner: String, recipient: String, amount: Uint128) -> StdResult<Erc20TransferPayloadResponse> {
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc20TransferFromPayload {
+                owner, recipient, amount,
+            },
+        }
+        .into();
+
+        self.querier.query(&request)
+    }
 }
