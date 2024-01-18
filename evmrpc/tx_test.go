@@ -232,7 +232,8 @@ func TestSign(t *testing.T) {
 	require.Nil(t, err)
 	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
 	require.Nil(t, err)
-	account := infoApi.Accounts()[0]
+	accounts, _ := infoApi.Accounts()
+	account := accounts[0]
 	signed, err := txApi.Sign(account, []byte("data"))
 	require.Nil(t, err)
 	require.NotEmpty(t, signed)
