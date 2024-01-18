@@ -5,7 +5,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
@@ -41,9 +40,6 @@ func (s *MetricsServer) StartMetricsClient(config Config) {
 		EnableHostnameLabel:     true,
 		EnableServiceLabel:      true,
 		PrometheusRetentionTime: 600,
-		GlobalLabels: [][]string{
-			{"constant_mode", strconv.FormatBool(config.Constant)},
-		},
 	})
 	if err != nil {
 		panic(err)
@@ -75,24 +71,6 @@ func (s *MetricsServer) healthzHandler(w http.ResponseWriter, _ *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-// loadtest_client_sei_tx_code
-func IncrTxProcessCode(reason string, count int) {
-	metrics.IncrCounterWithLabels(
-		[]string{"sei", "tx", "code"},
-		float32(count),
-		[]metrics.Label{telemetry.NewLabel("reason", reason)},
-	)
-}
-
-// loadtest_client_sei_tx_failed
-func IncrTxNotCommitted(count int) {
-	metrics.IncrCounterWithLabels(
-		[]string{"sei", "tx", "failed"},
-		float32(count),
-		[]metrics.Label{telemetry.NewLabel("reason", "not_committed")},
-	)
 }
 
 // loadtest_client_sei_msg_type
