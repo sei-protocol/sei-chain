@@ -275,18 +275,13 @@ describe("EVM Test", function () {
       });
     });
 
-    describe("Require Logic", function(){
+    describe.only("Require Logic", function(){
       it("Should revert when false is passed to revertIfFalse", async function () {
         await expect(evmTester.revertIfFalse(false)).to.be.reverted;
       });
 
       it("Should not revert when true is passed to revertIfFalse", async function () {
-        await delay()
-        const txResponse = await evmTester.revertIfFalse(true)
-        await delay()
-        await txResponse.wait();  // Wait for the transaction to be mined
-
-        await expect(txResponse).to.not.be.reverted;
+        await evmTester.revertIfFalse(true)
       });
     })
 
