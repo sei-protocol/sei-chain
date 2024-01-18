@@ -20,7 +20,6 @@ import (
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -50,11 +49,7 @@ type AccessListResult struct {
 
 func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_CreateAccessList"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_CreateAccessList", startTime, returnErr == nil)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -72,11 +67,7 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_EstimateGas"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_EstimateGas", startTime, returnErr == nil)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -87,11 +78,7 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 
 func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_Call"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_Call", startTime, returnErr == nil)
 	if blockNrOrHash == nil {
 		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 		blockNrOrHash = &latest

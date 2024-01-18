@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"math/big"
 	"time"
 
@@ -277,4 +278,9 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 		}
 	}
 	return blockRes, err
+}
+
+func recordMetrics(apiMethod string, startTime time.Time, success bool) {
+	metrics.IncrementRpcRequestCounter(apiMethod, success)
+	metrics.MeasureRpcRequestLatency(apiMethod, startTime)
 }

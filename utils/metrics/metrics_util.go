@@ -242,7 +242,7 @@ func IncrementRpcRequestCounter(endpoint string, success bool) {
 // Metric Name:
 //
 //	sei_rpc_request_latency_ms
-func MeasureRpcRequestLatency(startTime time.Time, endpoint string) {
+func MeasureRpcRequestLatency(endpoint string, startTime time.Time) {
 	metrics.MeasureSinceWithLabels(
 		[]string{"sei", "rpc", "request", "latency_ms"},
 		startTime.UTC(),

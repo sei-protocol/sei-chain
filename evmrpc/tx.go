@@ -18,7 +18,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/tendermint/tendermint/libs/bytes"
@@ -44,11 +43,7 @@ func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetTransactionReceipt"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetTransactionReceipt", startTime, returnErr == nil)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -68,11 +63,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetVMError"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetVMError", startTime, true)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		return "", err
@@ -82,11 +73,7 @@ func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr 
 
 func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetTransactionByBlockNumberAndIndex"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetTransactionByBlockNumberAndIndex", startTime, returnErr == nil)
 	blockNumber, err := getBlockNumber(ctx, t.tmClient, blockNr)
 	if err != nil {
 		return nil, err
@@ -100,11 +87,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetTransactionByBlockHashAndIndex"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetTransactionByBlockHashAndIndex", startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, t.tmClient, blockHash[:])
 	if err != nil {
 		return nil, err
@@ -114,11 +97,7 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 
 func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Address) (result string, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetPendingNonces"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetPendingNonces", startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	nonces := []int{}
 	perPage := UnconfirmedTxQueryPerPage
@@ -154,11 +133,7 @@ func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Addre
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetTransactionByHash"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetTransactionByHash", startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
 	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
@@ -208,11 +183,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 
 func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetTransactionErrorByHash"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetTransactionErrorByHash", startTime, returnErr == nil)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -225,11 +196,7 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetTransactionCount"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetTransactionCount", startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 
 	var pending bool
@@ -268,11 +235,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 
 func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_Sign"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_Sign", startTime, returnErr == nil)
 	kb, err := getTestKeyring(t.homeDir)
 	if err != nil {
 		return nil, err

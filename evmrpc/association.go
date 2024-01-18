@@ -9,7 +9,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -35,11 +34,7 @@ type AssociateRequest struct {
 
 func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "sei_Associate"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("sei_Associate", startTime, returnErr == nil)
 	rBytes, err := decodeHexString(req.R)
 	if err != nil {
 		return err
@@ -72,11 +67,7 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 
 func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Address) (result string, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "sei_GetSeiAddress"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("sei_GetSeiAddress", startTime, returnErr == nil)
 	seiAddress, found := t.keeper.GetSeiAddress(t.ctxProvider(LatestCtxHeight), ethAddress)
 	if !found {
 		return "", fmt.Errorf("failed to find Sei address for %s", ethAddress.Hex())
@@ -87,11 +78,7 @@ func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Addr
 
 func (t *AssociationAPI) GetEVMAddress(_ context.Context, seiAddress string) (result string, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "sei_GetEVMAddress"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("sei_GetEVMAddress", startTime, returnErr == nil)
 	ethAddress, found := t.keeper.GetEVMAddress(t.ctxProvider(LatestCtxHeight), sdk.MustAccAddressFromBech32(seiAddress))
 	if !found {
 		return "", fmt.Errorf("failed to find EVM address for %s", seiAddress)

@@ -14,7 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -36,11 +35,7 @@ func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 
 func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetBalance"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetBalance", startTime, returnErr == nil)
 	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -55,11 +50,7 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 
 func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetCode"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetCode", startTime, returnErr == nil)
 	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -74,11 +65,7 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 
 func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetStorageAt"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetStorageAt", startTime, returnErr == nil)
 	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -107,11 +94,7 @@ type ProofResult struct {
 
 func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storageKeys []string, blockNrOrHash rpc.BlockNumberOrHash) (result *ProofResult, returnErr error) {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetProof"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetProof", startTime, returnErr == nil)
 	var block *coretypes.ResultBlock
 	var err error
 	if blockNr, ok := blockNrOrHash.Number(); ok {
@@ -163,11 +146,7 @@ OUTER:
 
 func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
 	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetNonce"
-		metrics.IncrementRpcRequestCounter(methodName, true)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+	defer recordMetrics("eth_GetNonce", startTime, true)
 	return a.keeper.GetNonce(a.ctxProvider(LatestCtxHeight), address)
 }
 
