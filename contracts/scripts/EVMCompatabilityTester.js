@@ -1,8 +1,5 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
-var crypto = require('crypto');
-// import {sendTransactionAndCheckGas} from "./testUtils"
-// const { sendTransactionAndCheckGas } = require("./testUtils");
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
