@@ -10,7 +10,6 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -45,7 +44,7 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 	ops := []sdkacltypes.AccessOperation{}
 	ops = appendRWBalanceOps(ops, state.GetMiddleManAddress(ctx))
 	ops = appendRWBalanceOps(ops, state.GetCoinbaseAddress(ctx))
-	sender := sdk.AccAddress(evmMsg.Derived.SenderSeiAddr)
+	sender := evmMsg.Derived.SenderSeiAddr
 	ops = appendRWBalanceOps(ops, sender)
 	ops = append(ops,
 		sdkacltypes.AccessOperation{
@@ -86,7 +85,7 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 		})
 	}
 
-	evmAddr := common.BytesToAddress(evmMsg.Derived.SenderEVMAddr)
+	evmAddr := evmMsg.Derived.SenderEVMAddr
 	return append(ops, []sdkacltypes.AccessOperation{
 
 		{
