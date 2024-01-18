@@ -275,7 +275,7 @@ describe("EVM Test", function () {
       });
     });
 
-    describe.only("Require Logic", function(){
+    describe("Require Logic", function(){
       it("Should revert when false is passed to revertIfFalse", async function () {
         await expect(evmTester.revertIfFalse(false)).to.be.reverted;
       });
