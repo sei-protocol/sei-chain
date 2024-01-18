@@ -1,7 +1,7 @@
 // Code generated - DO NOT EDIT.
 // This file is a generated binding and any manual changes will be lost.
 
-package artifacts
+package native
 
 import (
 	"errors"
@@ -29,113 +29,113 @@ var (
 	_ = abi.ConvertType
 )
 
-// ArtifactsMetaData contains all meta data concerning the Artifacts contract.
-var ArtifactsMetaData = &bind.MetaData{
+// NativeMetaData contains all meta data concerning the Native contract.
+var NativeMetaData = &bind.MetaData{
 	ABI: "[{\"inputs\":[{\"internalType\":\"string\",\"name\":\"denom_\",\"type\":\"string\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"spender\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"allowance\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"needed\",\"type\":\"uint256\"}],\"name\":\"ERC20InsufficientAllowance\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"sender\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"balance\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"needed\",\"type\":\"uint256\"}],\"name\":\"ERC20InsufficientBalance\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"approver\",\"type\":\"address\"}],\"name\":\"ERC20InvalidApprover\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"receiver\",\"type\":\"address\"}],\"name\":\"ERC20InvalidReceiver\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"sender\",\"type\":\"address\"}],\"name\":\"ERC20InvalidSender\",\"type\":\"error\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"spender\",\"type\":\"address\"}],\"name\":\"ERC20InvalidSpender\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"spender\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"Approval\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"from\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"to\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"Transfer\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"BankPrecompile\",\"outputs\":[{\"internalType\":\"contractIBank\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"owner\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"spender\",\"type\":\"address\"}],\"name\":\"allowance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"spender\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"approve\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"}],\"name\":\"balanceOf\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"decimals\",\"outputs\":[{\"internalType\":\"uint8\",\"name\":\"\",\"type\":\"uint8\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"denom\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"name\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"symbol\",\"outputs\":[{\"internalType\":\"string\",\"name\":\"\",\"type\":\"string\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"totalSupply\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"to\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"transfer\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"from\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"to\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"transferFrom\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
 }
 
-// ArtifactsABI is the input ABI used to generate the binding from.
-// Deprecated: Use ArtifactsMetaData.ABI instead.
-var ArtifactsABI = ArtifactsMetaData.ABI
+// NativeABI is the input ABI used to generate the binding from.
+// Deprecated: Use NativeMetaData.ABI instead.
+var NativeABI = NativeMetaData.ABI
 
-// Artifacts is an auto generated Go binding around an Ethereum contract.
-type Artifacts struct {
-	ArtifactsCaller     // Read-only binding to the contract
-	ArtifactsTransactor // Write-only binding to the contract
-	ArtifactsFilterer   // Log filterer for contract events
+// Native is an auto generated Go binding around an Ethereum contract.
+type Native struct {
+	NativeCaller     // Read-only binding to the contract
+	NativeTransactor // Write-only binding to the contract
+	NativeFilterer   // Log filterer for contract events
 }
 
-// ArtifactsCaller is an auto generated read-only Go binding around an Ethereum contract.
-type ArtifactsCaller struct {
+// NativeCaller is an auto generated read-only Go binding around an Ethereum contract.
+type NativeCaller struct {
 	contract *bind.BoundContract // Generic contract wrapper for the low level calls
 }
 
-// ArtifactsTransactor is an auto generated write-only Go binding around an Ethereum contract.
-type ArtifactsTransactor struct {
+// NativeTransactor is an auto generated write-only Go binding around an Ethereum contract.
+type NativeTransactor struct {
 	contract *bind.BoundContract // Generic contract wrapper for the low level calls
 }
 
-// ArtifactsFilterer is an auto generated log filtering Go binding around an Ethereum contract events.
-type ArtifactsFilterer struct {
+// NativeFilterer is an auto generated log filtering Go binding around an Ethereum contract events.
+type NativeFilterer struct {
 	contract *bind.BoundContract // Generic contract wrapper for the low level calls
 }
 
-// ArtifactsSession is an auto generated Go binding around an Ethereum contract,
+// NativeSession is an auto generated Go binding around an Ethereum contract,
 // with pre-set call and transact options.
-type ArtifactsSession struct {
-	Contract     *Artifacts        // Generic contract binding to set the session for
+type NativeSession struct {
+	Contract     *Native           // Generic contract binding to set the session for
 	CallOpts     bind.CallOpts     // Call options to use throughout this session
 	TransactOpts bind.TransactOpts // Transaction auth options to use throughout this session
 }
 
-// ArtifactsCallerSession is an auto generated read-only Go binding around an Ethereum contract,
+// NativeCallerSession is an auto generated read-only Go binding around an Ethereum contract,
 // with pre-set call options.
-type ArtifactsCallerSession struct {
-	Contract *ArtifactsCaller // Generic contract caller binding to set the session for
-	CallOpts bind.CallOpts    // Call options to use throughout this session
+type NativeCallerSession struct {
+	Contract *NativeCaller // Generic contract caller binding to set the session for
+	CallOpts bind.CallOpts // Call options to use throughout this session
 }
 
-// ArtifactsTransactorSession is an auto generated write-only Go binding around an Ethereum contract,
+// NativeTransactorSession is an auto generated write-only Go binding around an Ethereum contract,
 // with pre-set transact options.
-type ArtifactsTransactorSession struct {
-	Contract     *ArtifactsTransactor // Generic contract transactor binding to set the session for
-	TransactOpts bind.TransactOpts    // Transaction auth options to use throughout this session
+type NativeTransactorSession struct {
+	Contract     *NativeTransactor // Generic contract transactor binding to set the session for
+	TransactOpts bind.TransactOpts // Transaction auth options to use throughout this session
 }
 
-// ArtifactsRaw is an auto generated low-level Go binding around an Ethereum contract.
-type ArtifactsRaw struct {
-	Contract *Artifacts // Generic contract binding to access the raw methods on
+// NativeRaw is an auto generated low-level Go binding around an Ethereum contract.
+type NativeRaw struct {
+	Contract *Native // Generic contract binding to access the raw methods on
 }
 
-// ArtifactsCallerRaw is an auto generated low-level read-only Go binding around an Ethereum contract.
-type ArtifactsCallerRaw struct {
-	Contract *ArtifactsCaller // Generic read-only contract binding to access the raw methods on
+// NativeCallerRaw is an auto generated low-level read-only Go binding around an Ethereum contract.
+type NativeCallerRaw struct {
+	Contract *NativeCaller // Generic read-only contract binding to access the raw methods on
 }
 
-// ArtifactsTransactorRaw is an auto generated low-level write-only Go binding around an Ethereum contract.
-type ArtifactsTransactorRaw struct {
-	Contract *ArtifactsTransactor // Generic write-only contract binding to access the raw methods on
+// NativeTransactorRaw is an auto generated low-level write-only Go binding around an Ethereum contract.
+type NativeTransactorRaw struct {
+	Contract *NativeTransactor // Generic write-only contract binding to access the raw methods on
 }
 
-// NewArtifacts creates a new instance of Artifacts, bound to a specific deployed contract.
-func NewArtifacts(address common.Address, backend bind.ContractBackend) (*Artifacts, error) {
-	contract, err := bindArtifacts(address, backend, backend, backend)
+// NewNative creates a new instance of Native, bound to a specific deployed contract.
+func NewNative(address common.Address, backend bind.ContractBackend) (*Native, error) {
+	contract, err := bindNative(address, backend, backend, backend)
 	if err != nil {
 		return nil, err
 	}
-	return &Artifacts{ArtifactsCaller: ArtifactsCaller{contract: contract}, ArtifactsTransactor: ArtifactsTransactor{contract: contract}, ArtifactsFilterer: ArtifactsFilterer{contract: contract}}, nil
+	return &Native{NativeCaller: NativeCaller{contract: contract}, NativeTransactor: NativeTransactor{contract: contract}, NativeFilterer: NativeFilterer{contract: contract}}, nil
 }
 
-// NewArtifactsCaller creates a new read-only instance of Artifacts, bound to a specific deployed contract.
-func NewArtifactsCaller(address common.Address, caller bind.ContractCaller) (*ArtifactsCaller, error) {
-	contract, err := bindArtifacts(address, caller, nil, nil)
+// NewNativeCaller creates a new read-only instance of Native, bound to a specific deployed contract.
+func NewNativeCaller(address common.Address, caller bind.ContractCaller) (*NativeCaller, error) {
+	contract, err := bindNative(address, caller, nil, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &ArtifactsCaller{contract: contract}, nil
+	return &NativeCaller{contract: contract}, nil
 }
 
-// NewArtifactsTransactor creates a new write-only instance of Artifacts, bound to a specific deployed contract.
-func NewArtifactsTransactor(address common.Address, transactor bind.ContractTransactor) (*ArtifactsTransactor, error) {
-	contract, err := bindArtifacts(address, nil, transactor, nil)
+// NewNativeTransactor creates a new write-only instance of Native, bound to a specific deployed contract.
+func NewNativeTransactor(address common.Address, transactor bind.ContractTransactor) (*NativeTransactor, error) {
+	contract, err := bindNative(address, nil, transactor, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &ArtifactsTransactor{contract: contract}, nil
+	return &NativeTransactor{contract: contract}, nil
 }
 
-// NewArtifactsFilterer creates a new log filterer instance of Artifacts, bound to a specific deployed contract.
-func NewArtifactsFilterer(address common.Address, filterer bind.ContractFilterer) (*ArtifactsFilterer, error) {
-	contract, err := bindArtifacts(address, nil, nil, filterer)
+// NewNativeFilterer creates a new log filterer instance of Native, bound to a specific deployed contract.
+func NewNativeFilterer(address common.Address, filterer bind.ContractFilterer) (*NativeFilterer, error) {
+	contract, err := bindNative(address, nil, nil, filterer)
 	if err != nil {
 		return nil, err
 	}
-	return &ArtifactsFilterer{contract: contract}, nil
+	return &NativeFilterer{contract: contract}, nil
 }
 
-// bindArtifacts binds a generic wrapper to an already deployed contract.
-func bindArtifacts(address common.Address, caller bind.ContractCaller, transactor bind.ContractTransactor, filterer bind.ContractFilterer) (*bind.BoundContract, error) {
-	parsed, err := ArtifactsMetaData.GetAbi()
+// bindNative binds a generic wrapper to an already deployed contract.
+func bindNative(address common.Address, caller bind.ContractCaller, transactor bind.ContractTransactor, filterer bind.ContractFilterer) (*bind.BoundContract, error) {
+	parsed, err := NativeMetaData.GetAbi()
 	if err != nil {
 		return nil, err
 	}
@@ -146,46 +146,46 @@ func bindArtifacts(address common.Address, caller bind.ContractCaller, transacto
 // sets the output to result. The result type might be a single field for simple
 // returns, a slice of interfaces for anonymous returns and a struct for named
 // returns.
-func (_Artifacts *ArtifactsRaw) Call(opts *bind.CallOpts, result *[]interface{}, method string, params ...interface{}) error {
-	return _Artifacts.Contract.ArtifactsCaller.contract.Call(opts, result, method, params...)
+func (_Native *NativeRaw) Call(opts *bind.CallOpts, result *[]interface{}, method string, params ...interface{}) error {
+	return _Native.Contract.NativeCaller.contract.Call(opts, result, method, params...)
 }
 
 // Transfer initiates a plain transaction to move funds to the contract, calling
 // its default method if one is available.
-func (_Artifacts *ArtifactsRaw) Transfer(opts *bind.TransactOpts) (*types.Transaction, error) {
-	return _Artifacts.Contract.ArtifactsTransactor.contract.Transfer(opts)
+func (_Native *NativeRaw) Transfer(opts *bind.TransactOpts) (*types.Transaction, error) {
+	return _Native.Contract.NativeTransactor.contract.Transfer(opts)
 }
 
 // Transact invokes the (paid) contract method with params as input values.
-func (_Artifacts *ArtifactsRaw) Transact(opts *bind.TransactOpts, method string, params ...interface{}) (*types.Transaction, error) {
-	return _Artifacts.Contract.ArtifactsTransactor.contract.Transact(opts, method, params...)
+func (_Native *NativeRaw) Transact(opts *bind.TransactOpts, method string, params ...interface{}) (*types.Transaction, error) {
+	return _Native.Contract.NativeTransactor.contract.Transact(opts, method, params...)
 }
 
 // Call invokes the (constant) contract method with params as input values and
 // sets the output to result. The result type might be a single field for simple
 // returns, a slice of interfaces for anonymous returns and a struct for named
 // returns.
-func (_Artifacts *ArtifactsCallerRaw) Call(opts *bind.CallOpts, result *[]interface{}, method string, params ...interface{}) error {
-	return _Artifacts.Contract.contract.Call(opts, result, method, params...)
+func (_Native *NativeCallerRaw) Call(opts *bind.CallOpts, result *[]interface{}, method string, params ...interface{}) error {
+	return _Native.Contract.contract.Call(opts, result, method, params...)
 }
 
 // Transfer initiates a plain transaction to move funds to the contract, calling
 // its default method if one is available.
-func (_Artifacts *ArtifactsTransactorRaw) Transfer(opts *bind.TransactOpts) (*types.Transaction, error) {
-	return _Artifacts.Contract.contract.Transfer(opts)
+func (_Native *NativeTransactorRaw) Transfer(opts *bind.TransactOpts) (*types.Transaction, error) {
+	return _Native.Contract.contract.Transfer(opts)
 }
 
 // Transact invokes the (paid) contract method with params as input values.
-func (_Artifacts *ArtifactsTransactorRaw) Transact(opts *bind.TransactOpts, method string, params ...interface{}) (*types.Transaction, error) {
-	return _Artifacts.Contract.contract.Transact(opts, method, params...)
+func (_Native *NativeTransactorRaw) Transact(opts *bind.TransactOpts, method string, params ...interface{}) (*types.Transaction, error) {
+	return _Native.Contract.contract.Transact(opts, method, params...)
 }
 
 // BankPrecompile is a free data retrieval call binding the contract method 0x566732c1.
 //
 // Solidity: function BankPrecompile() view returns(address)
-func (_Artifacts *ArtifactsCaller) BankPrecompile(opts *bind.CallOpts) (common.Address, error) {
+func (_Native *NativeCaller) BankPrecompile(opts *bind.CallOpts) (common.Address, error) {
 	var out []interface{}
-	err := _Artifacts.contract.Call(opts, &out, "BankPrecompile")
+	err := _Native.contract.Call(opts, &out, "BankPrecompile")
 
 	if err != nil {
 		return *new(common.Address), err
@@ -200,23 +200,23 @@ func (_Artifacts *ArtifactsCaller) BankPrecompile(opts *bind.CallOpts) (common.A
 // BankPrecompile is a free data retrieval call binding the contract method 0x566732c1.
 //
 // Solidity: function BankPrecompile() view returns(address)
-func (_Artifacts *ArtifactsSession) BankPrecompile() (common.Address, error) {
-	return _Artifacts.Contract.BankPrecompile(&_Artifacts.CallOpts)
+func (_Native *NativeSession) BankPrecompile() (common.Address, error) {
+	return _Native.Contract.BankPrecompile(&_Native.CallOpts)
 }
 
 // BankPrecompile is a free data retrieval call binding the contract method 0x566732c1.
 //
 // Solidity: function BankPrecompile() view returns(address)
-func (_Artifacts *ArtifactsCallerSession) BankPrecompile() (common.Address, error) {
-	return _Artifacts.Contract.BankPrecompile(&_Artifacts.CallOpts)
+func (_Native *NativeCallerSession) BankPrecompile() (common.Address, error) {
+	return _Native.Contract.BankPrecompile(&_Native.CallOpts)
 }
 
 // Allowance is a free data retrieval call binding the contract method 0xdd62ed3e.
 //
 // Solidity: function allowance(address owner, address spender) view returns(uint256)
-func (_Artifacts *ArtifactsCaller) Allowance(opts *bind.CallOpts, owner common.Address, spender common.Address) (*big.Int, error) {
+func (_Native *NativeCaller) Allowance(opts *bind.CallOpts, owner common.Address, spender common.Address) (*big.Int, error) {
 	var out []interface{}
-	err := _Artifacts.contract.Call(opts, &out, "allowance", owner, spender)
+	err := _Native.contract.Call(opts, &out, "allowance", owner, spender)
 
 	if err != nil {
 		return *new(*big.Int), err
@@ -231,23 +231,23 @@ func (_Artifacts *ArtifactsCaller) Allowance(opts *bind.CallOpts, owner common.A
 // Allowance is a free data retrieval call binding the contract method 0xdd62ed3e.
 //
 // Solidity: function allowance(address owner, address spender) view returns(uint256)
-func (_Artifacts *ArtifactsSession) Allowance(owner common.Address, spender common.Address) (*big.Int, error) {
-	return _Artifacts.Contract.Allowance(&_Artifacts.CallOpts, owner, spender)
+func (_Native *NativeSession) Allowance(owner common.Address, spender common.Address) (*big.Int, error) {
+	return _Native.Contract.Allowance(&_Native.CallOpts, owner, spender)
 }
 
 // Allowance is a free data retrieval call binding the contract method 0xdd62ed3e.
 //
 // Solidity: function allowance(address owner, address spender) view returns(uint256)
-func (_Artifacts *ArtifactsCallerSession) Allowance(owner common.Address, spender common.Address) (*big.Int, error) {
-	return _Artifacts.Contract.Allowance(&_Artifacts.CallOpts, owner, spender)
+func (_Native *NativeCallerSession) Allowance(owner common.Address, spender common.Address) (*big.Int, error) {
+	return _Native.Contract.Allowance(&_Native.CallOpts, owner, spender)
 }
 
 // BalanceOf is a free data retrieval call binding the contract method 0x70a08231.
 //
 // Solidity: function balanceOf(address account) view returns(uint256)
-func (_Artifacts *ArtifactsCaller) BalanceOf(opts *bind.CallOpts, account common.Address) (*big.Int, error) {
+func (_Native *NativeCaller) BalanceOf(opts *bind.CallOpts, account common.Address) (*big.Int, error) {
 	var out []interface{}
-	err := _Artifacts.contract.Call(opts, &out, "balanceOf", account)
+	err := _Native.contract.Call(opts, &out, "balanceOf", account)
 
 	if err != nil {
 		return *new(*big.Int), err
@@ -262,23 +262,23 @@ func (_Artifacts *ArtifactsCaller) BalanceOf(opts *bind.CallOpts, account common
 // BalanceOf is a free data retrieval call binding the contract method 0x70a08231.
 //
 // Solidity: function balanceOf(address account) view returns(uint256)
-func (_Artifacts *ArtifactsSession) BalanceOf(account common.Address) (*big.Int, error) {
-	return _Artifacts.Contract.BalanceOf(&_Artifacts.CallOpts, account)
+func (_Native *NativeSession) BalanceOf(account common.Address) (*big.Int, error) {
+	return _Native.Contract.BalanceOf(&_Native.CallOpts, account)
 }
 
 // BalanceOf is a free data retrieval call binding the contract method 0x70a08231.
 //
 // Solidity: function balanceOf(address account) view returns(uint256)
-func (_Artifacts *ArtifactsCallerSession) BalanceOf(account common.Address) (*big.Int, error) {
-	return _Artifacts.Contract.BalanceOf(&_Artifacts.CallOpts, account)
+func (_Native *NativeCallerSession) BalanceOf(account common.Address) (*big.Int, error) {
+	return _Native.Contract.BalanceOf(&_Native.CallOpts, account)
 }
 
 // Decimals is a free data retrieval call binding the contract method 0x313ce567.
 //
 // Solidity: function decimals() view returns(uint8)
-func (_Artifacts *ArtifactsCaller) Decimals(opts *bind.CallOpts) (uint8, error) {
+func (_Native *NativeCaller) Decimals(opts *bind.CallOpts) (uint8, error) {
 	var out []interface{}
-	err := _Artifacts.contract.Call(opts, &out, "decimals")
+	err := _Native.contract.Call(opts, &out, "decimals")
 
 	if err != nil {
 		return *new(uint8), err
@@ -293,23 +293,23 @@ func (_Artifacts *ArtifactsCaller) Decimals(opts *bind.CallOpts) (uint8, error) 
 // Decimals is a free data retrieval call binding the contract method 0x313ce567.
 //
 // Solidity: function decimals() view returns(uint8)
-func (_Artifacts *ArtifactsSession) Decimals() (uint8, error) {
-	return _Artifacts.Contract.Decimals(&_Artifacts.CallOpts)
+func (_Native *NativeSession) Decimals() (uint8, error) {
+	return _Native.Contract.Decimals(&_Native.CallOpts)
 }
 
 // Decimals is a free data retrieval call binding the contract method 0x313ce567.
 //
 // Solidity: function decimals() view returns(uint8)
-func (_Artifacts *ArtifactsCallerSession) Decimals() (uint8, error) {
-	return _Artifacts.Contract.Decimals(&_Artifacts.CallOpts)
+func (_Native *NativeCallerSession) Decimals() (uint8, error) {
+	return _Native.Contract.Decimals(&_Native.CallOpts)
 }
 
 // Denom is a free data retrieval call binding the contract method 0xc370b042.
 //
 // Solidity: function denom() view returns(string)
-func (_Artifacts *ArtifactsCaller) Denom(opts *bind.CallOpts) (string, error) {
+func (_Native *NativeCaller) Denom(opts *bind.CallOpts) (string, error) {
 	var out []interface{}
-	err := _Artifacts.contract.Call(opts, &out, "denom")
+	err := _Native.contract.Call(opts, &out, "denom")
 
 	if err != nil {
 		return *new(string), err
@@ -324,23 +324,23 @@ func (_Artifacts *ArtifactsCaller) Denom(opts *bind.CallOpts) (string, error) {
 // Denom is a free data retrieval call binding the contract method 0xc370b042.
 //
 // Solidity: function denom() view returns(string)
-func (_Artifacts *ArtifactsSession) Denom() (string, error) {
-	return _Artifacts.Contract.Denom(&_Artifacts.CallOpts)
+func (_Native *NativeSession) Denom() (string, error) {
+	return _Native.Contract.Denom(&_Native.CallOpts)
 }
 
 // Denom is a free data retrieval call binding the contract method 0xc370b042.
 //
 // Solidity: function denom() view returns(string)
-func (_Artifacts *ArtifactsCallerSession) Denom() (string, error) {
-	return _Artifacts.Contract.Denom(&_Artifacts.CallOpts)
+func (_Native *NativeCallerSession) Denom() (string, error) {
+	return _Native.Contract.Denom(&_Native.CallOpts)
 }
 
 // Name is a free data retrieval call binding the contract method 0x06fdde03.
 //
 // Solidity: function name() view returns(string)
-func (_Artifacts *ArtifactsCaller) Name(opts *bind.CallOpts) (string, error) {
+func (_Native *NativeCaller) Name(opts *bind.CallOpts) (string, error) {
 	var out []interface{}
-	err := _Artifacts.contract.Call(opts, &out, "name")
+	err := _Native.contract.Call(opts, &out, "name")
 
 	if err != nil {
 		return *new(string), err
@@ -355,23 +355,23 @@ func (_Artifacts *ArtifactsCaller) Name(opts *bind.CallOpts) (string, error) {
 // Name is a free data retrieval call binding the contract method 0x06fdde03.
 //
 // Solidity: function name() view returns(string)
-func (_Artifacts *ArtifactsSession) Name() (string, error) {
-	return _Artifacts.Contract.Name(&_Artifacts.CallOpts)
+func (_Native *NativeSession) Name() (string, error) {
+	return _Native.Contract.Name(&_Native.CallOpts)
 }
 
 // Name is a free data retrieval call binding the contract method 0x06fdde03.
 //
 // Solidity: function name() view returns(string)
-func (_Artifacts *ArtifactsCallerSession) Name() (string, error) {
-	return _Artifacts.Contract.Name(&_Artifacts.CallOpts)
+func (_Native *NativeCallerSession) Name() (string, error) {
+	return _Native.Contract.Name(&_Native.CallOpts)
 }
 
 // Symbol is a free data retrieval call binding the contract method 0x95d89b41.
 //
 // Solidity: function symbol() view returns(string)
-func (_Artifacts *ArtifactsCaller) Symbol(opts *bind.CallOpts) (string, error) {
+func (_Native *NativeCaller) Symbol(opts *bind.CallOpts) (string, error) {
 	var out []interface{}
-	err := _Artifacts.contract.Call(opts, &out, "symbol")
+	err := _Native.contract.Call(opts, &out, "symbol")
 
 	if err != nil {
 		return *new(string), err
@@ -386,23 +386,23 @@ func (_Artifacts *ArtifactsCaller) Symbol(opts *bind.CallOpts) (string, error) {
 // Symbol is a free data retrieval call binding the contract method 0x95d89b41.
 //
 // Solidity: function symbol() view returns(string)
-func (_Artifacts *ArtifactsSession) Symbol() (string, error) {
-	return _Artifacts.Contract.Symbol(&_Artifacts.CallOpts)
+func (_Native *NativeSession) Symbol() (string, error) {
+	return _Native.Contract.Symbol(&_Native.CallOpts)
 }
 
 // Symbol is a free data retrieval call binding the contract method 0x95d89b41.
 //
 // Solidity: function symbol() view returns(string)
-func (_Artifacts *ArtifactsCallerSession) Symbol() (string, error) {
-	return _Artifacts.Contract.Symbol(&_Artifacts.CallOpts)
+func (_Native *NativeCallerSession) Symbol() (string, error) {
+	return _Native.Contract.Symbol(&_Native.CallOpts)
 }
 
 // TotalSupply is a free data retrieval call binding the contract method 0x18160ddd.
 //
 // Solidity: function totalSupply() view returns(uint256)
-func (_Artifacts *ArtifactsCaller) TotalSupply(opts *bind.CallOpts) (*big.Int, error) {
+func (_Native *NativeCaller) TotalSupply(opts *bind.CallOpts) (*big.Int, error) {
 	var out []interface{}
-	err := _Artifacts.contract.Call(opts, &out, "totalSupply")
+	err := _Native.contract.Call(opts, &out, "totalSupply")
 
 	if err != nil {
 		return *new(*big.Int), err
@@ -417,83 +417,83 @@ func (_Artifacts *ArtifactsCaller) TotalSupply(opts *bind.CallOpts) (*big.Int, e
 // TotalSupply is a free data retrieval call binding the contract method 0x18160ddd.
 //
 // Solidity: function totalSupply() view returns(uint256)
-func (_Artifacts *ArtifactsSession) TotalSupply() (*big.Int, error) {
-	return _Artifacts.Contract.TotalSupply(&_Artifacts.CallOpts)
+func (_Native *NativeSession) TotalSupply() (*big.Int, error) {
+	return _Native.Contract.TotalSupply(&_Native.CallOpts)
 }
 
 // TotalSupply is a free data retrieval call binding the contract method 0x18160ddd.
 //
 // Solidity: function totalSupply() view returns(uint256)
-func (_Artifacts *ArtifactsCallerSession) TotalSupply() (*big.Int, error) {
-	return _Artifacts.Contract.TotalSupply(&_Artifacts.CallOpts)
+func (_Native *NativeCallerSession) TotalSupply() (*big.Int, error) {
+	return _Native.Contract.TotalSupply(&_Native.CallOpts)
 }
 
 // Approve is a paid mutator transaction binding the contract method 0x095ea7b3.
 //
 // Solidity: function approve(address spender, uint256 value) returns(bool)
-func (_Artifacts *ArtifactsTransactor) Approve(opts *bind.TransactOpts, spender common.Address, value *big.Int) (*types.Transaction, error) {
-	return _Artifacts.contract.Transact(opts, "approve", spender, value)
+func (_Native *NativeTransactor) Approve(opts *bind.TransactOpts, spender common.Address, value *big.Int) (*types.Transaction, error) {
+	return _Native.contract.Transact(opts, "approve", spender, value)
 }
 
 // Approve is a paid mutator transaction binding the contract method 0x095ea7b3.
 //
 // Solidity: function approve(address spender, uint256 value) returns(bool)
-func (_Artifacts *ArtifactsSession) Approve(spender common.Address, value *big.Int) (*types.Transaction, error) {
-	return _Artifacts.Contract.Approve(&_Artifacts.TransactOpts, spender, value)
+func (_Native *NativeSession) Approve(spender common.Address, value *big.Int) (*types.Transaction, error) {
+	return _Native.Contract.Approve(&_Native.TransactOpts, spender, value)
 }
 
 // Approve is a paid mutator transaction binding the contract method 0x095ea7b3.
 //
 // Solidity: function approve(address spender, uint256 value) returns(bool)
-func (_Artifacts *ArtifactsTransactorSession) Approve(spender common.Address, value *big.Int) (*types.Transaction, error) {
-	return _Artifacts.Contract.Approve(&_Artifacts.TransactOpts, spender, value)
+func (_Native *NativeTransactorSession) Approve(spender common.Address, value *big.Int) (*types.Transaction, error) {
+	return _Native.Contract.Approve(&_Native.TransactOpts, spender, value)
 }
 
 // Transfer is a paid mutator transaction binding the contract method 0xa9059cbb.
 //
 // Solidity: function transfer(address to, uint256 value) returns(bool)
-func (_Artifacts *ArtifactsTransactor) Transfer(opts *bind.TransactOpts, to common.Address, value *big.Int) (*types.Transaction, error) {
-	return _Artifacts.contract.Transact(opts, "transfer", to, value)
+func (_Native *NativeTransactor) Transfer(opts *bind.TransactOpts, to common.Address, value *big.Int) (*types.Transaction, error) {
+	return _Native.contract.Transact(opts, "transfer", to, value)
 }
 
 // Transfer is a paid mutator transaction binding the contract method 0xa9059cbb.
 //
 // Solidity: function transfer(address to, uint256 value) returns(bool)
-func (_Artifacts *ArtifactsSession) Transfer(to common.Address, value *big.Int) (*types.Transaction, error) {
-	return _Artifacts.Contract.Transfer(&_Artifacts.TransactOpts, to, value)
+func (_Native *NativeSession) Transfer(to common.Address, value *big.Int) (*types.Transaction, error) {
+	return _Native.Contract.Transfer(&_Native.TransactOpts, to, value)
 }
 
 // Transfer is a paid mutator transaction binding the contract method 0xa9059cbb.
 //
 // Solidity: function transfer(address to, uint256 value) returns(bool)
-func (_Artifacts *ArtifactsTransactorSession) Transfer(to common.Address, value *big.Int) (*types.Transaction, error) {
-	return _Artifacts.Contract.Transfer(&_Artifacts.TransactOpts, to, value)
+func (_Native *NativeTransactorSession) Transfer(to common.Address, value *big.Int) (*types.Transaction, error) {
+	return _Native.Contract.Transfer(&_Native.TransactOpts, to, value)
 }
 
 // TransferFrom is a paid mutator transaction binding the contract method 0x23b872dd.
 //
 // Solidity: function transferFrom(address from, address to, uint256 value) returns(bool)
-func (_Artifacts *ArtifactsTransactor) TransferFrom(opts *bind.TransactOpts, from common.Address, to common.Address, value *big.Int) (*types.Transaction, error) {
-	return _Artifacts.contract.Transact(opts, "transferFrom", from, to, value)
+func (_Native *NativeTransactor) TransferFrom(opts *bind.TransactOpts, from common.Address, to common.Address, value *big.Int) (*types.Transaction, error) {
+	return _Native.contract.Transact(opts, "transferFrom", from, to, value)
 }
 
 // TransferFrom is a paid mutator transaction binding the contract method 0x23b872dd.
 //
 // Solidity: function transferFrom(address from, address to, uint256 value) returns(bool)
-func (_Artifacts *ArtifactsSession) TransferFrom(from common.Address, to common.Address, value *big.Int) (*types.Transaction, error) {
-	return _Artifacts.Contract.TransferFrom(&_Artifacts.TransactOpts, from, to, value)
+func (_Native *NativeSession) TransferFrom(from common.Address, to common.Address, value *big.Int) (*types.Transaction, error) {
+	return _Native.Contract.TransferFrom(&_Native.TransactOpts, from, to, value)
 }
 
 // TransferFrom is a paid mutator transaction binding the contract method 0x23b872dd.
 //
 // Solidity: function transferFrom(address from, address to, uint256 value) returns(bool)
-func (_Artifacts *ArtifactsTransactorSession) TransferFrom(from common.Address, to common.Address, value *big.Int) (*types.Transaction, error) {
-	return _Artifacts.Contract.TransferFrom(&_Artifacts.TransactOpts, from, to, value)
+func (_Native *NativeTransactorSession) TransferFrom(from common.Address, to common.Address, value *big.Int) (*types.Transaction, error) {
+	return _Native.Contract.TransferFrom(&_Native.TransactOpts, from, to, value)
 }
 
-// ArtifactsApprovalIterator is returned from FilterApproval and is used to iterate over the raw logs and unpacked data for Approval events raised by the Artifacts contract.
-type ArtifactsApprovalIterator struct {
-	Event *ArtifactsApproval // Event containing the contract specifics and raw log
+// NativeApprovalIterator is returned from FilterApproval and is used to iterate over the raw logs and unpacked data for Approval events raised by the Native contract.
+type NativeApprovalIterator struct {
+	Event *NativeApproval // Event containing the contract specifics and raw log
 
 	contract *bind.BoundContract // Generic contract to use for unpacking event data
 	event    string              // Event name to use for unpacking event data
@@ -507,7 +507,7 @@ type ArtifactsApprovalIterator struct {
 // Next advances the iterator to the subsequent event, returning whether there
 // are any more events found. In case of a retrieval or parsing error, false is
 // returned and Error() can be queried for the exact failure.
-func (it *ArtifactsApprovalIterator) Next() bool {
+func (it *NativeApprovalIterator) Next() bool {
 	// If the iterator failed, stop iterating
 	if it.fail != nil {
 		return false
@@ -516,7 +516,7 @@ func (it *ArtifactsApprovalIterator) Next() bool {
 	if it.done {
 		select {
 		case log := <-it.logs:
-			it.Event = new(ArtifactsApproval)
+			it.Event = new(NativeApproval)
 			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
 				it.fail = err
 				return false
@@ -531,7 +531,7 @@ func (it *ArtifactsApprovalIterator) Next() bool {
 	// Iterator still in progress, wait for either a data or an error event
 	select {
 	case log := <-it.logs:
-		it.Event = new(ArtifactsApproval)
+		it.Event = new(NativeApproval)
 		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
 			it.fail = err
 			return false
@@ -547,19 +547,19 @@ func (it *ArtifactsApprovalIterator) Next() bool {
 }
 
 // Error returns any retrieval or parsing error occurred during filtering.
-func (it *ArtifactsApprovalIterator) Error() error {
+func (it *NativeApprovalIterator) Error() error {
 	return it.fail
 }
 
 // Close terminates the iteration process, releasing any pending underlying
 // resources.
-func (it *ArtifactsApprovalIterator) Close() error {
+func (it *NativeApprovalIterator) Close() error {
 	it.sub.Unsubscribe()
 	return nil
 }
 
-// ArtifactsApproval represents a Approval event raised by the Artifacts contract.
-type ArtifactsApproval struct {
+// NativeApproval represents a Approval event raised by the Native contract.
+type NativeApproval struct {
 	Owner   common.Address
 	Spender common.Address
 	Value   *big.Int
@@ -569,7 +569,7 @@ type ArtifactsApproval struct {
 // FilterApproval is a free log retrieval operation binding the contract event 0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925.
 //
 // Solidity: event Approval(address indexed owner, address indexed spender, uint256 value)
-func (_Artifacts *ArtifactsFilterer) FilterApproval(opts *bind.FilterOpts, owner []common.Address, spender []common.Address) (*ArtifactsApprovalIterator, error) {
+func (_Native *NativeFilterer) FilterApproval(opts *bind.FilterOpts, owner []common.Address, spender []common.Address) (*NativeApprovalIterator, error) {
 
 	var ownerRule []interface{}
 	for _, ownerItem := range owner {
@@ -580,17 +580,17 @@ func (_Artifacts *ArtifactsFilterer) FilterApproval(opts *bind.FilterOpts, owner
 		spenderRule = append(spenderRule, spenderItem)
 	}
 
-	logs, sub, err := _Artifacts.contract.FilterLogs(opts, "Approval", ownerRule, spenderRule)
+	logs, sub, err := _Native.contract.FilterLogs(opts, "Approval", ownerRule, spenderRule)
 	if err != nil {
 		return nil, err
 	}
-	return &ArtifactsApprovalIterator{contract: _Artifacts.contract, event: "Approval", logs: logs, sub: sub}, nil
+	return &NativeApprovalIterator{contract: _Native.contract, event: "Approval", logs: logs, sub: sub}, nil
 }
 
 // WatchApproval is a free log subscription operation binding the contract event 0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925.
 //
 // Solidity: event Approval(address indexed owner, address indexed spender, uint256 value)
-func (_Artifacts *ArtifactsFilterer) WatchApproval(opts *bind.WatchOpts, sink chan<- *ArtifactsApproval, owner []common.Address, spender []common.Address) (event.Subscription, error) {
+func (_Native *NativeFilterer) WatchApproval(opts *bind.WatchOpts, sink chan<- *NativeApproval, owner []common.Address, spender []common.Address) (event.Subscription, error) {
 
 	var ownerRule []interface{}
 	for _, ownerItem := range owner {
@@ -601,7 +601,7 @@ func (_Artifacts *ArtifactsFilterer) WatchApproval(opts *bind.WatchOpts, sink ch
 		spenderRule = append(spenderRule, spenderItem)
 	}
 
-	logs, sub, err := _Artifacts.contract.WatchLogs(opts, "Approval", ownerRule, spenderRule)
+	logs, sub, err := _Native.contract.WatchLogs(opts, "Approval", ownerRule, spenderRule)
 	if err != nil {
 		return nil, err
 	}
@@ -611,8 +611,8 @@ func (_Artifacts *ArtifactsFilterer) WatchApproval(opts *bind.WatchOpts, sink ch
 			select {
 			case log := <-logs:
 				// New log arrived, parse the event and forward to the user
-				event := new(ArtifactsApproval)
-				if err := _Artifacts.contract.UnpackLog(event, "Approval", log); err != nil {
+				event := new(NativeApproval)
+				if err := _Native.contract.UnpackLog(event, "Approval", log); err != nil {
 					return err
 				}
 				event.Raw = log
@@ -636,18 +636,18 @@ func (_Artifacts *ArtifactsFilterer) WatchApproval(opts *bind.WatchOpts, sink ch
 // ParseApproval is a log parse operation binding the contract event 0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925.
 //
 // Solidity: event Approval(address indexed owner, address indexed spender, uint256 value)
-func (_Artifacts *ArtifactsFilterer) ParseApproval(log types.Log) (*ArtifactsApproval, error) {
-	event := new(ArtifactsApproval)
-	if err := _Artifacts.contract.UnpackLog(event, "Approval", log); err != nil {
+func (_Native *NativeFilterer) ParseApproval(log types.Log) (*NativeApproval, error) {
+	event := new(NativeApproval)
+	if err := _Native.contract.UnpackLog(event, "Approval", log); err != nil {
 		return nil, err
 	}
 	event.Raw = log
 	return event, nil
 }
 
-// ArtifactsTransferIterator is returned from FilterTransfer and is used to iterate over the raw logs and unpacked data for Transfer events raised by the Artifacts contract.
-type ArtifactsTransferIterator struct {
-	Event *ArtifactsTransfer // Event containing the contract specifics and raw log
+// NativeTransferIterator is returned from FilterTransfer and is used to iterate over the raw logs and unpacked data for Transfer events raised by the Native contract.
+type NativeTransferIterator struct {
+	Event *NativeTransfer // Event containing the contract specifics and raw log
 
 	contract *bind.BoundContract // Generic contract to use for unpacking event data
 	event    string              // Event name to use for unpacking event data
@@ -661,7 +661,7 @@ type ArtifactsTransferIterator struct {
 // Next advances the iterator to the subsequent event, returning whether there
 // are any more events found. In case of a retrieval or parsing error, false is
 // returned and Error() can be queried for the exact failure.
-func (it *ArtifactsTransferIterator) Next() bool {
+func (it *NativeTransferIterator) Next() bool {
 	// If the iterator failed, stop iterating
 	if it.fail != nil {
 		return false
@@ -670,7 +670,7 @@ func (it *ArtifactsTransferIterator) Next() bool {
 	if it.done {
 		select {
 		case log := <-it.logs:
-			it.Event = new(ArtifactsTransfer)
+			it.Event = new(NativeTransfer)
 			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
 				it.fail = err
 				return false
@@ -685,7 +685,7 @@ func (it *ArtifactsTransferIterator) Next() bool {
 	// Iterator still in progress, wait for either a data or an error event
 	select {
 	case log := <-it.logs:
-		it.Event = new(ArtifactsTransfer)
+		it.Event = new(NativeTransfer)
 		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
 			it.fail = err
 			return false
@@ -701,19 +701,19 @@ func (it *ArtifactsTransferIterator) Next() bool {
 }
 
 // Error returns any retrieval or parsing error occurred during filtering.
-func (it *ArtifactsTransferIterator) Error() error {
+func (it *NativeTransferIterator) Error() error {
 	return it.fail
 }
 
 // Close terminates the iteration process, releasing any pending underlying
 // resources.
-func (it *ArtifactsTransferIterator) Close() error {
+func (it *NativeTransferIterator) Close() error {
 	it.sub.Unsubscribe()
 	return nil
 }
 
-// ArtifactsTransfer represents a Transfer event raised by the Artifacts contract.
-type ArtifactsTransfer struct {
+// NativeTransfer represents a Transfer event raised by the Native contract.
+type NativeTransfer struct {
 	From  common.Address
 	To    common.Address
 	Value *big.Int
@@ -723,7 +723,7 @@ type ArtifactsTransfer struct {
 // FilterTransfer is a free log retrieval operation binding the contract event 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef.
 //
 // Solidity: event Transfer(address indexed from, address indexed to, uint256 value)
-func (_Artifacts *ArtifactsFilterer) FilterTransfer(opts *bind.FilterOpts, from []common.Address, to []common.Address) (*ArtifactsTransferIterator, error) {
+func (_Native *NativeFilterer) FilterTransfer(opts *bind.FilterOpts, from []common.Address, to []common.Address) (*NativeTransferIterator, error) {
 
 	var fromRule []interface{}
 	for _, fromItem := range from {
@@ -734,17 +734,17 @@ func (_Artifacts *ArtifactsFilterer) FilterTransfer(opts *bind.FilterOpts, from 
 		toRule = append(toRule, toItem)
 	}
 
-	logs, sub, err := _Artifacts.contract.FilterLogs(opts, "Transfer", fromRule, toRule)
+	logs, sub, err := _Native.contract.FilterLogs(opts, "Transfer", fromRule, toRule)
 	if err != nil {
 		return nil, err
 	}
-	return &ArtifactsTransferIterator{contract: _Artifacts.contract, event: "Transfer", logs: logs, sub: sub}, nil
+	return &NativeTransferIterator{contract: _Native.contract, event: "Transfer", logs: logs, sub: sub}, nil
 }
 
 // WatchTransfer is a free log subscription operation binding the contract event 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef.
 //
 // Solidity: event Transfer(address indexed from, address indexed to, uint256 value)
-func (_Artifacts *ArtifactsFilterer) WatchTransfer(opts *bind.WatchOpts, sink chan<- *ArtifactsTransfer, from []common.Address, to []common.Address) (event.Subscription, error) {
+func (_Native *NativeFilterer) WatchTransfer(opts *bind.WatchOpts, sink chan<- *NativeTransfer, from []common.Address, to []common.Address) (event.Subscription, error) {
 
 	var fromRule []interface{}
 	for _, fromItem := range from {
@@ -755,7 +755,7 @@ func (_Artifacts *ArtifactsFilterer) WatchTransfer(opts *bind.WatchOpts, sink ch
 		toRule = append(toRule, toItem)
 	}
 
-	logs, sub, err := _Artifacts.contract.WatchLogs(opts, "Transfer", fromRule, toRule)
+	logs, sub, err := _Native.contract.WatchLogs(opts, "Transfer", fromRule, toRule)
 	if err != nil {
 		return nil, err
 	}
@@ -765,8 +765,8 @@ func (_Artifacts *ArtifactsFilterer) WatchTransfer(opts *bind.WatchOpts, sink ch
 			select {
 			case log := <-logs:
 				// New log arrived, parse the event and forward to the user
-				event := new(ArtifactsTransfer)
-				if err := _Artifacts.contract.UnpackLog(event, "Transfer", log); err != nil {
+				event := new(NativeTransfer)
+				if err := _Native.contract.UnpackLog(event, "Transfer", log); err != nil {
 					return err
 				}
 				event.Raw = log
@@ -790,9 +790,9 @@ func (_Artifacts *ArtifactsFilterer) WatchTransfer(opts *bind.WatchOpts, sink ch
 // ParseTransfer is a log parse operation binding the contract event 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef.
 //
 // Solidity: event Transfer(address indexed from, address indexed to, uint256 value)
-func (_Artifacts *ArtifactsFilterer) ParseTransfer(log types.Log) (*ArtifactsTransfer, error) {
-	event := new(ArtifactsTransfer)
-	if err := _Artifacts.contract.UnpackLog(event, "Transfer", log); err != nil {
+func (_Native *NativeFilterer) ParseTransfer(log types.Log) (*NativeTransfer, error) {
+	event := new(NativeTransfer)
+	if err := _Native.contract.UnpackLog(event, "Transfer", log); err != nil {
 		return nil, err
 	}
 	event.Raw = log

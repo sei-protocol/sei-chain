@@ -1,4 +1,4 @@
-package artifacts_test
+package native_test
 
 import (
 	"encoding/hex"
@@ -11,7 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -23,8 +23,8 @@ import (
 const CallData = "0xa9059cbb00000000000000000000000034b575c2eaae50b81375f077517e6490adbd97350000000000000000000000000000000000000000000000000000000000000001"
 
 func TestSimple(t *testing.T) {
-	bytecode := artifacts.GetNativeSeiTokensERC20Bin()
-	abi, err := artifacts.ArtifactsMetaData.GetAbi()
+	bytecode := native.GetBin()
+	abi, err := native.NativeMetaData.GetAbi()
 	args, err := abi.Pack("", "test")
 	contractData := append(bytecode, args...)
 
