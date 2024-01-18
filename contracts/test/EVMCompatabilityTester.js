@@ -11,7 +11,8 @@ async function delay() {
 }
 
 function debug(msg) {
-  console.log(msg)
+  // leaving commented out to make output readable (unless debugging)
+  //console.log(msg)
 }
 
 describe("EVM Test", function () {
@@ -52,7 +53,21 @@ describe("EVM Test", function () {
       });
     });
 
-    describe("Call Another Contract", function(){
+    describe("Contract Factory", function() {
+      it("should deploy a second contract from createToken", async function () {
+        const txResponse = await evmTester.createToken("TestToken", "TTK");
+        const testerAddress = await evmTester.getAddress();
+        const receipt = await txResponse.wait();
+        const newTokenAddress = receipt.logs[0].address;
+        expect(newTokenAddress).to.not.equal(testerAddress);
+        const TestToken = await ethers.getContractFactory("TestToken")
+        const tokenInstance = await TestToken.attach(newTokenAddress);
+        const bal = await tokenInstance.balanceOf(await owner.getAddress());
+        expect(bal).to.equal(100);
+      });
+    })
+
+      describe("Call Another Contract", function(){
         it("should set balance and then retrieve it via callAnotherContract", async function () {
           const setAmount = ethers.parseUnits("1000", 18);
 
