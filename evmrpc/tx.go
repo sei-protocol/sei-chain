@@ -69,7 +69,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		methodName := "eth_GetTransactionReceipt"
+		methodName := "eth_GetVMError"
 		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
 		metrics.MeasureRpcRequestLatency(startTime, methodName)
 	}()
@@ -83,7 +83,7 @@ func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr 
 func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		methodName := "eth_GetTransactionReceipt"
+		methodName := "eth_GetTransactionByBlockNumberAndIndex"
 		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
 		metrics.MeasureRpcRequestLatency(startTime, methodName)
 	}()
@@ -101,7 +101,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		methodName := "eth_GetTransactionReceipt"
+		methodName := "eth_GetTransactionByBlockHashAndIndex"
 		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
 		metrics.MeasureRpcRequestLatency(startTime, methodName)
 	}()
@@ -115,7 +115,7 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Address) (result string, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		methodName := "eth_GetTransactionReceipt"
+		methodName := "eth_GetPendingNonces"
 		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
 		metrics.MeasureRpcRequestLatency(startTime, methodName)
 	}()
@@ -155,7 +155,7 @@ func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Addre
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		methodName := "eth_GetTransactionReceipt"
+		methodName := "eth_GetTransactionByHash"
 		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
 		metrics.MeasureRpcRequestLatency(startTime, methodName)
 	}()
@@ -209,7 +209,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		methodName := "eth_GetTransactionReceipt"
+		methodName := "eth_GetTransactionErrorByHash"
 		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
 		metrics.MeasureRpcRequestLatency(startTime, methodName)
 	}()
@@ -226,7 +226,7 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		methodName := "eth_GetTransactionReceipt"
+		methodName := "eth_GetTransactionCount"
 		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
 		metrics.MeasureRpcRequestLatency(startTime, methodName)
 	}()
@@ -250,13 +250,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
-func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
-	startTime := time.Now()
-	defer func() {
-		methodName := "eth_GetTransactionReceipt"
-		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
-		metrics.MeasureRpcRequestLatency(startTime, methodName)
-	}()
+func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint) (*RPCTransaction, error) {
 	if int(index) >= len(block.Block.Txs) {
 		return nil, nil
 	}
