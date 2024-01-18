@@ -167,7 +167,7 @@ func (itr *iterator) nextForward() {
 			if itr.source.NextPrefix() {
 				itr.nextForward()
 
-				tmpKey, tmpKeyVersion, ok = SplitMVCCKey(itr.source.Key())
+				_, tmpKeyVersion, ok = SplitMVCCKey(itr.source.Key())
 				if !ok {
 					// XXX: This should not happen as that would indicate we have a malformed
 					// MVCC key.
