@@ -1301,7 +1301,8 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.E
 	if ctx.IsOCCEnabled() {
 		return app.ProcessTXsWithOCC(ctx, txs)
 	}
-	return app.BuildDependenciesAndRunTxs(ctx, txs)
+	results := app.ProcessBlockSynchronous(ctx, txs)
+	return results, ctx
 }
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
@@ -1361,8 +1362,7 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
-	//TODO: update with logic that asserts that occ is enabled
-	ctx = ctx.WithIsOCCEnabled(EnableOCC)
+	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
 
