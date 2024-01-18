@@ -53,7 +53,6 @@ describe("EVM Test", function () {
       }
       let signers = await ethers.getSigners();
       owner = signers[0];
-
       debug(`OWNER = ${owner.address}`)
 
       const TestToken = await ethers.getContractFactory("TestToken")
