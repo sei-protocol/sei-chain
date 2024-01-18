@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -48,6 +49,8 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 }
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_sendRawTransaction", startTime, err == nil)
 	if s.sendConfig.slow {
 		s.slowMu.Lock()
 		defer s.slowMu.Unlock()
@@ -102,7 +105,9 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	return
 }
 
-func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _ *string) (*ethapi.SignTransactionResult, error) {
+func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _ *string) (result *ethapi.SignTransactionResult, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_signTransaction", startTime, returnErr == nil)
 	var unsignedTx = args.ToTransaction()
 	signedTx, err := s.signTransaction(unsignedTx, args.From.Address().Hex())
 	if err != nil {
@@ -115,7 +120,9 @@ func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _
 	return &ethapi.SignTransactionResult{Raw: data, Tx: signedTx}, nil
 }
 
-func (s *SendAPI) SendTransaction(ctx context.Context, args ethapi.TransactionArgs) (common.Hash, error) {
+func (s *SendAPI) SendTransaction(ctx context.Context, args ethapi.TransactionArgs) (result common.Hash, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_sendTransaction", startTime, returnErr == nil)
 	if err := args.SetDefaults(ctx, s.backend); err != nil {
 		return common.Hash{}, err
 	}
