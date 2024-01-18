@@ -183,7 +183,7 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 		receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
 	}
 
-	receipt.From = common.BytesToAddress(origMsg.Derived.SenderEVMAddr).Hex()
+	receipt.From = origMsg.Derived.SenderEVMAddr.Hex()
 
 	return receipt, server.SetReceipt(ctx, tx.Hash(), receipt)
 }
