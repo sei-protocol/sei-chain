@@ -34,7 +34,7 @@ type AssociateRequest struct {
 
 func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("sei_Associate", startTime, returnErr == nil)
+	defer recordMetrics("sei_associate", startTime, returnErr == nil)
 	rBytes, err := decodeHexString(req.R)
 	if err != nil {
 		return err
@@ -67,7 +67,7 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 
 func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Address) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("sei_GetSeiAddress", startTime, returnErr == nil)
+	defer recordMetrics("sei_getSeiAddress", startTime, returnErr == nil)
 	seiAddress, found := t.keeper.GetSeiAddress(t.ctxProvider(LatestCtxHeight), ethAddress)
 	if !found {
 		return "", fmt.Errorf("failed to find Sei address for %s", ethAddress.Hex())
@@ -78,7 +78,7 @@ func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Addr
 
 func (t *AssociationAPI) GetEVMAddress(_ context.Context, seiAddress string) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("sei_GetEVMAddress", startTime, returnErr == nil)
+	defer recordMetrics("sei_getEVMAddress", startTime, returnErr == nil)
 	ethAddress, found := t.keeper.GetEVMAddress(t.ctxProvider(LatestCtxHeight), sdk.MustAccAddressFromBech32(seiAddress))
 	if !found {
 		return "", fmt.Errorf("failed to find EVM address for %s", seiAddress)

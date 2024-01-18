@@ -89,7 +89,7 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 // lastBlock is inclusive
 func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_FeeHistory", startTime, returnErr == nil)
+	defer recordMetrics("eth_feeHistory", startTime, returnErr == nil)
 	result = &FeeHistoryResult{}
 
 	// validate reward percentiles

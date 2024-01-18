@@ -49,7 +49,7 @@ type AccessListResult struct {
 
 func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_CreateAccessList", startTime, returnErr == nil)
+	defer recordMetrics("eth_createAccessList", startTime, returnErr == nil)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -67,7 +67,7 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_EstimateGas", startTime, returnErr == nil)
+	defer recordMetrics("eth_estimateGas", startTime, returnErr == nil)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -78,7 +78,7 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 
 func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_Call", startTime, returnErr == nil)
+	defer recordMetrics("eth_call", startTime, returnErr == nil)
 	if blockNrOrHash == nil {
 		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 		blockNrOrHash = &latest

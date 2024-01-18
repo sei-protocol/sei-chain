@@ -34,7 +34,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetBlockTransactionCountByNumber", startTime, returnErr == nil)
+	defer recordMetrics("eth_getBlockTransactionCountByNumber", startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetBlockTransactionCountByHash", startTime, returnErr == nil)
+	defer recordMetrics("eth_getBlockTransactionCountByHash", startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:])
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetBlockByHash", startTime, returnErr == nil)
+	defer recordMetrics("eth_getBlockByHash", startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:])
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetBlockByNumber", startTime, returnErr == nil)
+	defer recordMetrics("eth_getBlockByNumber", startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err

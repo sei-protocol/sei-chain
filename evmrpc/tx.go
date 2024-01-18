@@ -43,7 +43,7 @@ func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetTransactionReceipt", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionReceipt", startTime, returnErr == nil)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -63,7 +63,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetVMError", startTime, true)
+	defer recordMetrics("eth_getVMError", startTime, true)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		return "", err
@@ -73,7 +73,7 @@ func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr 
 
 func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetTransactionByBlockNumberAndIndex", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionByBlockNumberAndIndex", startTime, returnErr == nil)
 	blockNumber, err := getBlockNumber(ctx, t.tmClient, blockNr)
 	if err != nil {
 		return nil, err
@@ -87,7 +87,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetTransactionByBlockHashAndIndex", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionByBlockHashAndIndex", startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, t.tmClient, blockHash[:])
 	if err != nil {
 		return nil, err
@@ -97,7 +97,7 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 
 func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Address) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetPendingNonces", startTime, returnErr == nil)
+	defer recordMetrics("eth_getPendingNonces", startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	nonces := []int{}
 	perPage := UnconfirmedTxQueryPerPage
@@ -133,7 +133,7 @@ func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Addre
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetTransactionByHash", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionByHash", startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
 	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
@@ -183,7 +183,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 
 func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetTransactionErrorByHash", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionErrorByHash", startTime, returnErr == nil)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -196,7 +196,7 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GetTransactionCount", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionCount", startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 
 	var pending bool
@@ -235,7 +235,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 
 func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_Sign", startTime, returnErr == nil)
+	defer recordMetrics("eth_sign", startTime, returnErr == nil)
 	kb, err := getTestKeyring(t.homeDir)
 	if err != nil {
 		return nil, err
