@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -40,7 +41,9 @@ func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, homeDir: homeDir}
 }
 
-func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
+func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getTransactionReceipt", startTime, returnErr == nil)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -58,7 +61,9 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	return encodeReceipt(receipt, block.BlockID.Hash)
 }
 
-func (t *TransactionAPI) GetVMError(hash common.Hash) (string, error) {
+func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getVMError", startTime, true)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		return "", err
@@ -66,27 +71,33 @@ func (t *TransactionAPI) GetVMError(hash common.Hash) (string, error) {
 	return receipt.VmError, nil
 }
 
-func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) *RPCTransaction {
+func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getTransactionByBlockNumberAndIndex", startTime, returnErr == nil)
 	blockNumber, err := getBlockNumber(ctx, t.tmClient, blockNr)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	block, err := blockWithRetry(ctx, t.tmClient, blockNumber)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	return t.getTransactionWithBlock(block, index)
 }
 
-func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) *RPCTransaction {
+func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getTransactionByBlockHashAndIndex", startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, t.tmClient, blockHash[:])
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	return t.getTransactionWithBlock(block, index)
 }
 
-func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Address) (string, error) {
+func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Address) (result string, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getPendingNonces", startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	nonces := []int{}
 	perPage := UnconfirmedTxQueryPerPage
@@ -120,7 +131,9 @@ func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Addre
 	return strings.Join(utils.Map(nonces, func(i int) string { return fmt.Sprintf("%d", i) }), ","), nil
 }
 
-func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (*RPCTransaction, error) {
+func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *RPCTransaction, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getTransactionByHash", startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
 	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
@@ -165,10 +178,12 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		}
 		return nil, err
 	}
-	return t.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), hexutil.Uint(receipt.TransactionIndex)), nil
+	return t.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), hexutil.Uint(receipt.TransactionIndex))
 }
 
-func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (string, error) {
+func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getTransactionErrorByHash", startTime, returnErr == nil)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -179,7 +194,9 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 	return receipt.VmError, nil
 }
 
-func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Uint64, error) {
+func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getTransactionCount", startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 
 	var pending bool
@@ -200,23 +217,25 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
-func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint) *RPCTransaction {
+func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint) (*RPCTransaction, error) {
 	if int(index) >= len(block.Block.Txs) {
-		return nil
+		return nil, nil
 	}
 	ethtx := getEthTxForTxBz(block.Block.Txs[int(index)], t.txConfig.TxDecoder())
 	if ethtx == nil {
-		return nil
+		return nil, nil
 	}
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	res := hydrateTransaction(ethtx, big.NewInt(block.Block.Height), common.HexToHash(block.BlockID.Hash.String()), receipt)
-	return &res
+	return &res, nil
 }
 
-func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (hexutil.Bytes, error) {
+func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_sign", startTime, returnErr == nil)
 	kb, err := getTestKeyring(t.homeDir)
 	if err != nil {
 		return nil, err
