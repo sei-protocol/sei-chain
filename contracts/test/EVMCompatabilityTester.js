@@ -274,7 +274,62 @@ describe("EVM Test", function () {
         const zero = ethers.parseUnits('0', 'ether')
         const txResponse = await owner.sendTransaction({
           to: owner.address,
-          value: zero
+          value: zero,
+          type: 1,
+        });
+        const receipt = await txResponse.wait();
+
+        const balanceAfter = await ethers.provider.getBalance(owner);
+
+        const diff = balanceBefore - balanceAfter;
+        expect(diff).to.equal(21000 * gasPrice);
+
+        const success = await sendTransactionAndCheckGas(owner, owner, 0)
+        expect(success).to.be.true
+      });
+
+      it("Should deduct correct amount even if higher gas price is used", async function () {
+        const balanceBefore = await ethers.provider.getBalance(owner);
+
+        const feeData = await ethers.provider.getFeeData();
+        const gasPrice = Number(feeData.gasPrice);
+        const higherGasPrice = gasPrice + 9
+        console.log(`gasPrice = ${gasPrice}`)
+
+        const zero = ethers.parseUnits('0', 'ether')
+        const txResponse = await owner.sendTransaction({
+          to: owner.address,
+          value: zero,
+          gasPrice: higherGasPrice,
+          type: 1,
+        });
+        const receipt = await txResponse.wait();
+
+        const balanceAfter = await ethers.provider.getBalance(owner);
+
+        const diff = balanceBefore - balanceAfter;
+        expect(diff).to.equal(21000 * higherGasPrice);
+
+        const success = await sendTransactionAndCheckGas(owner, owner, 0)
+        expect(success).to.be.true
+      });
+
+      it.only("EIP-1559 tx should work", async function () {
+        const balanceBefore = await ethers.provider.getBalance(owner);
+
+        const feeData = await ethers.provider.getFeeData();
+        const gasPrice = Number(feeData.gasPrice); 
+        console.log(`gasPrice = ${gasPrice}`)
+        console.log(`maxPriorityFeePerGas = ${feeData.maxPriorityFeePerGas}`)
+        console.log(`maxFeePerGas = ${feeData.maxFeePerGas}`)
+
+        const zero = ethers.parseUnits('0', 'ether')
+        const txResponse = await owner.sendTransaction({
+          to: owner.address,
+          value: zero,
+          maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
+          maxFeePerGas: feeData.maxFeePerGas,
+          type: 2
         });
         const receipt = await txResponse.wait();
 
