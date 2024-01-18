@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"strconv"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -28,7 +29,9 @@ func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 }
 
 // For now, we put all unconfirmed txs in pending and none in queued
-func (t *TxPoolAPI) Content(ctx context.Context) map[string]map[string]map[string]*RPCTransaction {
+func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]map[string]*RPCTransaction, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("sei_content", startTime, returnErr == nil)
 	content := map[string]map[string]map[string]*RPCTransaction{
 		"pending": make(map[string]map[string]*RPCTransaction),
 		"queued":  make(map[string]map[string]*RPCTransaction),
@@ -37,7 +40,7 @@ func (t *TxPoolAPI) Content(ctx context.Context) map[string]map[string]map[strin
 	total := t.txPoolConfig.maxNumTxs
 	resUnconfirmedTxs, err := t.tmClient.UnconfirmedTxs(ctx, nil, &total)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
@@ -54,7 +57,7 @@ func (t *TxPoolAPI) Content(ctx context.Context) map[string]map[string]map[strin
 		}
 		fromAddr, err := ethtypes.Sender(signer, ethTx)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 
 		nonce := ethTx.Nonce()
@@ -68,5 +71,5 @@ func (t *TxPoolAPI) Content(ctx context.Context) map[string]map[string]map[strin
 			content["pending"][fromAddr.String()][nonceStr] = &res
 		}
 	}
-	return content
+	return content, nil
 }

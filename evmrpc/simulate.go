@@ -47,7 +47,9 @@ type AccessListResult struct {
 	GasUsed    hexutil.Uint64       `json:"gasUsed"`
 }
 
-func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (*AccessListResult, error) {
+func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_createAccessList", startTime, returnErr == nil)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -56,14 +58,16 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 	if err != nil {
 		return nil, err
 	}
-	result := &AccessListResult{Accesslist: &acl, GasUsed: hexutil.Uint64(gasUsed)}
+	result = &AccessListResult{Accesslist: &acl, GasUsed: hexutil.Uint64(gasUsed)}
 	if vmerr != nil {
 		result.Error = vmerr.Error()
 	}
 	return result, nil
 }
 
-func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (hexutil.Uint64, error) {
+func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_estimateGas", startTime, returnErr == nil)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -72,20 +76,22 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 	return estimate, err
 }
 
-func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (hexutil.Bytes, error) {
+func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_call", startTime, returnErr == nil)
 	if blockNrOrHash == nil {
 		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 		blockNrOrHash = &latest
 	}
-	result, err := ethapi.DoCall(ctx, s.backend, args, *blockNrOrHash, overrides, blockOverrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
+	callResult, err := ethapi.DoCall(ctx, s.backend, args, *blockNrOrHash, overrides, blockOverrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
 	if err != nil {
 		return nil, err
 	}
 	// If the result contains a revert reason, try to unpack and return it.
-	if len(result.Revert()) > 0 {
-		return nil, NewRevertError(result)
+	if len(callResult.Revert()) > 0 {
+		return nil, NewRevertError(callResult)
 	}
-	return result.Return(), result.Err
+	return callResult.Return(), callResult.Err
 }
 
 func NewRevertError(result *core.ExecutionResult) *RevertError {
