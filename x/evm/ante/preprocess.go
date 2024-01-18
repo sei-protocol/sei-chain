@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -27,13 +28,13 @@ import (
 // Accounts need to have at least 1Sei to force association. Note that account won't be charged.
 const BalanceThreshold uint64 = 1000000
 
-var SignerMap = map[evmtypes.SignerVersion]func(*big.Int) ethtypes.Signer{
-	evmtypes.SignerVersion_LONDON: ethtypes.NewLondonSigner,
-	evmtypes.SignerVersion_CANCUN: ethtypes.NewCancunSigner,
+var SignerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
+	derived.London: ethtypes.NewLondonSigner,
+	derived.Cancun: ethtypes.NewCancunSigner,
 }
-var AllowedTxTypes = map[evmtypes.SignerVersion][]uint8{
-	evmtypes.SignerVersion_LONDON: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType},
-	evmtypes.SignerVersion_CANCUN: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType, ethtypes.BlobTxType},
+var AllowedTxTypes = map[derived.SignerVersion][]uint8{
+	derived.London: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType},
+	derived.Cancun: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType, ethtypes.BlobTxType},
 }
 
 type EVMPreprocessDecorator struct {
@@ -56,9 +57,9 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 
 	derived := msg.Derived
-	seiAddr := sdk.AccAddress(derived.SenderSeiAddr)
-	evmAddr := common.BytesToAddress(derived.SenderEVMAddr)
-	pubkey := &secp256k1.PubKey{Key: derived.Pubkey}
+	seiAddr := derived.SenderSeiAddr
+	evmAddr := derived.SenderEVMAddr
+	pubkey := derived.PubKey
 	isAssociateTx := derived.IsAssociate
 	_, isAssociated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
 	if isAssociateTx && isAssociated {
@@ -112,6 +113,10 @@ func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk
 // stateless
 func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, params evmtypes.Params) error {
 	if msgEVMTransaction.Derived != nil {
+		if msgEVMTransaction.Derived.PubKey == nil {
+			// this means the message has `Derived` set from the outside, in which case we should reject
+			return sdkerrors.ErrInvalidPubKey
+		}
 		// already preprocessed
 		return nil
 	}
@@ -132,10 +137,10 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 		if err != nil {
 			return err
 		}
-		msgEVMTransaction.Derived = &evmtypes.DerivedData{
-			SenderEVMAddr: evmAddr[:],
+		msgEVMTransaction.Derived = &derived.Derived{
+			SenderEVMAddr: evmAddr,
 			SenderSeiAddr: seiAddr,
-			Pubkey:        pubkey.Bytes(),
+			PubKey:        &secp256k1.PubKey{Key: pubkey.Bytes()},
 			Version:       version,
 			IsAssociate:   true,
 		}
@@ -152,10 +157,10 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 	if err != nil {
 		return err
 	}
-	msgEVMTransaction.Derived = &evmtypes.DerivedData{
-		SenderEVMAddr: evmAddr[:],
+	msgEVMTransaction.Derived = &derived.Derived{
+		SenderEVMAddr: evmAddr,
 		SenderSeiAddr: seiAddr,
-		Pubkey:        seiPubkey.Bytes(),
+		PubKey:        &secp256k1.PubKey{Key: seiPubkey.Bytes()},
 		Version:       version,
 		IsAssociate:   false,
 	}
@@ -175,7 +180,7 @@ func (p *EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, 
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_WRITE,
 		ResourceType:       sdkacltypes.ResourceType_KV_EVM_E2S,
-		IdentifierTemplate: hex.EncodeToString(evmtypes.EVMAddressToSeiAddressKey(common.BytesToAddress(msg.Derived.SenderEVMAddr))),
+		IdentifierTemplate: hex.EncodeToString(evmtypes.EVMAddressToSeiAddressKey(msg.Derived.SenderEVMAddr)),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_READ,
 		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
@@ -187,11 +192,11 @@ func (p *EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, 
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_READ,
 		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderEVMAddr)),
+		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderEVMAddr[:])),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_WRITE,
 		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderEVMAddr)),
+		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderEVMAddr[:])),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_READ,
 		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
@@ -203,15 +208,15 @@ func (p *EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, 
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_READ,
 		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderEVMAddr)),
+		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderEVMAddr[:])),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_WRITE,
 		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderEVMAddr)),
+		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderEVMAddr[:])),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_READ,
 		ResourceType:       sdkacltypes.ResourceType_KV_EVM_NONCE,
-		IdentifierTemplate: hex.EncodeToString(append(evmtypes.NonceKeyPrefix, msg.Derived.SenderEVMAddr...)),
+		IdentifierTemplate: hex.EncodeToString(append(evmtypes.NonceKeyPrefix, msg.Derived.SenderEVMAddr[:]...)),
 	}), tx, txIndex)
 }
 
@@ -264,7 +269,7 @@ func pubkeyBytesToSeiPubKey(pub []byte) secp256k1.PubKey {
 	return secp256k1.PubKey{Key: pubkeyObj.SerializeCompressed()}
 }
 
-func isTxTypeAllowed(version evmtypes.SignerVersion, txType uint8) bool {
+func isTxTypeAllowed(version derived.SignerVersion, txType uint8) bool {
 	for _, t := range AllowedTxTypes[version] {
 		if t == txType {
 			return true
@@ -284,13 +289,13 @@ func AdjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
 	return V.Sub(V, big.NewInt(8))
 }
 
-func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) evmtypes.SignerVersion {
+func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersion {
 	blockNum := big.NewInt(ctx.BlockHeight())
 	ts := uint64(ctx.BlockTime().Unix())
 	switch {
 	case ethCfg.IsCancun(blockNum, ts):
-		return evmtypes.SignerVersion_CANCUN
+		return derived.Cancun
 	default:
-		return evmtypes.SignerVersion_LONDON
+		return derived.London
 	}
 }
