@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "./TestToken.sol";
 
 contract EVMCompatibilityTester {
     // verify different events with var types
@@ -74,6 +75,12 @@ contract EVMCompatibilityTester {
         (bool success, ) = contractAddress.call(data);
         require(success, "Call failed");
         emit ActionPerformed("Inter-Contract Call", msg.sender);
+    }
+
+    // Example of creating a new contract from a contract
+    function createToken(string memory name, string memory symbol) public {
+        TestToken token = new TestToken(name, symbol);
+        token.transfer(msg.sender, 100);
     }
 
     // Example of inline assembly: a simple function to add two numbers
