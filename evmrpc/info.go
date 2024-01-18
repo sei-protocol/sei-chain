@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 	"slices"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -36,30 +37,40 @@ type FeeHistoryResult struct {
 }
 
 func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
+	startTime := time.Now()
+	defer recordMetrics("eth_BlockNumber", startTime, true)
 	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight).BlockHeight())
 }
 
 //nolint:revive
 func (i *InfoAPI) ChainId() *hexutil.Big {
+	startTime := time.Now()
+	defer recordMetrics("eth_ChainId", startTime, true)
 	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
 func (i *InfoAPI) Coinbase() (common.Address, error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_Coinbase", startTime, true)
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
-func (i *InfoAPI) Accounts() (res []common.Address) {
+func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_Accounts", startTime, returnErr == nil)
 	kb, err := getTestKeyring(i.homeDir)
 	if err != nil {
-		return []common.Address{}
+		return []common.Address{}, err
 	}
 	for addr := range getAddressPrivKeyMap(kb) {
-		res = append(res, common.HexToAddress(addr))
+		result = append(result, common.HexToAddress(addr))
 	}
-	return
+	return result, nil
 }
 
-func (i *InfoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
+func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_GasPrice", startTime, returnErr == nil)
 	// get fee history of the most recent block with 50% reward percentile
 	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
 	if err != nil {
@@ -76,8 +87,10 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 }
 
 // lastBlock is inclusive
-func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (*FeeHistoryResult, error) {
-	result := FeeHistoryResult{}
+func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_feeHistory", startTime, returnErr == nil)
+	result = &FeeHistoryResult{}
 
 	// validate reward percentiles
 	for i, p := range rewardPercentiles {
@@ -131,7 +144,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 		}
 		result.Reward = append(result.Reward, rewards)
 	}
-	return &result, nil
+	return result, nil
 }
 
 type GasAndReward struct {

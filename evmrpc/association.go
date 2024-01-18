@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -31,7 +32,9 @@ type AssociateRequest struct {
 	V string `json:"v"`
 }
 
-func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) error {
+func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("sei_associate", startTime, returnErr == nil)
 	rBytes, err := decodeHexString(req.R)
 	if err != nil {
 		return err
@@ -62,7 +65,9 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) e
 	return nil
 }
 
-func (t *AssociationAPI) GetSeiAddress(ctx context.Context, ethAddress common.Address) (string, error) {
+func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Address) (result string, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("sei_getSeiAddress", startTime, returnErr == nil)
 	seiAddress, found := t.keeper.GetSeiAddress(t.ctxProvider(LatestCtxHeight), ethAddress)
 	if !found {
 		return "", fmt.Errorf("failed to find Sei address for %s", ethAddress.Hex())
@@ -71,7 +76,9 @@ func (t *AssociationAPI) GetSeiAddress(ctx context.Context, ethAddress common.Ad
 	return seiAddress.String(), nil
 }
 
-func (t *AssociationAPI) GetEVMAddress(ctx context.Context, seiAddress string) (string, error) {
+func (t *AssociationAPI) GetEVMAddress(_ context.Context, seiAddress string) (result string, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("sei_getEVMAddress", startTime, returnErr == nil)
 	ethAddress, found := t.keeper.GetEVMAddress(t.ctxProvider(LatestCtxHeight), sdk.MustAccAddressFromBech32(seiAddress))
 	if !found {
 		return "", fmt.Errorf("failed to find EVM address for %s", seiAddress)
