@@ -43,7 +43,8 @@ func TestAccounts(t *testing.T) {
 	require.Nil(t, err)
 	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
 	require.Nil(t, err)
-	require.Equal(t, 1, len(api.Accounts()))
+	accounts, _ := api.Accounts()
+	require.Equal(t, 1, len(accounts))
 }
 
 func TestCoinbase(t *testing.T) {
