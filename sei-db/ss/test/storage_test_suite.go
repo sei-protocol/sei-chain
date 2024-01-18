@@ -236,64 +236,64 @@ type StorageTestSuite struct {
 // 	}
 // }
 
-// func (s *StorageTestSuite) TestDatabaseIterator() {
-// 	db, err := s.NewDB(s.T().TempDir())
-// 	s.Require().NoError(err)
-// 	defer db.Close()
+func (s *StorageTestSuite) TestDatabaseIterator() {
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
 
-// 	s.Require().NoError(FillData(db, 100, 1))
+	s.Require().NoError(FillData(db, 100, 1))
 
-// 	// iterator without an end key over multiple versions
-// 	for v := int64(1); v < 5; v++ {
-// 		itr, err := db.Iterator(storeKey1, v, []byte("key000"), nil)
-// 		s.Require().NoError(err)
+	// iterator without an end key over multiple versions
+	for v := int64(1); v < 5; v++ {
+		itr, err := db.Iterator(storeKey1, v, []byte("key000"), nil)
+		s.Require().NoError(err)
 
-// 		defer itr.Close()
+		defer itr.Close()
 
-// 		var i, count int
-// 		for ; itr.Valid(); itr.Next() {
-// 			s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), itr.Key(), string(itr.Key()))
-// 			s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, 1)), itr.Value())
+		var i, count int
+		for ; itr.Valid(); itr.Next() {
+			s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), itr.Key(), string(itr.Key()))
+			s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, 1)), itr.Value())
 
-// 			i++
-// 			count++
-// 		}
-// 		s.Require().Equal(100, count)
-// 		s.Require().NoError(itr.Error())
+			i++
+			count++
+		}
+		s.Require().Equal(100, count)
+		s.Require().NoError(itr.Error())
 
-// 		// seek past domain, which should make the iterator invalid and produce an error
-// 		itr.Next()
-// 		s.Require().False(itr.Valid())
-// 	}
+		// seek past domain, which should make the iterator invalid and produce an error
+		itr.Next()
+		s.Require().False(itr.Valid())
+	}
 
-// 	// iterator with with a start and end domain over multiple versions
-// 	for v := int64(1); v < 5; v++ {
-// 		itr2, err := db.Iterator(storeKey1, v, []byte("key010"), []byte("key019"))
-// 		s.Require().NoError(err)
+	// iterator with with a start and end domain over multiple versions
+	for v := int64(1); v < 5; v++ {
+		itr2, err := db.Iterator(storeKey1, v, []byte("key010"), []byte("key019"))
+		s.Require().NoError(err)
 
-// 		defer itr2.Close()
+		defer itr2.Close()
 
-// 		i, count := 10, 0
-// 		for ; itr2.Valid(); itr2.Next() {
-// 			s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), itr2.Key())
-// 			s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, 1)), itr2.Value())
+		i, count := 10, 0
+		for ; itr2.Valid(); itr2.Next() {
+			s.Require().Equal([]byte(fmt.Sprintf("key%03d", i)), itr2.Key())
+			s.Require().Equal([]byte(fmt.Sprintf("val%03d-%03d", i, 1)), itr2.Value())
 
-// 			i++
-// 			count++
-// 		}
-// 		s.Require().Equal(9, count)
-// 		s.Require().NoError(itr2.Error())
+			i++
+			count++
+		}
+		s.Require().Equal(9, count)
+		s.Require().NoError(itr2.Error())
 
-// 		// seek past domain, which should make the iterator invalid and produce an error
-// 		itr2.Next()
-// 		s.Require().False(itr2.Valid())
-// 	}
+		// seek past domain, which should make the iterator invalid and produce an error
+		itr2.Next()
+		s.Require().False(itr2.Valid())
+	}
 
-// 	// start must be <= end
-// 	iter3, err := db.Iterator(storeKey1, 1, []byte("key020"), []byte("key019"))
-// 	s.Require().Error(err)
-// 	s.Require().Nil(iter3)
-// }
+	// start must be <= end
+	iter3, err := db.Iterator(storeKey1, 1, []byte("key020"), []byte("key019"))
+	s.Require().Error(err)
+	s.Require().Nil(iter3)
+}
 
 // func (s *StorageTestSuite) TestDatabaseIteratorRangedDeletes() {
 // 	db, err := s.NewDB(s.T().TempDir())
@@ -422,7 +422,7 @@ func (s *StorageTestSuite) TestDatabaseBugInitialForwardIteration() {
 	count := 0
 	for ; itr.Valid(); itr.Next() {
 
-		fmt.Printf("Valid: currKey %X \n\n", itr.Key())
+		fmt.Printf("Valid: currKey %s \n\n", string(itr.Key()))
 		count++
 	}
 
