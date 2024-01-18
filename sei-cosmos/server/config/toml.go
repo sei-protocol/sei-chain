@@ -23,7 +23,7 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 # specified in this config (e.g. 0.25token1;0.0001token2).
 minimum-gas-prices = "{{ .BaseConfig.MinGasPrices }}"
 
-# Pruning Strategies: 
+# Pruning Strategies:
 # - default: Keep the recent 362880 blocks and prune is triggered every 10 blocks
 # - nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
 # - everything: all saved states will be deleted, storing only the recent 2 blocks; pruning at every block
@@ -75,11 +75,11 @@ inter-block-cache = {{ .BaseConfig.InterBlockCache }}
 # ["message.sender", "message.recipient"]
 index-events = {{ .BaseConfig.IndexEvents }}
 
-# IavlCacheSize set the size of the iavl tree cache. 
+# IavlCacheSize set the size of the iavl tree cache.
 # Default cache size is 50mb.
 iavl-cache-size = {{ .BaseConfig.IAVLCacheSize }}
 
-# IAVLDisableFastNode enables or disables the fast node feature of IAVL. 
+# IAVLDisableFastNode enables or disables the fast node feature of IAVL.
 # Default is true.
 iavl-disable-fastnode = {{ .BaseConfig.IAVLDisableFastNode }}
 
@@ -106,6 +106,9 @@ orphan-dir = "{{ .BaseConfig.OrphanDirectory }}"
 
 # concurrency-workers defines how many workers to run for concurrent transaction execution
 # concurrency-workers = {{ .BaseConfig.ConcurrencyWorkers }}
+
+# occ-enabled defines whether OCC is enabled or not for transaction execution
+occ-enabled = {{ .BaseConfig.OccEnabled }}
 
 ###############################################################################
 ###                         Telemetry Configuration                         ###

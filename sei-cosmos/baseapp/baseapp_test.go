@@ -140,6 +140,11 @@ func TestSetMinGasPrices(t *testing.T) {
 	require.Equal(t, minGasPrices, app.minGasPrices)
 }
 
+func TestSetOccEnabled(t *testing.T) {
+	app := newBaseApp(t.Name(), SetOccEnabled(true))
+	require.True(t, app.OccEnabled())
+}
+
 // func TestGetMaximumBlockGas(t *testing.T) {
 // 	app := setupBaseApp(t)
 // 	app.InitChain(context.Background(), &abci.RequestInitChain{})
