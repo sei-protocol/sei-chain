@@ -199,7 +199,6 @@ func (h *HTTPServer) Start() error {
 }
 
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// fmt.Printf("EVMTEST-HTTP: received HTTP request with body %s\n", string(body))
 	// check if ws request and serve if ws enabled
 	ws := h.wsHandler.Load().(*rpcHandler)
 	if ws != nil && IsWebsocket(r) {
@@ -244,9 +243,9 @@ func CheckPath(r *http.Request, path string) bool {
 func (h *HTTPServer) Stop() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	fmt.Println("stopping")
+	h.log.Info("Stopping EVM HTTP Server")
 	h.doStop()
-	fmt.Println("stopped")
+	h.log.Info("EVM HTTP Server stopped")
 }
 
 func (h *HTTPServer) doStop() {
@@ -294,6 +293,7 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	h.log.Info("Registering apis for evm rpc")
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
 	}
@@ -326,7 +326,7 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
-	fmt.Println("evmrpc/rpcstack: registering apis for websocket")
+	h.log.Info("Registering apis for evm websocket")
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
 	}
