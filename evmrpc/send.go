@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,6 +14,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -48,6 +50,12 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 }
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
+	startTime := time.Now()
+	defer func() {
+		methodName := "eth_SendRawTransaction"
+		metrics.IncrementRpcRequestCounter(methodName, err == nil)
+		metrics.MeasureRpcRequestLatency(startTime, methodName)
+	}()
 	if s.sendConfig.slow {
 		s.slowMu.Lock()
 		defer s.slowMu.Unlock()
@@ -102,7 +110,13 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	return
 }
 
-func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _ *string) (*ethapi.SignTransactionResult, error) {
+func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _ *string) (result *ethapi.SignTransactionResult, returnErr error) {
+	startTime := time.Now()
+	defer func() {
+		methodName := "eth_SignTransaction"
+		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
+		metrics.MeasureRpcRequestLatency(startTime, methodName)
+	}()
 	var unsignedTx = args.ToTransaction()
 	signedTx, err := s.signTransaction(unsignedTx, args.From.Address().Hex())
 	if err != nil {
@@ -115,7 +129,13 @@ func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _
 	return &ethapi.SignTransactionResult{Raw: data, Tx: signedTx}, nil
 }
 
-func (s *SendAPI) SendTransaction(ctx context.Context, args ethapi.TransactionArgs) (common.Hash, error) {
+func (s *SendAPI) SendTransaction(ctx context.Context, args ethapi.TransactionArgs) (result common.Hash, returnErr error) {
+	startTime := time.Now()
+	defer func() {
+		methodName := "eth_SendTransaction"
+		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
+		metrics.MeasureRpcRequestLatency(startTime, methodName)
+	}()
 	if err := args.SetDefaults(ctx, s.backend); err != nil {
 		return common.Hash{}, err
 	}

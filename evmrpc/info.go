@@ -5,12 +5,14 @@ import (
 	"errors"
 	"math/big"
 	"slices"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -36,30 +38,60 @@ type FeeHistoryResult struct {
 }
 
 func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
+	startTime := time.Now()
+	defer func() {
+		methodName := "eth_BlockNumber"
+		metrics.IncrementRpcRequestCounter(methodName, true)
+		metrics.MeasureRpcRequestLatency(startTime, methodName)
+	}()
 	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight).BlockHeight())
 }
 
 //nolint:revive
 func (i *InfoAPI) ChainId() *hexutil.Big {
+	startTime := time.Now()
+	defer func() {
+		methodName := "eth_ChainId"
+		metrics.IncrementRpcRequestCounter(methodName, true)
+		metrics.MeasureRpcRequestLatency(startTime, methodName)
+	}()
 	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
 func (i *InfoAPI) Coinbase() (common.Address, error) {
+	startTime := time.Now()
+	defer func() {
+		methodName := "eth_Coinbase"
+		metrics.IncrementRpcRequestCounter(methodName, true)
+		metrics.MeasureRpcRequestLatency(startTime, methodName)
+	}()
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
-func (i *InfoAPI) Accounts() (res []common.Address) {
+func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
+	startTime := time.Now()
+	defer func() {
+		methodName := "eth_Accounts"
+		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
+		metrics.MeasureRpcRequestLatency(startTime, methodName)
+	}()
 	kb, err := getTestKeyring(i.homeDir)
 	if err != nil {
-		return []common.Address{}
+		return []common.Address{}, err
 	}
 	for addr := range getAddressPrivKeyMap(kb) {
-		res = append(res, common.HexToAddress(addr))
+		result = append(result, common.HexToAddress(addr))
 	}
-	return
+	return result, nil
 }
 
-func (i *InfoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
+func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
+	startTime := time.Now()
+	defer func() {
+		methodName := "eth_GasPrice"
+		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
+		metrics.MeasureRpcRequestLatency(startTime, methodName)
+	}()
 	// get fee history of the most recent block with 50% reward percentile
 	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
 	if err != nil {
@@ -76,8 +108,14 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
 }
 
 // lastBlock is inclusive
-func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (*FeeHistoryResult, error) {
-	result := FeeHistoryResult{}
+func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
+	startTime := time.Now()
+	defer func() {
+		methodName := "eth_FeeHistory"
+		metrics.IncrementRpcRequestCounter(methodName, returnErr == nil)
+		metrics.MeasureRpcRequestLatency(startTime, methodName)
+	}()
+	result = &FeeHistoryResult{}
 
 	// validate reward percentiles
 	for i, p := range rewardPercentiles {
@@ -131,7 +169,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 		}
 		result.Reward = append(result.Reward, rewards)
 	}
-	return &result, nil
+	return result, nil
 }
 
 type GasAndReward struct {

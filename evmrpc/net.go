@@ -4,7 +4,9 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/tendermint/tendermint/libs/time"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
@@ -20,5 +22,11 @@ func NewNetAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int
 }
 
 func (i *NetAPI) Version() string {
+	startTime := time.Now()
+	defer func() {
+		methodName := "net_Version"
+		metrics.IncrementRpcRequestCounter(methodName, true)
+		metrics.MeasureRpcRequestLatency(startTime, methodName)
+	}()
 	return fmt.Sprintf("%d", i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)).Uint64())
 }
