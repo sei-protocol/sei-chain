@@ -44,7 +44,6 @@ describe("EVM Test", function () {
     let evmTester;
     let testToken;
     let owner;
-    let owner2;
 
     // This function deploys a new instance of the contract before each test
     beforeEach(async function () {
@@ -53,7 +52,6 @@ describe("EVM Test", function () {
       }
       let signers = await ethers.getSigners();
       owner = signers[0];
-      owner2 = signers[1];
 
       debug(`OWNER = ${owner.address}`)
 
@@ -274,6 +272,7 @@ describe("EVM Test", function () {
         const success = await sendTransactionAndCheckGas(owner, owner, 0)
         expect(success).to.be.true
       });
+    });
 
     describe("JSON-RPC", function() {
       it("Should retrieve a transaction by its hash", async function () {
