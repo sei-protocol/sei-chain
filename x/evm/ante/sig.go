@@ -3,7 +3,6 @@ package ante
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -30,7 +29,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 		return ctx, sdkerrors.ErrNoSignatures
 	}
 
-	evmAddr := common.BytesToAddress(types.MustGetEVMTransactionMessage(tx).Derived.SenderEVMAddr)
+	evmAddr := types.MustGetEVMTransactionMessage(tx).Derived.SenderEVMAddr
 
 	nextNonce := svd.evmKeeper.GetNonce(ctx, evmAddr)
 	txNonce := ethTx.Nonce()

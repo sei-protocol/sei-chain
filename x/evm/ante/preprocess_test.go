@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/ethereum/go-ethereum/common"
@@ -14,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
+	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -100,20 +102,20 @@ func TestGetVersion(t *testing.T) {
 
 	ethCfg.LondonBlock = big.NewInt(0)
 	ethCfg.CancunTime = &zero
-	require.Equal(t, types.SignerVersion_CANCUN, ante.GetVersion(ctx, ethCfg))
+	require.Equal(t, derived.Cancun, ante.GetVersion(ctx, ethCfg))
 
 	ethCfg.CancunTime = nil
-	require.Equal(t, types.SignerVersion_LONDON, ante.GetVersion(ctx, ethCfg))
+	require.Equal(t, derived.London, ante.GetVersion(ctx, ethCfg))
 }
 
 func TestAnteDeps(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{GasLimit: 100})
-	msg.Derived = &types.DerivedData{
-		SenderEVMAddr: []byte("senderevm"),
+	msg.Derived = &derived.Derived{
+		SenderEVMAddr: common.BytesToAddress([]byte("senderevm")),
 		SenderSeiAddr: []byte("sendersei"),
-		Pubkey:        []byte("pubkey"),
+		PubKey:        &secp256k1.PubKey{Key: []byte("pubkey")},
 	}
 	deps, err := handler.AnteDeps(nil, mockTx{msgs: []sdk.Msg{msg}}, 0, func(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int) ([]sdkacltypes.AccessOperation, error) {
 		return txDeps, nil

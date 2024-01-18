@@ -12,7 +12,7 @@ service Msg {
 
 message MsgEVMTransaction {
   google.protobuf.Any data = 1;
-  DerivedData derived = 2;
+  bytes derived = 2 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/x/evm/derived.Derived"];
 }
 
 message MsgEVMTransactionResponse {
@@ -42,17 +42,3 @@ message MsgInternalEVMDelegateCall {
 }
 
 message MsgInternalEVMDelegateCallResponse {}
-
-enum SignerVersion {
-  LONDON = 0;
-  CANCUN = 1;
-}
-
-// derived from signature
-message DerivedData {
-  bytes senderEVMAddr = 1;
-  bytes senderSeiAddr = 2;
-  bytes pubkey = 3;
-  bool isAssociate = 4;
-  SignerVersion version = 5;
-}
