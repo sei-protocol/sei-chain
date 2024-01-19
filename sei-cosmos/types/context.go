@@ -48,6 +48,11 @@ type Context struct {
 	txCompletionChannels acltypes.MessageAccessOpsChannelMapping
 	txMsgAccessOps       map[int][]acltypes.AccessOperation
 
+	// EVM properties
+	evm              bool   // EVM transaction flag
+	evmNonce         uint64 // EVM Transaction nonce
+	evmSenderAddress string // EVM Sender address
+
 	msgValidator *acltypes.MsgValidator
 	messageIndex int // Used to track current message being processed
 	txIndex      int
@@ -121,6 +126,18 @@ func (c Context) Priority() int64 {
 
 func (c Context) ExpireTxHandler() abci.ExpireTxHandler {
 	return c.expireTxHandler
+}
+
+func (c Context) EVMSenderAddress() string {
+	return c.evmSenderAddress
+}
+
+func (c Context) EVMNonce() uint64 {
+	return c.evmNonce
+}
+
+func (c Context) IsEVM() bool {
+	return c.evm
 }
 
 func (c Context) PendingTxChecker() abci.PendingTxChecker {
@@ -361,6 +378,21 @@ func (c Context) WithMsgValidator(msgValidator *acltypes.MsgValidator) Context {
 
 func (c Context) WithTraceSpanContext(ctx context.Context) Context {
 	c.traceSpanContext = ctx
+	return c
+}
+
+func (c Context) WithEVMSenderAddress(address string) Context {
+	c.evmSenderAddress = address
+	return c
+}
+
+func (c Context) WithEVMNonce(nonce uint64) Context {
+	c.evmNonce = nonce
+	return c
+}
+
+func (c Context) WithIsEVM(isEVM bool) Context {
+	c.evm = isEVM
 	return c
 }
 

@@ -225,22 +225,27 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 		res := sdkerrors.ResponseCheckTx(err, 0, 0, app.trace)
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
 	}
-	gInfo, result, _, priority, pendingTxChecker, expireTxHandler, err := app.runTx(sdkCtx, mode, tx, sha256.Sum256(req.Tx))
+	gInfo, result, _, priority, pendingTxChecker, expireTxHandler, txCtx, err := app.runTx(sdkCtx, mode, tx, sha256.Sum256(req.Tx))
 	if err != nil {
 		res := sdkerrors.ResponseCheckTx(err, gInfo.GasWanted, gInfo.GasUsed, app.trace)
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
 	}
 
-	res := &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
-		GasWanted: int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
-		Data:      result.Data,
-		Priority:  priority,
-	}}
+	res := &abci.ResponseCheckTxV2{
+		ResponseCheckTx: &abci.ResponseCheckTx{
+			GasWanted: int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
+			Data:      result.Data,
+			Priority:  priority,
+		},
+		ExpireTxHandler:  expireTxHandler,
+		EVMNonce:         txCtx.EVMNonce(),
+		EVMSenderAddress: txCtx.EVMSenderAddress(),
+		IsEVM:            txCtx.IsEVM(),
+	}
 	if pendingTxChecker != nil {
 		res.IsPendingTransaction = true
 		res.Checker = pendingTxChecker
 	}
-	res.ExpireTxHandler = expireTxHandler
 
 	return res, nil
 }
@@ -288,7 +293,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, err := app.runTx(ctx.WithTxBytes(req.Tx).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum)
+	gInfo, result, anteEvents, _, _, _, _, err := app.runTx(ctx.WithTxBytes(req.Tx).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum)
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
