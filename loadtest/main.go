@@ -103,6 +103,10 @@ func startLoadtestWorkers(config Config) {
 	fmt.Printf("Starting loadtest producers\n")
 	// preload all accounts
 	keys := client.SignerClient.GetTestAccountsKeys(int(config.TargetTps))
+	if config.EvmRpcEndpoints != "" {
+		// fill all nonce
+		client.EvmTxSender.PrefillNonce(keys)
+	}
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
 		go client.BuildTxs(txQueue, i, keys, &wg, done, &producedCount)

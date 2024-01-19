@@ -28,7 +28,7 @@ type LoadTestClient struct {
 	LoadTestConfig     Config
 	TestConfig         EncodingConfig
 	TxClients          []typestx.ServiceClient
-	EthClients         []EvmTxSender
+	EvmTxSender        EvmTxSender
 	SignerClient       *SignerClient
 	ChainID            string
 	GrpcConns          []*grpc.ClientConn
@@ -47,13 +47,13 @@ type LoadTestClient struct {
 
 func NewLoadTestClient(config Config) *LoadTestClient {
 	txClients, grpcConns := BuildGrpcClients(config)
-	ethClients := BuildEvmTxSenders(config)
+	evnTxSender := BuildEvmTxSender(config)
 
 	return &LoadTestClient{
 		LoadTestConfig:                config,
 		TestConfig:                    TestConfig,
 		TxClients:                     txClients,
-		EthClients:                    ethClients,
+		EvmTxSender:                   evnTxSender,
 		SignerClient:                  NewSignerClient(config.NodeURI),
 		ChainID:                       config.ChainID,
 		GrpcConns:                     grpcConns,
@@ -117,18 +117,18 @@ func BuildGrpcClients(config Config) ([]typestx.ServiceClient, []*grpc.ClientCon
 	return txClients, grpcConns
 }
 
-// BuildEvmTxSenders build a list of EVM RPC clients using go-ethereum client
-func BuildEvmTxSenders(config Config) []EvmTxSender {
+// BuildEvmTxSender build a with EvmTxSender with a list of go-ethereum client
+func BuildEvmTxSender(config Config) EvmTxSender {
 	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
-	evmTxSenders := make([]EvmTxSender, len(ethEndpoints))
+	ethClients := make([]*ethclient.Client, len(ethEndpoints))
 	for i, endpoint := range ethEndpoints {
 		client, err := ethclient.Dial(endpoint)
 		if err != nil {
 			fmt.Printf("Failed to connect to endpoint %s with error %s", endpoint, err.Error())
 		}
-		evmTxSenders[i] = NewEvmTxSender(client)
+		ethClients[i] = client
 	}
-	return evmTxSenders
+	return NewEvmTxSender(ethClients)
 }
 
 func (c *LoadTestClient) Close() {
@@ -194,7 +194,7 @@ func (c *LoadTestClient) generateSignedCosmosTxs(key cryptotypes.PrivKey, msgTyp
 }
 
 func (c *LoadTestClient) generatedSignedEvmTxs(key cryptotypes.PrivKey) *ethtypes.Transaction {
-	return c.GetEthClient().GenerateEvmSignedTx(key)
+	return c.EvmTxSender.GenerateEvmSignedTx(key)
 }
 
 func (c *LoadTestClient) SendTxs(
@@ -242,7 +242,7 @@ func (c *LoadTestClient) SendTxs(
 					}
 				} else if tx.EvmTx != nil {
 					// Send EVM Transactions
-					if c.GetEthClient().SendEvmTx(tx.EvmTx) {
+					if c.EvmTxSender.SendEvmTx(tx.EvmTx) {
 						sentCount.Add(1)
 					}
 				}
@@ -259,14 +259,4 @@ func (c *LoadTestClient) GetTxClient() typestx.ServiceClient {
 	}
 	rand.Seed(time.Now().Unix())
 	return c.TxClients[rand.Int()%len(c.TxClients)]
-}
-
-//nolint:staticcheck
-func (c *LoadTestClient) GetEthClient() EvmTxSender {
-	numClients := len(c.EthClients)
-	if numClients <= 0 {
-		panic("There's no ETH client available, make sure your connection are valid")
-	}
-	rand.Seed(time.Now().Unix())
-	return c.EthClients[rand.Int()%numClients]
 }
