@@ -71,6 +71,9 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 	keysChan := make(chan cryptotypes.PrivKey, maxAccounts)
 	fmt.Printf("Loading accounts\n")
 	for i, file := range files {
+		if i >= maxAccounts {
+			break
+		}
 		wg.Add(1)
 		go func(i int, fileName string) {
 			defer wg.Done()
