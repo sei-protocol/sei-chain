@@ -25,7 +25,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -294,8 +294,8 @@ func CmdDeployErc20() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			bytecode := artifacts.GetNativeSeiTokensERC20Bin()
-			abi := artifacts.GetNativeSeiTokensERC20ABI()
+			bytecode := native.GetBin()
+			abi := native.GetABI()
 			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
 			if err != nil {
 				fmt.Println("failed at parsing abi")
