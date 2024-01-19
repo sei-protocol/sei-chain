@@ -81,7 +81,7 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 		} else {
 			// If version is less, seek to the largest version of that key <= requested iterator version
 			// It is guaranteed this won't move the iterator to a key that is invalid since
-			// curKeyVersionDecoded <= requested iterator version, so there exists at least version of currKey SeekLT will move to
+			// curKeyVersionDecoded <= requested iterator version, so there exists at least one version of currKey SeekLT may move to
 			itr.valid = itr.source.SeekLT(MVCCEncode(currKey, itr.version+1))
 		}
 	}
