@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -66,12 +67,11 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 	userHomeDir, _ := os.UserHomeDir()
 	files, _ := os.ReadDir(filepath.Join(userHomeDir, "test_accounts"))
 
-	var testAccountsKeys []cryptotypes.PrivKey
+	var testAccountsKeys = make([]cryptotypes.PrivKey, int(math.Min(float64(len(files)), float64(maxAccounts))))
 	var wg sync.WaitGroup
 	keysChan := make(chan cryptotypes.PrivKey, maxAccounts)
 	fmt.Printf("Loading accounts\n")
 	for i, file := range files {
-		fmt.Printf("PSUDEBUG loading account: %d\n", i)
 		if i >= maxAccounts {
 			break
 		}
@@ -85,11 +85,12 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 	wg.Wait()
 	close(keysChan)
 	// Collect keys from the channel
+	j := 0
 	for key := range keysChan {
-		testAccountsKeys = append(testAccountsKeys, key)
+		testAccountsKeys[j] = key
+		j++
 	}
 
-	fmt.Printf("PSUDEBUG len of keys: %d\n", len(testAccountsKeys))
 	return testAccountsKeys
 }
 
