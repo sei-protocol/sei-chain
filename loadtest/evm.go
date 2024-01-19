@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
@@ -34,7 +35,7 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 		fmt.Printf("Failed to get nonce: %v \n", err)
 	}
 	rand.Seed(time.Now().Unix())
-	value := big.NewInt(rand.Int63n(100000000000000000000))
+	value := big.NewInt(rand.Int63n(math.MaxInt64))
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
 		fmt.Printf("Failed to suggest gas price: %v \n", err)
