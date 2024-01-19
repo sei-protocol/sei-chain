@@ -246,12 +246,20 @@ func (c *LoadTestClient) SendTxs(
 
 //nolint:staticcheck
 func (c *LoadTestClient) GetTxClient() typestx.ServiceClient {
+	numClients := len(c.TxClients)
+	if numClients <= 0 {
+		return nil
+	}
 	rand.Seed(time.Now().Unix())
 	return c.TxClients[rand.Int()%len(c.TxClients)]
 }
 
 //nolint:staticcheck
 func (c *LoadTestClient) GetEthClient() *ethclient.Client {
+	numClients := len(c.EthClients)
+	if numClients <= 0 {
+		return nil
+	}
 	rand.Seed(time.Now().Unix())
-	return c.EthClients[rand.Int()%len(c.TxClients)]
+	return c.EthClients[rand.Int()%numClients]
 }
