@@ -402,7 +402,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		}}
 
 	default:
-		fmt.Printf("Unrecognized message type %s", config.MessageType)
+		fmt.Printf("Unrecognized message type %s\n", config.MessageType)
 	}
 
 	if strings.Contains(config.MessageType, "failure") {
@@ -559,7 +559,7 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 
 // nolint
 func getLastHeight(blockchainEndpoint string) int {
-	out, err := exec.Command("curl", blockchainEndpoint+"/blockchain").Output()
+	out, err := exec.Command("curl", blockchainEndpoint).Output()
 	if err != nil {
 		panic(err)
 	}

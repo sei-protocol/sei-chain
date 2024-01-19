@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
@@ -15,6 +16,7 @@ func SendTx(
 	loadtestClient LoadTestClient,
 	sentCount *int64,
 ) {
+	fmt.Printf("PSUDEBUG sending txs\n")
 
 	grpcRes, _ := loadtestClient.GetTxClient().BroadcastTx(
 		ctx,
@@ -30,5 +32,7 @@ func SendTx(
 	} else if grpcRes != nil && grpcRes.TxResponse.Code == 0 {
 		atomic.AddInt64(sentCount, 1)
 		return
+	} else {
+		fmt.Printf("Test sending failed\n")
 	}
 }
