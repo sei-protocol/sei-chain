@@ -71,6 +71,7 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 	keysChan := make(chan cryptotypes.PrivKey, maxAccounts)
 	fmt.Printf("Loading accounts\n")
 	for i, file := range files {
+		fmt.Printf("PSUDEBUG loading account: %d\n", i)
 		if i >= maxAccounts {
 			break
 		}
