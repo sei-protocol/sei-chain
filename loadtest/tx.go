@@ -13,16 +13,18 @@ func SendTx(
 	loadtestClient LoadTestClient,
 ) bool {
 
-	_, err := loadtestClient.GetTxClient().BroadcastTx(
+	grpcRes, err := loadtestClient.GetTxClient().BroadcastTx(
 		ctx,
 		&typestx.BroadcastTxRequest{
 			Mode:    mode,
 			TxBytes: txBytes,
 		},
 	)
-	if err != nil && ctx.Err() == nil {
+	if grpcRes != nil && grpcRes.TxResponse.Code == 0 {
+		return true
+	} else if err != nil && ctx.Err() == nil {
 		fmt.Printf("Failed to broadcast tx: %v \n", err)
 		return false
 	}
-	return true
+	return false
 }
