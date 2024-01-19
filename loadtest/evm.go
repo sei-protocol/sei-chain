@@ -5,6 +5,8 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
+	"math/rand"
+	"time"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -31,7 +33,8 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 	if err != nil {
 		fmt.Printf("Failed to get nonce: %v \n", err)
 	}
-	value := big.NewInt(1000000000000000000) // in wei (1 eth)
+	rand.Seed(time.Now().Unix())
+	value := big.NewInt(rand.Int63n(100000000000000000000))
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
 		fmt.Printf("Failed to suggest gas price: %v \n", err)
