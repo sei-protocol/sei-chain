@@ -35,7 +35,7 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 		fmt.Printf("Failed to get nonce: %v \n", err)
 	}
 	rand.Seed(time.Now().Unix())
-	value := big.NewInt(rand.Int63n(math.MaxInt64))
+	value := big.NewInt(rand.Int63n(math.MaxInt64 - 1))
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
 		fmt.Printf("Failed to suggest gas price: %v \n", err)
@@ -57,5 +57,7 @@ func SendEvmTx(client *ethclient.Client, signedTx *ethtypes.Transaction) {
 	err := client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
 		fmt.Printf("Failed to send evm transaction: %v \n", err)
+	} else {
+		fmt.Printf("Successfully send evm transaction: %v \n", signedTx.Hash())
 	}
 }
