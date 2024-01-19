@@ -120,6 +120,7 @@ func startLoadtestWorkers(config Config) {
 			panic("Cannot assert type: publicKey is not of type *ecdsa.PublicKey \n")
 		}
 
+		// Get starting nonce for all accounts
 		fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 		nextNonce, err := client.GetEthClient().PendingNonceAt(context.Background(), fromAddress)
 		if err != nil {

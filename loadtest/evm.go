@@ -6,12 +6,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"math/big"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"math/big"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -59,16 +58,14 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 		fmt.Printf("Failed to sign evm tx: %v \n", err)
 		return nil
 	}
-	//fmt.Printf("Created new signed transaction with nonce %d, address %s and hash %s\n", signedTx.Nonce(), fromAddressStr, signedTx.Hash())
 	return signedTx
 }
 
 func SendEvmTx(client *ethclient.Client, signedTx *ethtypes.Transaction) bool {
 	err := client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
-		fmt.Printf("Failed to send evm transaction with nonce %d and hash %s: %v \n", signedTx.Nonce(), signedTx.Hash(), err)
+		fmt.Printf("Failed to send evm transaction: %v \n", err)
 		return false
 	}
-	//fmt.Printf("Successfully sent evm transaction: %v \n", signedTx.Hash())
 	return true
 }
