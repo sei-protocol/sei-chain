@@ -85,8 +85,10 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 	wg.Wait()
 	close(keysChan)
 	// Collect keys from the channel
+	j := 0
 	for key := range keysChan {
-		testAccountsKeys = append(testAccountsKeys, key)
+		testAccountsKeys[j] = key
+		j++
 	}
 
 	return testAccountsKeys
