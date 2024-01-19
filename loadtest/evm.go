@@ -8,13 +8,15 @@ import (
 	"math"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"math/big"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"math/big"
 )
 
 var nonce_cache = sync.Map{}
@@ -35,18 +37,8 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 	fromAddressStr := fromAddress.String()
-	var nextNonce uint64
-	if prev_nonce, found := nonce_cache.Load(fromAddressStr); found {
-		nextNonce = prev_nonce.(uint64) + 1
-		nonce_cache.Store(fromAddressStr, nextNonce)
-	} else {
-		nextNonce, err = client.PendingNonceAt(context.Background(), fromAddress)
-		if err != nil {
-			fmt.Printf("Failed to get nonce: %v \n", err)
-			return nil
-		}
-		nonce_cache.Store(fromAddressStr, nextNonce)
-	}
+	n, _ := nonce_cache.Load(fromAddressStr)
+	nextNonce := atomic.AddUint64(n.(*uint64), 1) - 1
 
 	rand.Seed(time.Now().Unix())
 	value := big.NewInt(rand.Int63n(math.MaxInt64 - 1))
@@ -67,7 +59,7 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 		fmt.Printf("Failed to sign evm tx: %v \n", err)
 		return nil
 	}
-	fmt.Printf("Created new signed transaction with nonce %d, address %s and hash %s\n", signedTx.Nonce(), fromAddressStr, signedTx.Hash())
+	//fmt.Printf("Created new signed transaction with nonce %d, address %s and hash %s\n", signedTx.Nonce(), fromAddressStr, signedTx.Hash())
 	return signedTx
 }
 

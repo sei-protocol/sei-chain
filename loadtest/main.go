@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"crypto/ecdsa"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -27,6 +30,7 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
@@ -103,6 +107,26 @@ func startLoadtestWorkers(config Config) {
 	fmt.Printf("Starting loadtest producers\n")
 	// preload all accounts
 	keys := client.SignerClient.GetTestAccountsKeys(int(config.TargetTps))
+	for _, key := range keys {
+		privKeyHex := hex.EncodeToString(key.Bytes())
+		privateKey, err := crypto.HexToECDSA(privKeyHex)
+		if err != nil {
+			fmt.Printf("Failed to load private key: %v \n", err)
+		}
+
+		publicKey := privateKey.Public()
+		publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+		if !ok {
+			panic("Cannot assert type: publicKey is not of type *ecdsa.PublicKey \n")
+		}
+
+		fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+		nextNonce, err := client.GetEthClient().PendingNonceAt(context.Background(), fromAddress)
+		if err != nil {
+			panic(err)
+		}
+		nonce_cache.Store(fromAddress.String(), &nextNonce)
+	}
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)
 		go client.BuildTxs(txQueue, i, keys, &wg, done, &producedCount)

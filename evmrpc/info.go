@@ -130,21 +130,34 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 	// Potentially parallelize the following logic
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
 		result.GasUsedRatio = append(result.GasUsedRatio, GasUsedRatio)
-		sdkCtx := i.ctxProvider(blockNum)
-		baseFee := i.keeper.GetBaseFeePerGas(sdkCtx).BigInt()
+		baseFee := i.safeGetBaseFee(blockNum)
+		if baseFee == nil {
+			// the block has been pruned
+			continue
+		}
 		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(baseFee))
 		height := blockNum
 		block, err := i.tmClient.Block(ctx, &height)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		rewards, err := i.getRewards(block, baseFee, rewardPercentiles)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		result.Reward = append(result.Reward, rewards)
 	}
 	return result, nil
+}
+
+func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
+	defer func() {
+		if err := recover(); err != nil {
+			res = nil
+		}
+	}()
+	res = i.keeper.GetBaseFeePerGas(i.ctxProvider(targetHeight)).BigInt()
+	return
 }
 
 type GasAndReward struct {
