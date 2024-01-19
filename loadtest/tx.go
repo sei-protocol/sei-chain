@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
