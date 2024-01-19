@@ -16,18 +16,6 @@ interface IBank {
         uint256 amount
     ) external returns (bool success);
 
-    function sendFromCaller(
-        address toAddress,
-        string memory denom,
-        uint256 amount
-    ) external returns (bool success);
-
-    function sendFromOrigin(
-        address toAddress,
-        string memory denom,
-        uint256 amount
-    ) external returns (bool success);
-
     // Queries
     function balance(
         address acc,

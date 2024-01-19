@@ -7,7 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"gopkg.in/yaml.v2"
 )
 
@@ -194,7 +194,7 @@ func validateWhitelistedCwHashesForDelegateCall(i interface{}) error {
 }
 
 func generateDefaultWhitelistedCodeHashesBankSend() (res []string) {
-	h := crypto.Keccak256Hash(artifacts.GetNativeSeiTokensERC20Bin())
+	h := crypto.Keccak256Hash(native.GetBin())
 	res = append(res, h.Hex())
 	return
 }

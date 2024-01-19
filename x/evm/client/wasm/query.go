@@ -6,7 +6,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
@@ -34,7 +34,7 @@ func (h *EVMQueryHandler) HandleERC20TransferPayload(ctx sdk.Context, recipient 
 	if err != nil {
 		return nil, err
 	}
-	abi, err := artifacts.ArtifactsMetaData.GetAbi()
+	abi, err := native.NativeMetaData.GetAbi()
 	if err != nil {
 		return nil, err
 	}

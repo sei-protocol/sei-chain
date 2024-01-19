@@ -16,13 +16,12 @@ import (
 )
 
 const (
-	SendMethod           = "send"
-	SendFromCallerMethod = "sendFromCaller"
-	BalanceMethod        = "balance"
-	NameMethod           = "name"
-	SymbolMethod         = "symbol"
-	DecimalsMethod       = "decimals"
-	SupplyMethod         = "supply"
+	SendMethod     = "send"
+	BalanceMethod  = "balance"
+	NameMethod     = "name"
+	SymbolMethod   = "symbol"
+	DecimalsMethod = "decimals"
+	SupplyMethod   = "supply"
 )
 
 const (
@@ -42,13 +41,12 @@ type Precompile struct {
 	evmKeeper  pcommon.EVMKeeper
 	address    common.Address
 
-	SendID           []byte
-	SendFromCallerID []byte
-	BalanceID        []byte
-	NameID           []byte
-	SymbolID         []byte
-	DecimalsID       []byte
-	SupplyID         []byte
+	SendID     []byte
+	BalanceID  []byte
+	NameID     []byte
+	SymbolID   []byte
+	DecimalsID []byte
+	SupplyID   []byte
 }
 
 func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
@@ -73,8 +71,6 @@ func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (
 		switch name {
 		case SendMethod:
 			p.SendID = m.ID
-		case SendFromCallerMethod:
-			p.SendFromCallerID = m.ID
 		case "balance":
 			p.BalanceID = m.ID
 		case "name":
@@ -120,8 +116,6 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 			return nil, err
 		}
 		return p.send(ctx, method, args)
-	case SendFromCallerMethod:
-		return p.send(ctx, method, append([]interface{}{caller}, args...))
 	case BalanceMethod:
 		return p.balance(ctx, method, args)
 	case NameMethod:
@@ -239,8 +233,6 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 func (Precompile) IsTransaction(method string) bool {
 	switch method {
 	case SendMethod:
-		return true
-	case SendFromCallerMethod:
 		return true
 	default:
 		return false
