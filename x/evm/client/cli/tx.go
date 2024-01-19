@@ -27,6 +27,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -54,6 +55,7 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdDeployErc20())
 	cmd.AddCommand(CmdDeployErcCw20())
 	cmd.AddCommand(CmdCallContract())
+	cmd.AddCommand(CmdDeployErcCw721())
 
 	return cmd
 }
@@ -296,6 +298,87 @@ func CmdDeployErcCw20() *cobra.Command {
 
 			bytecode := cw20.GetBin()
 			abi := cw20.GetABI()
+			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
+			if err != nil {
+				fmt.Println("failed at parsing abi")
+				return err
+			}
+			constructorArguments := []interface{}{
+				args[0], args[1], args[2],
+			}
+
+			packedArgs, err := parsedABI.Pack("", constructorArguments...)
+			if err != nil {
+				return err
+			}
+			contractData := append(bytecode, packedArgs...)
+
+			key, err := getPrivateKey(cmd)
+			if err != nil {
+				return err
+			}
+
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			nonce, err := getNonce(rpc, key.PublicKey)
+			if err != nil {
+				return err
+			}
+
+			txData, err := getTxData(cmd)
+			if err != nil {
+				return err
+			}
+			txData.Nonce = uint64(*nonce)
+			txData.Value = big.NewInt(0)
+			txData.Data = contractData
+
+			resp, err := sendTx(txData, rpc, key)
+			if err != nil {
+				return err
+			}
+
+			senderAddr := crypto.PubkeyToAddress(key.PublicKey)
+			data, err := rlp.EncodeToBytes([]interface{}{senderAddr, nonce})
+			if err != nil {
+				return err
+			}
+			hash := crypto.Keccak256Hash(data)
+			contractAddress := hash.Bytes()[12:]
+			contractAddressHex := hex.EncodeToString(contractAddress)
+
+			fmt.Println("Deployer:", senderAddr)
+			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
+			fmt.Println("Transaction hash:", resp.Result)
+			return nil
+		},
+	}
+
+	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
+	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
+	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdDeployErcCw721() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "deploy-erccw721 [cw721addr] [name] [symbol] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Short: "Deploy ERC721 contract for a CW20 token",
+		Long:  "",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			_, err = sdk.AccAddressFromBech32(args[0])
+			if err != nil {
+				return err
+			}
+
+			bytecode := cw721.GetBin()
+			abi := cw721.GetABI()
 			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
 			if err != nil {
 				fmt.Println("failed at parsing abi")
