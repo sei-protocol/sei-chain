@@ -121,6 +121,8 @@ func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) {
 				pq.evmQueue[tx.evmAddress] = append(queue[:i], queue[i+1:]...)
 				if len(pq.evmQueue[tx.evmAddress]) == 0 {
 					delete(pq.evmQueue, tx.evmAddress)
+				} else {
+					heap.Push(pq, pq.evmQueue[tx.evmAddress][0])
 				}
 				break
 			}
@@ -195,9 +197,6 @@ func (pq *TxPriorityQueue) popTxUnsafe() *WrappedTx {
 	}
 
 	pq.removeQueuedEvmTxUnsafe(tx)
-	if len(pq.evmQueue[tx.evmAddress]) > 0 {
-		heap.Push(pq, pq.evmQueue[tx.evmAddress][0])
-	}
 
 	return tx
 }

@@ -90,6 +90,13 @@ func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
 			},
 			expectedOutput: []int64{12, 13, 11},
 		},
+		{
+			name: "OneItem",
+			inputTxs: []*WrappedTx{
+				{sender: "14", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
+			},
+			expectedOutput: []int64{14},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -261,6 +268,31 @@ func TestTxPriorityQueue_GetEvictableTxs(t *testing.T) {
 			require.Len(t, evictTxs, tc.expectedLen)
 		})
 	}
+}
+
+func TestTxPriorityQueue_RemoveTxEvm(t *testing.T) {
+	pq := NewTxPriorityQueue()
+
+	tx1 := &WrappedTx{
+		priority:   1,
+		isEVM:      true,
+		evmAddress: "0xabc",
+		evmNonce:   1,
+	}
+	tx2 := &WrappedTx{
+		priority:   1,
+		isEVM:      true,
+		evmAddress: "0xabc",
+		evmNonce:   2,
+	}
+
+	pq.PushTx(tx1)
+	pq.PushTx(tx2)
+
+	pq.RemoveTx(tx1)
+
+	result := pq.PopTx()
+	require.Equal(t, tx2, result)
 }
 
 func TestTxPriorityQueue_RemoveTx(t *testing.T) {
