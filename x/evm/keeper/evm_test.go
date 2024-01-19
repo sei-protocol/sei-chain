@@ -7,15 +7,15 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestInternalCallCreateContract(t *testing.T) {
-	bytecode := artifacts.GetNativeSeiTokensERC20Bin()
-	abi, err := artifacts.ArtifactsMetaData.GetAbi()
+	bytecode := native.GetBin()
+	abi, err := native.NativeMetaData.GetAbi()
 	require.Nil(t, err)
 	args, err := abi.Pack("", "test")
 	require.Nil(t, err)
@@ -36,8 +36,8 @@ func TestInternalCallCreateContract(t *testing.T) {
 }
 
 func TestInternalCall(t *testing.T) {
-	bytecode := artifacts.GetNativeSeiTokensERC20Bin()
-	abi, err := artifacts.ArtifactsMetaData.GetAbi()
+	bytecode := native.GetBin()
+	abi, err := native.NativeMetaData.GetAbi()
 	require.Nil(t, err)
 	args, err := abi.Pack("", "test")
 	require.Nil(t, err)
@@ -79,8 +79,8 @@ func TestInternalCall(t *testing.T) {
 }
 
 func TestStaticCall(t *testing.T) {
-	bytecode := artifacts.GetNativeSeiTokensERC20Bin()
-	abi, err := artifacts.ArtifactsMetaData.GetAbi()
+	bytecode := native.GetBin()
+	abi, err := native.NativeMetaData.GetAbi()
 	require.Nil(t, err)
 	args, err := abi.Pack("", "test")
 	require.Nil(t, err)
