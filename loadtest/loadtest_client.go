@@ -234,12 +234,14 @@ func (c *LoadTestClient) SendTxs(
 				}
 				if tx.TxBytes != nil && len(tx.TxBytes) > 0 {
 					// Send Cosmos Transactions
-					SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c)
-					sentCount.Add(1)
+					if SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c) {
+						sentCount.Add(1)
+					}
 				} else if tx.EvmTx != nil {
 					// Send EVM Transactions
-					SendEvmTx(c.GetEthClient(), tx.EvmTx)
-					sentCount.Add(1)
+					if SendEvmTx(c.GetEthClient(), tx.EvmTx) {
+						sentCount.Add(1)
+					}
 				}
 			}(tx)
 		}

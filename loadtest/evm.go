@@ -59,7 +59,7 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 		fmt.Printf("Failed to get chain ID: %v \n", err)
 	}
 	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(chainID), privateKey)
-	fmt.Printf("Created new signed transaction with nonce %d and address %s \n", signedTx.Nonce(), fromAddressStr)
+	fmt.Printf("Created new signed transaction with nonce %d, address %s and hash %s\n", signedTx.Nonce(), fromAddressStr, signedTx.Hash())
 
 	if err != nil {
 		fmt.Printf("Failed to sign evm tx: %v \n", err)
@@ -67,11 +67,12 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 	return signedTx
 }
 
-func SendEvmTx(client *ethclient.Client, signedTx *ethtypes.Transaction) {
+func SendEvmTx(client *ethclient.Client, signedTx *ethtypes.Transaction) bool {
 	err := client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
 		fmt.Printf("Failed to send evm transaction with nonce %d: %v \n", signedTx.Nonce(), err)
-	} else {
-		fmt.Printf("Successfully send evm transaction with nonce %d: %v \n", signedTx.Nonce(), signedTx.Hash())
+		return false
 	}
+	fmt.Printf("Successfully send evm transaction with nonce %d: %v \n", signedTx.Nonce(), signedTx.Hash())
+	return true
 }
