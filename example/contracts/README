@@ -11,6 +11,7 @@ make devtools
 
 # Compile sol
 solc --bin -o example/contracts/sendall example/contracts/sendall/SendAll.sol
+solc @openzeppelin=contracts/lib/openzeppelin-contracts --bin -o x/evm/artifacts contracts/src/CW721ERC721Wrapper.sol
 
 # Generate ABI in Go
 solc --abi -o example/contracts/sendall example/contracts/sendall/SendAll.sol

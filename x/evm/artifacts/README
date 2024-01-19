@@ -1,0 +1,5 @@
+The source files are under contracts/src. The artifacts should be updated whenever the source files change. To update run the following (with NativeSeiTokensERC20 as an example):
+- `solc --overwrite @openzeppelin=contracts/lib/openzeppelin-contracts --bin -o x/evm/artifacts/native contracts/src/NativeSeiTokensERC20.sol`
+- `solc --overwrite @openzeppelin=contracts/lib/openzeppelin-contracts --abi -o x/evm/artifacts/native contracts/src/NativeSeiTokensERC20.sol`
+- (clean up any artifact that is not NativeSeiTokensERC20.bin/abi)
+- `abigen --abi=x/evm/artifacts/native/NativeSeiTokensERC20.abi --pkg=native --out=x/evm/artifacts/native/native.go`

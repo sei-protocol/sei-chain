@@ -8,7 +8,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -60,11 +59,8 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Addres
 				return
 			}
 		}
-		if reterr == nil && to == nil && artifacts.IsCodeNativeSeiTokensERC20Wrapper(data) {
-			codeHash := evm.StateDB.GetCodeHash(createdContractAddress)
-			if (codeHash != common.Hash{}) {
-				k.AddCodeHashWhitelistedForBankSend(ctx, codeHash)
-			}
+		if reterr == nil && to == nil {
+			k.AddToWhitelistIfApplicable(ctx, data, createdContractAddress)
 		}
 	}()
 	var f EVMCallFunc

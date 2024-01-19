@@ -21,20 +21,21 @@ const (
 )
 
 var (
-	EVMAddressToSeiAddressKeyPrefix        = []byte{0x01}
-	SeiAddressToEVMAddressKeyPrefix        = []byte{0x02}
-	StateKeyPrefix                         = []byte{0x03}
-	TransientStateKeyPrefix                = []byte{0x04}
-	AccountTransientStateKeyPrefix         = []byte{0x05}
-	TransientModuleStateKeyPrefix          = []byte{0x06}
-	CodeKeyPrefix                          = []byte{0x07}
-	CodeHashKeyPrefix                      = []byte{0x08}
-	CodeSizeKeyPrefix                      = []byte{0x09}
-	NonceKeyPrefix                         = []byte{0x0a}
-	ReceiptKeyPrefix                       = []byte{0x0b}
-	WhitelistedCodeHashesForBankSendPrefix = []byte{0x0c}
-	BlockBloomPrefix                       = []byte{0x0d}
-	TxHashesPrefix                         = []byte{0x0e}
+	EVMAddressToSeiAddressKeyPrefix            = []byte{0x01}
+	SeiAddressToEVMAddressKeyPrefix            = []byte{0x02}
+	StateKeyPrefix                             = []byte{0x03}
+	TransientStateKeyPrefix                    = []byte{0x04}
+	AccountTransientStateKeyPrefix             = []byte{0x05}
+	TransientModuleStateKeyPrefix              = []byte{0x06}
+	CodeKeyPrefix                              = []byte{0x07}
+	CodeHashKeyPrefix                          = []byte{0x08}
+	CodeSizeKeyPrefix                          = []byte{0x09}
+	NonceKeyPrefix                             = []byte{0x0a}
+	ReceiptKeyPrefix                           = []byte{0x0b}
+	WhitelistedCodeHashesForBankSendPrefix     = []byte{0x0c}
+	BlockBloomPrefix                           = []byte{0x0d}
+	TxHashesPrefix                             = []byte{0x0e}
+	WhitelistedCodeHashesForDelegateCallPrefix = []byte{0x0f}
 )
 
 func EVMAddressToSeiAddressKey(evmAddress common.Address) []byte {

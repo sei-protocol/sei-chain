@@ -18,6 +18,7 @@ type EVMKeeper interface {
 	GetEVMAddress(sdk.Context, sdk.AccAddress) (common.Address, bool)
 	GetCodeHash(sdk.Context, common.Address) common.Hash
 	WhitelistedCodehashesBankSend(sdk.Context) []string
+	IsCodeHashWhitelistedForDelegateCall(ctx sdk.Context, h common.Hash) bool
 	IsCodeHashWhitelistedForBankSend(ctx sdk.Context, h common.Hash) bool
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
 }
