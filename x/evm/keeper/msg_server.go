@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -77,11 +76,8 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		bloom := ethtypes.Bloom{}
 		bloom.SetBytes(receipt.LogsBloom)
 		server.AppendToEvmTxDeferredInfo(ctx.TxIndex(), bloom, tx.Hash())
-		if serverRes.VmError == "" && tx.To() == nil && artifacts.IsCodeNativeSeiTokensERC20Wrapper(tx.Data()) {
-			codeHash := server.GetCodeHash(ctx, common.HexToAddress(receipt.ContractAddress))
-			if (codeHash != common.Hash{}) {
-				server.AddCodeHashWhitelistedForBankSend(ctx, codeHash)
-			}
+		if serverRes.VmError == "" && tx.To() == nil {
+			server.AddToWhitelistIfApplicable(ctx, tx.Data(), common.HexToAddress(receipt.ContractAddress))
 		}
 
 		// GasUsed in serverRes is in EVM's gas unit, not Sei's gas unit.
