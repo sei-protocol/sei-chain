@@ -255,7 +255,7 @@ func (c *LoadTestClient) SendTxs(
 func (c *LoadTestClient) GetTxClient() typestx.ServiceClient {
 	numClients := len(c.TxClients)
 	if numClients <= 0 {
-		return nil
+		panic("There's no Tx client available, make sure your connection are valid")
 	}
 	rand.Seed(time.Now().Unix())
 	return c.TxClients[rand.Int()%len(c.TxClients)]
@@ -265,7 +265,7 @@ func (c *LoadTestClient) GetTxClient() typestx.ServiceClient {
 func (c *LoadTestClient) GetEthClient() *ethclient.Client {
 	numClients := len(c.EthClients)
 	if numClients <= 0 {
-		return nil
+		panic("There's no ETH client available, make sure your connection are valid")
 	}
 	rand.Seed(time.Now().Unix())
 	return c.EthClients[rand.Int()%numClients]

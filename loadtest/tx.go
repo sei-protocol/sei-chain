@@ -20,8 +20,8 @@ func SendTx(
 			TxBytes: txBytes,
 		},
 	)
-	if err != nil {
-		fmt.Printf("Failed to broadcast tx: %v", err)
+	if err != nil && ctx.Err() == nil {
+		fmt.Printf("Failed to broadcast tx: %v \n", err)
 		return false
 	}
 	return true
