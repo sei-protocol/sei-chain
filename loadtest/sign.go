@@ -69,7 +69,6 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 
 	var testAccountsKeys = make([]cryptotypes.PrivKey, int(math.Min(float64(len(files)), float64(maxAccounts))))
 	var wg sync.WaitGroup
-	keysChan := make(chan cryptotypes.PrivKey, maxAccounts)
 	fmt.Printf("Loading accounts\n")
 	for i, file := range files {
 		if i >= maxAccounts {
@@ -79,17 +78,11 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 		go func(i int, fileName string) {
 			defer wg.Done()
 			key := sc.GetKey(fmt.Sprint(i), "test", filepath.Join(userHomeDir, "test_accounts", fileName))
-			keysChan <- key
+			testAccountsKeys[i] = key
 		}(i, file.Name())
 	}
 	wg.Wait()
-	close(keysChan)
-	// Collect keys from the channel
-	j := 0
-	for key := range keysChan {
-		testAccountsKeys[j] = key
-		j++
-	}
+	fmt.Printf("Finished loading %d accounts \n", len(testAccountsKeys))
 
 	return testAccountsKeys
 }
