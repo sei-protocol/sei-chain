@@ -36,12 +36,8 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 	}
 	rand.Seed(time.Now().Unix())
 	value := big.NewInt(rand.Int63n(math.MaxInt64 - 1))
-	gasPrice, err := client.SuggestGasPrice(context.Background())
-	if err != nil {
-		fmt.Printf("Failed to suggest gas price: %v \n", err)
-	}
-	gasLimit := uint64(21000)
-	tx := ethtypes.NewTransaction(nonce, fromAddress, value, gasLimit, gasPrice, nil)
+	gasLimit := uint64(30000)
+	tx := ethtypes.NewTransaction(nonce, fromAddress, value, gasLimit, big.NewInt(1), nil)
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
 		fmt.Printf("Failed to get chain ID: %v \n", err)
