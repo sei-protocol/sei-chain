@@ -56,6 +56,7 @@ func (txSender *EvmTxSender) PrefillNonce(keys []cryptotypes.PrivKey) {
 
 }
 
+//nolint:staticcheck
 func (txSender *EvmTxSender) GenerateEvmSignedTx(privKey cryptotypes.PrivKey) *ethtypes.Transaction {
 	client := txSender.GetNextClient()
 	privKeyHex := hex.EncodeToString(privKey.Bytes())
