@@ -17,21 +17,19 @@ import (
 	"syscall"
 	"time"
 
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/std"
-
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/cosmos/cosmos-sdk/std"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
 var TestConfig EncodingConfig
@@ -85,7 +83,7 @@ func startLoadtestWorkers(config Config) {
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
-	txQueue := make(chan []byte, 10000)
+	txQueue := make(chan SignedTx, 10000)
 	done := make(chan struct{})
 	numProducers := 1000
 	var wg sync.WaitGroup
@@ -193,28 +191,27 @@ func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
 	return messageType
 }
 
-func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
+func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
 	var msgs []sdk.Msg
-	messageTypes := strings.Split(config.MessageType, ",")
-	messageType := c.getRandomMessageType(messageTypes)
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	fmt.Printf("Message type: %s\n", messageType)
-
-	defer IncrTxMessageType(messageType)
-
+	config := c.LoadTestConfig
+	msgPerTx := config.MsgsPerTx
 	signer := key
 
-	defaultMessageTypeConfig := c.LoadTestConfig.PerMessageConfigs["default"]
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	fmt.Printf("Message type: %s\n", msgType)
+	defer IncrTxMessageType(msgType)
+
+	defaultMessageTypeConfig := config.PerMessageConfigs["default"]
 	gas := defaultMessageTypeConfig.Gas
 	fee := defaultMessageTypeConfig.Fee
 
-	messageTypeConfig, ok := c.LoadTestConfig.PerMessageConfigs[messageType]
+	messageTypeConfig, ok := config.PerMessageConfigs[msgType]
 	if ok {
 		gas = messageTypeConfig.Gas
 		fee = messageTypeConfig.Fee
 	}
 
-	switch messageType {
+	switch msgType {
 	case Vortex:
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
