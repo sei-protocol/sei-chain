@@ -161,7 +161,10 @@ func (c *LoadTestClient) BuildTxs(
 			signedTx := SignedTx{}
 			// Sign EVM and Cosmos TX differently
 			if messageType == EVM {
-				signedTx = SignedTx{EvmTx: c.generatedSignedEvmTxs(nextKey)}
+				tx := c.generatedSignedEvmTxs(nextKey)
+				if tx != nil {
+					signedTx = SignedTx{EvmTx: tx}
+				}
 			} else {
 				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(nextKey, messageType)}
 			}
