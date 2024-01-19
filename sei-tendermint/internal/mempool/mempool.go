@@ -292,10 +292,13 @@ func (txmp *TxMempool) CheckTx(
 	}
 
 	wtx := &WrappedTx{
-		tx:        tx,
-		hash:      txHash,
-		timestamp: time.Now().UTC(),
-		height:    txmp.height,
+		tx:         tx,
+		hash:       txHash,
+		timestamp:  time.Now().UTC(),
+		height:     txmp.height,
+		evmNonce:   res.EVMNonce,
+		evmAddress: res.EVMSenderAddress,
+		isEVM:      res.IsEVM,
 		expiredCallback: func(removeFromCache bool) {
 			txmp.metrics.ExpiredTxs.Add(1)
 			if removeFromCache {

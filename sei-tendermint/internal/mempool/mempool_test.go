@@ -42,6 +42,42 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*a
 		sender   string
 	)
 
+	if strings.HasPrefix(string(req.Tx), "evm") {
+		// format is evm-sender-0=account=priority=nonce
+		// split into respective vars
+		parts := bytes.Split(req.Tx, []byte("="))
+		sender = string(parts[0])
+		account := string(parts[1])
+		v, err := strconv.ParseInt(string(parts[2]), 10, 64)
+		if err != nil {
+			// could not parse
+			return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
+				Priority:  priority,
+				Code:      100,
+				GasWanted: 1,
+			}}, nil
+		}
+		nonce, err := strconv.ParseInt(string(parts[3]), 10, 64)
+		if err != nil {
+			// could not parse
+			return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
+				Priority:  priority,
+				Code:      101,
+				GasWanted: 1,
+			}}, nil
+		}
+		return &abci.ResponseCheckTxV2{
+			ResponseCheckTx: &abci.ResponseCheckTx{
+				Priority:  v,
+				Code:      code.CodeTypeOK,
+				GasWanted: 1,
+			},
+			EVMNonce:         uint64(nonce),
+			EVMSenderAddress: account,
+			IsEVM:            true,
+		}, nil
+	}
+
 	// infer the priority from the raw transaction value (sender=key=value)
 	parts := bytes.Split(req.Tx, []byte("="))
 	if len(parts) == 3 {
@@ -63,7 +99,6 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*a
 			GasWanted: 1,
 		}}, nil
 	}
-
 	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
 		Priority:  priority,
 		Sender:    sender,
@@ -441,6 +476,63 @@ func TestTxMempool_CheckTxExceedsMaxSize(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+}
+
+func TestTxMempool_Prioritization(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Wait)
+
+	txmp := setup(t, client, 100)
+	peerID := uint16(1)
+
+	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+	address2 := "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+
+	// Generate transactions with different priorities
+	// there are two formats to comply with the above mocked CheckTX
+	// EVM: evm-sender=account=priority=nonce
+	// Non-EVM: sender=peer=priority
+	txs := [][]byte{
+		[]byte(fmt.Sprintf("sender-0-1=peer=%d", 9)),
+		[]byte(fmt.Sprintf("sender-1-1=peer=%d", 8)),
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 7, 0)),
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 9, 1)),
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 6, 0)),
+		[]byte(fmt.Sprintf("sender-2-1=peer=%d", 5)),
+		[]byte(fmt.Sprintf("sender-3-1=peer=%d", 4)),
+	}
+
+	// copy the slice of txs and shuffle the order randomly
+	txsCopy := make([][]byte, len(txs))
+	copy(txsCopy, txs)
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng.Shuffle(len(txsCopy), func(i, j int) {
+		txsCopy[i], txsCopy[j] = txsCopy[j], txsCopy[i]
+	})
+
+	for i := range txsCopy {
+		require.NoError(t, txmp.CheckTx(ctx, txsCopy[i], nil, TxInfo{SenderID: peerID}))
+	}
+
+	// Reap the transactions
+	reapedTxs := txmp.ReapMaxTxs(len(txs))
+	// Check if the reaped transactions are in the correct order of their priorities
+	for _, tx := range txs {
+		fmt.Printf("expected: %s\n", string(tx))
+	}
+	fmt.Println("**************")
+	for _, reapedTx := range reapedTxs {
+		fmt.Printf("received: %s\n", string(reapedTx))
+	}
+	for i, reapedTx := range reapedTxs {
+		require.Equal(t, txs[i], []byte(reapedTx))
+	}
 }
 
 func TestTxMempool_CheckTxSamePeer(t *testing.T) {

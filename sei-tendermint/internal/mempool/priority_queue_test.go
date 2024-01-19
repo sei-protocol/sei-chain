@@ -1,6 +1,7 @@
 package mempool
 
 import (
+	"fmt"
 	"math/rand"
 	"sort"
 	"sync"
@@ -9,6 +10,127 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+// TxTestCase represents a single test case for the TxPriorityQueue
+type TxTestCase struct {
+	name           string
+	inputTxs       []*WrappedTx // Input transactions
+	expectedOutput []int64      // Expected order of transaction IDs
+}
+
+func TestTxPriorityQueue_ReapHalf(t *testing.T) {
+	pq := NewTxPriorityQueue()
+
+	// Generate transactions with different priorities and nonces
+	txs := make([]*WrappedTx, 100)
+	for i := range txs {
+		txs[i] = &WrappedTx{
+			tx:       []byte(fmt.Sprintf("tx-%d", i)),
+			priority: int64(i),
+		}
+
+		// Push the transaction
+		pq.PushTx(txs[i])
+	}
+
+	//reverse sort txs by priority
+	sort.Slice(txs, func(i, j int) bool {
+		return txs[i].priority > txs[j].priority
+	})
+
+	// Reap half of the transactions
+	reapedTxs := pq.PeekTxs(len(txs) / 2)
+
+	// Check if the reaped transactions are in the correct order of their priorities and nonces
+	for i, reapedTx := range reapedTxs {
+		require.Equal(t, txs[i].priority, reapedTx.priority)
+	}
+}
+
+func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
+	testCases := []TxTestCase{
+		{
+			name: "PriorityWithEVMAndNonEVM",
+			inputTxs: []*WrappedTx{
+				{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
+				{sender: "2", isEVM: false, priority: 9},
+				{sender: "4", isEVM: true, evmAddress: "0xabc", evmNonce: 0, priority: 9}, // Same EVM address as first, lower nonce
+				{sender: "5", isEVM: true, evmAddress: "0xdef", evmNonce: 1, priority: 7},
+				{sender: "3", isEVM: true, evmAddress: "0xdef", evmNonce: 0, priority: 8},
+				{sender: "6", isEVM: false, priority: 6},
+				{sender: "7", isEVM: true, evmAddress: "0xghi", evmNonce: 2, priority: 5},
+			},
+			expectedOutput: []int64{2, 4, 1, 3, 5, 6, 7},
+		},
+		{
+			name: "IdenticalPrioritiesAndNoncesDifferentAddresses",
+			inputTxs: []*WrappedTx{
+				{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 2, priority: 5},
+				{sender: "2", isEVM: true, evmAddress: "0xdef", evmNonce: 2, priority: 5},
+				{sender: "3", isEVM: true, evmAddress: "0xghi", evmNonce: 2, priority: 5},
+			},
+			expectedOutput: []int64{1, 2, 3},
+		},
+		{
+			name: "InterleavedEVAndNonEVMTransactions",
+			inputTxs: []*WrappedTx{
+				{sender: "7", isEVM: false, priority: 15},
+				{sender: "8", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 20},
+				{sender: "9", isEVM: false, priority: 10},
+				{sender: "10", isEVM: true, evmAddress: "0xdef", evmNonce: 2, priority: 20},
+			},
+			expectedOutput: []int64{8, 10, 7, 9},
+		},
+		{
+			name: "SameAddressPriorityDifferentNonces",
+			inputTxs: []*WrappedTx{
+				{sender: "11", isEVM: true, evmAddress: "0xabc", evmNonce: 3, priority: 10},
+				{sender: "12", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
+				{sender: "13", isEVM: true, evmAddress: "0xabc", evmNonce: 2, priority: 10},
+			},
+			expectedOutput: []int64{12, 13, 11},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pq := NewTxPriorityQueue()
+			now := time.Now()
+
+			// Add input transactions to the queue and set timestamp to order inserted
+			for i, tx := range tc.inputTxs {
+				tx.timestamp = now.Add(time.Duration(i) * time.Second)
+				pq.PushTx(tx)
+			}
+
+			results := pq.PeekTxs(len(tc.inputTxs))
+			// Validate the order of transactions
+			require.Len(t, results, len(tc.expectedOutput))
+			for i, expectedTxID := range tc.expectedOutput {
+				tx := results[i]
+				require.Equal(t, fmt.Sprintf("%d", expectedTxID), tx.sender)
+			}
+		})
+	}
+}
+
+func TestTxPriorityQueue_SameAddressDifferentNonces(t *testing.T) {
+	pq := NewTxPriorityQueue()
+	address := "0x123"
+
+	// Insert transactions with the same address but different nonces and priorities
+	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 2, priority: 10})
+	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 1, priority: 5})
+	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 3, priority: 15})
+
+	// Pop transactions and verify they are in the correct order of nonce
+	tx1 := pq.PopTx()
+	require.Equal(t, uint64(1), tx1.evmNonce)
+	tx2 := pq.PopTx()
+	require.Equal(t, uint64(2), tx2.evmNonce)
+	tx3 := pq.PopTx()
+	require.Equal(t, uint64(3), tx3.evmNonce)
+}
 
 func TestTxPriorityQueue(t *testing.T) {
 	pq := NewTxPriorityQueue()

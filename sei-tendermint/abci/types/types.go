@@ -256,4 +256,9 @@ type ResponseCheckTxV2 struct {
 	IsPendingTransaction bool
 	Checker              PendingTxChecker // must not be nil if IsPendingTransaction is true
 	ExpireTxHandler      ExpireTxHandler
+
+	// helper properties for prioritization in mempool
+	EVMNonce         uint64
+	EVMSenderAddress string
+	IsEVM            bool
 }
