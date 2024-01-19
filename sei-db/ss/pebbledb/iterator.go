@@ -186,6 +186,7 @@ func (itr *iterator) nextForward() {
 			panic(err)
 		}
 
+		// If iterator is at a entry whose version is higher than requested version, call nextForward again
 		if tmpKeyVersionDecoded > itr.version {
 			itr.nextForward()
 		}
@@ -251,6 +252,7 @@ func (itr *iterator) nextReverse() {
 			panic(err)
 		}
 
+		// If iterator is at a entry whose version is higher than requested version, call nextReverse again
 		if tmpKeyVersionDecoded > itr.version {
 			itr.nextReverse()
 		}
