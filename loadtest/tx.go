@@ -32,7 +32,5 @@ func SendTx(
 	} else if grpcRes != nil && grpcRes.TxResponse.Code == 0 {
 		atomic.AddInt64(sentCount, 1)
 		return
-	} else {
-		fmt.Printf("Test sending failed\n")
 	}
 }
