@@ -52,6 +52,8 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdAssociateAddress())
 	cmd.AddCommand(CmdSend())
 	cmd.AddCommand(CmdDeployErc20())
+	cmd.AddCommand(CmdDeployErcCw20())
+	cmd.AddCommand(CmdCallContract())
 
 	return cmd
 }
@@ -347,6 +349,61 @@ func CmdDeployErcCw20() *cobra.Command {
 
 			fmt.Println("Deployer:", senderAddr)
 			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
+			fmt.Println("Transaction hash:", resp.Result)
+			return nil
+		},
+	}
+
+	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
+	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
+	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdCallContract() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "call-contract [addr] [payload hex] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Short: "Call EVM contract with a bytes payload in hex",
+		Long:  "",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			contract := common.HexToAddress(args[0])
+			payload, err := hex.DecodeString(args[1])
+			if err != nil {
+				return err
+			}
+
+			key, err := getPrivateKey(cmd)
+			if err != nil {
+				return err
+			}
+
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			nonce, err := getNonce(rpc, key.PublicKey)
+			if err != nil {
+				return err
+			}
+
+			txData, err := getTxData(cmd)
+			if err != nil {
+				return err
+			}
+			txData.Nonce = uint64(*nonce)
+			txData.Value = big.NewInt(0)
+			txData.Data = payload
+			txData.To = &contract
+
+			resp, err := sendTx(txData, rpc, key)
+			if err != nil {
+				return err
+			}
+
 			fmt.Println("Transaction hash:", resp.Result)
 			return nil
 		},

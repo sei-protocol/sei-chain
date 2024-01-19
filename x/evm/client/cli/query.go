@@ -2,12 +2,16 @@ package cli
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -24,6 +28,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 
 	cmd.AddCommand(CmdQuerySeiAddress())
 	cmd.AddCommand(CmdQueryEVMAddress())
+	cmd.AddCommand(CmdQueryERC20Payload())
 
 	return cmd
 }
@@ -68,6 +73,47 @@ func CmdQueryEVMAddress() *cobra.Command {
 			}
 
 			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdQueryERC20Payload() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "erc20-payload [method] [arguments...]",
+		Short: "get hex payload for the given inputs",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx := client.GetClientContextFromCmd(cmd)
+
+			abi, err := cw20.Cw20MetaData.GetAbi()
+			if err != nil {
+				return err
+			}
+			var bz []byte
+			switch args[0] {
+			case "transfer":
+				to := common.HexToAddress(args[1])
+				amt, _ := sdk.NewIntFromString(args[2])
+				bz, err = abi.Pack(args[0], to, amt.BigInt())
+			case "approve":
+				spender := common.HexToAddress(args[1])
+				amt, _ := sdk.NewIntFromString(args[2])
+				bz, err = abi.Pack(args[0], spender, amt.BigInt())
+			case "transferFrom":
+				from := common.HexToAddress(args[1])
+				to := common.HexToAddress(args[2])
+				amt, _ := sdk.NewIntFromString(args[3])
+				bz, err = abi.Pack(args[0], from, to, amt.BigInt())
+			}
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintString(hex.EncodeToString(bz))
 		},
 	}
 
