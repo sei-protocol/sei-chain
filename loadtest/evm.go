@@ -68,8 +68,8 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 func SendEvmTx(client *ethclient.Client, signedTx *ethtypes.Transaction) {
 	err := client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
-		fmt.Printf("Failed to send evm transaction: %v \n", err)
+		fmt.Printf("Failed to send evm transaction with nonce %d: %v \n", signedTx.Nonce(), err)
 	} else {
-		fmt.Printf("Successfully send evm transaction: %v \n", signedTx.Hash())
+		fmt.Printf("Successfully send evm transaction with nonce %d: %v \n", signedTx.Nonce(), signedTx.Hash())
 	}
 }
