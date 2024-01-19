@@ -2,6 +2,7 @@ package memiavl
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"math/rand"
 	"sort"
@@ -32,7 +33,7 @@ func BenchmarkRandomGet(b *testing.B) {
 	}
 
 	snapshotDir := b.TempDir()
-	err := tree.WriteSnapshot(snapshotDir)
+	err := tree.WriteSnapshot(context.Background(), snapshotDir)
 	require.NoError(b, err)
 	snapshot, err := OpenSnapshot(snapshotDir)
 	require.NoError(b, err)

@@ -1,6 +1,7 @@
 package memiavl
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -21,7 +22,7 @@ func TestSnapshotEncodingRoundTrip(t *testing.T) {
 	}
 
 	snapshotDir := t.TempDir()
-	require.NoError(t, tree.WriteSnapshot(snapshotDir))
+	require.NoError(t, tree.WriteSnapshot(context.Background(), snapshotDir))
 
 	snapshot, err := OpenSnapshot(snapshotDir)
 	require.NoError(t, err)
@@ -71,7 +72,7 @@ func TestSnapshotExport(t *testing.T) {
 	}
 
 	snapshotDir := t.TempDir()
-	require.NoError(t, tree.WriteSnapshot(snapshotDir))
+	require.NoError(t, tree.WriteSnapshot(context.Background(), snapshotDir))
 
 	snapshot, err := OpenSnapshot(snapshotDir)
 	require.NoError(t, err)
@@ -100,7 +101,7 @@ func TestSnapshotImportExport(t *testing.T) {
 	}
 
 	snapshotDir := t.TempDir()
-	require.NoError(t, tree.WriteSnapshot(snapshotDir))
+	require.NoError(t, tree.WriteSnapshot(context.Background(), snapshotDir))
 	snapshot, err := OpenSnapshot(snapshotDir)
 	require.NoError(t, err)
 
@@ -161,7 +162,7 @@ func TestDBSnapshotRestore(t *testing.T) {
 		testSnapshotRoundTrip(t, db)
 	}
 
-	require.NoError(t, db.RewriteSnapshot())
+	require.NoError(t, db.RewriteSnapshot(context.Background()))
 	require.NoError(t, db.Reload())
 	require.Equal(t, len(ChangeSets), int(db.metadata.CommitInfo.Version))
 	testSnapshotRoundTrip(t, db)

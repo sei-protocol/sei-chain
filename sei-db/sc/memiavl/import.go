@@ -1,6 +1,7 @@
 package memiavl
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -134,7 +135,7 @@ func doImport(dir string, version int64, nodes <-chan *types.SnapshotNode) (retu
 		return errors.New("version overflows uint32")
 	}
 
-	return writeSnapshot(dir, uint32(version), func(w *snapshotWriter) (uint32, error) {
+	return writeSnapshot(context.Background(), dir, uint32(version), func(w *snapshotWriter) (uint32, error) {
 		i := &importer{
 			snapshotWriter: *w,
 		}
