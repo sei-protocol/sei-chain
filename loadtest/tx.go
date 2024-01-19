@@ -20,11 +20,14 @@ func SendTx(
 			TxBytes: txBytes,
 		},
 	)
-	if grpcRes != nil && grpcRes.TxResponse.Code == 0 {
-		return true
+	if grpcRes != nil {
+		if grpcRes.TxResponse.Code == 0 {
+			return true
+		} else {
+			fmt.Printf("Failed to broadcast tx with response: %v \n", grpcRes)
+		}
 	} else if err != nil && ctx.Err() == nil {
 		fmt.Printf("Failed to broadcast tx: %v \n", err)
-		return false
 	}
 	return false
 }
