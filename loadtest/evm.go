@@ -59,6 +59,8 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 		fmt.Printf("Failed to get chain ID: %v \n", err)
 	}
 	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(chainID), privateKey)
+	fmt.Printf("Created new signed transaction with nonce %d and address %s", signedTx.Nonce(), fromAddressStr)
+
 	if err != nil {
 		fmt.Printf("Failed to sign evm tx: %v \n", err)
 	}
