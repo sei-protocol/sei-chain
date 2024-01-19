@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sync"
 	"time"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -15,6 +16,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"math/big"
 )
+
+var nonce_cache = sync.Map{}
 
 func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) *ethtypes.Transaction {
 	privKeyHex := hex.EncodeToString(privKey.Bytes())
@@ -30,10 +33,19 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 	}
 
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
-	if err != nil {
-		fmt.Printf("Failed to get nonce: %v \n", err)
+	fromAddressStr := fromAddress.String()
+	var nextNonce uint64
+	if prev_nonce, found := nonce_cache.Load(fromAddressStr); found {
+		nextNonce = prev_nonce.(uint64) + 1
+		nonce_cache.Store(fromAddressStr, nextNonce)
+	} else {
+		nextNonce, err = client.PendingNonceAt(context.Background(), fromAddress)
+		if err != nil {
+			fmt.Printf("Failed to get nonce: %v \n", err)
+		}
+		nonce_cache.Store(fromAddressStr, nextNonce)
 	}
+
 	rand.Seed(time.Now().Unix())
 	value := big.NewInt(rand.Int63n(math.MaxInt64 - 1))
 	gasPrice, err := client.SuggestGasPrice(context.Background())
@@ -41,7 +53,7 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 		fmt.Printf("Failed to suggest gas price: %v \n", err)
 	}
 	gasLimit := uint64(21000)
-	tx := ethtypes.NewTransaction(nonce, fromAddress, value, gasLimit, gasPrice, nil)
+	tx := ethtypes.NewTransaction(nextNonce, fromAddress, value, gasLimit, gasPrice, nil)
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
 		fmt.Printf("Failed to get chain ID: %v \n", err)
