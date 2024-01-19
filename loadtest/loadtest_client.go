@@ -28,7 +28,7 @@ type LoadTestClient struct {
 	LoadTestConfig     Config
 	TestConfig         EncodingConfig
 	TxClients          []typestx.ServiceClient
-	EvmTxSender        EvmTxSender
+	EvmTxSender        *EvmTxSender
 	SignerClient       *SignerClient
 	ChainID            string
 	GrpcConns          []*grpc.ClientConn
@@ -118,7 +118,7 @@ func BuildGrpcClients(config Config) ([]typestx.ServiceClient, []*grpc.ClientCon
 }
 
 // BuildEvmTxSender build a with EvmTxSender with a list of go-ethereum client
-func BuildEvmTxSender(config Config) EvmTxSender {
+func BuildEvmTxSender(config Config) *EvmTxSender {
 	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
 	ethClients := make([]*ethclient.Client, len(ethEndpoints))
 	for i, endpoint := range ethEndpoints {
