@@ -198,7 +198,6 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	signer := key
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	fmt.Printf("Message type: %s\n", msgType)
 	defer IncrTxMessageType(msgType)
 
 	defaultMessageTypeConfig := config.PerMessageConfigs["default"]
