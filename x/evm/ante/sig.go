@@ -64,11 +64,23 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			// transaction shall be added to mempool as a pending transaction
 			ctx = ctx.WithPendingTxChecker(func() abci.PendingTxCheckerResponse {
 				latestCtx := svd.latestCtxGetter()
-				latestNonce := svd.evmKeeper.GetNonce(ctx, evmAddr)
-				nextNonce := svd.evmKeeper.CalculateNextNonce(latestCtx, evmAddr, true)
-				if txNonce < latestNonce {
+
+				// nextNonceToBeMined is the next nonce that will be mined
+				// geth calls SetNonce(n+1) after a transaction is mined
+				nextNonceToBeMined := svd.evmKeeper.GetNonce(ctx, evmAddr)
+
+				// nextPendingNonce is the minimum nonce a user may send without stomping on an already-sent
+				// nonce, including non-mined or pending transactions
+				// If a user skips a nonce [1,2,4], then this will be the value of that hole (e.g., 3)
+				nextPendingNonce := svd.evmKeeper.CalculateNextNonce(latestCtx, evmAddr, true)
+
+				if txNonce < nextNonceToBeMined {
+					// this nonce has already been mined, we cannot accept it again
 					return abci.Rejected
-				} else if txNonce < nextNonce {
+				} else if txNonce < nextPendingNonce {
+					// this nonce is allowed to process as it is part of the
+					// consecutive nonces from nextNonceToBeMined to nextPendingNonce
+					// This logic allows multiple nonces from an account to be processed in a block.
 					return abci.Accepted
 				}
 				return abci.Pending
