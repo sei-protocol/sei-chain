@@ -88,6 +88,7 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 		testAccountsKeys = append(testAccountsKeys, key)
 	}
 
+	fmt.Printf("PSUDEBUG len of keys: %d\n", len(testAccountsKeys))
 	return testAccountsKeys
 }
 
