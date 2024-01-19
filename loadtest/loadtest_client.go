@@ -143,7 +143,7 @@ func (c *LoadTestClient) BuildTxs(
 	keys []cryptotypes.PrivKey,
 	wg *sync.WaitGroup,
 	done <-chan struct{},
-	producedCount *int64,
+	producedCount *atomic.Int64,
 ) {
 	defer wg.Done()
 	config := c.LoadTestConfig
@@ -154,7 +154,7 @@ func (c *LoadTestClient) BuildTxs(
 			fmt.Printf("Stopping producer %d\n", producerId)
 			return
 		default:
-			nextKey := keys[atomic.LoadInt64(producedCount)%int64(len(keys))]
+			nextKey := keys[producedCount.Load()%int64(len(keys))]
 			// Generate a message type first
 			messageTypes := strings.Split(config.MessageType, ",")
 			messageType := c.getRandomMessageType(messageTypes)
@@ -167,7 +167,7 @@ func (c *LoadTestClient) BuildTxs(
 			}
 			select {
 			case txQueue <- signedTx:
-				atomic.AddInt64(producedCount, 1)
+				producedCount.Add(1)
 			case <-done:
 				// Exit if done signal is received while trying to send to txQueue
 				return
@@ -197,7 +197,7 @@ func (c *LoadTestClient) generatedSignedEvmTxs(key cryptotypes.PrivKey) *ethtype
 func (c *LoadTestClient) SendTxs(
 	txQueue <-chan SignedTx,
 	done <-chan struct{},
-	sentCount *int64,
+	sentCount *atomic.Int64,
 	rateLimit int,
 	wg *sync.WaitGroup,
 ) {
@@ -234,10 +234,12 @@ func (c *LoadTestClient) SendTxs(
 				}
 				if tx.TxBytes != nil && len(tx.TxBytes) > 0 {
 					// Send Cosmos Transactions
-					SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, false, *c, sentCount)
+					SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c)
+					sentCount.Add(1)
 				} else if tx.EvmTx != nil {
 					// Send EVM Transactions
 					SendEvmTx(c.GetEthClient(), tx.EvmTx)
+					sentCount.Add(1)
 				}
 			}(tx)
 		}

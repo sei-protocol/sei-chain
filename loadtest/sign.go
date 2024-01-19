@@ -88,6 +88,7 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 	for key := range keysChan {
 		testAccountsKeys = append(testAccountsKeys, key)
 	}
+	fmt.Printf("Finished loading %d accounts \n", len(testAccountsKeys))
 
 	return testAccountsKeys
 }

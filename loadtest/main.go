@@ -86,9 +86,6 @@ func startLoadtestWorkers(config Config) {
 	txQueue := make(chan SignedTx, 10000)
 	done := make(chan struct{})
 	numProducers := 1000
-	if uint64(numProducers) > config.TargetTps {
-		numProducers = int(config.TargetTps)
-	}
 	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
@@ -97,9 +94,9 @@ func startLoadtestWorkers(config Config) {
 
 	ticker := time.NewTicker(1 * time.Second)
 	start := time.Now()
-	var producedCount int64 = 0
-	var sentCount int64 = 0
-	var prevSentCount int64 = 0
+	var producedCount = atomic.Int64{}
+	var sentCount = atomic.Int64{}
+	var prevSentCount = atomic.Int64{}
 	var blockHeights []int
 	var blockTimes []string
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
@@ -155,12 +152,12 @@ func startLoadtestWorkers(config Config) {
 	close(txQueue)
 }
 
-func printStats(startTime time.Time, producedCount *int64, sentCount *int64, prevSentCount *int64, blockHeights []int, blockTimes []string) {
+func printStats(startTime time.Time, producedCount *atomic.Int64, sentCount *atomic.Int64, prevSentCount *atomic.Int64, blockHeights []int, blockTimes []string) {
 	elapsed := time.Since(startTime)
-	produced := atomic.LoadInt64(producedCount)
-	sent := atomic.LoadInt64(sentCount)
-	tps := float64(sent-*prevSentCount) / elapsed.Seconds()
-	*prevSentCount = sent
+	produced := producedCount.Load()
+	sent := sentCount.Load()
+	tps := float64(sent-prevSentCount.Load()) / elapsed.Seconds()
+	prevSentCount.Store(sent)
 	var totalDuration time.Duration
 	var prevTime time.Time
 	for i, blockTimeStr := range blockTimes {
