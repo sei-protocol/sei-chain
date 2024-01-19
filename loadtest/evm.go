@@ -30,6 +30,7 @@ func NewEvmTxSender(clients []*ethclient.Client) *EvmTxSender {
 	}
 }
 
+// PrefillNonce is a function to fill starting nonce, this needs to be called at the beginning
 func (txSender *EvmTxSender) PrefillNonce(keys []cryptotypes.PrivKey) {
 	client := txSender.GetNextClient()
 	for _, key := range keys {
@@ -56,6 +57,8 @@ func (txSender *EvmTxSender) PrefillNonce(keys []cryptotypes.PrivKey) {
 
 }
 
+// GenerateEvmSignedTx takes a private key and generate a signed bank send TX
+//
 //nolint:staticcheck
 func (txSender *EvmTxSender) GenerateEvmSignedTx(privKey cryptotypes.PrivKey) *ethtypes.Transaction {
 	client := txSender.GetNextClient()
@@ -99,6 +102,7 @@ func (txSender *EvmTxSender) GenerateEvmSignedTx(privKey cryptotypes.PrivKey) *e
 	return signedTx
 }
 
+// SendEvmTx takes any signed evm tx and send it out
 func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction) bool {
 	err := txSender.GetNextClient().SendTransaction(context.Background(), signedTx)
 	if err != nil {
@@ -108,6 +112,8 @@ func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction) bool {
 	return true
 }
 
+// GetNextClient return the next available eth client randomly
+//
 //nolint:staticcheck
 func (txSender *EvmTxSender) GetNextClient() *ethclient.Client {
 	numClients := len(txSender.clients)
