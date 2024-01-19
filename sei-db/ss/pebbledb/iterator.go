@@ -70,13 +70,17 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 
 		curKeyVersionDecoded, err := decodeUint64Ascending(currKeyVersion)
 		if err != nil {
-			panic(err)
+			itr.valid = false
+			return itr
 		}
 
+		// We need to check whether initial key iterator visits has a version <= requested version
+		// If larger version, call next to find another key which does
 		if curKeyVersionDecoded > itr.version {
 			itr.Next()
 		} else {
-			// Seek to the largest version of that key <= requested iterator version
+			// If version is less, seek to the largest version of that key <= requested iterator version
+			// A key may have multiple versions <= requested version, so seek to the largest of those
 			itr.valid = itr.source.SeekLT(MVCCEncode(currKey, itr.version+1))
 		}
 	}
@@ -181,9 +185,12 @@ func (itr *iterator) nextForward() {
 			}
 		}
 
+		// We need to verify that every Next call either moves the iterator to a key whose version
+		// is less than or equal to requested iterator version, or exhausts the iterator
 		tmpKeyVersionDecoded, err := decodeUint64Ascending(tmpKeyVersion)
 		if err != nil {
-			panic(err)
+			itr.valid = false
+			return
 		}
 
 		// If iterator is at a entry whose version is higher than requested version, call nextForward again
@@ -247,9 +254,12 @@ func (itr *iterator) nextReverse() {
 			return
 		}
 
+		// We need to verify that every Next call either moves the iterator to a key whose version
+		// is less than or equal to requested iterator version, or exhausts the iterator
 		tmpKeyVersionDecoded, err := decodeUint64Ascending(tmpKeyVersion)
 		if err != nil {
-			panic(err)
+			itr.valid = false
+			return
 		}
 
 		// If iterator is at a entry whose version is higher than requested version, call nextReverse again
