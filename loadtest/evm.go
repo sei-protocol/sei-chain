@@ -52,7 +52,7 @@ func GenerateEvmSignedTx(client *ethclient.Client, privKey cryptotypes.PrivKey) 
 	if err != nil {
 		fmt.Printf("Failed to suggest gas price: %v \n", err)
 	}
-	gasLimit := uint64(21000)
+	gasLimit := uint64(200000)
 	tx := ethtypes.NewTransaction(nextNonce, fromAddress, value, gasLimit, gasPrice, nil)
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
