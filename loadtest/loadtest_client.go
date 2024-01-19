@@ -147,14 +147,14 @@ func (c *LoadTestClient) BuildTxs(
 ) {
 	defer wg.Done()
 	config := c.LoadTestConfig
-
 	for {
 		select {
 		case <-done:
 			fmt.Printf("Stopping producer %d\n", producerId)
 			return
 		default:
-			nextKey := keys[producedCount.Load()%int64(len(keys))]
+			index := producedCount.Load() % int64(len(keys))
+			nextKey := keys[index]
 			// Generate a message type first
 			messageTypes := strings.Split(config.MessageType, ",")
 			messageType := c.getRandomMessageType(messageTypes)

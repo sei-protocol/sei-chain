@@ -79,7 +79,11 @@ func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivK
 		go func(i int, fileName string) {
 			defer wg.Done()
 			key := sc.GetKey(fmt.Sprint(i), "test", filepath.Join(userHomeDir, "test_accounts", fileName))
-			keysChan <- key
+			if key != nil {
+				keysChan <- key
+			} else {
+				fmt.Printf("Key for filename %s is nil", fileName)
+			}
 		}(i, file.Name())
 	}
 	wg.Wait()
