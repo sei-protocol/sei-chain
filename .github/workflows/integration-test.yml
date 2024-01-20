@@ -5,9 +5,9 @@ name: Docker Integration Test
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "DebugSeiDBIntegrationTests" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "DebugSeiDBIntegrationTests" ]
 
 defaults:
   run:
