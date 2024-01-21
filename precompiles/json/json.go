@@ -121,6 +121,10 @@ func (p Precompile) extractAsBytes(_ sdk.Context, method *abi.Method, args []int
 	if !ok {
 		return nil, fmt.Errorf("input does not contain key %s", key)
 	}
+	// in the case of a string value, remove the quotes
+	if len(result) >= 2 && result[0] == '"' && result[len(result)-1] == '"' {
+		result = result[1 : len(result)-1]
+	}
 
 	return method.Outputs.Pack([]byte(result))
 }
