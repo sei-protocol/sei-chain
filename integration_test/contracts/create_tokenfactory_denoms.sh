@@ -2,6 +2,7 @@
 
 seidbin=$(which ~/go/bin/seid | tr -d '"')
 keyname=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].name" | tr -d '"')
+keyaddress=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].address" | tr -d '"')
 chainid=$($seidbin status | jq ".NodeInfo.network" | tr -d '"')
 seihome=$(git rev-parse --show-toplevel | tr -d '"')
 
@@ -10,7 +11,7 @@ echo "Deploying first set of tokenfactory denoms..."
 
 beginning_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height')
 echo "$beginning_block_height" > $seihome/integration_test/contracts/tfk_beginning_block_height.txt
-echo "$keyname"  > $seihome/integration_test/contracts/tfk_creator_id.txt
+echo "$keyaddress"  > $seihome/integration_test/contracts/tfk_creator_id.txt
 
 # create first set of tokenfactory denoms
 for i in {1..100}

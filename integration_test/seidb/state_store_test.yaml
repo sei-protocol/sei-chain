@@ -98,7 +98,7 @@
     - cmd: tail -1 integration_test/contracts/tfk_beginning_block_height.txt
       env: BEGINNING_BLOCK_HEIGHT
     # Verify 0 tfk denoms created at beginning
-    - cmd: seid q tokenfactory denoms-from-creator $CREATOR_ID --output json | jq -r ".denoms | length"
+    - cmd: seid q tokenfactory denoms-from-creator $CREATOR_ID --height $BEGINNING_BLOCK_HEIGHT --output json | jq -r ".denoms | length"
       env: BEGINNING_TFK_DENOMS
     # Get height from first set
     - cmd: tail -1 integration_test/contracts/tfk_first_set_block_height.txt
