@@ -70,6 +70,16 @@ contract CW721ERC721Wrapper is ERC721 {
         return false;
     }
 
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        // revert if token isn't owned
+        ownerOf(tokenId);
+        string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
+        string memory req = _curlyBrace(_formatPayload("nft_info", _curlyBrace(tId)));
+        bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
+        bytes memory uri = JsonPrecompile.extractAsBytes(response, "token_uri");
+        return string(uri);
+    }
+
     // Transactions
     function transferFrom(address from, address to, uint256 tokenId) public override {
         if (to == address(0)) {

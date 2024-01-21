@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -50,6 +53,9 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdAssociateAddress())
 	cmd.AddCommand(CmdSend())
 	cmd.AddCommand(CmdDeployErc20())
+	cmd.AddCommand(CmdDeployErcCw20())
+	cmd.AddCommand(CmdCallContract())
+	cmd.AddCommand(CmdDeployErcCw721())
 
 	return cmd
 }
@@ -144,52 +150,17 @@ func CmdSend() *cobra.Command {
 		Long:  "",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			clientCtx, err := client.GetClientTxContext(cmd)
+			key, err := getPrivateKey(cmd)
 			if err != nil {
 				return err
 			}
-			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
-			kb := txf.Keybase()
-			info, err := kb.Key(clientCtx.GetFromName())
-			if err != nil {
-				return err
-			}
-			localInfo, ok := info.(keyring.LocalInfo)
-			if !ok {
-				return errors.New("can only associate address for local keys")
-			}
-			priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
-			if err != nil {
-				return err
-			}
-			privHex := hex.EncodeToString(priv.Bytes())
-			key, _ := crypto.HexToECDSA(privHex)
 
 			rpc, err := cmd.Flags().GetString(FlagRPC)
 			if err != nil {
 				return err
 			}
-			nonceQuery := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"%s\",\"pending\"],\"id\":\"send-cli\"}", crypto.PubkeyToAddress(key.PublicKey).Hex())
-			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(nonceQuery))
+			nonce, err := getNonce(rpc, key.PublicKey)
 			if err != nil {
-				return err
-			}
-			req.Header.Set("Content-Type", "application/json")
-			res, err := http.DefaultClient.Do(req)
-			if err != nil {
-				return err
-			}
-			defer res.Body.Close()
-			resBody, err := io.ReadAll(res.Body)
-			if err != nil {
-				return err
-			}
-			resObj := map[string]interface{}{}
-			if err := json.Unmarshal(resBody, &resObj); err != nil {
-				return err
-			}
-			nonce := new(hexutil.Uint64)
-			if err := nonce.UnmarshalText([]byte(resObj["result"].(string))); err != nil {
 				return err
 			}
 
@@ -198,57 +169,19 @@ func CmdSend() *cobra.Command {
 			if !success {
 				return fmt.Errorf("%s is an invalid amount to send", args[1])
 			}
-			gasFeeCap, err := cmd.Flags().GetUint64(FlagGasFeeCap)
+			txData, err := getTxData(cmd)
 			if err != nil {
 				return err
 			}
-			gasLimit, err := cmd.Flags().GetUint64(FlagGas)
+			txData.Nonce = uint64(*nonce)
+			txData.Value = val
+			txData.Data = []byte("")
+			txData.To = &to
+			resp, err := sendTx(txData, rpc, key)
 			if err != nil {
 				return err
 			}
-			chainID, err := cmd.Flags().GetUint64(FlagEVMChainID)
-			if err != nil {
-				return err
-			}
-			txData := ethtypes.DynamicFeeTx{
-				Nonce:     uint64(*nonce),
-				GasFeeCap: new(big.Int).SetUint64(gasFeeCap),
-				GasTipCap: new(big.Int).SetUint64(gasFeeCap),
-				Gas:       gasLimit,
-				To:        &to,
-				Value:     val,
-				Data:      []byte(""),
-				ChainID:   new(big.Int).SetUint64(chainID),
-			}
-			ethCfg := types.DefaultChainConfig().EthereumConfig(txData.ChainID)
-			signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), 1)
-			tx := ethtypes.NewTx(&txData)
-			tx, err = ethtypes.SignTx(tx, signer, key)
-			if err != nil {
-				return err
-			}
-			bz, err := tx.MarshalBinary()
-			if err != nil {
-				return err
-			}
-			payload := "0x" + hex.EncodeToString(bz)
-
-			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"send\"}", payload)
-			req, err = http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
-			if err != nil {
-				return err
-			}
-			req.Header.Set("Content-Type", "application/json")
-			res, err = http.DefaultClient.Do(req)
-			if err != nil {
-				return err
-			}
-			defer res.Body.Close()
-			resBody, err = io.ReadAll(res.Body)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Response: %s\n", string(resBody))
+			fmt.Printf("Response: %s\n", resp)
 
 			return nil
 		},
@@ -282,18 +215,6 @@ func CmdDeployErc20() *cobra.Command {
 			}
 			denom := args[0]
 
-			gasFeeCap, err := cmd.Flags().GetUint64(FlagGasFeeCap)
-			if err != nil {
-				return err
-			}
-			gasLimit, err := cmd.Flags().GetUint64(FlagGas)
-			if err != nil {
-				return err
-			}
-			chainID, err := cmd.Flags().GetUint64(FlagEVMChainID)
-			if err != nil {
-				return err
-			}
 			bytecode := native.GetBin()
 			abi := native.GetABI()
 			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
@@ -311,95 +232,29 @@ func CmdDeployErc20() *cobra.Command {
 			}
 			contractData := append(bytecode, packedArgs...)
 
-			clientCtx, err := client.GetClientTxContext(cmd)
+			key, err := getPrivateKey(cmd)
 			if err != nil {
 				return err
 			}
-			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
-			kb := txf.Keybase()
-			info, err := kb.Key(clientCtx.GetFromName())
-			if err != nil {
-				return err
-			}
-			localInfo, ok := info.(keyring.LocalInfo)
-			if !ok {
-				return errors.New("can only associate address for local keys")
-			}
-			priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
-			if err != nil {
-				return err
-			}
-			privHex := hex.EncodeToString(priv.Bytes())
-			key, _ := crypto.HexToECDSA(privHex)
 
 			rpc, err := cmd.Flags().GetString(FlagRPC)
 			if err != nil {
 				return err
 			}
-			nonceQuery := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"%s\",\"pending\"],\"id\":\"send-cli\"}", crypto.PubkeyToAddress(key.PublicKey).Hex())
-			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(nonceQuery))
+			nonce, err := getNonce(rpc, key.PublicKey)
 			if err != nil {
-				return err
-			}
-			req.Header.Set("Content-Type", "application/json")
-			res, err := http.DefaultClient.Do(req)
-			if err != nil {
-				return err
-			}
-			defer res.Body.Close()
-			resBody, err := io.ReadAll(res.Body)
-			if err != nil {
-				return err
-			}
-			resObj := map[string]interface{}{}
-			if err := json.Unmarshal(resBody, &resObj); err != nil {
-				return err
-			}
-			nonce := new(hexutil.Uint64)
-			if err := nonce.UnmarshalText([]byte(resObj["result"].(string))); err != nil {
 				return err
 			}
 
-			txData := ethtypes.DynamicFeeTx{
-				Nonce:     uint64(*nonce),
-				GasFeeCap: new(big.Int).SetUint64(gasFeeCap),
-				GasTipCap: new(big.Int).SetUint64(gasFeeCap),
-				Gas:       gasLimit,
-				Value:     big.NewInt(0),
-				Data:      contractData,
-				ChainID:   new(big.Int).SetUint64(chainID),
-			}
-			ethCfg := types.DefaultChainConfig().EthereumConfig(txData.ChainID)
-			signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), 1)
-			tx := ethtypes.NewTx(&txData)
-			tx, err = ethtypes.SignTx(tx, signer, key)
+			txData, err := getTxData(cmd)
 			if err != nil {
 				return err
 			}
-			bz, err := tx.MarshalBinary()
-			if err != nil {
-				return err
-			}
-			payload := "0x" + hex.EncodeToString(bz)
+			txData.Nonce = uint64(*nonce)
+			txData.Value = big.NewInt(0)
+			txData.Data = contractData
 
-			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"deploy-erc20\"}", payload)
-			req, err = http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
-			if err != nil {
-				return err
-			}
-			req.Header.Set("Content-Type", "application/json")
-			res, err = http.DefaultClient.Do(req)
-			if err != nil {
-				return err
-			}
-			defer res.Body.Close()
-
-			resBody, err = io.ReadAll(res.Body)
-			if err != nil {
-				return err
-			}
-			var resp Response
-			err = json.Unmarshal(resBody, &resp)
+			resp, err := sendTx(txData, rpc, key)
 			if err != nil {
 				return err
 			}
@@ -427,4 +282,331 @@ func CmdDeployErc20() *cobra.Command {
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
+}
+
+func CmdDeployErcCw20() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "deploy-erccw20 [cw20addr] [name] [symbol] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Short: "Deploy ERC20 contract for a CW20 token",
+		Long:  "",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			_, err = sdk.AccAddressFromBech32(args[0])
+			if err != nil {
+				return err
+			}
+
+			bytecode := cw20.GetBin()
+			abi := cw20.GetABI()
+			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
+			if err != nil {
+				fmt.Println("failed at parsing abi")
+				return err
+			}
+			constructorArguments := []interface{}{
+				args[0], args[1], args[2],
+			}
+
+			packedArgs, err := parsedABI.Pack("", constructorArguments...)
+			if err != nil {
+				return err
+			}
+			contractData := append(bytecode, packedArgs...)
+
+			key, err := getPrivateKey(cmd)
+			if err != nil {
+				return err
+			}
+
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			nonce, err := getNonce(rpc, key.PublicKey)
+			if err != nil {
+				return err
+			}
+
+			txData, err := getTxData(cmd)
+			if err != nil {
+				return err
+			}
+			txData.Nonce = uint64(*nonce)
+			txData.Value = big.NewInt(0)
+			txData.Data = contractData
+
+			resp, err := sendTx(txData, rpc, key)
+			if err != nil {
+				return err
+			}
+
+			senderAddr := crypto.PubkeyToAddress(key.PublicKey)
+			data, err := rlp.EncodeToBytes([]interface{}{senderAddr, nonce})
+			if err != nil {
+				return err
+			}
+			hash := crypto.Keccak256Hash(data)
+			contractAddress := hash.Bytes()[12:]
+			contractAddressHex := hex.EncodeToString(contractAddress)
+
+			fmt.Println("Deployer:", senderAddr)
+			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
+			fmt.Println("Transaction hash:", resp.Result)
+			return nil
+		},
+	}
+
+	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
+	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
+	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdDeployErcCw721() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "deploy-erccw721 [cw721addr] [name] [symbol] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Short: "Deploy ERC721 contract for a CW20 token",
+		Long:  "",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			_, err = sdk.AccAddressFromBech32(args[0])
+			if err != nil {
+				return err
+			}
+
+			bytecode := cw721.GetBin()
+			abi := cw721.GetABI()
+			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
+			if err != nil {
+				fmt.Println("failed at parsing abi")
+				return err
+			}
+			constructorArguments := []interface{}{
+				args[0], args[1], args[2],
+			}
+
+			packedArgs, err := parsedABI.Pack("", constructorArguments...)
+			if err != nil {
+				return err
+			}
+			contractData := append(bytecode, packedArgs...)
+
+			key, err := getPrivateKey(cmd)
+			if err != nil {
+				return err
+			}
+
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			nonce, err := getNonce(rpc, key.PublicKey)
+			if err != nil {
+				return err
+			}
+
+			txData, err := getTxData(cmd)
+			if err != nil {
+				return err
+			}
+			txData.Nonce = uint64(*nonce)
+			txData.Value = big.NewInt(0)
+			txData.Data = contractData
+
+			resp, err := sendTx(txData, rpc, key)
+			if err != nil {
+				return err
+			}
+
+			senderAddr := crypto.PubkeyToAddress(key.PublicKey)
+			data, err := rlp.EncodeToBytes([]interface{}{senderAddr, nonce})
+			if err != nil {
+				return err
+			}
+			hash := crypto.Keccak256Hash(data)
+			contractAddress := hash.Bytes()[12:]
+			contractAddressHex := hex.EncodeToString(contractAddress)
+
+			fmt.Println("Deployer:", senderAddr)
+			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
+			fmt.Println("Transaction hash:", resp.Result)
+			return nil
+		},
+	}
+
+	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
+	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
+	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdCallContract() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "call-contract [addr] [payload hex] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Short: "Call EVM contract with a bytes payload in hex",
+		Long:  "",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			contract := common.HexToAddress(args[0])
+			payload, err := hex.DecodeString(args[1])
+			if err != nil {
+				return err
+			}
+
+			key, err := getPrivateKey(cmd)
+			if err != nil {
+				return err
+			}
+
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			nonce, err := getNonce(rpc, key.PublicKey)
+			if err != nil {
+				return err
+			}
+
+			txData, err := getTxData(cmd)
+			if err != nil {
+				return err
+			}
+			txData.Nonce = uint64(*nonce)
+			txData.Value = big.NewInt(0)
+			txData.Data = payload
+			txData.To = &contract
+
+			resp, err := sendTx(txData, rpc, key)
+			if err != nil {
+				return err
+			}
+
+			fmt.Println("Transaction hash:", resp.Result)
+			return nil
+		},
+	}
+
+	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
+	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
+	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
+	clientCtx, err := client.GetClientTxContext(cmd)
+	if err != nil {
+		return nil, err
+	}
+	txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
+	kb := txf.Keybase()
+	info, err := kb.Key(clientCtx.GetFromName())
+	if err != nil {
+		return nil, err
+	}
+	localInfo, ok := info.(keyring.LocalInfo)
+	if !ok {
+		return nil, errors.New("can only associate address for local keys")
+	}
+	priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
+	if err != nil {
+		return nil, err
+	}
+	privHex := hex.EncodeToString(priv.Bytes())
+	key, _ := crypto.HexToECDSA(privHex)
+	return key, nil
+}
+
+func getNonce(rpc string, key ecdsa.PublicKey) (*hexutil.Uint64, error) {
+	nonceQuery := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"%s\",\"pending\"],\"id\":\"send-cli\"}", crypto.PubkeyToAddress(key).Hex())
+	req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(nonceQuery))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	resObj := map[string]interface{}{}
+	if err := json.Unmarshal(resBody, &resObj); err != nil {
+		return nil, err
+	}
+	nonce := new(hexutil.Uint64)
+	if err := nonce.UnmarshalText([]byte(resObj["result"].(string))); err != nil {
+		return nil, err
+	}
+	return nonce, nil
+}
+
+func getTxData(cmd *cobra.Command) (*ethtypes.DynamicFeeTx, error) {
+	gasFeeCap, err := cmd.Flags().GetUint64(FlagGasFeeCap)
+	if err != nil {
+		return nil, err
+	}
+	gasLimit, err := cmd.Flags().GetUint64(FlagGas)
+	if err != nil {
+		return nil, err
+	}
+	chainID, err := cmd.Flags().GetUint64(FlagEVMChainID)
+	if err != nil {
+		return nil, err
+	}
+	return &ethtypes.DynamicFeeTx{
+		GasFeeCap: new(big.Int).SetUint64(gasFeeCap),
+		GasTipCap: new(big.Int).SetUint64(gasFeeCap),
+		Gas:       gasLimit,
+		ChainID:   new(big.Int).SetUint64(chainID),
+	}, nil
+}
+
+func sendTx(txData *ethtypes.DynamicFeeTx, rpc string, key *ecdsa.PrivateKey) (*Response, error) {
+	ethCfg := types.DefaultChainConfig().EthereumConfig(txData.ChainID)
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), 1)
+	tx := ethtypes.NewTx(txData)
+	tx, err := ethtypes.SignTx(tx, signer, key)
+	if err != nil {
+		return nil, err
+	}
+	bz, err := tx.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	payload := "0x" + hex.EncodeToString(bz)
+
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"deploy-erc20\"}", payload)
+	req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	var resp Response
+	err = json.Unmarshal(resBody, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }

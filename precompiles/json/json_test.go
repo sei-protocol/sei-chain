@@ -29,7 +29,7 @@ func TestExtractAsBytes(t *testing.T) {
 			[]byte("1"),
 		}, {
 			[]byte("{\"key\":\"1\"}"),
-			[]byte("\"1\""),
+			[]byte("1"),
 		}, {
 			[]byte("{\"key\":[1,2,3]}"),
 			[]byte("[1,2,3]"),
