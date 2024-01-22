@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
+const { ethers } = require("hardhat");
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -11,7 +12,7 @@ async function delay() {
 
 function debug(msg) {
   // leaving commented out to make output readable (unless debugging)
-  //console.log(msg)
+  console.log(msg)
 }
 
 function generateWallet() {
@@ -96,6 +97,7 @@ describe("EVM Test", function () {
     let evmTester;
     let testToken;
     let owner;
+    let evmAddr;
 
     // This function deploys a new instance of the contract before each test
     beforeEach(async function () {
@@ -115,7 +117,7 @@ describe("EVM Test", function () {
       await Promise.all([evmTester.waitForDeployment(), testToken.waitForDeployment()])
 
       let tokenAddr = await testToken.getAddress()
-      let evmAddr = await evmTester.getAddress()
+      evmAddr = await evmTester.getAddress()
 
       debug(`Token: ${tokenAddr}, EvmAddr: ${evmAddr}`);
     });
@@ -481,11 +483,40 @@ describe("EVM Test", function () {
         const isContract = code !== '0x';
         expect(isContract).to.be.true;
       });
-
     });
 
+    describe("Usei/Wei testing", function() {
+      it.only("Send 1 usei to contract", async function() {
+        const usei = ethers.parseUnits("1", 12);
+        const wei = ethers.parseUnits("1", 0);
+        const twoWei = ethers.parseUnits("2", 0);
 
+        const txResponse = await evmTester.depositEther({
+          value: usei,
+        });
+        await txResponse.wait();  // Wait for the transaction to be mined
+      
+        // Check that the contract received the ETH
+        const contractBalance = await ethers.provider.getBalance(evmAddr);
+        expect(contractBalance).to.equal(usei);
 
+        // send 1 wei out of contract
+        console.log("owner addr = ", owner.address);
+        const txResponse2 = await evmTester.sendEther(owner.address, wei);
+        await txResponse2.wait();  // Wait for the transaction to be mined
+
+        const contractBalance2 = await ethers.provider.getBalance(evmAddr);
+        expect(contractBalance2).to.equal(usei - wei);
+
+        // send 2 wei to contract
+        const txResponse3 = await evmTester.depositEther({
+          value: twoWei,
+        });
+        await txResponse3.wait();  // Wait for the transaction to be mined
+
+        const contractBalance3 = await ethers.provider.getBalance(evmAddr);
+        expect(contractBalance3).to.equal(usei + wei);
+      });
+    });
   });
-
 });
