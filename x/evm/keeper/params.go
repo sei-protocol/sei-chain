@@ -12,8 +12,8 @@ func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 }
 
 func (k *Keeper) GetParams(ctx sdk.Context) types.Params {
-	params := types.Params{}
-	k.Paramstore.GetParamSet(ctx, &params)
+	params := types.DefaultParams()
+	k.Paramstore.GetParamSetIfExists(ctx, &params)
 	return params
 }
 
