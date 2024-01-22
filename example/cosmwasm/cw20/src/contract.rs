@@ -35,6 +35,9 @@ pub fn execute(
         ExecuteMsg::Burn { amount } => {
             execute_burn()
         },
+        ExecuteMsg::Mint { recipient, amount } => {
+            execute_mint()
+        },
         ExecuteMsg::Send { contract, amount, msg } => {
             execute_send(deps, env, info, contract, amount, msg)
         },
@@ -57,8 +60,8 @@ pub fn execute_transfer(
     Ok(res)
 }
 
-// Not sure if this makes sense for a Wrapper contract, since there is no parallel in ERC20.
-// TODO: Do we still want to forward the message to some CW20 contract? Isn't recipient an EVM address?
+// TODO: Not sure if this makes sense for a Wrapper contract, since there is no parallel in ERC20.
+// TODO: Do we still want to forward the message to some CW20 contract? Isn't recipient here an EVM address?
 pub fn execute_send(
     deps: DepsMut<EvmQueryWrapper>,
     _env: Env,
@@ -74,6 +77,7 @@ pub fn execute_send(
         msg,
     };
 
+    // TODO: Taken from Tony's recent PR but not sure why this isn't working here.
     res = res
         .add_message(send.into_cosmos_msg(recipient.clone())?)
         .add_attribute("action", "send");
@@ -109,6 +113,10 @@ pub fn execute_transfer_from(
 
 pub fn execute_burn() -> Result<Response<EvmMsg>, ContractError> {
     Err(ContractError::BurnNotSupported {})
+}
+
+pub fn execute_mint() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::MintNotSupported {})
 }
 
 fn transfer(
