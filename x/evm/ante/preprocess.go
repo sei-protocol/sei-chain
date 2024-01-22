@@ -125,11 +125,6 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 		return err
 	}
 
-	chainID := params.ChainId
-	chainCfg := params.GetChainConfig()
-	ethCfg := chainCfg.EthereumConfig(chainID.BigInt())
-	version := GetVersion(ctx, ethCfg)
-	signer := SignerMap[version](ethCfg.ChainID)
 	if atx, ok := txData.(*ethtx.AssociateTx); ok {
 		V, R, S := atx.GetRawSignatureValues()
 		V = new(big.Int).Add(V, big.NewInt(27))
@@ -141,18 +136,29 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 			SenderEVMAddr: evmAddr,
 			SenderSeiAddr: seiAddr,
 			PubKey:        &secp256k1.PubKey{Key: pubkey.Bytes()},
-			Version:       version,
+			Version:       derived.Cancun,
 			IsAssociate:   true,
 		}
 		return nil
 	}
+
 	ethTx := ethtypes.NewTx(txData.AsEthereumData())
+	var chainID *big.Int
+	if ethTx.Protected() {
+		chainID = ethTx.ChainId()
+	}
+	chainCfg := params.GetChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	version := GetVersion(ctx, ethCfg)
+	signer := SignerMap[version](chainID)
 	if !isTxTypeAllowed(version, ethTx.Type()) {
 		return ethtypes.ErrInvalidChainId
 	}
 
 	V, R, S := ethTx.RawSignatureValues()
-	V = AdjustV(V, ethTx.Type(), ethCfg.ChainID)
+	if ethTx.Protected() {
+		V = AdjustV(V, ethTx.Type(), ethCfg.ChainID)
+	}
 	evmAddr, seiAddr, seiPubkey, err := getAddresses(V, R, S, signer.Hash(ethTx))
 	if err != nil {
 		return err
