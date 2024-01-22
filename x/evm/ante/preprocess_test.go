@@ -2,6 +2,7 @@ package ante_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -45,6 +46,37 @@ func TestPreprocessAnteHandler(t *testing.T) {
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
 	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
+	typedTx, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), sdk.AccAddress(msg.Derived.SenderSeiAddr))
+}
+
+func TestPreprocessAnteHandlerUnprotected(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	to := new(common.Address)
+	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
+	txData := ethtypes.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(10),
+		Gas:      1000,
+		To:       to,
+		Value:    big.NewInt(1000),
+		Data:     []byte("abc"),
+	}
+	signer := ethtypes.NewEIP155Signer(nil)
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	fmt.Println(tx.Hash().Hex())
 	typedTx, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
 	msg, err := types.NewMsgEVMTransaction(typedTx)
