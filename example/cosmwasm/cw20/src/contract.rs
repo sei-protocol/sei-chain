@@ -75,15 +75,8 @@ pub fn execute_send(
     };
 
     res = res
-        .add_message(
-            Cw20ReceiveMsg {
-                sender: info.sender.to_string(),
-                amount: amount.clone(),
-                msg,
-            }
-            .into_cosmos_msg(recipient.clone())?,
-        )
-        .add_attribute("action", "send_nft");
+        .add_message(send.into_cosmos_msg(recipient.clone())?)
+        .add_attribute("action", "send");
     Ok(res)
 }
 
@@ -135,7 +128,7 @@ fn transfer(
     let res = Response::new()
         .add_attribute("from", info.sender)
         .add_attribute("to", recipient)
-        .add_attribute("amount", amount)q
+        .add_attribute("amount", amount)
         .add_message(msg);
 
     Ok(res)
