@@ -402,7 +402,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		}}
 
 	default:
-		fmt.Printf("Unrecognized message type %s", config.MessageType)
+		fmt.Printf("Unrecognized message type %s\n", config.MessageType)
 	}
 
 	if strings.Contains(config.MessageType, "failure") {
