@@ -1,8 +1,9 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    DepsMut, Env, MessageInfo, Response, Uint128,
+    DepsMut, Env, MessageInfo, Response, Uint128, Binary,
 };
+use cw20::Cw20ReceiveMsg;
 use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, ExecuteMsg};
 use crate::querier::EvmQuerier;
 use crate::error::ContractError;
@@ -31,6 +32,12 @@ pub fn execute(
         ExecuteMsg::Transfer { recipient, amount } => {
             execute_transfer(deps, env, info, recipient, amount)
         },
+        ExecuteMsg::Burn { amount } => {
+            execute_burn()
+        },
+        ExecuteMsg::Send { contract, amount, msg } => {
+            execute_send(deps, env, info, contract, amount, msg)
+        },
         ExecuteMsg::TransferFrom { owner, recipient, amount } => {
             execute_transfer_from(deps, env, info, owner, recipient, amount)
         },
@@ -45,20 +52,38 @@ pub fn execute_transfer(
     recipient: String,
     amount: Uint128,
 ) -> Result<Response<EvmMsg>, ContractError> {
-    deps.api.addr_validate(&recipient)?;
+    let mut res = transfer(deps, _env, info, recipient, amount)?;
+    res = res.add_attribute("action", "transfer");
+    Ok(res)
+}
 
-    let erc_addr = ERC20_ADDRESS.load(deps.storage)?;
+// Not sure if this makes sense for a Wrapper contract, since there is no parallel in ERC20.
+// TODO: Do we still want to forward the message to some CW20 contract? Isn't recipient an EVM address?
+pub fn execute_send(
+    deps: DepsMut<EvmQueryWrapper>,
+    _env: Env,
+    info: MessageInfo,
+    recipient: String,
+    amount: Uint128,
+    msg: Binary,
+) -> Result<Response<EvmMsg>, ContractError> {
+    let mut res = transfer(deps, _env, info, recipient, amount)?;
+    let send = Cw20ReceiveMsg {
+        sender: info.sender.to_string(),
+        amount: amount.clone(),
+        msg,
+    };
 
-    let querier = EvmQuerier::new(&deps.querier);
-    let payload = querier.erc20_transfer_payload(recipient.clone(), amount)?;
-    let msg = EvmMsg::DelegateCallEvm { to: erc_addr.into_string(), data: payload.encoded_payload };
-    let res = Response::new()
-        .add_attribute("action", "transfer")
-        .add_attribute("from", info.sender)
-        .add_attribute("to", recipient)
-        .add_attribute("amount", amount)
-        .add_message(msg);
-
+    res = res
+        .add_message(
+            Cw20ReceiveMsg {
+                sender: info.sender.to_string(),
+                amount: amount.clone(),
+                msg,
+            }
+            .into_cosmos_msg(recipient.clone())?,
+        )
+        .add_attribute("action", "send_nft");
     Ok(res)
 }
 
@@ -84,6 +109,33 @@ pub fn execute_transfer_from(
         .add_attribute("to", recipient)
         .add_attribute("by", info.sender)
         .add_attribute("amount", amount)
+        .add_message(msg);
+
+    Ok(res)
+}
+
+pub fn execute_burn() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::BurnNotSupported {})
+}
+
+fn transfer(
+    deps: DepsMut<EvmQueryWrapper>,
+    _env: Env,
+    info: MessageInfo,
+    recipient: String,
+    amount: Uint128,
+) -> Result<Response<EvmMsg>, ContractError> {
+    deps.api.addr_validate(&recipient)?;
+
+    let erc_addr = ERC20_ADDRESS.load(deps.storage)?;
+
+    let querier = EvmQuerier::new(&deps.querier);
+    let payload = querier.erc20_transfer_payload(recipient.clone(), amount)?;
+    let msg = EvmMsg::DelegateCallEvm { to: erc_addr.into_string(), data: payload.encoded_payload };
+    let res = Response::new()
+        .add_attribute("from", info.sender)
+        .add_attribute("to", recipient)
+        .add_attribute("amount", amount)q
         .add_message(msg);
 
     Ok(res)
