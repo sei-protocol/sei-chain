@@ -352,7 +352,6 @@ describe("EVM Test", function () {
               type: 2
             });
             const receipt = await txResponse.wait();
-            console.log(`receipt = `, receipt)
           }
         });
 
@@ -365,7 +364,6 @@ describe("EVM Test", function () {
           const receipt = await txResponse.wait();
           const bn = receipt.blockNumber;
           const block = await ethers.provider.getBlock(bn);
-          // get base fee
           const basefee = block.baseFeePerGas;
           expect(basefee).to.be.greaterThan(0);
         });
@@ -373,14 +371,10 @@ describe("EVM Test", function () {
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
           testCases.forEach(async ([name, maxPriorityFeePerGas, maxFeePerGas]) => {
             it(`EIP-1559 test: ${name}`, async function() {
-              console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
-              console.log(`maxFeePerGas = ${maxFeePerGas}`)
               const balanceBefore = await ethers.provider.getBalance(owner);
               const feeData = await ethers.provider.getFeeData();
-              console.log(`feeData = `, feeData)
               const gasPrice = Number(feeData.gasPrice); 
               expect(gasPrice).to.equal(1);
-              console.log(`gasPrice = ${gasPrice}`);
 
               const zero = ethers.parseUnits('0', 'ether')
               const txResponse = await owner.sendTransaction({
@@ -391,26 +385,20 @@ describe("EVM Test", function () {
                 type: 2
               });
               const receipt = await txResponse.wait();
-              sleep(1000); // somehow this is needed
 
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
 
-              console.log("receipt = ", receipt);
-              
               const balanceAfter = await ethers.provider.getBalance(owner);
 
               const tip = Math.min(
                 Number(maxFeePerGas) - gasPrice,
                 Number(maxPriorityFeePerGas)
               );
-              console.log("tip = ", tip);
               const effectiveGasPrice = tip + gasPrice;
-              console.log("effectiveGasPrice = ", effectiveGasPrice);
             
               const diff = balanceBefore - balanceAfter;
               expect(diff).to.equal(21000 * effectiveGasPrice);
-              console.log("done with test")
             });
           });
         });
