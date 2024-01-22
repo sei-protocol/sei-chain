@@ -580,7 +580,10 @@ func sendTx(txData *ethtypes.DynamicFeeTx, rpcUrl string, key *ecdsa.PrivateKey)
 	ethCfg := types.DefaultChainConfig().EthereumConfig(txData.ChainID)
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), 1)
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(txData), signer, key)
-
+	if err != nil {
+		return common.Hash{}, err
+	}
+	
 	ethClient, err := ethclient.Dial(rpcUrl)
 	if err != nil {
 		return common.Hash{}, err
