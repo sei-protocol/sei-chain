@@ -1,7 +1,6 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
-const { ethers } = require("hardhat");
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -12,7 +11,7 @@ async function delay() {
 
 function debug(msg) {
   // leaving commented out to make output readable (unless debugging)
-  console.log(msg)
+  // console.log(msg)
 }
 
 function generateWallet() {
@@ -486,7 +485,7 @@ describe("EVM Test", function () {
     });
 
     describe("Usei/Wei testing", function() {
-      it.only("Send 1 usei to contract", async function() {
+      it("Send 1 usei to contract", async function() {
         const usei = ethers.parseUnits("1", 12);
         const wei = ethers.parseUnits("1", 0);
         const twoWei = ethers.parseUnits("2", 0);
