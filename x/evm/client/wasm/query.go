@@ -25,7 +25,7 @@ func (h *EVMQueryHandler) HandleStaticCall(ctx sdk.Context, from string, to stri
 	fromAddr := sdk.MustAccAddressFromBech32(from)
 	var toAddr *common.Address
 	if to != "" {
-		toSeiAddr := h.k.SeiAddrToEvmAddr(ctx, sdk.MustAccAddressFromBech32(to))
+		toSeiAddr := common.HexToAddress(to)
 		toAddr = &toSeiAddr
 	}
 	return h.k.StaticCallEVM(ctx, fromAddr, toAddr, data)
@@ -67,7 +67,7 @@ func (h *EVMQueryHandler) HandleERC721Owner(ctx sdk.Context, caller string, cont
 	if !ok {
 		return nil, errors.New("invalid token ID for ERC20, must be a big Int")
 	}
-	bz, err := abi.Pack("ownerOf", t)
+	bz, err := abi.Pack("ownerOf", t.BigInt())
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func (h *EVMQueryHandler) HandleERC721TransferPayload(ctx sdk.Context, from stri
 	if !ok {
 		return nil, errors.New("invalid token ID for ERC20, must be a big Int")
 	}
-	bz, err := abi.Pack("transferFrom", fromEvmAddr, evmAddr, t)
+	bz, err := abi.Pack("transferFrom", fromEvmAddr, evmAddr, t.BigInt())
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (h *EVMQueryHandler) HandleERC721ApprovePayload(ctx sdk.Context, spender st
 	if !ok {
 		return nil, errors.New("invalid token ID for ERC20, must be a big Int")
 	}
-	bz, err := abi.Pack("approve", spenderEvmAddr, t)
+	bz, err := abi.Pack("approve", spenderEvmAddr, t.BigInt())
 	if err != nil {
 		return nil, err
 	}
