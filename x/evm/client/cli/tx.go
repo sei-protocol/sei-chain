@@ -181,7 +181,13 @@ func CmdSend() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Response: %s\n", resp)
+
+			b, err := json.Marshal(resp)
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("Response: %s\n", string(b))
 
 			return nil
 		},
