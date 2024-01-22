@@ -15,6 +15,7 @@
   "devDependencies": {
     "@nomicfoundation/hardhat-foundry": "^1.1.1",
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@openzeppelin/hardhat-upgrades": "^3.0.2",
     "dotenv": "^16.3.1",
     "ethers": "^6.9.0",
     "hardhat": "^2.19.4"

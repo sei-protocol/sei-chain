@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
+const { ethers, upgrades } = require('hardhat');
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -11,7 +12,7 @@ async function delay() {
 
 function debug(msg) {
   // leaving commented out to make output readable (unless debugging)
-  //console.log(msg)
+  // console.log(msg)
 }
 
 function generateWallet() {
@@ -96,6 +97,7 @@ describe("EVM Test", function () {
     let evmTester;
     let testToken;
     let owner;
+    let evmAddr;
 
     // This function deploys a new instance of the contract before each test
     beforeEach(async function () {
@@ -115,7 +117,7 @@ describe("EVM Test", function () {
       await Promise.all([evmTester.waitForDeployment(), testToken.waitForDeployment()])
 
       let tokenAddr = await testToken.getAddress()
-      let evmAddr = await evmTester.getAddress()
+      evmAddr = await evmTester.getAddress()
 
       debug(`Token: ${tokenAddr}, EvmAddr: ${evmAddr}`);
     });
@@ -481,11 +483,45 @@ describe("EVM Test", function () {
         const isContract = code !== '0x';
         expect(isContract).to.be.true;
       });
-
     });
 
+    describe("Contract Upgradeability", function() {
+      it.only("Should allow for contract upgrades", async function() {
+        // deploy BoxV1
+        const Box = await ethers.getContractFactory("Box");
+        const val = 42;
+        const box = await upgrades.deployProxy(Box, [val], { initializer: 'store' });
+        const boxAddr = await box.getAddress();
 
+        // make sure you can retrieve the value
+        const retrievedValue = await box.retrieve();
+        expect(retrievedValue).to.equal(val);
 
+        // upgrade to BoxV2
+        const BoxV2 = await ethers.getContractFactory('BoxV2');
+        console.log('Upgrading Box...');
+        await upgrades.upgradeProxy(boxAddr, BoxV2);
+        console.log('Box upgraded');
+        const boxV2Addr = await box.getAddress();
+        const boxV2 = await BoxV2.attach(boxV2Addr);
+
+        // check that value is still the same
+        const retrievedValue2 = await boxV2.retrieve();
+        expect(retrievedValue2).to.equal(val);
+
+        // use new function in boxV2 and increment value
+        await boxV2.increment();
+
+        // make sure value is incremented
+        expect(await boxV2.retrieve()).to.equal(val+1);
+
+        // store something in value2 and check it(check value2)
+        await boxV2.store2(10);
+        expect(await boxV2.retrieve2()).to.equal(10);
+
+        // ensure value is still the same in boxV2 (checking for any storage corruption)
+        expect(await boxV2.retrieve()).to.equal(val+1);
+      });
+    });
   });
-
 });
