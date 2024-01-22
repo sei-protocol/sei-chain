@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
+const { ethers } = require("hardhat");
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -327,120 +328,93 @@ describe("EVM Test", function () {
         expect(success).to.be.true
       });
 
-      // describe("table test example", async function() {
-      //   const testCases = [
-      //     [1, 1, 2],
-      //     [1, 2, 3],
-      //   ]
-
-      //   testCases.forEach(async ([a, b, expected]) => {
-      //     it.only(`should add ${a} and ${b} correctly`, async function() {
-      //       expect(a + b).to.equal(expected);
-      //     });
-      //   });
-      // });
-
-      describe("EIP-1559 tx should work", async function() {
-        const zeroGwei = ethers.parseUnits("0", "gwei");
+      describe("EIP-1559", async function() {
+        const zero = ethers.parseUnits('0', 'ether')
         const twoGwei = ethers.parseUnits("2", "gwei");
         const oneGwei = ethers.parseUnits("1", "gwei");
 
         console.log("at top of test, oneGwei = ", oneGwei);
         const testCases = [
           ["No truncation from max priority fee", oneGwei, oneGwei],
-          ["With truncation from max priority fee", oneGwei, twoGwei]
+          ["With truncation from max priority fee", oneGwei, twoGwei],
+          ["With complete truncation from max priority fee", zero, twoGwei]
         ];
-        console.log("testCases = ", testCases);
 
-        testCases.forEach(async ([name, maxPriorityFeePerGas, maxFeePerGas]) => {
-          it.only(`EIP-1559 test: ${name}`, async function() {
-            console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
-            console.log(`maxFeePerGas = ${maxFeePerGas}`)
-            const balanceBefore = await ethers.provider.getBalance(owner);
-            const feeData = await ethers.provider.getFeeData();
-            const gasPrice = Number(feeData.gasPrice); 
-            console.log(`gasPrice = ${gasPrice}`);
-
-            const zero = ethers.parseUnits('0', 'ether')
+        it("Should be able to send many EIP-1559 txs", async function () {
+          const oneGwei = ethers.parseUnits("1", "gwei");
+          const zero = ethers.parseUnits('0', 'ether')
+          for (let i = 0; i < 10; i++) {
             const txResponse = await owner.sendTransaction({
               to: owner.address,
               value: zero,
-              maxPriorityFeePerGas: maxPriorityFeePerGas,
-              maxFeePerGas: maxFeePerGas,
+              maxPriorityFeePerGas: oneGwei,
+              maxFeePerGas: oneGwei,
               type: 2
             });
             const receipt = await txResponse.wait();
-            console.log("receipt = ", receipt);
-            
-            const balanceAfter = await ethers.provider.getBalance(owner);
+            console.log(`receipt = `, receipt)
+          }
+        });
 
-            // total cost = (base fee + priority fee) * gas used
-            const tip = Math.min(
-              Number(maxFeePerGas) - gasPrice,
-              Number(maxPriorityFeePerGas)
-            );
-            console.log("tip = ", tip);
-            const effectiveGasPrice = tip + gasPrice;
-            console.log("effectiveGasPrice = ", effectiveGasPrice);
-          
-            const diff = balanceBefore - balanceAfter;
-            expect(diff).to.equal(21000 * effectiveGasPrice);
+        it("Base fee should be positive", async function() {
+          const _zero = ethers.parseUnits('0', 'ether')
+          const txResponse = await owner.sendTransaction({
+            to: owner.address,
+            value: _zero,
+          });
+          const receipt = await txResponse.wait();
+          const bn = receipt.blockNumber;
+          const block = await ethers.provider.getBlock(bn);
+          // get base fee
+          const basefee = block.baseFeePerGas;
+          expect(basefee).to.be.greaterThan(0);
+        });
+
+        describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
+          testCases.forEach(async ([name, maxPriorityFeePerGas, maxFeePerGas]) => {
+            it(`EIP-1559 test: ${name}`, async function() {
+              console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
+              console.log(`maxFeePerGas = ${maxFeePerGas}`)
+              const balanceBefore = await ethers.provider.getBalance(owner);
+              const feeData = await ethers.provider.getFeeData();
+              console.log(`feeData = `, feeData)
+              const gasPrice = Number(feeData.gasPrice); 
+              expect(gasPrice).to.equal(1);
+              console.log(`gasPrice = ${gasPrice}`);
+
+              const zero = ethers.parseUnits('0', 'ether')
+              const txResponse = await owner.sendTransaction({
+                to: owner.address,
+                value: zero,
+                maxPriorityFeePerGas: maxPriorityFeePerGas,
+                maxFeePerGas: maxFeePerGas,
+                type: 2
+              });
+              const receipt = await txResponse.wait();
+              sleep(1000); // somehow this is needed
+
+              expect(receipt).to.not.be.null;
+              expect(receipt.status).to.equal(1);
+
+              console.log("receipt = ", receipt);
+              
+              const balanceAfter = await ethers.provider.getBalance(owner);
+
+              const tip = Math.min(
+                Number(maxFeePerGas) - gasPrice,
+                Number(maxPriorityFeePerGas)
+              );
+              console.log("tip = ", tip);
+              const effectiveGasPrice = tip + gasPrice;
+              console.log("effectiveGasPrice = ", effectiveGasPrice);
+            
+              const diff = balanceBefore - balanceAfter;
+              expect(diff).to.equal(21000 * effectiveGasPrice);
+              console.log("done with test")
+            });
           });
         });
       });
-
-      it("EIP-1559 tx should work", async function () {
-        const balanceBefore = await ethers.provider.getBalance(owner);
-
-        const feeData = await ethers.provider.getFeeData();
-        const gasPrice = Number(feeData.gasPrice); 
-        console.log(`feeData = ${feeData}`)
-        console.log(`gasPrice = ${gasPrice}`)
-        console.log(`maxPriorityFeePerGas = ${feeData.maxPriorityFeePerGas}`)
-        console.log(`maxFeePerGas = ${feeData.maxFeePerGas}`)
-
-        const zero = ethers.parseUnits('0', 'ether')
-        const txResponse = await owner.sendTransaction({
-          to: owner.address,
-          value: zero,
-          // maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
-          maxFeePerGas: feeData.maxFeePerGas,
-          maxPriorityFeePerGas: 0,
-          // maxFeePerGas: 0,
-          type: 2
-        });
-        const receipt = await txResponse.wait();
-        
-        // get block off receipt
-        const bn = receipt.blockNumber;
-        const block = await ethers.provider.getBlock(bn);
-        // get base fee
-        const basefee = block.baseFeePerGas;
-
-        // TODO: do a case without truncation, and with truncation
-        // can use it() within a loop
-        // const priorityFee 
-
-        const balanceAfter = await ethers.provider.getBalance(owner);
-
-        // total cost = (base fee + priority fee) * gas used
-        const tip = Math.min(
-          Number(feeData.maxFeePerGas) - gasPrice,
-          Number(feeData.maxPriorityFeePerGas)
-        );
-        console.log("tip = ", tip);
-        const effectiveGasPrice = tip + gasPrice;
-        console.log("effectiveGasPrice = ", effectiveGasPrice);
-      
-        const diff = balanceBefore - balanceAfter;
-        expect(diff).to.equal(21000 * effectiveGasPrice);
-
-        const success = await sendTransactionAndCheckGas(owner, owner, 0)
-        expect(success).to.be.true
-      });
-
-      // TODO: gasPrice cannot just be 1
-      // TODO: baseFeePerGas is 0 even after more txs
     });
 
     describe("JSON-RPC", function() {
