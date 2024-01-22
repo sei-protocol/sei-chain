@@ -63,6 +63,8 @@ func init() {
 	std.RegisterInterfaces(TestConfig.InterfaceRegistry)
 	app.ModuleBasics.RegisterLegacyAminoCodec(TestConfig.Amino)
 	app.ModuleBasics.RegisterInterfaces(TestConfig.InterfaceRegistry)
+	// Add this so that we don't end up getting disconnected for EVM client
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 100
 }
 
 func run(config Config) {
