@@ -60,7 +60,7 @@ func TestGetBlockReceipt(t *testing.T) {
 		TxType:            1,
 		ContractAddress:   "0x1234567890123456789012345678901234567890",
 		CumulativeGasUsed: 111,
-		TxHashHex:         "0x123456789012345678902345678901234567890123456789012345678901111",
+		TxHashHex:         "0x123456789012345678902345678901234567890123456789012345678900001",
 		GasUsed:           11,
 		Status:            0,
 		EffectiveGasPrice: 10,
@@ -78,7 +78,7 @@ func TestGetBlockReceipt(t *testing.T) {
 		TxType:            1,
 		ContractAddress:   "0x1234567890123456789012345678901234567890",
 		CumulativeGasUsed: 222,
-		TxHashHex:         "0x123456789012345678902345678901234567890123456789012345678902222",
+		TxHashHex:         "0x123456789012345678902345678901234567890123456789012345678900002",
 		GasUsed:           22,
 		Status:            0,
 		EffectiveGasPrice: 10,
@@ -100,9 +100,12 @@ func TestGetBlockReceipt(t *testing.T) {
 	receipt1 := result[0].(map[string]interface{})
 	require.Equal(t, "0x7", receipt1["blockNumber"])
 	require.Equal(t, "0x0", receipt1["transactionIndex"])
+	require.Equal(t, "0x0123456789012345678902345678901234567890123456789012345678900001", receipt1["transactionHash"])
 	receipt2 := result[1].(map[string]interface{})
 	require.Equal(t, "0x7", receipt2["blockNumber"])
 	require.Equal(t, "0x1", receipt2["transactionIndex"])
+	require.Equal(t, "0x0123456789012345678902345678901234567890123456789012345678900002", receipt2["transactionHash"])
+
 }
 
 func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
