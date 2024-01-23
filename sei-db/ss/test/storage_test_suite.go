@@ -557,8 +557,18 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 
 	s.Require().NoError(FillData(db, 10, 50))
 
+	// Verify earliest version is 0
+	earliestVersion, err := db.GetEarliestVersion()
+	s.Require().NoError(err)
+	s.Require().Equal(int64(0), earliestVersion)
+
 	// prune the first 25 versions
 	s.Require().NoError(db.Prune(25))
+
+	// Verify earliest version is 26 (first 25 pruned)
+	earliestVersion, err = db.GetEarliestVersion()
+	s.Require().NoError(err)
+	s.Require().Equal(int64(26), earliestVersion)
 
 	latestVersion, err := db.GetLatestVersion()
 	s.Require().NoError(err)
@@ -587,6 +597,11 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 
 	// prune the latest version which should prune the entire dataset
 	s.Require().NoError(db.Prune(50))
+
+	// Verify earliest version is 51 (first 50 pruned)
+	earliestVersion, err = db.GetEarliestVersion()
+	s.Require().NoError(err)
+	s.Require().Equal(int64(51), earliestVersion)
 
 	for v := int64(1); v <= 50; v++ {
 		for i := 0; i < 10; i++ {
