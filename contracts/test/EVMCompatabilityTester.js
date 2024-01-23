@@ -443,7 +443,7 @@ describe("EVM Test", function () {
 
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
           testCases.forEach(async ([name, maxPriorityFeePerGas, maxFeePerGas]) => {
-            it.only(`EIP-1559 test: ${name}`, async function() {
+            it(`EIP-1559 test: ${name}`, async function() {
               const balanceBefore = await ethers.provider.getBalance(owner);
               const feeData = await ethers.provider.getFeeData();
               const gasPrice = Number(feeData.gasPrice); 
