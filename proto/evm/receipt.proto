@@ -9,6 +9,7 @@ message Log {
   string address = 1;
   repeated string topics = 2;
   bytes data = 3;
+  uint32 index = 4;
 }
 
 message Receipt {

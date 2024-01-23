@@ -47,7 +47,7 @@ func convertLog(l *types.Log, receipt *types.Receipt) *ethtypes.Log {
 		BlockNumber: receipt.BlockNumber,
 		TxHash:      common.HexToHash(receipt.TxHashHex),
 		TxIndex:     uint(receipt.TransactionIndex),
-	}
+		Index:       uint(l.Index)}
 }
 
 func ConvertEthLog(l *ethtypes.Log) *types.Log {
@@ -55,5 +55,6 @@ func ConvertEthLog(l *ethtypes.Log) *types.Log {
 		Address: l.Address.Hex(),
 		Topics:  utils.Map(l.Topics, func(h common.Hash) string { return h.Hex() }),
 		Data:    l.Data,
+		Index:   uint32(l.Index),
 	}
 }
