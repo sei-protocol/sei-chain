@@ -48,13 +48,17 @@ func TestAccounts(t *testing.T) {
 }
 
 func TestCoinbase(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
 	resObj := sendRequestGood(t, "coinbase")
+	Ctx = Ctx.WithBlockHeight(8)
 	result := resObj["result"].(string)
 	require.Equal(t, "0x27f7b8b8b5a4e71e8e9aa671f4e4031e3773303f", result)
 }
 
 func TestGasPrice(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
 	resObj := sendRequestGood(t, "gasPrice")
+	Ctx = Ctx.WithBlockHeight(8)
 	result := resObj["result"].(string)
 	require.Equal(t, "0xa", result)
 }
@@ -65,7 +69,8 @@ func TestFeeHistory(t *testing.T) {
 	bodyByEarliest := []interface{}{"0x1", "earliest", []interface{}{0.5}}
 	bodyOld := []interface{}{"0x1", "0x1", []interface{}{0.5}}
 	bodyFuture := []interface{}{"0x1", "0x9", []interface{}{0.5}}
-	expectedOldest := []string{"0x8", "0x8", "0x1", "0x1", "0x8"}
+	expectedOldest := []string{"0x1", "0x1", "0x1", "0x1", "0x1"}
+	Ctx = Ctx.WithBlockHeight(1)
 	for i, body := range [][]interface{}{
 		bodyByNumber, bodyByLatest, bodyByEarliest, bodyOld, bodyFuture,
 	} {
@@ -94,6 +99,7 @@ func TestFeeHistory(t *testing.T) {
 		errMap := resObj["error"].(map[string]interface{})
 		require.Equal(t, "invalid reward percentiles: must be ascending and between 0 and 100", errMap["message"].(string))
 	}
+	Ctx = Ctx.WithBlockHeight(8)
 }
 
 func TestCalculatePercentiles(t *testing.T) {
