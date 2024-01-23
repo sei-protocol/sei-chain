@@ -10,6 +10,7 @@ type Logs struct {
 }
 
 func (s *DBImpl) AddLog(l *ethtypes.Log) {
+	l.Index = uint(len(s.logs))
 	s.logs = append(s.logs, l)
 }
 
