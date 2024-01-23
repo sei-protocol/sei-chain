@@ -348,7 +348,7 @@ describe("EVM Test", function () {
         const zero = ethers.parseUnits('0', 'ether')
         const txResponse = await owner.sendTransaction({
           to: owner.address,
-          gasPrice: 1,
+          gasPrice: gasPrice,
           value: zero,
           type: 1,
         });
@@ -380,7 +380,7 @@ describe("EVM Test", function () {
 
         const feeData = await ethers.provider.getFeeData();
         const gasPrice = Number(feeData.gasPrice);
-        const higherGasPrice = gasPrice + 9
+        const higherGasPrice = Number(gasPrice + 9)
         console.log(`gasPrice = ${gasPrice}`)
 
         const zero = ethers.parseUnits('0', 'ether')
