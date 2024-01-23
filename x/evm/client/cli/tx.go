@@ -583,7 +583,7 @@ func sendTx(txData *ethtypes.DynamicFeeTx, rpcUrl string, key *ecdsa.PrivateKey)
 	if err != nil {
 		return common.Hash{}, err
 	}
-	
+
 	ethClient, err := ethclient.Dial(rpcUrl)
 	if err != nil {
 		return common.Hash{}, err
