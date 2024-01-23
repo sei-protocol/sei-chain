@@ -69,7 +69,6 @@ func hydrateTransaction(
 	idx := hexutil.Uint64(receipt.TransactionIndex)
 	al := tx.AccessList()
 	v, r, s := tx.RawSignatureValues()
-	v = ante.AdjustV(v, tx.Type(), tx.ChainId())
 	var yparity *hexutil.Uint64
 	if tx.Type() != ethtypes.LegacyTxType {
 		yp := hexutil.Uint64(v.Sign())
