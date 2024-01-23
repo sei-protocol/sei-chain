@@ -211,8 +211,8 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 
 	if blkNr != nil {
 		sdkCtx = t.ctxProvider(*blkNr)
-		if !evmExists(sdkCtx, t.keeper) {
-			return nil, errors.New("requested height is either pruned or before EVM is introduced")
+		if err := CheckVersion(sdkCtx, t.keeper); err != nil {
+			return nil, err
 		}
 	}
 

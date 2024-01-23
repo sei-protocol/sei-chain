@@ -43,8 +43,8 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
-		if !bankExists(sdkCtx, a.keeper) || !evmExists(sdkCtx, a.keeper) {
-			return nil, errors.New("requested height is pruned")
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
 		}
 	}
 	statedb := state.NewDBImpl(sdkCtx, a.keeper, true)
@@ -61,8 +61,8 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
-		if !evmExists(sdkCtx, a.keeper) {
-			return nil, errors.New("requested height is pruned")
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
 		}
 	}
 	code := a.keeper.GetCode(sdkCtx, address)
@@ -79,8 +79,8 @@ func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hex
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
-		if !evmExists(sdkCtx, a.keeper) {
-			return nil, errors.New("requested height is pruned")
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
 		}
 	}
 	key, _, err := decodeHash(hexKey)
@@ -119,8 +119,8 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 		return nil, err
 	}
 	sdkCtx := a.ctxProvider(block.Block.Height)
-	if !evmExists(sdkCtx, a.keeper) {
-		return nil, errors.New("requested height is pruned")
+	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+		return nil, err
 	}
 	var iavl *iavlstore.Store
 	s := sdkCtx.MultiStore().GetKVStore((a.keeper.GetStoreKey()))
