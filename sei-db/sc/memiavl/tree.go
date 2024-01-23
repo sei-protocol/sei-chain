@@ -126,6 +126,7 @@ func (t *Tree) Copy(cacheSize int) *Tree {
 	newTree := *t
 	// cache is not copied along because it's not thread-safe to access
 	newTree.cache = NewCache(cacheSize)
+	newTree.mtx = &sync.RWMutex{}
 	return &newTree
 }
 

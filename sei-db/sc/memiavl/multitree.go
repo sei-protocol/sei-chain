@@ -362,7 +362,7 @@ func (t *MultiTree) WriteSnapshot(ctx context.Context, dir string, wp *pond.Work
 	}
 
 	// write the snapshots in parallel and wait all jobs done
-	group, _ := wp.GroupContext(context.Background())
+	group, _ := wp.GroupContext(ctx)
 
 	for _, entry := range t.trees {
 		tree, name := entry.Tree, entry.Name
