@@ -1394,6 +1394,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			ProposerAddress: ctx.BlockHeader().ProposerAddress,
 		},
 	}
+
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 

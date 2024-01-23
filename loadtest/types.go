@@ -34,8 +34,9 @@ type Config struct {
 	GrpcEndpoints      string                `json:"grpc_endpoints"`
 	BlockchainEndpoint string                `json:"blockchain_endpoint"`
 	NodeURI            string                `json:"node_uri"`
-	TargetTps          uint64                `json:"target_tps"`
+	TxsPerBlock        uint64                `json:"txs_per_block"`
 	MsgsPerTx          uint64                `json:"msgs_per_tx"`
+	Rounds             uint64                `json:"rounds"`
 	MessageType        string                `json:"message_type"`
 	RunOracle          bool                  `json:"run_oracle"`
 	PriceDistr         NumericDistribution   `json:"price_distribution"`
@@ -45,6 +46,8 @@ type Config struct {
 	ContractDistr      ContractDistributions `json:"contract_distribution"`
 	PerMessageConfigs  MessageConfigs        `json:"message_configs"`
 	MetricsPort        uint64                `json:"metrics_port"`
+	Constant           bool                  `json:"constant"`
+	LoadInterval       int64                 `json:"loadtest_interval"`
 	TLS                bool                  `json:"tls"`
 }
 

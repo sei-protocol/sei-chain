@@ -1,11 +1,12 @@
 {
     "grpc_endpoints": "127.0.0.1:9090",
-    "blockchain_endpoint": "http://localhost:26657",
+    "blockchain_endpoint": "http://localhost:26657/blockchain",
     "node_uri": "tcp://localhost:26657",
     "tls": false,
-    "msgs_per_tx": 1,
+    "msgs_per_tx": 10,
     "chain_id": "sei-loadtest-testnet",
-    "target_tps": 500,
+    "txs_per_block": 400,
+    "rounds": 5,
     "price_distribution": {
         "min": "45",
         "max": "55",
@@ -19,7 +20,7 @@
     "message_configs": {
       "default": {
         "gas": 3000000,
-        "fee": 200000
+        "fee": 50000
       },
       "collect_rewards": {
         "gas": 10000000,
@@ -41,6 +42,8 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
+    "constant": true,
+    "loadtest_interval": 600,
     "message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
     "run_oracle": false,
     "metrics_port": 9695,

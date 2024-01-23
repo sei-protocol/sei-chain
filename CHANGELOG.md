@@ -27,21 +27,6 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
-## v3.6.1
-sei-chain:
-* [#1204](https://github.com/sei-protocol/sei-chain/pull/1204) Cleanup removed oracle feeds
-* [#1196](https://github.com/sei-protocol/sei-chain/pull/1196) Add panic handler in dex endblock
-* [#1170](https://github.com/sei-protocol/sei-chain/pull/1170) Integrate SeiDB into Sei Chain
-
-sei-cosmos:
-* [#391](https://github.com/sei-protocol/sei-cosmos/pull/391) Fix potential memory leak due to emitting events
-* [#388](https://github.com/sei-protocol/sei-cosmos/pull/388) Improve cachekv write performance
-* [#385](https://github.com/sei-protocol/sei-cosmos/pull/385) Add params to disable seqno
-* [#373](https://github.com/sei-protocol/sei-cosmos/pull/373) Add root multistore v2 for SeiDB
-
-sei-tendermint:
-* [#175](https://github.com/sei-protocol/sei-tendermint/pull/175) Fix self remediation bug for block sync
-
 ## v3.5.0
 sei-chain:
 * [#1164](https://github.com/sei-protocol/sei-chain/pull/1164) Bump wasmd
