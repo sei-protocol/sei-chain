@@ -94,7 +94,7 @@ func TestGetBlockReceipt(t *testing.T) {
 		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"),
 	})
 
-	resObj := sendRequestGood(t, "getBlockReceipt", "0x7")
+	resObj := sendRequestGood(t, "getBlockReceipts", "0x7")
 	result := resObj["result"].([]interface{})
 	require.Equal(t, 2, len(result))
 	receipt1 := result[0].(map[string]interface{})

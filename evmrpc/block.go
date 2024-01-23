@@ -90,9 +90,9 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
-func (a *BlockAPI) GetBlockReceipt(ctx context.Context, number rpc.BlockNumber) (result []map[string]interface{}, returnErr error) {
+func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getBlockReceipt", startTime, returnErr == nil)
+	defer recordMetrics("eth_getBlockReceipts", startTime, returnErr == nil)
 	// Get height from params
 	heightPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
