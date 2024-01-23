@@ -109,7 +109,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber)
 		height = *heightPtr
 	}
 	txHashes := a.keeper.GetTxHashesOnHeight(a.ctxProvider(height), height)
-	// For get tx receipt for all hashes in parallel
+	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
 	allReceipts := make([]map[string]interface{}, len(txHashes))
