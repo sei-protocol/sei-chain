@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -51,60 +50,21 @@ func TestGetBlockTransactionCount(t *testing.T) {
 }
 
 func TestGetBlockReceipts(t *testing.T) {
-	// Set two receipts in a single block
-	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"), &types.Receipt{
-		From:              "0x1234567890123456789012345678901234567890",
-		To:                "0x1234567890123456789012345678901234567890",
-		TransactionIndex:  0,
-		BlockNumber:       7,
-		TxType:            1,
-		ContractAddress:   "0x1234567890123456789012345678901234567890",
-		CumulativeGasUsed: 111,
-		TxHashHex:         "0x123456789012345678902345678901234567890123456789012345678900001",
-		GasUsed:           11,
-		Status:            0,
-		EffectiveGasPrice: 10,
-		Logs: []*types.Log{{
-			Address: "0x1111111111111111111111111111111111111111",
-			Topics:  []string{"0x1111111111111111111111111111111111111111111111111111111111111111", "0x1111111111111111111111111111111111111111111111111111111111111112"},
-		}},
-	})
-
-	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"), &types.Receipt{
-		From:              "0x1234567890123456789012345678901234567890",
-		To:                "0x1234567890123456789012345678901234567890",
-		TransactionIndex:  1,
-		BlockNumber:       7,
-		TxType:            1,
-		ContractAddress:   "0x1234567890123456789012345678901234567890",
-		CumulativeGasUsed: 222,
-		TxHashHex:         "0x123456789012345678902345678901234567890123456789012345678900002",
-		GasUsed:           22,
-		Status:            0,
-		EffectiveGasPrice: 10,
-		Logs: []*types.Log{{
-			Address: "0x1111111111111111111111111111111111111111",
-			Topics:  []string{"0x1111111111111111111111111111111111111111111111111111111111111111", "0x1111111111111111111111111111111111111111111111111111111111111112"},
-		}},
-	})
-
-	// Set two tx hash in a single block
-	EVMKeeper.SetTxHashesOnHeight(Ctx, 7, []common.Hash{
-		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"),
-		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"),
-	})
-
-	resObj := sendRequestGood(t, "getBlockReceipts", "0x7")
+	resObj := sendRequestGood(t, "getBlockReceipts", "0x2")
 	result := resObj["result"].([]interface{})
-	require.Equal(t, 2, len(result))
+	require.Equal(t, 3, len(result))
 	receipt1 := result[0].(map[string]interface{})
-	require.Equal(t, "0x7", receipt1["blockNumber"])
+	require.Equal(t, "0x2", receipt1["blockNumber"])
 	require.Equal(t, "0x0", receipt1["transactionIndex"])
 	require.Equal(t, "0x0123456789012345678902345678901234567890123456789012345678900001", receipt1["transactionHash"])
 	receipt2 := result[1].(map[string]interface{})
-	require.Equal(t, "0x7", receipt2["blockNumber"])
+	require.Equal(t, "0x2", receipt2["blockNumber"])
 	require.Equal(t, "0x1", receipt2["transactionIndex"])
 	require.Equal(t, "0x0123456789012345678902345678901234567890123456789012345678900002", receipt2["transactionHash"])
+	receipt3 := result[2].(map[string]interface{})
+	require.Equal(t, "0x2", receipt3["blockNumber"])
+	require.Equal(t, "0x2", receipt3["transactionIndex"])
+	require.Equal(t, "0x0123456789012345678902345678901234567890123456789012345678900003", receipt3["transactionHash"])
 
 }
 
