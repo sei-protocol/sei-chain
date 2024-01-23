@@ -428,7 +428,7 @@ describe("EVM Test", function () {
         });
 
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
-          testCases.forEach(async ([name, maxPriorityFeePerGas, maxFeePerGas]) => {
+          for (const [name, maxPriorityFeePerGas, maxFeePerGas] of testCases) {
             it(`EIP-1559 test: ${name}`, async function() {
               console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
               console.log(`maxFeePerGas = ${maxFeePerGas}`)
@@ -458,12 +458,12 @@ describe("EVM Test", function () {
               console.log(`tip = ${tip}`)
               const effectiveGasPrice = tip + gasPrice;
               console.log(`effectiveGasPrice = ${effectiveGasPrice}`)
-            
+
               const diff = balanceBefore - balanceAfter;
               console.log(`diff = ${diff}`)
               expect(diff).to.equal(21000 * effectiveGasPrice);
             });
-          });
+          }
         });
       });
     });
@@ -559,6 +559,14 @@ describe("EVM Test", function () {
         const nonce = await ethers.provider.getTransactionCount(owner.address);
         expect(nonce).to.be.a('number');
       });
+
+      it.only("Should get multiple logs in a receipt", async function () {
+        const txResponse = await evmTester.emitMultipleLogs(5);
+        const receipt = await txResponse.wait();
+        for(let i=0; i<receipt.logs.length; i++) {
+          expect(receipt.logs[i].index).to.equal(i);
+        }
+      })
 
       it("Should fetch logs for a specific event", async function () {
         // Emit an event by making a transaction
