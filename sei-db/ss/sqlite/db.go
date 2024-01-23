@@ -138,6 +138,14 @@ func (db *Database) SetLatestVersion(version int64) error {
 	return nil
 }
 
+func (db *Database) GetEarliestVersion() (int64, error) {
+	panic("not implemented")
+}
+
+func (db *Database) SetEarliestVersion(version int64) error {
+	panic("not implemented")
+}
+
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
 	val, err := db.Get(storeKey, version, key)
 	if err != nil {
