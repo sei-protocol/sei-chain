@@ -69,7 +69,7 @@ func TestInternalCall(t *testing.T) {
 	val := sdk.NewInt(0)
 	req = &types.MsgInternalEVMCall{
 		Sender: testAddr.String(),
-		To:     sdk.AccAddress(contractAddr[:]).String(),
+		To:     contractAddr.Hex(),
 		Data:   args,
 		Value:  &val,
 	}
