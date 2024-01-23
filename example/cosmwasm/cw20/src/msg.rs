@@ -1,4 +1,5 @@
-use cosmwasm_std::{Uint128, CosmosMsg, CustomMsg, CustomQuery};
+use cosmwasm_std::{CosmosMsg, CustomMsg, CustomQuery, StdResult, Uint128, WasmMsg};
+use cw20::Cw20ReceiveMsg;
 use schemars::JsonSchema;
 use cosmwasm_schema::cw_serde;
 use serde::{Deserialize, Serialize};
@@ -65,4 +66,19 @@ pub enum EvmMsg {
         to: String,
         data: String, // base64 encoded
     },
+}
+
+/// Helper to convert a Cw20ReceiveMsg into an EvmMsg
+pub fn cw20receive_into_cosmos_msg<T: Into<String>, C>(contract_addr: T, message: Cw20ReceiveMsg) -> StdResult<CosmosMsg<C>> 
+where
+    C: Clone + std::fmt::Debug + PartialEq + JsonSchema,
+{
+    let msg = message.into_binary()?;
+    let execute = WasmMsg::Execute {
+        contract_addr: contract_addr.into(),
+        msg,
+        funds: vec![],
+    };
+
+    Ok(execute.into())
 }
