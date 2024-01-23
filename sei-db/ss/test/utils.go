@@ -42,10 +42,6 @@ func FillData(db types.StateStore, numKeys int, versions int) error {
 
 // Helper for creating the changeset and applying it to db
 func DBApplyChangeset(db types.StateStore, version int64, storeKey string, key, val [][]byte) error {
-	if version <= 0 {
-		panic("version must be greater than 0")
-	}
-
 	if len(key) != len(val) {
 		panic("length of keys must match length of vals")
 	}
