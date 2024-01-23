@@ -24,10 +24,10 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -321,8 +321,23 @@ var Ctx sdk.Context
 
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
-	EVMKeeper, Ctx = testkeeper.MockEVMKeeper()
-
+	testApp := app.Setup(false, false)
+	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	EVMKeeper = &testApp.EvmKeeper
+	EVMKeeper.InitGenesis(Ctx, *evmtypes.DefaultGenesis())
+	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
+	if err != nil {
+		panic(err)
+	}
+	err = testApp.BankKeeper.MintCoins(Ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	err = testApp.BankKeeper.SendCoinsFromModuleToAccount(Ctx, "evm", seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	testApp.Commit(context.Background())
 	// Start good http server
 	goodConfig := evmrpc.DefaultConfig
 	goodConfig.HTTPPort = TestPort
@@ -403,7 +418,6 @@ func generateTxData() {
 	}); err != nil {
 		panic(err)
 	}
-
 	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
 	if err != nil {
 		panic(err)
