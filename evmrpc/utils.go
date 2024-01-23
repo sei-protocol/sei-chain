@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -282,4 +283,22 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 func recordMetrics(apiMethod string, startTime time.Time, success bool) {
 	metrics.IncrementRpcRequestCounter(apiMethod, success)
 	metrics.MeasureRpcRequestLatency(apiMethod, startTime)
+}
+
+func CheckVersion(ctx sdk.Context, k *keeper.Keeper) error {
+	if !evmExists(ctx, k) {
+		return fmt.Errorf("evm module does not exist on height %d", ctx.BlockHeight())
+	}
+	if !bankExists(ctx, k) {
+		return fmt.Errorf("bank module does not exist on height %d", ctx.BlockHeight())
+	}
+	return nil
+}
+
+func bankExists(ctx sdk.Context, k *keeper.Keeper) bool {
+	return ctx.KVStore(k.BankKeeper().GetStoreKey()).VersionExists(ctx.BlockHeight())
+}
+
+func evmExists(ctx sdk.Context, k *keeper.Keeper) bool {
+	return ctx.KVStore(k.GetStoreKey()).VersionExists(ctx.BlockHeight())
 }
