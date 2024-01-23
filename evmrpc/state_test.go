@@ -21,6 +21,7 @@ import (
 )
 
 func TestGetBalance(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
 	tests := []struct {
 		name       string
 		addr       string
@@ -87,9 +88,11 @@ func TestGetBalance(t *testing.T) {
 			}
 		})
 	}
+	Ctx = Ctx.WithBlockHeight(8)
 }
 
 func TestGetCode(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
 	wantKey := "0x" + hex.EncodeToString([]byte("abc"))
 	tests := []struct {
 		name    string
@@ -141,9 +144,11 @@ func TestGetCode(t *testing.T) {
 			}
 		})
 	}
+	Ctx = Ctx.WithBlockHeight(8)
 }
 
 func TestGetStorageAt(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
 	hexValue := common.BytesToHash([]byte("value"))
 	wantValue := "0x" + hex.EncodeToString(hexValue[:])
 	tests := []struct {
@@ -197,6 +202,7 @@ func TestGetStorageAt(t *testing.T) {
 			}
 		})
 	}
+	Ctx = Ctx.WithBlockHeight(8)
 }
 
 func TestGetProof(t *testing.T) {
