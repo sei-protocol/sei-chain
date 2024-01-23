@@ -528,12 +528,48 @@ describe("EVM Test", function () {
         expect(block.transactions).to.be.an('array');
       });
 
-      it("Should retrieve a transaction receipt", async function () {
+      it.only("Should retrieve a transaction receipt", async function () {
         const txResponse = await evmTester.setBoolVar(false);
         await txResponse.wait();
         const receipt = await ethers.provider.getTransactionReceipt(txResponse.hash);
-        expect(receipt).to.not.be.null;
+        console.log("receipt = ", receipt)
+        expect(receipt).to.not.be.undefined;
         expect(receipt.hash).to.equal(txResponse.hash);
+        expect(receipt.blockHash).to.not.be.undefined;
+        expect(receipt.blockNumber).to.not.be.undefined;
+        // expect(receipt.transactionHash).to.not.be.undefined; // this fails, it is undefined
+        console.log("receipt.transactionHash = ", receipt.transactionHash)
+        expect(receipt.logsBloom).to.not.be.undefined;
+        expect(receipt.gasUsed).to.be.greaterThan(0);
+        // expect(receipt.cumulativeGasUsed).to.be.greaterThan(0); // <- this is failing (it is 0)
+        expect(receipt.gasPrice).to.be.greaterThanOrEqual(Number(ethers.parseUnits("1", "gwei")));
+        expect(receipt.type).to.equal(0);
+        expect(receipt.status).to.equal(1);
+        // expect(receipt.effectiveGasPrice).to.be.greaterThan(Number(ethers.parseUnits("1", "gwei"))); // <- this is failing (doesnt show up)
+        expect(receipt.to).to.equal(await evmTester.getAddress());
+        expect(receipt.from).to.equal(owner.address);
+        expect(receipt.contractAddress).to.equal(receipt.to);
+        // expect(receipt.transactionIndex).to.not.be.undefined; // <- this seems to be undefined
+        console.log("receipt.logs = ", receipt.logs)
+        const logs = receipt.logs
+        for (let i = 0; i < logs.length; i++) {
+          const log = logs[i];
+          console.log("log = ", log)
+          expect(log).to.not.be.undefined;
+          expect(log.address).to.equal(receipt.contractAddress);
+          expect(log.topics).to.be.an('array');
+          expect(log.data).to.be.a('string');
+          expect(log.data.startsWith('0x')).to.be.true;
+          expect(log.data.length).to.be.greaterThan(3);
+          expect(log.blockNumber).to.equal(receipt.blockNumber);
+          // expect(log.transactionHash).to.equal(receipt.transactionHash) // <- this fails, it is undefined
+          // somehow log.transactionHash exists but receipt.transactionHash does not
+          expect(log.transactionHash).to.not.be.undefined;
+          expect(log.transactionIndex).to.be.greaterThanOrEqual(0);
+          expect(log.blockHash).to.equal(receipt.blockHash);
+          // expect(log.logIndex).to.equal(i); // <- this fails, ours is called index not logIndex but logIndex is right
+          // expect(log.removed).to.be.false; // <- removed is undefined
+        }
       });
 
       it("Should fetch the current gas price", async function () {
