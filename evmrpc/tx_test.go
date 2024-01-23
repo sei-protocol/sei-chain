@@ -125,10 +125,10 @@ func TestGetTransaction(t *testing.T) {
 		require.Equal(t, "0x0", resObj["type"].(string))
 		require.Equal(t, 0, len(resObj["accessList"].([]interface{})))
 		require.Equal(t, "0xae3f3", resObj["chainId"].(string))
-		require.Equal(t, "0x1b", resObj["v"].(string))
+		require.Equal(t, "0x0", resObj["v"].(string))
 		require.Equal(t, "0xa1ac0e5b8202742e54ae7af350ed855313cc4f9861c2d75a0e541b4aff7c981e", resObj["r"].(string))
 		require.Equal(t, "0x288b16881aed9640cd360403b9db1ce3961b29af0b00158311856d1446670996", resObj["s"].(string))
-		require.Equal(t, "0x1", resObj["yParity"].(string))
+		require.Equal(t, "0x0", resObj["yParity"].(string))
 	}
 
 	for _, body := range []string{bodyByBlockNumberAndIndex, bodyByBlockHashAndIndex, bodyByHash} {
@@ -152,6 +152,7 @@ func TestGetPendingTransactionByHash(t *testing.T) {
 }
 
 func TestGetTransactionCount(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
 	// happy path
 	bodyByNumber := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"0x8\"],\"id\":\"test\"}"
 	bodyByHash := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"0x3030303030303030303030303030303030303030303030303030303030303031\"],\"id\":\"test\"}"
@@ -202,6 +203,7 @@ func TestGetTransactionCount(t *testing.T) {
 		errMsg := errMap["message"].(string)
 		require.Equal(t, errStr, errMsg)
 	}
+	Ctx = Ctx.WithBlockHeight(8)
 }
 
 func TestGetTransactionError(t *testing.T) {
@@ -232,7 +234,8 @@ func TestSign(t *testing.T) {
 	require.Nil(t, err)
 	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
 	require.Nil(t, err)
-	account := infoApi.Accounts()[0]
+	accounts, _ := infoApi.Accounts()
+	account := accounts[0]
 	signed, err := txApi.Sign(account, []byte("data"))
 	require.Nil(t, err)
 	require.NotEmpty(t, signed)

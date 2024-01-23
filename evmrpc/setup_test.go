@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -23,10 +24,10 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -278,7 +279,7 @@ func buildSingleResultEvent(data interface{}, more bool, cursor string, event st
 }
 
 func (c *MockClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
-	return &coretypes.ResultBroadcastTx{Code: 0}, nil
+	return &coretypes.ResultBroadcastTx{Code: 0, Hash: []byte("0x123")}, nil
 }
 
 func (c *MockClient) UnconfirmedTxs(ctx context.Context, page, perPage *int) (*coretypes.ResultUnconfirmedTxs, error) {
@@ -320,7 +321,24 @@ var Ctx sdk.Context
 
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
-	EVMKeeper, Ctx = testkeeper.MockEVMKeeper()
+	testApp := app.Setup(false, false)
+	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	EVMKeeper = &testApp.EvmKeeper
+	EVMKeeper.InitGenesis(Ctx, *evmtypes.DefaultGenesis())
+	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
+	if err != nil {
+		panic(err)
+	}
+	err = testApp.BankKeeper.MintCoins(Ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	err = testApp.BankKeeper.SendCoinsFromModuleToAccount(Ctx, "evm", seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	testApp.Commit(context.Background())
+	// Start good http server
 	goodConfig := evmrpc.DefaultConfig
 	goodConfig.HTTPPort = TestPort
 	goodConfig.WSPort = TestWSPort
@@ -336,6 +354,8 @@ func init() {
 	if err := HttpServer.Start(); err != nil {
 		panic(err)
 	}
+
+	// Start bad http server
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
@@ -346,6 +366,8 @@ func init() {
 	if err := badHTTPServer.Start(); err != nil {
 		panic(err)
 	}
+
+	// Start ws server
 	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, "")
 	if err != nil {
 		panic(err)
@@ -356,9 +378,17 @@ func init() {
 	fmt.Printf("wsServer started with config = %+v\n", goodConfig)
 	time.Sleep(1 * time.Second)
 
+	// Generate data
+	generateTxData()
+
+	// Setup logs
+	setupLogs()
+}
+
+func generateTxData() {
 	chainId := big.NewInt(types.DefaultChainID.Int64())
 	to := common.HexToAddress("010203")
-	txData := ethtypes.DynamicFeeTx{
+	txBuilder, tx := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     1,
 		GasFeeCap: big.NewInt(10),
 		Gas:       1000,
@@ -366,33 +396,8 @@ func init() {
 		Value:     big.NewInt(1000),
 		Data:      []byte("abc"),
 		ChainID:   chainId,
-	}
-	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
-	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
-	privKey := hd.Secp256k1.Generate()(derivedPriv)
-	testPrivHex := hex.EncodeToString(privKey.Bytes())
-	key, _ := crypto.HexToECDSA(testPrivHex)
-	evmParams := EVMKeeper.GetParams(Ctx)
-	ethCfg := evmParams.GetChainConfig().EthereumConfig(chainId)
-	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
-	tx := ethtypes.NewTx(&txData)
-	tx, err = ethtypes.SignTx(tx, signer, key)
-	if err != nil {
-		panic(err)
-	}
-	typedTx, err := ethtx.NewDynamicFeeTx(tx)
-	if err != nil {
-		panic(err)
-	}
-	msg, err := types.NewMsgEVMTransaction(typedTx)
-	if err != nil {
-		panic(err)
-	}
-	b := TxConfig.NewTxBuilder()
-	if err := b.SetMsgs(msg); err != nil {
-		panic(err)
-	}
-	Tx = b.GetTx()
+	})
+	Tx = txBuilder.GetTx()
 	TxNonEvm = app.TestTx{}
 	if err := EVMKeeper.SetReceipt(Ctx, tx.Hash(), &types.Receipt{
 		From:              "0x1234567890123456789012345678901234567890",
@@ -430,9 +435,13 @@ func init() {
 		common.BytesToHash([]byte("key")),
 		common.BytesToHash([]byte("value")),
 	)
+	EVMKeeper.SetAddressMapping(
+		Ctx,
+		sdk.MustAccAddressFromBech32("sei1mf0llhmqane5w2y8uynmghmk2w4mh0xll9seym"),
+		common.HexToAddress("0x1df809C639027b465B931BD63Ce71c8E5834D9d6"),
+	)
 	EVMKeeper.SetNonce(Ctx, common.HexToAddress("0x1234567890123456789012345678901234567890"), 1)
-
-	unconfirmedTxData := ethtypes.DynamicFeeTx{
+	unconfirmedTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     2,
 		GasFeeCap: big.NewInt(10),
 		Gas:       1000,
@@ -440,27 +449,39 @@ func init() {
 		Value:     big.NewInt(2000),
 		Data:      []byte("abc"),
 		ChainID:   chainId,
-	}
-	tx = ethtypes.NewTx(&unconfirmedTxData)
-	tx, err = ethtypes.SignTx(tx, signer, key)
-	if err != nil {
-		panic(err)
-	}
-	typedTx, err = ethtx.NewDynamicFeeTx(tx)
-	if err != nil {
-		panic(err)
-	}
-	msg, err = types.NewMsgEVMTransaction(typedTx)
-	if err != nil {
-		panic(err)
-	}
-	b = TxConfig.NewTxBuilder()
-	if err := b.SetMsgs(msg); err != nil {
-		panic(err)
-	}
-	UnconfirmedTx = b.GetTx()
+	})
+	UnconfirmedTx = unconfirmedTxBuilder.GetTx()
+}
 
-	setupLogs()
+func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transaction) {
+	chainId := big.NewInt(types.DefaultChainID.Int64())
+	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
+	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
+	privKey := hd.Secp256k1.Generate()(derivedPriv)
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	evmParams := EVMKeeper.GetParams(Ctx)
+	ethCfg := evmParams.GetChainConfig().EthereumConfig(chainId)
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
+	tx := ethtypes.NewTx(&txData)
+	tx, err := ethtypes.SignTx(tx, signer, key)
+	if err != nil {
+		panic(err)
+	}
+
+	typedTx, err := ethtx.NewDynamicFeeTx(tx)
+	if err != nil {
+		panic(err)
+	}
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	if err != nil {
+		panic(err)
+	}
+	builder := TxConfig.NewTxBuilder()
+	if err := builder.SetMsgs(msg); err != nil {
+		panic(err)
+	}
+	return builder, tx
 }
 
 func setupLogs() {
@@ -478,8 +499,10 @@ func setupLogs() {
 		},
 	}}}})
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"), &types.Receipt{
-		BlockNumber: 2,
-		LogsBloom:   bloom1[:],
+		BlockNumber:      2,
+		TransactionIndex: 0,
+		TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900001",
+		LogsBloom:        bloom1[:],
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111112",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
@@ -496,8 +519,10 @@ func setupLogs() {
 		},
 	}}}})
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"), &types.Receipt{
-		BlockNumber: 2,
-		LogsBloom:   bloom2[:],
+		BlockNumber:      2,
+		TransactionIndex: 1,
+		TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900002",
+		LogsBloom:        bloom2[:],
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111113",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
@@ -511,8 +536,10 @@ func setupLogs() {
 		},
 	}}}})
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900003"), &types.Receipt{
-		BlockNumber: 2,
-		LogsBloom:   bloom3[:],
+		BlockNumber:      2,
+		TransactionIndex: 2,
+		TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900003",
+		LogsBloom:        bloom3[:],
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111114",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
@@ -524,7 +551,6 @@ func setupLogs() {
 		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900003"),
 	})
 	EVMKeeper.SetBlockBloom(Ctx, 2, []ethtypes.Bloom{bloom1, bloom2, bloom3})
-
 }
 
 //nolint:deadcode
@@ -537,12 +563,21 @@ func sendRequestBad(t *testing.T, method string, params ...interface{}) map[stri
 	return sendRequest(t, TestBadPort, method, params...)
 }
 
+// nolint:deadcode
+func sendRequestGoodWithNamespace(t *testing.T, namespace string, method string, params ...interface{}) map[string]interface{} {
+	return sendRequestWithNamespace(t, namespace, TestPort, method, params...)
+}
+
 func sendRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
+	return sendRequestWithNamespace(t, "eth", port, method, params...)
+}
+
+func sendRequestWithNamespace(t *testing.T, namespace string, port int, method string, params ...interface{}) map[string]interface{} {
 	paramsFormatted := ""
 	if len(params) > 0 {
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_%s\",\"params\":[%s],\"id\":\"test\"}", method, paramsFormatted)
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_%s\",\"params\":[%s],\"id\":\"test\"}", namespace, method, paramsFormatted)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")

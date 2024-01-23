@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"math/big"
-
-	tmtypes "github.com/tendermint/tendermint/types"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -18,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 type BlockAPI struct {
@@ -31,27 +33,33 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig}
 }
 
-func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) *hexutil.Uint {
+func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBlockTransactionCountByNumber", startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	block, err := blockWithRetry(ctx, a.tmClient, numberPtr)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return a.getEvmTxCount(block.Block.Txs)
+	return a.getEvmTxCount(block.Block.Txs), nil
 }
 
-func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) *hexutil.Uint {
+func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBlockTransactionCountByHash", startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:])
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return a.getEvmTxCount(block.Block.Txs)
+	return a.getEvmTxCount(block.Block.Txs), nil
 }
 
-func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (map[string]interface{}, error) {
+func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBlockByHash", startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:])
 	if err != nil {
 		return nil, err
@@ -63,7 +71,9 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
-func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (map[string]interface{}, error) {
+func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBlockByNumber", startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -77,6 +87,59 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 		return nil, err
 	}
 	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
+}
+
+func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber) (result []map[string]interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBlockReceipts", startTime, returnErr == nil)
+	// Get height from params
+	heightPtr, err := getBlockNumber(ctx, a.tmClient, number)
+	if err != nil {
+		return nil, err
+	}
+	// Get the block by height
+	block, err := blockWithRetry(ctx, a.tmClient, heightPtr)
+	if err != nil {
+		return nil, err
+	}
+	// Get all tx hashes for the block
+	height := LatestCtxHeight
+	if heightPtr != nil {
+		height = *heightPtr
+	}
+	txHashes := a.keeper.GetTxHashesOnHeight(a.ctxProvider(height), height)
+	// Get tx receipts for all hashes in parallel
+	wg := sync.WaitGroup{}
+	mtx := sync.Mutex{}
+	allReceipts := make([]map[string]interface{}, len(txHashes))
+	for i, hash := range txHashes {
+		wg.Add(1)
+		go func(i int, hash common.Hash) {
+			defer wg.Done()
+			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash)
+			if err != nil {
+				// When the transaction doesn't exist, skip it
+				if !strings.Contains(err.Error(), "not found") {
+					mtx.Lock()
+					returnErr = err
+					mtx.Unlock()
+				}
+			} else {
+				encodedReceipt, err := encodeReceipt(receipt, block.BlockID.Hash)
+				if err != nil {
+					mtx.Lock()
+					returnErr = err
+					mtx.Unlock()
+				}
+				allReceipts[i] = encodedReceipt
+			}
+		}(i, hash)
+	}
+	wg.Wait()
+	if returnErr != nil {
+		return nil, returnErr
+	}
+	return allReceipts, nil
 }
 
 func EncodeTmBlock(

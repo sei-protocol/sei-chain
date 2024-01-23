@@ -6,8 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
-	cachekv "github.com/cosmos/cosmos-sdk/store/cachekv"
+	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	iavlstore "github.com/cosmos/cosmos-sdk/store/iavl"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -32,7 +33,9 @@ func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 	return &StateAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider}
 }
 
-func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*hexutil.Big, error) {
+func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Big, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBalance", startTime, returnErr == nil)
 	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -40,12 +43,17 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
+		}
 	}
 	statedb := state.NewDBImpl(sdkCtx, a.keeper, true)
 	return (*hexutil.Big)(statedb.GetBalance(address)), nil
 }
 
-func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getCode", startTime, returnErr == nil)
 	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -53,12 +61,17 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
+		}
 	}
 	code := a.keeper.GetCode(sdkCtx, address)
 	return code, nil
 }
 
-func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (hexutil.Bytes, error) {
+func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getStorageAt", startTime, returnErr == nil)
 	block, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -66,6 +79,9 @@ func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hex
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
+		}
 	}
 	key, _, err := decodeHash(hexKey)
 	if err != nil {
@@ -85,7 +101,9 @@ type ProofResult struct {
 	StorageProof []*crypto.ProofOps `json:"storageProof"`
 }
 
-func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storageKeys []string, blockNrOrHash rpc.BlockNumberOrHash) (*ProofResult, error) {
+func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storageKeys []string, blockNrOrHash rpc.BlockNumberOrHash) (result *ProofResult, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getProof", startTime, returnErr == nil)
 	var block *coretypes.ResultBlock
 	var err error
 	if blockNr, ok := blockNrOrHash.Number(); ok {
@@ -101,6 +119,9 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 		return nil, err
 	}
 	sdkCtx := a.ctxProvider(block.Block.Height)
+	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+		return nil, err
+	}
 	var iavl *iavlstore.Store
 	s := sdkCtx.MultiStore().GetKVStore((a.keeper.GetStoreKey()))
 OUTER:
@@ -118,7 +139,7 @@ OUTER:
 			return nil, errors.New("cannot find EVM IAVL store")
 		}
 	}
-	result := ProofResult{Address: address}
+	proofResult := ProofResult{Address: address}
 	for _, key := range storageKeys {
 		paddedKey := common.BytesToHash([]byte(key))
 		formattedKey := append(types.StateKey(address), paddedKey[:]...)
@@ -128,14 +149,16 @@ OUTER:
 			Height: block.Block.Height,
 			Prove:  true,
 		})
-		result.HexValues = append(result.HexValues, hex.EncodeToString(qres.Value))
-		result.StorageProof = append(result.StorageProof, qres.ProofOps)
+		proofResult.HexValues = append(proofResult.HexValues, hex.EncodeToString(qres.Value))
+		proofResult.StorageProof = append(proofResult.StorageProof, qres.ProofOps)
 	}
 
-	return &result, nil
+	return &proofResult, nil
 }
 
 func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
+	startTime := time.Now()
+	defer recordMetrics("eth_getNonce", startTime, true)
 	return a.keeper.GetNonce(a.ctxProvider(LatestCtxHeight), address)
 }
 

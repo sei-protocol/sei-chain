@@ -2,10 +2,12 @@ package ante_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/ethereum/go-ethereum/common"
@@ -14,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
+	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -43,6 +46,37 @@ func TestPreprocessAnteHandler(t *testing.T) {
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
 	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
+	typedTx, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), sdk.AccAddress(msg.Derived.SenderSeiAddr))
+}
+
+func TestPreprocessAnteHandlerUnprotected(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	to := new(common.Address)
+	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
+	txData := ethtypes.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(10),
+		Gas:      1000,
+		To:       to,
+		Value:    big.NewInt(1000),
+		Data:     []byte("abc"),
+	}
+	signer := ethtypes.NewEIP155Signer(nil)
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	fmt.Println(tx.Hash().Hex())
 	typedTx, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
 	msg, err := types.NewMsgEVMTransaction(typedTx)
@@ -100,20 +134,20 @@ func TestGetVersion(t *testing.T) {
 
 	ethCfg.LondonBlock = big.NewInt(0)
 	ethCfg.CancunTime = &zero
-	require.Equal(t, types.SignerVersion_CANCUN, ante.GetVersion(ctx, ethCfg))
+	require.Equal(t, derived.Cancun, ante.GetVersion(ctx, ethCfg))
 
 	ethCfg.CancunTime = nil
-	require.Equal(t, types.SignerVersion_LONDON, ante.GetVersion(ctx, ethCfg))
+	require.Equal(t, derived.London, ante.GetVersion(ctx, ethCfg))
 }
 
 func TestAnteDeps(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{GasLimit: 100})
-	msg.Derived = &types.DerivedData{
-		SenderEVMAddr: []byte("senderevm"),
+	msg.Derived = &derived.Derived{
+		SenderEVMAddr: common.BytesToAddress([]byte("senderevm")),
 		SenderSeiAddr: []byte("sendersei"),
-		Pubkey:        []byte("pubkey"),
+		PubKey:        &secp256k1.PubKey{Key: []byte("pubkey")},
 	}
 	deps, err := handler.AnteDeps(nil, mockTx{msgs: []sdk.Msg{msg}}, 0, func(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int) ([]sdkacltypes.AccessOperation, error) {
 		return txDeps, nil

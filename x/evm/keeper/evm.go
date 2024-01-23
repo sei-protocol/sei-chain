@@ -8,7 +8,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -20,7 +19,7 @@ var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEVMCall) (*sdk.Result, error) {
 	var to *common.Address
 	if req.To != "" {
-		addr := k.SeiAddrToEvmAddr(ctx, sdk.MustAccAddressFromBech32(req.To))
+		addr := common.HexToAddress(req.To)
 		to = &addr
 	}
 	ret, err := k.CallEVM(ctx, sdk.MustAccAddressFromBech32(req.Sender), to, req.Value, req.Data)
@@ -36,7 +35,7 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	}
 	var to *common.Address
 	if req.To != "" {
-		addr := k.SeiAddrToEvmAddr(ctx, sdk.MustAccAddressFromBech32(req.To))
+		addr := common.HexToAddress(req.To)
 		to = &addr
 	}
 	zeroInt := sdk.ZeroInt()
@@ -60,11 +59,8 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Addres
 				return
 			}
 		}
-		if reterr == nil && to == nil && artifacts.IsCodeNativeSeiTokensERC20Wrapper(data) {
-			codeHash := evm.StateDB.GetCodeHash(createdContractAddress)
-			if (codeHash != common.Hash{}) {
-				k.AddCodeHashWhitelistedForBankSend(ctx, codeHash)
-			}
+		if reterr == nil && to == nil {
+			k.AddToWhitelistIfApplicable(ctx, data, createdContractAddress)
 		}
 	}()
 	var f EVMCallFunc
