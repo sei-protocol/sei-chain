@@ -184,7 +184,7 @@ func CmdSend() *cobra.Command {
 				return err
 			}
 
-			fmt.Printf("Transaction hash: %s\n", resp.Hex())
+			fmt.Println("Transaction hash:", resp.Hex())
 
 			return nil
 		},
