@@ -614,6 +614,23 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 	}
 }
 
+func (s *StorageTestSuite) TestDatabasePruneAndTombstone() {
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
+
+	// write a key at three different versions 1, 100 and 200
+	s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, [][]byte{[]byte("key000")}, [][]byte{[]byte("value001")}))
+	s.Require().NoError(DBApplyChangeset(db, 200, storeKey1, [][]byte{[]byte("key000")}, [][]byte{nil}))
+
+	// prune version 150
+	s.Require().NoError(db.Prune(150))
+
+	bz, err := db.Get(storeKey1, 160, []byte("key000"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("value001"), bz)
+}
+
 func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 	if slices.Contains(s.SkipTests, s.T().Name()) {
 		s.T().SkipNow()
