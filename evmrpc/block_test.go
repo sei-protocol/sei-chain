@@ -50,7 +50,7 @@ func TestGetBlockTransactionCount(t *testing.T) {
 	require.Equal(t, "0x1", resObj["result"])
 }
 
-func TestGetBlockReceipt(t *testing.T) {
+func TestGetBlockReceipts(t *testing.T) {
 	// Set two receipts in a single block
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"), &types.Receipt{
 		From:              "0x1234567890123456789012345678901234567890",
