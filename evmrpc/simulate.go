@@ -146,6 +146,10 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 	if err != nil {
 		return nil, nil, err
 	}
+	sdkCtx := b.ctxProvider(height)
+	if !bankExists(sdkCtx, b.keeper) || !evmExists(sdkCtx, b.keeper) {
+		return nil, nil, errors.New("requested height is either pruned or before EVM is introduced")
+	}
 	return state.NewDBImpl(b.ctxProvider(height), b.keeper, true), b.getHeader(big.NewInt(height)), nil
 }
 

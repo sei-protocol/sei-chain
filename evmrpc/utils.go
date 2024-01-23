@@ -283,3 +283,11 @@ func recordMetrics(apiMethod string, startTime time.Time, success bool) {
 	metrics.IncrementRpcRequestCounter(apiMethod, success)
 	metrics.MeasureRpcRequestLatency(apiMethod, startTime)
 }
+
+func bankExists(ctx sdk.Context, k *keeper.Keeper) bool {
+	return ctx.KVStore(k.BankKeeper().GetStoreKey()).VersionExists(ctx.BlockHeight())
+}
+
+func evmExists(ctx sdk.Context, k *keeper.Keeper) bool {
+	return ctx.KVStore(k.GetStoreKey()).VersionExists(ctx.BlockHeight())
+}
