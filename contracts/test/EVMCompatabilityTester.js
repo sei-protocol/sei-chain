@@ -2,11 +2,8 @@ const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
 const { ethers } = require("hardhat");
 const {uniq, shuffle} = require("lodash");
-<<<<<<< HEAD
 const { ethers, upgrades } = require('hardhat');
-=======
 
->>>>>>> evm
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
