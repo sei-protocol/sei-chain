@@ -55,20 +55,14 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		s.slowMu.Lock()
 		defer s.slowMu.Unlock()
 	}
-	var txData ethtx.TxData
-	associateTx := ethtx.AssociateTx{}
-	if associateTx.Unmarshal(input) == nil {
-		txData = &associateTx
-	} else {
-		tx := new(ethtypes.Transaction)
-		if err = tx.UnmarshalBinary(input); err != nil {
-			return
-		}
-		hash = tx.Hash()
-		txData, err = ethtx.NewTxDataFromTx(tx)
-		if err != nil {
-			return
-		}
+	tx := new(ethtypes.Transaction)
+	if err = tx.UnmarshalBinary(input); err != nil {
+		return
+	}
+	hash = tx.Hash()
+	txData, err := ethtx.NewTxDataFromTx(tx)
+	if err != nil {
+		return
 	}
 	msg, err := types.NewMsgEVMTransaction(txData)
 	if err != nil {
