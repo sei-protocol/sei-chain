@@ -206,6 +206,18 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.ERC20TransferPayload != nil:
 		c := parsedQuery.ERC20TransferPayload
 		return qp.evmHandler.HandleERC20TransferPayload(ctx, c.Recipient, c.Amount)
+	case parsedQuery.ERC721Owner != nil:
+		c := parsedQuery.ERC721Owner
+		return qp.evmHandler.HandleERC721Owner(ctx, c.Caller, c.ContractAddress, c.TokenID)
+	case parsedQuery.ERC721TransferPayload != nil:
+		c := parsedQuery.ERC721TransferPayload
+		return qp.evmHandler.HandleERC721TransferPayload(ctx, c.From, c.Recipient, c.TokenID)
+	case parsedQuery.ERC721ApprovePayload != nil:
+		c := parsedQuery.ERC721ApprovePayload
+		return qp.evmHandler.HandleERC721ApprovePayload(ctx, c.Spender, c.TokenID)
+	case parsedQuery.ERC721SetApprovalAllPayload != nil:
+		c := parsedQuery.ERC721SetApprovalAllPayload
+		return qp.evmHandler.HandleERC721SetApprovalAllPayload(ctx, c.To, c.Approved)
 	default:
 		return nil, errors.New("unknown EVM query")
 	}
