@@ -20,11 +20,11 @@ contract EVMCompatibilityTester {
         uint256 gas;
     }
 
-    // deployer of the contract
-    address public owner;
-
     // Example of contract storing and retrieving data
     uint256 private storedData;
+
+    // deployer of the contract
+    address public owner;
 
     // one of each type
     address public addressVar;

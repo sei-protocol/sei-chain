@@ -641,10 +641,13 @@ describe("EVM Test", function () {
     });
 
     describe("Usei/Wei testing", function() {
-      it.only("Send 1 usei to contract", async function() {
+      it("Send 1 usei to contract", async function() {
         const usei = ethers.parseUnits("1", 12);
         const wei = ethers.parseUnits("1", 0);
         const twoWei = ethers.parseUnits("2", 0);
+
+        // Check that the contract has no ETH
+        const initialBalance = await ethers.provider.getBalance(evmAddr);
 
         const txResponse = await evmTester.depositEther({
           value: usei,
@@ -653,15 +656,14 @@ describe("EVM Test", function () {
       
         // Check that the contract received the ETH
         const contractBalance = await ethers.provider.getBalance(evmAddr);
-        expect(contractBalance).to.equal(usei);
+        expect(contractBalance - initialBalance).to.equal(usei);
 
         // send 1 wei out of contract
-        console.log("owner addr = ", owner.address);
         const txResponse2 = await evmTester.sendEther(owner.address, wei);
         await txResponse2.wait();  // Wait for the transaction to be mined
 
         const contractBalance2 = await ethers.provider.getBalance(evmAddr);
-        expect(contractBalance2).to.equal(usei - wei);
+        expect(contractBalance2 - contractBalance).to.equal(-wei);
 
         // send 2 wei to contract
         const txResponse3 = await evmTester.depositEther({
@@ -670,7 +672,7 @@ describe("EVM Test", function () {
         await txResponse3.wait();  // Wait for the transaction to be mined
 
         const contractBalance3 = await ethers.provider.getBalance(evmAddr);
-        expect(contractBalance3).to.equal(usei + wei);
+        expect(contractBalance3 - contractBalance2).to.equal(twoWei);
       });
     });
   });
