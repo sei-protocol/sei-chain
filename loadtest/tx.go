@@ -15,7 +15,6 @@ func SendTx(
 	loadtestClient LoadTestClient,
 	sentCount *int64,
 ) {
-
 	grpcRes, _ := loadtestClient.GetTxClient().BroadcastTx(
 		ctx,
 		&typestx.BroadcastTxRequest{
