@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 	"testing"
 
@@ -47,6 +48,61 @@ func TestGetBlockTransactionCount(t *testing.T) {
 	// get by hash
 	resObj := sendRequestGood(t, "getBlockTransactionCountByHash", "0x0000000000000000000000000000000000000000000000000000000000000001")
 	require.Equal(t, "0x1", resObj["result"])
+}
+
+func TestGetBlockReceipt(t *testing.T) {
+	// Set two receipts in a single block
+	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"), &types.Receipt{
+		From:              "0x1234567890123456789012345678901234567890",
+		To:                "0x1234567890123456789012345678901234567890",
+		TransactionIndex:  0,
+		BlockNumber:       7,
+		TxType:            1,
+		ContractAddress:   "0x1234567890123456789012345678901234567890",
+		CumulativeGasUsed: 111,
+		TxHashHex:         "0x123456789012345678902345678901234567890123456789012345678901111",
+		GasUsed:           11,
+		Status:            0,
+		EffectiveGasPrice: 10,
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111111",
+			Topics:  []string{"0x1111111111111111111111111111111111111111111111111111111111111111", "0x1111111111111111111111111111111111111111111111111111111111111112"},
+		}},
+	})
+
+	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"), &types.Receipt{
+		From:              "0x1234567890123456789012345678901234567890",
+		To:                "0x1234567890123456789012345678901234567890",
+		TransactionIndex:  1,
+		BlockNumber:       7,
+		TxType:            1,
+		ContractAddress:   "0x1234567890123456789012345678901234567890",
+		CumulativeGasUsed: 222,
+		TxHashHex:         "0x123456789012345678902345678901234567890123456789012345678902222",
+		GasUsed:           22,
+		Status:            0,
+		EffectiveGasPrice: 10,
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111111",
+			Topics:  []string{"0x1111111111111111111111111111111111111111111111111111111111111111", "0x1111111111111111111111111111111111111111111111111111111111111112"},
+		}},
+	})
+
+	// Set two tx hash in a single block
+	EVMKeeper.SetTxHashesOnHeight(Ctx, 7, []common.Hash{
+		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"),
+		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"),
+	})
+
+	resObj := sendRequestGood(t, "getBlockReceipt", "0x7")
+	result := resObj["result"].([]interface{})
+	require.Equal(t, 2, len(result))
+	receipt1 := result[0].(map[string]interface{})
+	require.Equal(t, "0x7", receipt1["blockNumber"])
+	require.Equal(t, "0x0", receipt1["transactionIndex"])
+	receipt2 := result[1].(map[string]interface{})
+	require.Equal(t, "0x7", receipt2["blockNumber"])
+	require.Equal(t, "0x1", receipt2["transactionIndex"])
 }
 
 func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {

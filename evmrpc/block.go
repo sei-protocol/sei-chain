@@ -3,7 +3,10 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
+	"strings"
+	"sync"
 	"time"
 
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -74,6 +77,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockByNumber", startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
+	fmt.Printf("[DEBUG] height is %v \n", numberPtr)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +90,60 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 		return nil, err
 	}
 	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
+}
+
+func (a *BlockAPI) GetBlockReceipt(ctx context.Context, number rpc.BlockNumber) (result []map[string]interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_getBlockReceipt", startTime, returnErr == nil)
+	// Get height from params
+	heightPtr, err := getBlockNumber(ctx, a.tmClient, number)
+	if err != nil {
+		return nil, err
+	}
+	// Get the block by height
+	block, err := blockWithRetry(ctx, a.tmClient, heightPtr)
+	if err != nil {
+		return nil, err
+	}
+	// Get all tx hashes for the block
+	height := LatestCtxHeight
+	if heightPtr != nil {
+		height = *heightPtr
+	}
+	txHashes := a.keeper.GetTxHashesOnHeight(a.ctxProvider(height), height)
+	fmt.Printf("Found %d tx hashes\n", len(txHashes))
+	// For get tx receipt for all hashes in parallel
+	wg := sync.WaitGroup{}
+	mtx := sync.Mutex{}
+	allReceipts := make([]map[string]interface{}, len(txHashes))
+	for i, hash := range txHashes {
+		wg.Add(1)
+		go func(i int, hash common.Hash) {
+			defer wg.Done()
+			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash)
+			if err != nil {
+				// When the transaction doesn't exist, skip it
+				if !strings.Contains(err.Error(), "not found") {
+					mtx.Lock()
+					returnErr = err
+					mtx.Unlock()
+				}
+			} else {
+				encodedReceipt, err := encodeReceipt(receipt, block.BlockID.Hash)
+				if err != nil {
+					mtx.Lock()
+					returnErr = err
+					mtx.Unlock()
+				}
+				allReceipts[i] = encodedReceipt
+			}
+		}(i, hash)
+	}
+	wg.Wait()
+	if returnErr != nil {
+		return nil, returnErr
+	}
+	return allReceipts, nil
 }
 
 func EncodeTmBlock(
