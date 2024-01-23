@@ -1,9 +1,10 @@
 package state
 
 import (
-	"cosmossdk.io/errors"
 	"fmt"
 	"io"
+
+	"cosmossdk.io/errors"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
@@ -124,4 +125,12 @@ func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 	}
 
 	return res
+}
+
+func (st *Store) VersionExists(version int64) bool {
+	earliest, err := st.store.GetEarliestVersion()
+	if err != nil {
+		panic(err)
+	}
+	return version >= earliest
 }

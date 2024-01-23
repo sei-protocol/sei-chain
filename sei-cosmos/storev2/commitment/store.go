@@ -177,3 +177,8 @@ func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 
 	return res
 }
+
+func (st *Store) VersionExists(version int64) bool {
+	// one version per SC tree
+	return version == st.tree.Version()
+}

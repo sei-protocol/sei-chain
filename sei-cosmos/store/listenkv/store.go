@@ -81,6 +81,10 @@ func (s *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	return newTraceIterator(parent, s.listeners)
 }
 
+func (s *Store) VersionExists(version int64) bool {
+	return s.parent.VersionExists(version)
+}
+
 type listenIterator struct {
 	parent    types.Iterator
 	listeners []types.WriteListener
