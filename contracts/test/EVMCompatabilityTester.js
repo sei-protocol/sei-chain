@@ -127,6 +127,7 @@ describe("EVM Test", function () {
 
     // This function deploys a new instance of the contract before each test
     beforeEach(async function () {
+      console.log("beforeEach")
       if(evmTester && testToken) {
         return
       }
@@ -702,6 +703,46 @@ describe("EVM Test", function () {
         const code = await ethers.provider.getCode(await evmTester.getAddress());
         const isContract = code !== '0x';
         expect(isContract).to.be.true;
+      });
+
+      it.only("log topic filtering", async function() {
+        describe("log topic filtering", async function() {
+          let blockStart = 10000000000000;
+          let blockEnd = 0;
+          before(async function() {
+            // Emit an event by making a transaction
+            console.log("evmTester = ", evmTester)
+            for (let i = 0; i < 5; i++) {
+              const txResponse = await evmTester.setBoolVar(true);
+              const receipt = await txResponse.wait();
+              blockStart = Math.min(blockStart, receipt.blockNumber);
+              blockEnd = Math.max(blockEnd, receipt.blockNumber);
+            } 
+
+            console.log(`blockStart = ${blockStart}`)
+            console.log(`blockEnd = ${blockEnd}`)
+          });
+
+          it("Contract address filter", async function () {
+            console.log("here1")
+          });
+
+          it("Block range filter", async function () {
+            console.log("here2")
+          });
+
+          // it("Single topic filter")
+
+          // it("Multiple topic filter")
+
+          // it("Wildcard topic filter")
+
+          // it("Address and topics combination filter")
+
+          // it("Empty result filter")
+
+          // it("Overlapping criteria filter")
+        });
       });
     });
 
