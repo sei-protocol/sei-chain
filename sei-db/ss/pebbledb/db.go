@@ -223,6 +223,8 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 
 func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) error {
 	// Check if version is 0 and change it to 1
+	// We do this specifically since keys written as part of genesis state come in as version 0
+	// But pebbledb treats version 0 as special, so apply the changeset at version 1 instead
 	if version == 0 {
 		version = 1
 	}
