@@ -57,3 +57,13 @@ func TestERC20TransferFromPayload(t *testing.T) {
 	require.Nil(t, err)
 	require.NotEmpty(t, res)
 }
+
+func TestERC20ApprovePayload(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	addr1, _ := testkeeper.MockAddressPair()
+	h := wasm.NewEVMQueryHandler(k)
+	value := types.NewInt(500)
+	res, err := h.HandleERC20ApprovePayload(ctx, addr1.String(), &value)
+	require.Nil(t, err)
+	require.NotEmpty(t, res)
+}

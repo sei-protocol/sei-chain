@@ -42,11 +42,25 @@ pub enum EvmQuery {
         recipient: String,
         amount: Uint128,
     },
+    Erc20ApprovePayload {
+        spender: String,
+        amount: Uint128,
+    },
+    Erc20Allowance {
+        contract_address: String,
+        owner: String,
+        spender: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct Erc20TransferPayloadResponse {
+pub struct ErcPayloadResponse {
     pub encoded_payload: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Erc20AllowanceResponse {
+    pub allowance: Uint128,
 }
 
 // implement custom query
