@@ -188,7 +188,7 @@ func (h *EVMQueryHandler) HandleERC20TransferFromPayload(ctx sdk.Context, owner 
 	if err != nil {
 		return nil, err
 	}
-	abi, err := artifacts.ArtifactsMetaData.GetAbi()
+	abi, err := native.NativeMetaData.GetAbi()
 	if err != nil {
 		return nil, err
 	}
