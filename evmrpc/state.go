@@ -43,6 +43,9 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
+		}
 	}
 	statedb := state.NewDBImpl(sdkCtx, a.keeper, true)
 	return (*hexutil.Big)(statedb.GetBalance(address)), nil
@@ -58,6 +61,9 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
+		}
 	}
 	code := a.keeper.GetCode(sdkCtx, address)
 	return code, nil
@@ -73,6 +79,9 @@ func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hex
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		sdkCtx = a.ctxProvider(*block)
+		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+			return nil, err
+		}
 	}
 	key, _, err := decodeHash(hexKey)
 	if err != nil {
@@ -110,6 +119,9 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 		return nil, err
 	}
 	sdkCtx := a.ctxProvider(block.Block.Height)
+	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
+		return nil, err
+	}
 	var iavl *iavlstore.Store
 	s := sdkCtx.MultiStore().GetKVStore((a.keeper.GetStoreKey()))
 OUTER:
