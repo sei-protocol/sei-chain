@@ -134,8 +134,8 @@ func TestFilterGetLogs(t *testing.T) {
 				common.HexToAddress("0x1111111111111111111111111111111111111113"),
 			},
 			topics: [][]common.Hash{
-				{common.Hash(common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"))},
-				{common.Hash(common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"))},
+				{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")},
+				{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456")},
 			},
 			wantErr: false,
 			check: func(t *testing.T, log map[string]interface{}) {
@@ -155,7 +155,7 @@ func TestFilterGetLogs(t *testing.T) {
 			toBlock:   "0x2",
 			topics: [][]common.Hash{
 				{},
-				{common.Hash(common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"))},
+				{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456")},
 			},
 			wantErr: false,
 			check: func(t *testing.T, log map[string]interface{}) {

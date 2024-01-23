@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -337,6 +338,7 @@ func init() {
 		panic(err)
 	}
 	testApp.Commit(context.Background())
+	// Start good http server
 	goodConfig := evmrpc.DefaultConfig
 	goodConfig.HTTPPort = TestPort
 	goodConfig.WSPort = TestWSPort
@@ -352,6 +354,8 @@ func init() {
 	if err := HttpServer.Start(); err != nil {
 		panic(err)
 	}
+
+	// Start bad http server
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
@@ -362,6 +366,8 @@ func init() {
 	if err := badHTTPServer.Start(); err != nil {
 		panic(err)
 	}
+
+	// Start ws server
 	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, "")
 	if err != nil {
 		panic(err)
@@ -372,9 +378,17 @@ func init() {
 	fmt.Printf("wsServer started with config = %+v\n", goodConfig)
 	time.Sleep(1 * time.Second)
 
+	// Generate data
+	generateTxData()
+
+	// Setup logs
+	setupLogs()
+}
+
+func generateTxData() {
 	chainId := big.NewInt(types.DefaultChainID.Int64())
 	to := common.HexToAddress("010203")
-	txData := ethtypes.DynamicFeeTx{
+	txBuilder, tx := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     1,
 		GasFeeCap: big.NewInt(10),
 		Gas:       1000,
@@ -382,33 +396,8 @@ func init() {
 		Value:     big.NewInt(1000),
 		Data:      []byte("abc"),
 		ChainID:   chainId,
-	}
-	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
-	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
-	privKey := hd.Secp256k1.Generate()(derivedPriv)
-	testPrivHex := hex.EncodeToString(privKey.Bytes())
-	key, _ := crypto.HexToECDSA(testPrivHex)
-	evmParams := EVMKeeper.GetParams(Ctx)
-	ethCfg := evmParams.GetChainConfig().EthereumConfig(chainId)
-	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
-	tx := ethtypes.NewTx(&txData)
-	tx, err = ethtypes.SignTx(tx, signer, key)
-	if err != nil {
-		panic(err)
-	}
-	typedTx, err := ethtx.NewDynamicFeeTx(tx)
-	if err != nil {
-		panic(err)
-	}
-	msg, err := types.NewMsgEVMTransaction(typedTx)
-	if err != nil {
-		panic(err)
-	}
-	b := TxConfig.NewTxBuilder()
-	if err := b.SetMsgs(msg); err != nil {
-		panic(err)
-	}
-	Tx = b.GetTx()
+	})
+	Tx = txBuilder.GetTx()
 	TxNonEvm = app.TestTx{}
 	if err := EVMKeeper.SetReceipt(Ctx, tx.Hash(), &types.Receipt{
 		From:              "0x1234567890123456789012345678901234567890",
@@ -429,7 +418,7 @@ func init() {
 	}); err != nil {
 		panic(err)
 	}
-	seiAddr, err = sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
+	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
 	if err != nil {
 		panic(err)
 	}
@@ -452,8 +441,7 @@ func init() {
 		common.HexToAddress("0x1df809C639027b465B931BD63Ce71c8E5834D9d6"),
 	)
 	EVMKeeper.SetNonce(Ctx, common.HexToAddress("0x1234567890123456789012345678901234567890"), 1)
-
-	unconfirmedTxData := ethtypes.DynamicFeeTx{
+	unconfirmedTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     2,
 		GasFeeCap: big.NewInt(10),
 		Gas:       1000,
@@ -461,27 +449,39 @@ func init() {
 		Value:     big.NewInt(2000),
 		Data:      []byte("abc"),
 		ChainID:   chainId,
-	}
-	tx = ethtypes.NewTx(&unconfirmedTxData)
-	tx, err = ethtypes.SignTx(tx, signer, key)
-	if err != nil {
-		panic(err)
-	}
-	typedTx, err = ethtx.NewDynamicFeeTx(tx)
-	if err != nil {
-		panic(err)
-	}
-	msg, err = types.NewMsgEVMTransaction(typedTx)
-	if err != nil {
-		panic(err)
-	}
-	b = TxConfig.NewTxBuilder()
-	if err := b.SetMsgs(msg); err != nil {
-		panic(err)
-	}
-	UnconfirmedTx = b.GetTx()
+	})
+	UnconfirmedTx = unconfirmedTxBuilder.GetTx()
+}
 
-	setupLogs()
+func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transaction) {
+	chainId := big.NewInt(types.DefaultChainID.Int64())
+	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
+	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
+	privKey := hd.Secp256k1.Generate()(derivedPriv)
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	evmParams := EVMKeeper.GetParams(Ctx)
+	ethCfg := evmParams.GetChainConfig().EthereumConfig(chainId)
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
+	tx := ethtypes.NewTx(&txData)
+	tx, err := ethtypes.SignTx(tx, signer, key)
+	if err != nil {
+		panic(err)
+	}
+
+	typedTx, err := ethtx.NewDynamicFeeTx(tx)
+	if err != nil {
+		panic(err)
+	}
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	if err != nil {
+		panic(err)
+	}
+	builder := TxConfig.NewTxBuilder()
+	if err := builder.SetMsgs(msg); err != nil {
+		panic(err)
+	}
+	return builder, tx
 }
 
 func setupLogs() {
@@ -499,8 +499,10 @@ func setupLogs() {
 		},
 	}}}})
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"), &types.Receipt{
-		BlockNumber: 2,
-		LogsBloom:   bloom1[:],
+		BlockNumber:      2,
+		TransactionIndex: 0,
+		TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900001",
+		LogsBloom:        bloom1[:],
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111112",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
@@ -517,8 +519,10 @@ func setupLogs() {
 		},
 	}}}})
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"), &types.Receipt{
-		BlockNumber: 2,
-		LogsBloom:   bloom2[:],
+		BlockNumber:      2,
+		TransactionIndex: 1,
+		TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900002",
+		LogsBloom:        bloom2[:],
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111113",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
@@ -532,8 +536,10 @@ func setupLogs() {
 		},
 	}}}})
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900003"), &types.Receipt{
-		BlockNumber: 2,
-		LogsBloom:   bloom3[:],
+		BlockNumber:      2,
+		TransactionIndex: 2,
+		TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900003",
+		LogsBloom:        bloom3[:],
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111114",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
@@ -545,7 +551,6 @@ func setupLogs() {
 		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900003"),
 	})
 	EVMKeeper.SetBlockBloom(Ctx, 2, []ethtypes.Bloom{bloom1, bloom2, bloom3})
-
 }
 
 //nolint:deadcode
