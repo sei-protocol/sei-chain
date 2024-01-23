@@ -646,7 +646,9 @@ describe("EVM Test", function () {
         const Box = await ethers.getContractFactory("Box");
         const val = 42;
         const box = await upgrades.deployProxy(Box, [val], { initializer: 'store' });
+        await box.waitForDeployment()
         const boxAddr = await box.getAddress();
+        console.log('Box deployed to:', boxAddr)
 
         // make sure you can retrieve the value
         const retrievedValue = await box.retrieve();
@@ -655,9 +657,11 @@ describe("EVM Test", function () {
         // upgrade to BoxV2
         const BoxV2 = await ethers.getContractFactory('BoxV2');
         console.log('Upgrading Box...');
-        await upgrades.upgradeProxy(boxAddr, BoxV2);
+        const box2 = await upgrades.upgradeProxy(boxAddr, BoxV2);
         console.log('Box upgraded');
-        const boxV2Addr = await box.getAddress();
+        const boxV2Addr = await box2.getAddress();
+        expect(boxV2Addr).to.equal(boxAddr); // should be same address as it should be the proxy
+        console.log('BoxV2 deployed to:', boxV2Addr);
         const boxV2 = await BoxV2.attach(boxV2Addr);
 
         // check that value is still the same
@@ -665,7 +669,9 @@ describe("EVM Test", function () {
         expect(retrievedValue2).to.equal(val);
 
         // use new function in boxV2 and increment value
-        await boxV2.increment();
+        sleep(3000)
+        const txResponse = await boxV2.increment();
+        await txResponse.wait();
 
         // make sure value is incremented
         expect(await boxV2.retrieve()).to.equal(val+1);
