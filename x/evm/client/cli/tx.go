@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/spf13/cobra"
 
@@ -181,7 +183,8 @@ func CmdSend() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Response: %s\n", resp)
+
+			fmt.Println("Transaction hash:", resp.Hex())
 
 			return nil
 		},
@@ -270,7 +273,7 @@ func CmdDeployErc20() *cobra.Command {
 
 			fmt.Println("Deployer:", senderAddr)
 			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
-			fmt.Println("Transaction hash:", resp.Result)
+			fmt.Println("Transaction hash:", resp.Hex())
 			return nil
 		},
 	}
@@ -351,7 +354,7 @@ func CmdDeployErcCw20() *cobra.Command {
 
 			fmt.Println("Deployer:", senderAddr)
 			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
-			fmt.Println("Transaction hash:", resp.Result)
+			fmt.Println("Transaction hash:", resp.Hex())
 			return nil
 		},
 	}
@@ -432,7 +435,7 @@ func CmdDeployErcCw721() *cobra.Command {
 
 			fmt.Println("Deployer:", senderAddr)
 			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
-			fmt.Println("Transaction hash:", resp.Result)
+			fmt.Println("Transaction hash:", resp.Hex())
 			return nil
 		},
 	}
@@ -487,7 +490,7 @@ func CmdCallContract() *cobra.Command {
 				return err
 			}
 
-			fmt.Println("Transaction hash:", resp.Result)
+			fmt.Println("Transaction hash:", resp.Hex())
 			return nil
 		},
 	}
@@ -573,40 +576,22 @@ func getTxData(cmd *cobra.Command) (*ethtypes.DynamicFeeTx, error) {
 	}, nil
 }
 
-func sendTx(txData *ethtypes.DynamicFeeTx, rpc string, key *ecdsa.PrivateKey) (*Response, error) {
+func sendTx(txData *ethtypes.DynamicFeeTx, rpcUrl string, key *ecdsa.PrivateKey) (common.Hash, error) {
 	ethCfg := types.DefaultChainConfig().EthereumConfig(txData.ChainID)
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), 1)
-	tx := ethtypes.NewTx(txData)
-	tx, err := ethtypes.SignTx(tx, signer, key)
+	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(txData), signer, key)
 	if err != nil {
-		return nil, err
+		return common.Hash{}, err
 	}
-	bz, err := tx.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-	payload := "0x" + hex.EncodeToString(bz)
 
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"deploy-erc20\"}", payload)
-	req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
+	ethClient, err := ethclient.Dial(rpcUrl)
 	if err != nil {
-		return nil, err
+		return common.Hash{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
 
-	resBody, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
+	if err := ethClient.SendTransaction(context.Background(), signedTx); err != nil {
+		return common.Hash{}, err
 	}
-	var resp Response
-	err = json.Unmarshal(resBody, &resp)
-	if err != nil {
-		return nil, err
-	}
-	return &resp, nil
+
+	return signedTx.Hash(), nil
 }
