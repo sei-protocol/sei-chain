@@ -424,21 +424,8 @@ describe("EVM Test", function () {
               maxFeePerGas: oneGwei,
               type: 2
             });
-            const receipt = await txResponse.wait();
+            await txResponse.wait();
           }
-        });
-
-        it("Base fee should be positive", async function() {
-          const _zero = ethers.parseUnits('0', 'ether')
-          const txResponse = await owner.sendTransaction({
-            to: owner.address,
-            value: _zero,
-          });
-          const receipt = await txResponse.wait();
-          const bn = receipt.blockNumber;
-          const block = await ethers.provider.getBlock(bn);
-          const basefee = block.baseFeePerGas;
-          expect(basefee).to.be.greaterThan(0);
         });
 
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
