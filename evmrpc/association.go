@@ -3,13 +3,16 @@ package evmrpc
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
@@ -54,15 +57,29 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 		S: sBytes,
 	}
 
-	data, err := associateTx.Marshal()
+	msg, err := types.NewMsgEVMTransaction(&associateTx)
 	if err != nil {
 		return err
 	}
-	_, err = t.sendAPI.SendRawTransaction(ctx, data)
-	if err != nil {
+	txBuilder := t.sendAPI.txConfig.NewTxBuilder()
+	if err = txBuilder.SetMsgs(msg); err != nil {
 		return err
 	}
-	return nil
+	txbz, encodeErr := t.sendAPI.txConfig.TxEncoder()(txBuilder.GetTx())
+	if encodeErr != nil {
+		return encodeErr
+	}
+
+	res, broadcastError := t.tmClient.BroadcastTx(ctx, txbz)
+	if broadcastError != nil {
+		err = broadcastError
+	} else if res == nil {
+		err = errors.New("missing broadcast response")
+	} else if res.Code != 0 {
+		err = sdkerrors.ABCIError(sdkerrors.RootCodespace, res.Code, "")
+	}
+
+	return err
 }
 
 func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Address) (result string, returnErr error) {
