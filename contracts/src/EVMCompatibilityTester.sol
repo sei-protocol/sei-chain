@@ -12,6 +12,7 @@ contract EVMCompatibilityTester {
     event AddressSet(address indexed performer);
     event Uint256Set(address indexed performer, uint256 value);
     event StringSet(address indexed performer, string value);
+    event LogIndexEvent(address indexed performer, uint256 value);
 
     struct MsgDetails {
         address sender;
@@ -60,6 +61,12 @@ contract EVMCompatibilityTester {
     function setBoolVar(bool value) public {
         boolVar = value;
         emit BoolSet(msg.sender, value);
+    }
+
+    function emitMultipleLogs(uint256 count) public {
+        for (uint256 i = 0; i < count; i++) {
+            emit LogIndexEvent(msg.sender, i);
+        }
     }
 
     function setStringVar(string memory value) public {
