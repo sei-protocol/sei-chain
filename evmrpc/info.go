@@ -127,16 +127,22 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 		result.OldestBlock = (*hexutil.Big)(big.NewInt(lastBlockNumber - int64(blockCount) + 1))
 	}
 
+	result.Reward = [][]*hexutil.Big{}
 	// Potentially parallelize the following logic
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
-		result.GasUsedRatio = append(result.GasUsedRatio, GasUsedRatio)
 		sdkCtx := i.ctxProvider(blockNum)
+		if CheckVersion(sdkCtx, i.keeper) != nil {
+			// either height is pruned or before EVM is introduced. Skipping
+			continue
+		}
+		result.GasUsedRatio = append(result.GasUsedRatio, GasUsedRatio)
 		baseFee := i.keeper.GetBaseFeePerGas(sdkCtx).BigInt()
 		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(baseFee))
 		height := blockNum
 		block, err := i.tmClient.Block(ctx, &height)
 		if err != nil {
-			return nil, err
+			// block pruned from tendermint store. Skipping
+			continue
 		}
 		rewards, err := i.getRewards(block, baseFee, rewardPercentiles)
 		if err != nil {
