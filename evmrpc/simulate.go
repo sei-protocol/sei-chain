@@ -146,6 +146,10 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 	if err != nil {
 		return nil, nil, err
 	}
+	sdkCtx := b.ctxProvider(height)
+	if err := CheckVersion(sdkCtx, b.keeper); err != nil {
+		return nil, nil, err
+	}
 	return state.NewDBImpl(b.ctxProvider(height), b.keeper, true), b.getHeader(big.NewInt(height)), nil
 }
 

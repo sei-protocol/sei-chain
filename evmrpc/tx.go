@@ -211,6 +211,9 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 
 	if blkNr != nil {
 		sdkCtx = t.ctxProvider(*blkNr)
+		if err := CheckVersion(sdkCtx, t.keeper); err != nil {
+			return nil, err
+		}
 	}
 
 	nonce := t.keeper.CalculateNextNonce(sdkCtx, address, pending)
