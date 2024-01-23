@@ -222,6 +222,11 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 }
 
 func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) error {
+	// Check if version is 0 and change it to 1
+	if version == 0 {
+		version = 1
+	}
+
 	b, err := NewBatch(db.storage, version)
 	if err != nil {
 		return err
