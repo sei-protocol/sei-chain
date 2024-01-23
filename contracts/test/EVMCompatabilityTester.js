@@ -308,8 +308,7 @@ describe("EVM Test", function () {
         await expect(evmTester.revertIfFalse(false)).to.be.reverted;
       });
 
-      // TODO: fix this test the re-enable, it's breaking on CI
-      it.skip("Should not revert when true is passed to revertIfFalse", async function () {
+      it("Should not revert when true is passed to revertIfFalse", async function () {
         await evmTester.revertIfFalse(true)
       });
     })
