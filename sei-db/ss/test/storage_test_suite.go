@@ -149,6 +149,41 @@ func (s *StorageTestSuite) TestDatabaseGetVersionedKey() {
 	}
 }
 
+func (s *StorageTestSuite) TestDatabaseVersionZero() {
+	// Db should write all keys at version 0 at version 1
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
+
+	s.Require().NoError(DBApplyChangeset(db, 0, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value001")}))
+	s.Require().NoError(DBApplyChangeset(db, 0, storeKey1, [][]byte{[]byte("key002")}, [][]byte{[]byte("value002")}))
+	s.Require().NoError(DBApplyChangeset(db, 0, storeKey1, [][]byte{[]byte("key003")}, [][]byte{[]byte("value003")}))
+
+	// Get at version 0 should return error
+	bz, _ := db.Get(storeKey1, 0, []byte("key001"))
+	s.Require().Nil(bz)
+
+	bz, _ = db.Get(storeKey1, 0, []byte("key002"))
+	s.Require().Nil(bz)
+
+	bz, _ = db.Get(storeKey1, 0, []byte("key002"))
+	s.Require().Nil(bz)
+
+	// Retrieve each key at version 1
+	bz, err = db.Get(storeKey1, 1, []byte("key001"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("value001"), bz)
+
+	bz, err = db.Get(storeKey1, 1, []byte("key002"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("value002"), bz)
+
+	bz, err = db.Get(storeKey1, 1, []byte("key003"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("value003"), bz)
+
+}
+
 func (s *StorageTestSuite) TestDatabaseApplyChangeset() {
 	db, err := s.NewDB(s.T().TempDir())
 	s.Require().NoError(err)
