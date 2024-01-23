@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 	"strings"
 	"sync"
@@ -77,7 +76,6 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockByNumber", startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
-	fmt.Printf("[DEBUG] height is %v \n", numberPtr)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +109,6 @@ func (a *BlockAPI) GetBlockReceipt(ctx context.Context, number rpc.BlockNumber) 
 		height = *heightPtr
 	}
 	txHashes := a.keeper.GetTxHashesOnHeight(a.ctxProvider(height), height)
-	fmt.Printf("Found %d tx hashes\n", len(txHashes))
 	// For get tx receipt for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
