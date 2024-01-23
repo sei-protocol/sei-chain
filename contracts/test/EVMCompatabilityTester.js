@@ -406,7 +406,6 @@ describe("EVM Test", function () {
         const twoGwei = ethers.parseUnits("2", "gwei");
         const oneGwei = ethers.parseUnits("1", "gwei");
 
-        console.log("at top of test, oneGwei = ", oneGwei);
         const testCases = [
           ["No truncation from max priority fee", oneGwei, oneGwei],
           ["With truncation from max priority fee", oneGwei, twoGwei],
@@ -431,9 +430,13 @@ describe("EVM Test", function () {
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
           testCases.forEach(async ([name, maxPriorityFeePerGas, maxFeePerGas]) => {
             it(`EIP-1559 test: ${name}`, async function() {
+              console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
+              console.log(`maxFeePerGas = ${maxFeePerGas}`)
               const balanceBefore = await ethers.provider.getBalance(owner);
               const feeData = await ethers.provider.getFeeData();
               const gasPrice = Number(feeData.gasPrice); 
+
+              console.log(`gasPrice = ${gasPrice}`)
 
               const zero = ethers.parseUnits('0', 'ether')
               const txResponse = await owner.sendTransaction({
@@ -454,9 +457,12 @@ describe("EVM Test", function () {
                 Number(maxFeePerGas) - gasPrice,
                 Number(maxPriorityFeePerGas)
               );
+              console.log(`tip = ${tip}`)
               const effectiveGasPrice = tip + gasPrice;
+              console.log(`effectiveGasPrice = ${effectiveGasPrice}`)
             
               const diff = balanceBefore - balanceAfter;
+              console.log(`diff = ${diff}`)
               expect(diff).to.equal(21000 * effectiveGasPrice);
             });
           });
