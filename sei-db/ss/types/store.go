@@ -16,6 +16,8 @@ type StateStore interface {
 	RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error)
 	GetLatestVersion() (int64, error)
 	SetLatestVersion(version int64) error
+	GetEarliestVersion() (int64, error)
+	SetEarliestVersion(version int64) error
 
 	// ApplyChangeset Persist the change set of a block,
 	// the `changeSet` should be ordered by (storeKey, key),

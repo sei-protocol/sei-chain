@@ -145,8 +145,8 @@ func (db *Database) SetEarliestVersion(version int64) error {
 	return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
 }
 
-func (db *Database) GetEarliestVersion() int64 {
-	return db.earliestVersion
+func (db *Database) GetEarliestVersion() (int64, error) {
+	return db.earliestVersion, nil
 }
 
 // Retrieves earliest version from db
