@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	tmtypes "github.com/tendermint/tendermint/types"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -21,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 type BlockAPI struct {

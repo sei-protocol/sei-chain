@@ -1,7 +1,6 @@
 package evmrpc_test
 
 import (
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/rpc/coretypes"
