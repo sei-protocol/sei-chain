@@ -68,10 +68,6 @@ func (node *nodeLayout) KeyLeaf() uint32 {
 	return node.data[3]
 }
 
-func (node *nodeLayout) KeyOffset() uint64 {
-	return uint64(node.data[2]) | uint64(node.data[3])<<32
-}
-
 func (node *nodeLayout) Hash() []byte {
 	return node.hash[:]
 }

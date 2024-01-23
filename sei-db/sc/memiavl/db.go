@@ -731,12 +731,12 @@ func parseVersion(name string) (int64, error) {
 		return 0, fmt.Errorf("invalid snapshot name %s", name)
 	}
 
-	v, err := strconv.ParseInt(name[len(SnapshotPrefix):], 10, 32)
+	v, err := strconv.ParseUint(name[len(SnapshotPrefix):], 10, 32)
 	if err != nil {
 		return 0, fmt.Errorf("snapshot version overflows: %d", err)
 	}
 
-	return v, nil
+	return int64(v), nil
 }
 
 // seekSnapshot find the biggest snapshot version that's smaller than or equal to the target version,
