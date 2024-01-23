@@ -434,11 +434,6 @@ describe("EVM Test", function () {
               console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
               console.log(`maxFeePerGas = ${maxFeePerGas}`)
               const balanceBefore = await ethers.provider.getBalance(owner);
-              const feeData = await ethers.provider.getFeeData();
-              const gasPrice = Number(feeData.gasPrice); 
-
-              console.log(`gasPrice = ${gasPrice}`)
-
               const zero = ethers.parseUnits('0', 'ether')
               const txResponse = await owner.sendTransaction({
                 to: owner.address,
@@ -448,9 +443,12 @@ describe("EVM Test", function () {
                 type: 2
               });
               const receipt = await txResponse.wait();
+              console.log("receipt = ", receipt)
 
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
+              const gasPrice = Number(receipt.gasPrice);
+              console.log(`gasPrice = ${gasPrice}`)
 
               const balanceAfter = await ethers.provider.getBalance(owner);
 
@@ -643,7 +641,7 @@ describe("EVM Test", function () {
     });
 
     describe("Usei/Wei testing", function() {
-      it("Send 1 usei to contract", async function() {
+      it.only("Send 1 usei to contract", async function() {
         const usei = ethers.parseUnits("1", 12);
         const wei = ethers.parseUnits("1", 0);
         const twoWei = ethers.parseUnits("2", 0);
