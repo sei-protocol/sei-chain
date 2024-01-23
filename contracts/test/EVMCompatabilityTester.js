@@ -1,6 +1,5 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
-const { ethers } = require("hardhat");
 const {uniq, shuffle} = require("lodash");
 const { ethers, upgrades } = require('hardhat');
 
