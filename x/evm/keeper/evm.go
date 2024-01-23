@@ -19,7 +19,7 @@ var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEVMCall) (*sdk.Result, error) {
 	var to *common.Address
 	if req.To != "" {
-		addr := k.SeiAddrToEvmAddr(ctx, sdk.MustAccAddressFromBech32(req.To))
+		addr := common.HexToAddress(req.To)
 		to = &addr
 	}
 	ret, err := k.CallEVM(ctx, sdk.MustAccAddressFromBech32(req.Sender), to, req.Value, req.Data)
@@ -35,7 +35,7 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	}
 	var to *common.Address
 	if req.To != "" {
-		addr := k.SeiAddrToEvmAddr(ctx, sdk.MustAccAddressFromBech32(req.To))
+		addr := common.HexToAddress(req.To)
 		to = &addr
 	}
 	zeroInt := sdk.ZeroInt()
