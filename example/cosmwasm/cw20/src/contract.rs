@@ -15,8 +15,7 @@ pub fn instantiate(
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
-    let erc20_addr = deps.api.addr_validate(&msg.erc20_address)?;
-    ERC20_ADDRESS.save(deps.storage, &erc20_addr)?;
+    ERC20_ADDRESS.save(deps.storage, &msg.erc20_address)?;
     Ok(Response::default())
 }
 
@@ -48,7 +47,7 @@ pub fn execute_transfer(
 
     let querier = EvmQuerier::new(&deps.querier);
     let payload = querier.erc20_transfer_payload(recipient.clone(), amount)?;
-    let msg = EvmMsg::DelegateCallEvm { to: erc_addr.into_string(), data: payload.encoded_payload };
+    let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
     let res = Response::new()
         .add_attribute("action", "transfer")
         .add_attribute("from", info.sender)
