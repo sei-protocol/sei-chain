@@ -4,7 +4,7 @@ use cosmwasm_std::{
     DepsMut, Env, MessageInfo, Response, Uint128, Binary,
 };
 use cw20::Cw20ReceiveMsg;
-use crate::msg::{cw20receive_into_cosmos_msg, EvmMsg, EvmQueryWrapper, ExecuteMsg, InstantiateMsg};
+use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, ExecuteMsg};
 use crate::querier::EvmQuerier;
 use crate::error::ContractError;
 use crate::state::ERC20_ADDRESS;
@@ -60,6 +60,8 @@ pub fn execute_transfer(
     Ok(res)
 }
 
+// TODO: Not sure if this makes sense for a Wrapper contract, since there is no parallel in ERC20.
+// TODO: Do we still want to forward the message to some CW20 contract? Isn't recipient here an EVM address?
 pub fn execute_send(
     deps: DepsMut<EvmQueryWrapper>,
     _env: Env,
@@ -68,7 +70,7 @@ pub fn execute_send(
     amount: Uint128,
     msg: Binary,
 ) -> Result<Response<EvmMsg>, ContractError> {
-    let mut res = transfer(deps, _env, info.clone(), recipient.clone(), amount)?;
+    let mut res = transfer(deps, _env, info, recipient, amount)?;
     let send = Cw20ReceiveMsg {
         sender: info.sender.to_string(),
         amount: amount.clone(),
@@ -77,7 +79,7 @@ pub fn execute_send(
 
     // TODO: Taken from Tony's recent PR but not sure why this isn't working here.
     res = res
-        .add_message(cw20receive_into_cosmos_msg(recipient.clone(), send)?)
+        .add_message(send.into_cosmos_msg(recipient.clone())?)
         .add_attribute("action", "send");
     Ok(res)
 }
