@@ -1,6 +1,8 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
+const { ethers } = require("hardhat");
 const {uniq, shuffle} = require("lodash");
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -12,6 +14,31 @@ async function delay() {
 function debug(msg) {
   // leaving commented out to make output readable (unless debugging)
   //console.log(msg)
+}
+
+async function sendTransactionAndCheckGas(sender, recipient, amount) {
+  // Get the balance of the sender before the transaction
+  const balanceBefore = await ethers.provider.getBalance(sender.address);
+
+  // Send the transaction
+  const tx = await sender.sendTransaction({
+    to: recipient.address,
+    value: amount
+  });
+
+  // Wait for the transaction to be mined and get the receipt
+  const receipt = await tx.wait();
+
+  // Get the balance of the sender after the transaction
+  const balanceAfter = await ethers.provider.getBalance(sender.address);
+
+  // Calculate the total cost of the transaction (amount + gas fees)
+  const gasPrice = receipt.gasPrice;
+  const gasUsed = receipt.gasUsed;
+  const totalCost = gasPrice * gasUsed + BigInt(amount);
+
+  // Check that the sender's balance decreased by the total cost
+  return balanceBefore - balanceAfter === totalCost
 }
 
 function generateWallet() {
@@ -103,7 +130,7 @@ describe("EVM Test", function () {
         return
       }
       let signers = await ethers.getSigners();
-      owner = signers[0]
+      owner = signers[0];
       debug(`OWNER = ${owner.address}`)
 
       const TestToken = await ethers.getContractFactory("TestToken")
@@ -311,8 +338,139 @@ describe("EVM Test", function () {
       });
     })
 
-    describe("JSON-RPC", function() {
+    describe("Gas tests", function() {
+      it("Should deduct correct amount of gas on transfer", async function () {
+        const balanceBefore = await ethers.provider.getBalance(owner);
 
+        const feeData = await ethers.provider.getFeeData();
+        const gasPrice = Number(feeData.gasPrice);
+
+        const zero = ethers.parseUnits('0', 'ether')
+        const txResponse = await owner.sendTransaction({
+          to: owner.address,
+          gasPrice: gasPrice,
+          value: zero,
+          type: 1,
+        });
+        await txResponse.wait();
+
+        const balanceAfter = await ethers.provider.getBalance(owner);
+
+        const diff = balanceBefore - balanceAfter;
+        expect(diff).to.equal(21000 * gasPrice);
+
+        const success = await sendTransactionAndCheckGas(owner, owner, 0)
+        expect(success).to.be.true
+      });
+
+      it("Should fail if insufficient gas is provided", async function () {
+        const feeData = await ethers.provider.getFeeData();
+        const gasPrice = Number(feeData.gasPrice);
+        const zero = ethers.parseUnits('0', 'ether')
+        expect(owner.sendTransaction({
+          to: owner.address,
+          gasPrice: gasPrice - 1,
+          value: zero,
+          type: 1,
+        })).to.be.reverted;
+      });
+
+      it("Should deduct correct amount even if higher gas price is used", async function () {
+        const balanceBefore = await ethers.provider.getBalance(owner);
+
+        const feeData = await ethers.provider.getFeeData();
+        const gasPrice = Number(feeData.gasPrice);
+        const higherGasPrice = Number(gasPrice + 9)
+        console.log(`gasPrice = ${gasPrice}`)
+
+        const zero = ethers.parseUnits('0', 'ether')
+        const txResponse = await owner.sendTransaction({
+          to: owner.address,
+          value: zero,
+          gasPrice: higherGasPrice,
+          type: 1,
+        });
+        const receipt = await txResponse.wait();
+
+        const balanceAfter = await ethers.provider.getBalance(owner);
+
+        const diff = balanceBefore - balanceAfter;
+        expect(diff).to.equal(21000 * higherGasPrice);
+
+        const success = await sendTransactionAndCheckGas(owner, owner, 0)
+        expect(success).to.be.true
+      });
+
+      describe("EIP-1559", async function() {
+        const zero = ethers.parseUnits('0', 'ether')
+        const twoGwei = ethers.parseUnits("2", "gwei");
+        const oneGwei = ethers.parseUnits("1", "gwei");
+
+        const testCases = [
+          ["No truncation from max priority fee", oneGwei, oneGwei],
+          ["With truncation from max priority fee", oneGwei, twoGwei],
+          ["With complete truncation from max priority fee", zero, twoGwei]
+        ];
+
+        it("Should be able to send many EIP-1559 txs", async function () {
+          const oneGwei = ethers.parseUnits("1", "gwei");
+          const zero = ethers.parseUnits('0', 'ether')
+          for (let i = 0; i < 10; i++) {
+            const txResponse = await owner.sendTransaction({
+              to: owner.address,
+              value: zero,
+              maxPriorityFeePerGas: oneGwei,
+              maxFeePerGas: oneGwei,
+              type: 2
+            });
+            await txResponse.wait();
+          }
+        });
+
+        describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
+          testCases.forEach(async ([name, maxPriorityFeePerGas, maxFeePerGas]) => {
+            it(`EIP-1559 test: ${name}`, async function() {
+              console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
+              console.log(`maxFeePerGas = ${maxFeePerGas}`)
+              const balanceBefore = await ethers.provider.getBalance(owner);
+              const feeData = await ethers.provider.getFeeData();
+              const gasPrice = Number(feeData.gasPrice); 
+
+              console.log(`gasPrice = ${gasPrice}`)
+
+              const zero = ethers.parseUnits('0', 'ether')
+              const txResponse = await owner.sendTransaction({
+                to: owner.address,
+                value: zero,
+                maxPriorityFeePerGas: maxPriorityFeePerGas,
+                maxFeePerGas: maxFeePerGas,
+                type: 2
+              });
+              const receipt = await txResponse.wait();
+
+              expect(receipt).to.not.be.null;
+              expect(receipt.status).to.equal(1);
+
+              const balanceAfter = await ethers.provider.getBalance(owner);
+
+              const tip = Math.min(
+                Number(maxFeePerGas) - gasPrice,
+                Number(maxPriorityFeePerGas)
+              );
+              console.log(`tip = ${tip}`)
+              const effectiveGasPrice = tip + gasPrice;
+              console.log(`effectiveGasPrice = ${effectiveGasPrice}`)
+            
+              const diff = balanceBefore - balanceAfter;
+              console.log(`diff = ${diff}`)
+              expect(diff).to.equal(21000 * effectiveGasPrice);
+            });
+          });
+        });
+      });
+    });
+
+    describe("JSON-RPC", function() {
       it("Should retrieve a transaction by its hash", async function () {
         // Send a transaction to get its hash
         const txResponse = await evmTester.setBoolVar(true);
@@ -481,11 +639,6 @@ describe("EVM Test", function () {
         const isContract = code !== '0x';
         expect(isContract).to.be.true;
       });
-
     });
-
-
-
   });
-
 });

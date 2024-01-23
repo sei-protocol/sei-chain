@@ -68,7 +68,7 @@ func TestInstantiate(t *testing.T) {
 	require.Equal(t, 2, len(outputs))
 	require.Equal(t, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", outputs[0].(string))
 	require.Empty(t, outputs[1].([]byte))
-	require.Equal(t, uint64(899594), g)
+	require.Equal(t, uint64(899567), g)
 
 	// non-existent code ID
 	args, _ = instantiateMethod.Inputs.Pack(
@@ -128,7 +128,7 @@ func TestExecute(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 1, len(outputs))
 	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string(outputs[0].([]byte)))
-	require.Equal(t, uint64(912476), g)
+	require.Equal(t, uint64(912449), g)
 
 	// allowed delegatecall
 	fmt.Println(testApp.BankKeeper.GetBalance(ctx, mockAddr, "usei"))
@@ -189,7 +189,7 @@ func TestQuery(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 1, len(outputs))
 	require.Equal(t, "{\"message\":\"query test\"}", string(outputs[0].([]byte)))
-	require.Equal(t, uint64(927062), g)
+	require.Equal(t, uint64(927035), g)
 
 	// bad contract address
 	args, _ = queryMethod.Inputs.Pack(mockAddr.String(), []byte("{\"info\":{}}"))
