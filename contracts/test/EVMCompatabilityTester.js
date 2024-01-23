@@ -434,10 +434,6 @@ describe("EVM Test", function () {
               console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
               console.log(`maxFeePerGas = ${maxFeePerGas}`)
               const balanceBefore = await ethers.provider.getBalance(owner);
-              const feeData = await ethers.provider.getFeeData();
-              const gasPrice = Number(feeData.gasPrice); 
-
-              console.log(`gasPrice = ${gasPrice}`)
 
               const zero = ethers.parseUnits('0', 'ether')
               const txResponse = await owner.sendTransaction({
@@ -451,6 +447,8 @@ describe("EVM Test", function () {
 
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
+              const gasPrice = Number(receipt.gasPrice);
+              console.log(`gasPrice = ${gasPrice}`)
 
               const balanceAfter = await ethers.provider.getBalance(owner);
 
