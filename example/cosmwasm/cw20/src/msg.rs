@@ -66,3 +66,18 @@ pub enum EvmMsg {
         data: String, // base64 encoded
     },
 }
+
+/// Helper to convert a Cw20ReceiveMsg into an EvmMsg
+pub fn cw20receive_into_cosmos_msg<T: Into<String>, C>(contract_addr: T, message: Cw20ReceiveMsg) -> StdResult<CosmosMsg<C>> 
+where
+    C: Clone + std::fmt::Debug + PartialEq + JsonSchema,
+{
+    let msg = message.into_binary()?;
+    let execute = WasmMsg::Execute {
+        contract_addr: contract_addr.into(),
+        msg,
+        funds: vec![],
+    };
+    
+    Ok(execute.into())
+}
