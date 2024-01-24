@@ -5,4 +5,10 @@ use thiserror::Error;
 pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
+
+    #[error("ERC20 does not support Burn in it's base spec")]
+    BurnNotSupported {},
+
+    #[error("ERC20 does not support Mint in it's base spec")]
+    MintNotSupported {},
 }
