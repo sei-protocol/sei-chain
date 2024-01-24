@@ -99,14 +99,8 @@ func (k *Keeper) PrefixStore(ctx sdk.Context, pref []byte) sdk.KVStore {
 
 func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
 	store := k.PrefixStore(ctx, pref)
-	iter := store.Iterator(nil, nil)
-	keys := [][]byte{}
-	for ; iter.Valid(); iter.Next() {
-		keys = append(keys, iter.Key())
-	}
-	iter.Close()
-	for _, key := range keys {
-		store.Delete(key)
+	if err := store.DeleteAll(nil, nil); err != nil {
+		panic(err)
 	}
 }
 
