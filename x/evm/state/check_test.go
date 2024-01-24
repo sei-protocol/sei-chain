@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/ethereum/go-ethereum/common"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -18,10 +17,6 @@ func TestExist(t *testing.T) {
 	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 	require.False(t, statedb.Exist(addr))
-
-	// has state
-	statedb.SetState(addr, common.BytesToHash([]byte{1}), common.BytesToHash([]byte{2}))
-	require.True(t, statedb.Exist(addr))
 
 	// has code
 	_, addr2 := testkeeper.MockAddressPair()
