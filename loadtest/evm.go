@@ -114,7 +114,7 @@ func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction) bool {
 		fmt.Printf("Failed to get evm transaction receipt for hash %s: %v \n", hash, err)
 		return false
 	} else {
-		fmt.Printf("Got receipt with status:%s \n", receipt.Status)
+		fmt.Printf("Got tx receipt with status %d, hash %s, block %s \n", receipt.Status, receipt.TxHash.String(), receipt.BlockNumber.String())
 	}
 	return true
 }
