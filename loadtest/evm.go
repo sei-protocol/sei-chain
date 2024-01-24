@@ -107,6 +107,7 @@ func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction) bool {
 		fmt.Printf("Failed to send evm transaction: %v \n", err)
 		return false
 	}
+	time.Sleep(2 * time.Second)
 	hash := signedTx.Hash()
 	receipt, err := txSender.GetNextClient().TransactionReceipt(context.Background(), hash)
 	if err != nil {
