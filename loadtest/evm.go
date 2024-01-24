@@ -37,12 +37,12 @@ func (txSender *EvmTxSender) Setup(keys []cryptotypes.PrivKey) {
 	client := txSender.GetNextClient()
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
-		panic("Failed to get chain ID: %v \n")
+		panic(fmt.Sprintf("Failed to get chain ID: %v \n", err))
 	}
 	txSender.chainId = chainID
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
-		panic("Failed to suggest gas price: %v \n")
+		panic(fmt.Sprintf("Failed to suggest gas price: %v\n", err))
 	}
 	txSender.gasPrice = gasPrice
 	for _, key := range keys {
