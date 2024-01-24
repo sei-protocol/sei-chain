@@ -110,10 +110,10 @@ func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction) bool {
 	hash := signedTx.Hash()
 	receipt, err := txSender.GetNextClient().TransactionReceipt(context.Background(), hash)
 	if err != nil {
-		fmt.Printf("Failed to get evm transaction receipt for hash %d: %v \n", err)
+		fmt.Printf("Failed to get evm transaction receipt for hash %d: %v \n", hash, err)
 		return false
 	} else {
-		fmt.Printf("Got receipt %v", receipt)
+		fmt.Printf("Got receipt %v \n", receipt)
 	}
 	return true
 }
