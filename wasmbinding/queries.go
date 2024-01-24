@@ -206,6 +206,15 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.ERC20TransferPayload != nil:
 		c := parsedQuery.ERC20TransferPayload
 		return qp.evmHandler.HandleERC20TransferPayload(ctx, c.Recipient, c.Amount)
+	case parsedQuery.ERC20TransferFromPayload != nil:
+		c := parsedQuery.ERC20TransferFromPayload
+		return qp.evmHandler.HandleERC20TransferFromPayload(ctx, c.Owner, c.Recipient, c.Amount)
+	case parsedQuery.ERC20ApprovePayload != nil:
+		c := parsedQuery.ERC20ApprovePayload
+		return qp.evmHandler.HandleERC20ApprovePayload(ctx, c.Spender, c.Amount)
+	case parsedQuery.ERC20Allowance != nil:
+		c := parsedQuery.ERC20Allowance
+		return qp.evmHandler.HandleERC20Allowance(ctx, c.ContractAddress, c.Owner, c.Spender)
 	case parsedQuery.ERC721Owner != nil:
 		c := parsedQuery.ERC721Owner
 		return qp.evmHandler.HandleERC721Owner(ctx, c.Caller, c.ContractAddress, c.TokenID)
