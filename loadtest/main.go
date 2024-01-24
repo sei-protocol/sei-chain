@@ -106,8 +106,8 @@ func startLoadtestWorkers(config Config) {
 	// preload all accounts
 	keys := client.SignerClient.GetTestAccountsKeys(int(config.TargetTps))
 	if config.EvmRpcEndpoints != "" {
-		// fill all nonce
-		client.EvmTxSender.PrefillNonce(keys)
+		// initialize evm tx sender
+		client.EvmTxSender.Setup(keys)
 	}
 	for i := 0; i < numProducers; i++ {
 		wg.Add(1)

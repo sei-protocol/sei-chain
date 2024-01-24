@@ -20,6 +20,8 @@ import (
 
 type EvmTxSender struct {
 	nonceMap sync.Map
+	chainId  *big.Int
+	gasPrice *big.Int
 	clients  []*ethclient.Client
 }
 
@@ -31,8 +33,18 @@ func NewEvmTxSender(clients []*ethclient.Client) *EvmTxSender {
 }
 
 // PrefillNonce is a function to fill starting nonce, this needs to be called at the beginning
-func (txSender *EvmTxSender) PrefillNonce(keys []cryptotypes.PrivKey) {
+func (txSender *EvmTxSender) Setup(keys []cryptotypes.PrivKey) {
 	client := txSender.GetNextClient()
+	chainID, err := client.NetworkID(context.Background())
+	if err != nil {
+		panic("Failed to get chain ID: %v \n")
+	}
+	txSender.chainId = chainID
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil {
+		panic("Failed to suggest gas price: %v \n")
+	}
+	txSender.gasPrice = gasPrice
 	for _, key := range keys {
 		privKeyHex := hex.EncodeToString(key.Bytes())
 		privateKey, err := crypto.HexToECDSA(privKeyHex)
@@ -61,40 +73,26 @@ func (txSender *EvmTxSender) PrefillNonce(keys []cryptotypes.PrivKey) {
 //
 //nolint:staticcheck
 func (txSender *EvmTxSender) GenerateEvmSignedTx(privKey cryptotypes.PrivKey) *ethtypes.Transaction {
-	client := txSender.GetNextClient()
 	privKeyHex := hex.EncodeToString(privKey.Bytes())
 	privateKey, err := crypto.HexToECDSA(privKeyHex)
 	if err != nil {
 		fmt.Printf("Failed to load private key: %v \n", err)
 	}
-
 	publicKey := privateKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
 		fmt.Printf("Cannot assert type: publicKey is not of type *ecdsa.PublicKey \n")
 		return nil
 	}
-
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 	fromAddressStr := fromAddress.String()
 	n, _ := txSender.nonceMap.Load(fromAddressStr)
 	nextNonce := atomic.AddUint64(n.(*uint64), 1) - 1
-
 	rand.Seed(time.Now().Unix())
 	value := big.NewInt(rand.Int63n(math.MaxInt64 - 1))
-	gasPrice, err := client.SuggestGasPrice(context.Background())
-	if err != nil {
-		fmt.Printf("Failed to suggest gas price: %v \n", err)
-		return nil
-	}
 	gasLimit := uint64(200000)
-	tx := ethtypes.NewTransaction(nextNonce, fromAddress, value, gasLimit, gasPrice, nil)
-	chainID, err := client.NetworkID(context.Background())
-	if err != nil {
-		fmt.Printf("Failed to get chain ID: %v \n", err)
-		return nil
-	}
-	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(chainID), privateKey)
+	tx := ethtypes.NewTransaction(nextNonce, fromAddress, value, gasLimit, txSender.gasPrice, nil)
+	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txSender.chainId), privateKey)
 	if err != nil {
 		fmt.Printf("Failed to sign evm tx: %v \n", err)
 		return nil
