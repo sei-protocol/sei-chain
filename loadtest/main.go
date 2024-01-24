@@ -85,9 +85,9 @@ func startLoadtestWorkers(config Config) {
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
-	txQueue := make(chan SignedTx, 5)
+	txQueue := make(chan SignedTx, 10)
 	done := make(chan struct{})
-	numProducers := 1000
+	numProducers := 10
 	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
