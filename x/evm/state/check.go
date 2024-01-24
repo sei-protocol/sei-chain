@@ -4,25 +4,17 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Exist reports whether the given account exists in state.
 // Notably this should also return true for self-destructed accounts.
 func (s *DBImpl) Exist(addr common.Address) bool {
-	// if there is any entry under addr, it exists
-	store := s.k.PrefixStore(s.ctx, types.StateKey(addr))
-	iter := store.Iterator(nil, nil)
-	if iter.Valid() {
-		return true
-	}
-
-	// if there is code under addr, it exists
+	// check if the address exists as a contract
 	if s.GetCodeHash(addr).Cmp(common.Hash{}) != 0 {
 		return true
 	}
 
-	// check if nonce is non-zero
+	// check if the address exists as an EOA
 	if s.GetNonce(addr) > 0 {
 		return true
 	}
