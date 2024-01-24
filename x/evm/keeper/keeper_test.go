@@ -16,6 +16,16 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
+func TestPurgePrefixNotHang(t *testing.T) {
+	k, ctx := keeper.MockEVMKeeper()
+	for i := 0; i < 50; i++ {
+		ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
+		store := k.PrefixStore(ctx, types.TransientModuleStateKey(ctx))
+		store.Set([]byte{0x03}, []byte("test"))
+	}
+	require.NotPanics(t, func() { k.PurgePrefix(ctx, types.TransientModuleStateKey(ctx)) })
+}
+
 func TestGetChainID(t *testing.T) {
 	k, ctx := keeper.MockEVMKeeper()
 	require.Equal(t, types.DefaultChainID.Int64(), k.ChainID(ctx).Int64())
