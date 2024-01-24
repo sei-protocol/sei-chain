@@ -13,6 +13,7 @@ import (
 	"time"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -102,22 +103,23 @@ func (txSender *EvmTxSender) GenerateEvmSignedTx(privKey cryptotypes.PrivKey) *e
 }
 
 // SendEvmTx takes any signed evm tx and send it out
-func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction) bool {
+func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess func()) {
 	err := txSender.GetNextClient().SendTransaction(context.Background(), signedTx)
 	if err != nil {
 		fmt.Printf("Failed to send evm transaction: %v \n", err)
-		return false
 	}
-	time.Sleep(5 * time.Second)
-	hash := signedTx.Hash()
-	receipt, err := txSender.GetNextClient().TransactionReceipt(context.Background(), hash)
-	if err != nil {
-		fmt.Printf("Failed to get evm transaction receipt for hash %s: %v \n", hash, err)
-		return false
-	} else {
-		fmt.Printf("Got tx receipt with status %d, hash %s, block %s \n", receipt.Status, receipt.TxHash.String(), receipt.BlockNumber.String())
+	checkTxSuccessFunc := func() bool {
+		return txSender.GetTxReceipt(signedTx.Hash()) == nil
 	}
-	return true
+	go func() {
+		initialDelay := 1 * time.Second
+		maxDelay := 10 * time.Second
+		success := exponentialRetry(checkTxSuccessFunc, initialDelay, maxDelay, 2.0)
+		if success {
+			onSuccess()
+		}
+	}()
+
 }
 
 // GetNextClient return the next available eth client randomly
@@ -130,4 +132,36 @@ func (txSender *EvmTxSender) GetNextClient() *ethclient.Client {
 	}
 	rand.Seed(time.Now().Unix())
 	return txSender.clients[rand.Int()%numClients]
+}
+
+func (txSender *EvmTxSender) GetTxReceipt(txHash common.Hash) *ethtypes.Receipt {
+	receipt, err := txSender.GetNextClient().TransactionReceipt(context.Background(), txHash)
+	if err != nil {
+		fmt.Printf("Failed to get evm transaction receipt for hash %s: %v \n", txHash, err)
+		return nil
+	}
+	fmt.Printf("Got tx receipt for hash %s, block %s \n", receipt.TxHash.String(), receipt.BlockNumber.String())
+	return receipt
+}
+
+func exponentialRetry(callFunc func() bool, initialDelay time.Duration, totalMaxDelay time.Duration, backoffFactor float64) bool {
+	delay := initialDelay
+	var totalDelay time.Duration = 0
+	for {
+		success := callFunc()
+		if success {
+			return true
+		}
+
+		// Check if the next delay will exceed totalMaxDelay.
+		if totalDelay+delay > totalMaxDelay {
+			return false
+		}
+
+		time.Sleep(delay)
+		totalDelay += delay
+
+		// Calculate the next delay.
+		delay = time.Duration(math.Min(float64(delay)*backoffFactor, float64(totalMaxDelay-totalDelay)))
+	}
 }

@@ -138,43 +138,35 @@ func (c *LoadTestClient) Close() {
 }
 
 func (c *LoadTestClient) BuildTxs(
-	txQueue chan<- SignedTx,
-	producerId int,
-	keys []cryptotypes.PrivKey,
+	txQueue chan SignedTx,
+	key cryptotypes.PrivKey,
 	wg *sync.WaitGroup,
 	done <-chan struct{},
 	producedCount *atomic.Int64,
 ) {
+	wg.Add(1)
 	defer wg.Done()
 	config := c.LoadTestConfig
 	for {
 		select {
 		case <-done:
-			fmt.Printf("Stopping producer %d\n", producerId)
 			return
 		default:
-			index := producedCount.Load() % int64(len(keys))
-			nextKey := keys[index]
 			// Generate a message type first
 			messageTypes := strings.Split(config.MessageType, ",")
 			messageType := c.getRandomMessageType(messageTypes)
 			signedTx := SignedTx{}
 			// Sign EVM and Cosmos TX differently
 			if messageType == EVM {
-				tx := c.generatedSignedEvmTxs(nextKey)
+				tx := c.generatedSignedEvmTxs(key)
 				if tx != nil {
 					signedTx = SignedTx{EvmTx: tx}
 				}
 			} else {
-				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(nextKey, messageType)}
+				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(key, messageType)}
 			}
-			select {
-			case txQueue <- signedTx:
-				producedCount.Add(1)
-			case <-done:
-				// Exit if done signal is received while trying to send to txQueue
-				return
-			}
+			txQueue <- signedTx
+			producedCount.Add(1)
 		}
 	}
 }
@@ -198,55 +190,49 @@ func (c *LoadTestClient) generatedSignedEvmTxs(key cryptotypes.PrivKey) *ethtype
 }
 
 func (c *LoadTestClient) SendTxs(
-	txQueue <-chan SignedTx,
+	txQueue chan SignedTx,
 	done <-chan struct{},
 	sentCount *atomic.Int64,
 	rateLimit int,
 	wg *sync.WaitGroup,
 ) {
+	wg.Add(1)
+	defer wg.Done()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
 	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
 	sem := semaphore.NewWeighted(int64(maxConcurrent))
-
 	for {
 		select {
 		case <-done:
-			fmt.Printf("Stopping consumers\n")
 			return
 		case tx, ok := <-txQueue:
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				return
 			}
-
+			if !rateLimiter.Allow() {
+				continue
+			}
+			// Acquire a semaphore
 			if err := sem.Acquire(ctx, 1); err != nil {
 				fmt.Printf("Failed to acquire semaphore: %v", err)
 				break
 			}
-			wg.Add(1)
-			go func(tx SignedTx) {
-				localCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-				defer cancel()
-				defer wg.Done()
-				defer sem.Release(1)
-
-				if err := rateLimiter.Wait(localCtx); err != nil {
-					return
+			if tx.TxBytes != nil && len(tx.TxBytes) > 0 {
+				// Send Cosmos Transactions
+				if SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c) {
+					sentCount.Add(1)
 				}
-				if tx.TxBytes != nil && len(tx.TxBytes) > 0 {
-					// Send Cosmos Transactions
-					if SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c) {
-						sentCount.Add(1)
-					}
-				} else if tx.EvmTx != nil {
-					// Send EVM Transactions
-					if c.EvmTxSender.SendEvmTx(tx.EvmTx) {
-						sentCount.Add(1)
-					}
-				}
-			}(tx)
+			} else if tx.EvmTx != nil {
+				// Send EVM Transactions
+				c.EvmTxSender.SendEvmTx(tx.EvmTx, func() {
+					sentCount.Add(1)
+				})
+			}
+			// Release the semaphore
+			sem.Release(1)
 		}
 	}
 }

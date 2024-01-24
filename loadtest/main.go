@@ -81,14 +81,8 @@ func startLoadtestWorkers(config Config) {
 	fmt.Printf("Starting loadtest workers\n")
 	client := NewLoadTestClient(config)
 	client.SetValidators()
-
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
-
-	txQueue := make(chan SignedTx, 10)
-	done := make(chan struct{})
-	numProducers := 10
-	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
 	signals := make(chan os.Signal, 1)
@@ -102,24 +96,33 @@ func startLoadtestWorkers(config Config) {
 	var blockHeights []int
 	var blockTimes []string
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
-	fmt.Printf("Starting loadtest producers\n")
+
 	// preload all accounts
 	keys := client.SignerClient.GetTestAccountsKeys(int(config.TargetTps))
 	if config.EvmRpcEndpoints != "" {
 		// initialize evm tx sender
 		client.EvmTxSender.Setup(keys)
 	}
-	for i := 0; i < numProducers; i++ {
-		wg.Add(1)
-		go client.BuildTxs(txQueue, i, keys, &wg, done, &producedCount)
+
+	// Create producers
+	fmt.Printf("Starting loadtest producers and consumers\n")
+	numWorkers := len(keys)
+	txQueues := make([]chan SignedTx, len(keys))
+	for i := range keys {
+		txQueues[i] = make(chan SignedTx, 10)
+	}
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		go client.BuildTxs(txQueues[i], keys[i], &wg, done, &producedCount)
+		go client.SendTxs(txQueues[i], done, &sentCount, int(config.TargetTps), &wg)
 	}
 	// Give producers some time to populate queue
 	if config.TargetTps > 1000 {
+		fmt.Printf("Wait 5 seconds to pre-generate initial txs\n")
 		time.Sleep(5 * time.Second)
 	}
 
-	fmt.Printf("Starting loadtest consumers\n")
-	go client.SendTxs(txQueue, done, &sentCount, int(config.TargetTps), &wg)
 	// Statistics reporting goroutine
 	go func() {
 		for {
@@ -151,11 +154,13 @@ func startLoadtestWorkers(config Config) {
 
 	// Wait for a termination signal
 	<-signals
-	fmt.Println("SIGINT received, shutting down...")
+	fmt.Println("SIGINT received, shutting down producers and consumers...")
 	close(done)
 
 	wg.Wait()
-	close(txQueue)
+	for i := range txQueues {
+		close(txQueues[i])
+	}
 }
 
 func printStats(startTime time.Time, producedCount *atomic.Int64, sentCount *atomic.Int64, prevSentCount *atomic.Int64, blockHeights []int, blockTimes []string) {
