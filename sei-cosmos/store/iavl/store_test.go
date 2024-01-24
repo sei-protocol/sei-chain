@@ -463,6 +463,21 @@ func TestIAVLNoPrune(t *testing.T) {
 	}
 }
 
+func TestIAVLStoreDeleteAll(t *testing.T) {
+	db := dbm.NewMemDB()
+	tree, err := iavl.NewMutableTree(db, cacheSize, false)
+	require.NoError(t, err)
+
+	iavlStore := UnsafeNewStore(tree)
+	iavlStore.Set([]byte("1"), []byte("2"))
+	iavlStore.Set([]byte("3"), []byte("4"))
+	require.NotNil(t, iavlStore.Get([]byte("1")))
+	require.NotNil(t, iavlStore.Get([]byte("3")))
+	require.Nil(t, iavlStore.DeleteAll(nil, nil))
+	require.Nil(t, iavlStore.Get([]byte("1")))
+	require.Nil(t, iavlStore.Get([]byte("3")))
+}
+
 func TestIAVLStoreQuery(t *testing.T) {
 	db := dbm.NewMemDB()
 	tree, err := iavl.NewMutableTree(db, cacheSize, false)

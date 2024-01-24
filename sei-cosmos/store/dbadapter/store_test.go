@@ -13,6 +13,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/tests/mocks"
+	dbm "github.com/tendermint/tm-db"
 )
 
 var errFoo = errors.New("dummy")
@@ -72,6 +73,17 @@ func TestAccessors(t *testing.T) {
 
 	mockDB.EXPECT().ReverseIterator(gomock.Eq(start), gomock.Eq(end)).Times(1).Return(nil, errFoo)
 	require.Panics(t, func() { store.ReverseIterator(start, end) })
+}
+
+func TestDeleteAll(t *testing.T) {
+	mem := dbadapter.Store{DB: dbm.NewMemDB()}
+	mem.Set([]byte("1"), []byte("2"))
+	mem.Set([]byte("3"), []byte("4"))
+	require.NotNil(t, mem.Get([]byte("1")))
+	require.NotNil(t, mem.Get([]byte("3")))
+	require.Nil(t, mem.DeleteAll(nil, nil))
+	require.Nil(t, mem.Get([]byte("1")))
+	require.Nil(t, mem.Get([]byte("3")))
 }
 
 func TestCacheWraps(t *testing.T) {

@@ -134,3 +134,16 @@ func (st *Store) VersionExists(version int64) bool {
 	}
 	return version >= earliest
 }
+
+func (st *Store) DeleteAll(start, end []byte) error {
+	iter := st.Iterator(start, end)
+	keys := [][]byte{}
+	for ; iter.Valid(); iter.Next() {
+		keys = append(keys, iter.Key())
+	}
+	iter.Close()
+	for _, key := range keys {
+		st.Delete(key)
+	}
+	return nil
+}

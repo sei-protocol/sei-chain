@@ -130,6 +130,10 @@ func (gs *Store) VersionExists(version int64) bool {
 	return gs.parent.VersionExists(version)
 }
 
+func (gs *Store) DeleteAll(start, end []byte) error {
+	return gs.parent.DeleteAll(start, end)
+}
+
 type gasIterator struct {
 	gasMeter  types.GasMeter
 	gasConfig types.GasConfig

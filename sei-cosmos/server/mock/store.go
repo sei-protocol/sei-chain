@@ -230,6 +230,10 @@ func (kv kvStore) VersionExists(version int64) bool {
 	panic("not implemented")
 }
 
+func (kv kvStore) DeleteAll(start, end []byte) error {
+	panic("not implemented")
+}
+
 func NewCommitMultiStore() sdk.CommitMultiStore {
 	return multiStore{kv: make(map[sdk.StoreKey]kvStore)}
 }

@@ -161,3 +161,7 @@ func (s *Store) onWrite(delete bool, key, value []byte) {
 		l.OnWrite(s.parentStoreKey, key, value, delete)
 	}
 }
+
+func (s *Store) DeleteAll(start, end []byte) error {
+	return s.parent.DeleteAll(start, end)
+}

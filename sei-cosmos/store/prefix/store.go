@@ -90,6 +90,18 @@ func (s Store) Delete(key []byte) {
 	s.parent.Delete(s.key(key))
 }
 
+func (s Store) DeleteAll(start, end []byte) error {
+	newstart := cloneAppend(s.prefix, start)
+
+	var newend []byte
+	if end == nil {
+		newend = cpIncr(s.prefix)
+	} else {
+		newend = cloneAppend(s.prefix, end)
+	}
+	return s.parent.DeleteAll(newstart, newend)
+}
+
 // Implements KVStore
 // Check https://github.com/tendermint/tendermint/blob/master/libs/db/prefix_db.go#L106
 func (s Store) Iterator(start, end []byte) types.Iterator {
