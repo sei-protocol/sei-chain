@@ -93,7 +93,7 @@ func (txSender *EvmTxSender) GenerateEvmSignedTx(privKey cryptotypes.PrivKey) *e
 	gasLimit := uint64(200000)
 	tx := ethtypes.NewTransaction(nextNonce, fromAddress, value, gasLimit, txSender.gasPrice, nil)
 	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txSender.chainId), privateKey)
-	fmt.Printf("Bank Send from %s \n", fromAddressStr)
+	fmt.Printf("Bank Send from %s with nonce: %d \n", fromAddressStr, nextNonce)
 	if err != nil {
 		fmt.Printf("Failed to sign evm tx: %v \n", err)
 		return nil
