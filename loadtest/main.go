@@ -85,7 +85,7 @@ func startLoadtestWorkers(config Config) {
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
-	txQueue := make(chan SignedTx, 5000)
+	txQueue := make(chan SignedTx, 5)
 	done := make(chan struct{})
 	numProducers := 1000
 	var wg sync.WaitGroup
