@@ -25,6 +25,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/legacytm"
+	"github.com/cosmos/cosmos-sdk/utils"
 )
 
 // InitChain implements the ABCI interface. It runs the initialization logic
@@ -912,7 +913,7 @@ func splitPath(requestPath string) (path []string) {
 }
 
 // ABCI++
-func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (resp *abci.ResponsePrepareProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "prepare_proposal")
 
 	header := tmproto.Header{
@@ -946,21 +947,40 @@ func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepar
 
 	app.preparePrepareProposalState()
 
+	defer func() {
+		if err := recover(); err != nil {
+			app.logger.Error(
+				"panic recovered in PrepareProposal",
+				"height", req.Height,
+				"time", req.Time,
+				"panic", err,
+			)
+
+			resp = &abci.ResponsePrepareProposal{
+				TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
+					return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
+				}),
+			}
+		}
+	}()
+
 	if app.prepareProposalHandler != nil {
-		res, err := app.prepareProposalHandler(app.prepareProposalState.ctx, req)
+		resp, err = app.prepareProposalHandler(app.prepareProposalState.ctx, req)
 		if err != nil {
 			return nil, err
 		}
+
 		if cp := app.GetConsensusParams(app.prepareProposalState.ctx); cp != nil {
-			res.ConsensusParamUpdates = cp
+			resp.ConsensusParamUpdates = cp
 		}
-		return res, nil
-	} else {
-		return nil, errors.New("no prepare proposal handler")
+
+		return resp, nil
 	}
+
+	return nil, errors.New("no prepare proposal handler")
 }
 
-func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
 
 	header := tmproto.Header{
@@ -1001,21 +1021,36 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 	}
 
 	// NOTE: header hash is not set in NewContext, so we manually set it here
-
 	app.prepareProcessProposalState(gasMeter, req.Hash)
 
+	defer func() {
+		if err := recover(); err != nil {
+			app.logger.Error(
+				"panic recovered in ProcessProposal",
+				"height", req.Height,
+				"time", req.Time,
+				"hash", fmt.Sprintf("%X", req.Hash),
+				"panic", err,
+			)
+
+			resp = &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}
+		}
+	}()
+
 	if app.processProposalHandler != nil {
-		res, err := app.processProposalHandler(app.processProposalState.ctx, req)
+		resp, err = app.processProposalHandler(app.processProposalState.ctx, req)
 		if err != nil {
 			return nil, err
 		}
+
 		if cp := app.GetConsensusParams(app.processProposalState.ctx); cp != nil {
-			res.ConsensusParamUpdates = cp
+			resp.ConsensusParamUpdates = cp
 		}
-		return res, nil
-	} else {
-		return nil, errors.New("no process proposal handler")
+
+		return resp, nil
 	}
+
+	return nil, errors.New("no process proposal handler")
 }
 
 func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
