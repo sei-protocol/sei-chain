@@ -109,12 +109,9 @@ func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 	}
 
 	go func() {
-		checkTxSuccessFunc := func() error {
+		success, errs := PeriodicRetry(func() error {
 			return txSender.GetTxReceipt(signedTx.Hash())
-		}
-		initialDelay := 1 * time.Second
-		maxDelay := 10 * time.Second
-		success, errs := exponentialRetry(checkTxSuccessFunc, initialDelay, maxDelay, 2.0)
+		})
 		if success {
 			fmt.Printf("Successfully got evm transaction receipt for %s \n", signedTx.Hash())
 			onSuccess()
@@ -145,20 +142,17 @@ func (txSender *EvmTxSender) GetTxReceipt(txHash common.Hash) error {
 	return nil
 }
 
-func exponentialRetry(callFunc func() error, initialDelay time.Duration, totalMaxDelay time.Duration, backoffFactor float64) (bool, error) {
-	delay := initialDelay
-	var totalDelay time.Duration = 0
+func PeriodicRetry(callFunc func() error) (bool, error) {
+	retryCount := 0
 	for {
 		err := callFunc()
 		if err != nil {
-			// Check if the next delay will exceed totalMaxDelay.
-			if totalDelay+delay > totalMaxDelay {
+			retryCount++
+			if retryCount >= 5 {
 				return false, err
 			}
-			time.Sleep(delay)
-			totalDelay += delay
-			// Calculate the next delay.
-			delay = time.Duration(math.Min(float64(delay)*backoffFactor, float64(totalMaxDelay-totalDelay)))
+			time.Sleep(1 * time.Second)
+			continue
 		} else {
 			return true, nil
 		}
