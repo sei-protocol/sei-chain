@@ -231,7 +231,6 @@ func (c *LoadTestClient) SendTxs(
 				}
 			} else if tx.EvmTx != nil {
 				// Send EVM Transactions
-				fmt.Println("Sending evm tx")
 				c.EvmTxSender.SendEvmTx(tx.EvmTx, func() {
 					sentCount.Add(1)
 				})

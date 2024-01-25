@@ -113,7 +113,6 @@ func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 			return txSender.GetTxReceipt(signedTx.Hash())
 		})
 		if success {
-			fmt.Printf("Successfully got evm transaction receipt for %s \n", signedTx.Hash())
 			onSuccess()
 		} else {
 			fmt.Printf("Failed to get evm transaction receipt: %v \n", errs)
