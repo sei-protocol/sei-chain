@@ -705,15 +705,16 @@ describe("EVM Test", function () {
         expect(isContract).to.be.true;
       });
 
-      it.only("log topic filtering", async function() {
+      it.only("advanced log topic filtering", async function() {
         describe("log topic filtering", async function() {
           let blockStart = 10000000000000;
           let blockEnd = 0;
+          let numTxs = 5;
           before(async function() {
             // Emit an event by making a transaction
             console.log("evmTester = ", evmTester)
-            for (let i = 0; i < 5; i++) {
-              const txResponse = await evmTester.setBoolVar(true);
+            for (let i = 0; i < numTxs; i++) {
+              const txResponse = await evmTester.emitDummyEvent("test", i);
               const receipt = await txResponse.wait();
               blockStart = Math.min(blockStart, receipt.blockNumber);
               blockEnd = Math.max(blockEnd, receipt.blockNumber);
@@ -723,17 +724,50 @@ describe("EVM Test", function () {
             console.log(`blockEnd = ${blockEnd}`)
           });
 
-          it("Contract address filter", async function () {
-            console.log("here1")
-          });
-
           it("Block range filter", async function () {
-            console.log("here2")
+            const filter = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+            };
+          
+            const logs = await ethers.provider.getLogs(filter);
+            console.log(logs); // Logs from the contract
+          
+            expect(logs).to.be.an('array');
+            expect(logs.length).to.equal(numTxs);
           });
 
-          // it("Single topic filter")
+          it("Single topic filter", async function() {
+            const filter = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [ethers.id("DummyEvent(string,bool,address,uint256,bytes)")]
+            };
+          
+            const logs = await ethers.provider.getLogs(filter);
+            console.log(logs); // Logs from the contract
+          
+            expect(logs).to.be.an('array');
+            expect(logs.length).to.equal(numTxs);
+          });
 
-          // it("Multiple topic filter")
+          it("Multiple topic filter", async function() {
+            const paddedOwnerAddr = "0x" + owner.address.slice(2).padStart(64, '0');
+            const filter = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [
+                ethers.id("DummyEvent(string,bool,address,uint256,bytes)"),
+                ethers.id("test"),
+                paddedOwnerAddr,
+              ]
+            };
+          
+            const logs = await ethers.provider.getLogs(filter);
+          
+            expect(logs).to.be.an('array');
+            expect(logs.length).to.equal(numTxs);
+          });
 
           // it("Wildcard topic filter")
 
