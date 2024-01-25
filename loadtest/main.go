@@ -113,7 +113,6 @@ func startLoadtestWorkers(config Config) {
 		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCount)
 		go client.SendTxs(txQueues[i], i, done, &sentCount, consumerSemaphore, &wg)
 	}
-	fmt.Printf("Created %d producers and consumers \n", len(keys))
 	// Give producers some time to populate queue
 	if config.TargetTps > 1000 {
 		fmt.Printf("Wait 5 seconds to pre-generate initial txs\n")
@@ -262,7 +261,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 				ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 				Amount: sdk.NewCoins(sdk.Coin{
 					Denom:  "usei",
-					Amount: sdk.NewInt(int64(rand.Uint32())),
+					Amount: sdk.NewInt(1),
 				}),
 			})
 		}
