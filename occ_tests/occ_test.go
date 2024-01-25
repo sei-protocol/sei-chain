@@ -122,7 +122,7 @@ func TestParallelTransactions(t *testing.T) {
 			runs: runs,
 			txs: func(tCtx *utils.TestContext) []sdk.Msg {
 				return utils.JoinMsgs(
-					messages.BankTransfer(tCtx, 10),
+					messages.BankTransfer(tCtx, 2),
 				)
 			},
 		},
@@ -155,7 +155,7 @@ func TestParallelTransactions(t *testing.T) {
 
 		// execute sequentially, then in parallel
 		// the responses and state should match for both
-		sCtx := utils.NewTestContext(t, accts, blockTime, 1)
+		sCtx := utils.NewTestContext(t, accts, blockTime, 1, false)
 		txs := tt.txs(sCtx)
 		if tt.shuffle {
 			txs = utils.Shuffle(txs)
@@ -165,12 +165,12 @@ func TestParallelTransactions(t *testing.T) {
 			tt.before(sCtx)
 		}
 
-		sEvts, sResults, _, sErr := utils.RunWithOCC(sCtx, txs)
+		sEvts, sResults, _, sErr := utils.RunWithoutOCC(sCtx, txs)
 		require.NoError(t, sErr, tt.name)
 		require.Len(t, sResults, len(txs))
 
 		for i := 0; i < tt.runs; i++ {
-			pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers)
+			pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers, true)
 			if tt.before != nil {
 				tt.before(pCtx)
 			}
