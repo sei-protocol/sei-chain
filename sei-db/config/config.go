@@ -44,7 +44,7 @@ type StateCommitConfig struct {
 	SnapshotWriterLimit int `mapstructure:"snapshot-writer-limit"`
 
 	// CacheSize defines the size of the cache for each memiavl store.
-	// defaults to 100000.
+	// Deprecated: this is removed, we will just rely on mmap page cache
 	CacheSize int `mapstructure:"cache-size"`
 }
 

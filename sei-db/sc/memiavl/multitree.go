@@ -225,7 +225,7 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 			t.trees[i].Name = upgrade.Name
 		default:
 			// add tree
-			tree := NewWithInitialVersion(uint32(utils.NextVersion(t.Version(), t.initialVersion)), t.cacheSize)
+			tree := NewWithInitialVersion(uint32(utils.NextVersion(t.Version(), t.initialVersion)))
 			t.trees = append(t.trees, NamedTree{Tree: tree, Name: upgrade.Name})
 		}
 	}
