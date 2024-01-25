@@ -117,8 +117,9 @@ func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 		success, err := exponentialRetry(checkTxSuccessFunc, initialDelay, maxDelay, 2.0)
 		if success {
 			onSuccess()
+		} else {
+			fmt.Printf("Failed to get evm transaction receipt: %v \n", err)
 		}
-		fmt.Printf("Failed to get evm transaction receipt: %v \n", err)
 	}()
 
 }
@@ -158,8 +159,8 @@ func exponentialRetry(callFunc func() error, initialDelay time.Duration, totalMa
 			totalDelay += delay
 			// Calculate the next delay.
 			delay = time.Duration(math.Min(float64(delay)*backoffFactor, float64(totalMaxDelay-totalDelay)))
+		} else {
+			return true, nil
 		}
-		return true, nil
-
 	}
 }
