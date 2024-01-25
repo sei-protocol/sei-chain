@@ -114,11 +114,12 @@ func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 		}
 		initialDelay := 1 * time.Second
 		maxDelay := 10 * time.Second
-		success, err := exponentialRetry(checkTxSuccessFunc, initialDelay, maxDelay, 2.0)
+		success, errs := exponentialRetry(checkTxSuccessFunc, initialDelay, maxDelay, 2.0)
 		if success {
+			fmt.Printf("Successfully got evm transaction receipt for %s \n", signedTx.Hash())
 			onSuccess()
 		} else {
-			fmt.Printf("Failed to get evm transaction receipt: %v \n", err)
+			fmt.Printf("Failed to get evm transaction receipt: %v \n", errs)
 		}
 	}()
 
@@ -137,11 +138,10 @@ func (txSender *EvmTxSender) GetNextClient() *ethclient.Client {
 }
 
 func (txSender *EvmTxSender) GetTxReceipt(txHash common.Hash) error {
-	receipt, err := txSender.GetNextClient().TransactionReceipt(context.Background(), txHash)
+	_, err := txSender.GetNextClient().TransactionReceipt(context.Background(), txHash)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Got tx receipt for hash %s, block %s \n", receipt.TxHash.String(), receipt.BlockNumber.String())
 	return nil
 }
 
