@@ -51,7 +51,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts))
 	txClients, grpcConns := BuildGrpcClients(config)
 	var evmTxClients []*EvmTxClient
-	if config.EvmRpcEndpoints != "" {
+	if config.EvmRpcEndpoints != "" && strings.Contains(config.MessageType, EVM) {
 		evmTxClients = BuildEvmTxClients(config, keys)
 	}
 

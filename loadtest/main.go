@@ -90,7 +90,6 @@ func startLoadtestWorkers(config Config) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
-	ticker := time.NewTicker(1 * time.Second)
 	start := time.Now()
 	var producedCount = atomic.Int64{}
 	var sentCount = atomic.Int64{}
@@ -121,6 +120,7 @@ func startLoadtestWorkers(config Config) {
 	}
 
 	// Statistics reporting goroutine
+	ticker := time.NewTicker(1 * time.Second)
 	go func() {
 		for {
 			select {

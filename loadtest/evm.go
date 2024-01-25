@@ -72,6 +72,7 @@ func NewEvmTxClient(
 func (txClient *EvmTxClient) GenerateEvmSignedTx() *ethtypes.Transaction {
 	txClient.mtx.RLock()
 	defer txClient.mtx.RUnlock()
+
 	privKeyHex := hex.EncodeToString(txClient.privateKey.Bytes())
 	privateKey, err := crypto.HexToECDSA(privKeyHex)
 	if err != nil {
@@ -91,6 +92,7 @@ func (txClient *EvmTxClient) GenerateEvmSignedTx() *ethtypes.Transaction {
 		fmt.Printf("Failed to sign evm tx: %v \n", err)
 		return nil
 	}
+	fmt.Printf("Generated tx for address %s", txClient.accountAddress.String())
 	return signedTx
 }
 
