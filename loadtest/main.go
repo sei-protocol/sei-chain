@@ -112,7 +112,7 @@ func startLoadtestWorkers(config Config) {
 	numWorkers := int(math.Min(float64(config.NumWorkers), float64(len(keys))))
 	txQueues := make([]chan SignedTx, len(keys))
 	for i := range keys {
-		txQueues[i] = make(chan SignedTx, 5)
+		txQueues[i] = make(chan SignedTx, 2)
 	}
 	done := make(chan struct{})
 	consumerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
