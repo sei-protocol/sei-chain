@@ -150,7 +150,6 @@ func (c *LoadTestClient) BuildTxs(
 	for {
 		select {
 		case <-done:
-			fmt.Println("Done triggered for producer")
 			return
 		default:
 			// Generate a message type first
@@ -166,8 +165,12 @@ func (c *LoadTestClient) BuildTxs(
 			} else {
 				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(key, messageType)}
 			}
-			txQueue <- signedTx
-			producedCount.Add(1)
+			select {
+			case txQueue <- signedTx:
+				producedCount.Add(1)
+			case <-done:
+				return
+			}
 		}
 	}
 }
@@ -205,7 +208,6 @@ func (c *LoadTestClient) SendTxs(
 	for {
 		select {
 		case <-done:
-			fmt.Println("Done triggered for consumer")
 			return
 		case tx, ok := <-txQueue:
 			if !ok {
