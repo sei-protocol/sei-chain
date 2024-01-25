@@ -162,7 +162,10 @@ func startLoadtestWorkers(config Config) {
 	fmt.Println("SIGINT received, shutting down producers and consumers...")
 	close(done)
 
+	fmt.Println("Waiting for wait groups...")
+
 	wg.Wait()
+	fmt.Println("Closing channels...")
 	for i := range txQueues {
 		close(txQueues[i])
 	}

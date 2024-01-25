@@ -33,7 +33,7 @@ func NewEvmTxSender(clients []*ethclient.Client) *EvmTxSender {
 	}
 }
 
-// PrefillNonce is a function to fill starting nonce, this needs to be called at the beginning
+// Setup is a function to fill starting nonce, this needs to be called at the beginning
 func (txSender *EvmTxSender) Setup(keys []cryptotypes.PrivKey) {
 	client := txSender.GetNextClient()
 	chainID, err := client.NetworkID(context.Background())
