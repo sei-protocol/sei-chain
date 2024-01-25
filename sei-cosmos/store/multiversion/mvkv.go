@@ -311,6 +311,14 @@ func (store *VersionIndexedStore) iterator(start []byte, end []byte, ascending b
 
 }
 
+func (v *VersionIndexedStore) VersionExists(version int64) bool {
+	return v.parent.VersionExists(version)
+}
+
+func (v *VersionIndexedStore) DeleteAll(start, end []byte) error {
+	return v.parent.DeleteAll(start, end)
+}
+
 // GetStoreType implements types.KVStore.
 func (v *VersionIndexedStore) GetStoreType() types.StoreType {
 	return v.parent.GetStoreType()
