@@ -108,15 +108,15 @@ func TestParallelTransactions(t *testing.T) {
 		before  func(tCtx *utils.TestContext)
 		txs     func(tCtx *utils.TestContext) []sdk.Msg
 	}{
-		// {
-		// 	name: "Test wasm instantiations",
-		// 	runs: runs,
-		// 	txs: func(tCtx *utils.TestContext) []sdk.Msg {
-		// 		return utils.JoinMsgs(
-		// 			messages.WasmInstantiate(tCtx, 10),
-		// 		)
-		// 	},
-		// },
+		{
+			name: "Test wasm instantiations",
+			runs: runs,
+			txs: func(tCtx *utils.TestContext) []sdk.Msg {
+				return utils.JoinMsgs(
+					messages.WasmInstantiate(tCtx, 10),
+				)
+			},
+		},
 		{
 			name: "Test bank transfer",
 			runs: runs,
@@ -126,27 +126,27 @@ func TestParallelTransactions(t *testing.T) {
 				)
 			},
 		},
-		// {
-		// 	name: "Test governance proposal",
-		// 	runs: runs,
-		// 	txs: func(tCtx *utils.TestContext) []sdk.Msg {
-		// 		return utils.JoinMsgs(
-		// 			messages.GovernanceSubmitProposal(tCtx, 10),
-		// 		)
-		// 	},
-		// },
-		// {
-		// 	name:    "Test combinations",
-		// 	runs:    runs,
-		// 	shuffle: true,
-		// 	txs: func(tCtx *utils.TestContext) []sdk.Msg {
-		// 		return utils.JoinMsgs(
-		// 			messages.WasmInstantiate(tCtx, 10),
-		// 			messages.BankTransfer(tCtx, 10),
-		// 			messages.GovernanceSubmitProposal(tCtx, 10),
-		// 		)
-		// 	},
-		// },
+		{
+			name: "Test governance proposal",
+			runs: runs,
+			txs: func(tCtx *utils.TestContext) []sdk.Msg {
+				return utils.JoinMsgs(
+					messages.GovernanceSubmitProposal(tCtx, 10),
+				)
+			},
+		},
+		{
+			name:    "Test combinations",
+			runs:    runs,
+			shuffle: true,
+			txs: func(tCtx *utils.TestContext) []sdk.Msg {
+				return utils.JoinMsgs(
+					messages.WasmInstantiate(tCtx, 10),
+					messages.BankTransfer(tCtx, 10),
+					messages.GovernanceSubmitProposal(tCtx, 10),
+				)
+			},
+		},
 	}
 
 	for _, tt := range tests {
