@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use cosmwasm_schema::cw_serde;
 use serde::{Deserialize, Serialize};
 
-pub use cw20::Cw20ExecuteMsg as ExecuteMsg;
+pub use cw20::{Cw20ExecuteMsg as ExecuteMsg, Cw20QueryMsg as QueryMsg};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -50,6 +50,14 @@ pub enum EvmQuery {
         contract_address: String,
         owner: String,
         spender: String,
+    },
+    Erc20TokenInfo {
+        contract_address: String,
+        caller: String,
+    },
+    Erc20Balance {
+        contract_address: String,
+        account: String,
     },
 }
 
