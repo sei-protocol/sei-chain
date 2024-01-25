@@ -212,7 +212,7 @@ func (c *LoadTestClient) SendTxs(
 		case <-done:
 			return
 		case tx, ok := <-txQueue:
-			fmt.Println("Got a new tx from txQueue")
+
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				return
@@ -225,6 +225,7 @@ func (c *LoadTestClient) SendTxs(
 				fmt.Printf("Failed to acquire semaphore: %v", err)
 				break
 			}
+			fmt.Println("Got a new tx from txQueue")
 			if tx.TxBytes != nil && len(tx.TxBytes) > 0 {
 				// Send Cosmos Transactions
 				if SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c) {
