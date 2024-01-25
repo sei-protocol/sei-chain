@@ -1218,10 +1218,6 @@ func (app *App) ProcessTxs(
 	// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
 	// deterministic ordering between validators in the case of concurrent deliverTXs
 	processBlockCtx, processBlockCache := app.CacheContext(ctx)
-	blockGasMeterConsumed := uint64(0)
-	if processBlockCtx.BlockGasMeter() != nil {
-		blockGasMeterConsumed = processBlockCtx.BlockGasMeter().GasConsumed()
-	}
 	// TODO: (occ) replaced with scheduler sending tasks to workers such as execution and validation
 	concurrentResults, ok := processBlockConcurrentFunction(
 		processBlockCtx,
@@ -1247,10 +1243,6 @@ func (app *App) ProcessTxs(
 	dexMemState := dexutils.GetMemState(ctx.Context())
 	dexMemState.Clear(ctx)
 	dexMemState.ClearContractToDependencies(ctx)
-
-	if ctx.BlockGasMeter() != nil {
-		ctx.BlockGasMeter().RefundGas(ctx.BlockGasMeter().GasConsumed()-blockGasMeterConsumed, "concurrent failure rollback")
-	}
 
 	txResults := app.ProcessBlockSynchronous(ctx, txs)
 	processBlockCache.Write()
