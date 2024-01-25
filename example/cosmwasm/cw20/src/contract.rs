@@ -1,10 +1,11 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    DepsMut, Env, MessageInfo, Response, Uint128, Binary,
+    DepsMut, Env, MessageInfo, Response, Uint128, Binary, Deps, StdResult, to_json_binary,
 };
-use cw20::Cw20ReceiveMsg;
-use crate::msg::{cw20receive_into_cosmos_msg, EvmMsg, EvmQueryWrapper, ExecuteMsg, InstantiateMsg};
+use cw20::{Cw20ReceiveMsg, AllowanceResponse};
+use cw_utils::Expiration;
+use crate::msg::{cw20receive_into_cosmos_msg, EvmMsg, EvmQueryWrapper, ExecuteMsg, QueryMsg, InstantiateMsg};
 use crate::querier::EvmQuerier;
 use crate::error::ContractError;
 use crate::state::ERC20_ADDRESS;
@@ -31,12 +32,6 @@ pub fn execute(
         ExecuteMsg::Transfer { recipient, amount } => {
             execute_transfer(deps, env, info, recipient, amount)
         },
-        ExecuteMsg::Burn { amount: _ } => {
-            execute_burn()
-        },
-        ExecuteMsg::Mint { recipient: _ , amount: _ } => {
-            execute_mint()
-        },
         ExecuteMsg::Send { contract, amount, msg } => {
             execute_send(deps, env, info, contract, amount, msg)
         },
@@ -52,7 +47,27 @@ pub fn execute(
         ExecuteMsg::DecreaseAllowance { spender, amount, expires: _ } => {
             execute_decrease_allowance(deps, env, info, spender, amount)
         }
-        _ => Result::Ok(Response::new())
+        _ => Err(ContractError::NotSupported {})
+    }
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg) -> Result<Binary, ContractError> {
+    match msg {
+        QueryMsg::Balance { address } => Ok(query_balance(deps, address)?),
+        QueryMsg::TokenInfo {} => Ok(query_token_info(deps, env)?),
+        QueryMsg::Minter {} => Err(ContractError::NotSupported {}),
+        QueryMsg::Allowance { owner, spender } => {
+            Ok(query_allowance(deps, owner, spender)?)
+        },
+        QueryMsg::AllAllowances {
+            owner: _,
+            start_after: _ ,
+            limit: _,
+        } => Err(ContractError::NotSupported {}),
+        QueryMsg::AllAccounts { start_after: _, limit: _, } => Err(ContractError::NotSupported {}),
+        QueryMsg::MarketingInfo {} => Err(ContractError::NotSupported {}),
+        QueryMsg::DownloadLogo {} => Err(ContractError::NotSupported {}),
     }
 }
 
@@ -200,14 +215,6 @@ pub fn execute_send_from(
     Ok(res)
 }
 
-pub fn execute_burn() -> Result<Response<EvmMsg>, ContractError> {
-    Err(ContractError::BurnNotSupported {})
-}
-
-pub fn execute_mint() -> Result<Response<EvmMsg>, ContractError> {
-    Err(ContractError::MintNotSupported {})
-}
-
 fn transfer(
     deps: DepsMut<EvmQueryWrapper>,
     _env: Env,
@@ -255,4 +262,31 @@ pub fn transfer_from(
         .add_message(msg);
 
     Ok(res)
+}
+
+pub fn query_allowance(deps: Deps<EvmQueryWrapper>, owner: String, spender: String) -> StdResult<Binary> {
+    deps.api.addr_validate(&owner)?;
+    deps.api.addr_validate(&spender)?;
+
+    let erc_addr = ERC20_ADDRESS.load(deps.storage)?;
+
+    let querier = EvmQuerier::new(&deps.querier);
+    let allowance = querier.erc20_allowance(erc_addr, owner, spender)?;
+    to_json_binary(&AllowanceResponse{allowance: allowance.allowance, expires: Expiration::Never{}})
+}
+
+pub fn query_token_info(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<Binary> {
+    let erc_addr = ERC20_ADDRESS.load(deps.storage)?;
+
+    let querier = EvmQuerier::new(&deps.querier);
+    let token_info = querier.erc20_token_info(erc_addr, env.clone().contract.address.into_string())?;
+    to_json_binary(&token_info)
+}
+
+pub fn query_balance(deps: Deps<EvmQueryWrapper>, account: String) -> StdResult<Binary> {
+    let erc_addr = ERC20_ADDRESS.load(deps.storage)?;
+
+    let querier = EvmQuerier::new(&deps.querier);
+    let balance = querier.erc20_balance(erc_addr, account.clone())?;
+    to_json_binary(&balance)
 }
