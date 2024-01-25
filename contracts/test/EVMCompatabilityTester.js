@@ -529,11 +529,50 @@ describe("EVM Test", function () {
       });
 
       it("Should retrieve a transaction receipt", async function () {
-        const txResponse = await evmTester.setBoolVar(false);
+        const txResponse = await evmTester.setBoolVar(false, {
+          type: 2, // force it to be EIP-1559
+          maxPriorityFeePerGas: ethers.parseUnits('100', 'gwei'), // set gas high just to get it included
+          maxFeePerGas: ethers.parseUnits('100', 'gwei')
+        });
         await txResponse.wait();
         const receipt = await ethers.provider.getTransactionReceipt(txResponse.hash);
-        expect(receipt).to.not.be.null;
+        expect(receipt).to.not.be.undefined;
         expect(receipt.hash).to.equal(txResponse.hash);
+        expect(receipt.blockHash).to.not.be.undefined;
+        expect(receipt.blockNumber).to.not.be.undefined;
+        expect(receipt.logsBloom).to.not.be.undefined;
+        expect(receipt.gasUsed).to.be.greaterThan(0);
+        expect(receipt.gasPrice).to.be.greaterThan(0);
+        expect(receipt.type).to.equal(2); // sei is failing this
+        expect(receipt.status).to.equal(1);
+        expect(receipt.to).to.equal(await evmTester.getAddress());
+        expect(receipt.from).to.equal(owner.address);
+        expect(receipt.cumulativeGasUsed).to.be.greaterThanOrEqual(0); // on seilocal, this is 0
+
+        // undefined / null on anvil and goerli
+        // expect(receipt.contractAddress).to.be.equal(null); // seeing this be null (sei devnet) and not null (anvil, goerli)
+        expect(receipt.effectiveGasPrice).to.be.undefined;
+        expect(receipt.transactionHash).to.be.undefined;
+        expect(receipt.transactionIndex).to.be.undefined;
+        const logs = receipt.logs
+        for (let i = 0; i < logs.length; i++) {
+          const log = logs[i];
+          expect(log).to.not.be.undefined;
+          expect(log.address).to.equal(receipt.to);
+          expect(log.topics).to.be.an('array');
+          expect(log.data).to.be.a('string');
+          expect(log.data.startsWith('0x')).to.be.true;
+          expect(log.data.length).to.be.greaterThan(3);
+          expect(log.blockNumber).to.equal(receipt.blockNumber);
+          expect(log.transactionHash).to.not.be.undefined; // somehow log.transactionHash exists but receipt.transactionHash does not
+          expect(log.transactionHash).to.not.be.undefined;
+          expect(log.transactionIndex).to.be.greaterThanOrEqual(0);
+          expect(log.blockHash).to.equal(receipt.blockHash);
+
+          // undefined / null on anvil and goerli
+          expect(log.logIndex).to.be.undefined;
+          expect(log.removed).to.be.undefined;
+        }
       });
 
       it("Should fetch the current gas price", async function () {
