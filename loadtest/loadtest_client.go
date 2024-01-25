@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"golang.org/x/time/rate"
 	"math"
 	"math/rand"
 	"strings"
@@ -18,7 +19,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/sync/semaphore"
-	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
@@ -142,6 +142,7 @@ func (c *LoadTestClient) BuildTxs(
 	key cryptotypes.PrivKey,
 	wg *sync.WaitGroup,
 	done <-chan struct{},
+	rateLimiter *rate.Limiter,
 	producedCount *atomic.Int64,
 ) {
 	wg.Add(1)
@@ -152,6 +153,9 @@ func (c *LoadTestClient) BuildTxs(
 		case <-done:
 			return
 		default:
+			if !rateLimiter.Allow() {
+				continue
+			}
 			// Generate a message type first
 			messageTypes := strings.Split(config.MessageType, ",")
 			messageType := c.getRandomMessageType(messageTypes)
@@ -199,7 +203,6 @@ func (c *LoadTestClient) SendTxs(
 	txQueue chan SignedTx,
 	done <-chan struct{},
 	sentCount *atomic.Int64,
-	rateLimiter *rate.Limiter,
 	semaphore *semaphore.Weighted,
 	wg *sync.WaitGroup,
 ) {
@@ -212,13 +215,9 @@ func (c *LoadTestClient) SendTxs(
 		case <-done:
 			return
 		case tx, ok := <-txQueue:
-
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				return
-			}
-			if !rateLimiter.Allow() {
-				continue
 			}
 			// Acquire a semaphore
 			if err := semaphore.Acquire(ctx, 1); err != nil {

@@ -115,12 +115,12 @@ func startLoadtestWorkers(config Config) {
 		txQueues[i] = make(chan SignedTx, 2)
 	}
 	done := make(chan struct{})
-	consumerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
+	producerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
 	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
 	var wg sync.WaitGroup
 	for i := 0; i < numWorkers; i++ {
-		go client.BuildTxs(txQueues[i], keys[i], &wg, done, &producedCount)
-		go client.SendTxs(txQueues[i], done, &sentCount, consumerRateLimiter, consumerSemaphore, &wg)
+		go client.BuildTxs(txQueues[i], keys[i], &wg, done, producerRateLimiter, &producedCount)
+		go client.SendTxs(txQueues[i], done, &sentCount, consumerSemaphore, &wg)
 	}
 	// Give producers some time to populate queue
 	if config.TargetTps > 1000 {
