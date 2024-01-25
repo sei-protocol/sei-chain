@@ -528,8 +528,12 @@ describe("EVM Test", function () {
         expect(block.transactions).to.be.an('array');
       });
 
-      it.only("Should retrieve a transaction receipt", async function () {
-        const txResponse = await evmTester.setBoolVar(false);
+      it("Should retrieve a transaction receipt", async function () {
+        const txResponse = await evmTester.setBoolVar(false, {
+          type: 2, // force it to be EIP-1559
+          maxPriorityFeePerGas: ethers.parseUnits('100', 'gwei'), // set gas high just to get it included
+          maxFeePerGas: ethers.parseUnits('100', 'gwei')
+        });
         await txResponse.wait();
         const receipt = await ethers.provider.getTransactionReceipt(txResponse.hash);
         expect(receipt).to.not.be.undefined;
@@ -539,15 +543,14 @@ describe("EVM Test", function () {
         expect(receipt.logsBloom).to.not.be.undefined;
         expect(receipt.gasUsed).to.be.greaterThan(0);
         expect(receipt.gasPrice).to.be.greaterThan(0);
-        console.log("type = ", receipt.type)
-        // expect(receipt.type).to.be.greaterThanEqual(0); // sei is failing this
+        expect(receipt.type).to.equal(2); // sei is failing this
         expect(receipt.status).to.equal(1);
         expect(receipt.to).to.equal(await evmTester.getAddress());
         expect(receipt.from).to.equal(owner.address);
         expect(receipt.cumulativeGasUsed).to.be.greaterThanOrEqual(0); // on seilocal, this is 0
 
         // undefined / null on anvil and goerli
-        // expect(receipt.contractAddress).to.be.equal(null); // sometimes on anvil/goerli its not null
+        // expect(receipt.contractAddress).to.be.equal(null); // seeing this be null (sei devnet) and not null (anvil, goerli)
         expect(receipt.effectiveGasPrice).to.be.undefined;
         expect(receipt.transactionHash).to.be.undefined;
         expect(receipt.transactionIndex).to.be.undefined;
