@@ -57,6 +57,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 
 	return &LoadTestClient{
 		LoadTestConfig:                config,
+		AccountKeys:                   keys,
 		TestConfig:                    TestConfig,
 		TxClients:                     txClients,
 		EvmTxClients:                  evmTxClients,
