@@ -113,6 +113,7 @@ func startLoadtestWorkers(config Config) {
 		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCount)
 		go client.SendTxs(txQueues[i], i, done, &sentCount, consumerSemaphore, &wg)
 	}
+	fmt.Printf("Created %d producers and consumers \n", len(keys))
 	// Give producers some time to populate queue
 	if config.TargetTps > 1000 {
 		fmt.Printf("Wait 5 seconds to pre-generate initial txs\n")

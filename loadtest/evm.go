@@ -92,7 +92,7 @@ func (txClient *EvmTxClient) GenerateEvmSignedTx() *ethtypes.Transaction {
 		fmt.Printf("Failed to sign evm tx: %v \n", err)
 		return nil
 	}
-	fmt.Printf("Generated tx for address %s", txClient.accountAddress.String())
+	fmt.Printf("Generated tx for address %s \n", txClient.accountAddress.String())
 	return signedTx
 }
 
