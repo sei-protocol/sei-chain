@@ -215,6 +215,12 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.ERC20Allowance != nil:
 		c := parsedQuery.ERC20Allowance
 		return qp.evmHandler.HandleERC20Allowance(ctx, c.ContractAddress, c.Owner, c.Spender)
+	case parsedQuery.ERC20TokenInfo != nil:
+		c := parsedQuery.ERC20TokenInfo
+		return qp.evmHandler.HandleERC20TokenInfo(ctx, c.ContractAddress, c.Caller)
+	case parsedQuery.ERC20Balance != nil:
+		c := parsedQuery.ERC20Balance
+		return qp.evmHandler.HandleERC20Balance(ctx, c.ContractAddress, c.Account)
 	case parsedQuery.ERC721Owner != nil:
 		c := parsedQuery.ERC721Owner
 		return qp.evmHandler.HandleERC721Owner(ctx, c.Caller, c.ContractAddress, c.TokenID)
@@ -227,6 +233,18 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.ERC721SetApprovalAllPayload != nil:
 		c := parsedQuery.ERC721SetApprovalAllPayload
 		return qp.evmHandler.HandleERC721SetApprovalAllPayload(ctx, c.To, c.Approved)
+	case parsedQuery.ERC721Approved != nil:
+		c := parsedQuery.ERC721Approved
+		return qp.evmHandler.HandleERC721Approved(ctx, c.Caller, c.ContractAddress, c.TokenID)
+	case parsedQuery.ERC721IsApprovedForAll != nil:
+		c := parsedQuery.ERC721IsApprovedForAll
+		return qp.evmHandler.HandleERC721IsApprovedForAll(ctx, c.Caller, c.ContractAddress, c.Owner, c.Operator)
+	case parsedQuery.ERC721NameSymbol != nil:
+		c := parsedQuery.ERC721NameSymbol
+		return qp.evmHandler.HandleERC721NameSymbol(ctx, c.Caller, c.ContractAddress)
+	case parsedQuery.ERC721Uri != nil:
+		c := parsedQuery.ERC721Uri
+		return qp.evmHandler.HandleERC721Uri(ctx, c.Caller, c.ContractAddress, c.TokenID)
 	default:
 		return nil, errors.New("unknown EVM query")
 	}
