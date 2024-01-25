@@ -38,6 +38,7 @@ type Config struct {
 	BlockchainEndpoint string                `json:"blockchain_endpoint"`
 	NodeURI            string                `json:"node_uri"`
 	TargetTps          uint64                `json:"target_tps"`
+	NumWorkers         uint64                `json:"num_workers"`
 	MsgsPerTx          uint64                `json:"msgs_per_tx"`
 	MessageType        string                `json:"message_type"`
 	PriceDistr         NumericDistribution   `json:"price_distribution"`

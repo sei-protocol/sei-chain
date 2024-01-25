@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/time/rate"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
@@ -106,16 +109,18 @@ func startLoadtestWorkers(config Config) {
 
 	// Create producers
 	fmt.Printf("Starting loadtest producers and consumers\n")
-	numWorkers := len(keys)
+	numWorkers := int(math.Min(float64(config.NumWorkers), float64(len(keys))))
 	txQueues := make([]chan SignedTx, len(keys))
 	for i := range keys {
-		txQueues[i] = make(chan SignedTx, 10)
+		txQueues[i] = make(chan SignedTx, 5)
 	}
 	done := make(chan struct{})
+	consumerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
+	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
 	var wg sync.WaitGroup
 	for i := 0; i < numWorkers; i++ {
 		go client.BuildTxs(txQueues[i], keys[i], &wg, done, &producedCount)
-		go client.SendTxs(txQueues[i], done, &sentCount, int(config.TargetTps), &wg)
+		go client.SendTxs(txQueues[i], done, &sentCount, consumerRateLimiter, consumerSemaphore, &wg)
 	}
 	// Give producers some time to populate queue
 	if config.TargetTps > 1000 {

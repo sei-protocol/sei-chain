@@ -193,16 +193,14 @@ func (c *LoadTestClient) SendTxs(
 	txQueue chan SignedTx,
 	done <-chan struct{},
 	sentCount *atomic.Int64,
-	rateLimit int,
+	rateLimiter *rate.Limiter,
+	semaphore *semaphore.Weighted,
 	wg *sync.WaitGroup,
 ) {
 	wg.Add(1)
 	defer wg.Done()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	rateLimiter := rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
-	maxConcurrent := rateLimit // Set the maximum number of concurrent SendTx calls
-	sem := semaphore.NewWeighted(int64(maxConcurrent))
 	for {
 		select {
 		case <-done:
@@ -216,7 +214,7 @@ func (c *LoadTestClient) SendTxs(
 				continue
 			}
 			// Acquire a semaphore
-			if err := sem.Acquire(ctx, 1); err != nil {
+			if err := semaphore.Acquire(ctx, 1); err != nil {
 				fmt.Printf("Failed to acquire semaphore: %v", err)
 				break
 			}
@@ -232,7 +230,7 @@ func (c *LoadTestClient) SendTxs(
 				})
 			}
 			// Release the semaphore
-			sem.Release(1)
+			semaphore.Release(1)
 		}
 	}
 }
