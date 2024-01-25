@@ -111,7 +111,6 @@ func panicUpgradeNeeded(k keeper.Keeper, ctx sdk.Context, plan types.Plan) {
 
 func applyUpgrade(k keeper.Keeper, ctx sdk.Context, plan types.Plan) {
 	ctx.Logger().Info(fmt.Sprintf("applying upgrade \"%s\" at %s", plan.Name, plan.DueAt()))
-	ctx = ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
 	k.ApplyUpgrade(ctx, plan)
 }
 

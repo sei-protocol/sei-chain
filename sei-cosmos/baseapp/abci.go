@@ -71,11 +71,6 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 		return
 	}
 
-	// add block gas meter for any genesis transactions (allow infinite gas)
-	app.deliverState.ctx = app.deliverState.ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
-	app.prepareProposalState.ctx = app.prepareProposalState.ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
-	app.processProposalState.ctx = app.processProposalState.ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
-
 	resp := app.initChainer(app.deliverState.ctx, *req)
 	app.initChainer(app.prepareProposalState.ctx, *req)
 	app.initChainer(app.processProposalState.ctx, *req)
@@ -1035,16 +1030,9 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 		app.setProcessProposalHeader(header)
 	}
 
-	// add block gas meter
-	var gasMeter sdk.GasMeter
-	if maxGas := app.getMaximumBlockGas(app.processProposalState.ctx); maxGas > 0 {
-		gasMeter = sdk.NewGasMeter(maxGas)
-	} else {
-		gasMeter = sdk.NewInfiniteGasMeter()
-	}
-
 	// NOTE: header hash is not set in NewContext, so we manually set it here
-	app.prepareProcessProposalState(gasMeter, req.Hash)
+
+	app.prepareProcessProposalState(req.Hash)
 
 	defer func() {
 		if err := recover(); err != nil {
@@ -1117,22 +1105,14 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		app.setDeliverStateHeader(header)
 	}
 
-	// add block gas meter
-	var gasMeter sdk.GasMeter
-	if maxGas := app.getMaximumBlockGas(app.deliverState.ctx); maxGas > 0 {
-		gasMeter = sdk.NewGasMeter(maxGas)
-	} else {
-		gasMeter = sdk.NewInfiniteGasMeter()
-	}
-
 	// NOTE: header hash is not set in NewContext, so we manually set it here
 
-	app.prepareDeliverState(gasMeter, req.Hash)
+	app.prepareDeliverState(req.Hash)
 
 	// we also set block gas meter to checkState in case the application needs to
 	// verify gas consumption during (Re)CheckTx
 	if app.checkState != nil {
-		app.checkState.SetContext(app.checkState.ctx.WithBlockGasMeter(gasMeter).WithHeaderHash(req.Hash))
+		app.checkState.SetContext(app.checkState.ctx.WithHeaderHash(req.Hash))
 	}
 
 	if app.finalizeBlocker != nil {

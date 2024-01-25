@@ -613,8 +613,8 @@ func (app *BaseApp) preparePrepareProposalState() {
 	}
 }
 
-func (app *BaseApp) prepareProcessProposalState(gasMeter sdk.GasMeter, headerHash []byte) {
-	app.processProposalState.SetContext(app.processProposalState.Context().WithBlockGasMeter(gasMeter).
+func (app *BaseApp) prepareProcessProposalState(headerHash []byte) {
+	app.processProposalState.SetContext(app.processProposalState.Context().
 		WithHeaderHash(headerHash).
 		WithConsensusParams(app.GetConsensusParams(app.processProposalState.Context())))
 
@@ -623,9 +623,8 @@ func (app *BaseApp) prepareProcessProposalState(gasMeter sdk.GasMeter, headerHas
 	}
 }
 
-func (app *BaseApp) prepareDeliverState(gasMeter sdk.GasMeter, headerHash []byte) {
+func (app *BaseApp) prepareDeliverState(headerHash []byte) {
 	app.deliverState.SetContext(app.deliverState.Context().
-		WithBlockGasMeter(gasMeter).
 		WithHeaderHash(headerHash).
 		WithConsensusParams(app.GetConsensusParams(app.deliverState.Context())))
 }
@@ -722,27 +721,6 @@ func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp *tmproto.ConsensusP
 	app.paramStore.Set(ctx, ParamStoreKeySynchronyParams, cp.Synchrony)
 	app.paramStore.Set(ctx, ParamStoreKeyTimeoutParams, cp.Timeout)
 	app.paramStore.Set(ctx, ParamStoreKeyABCIParams, cp.Abci)
-}
-
-// getMaximumBlockGas gets the maximum gas from the consensus params. It panics
-// if maximum block gas is less than negative one and returns zero if negative
-// one.
-func (app *BaseApp) getMaximumBlockGas(ctx sdk.Context) uint64 {
-	cp := app.GetConsensusParams(ctx)
-	if cp == nil || cp.Block == nil {
-		return 0
-	}
-
-	maxGas := cp.Block.MaxGas
-
-	// TODO::: This is a temporary fix, max gas causes non-deterministic behavior
-	// 			with parallel TX
-	switch {
-	case maxGas < -1:
-		panic(fmt.Sprintf("invalid maximum block gas: %d", maxGas))
-	default:
-		return 0
-	}
 }
 
 func (app *BaseApp) validateHeight(req abci.RequestBeginBlock) error {
@@ -879,11 +857,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 
 	ms := ctx.MultiStore()
 
-	// only run the tx if there is block gas remaining
-	if mode == runTxModeDeliver && ctx.BlockGasMeter().IsOutOfGas() {
-		return gInfo, nil, nil, -1, sdkerrors.Wrap(sdkerrors.ErrOutOfGas, "no block gas left to run tx")
-	}
-
 	defer func() {
 		if r := recover(); r != nil {
 			acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
@@ -895,27 +868,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 		}
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed()}
 	}()
-
-	blockGasConsumed := false
-	// consumeBlockGas makes sure block gas is consumed at most once. It must happen after
-	// tx processing, and must be execute even if tx processing fails. Hence we use trick with `defer`
-	consumeBlockGas := func() {
-		if !blockGasConsumed {
-			blockGasConsumed = true
-			ctx.BlockGasMeter().ConsumeGas(
-				ctx.GasMeter().GasConsumedToLimit(), "block gas meter",
-			)
-		}
-	}
-
-	// If BlockGasMeter() panics it will be caught by the above recover and will
-	// return an error - in any case BlockGasMeter will consume gas past the limit.
-	//
-	// NOTE: This must exist in a separate defer function for the above recovery
-	// to recover from this one.
-	if mode == runTxModeDeliver {
-		defer consumeBlockGas()
-	}
 
 	tx, err := app.txDecoder(txBytes)
 	if err != nil {
@@ -1004,9 +956,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 	result, err = app.runMsgs(runMsgCtx, msgs, mode)
 
 	if err == nil && mode == runTxModeDeliver {
-		// When block gas exceeds, it'll panic and won't commit the cached store.
-		consumeBlockGas()
-
 		msCache.Write()
 	}
 	// we do this since we will only be looking at result in DeliverTx

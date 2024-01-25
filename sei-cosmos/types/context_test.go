@@ -92,7 +92,6 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	logger := mocks.NewMockLogger(ctrl)
 	voteinfos := []abci.VoteInfo{{}}
 	meter := types.NewGasMeter(10000)
-	blockGasMeter := types.NewGasMeter(20000)
 	minGasPrices := types.DecCoins{types.NewInt64DecCoin("feetoken", 1)}
 	headerHash := []byte("headerHash")
 
@@ -106,7 +105,6 @@ func (s *contextTestSuite) TestContextWithCustom() {
 		WithVoteInfos(voteinfos).
 		WithGasMeter(meter).
 		WithMinGasPrices(minGasPrices).
-		WithBlockGasMeter(blockGasMeter).
 		WithHeaderHash(headerHash).
 		WithIsOCCEnabled(isOCC)
 
@@ -119,7 +117,6 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	s.Require().Equal(voteinfos, ctx.VoteInfos())
 	s.Require().Equal(meter, ctx.GasMeter())
 	s.Require().Equal(minGasPrices, ctx.MinGasPrices())
-	s.Require().Equal(blockGasMeter, ctx.BlockGasMeter())
 	s.Require().Equal(headerHash, ctx.HeaderHash().Bytes())
 	s.Require().False(ctx.WithIsCheckTx(false).IsCheckTx())
 

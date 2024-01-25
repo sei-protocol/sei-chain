@@ -111,12 +111,9 @@ func (k *Keeper) InitMemStore(ctx sdk.Context) {
 		panic(fmt.Sprintf("invalid memory store type; got %s, expected: %s", memStoreType, sdk.StoreTypeMemory))
 	}
 
-	// create context with no block gas meter to ensure we do not consume gas during local initialization logic.
-	noGasCtx := ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
-
 	// check if memory store has not been initialized yet by checking if initialized flag is nil.
-	if !k.IsInitialized(noGasCtx) {
-		prefixStore := prefix.NewStore(noGasCtx.KVStore(k.storeKey), types.KeyPrefixIndexCapability)
+	if !k.IsInitialized(ctx) {
+		prefixStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixIndexCapability)
 		iterator := sdk.KVStorePrefixIterator(prefixStore, nil)
 
 		// initialize the in-memory store for all persisted capabilities
@@ -128,11 +125,11 @@ func (k *Keeper) InitMemStore(ctx sdk.Context) {
 			var capOwners types.CapabilityOwners
 
 			k.cdc.MustUnmarshal(iterator.Value(), &capOwners)
-			k.InitializeCapability(noGasCtx, index, capOwners)
+			k.InitializeCapability(ctx, index, capOwners)
 		}
 
 		// set the initialized flag so we don't rerun initialization logic
-		memStore := noGasCtx.KVStore(k.memKey)
+		memStore := ctx.KVStore(k.memKey)
 		memStore.Set(types.KeyMemInitialized, []byte{1})
 	}
 }
