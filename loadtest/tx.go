@@ -13,7 +13,6 @@ func SendTx(
 	mode typestx.BroadcastMode,
 	loadtestClient LoadTestClient,
 ) bool {
-	fmt.Printf("Sending tx bytes %X\n", txBytes)
 	grpcRes, err := loadtestClient.GetTxClient().BroadcastTx(
 		ctx,
 		&typestx.BroadcastTxRequest{
