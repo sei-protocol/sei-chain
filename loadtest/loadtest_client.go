@@ -43,6 +43,7 @@ type LoadTestClient struct {
 	generatedAdminMessageForBlock bool
 	// Messages that has to be sent from the admin account
 	isAdminMessageMapping map[string]bool
+	mtx                   *sync.RWMutex
 }
 
 func NewLoadTestClient(config Config) *LoadTestClient {
@@ -68,6 +69,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 		TokenFactoryDenomOwner:        map[string]string{},
 		generatedAdminMessageForBlock: false,
 		isAdminMessageMapping:         map[string]bool{CollectRewards: true, DistributeRewards: true},
+		mtx:                           &sync.RWMutex{},
 	}
 }
 

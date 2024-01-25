@@ -315,6 +315,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		chosenValidator := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
 		// Randomly pick someone to redelegate / unbond from
 		srcAddr := ""
+		c.mtx.RLock()
 		for k := range c.DelegationMap[delegatorAddr] {
 			if k == chosenValidator {
 				continue
@@ -322,6 +323,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			srcAddr = k
 			break
 		}
+		c.mtx.RUnlock()
 		msgs = []sdk.Msg{c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)}
 	case Tokenfactory:
 		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
@@ -467,6 +469,8 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx
 }
 
 func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
 	// Randomly unbond, redelegate or delegate
 	// However, if there are no delegations, do so first
 	var msg sdk.Msg
