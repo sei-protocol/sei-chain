@@ -110,9 +110,7 @@ func (txClient *EvmTxClient) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 			onSuccess()
 		} else {
 			fmt.Printf("Failed to get evm transaction receipt: %v \n", errs)
-			if txClient.shouldResetNonce.CompareAndSwap(false, true) {
-				_ = txClient.ResetNonce()
-			}
+			_ = txClient.ResetNonce()
 		}
 	}()
 
@@ -141,6 +139,7 @@ func (txClient *EvmTxClient) GetTxReceipt(txHash common.Hash) error {
 
 // ResetNonce need to be called when tx failed
 func (txClient *EvmTxClient) ResetNonce() error {
+
 	txClient.mtx.Lock()
 	defer txClient.mtx.Unlock()
 	client := GetNextEthClient(txClient.ethClients)
@@ -149,7 +148,7 @@ func (txClient *EvmTxClient) ResetNonce() error {
 		return err
 	}
 	txClient.nonce.Store(newNonce)
-	txClient.shouldResetNonce.Store(false)
+	fmt.Printf("Resetting nonce to %d for addr: %s\n ", newNonce, txClient.accountAddress.String())
 	return nil
 }
 
