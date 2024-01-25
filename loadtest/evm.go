@@ -107,16 +107,18 @@ func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 	if err != nil {
 		fmt.Printf("Failed to send evm transaction: %v \n", err)
 	}
-	checkTxSuccessFunc := func() bool {
-		return txSender.GetTxReceipt(signedTx.Hash()) == nil
-	}
+
 	go func() {
+		checkTxSuccessFunc := func() error {
+			return txSender.GetTxReceipt(signedTx.Hash())
+		}
 		initialDelay := 1 * time.Second
 		maxDelay := 10 * time.Second
-		success := exponentialRetry(checkTxSuccessFunc, initialDelay, maxDelay, 2.0)
+		success, err := exponentialRetry(checkTxSuccessFunc, initialDelay, maxDelay, 2.0)
 		if success {
 			onSuccess()
 		}
+		fmt.Printf("Failed to get evm transaction receipt: %v \n", err)
 	}()
 
 }
@@ -133,34 +135,31 @@ func (txSender *EvmTxSender) GetNextClient() *ethclient.Client {
 	return txSender.clients[rand.Int()%numClients]
 }
 
-func (txSender *EvmTxSender) GetTxReceipt(txHash common.Hash) *ethtypes.Receipt {
+func (txSender *EvmTxSender) GetTxReceipt(txHash common.Hash) error {
 	receipt, err := txSender.GetNextClient().TransactionReceipt(context.Background(), txHash)
 	if err != nil {
-		fmt.Printf("Failed to get evm transaction receipt for hash %s: %v \n", txHash, err)
-		return nil
+		return err
 	}
 	fmt.Printf("Got tx receipt for hash %s, block %s \n", receipt.TxHash.String(), receipt.BlockNumber.String())
-	return receipt
+	return nil
 }
 
-func exponentialRetry(callFunc func() bool, initialDelay time.Duration, totalMaxDelay time.Duration, backoffFactor float64) bool {
+func exponentialRetry(callFunc func() error, initialDelay time.Duration, totalMaxDelay time.Duration, backoffFactor float64) (bool, error) {
 	delay := initialDelay
 	var totalDelay time.Duration = 0
 	for {
-		success := callFunc()
-		if success {
-			return true
+		err := callFunc()
+		if err != nil {
+			// Check if the next delay will exceed totalMaxDelay.
+			if totalDelay+delay > totalMaxDelay {
+				return false, err
+			}
+			time.Sleep(delay)
+			totalDelay += delay
+			// Calculate the next delay.
+			delay = time.Duration(math.Min(float64(delay)*backoffFactor, float64(totalMaxDelay-totalDelay)))
 		}
+		return true, nil
 
-		// Check if the next delay will exceed totalMaxDelay.
-		if totalDelay+delay > totalMaxDelay {
-			return false
-		}
-
-		time.Sleep(delay)
-		totalDelay += delay
-
-		// Calculate the next delay.
-		delay = time.Duration(math.Min(float64(delay)*backoffFactor, float64(totalMaxDelay-totalDelay)))
 	}
 }
