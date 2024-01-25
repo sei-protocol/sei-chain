@@ -32,9 +32,6 @@ sc-snapshot-interval = {{ .StateCommit.SnapshotInterval }}
 # SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
 sc-snapshot-writer-limit = {{ .StateCommit.SnapshotWriterLimit }}
 
-# CacheSize defines the size of the LRU cache for each store on top of the tree, default to 100000.
-sc-cache-size = {{ .StateCommit.CacheSize }}
-
 [state-store]
 # Enable defines whether the state-store should be enabled for storing historical data.
 # Supporting historical queries or exporting state snapshot requires setting this to true

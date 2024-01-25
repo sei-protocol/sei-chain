@@ -9,7 +9,6 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/iavl"
-	"github.com/cosmos/iavl/cache"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/sc/types"
 	dbm "github.com/tendermint/tm-db"
@@ -18,22 +17,12 @@ import (
 var _ types.Tree = (*Tree)(nil)
 var emptyHash = sha256.New().Sum(nil)
 
-func NewCache(cacheSize int) cache.Cache {
-	if cacheSize == 0 {
-		return nil
-	}
-	return cache.New(cacheSize)
-}
-
 // verify change sets by replay them to rebuild iavl tree and verify the root hashes
 type Tree struct {
 	version uint32
 	// root node of empty tree is represented as `nil`
 	root     Node
 	snapshot *Snapshot
-
-	// simple lru cache provided by iavl library
-	cache cache.Cache
 
 	initialVersion, cowVersion uint32
 
@@ -44,20 +33,8 @@ type Tree struct {
 	mtx *sync.RWMutex
 }
 
-type cacheNode struct {
-	key, value []byte
-}
-
-func (n *cacheNode) GetCacheKey() []byte {
-	return n.key
-}
-
-func (n *cacheNode) GetKey() []byte {
-	return n.key
-}
-
 // NewEmptyTree creates an empty tree at an arbitrary version.
-func NewEmptyTree(version uint64, initialVersion uint32, cacheSize int) *Tree {
+func NewEmptyTree(version uint64, initialVersion uint32) *Tree {
 	if version >= math.MaxUint32 {
 		panic("version overflows uint32")
 	}
@@ -67,29 +44,27 @@ func NewEmptyTree(version uint64, initialVersion uint32, cacheSize int) *Tree {
 		initialVersion: initialVersion,
 		// no need to copy if the tree is not backed by snapshot
 		zeroCopy: true,
-		cache:    NewCache(cacheSize),
 		mtx:      &sync.RWMutex{},
 	}
 }
 
 // New creates an empty tree at genesis version
-func New(cacheSize int) *Tree {
-	return NewEmptyTree(0, 0, cacheSize)
+func New(_ int) *Tree {
+	return NewEmptyTree(0, 0)
 }
 
 // NewWithInitialVersion creates an empty tree with initial-version,
 // it happens when a new store created at the middle of the chain.
-func NewWithInitialVersion(initialVersion uint32, cacheSize int) *Tree {
-	return NewEmptyTree(0, initialVersion, cacheSize)
+func NewWithInitialVersion(initialVersion uint32) *Tree {
+	return NewEmptyTree(0, initialVersion)
 }
 
 // NewFromSnapshot mmap the blob files and create the root node.
-func NewFromSnapshot(snapshot *Snapshot, zeroCopy bool, cacheSize int) *Tree {
+func NewFromSnapshot(snapshot *Snapshot, zeroCopy bool, _ int) *Tree {
 	tree := &Tree{
 		version:  snapshot.Version(),
 		snapshot: snapshot,
 		zeroCopy: zeroCopy,
-		cache:    NewCache(cacheSize),
 		mtx:      &sync.RWMutex{},
 	}
 
@@ -125,7 +100,6 @@ func (t *Tree) Copy(cacheSize int) *Tree {
 	}
 	newTree := *t
 	// cache is not copied along because it's not thread-safe to access
-	newTree.cache = NewCache(cacheSize)
 	newTree.mtx = &sync.RWMutex{}
 	return &newTree
 }
@@ -147,12 +121,10 @@ func (t *Tree) Set(key, value []byte) {
 		value = []byte{}
 	}
 	t.root, _ = setRecursive(t.root, key, value, t.version+1, t.cowVersion)
-	t.addToCache(key, value)
 }
 
 func (t *Tree) Remove(key []byte) {
 	_, t.root, _ = removeRecursive(t.root, key, t.version+1, t.cowVersion)
-	t.removeFromCache(key)
 }
 
 // SaveVersion increases the version number and optionally updates the hashes
@@ -213,17 +185,8 @@ func (t *Tree) GetByIndex(index int64) ([]byte, []byte) {
 }
 
 func (t *Tree) Get(key []byte) []byte {
-	value := t.getFromCache(key)
-	if value != nil {
-		return value
-	}
+	_, value := t.GetWithIndex(key)
 
-	_, value = t.GetWithIndex(key)
-	if value == nil {
-		return nil
-	}
-
-	t.addToCache(key, value)
 	return value
 }
 
@@ -301,33 +264,6 @@ func nextVersionU32(v uint32, initialVersion uint32) uint32 {
 		return initialVersion
 	}
 	return v + 1
-}
-
-func (t *Tree) addToCache(key, value []byte) {
-	t.mtx.Lock()
-	defer t.mtx.Unlock()
-	if t.cache != nil {
-		t.cache.Add(&cacheNode{key, value})
-	}
-}
-
-func (t *Tree) removeFromCache(key []byte) {
-	t.mtx.Lock()
-	defer t.mtx.Unlock()
-	if t.cache != nil {
-		t.cache.Remove(key)
-	}
-}
-
-func (t *Tree) getFromCache(key []byte) []byte {
-	t.mtx.RLock()
-	defer t.mtx.RUnlock()
-	if t.cache != nil {
-		if node := t.cache.Get(key); node != nil {
-			return node.(*cacheNode).value
-		}
-	}
-	return nil
 }
 
 // GetProof takes a key for creating existence or absence proof and returns the
