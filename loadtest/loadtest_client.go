@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"golang.org/x/time/rate"
-	"math"
 	"math/rand"
 	"strings"
 	"sync"
@@ -194,7 +193,7 @@ func (c *LoadTestClient) BuildTxs(
 					continue
 				}
 			} else {
-				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType)}
+				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, producedCount)}
 			}
 			select {
 			case txQueue <- signedTx:
@@ -206,7 +205,7 @@ func (c *LoadTestClient) BuildTxs(
 	}
 }
 
-func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string) []byte {
+func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, producedCount *atomic.Int64) []byte {
 	key := c.AccountKeys[keyIndex]
 	msgs, _, _, gas, fee := c.generateMessage(key, msgType)
 	txBuilder := TestConfig.TxConfig.NewTxBuilder()
@@ -216,7 +215,7 @@ func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string) [
 		types.NewCoin("usei", types.NewInt(fee)),
 	})
 	// Use random seqno to get around txs that might already be seen in mempool
-	c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(rand.Intn(math.MaxInt)))
+	c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(producedCount.Load()))
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
 	return txBytes
 }
