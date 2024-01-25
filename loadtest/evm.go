@@ -19,81 +19,74 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-type EvmTxSender struct {
-	nonceMap sync.Map
-	chainId  *big.Int
-	gasPrice *big.Int
-	clients  []*ethclient.Client
+type EvmTxClient struct {
+	privateKey       cryptotypes.PrivKey
+	accountAddress   common.Address
+	nonce            atomic.Uint64
+	shouldResetNonce atomic.Bool
+	chainId          *big.Int
+	gasPrice         *big.Int
+	ethClients       []*ethclient.Client
+	mtx              sync.RWMutex
 }
 
-func NewEvmTxSender(clients []*ethclient.Client) *EvmTxSender {
-	return &EvmTxSender{
-		nonceMap: sync.Map{},
-		clients:  clients,
+func NewEvmTxClient(
+	key cryptotypes.PrivKey,
+	chainId *big.Int,
+	gasPrice *big.Int,
+	ethClients []*ethclient.Client,
+) *EvmTxClient {
+	txClient := &EvmTxClient{
+		privateKey: key,
+		chainId:    chainId,
+		gasPrice:   gasPrice,
+		ethClients: ethClients,
+		mtx:        sync.RWMutex{},
 	}
-}
-
-// Setup is a function to fill starting nonce, this needs to be called at the beginning
-func (txSender *EvmTxSender) Setup(keys []cryptotypes.PrivKey) {
-	client := txSender.GetNextClient()
-	chainID, err := client.NetworkID(context.Background())
+	privKeyHex := hex.EncodeToString(key.Bytes())
+	privateKey, err := crypto.HexToECDSA(privKeyHex)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to get chain ID: %v \n", err))
+		fmt.Printf("Failed to load private key: %v \n", err)
 	}
-	txSender.chainId = chainID
-	gasPrice, err := client.SuggestGasPrice(context.Background())
+
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		panic("Cannot assert type: publicKey is not of type *ecdsa.PublicKey \n")
+	}
+
+	// Set starting nonce
+	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+	nextNonce, err := ethClients[0].PendingNonceAt(context.Background(), fromAddress)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to suggest gas price: %v\n", err))
+		panic(err)
 	}
-	txSender.gasPrice = gasPrice
-	for _, key := range keys {
-		privKeyHex := hex.EncodeToString(key.Bytes())
-		privateKey, err := crypto.HexToECDSA(privKeyHex)
-		if err != nil {
-			fmt.Printf("Failed to load private key: %v \n", err)
-		}
-
-		publicKey := privateKey.Public()
-		publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-		if !ok {
-			panic("Cannot assert type: publicKey is not of type *ecdsa.PublicKey \n")
-		}
-
-		// Get starting nonce
-		fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-		nextNonce, err := client.PendingNonceAt(context.Background(), fromAddress)
-		if err != nil {
-			panic(err)
-		}
-		txSender.nonceMap.Store(fromAddress.String(), &nextNonce)
-	}
-
+	txClient.nonce.Store(nextNonce)
+	txClient.accountAddress = fromAddress
+	return txClient
 }
 
 // GenerateEvmSignedTx takes a private key and generate a signed bank send TX
 //
 //nolint:staticcheck
-func (txSender *EvmTxSender) GenerateEvmSignedTx(privKey cryptotypes.PrivKey) *ethtypes.Transaction {
-	privKeyHex := hex.EncodeToString(privKey.Bytes())
+func (txClient *EvmTxClient) GenerateEvmSignedTx() *ethtypes.Transaction {
+	txClient.mtx.RLock()
+	defer txClient.mtx.RUnlock()
+	privKeyHex := hex.EncodeToString(txClient.privateKey.Bytes())
 	privateKey, err := crypto.HexToECDSA(privKeyHex)
 	if err != nil {
 		fmt.Printf("Failed to load private key: %v \n", err)
 	}
-	publicKey := privateKey.Public()
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		fmt.Printf("Cannot assert type: publicKey is not of type *ecdsa.PublicKey \n")
-		return nil
-	}
-	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	fromAddressStr := fromAddress.String()
-	n, _ := txSender.nonceMap.Load(fromAddressStr)
-	nextNonce := atomic.AddUint64(n.(*uint64), 1) - 1
+
+	// Get the next nonce
+	nextNonce := txClient.nonce.Add(1) - 1
+
+	// Generate random amount to send
 	rand.Seed(time.Now().Unix())
 	value := big.NewInt(rand.Int63n(math.MaxInt64 - 1))
 	gasLimit := uint64(200000)
-	tx := ethtypes.NewTransaction(nextNonce, fromAddress, value, gasLimit, txSender.gasPrice, nil)
-	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txSender.chainId), privateKey)
+	tx := ethtypes.NewTransaction(nextNonce, txClient.accountAddress, value, gasLimit, txClient.gasPrice, nil)
+	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), privateKey)
 	if err != nil {
 		fmt.Printf("Failed to sign evm tx: %v \n", err)
 		return nil
@@ -102,46 +95,64 @@ func (txSender *EvmTxSender) GenerateEvmSignedTx(privKey cryptotypes.PrivKey) *e
 }
 
 // SendEvmTx takes any signed evm tx and send it out
-func (txSender *EvmTxSender) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess func()) {
-	err := txSender.GetNextClient().SendTransaction(context.Background(), signedTx)
+func (txClient *EvmTxClient) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess func()) {
+	err := GetNextEthClient(txClient.ethClients).SendTransaction(context.Background(), signedTx)
 	if err != nil {
 		fmt.Printf("Failed to send evm transaction: %v \n", err)
 	}
 
 	go func() {
-		success, errs := PeriodicRetry(func() error {
-			return txSender.GetTxReceipt(signedTx.Hash())
+		success, errs := withRetry(func() error {
+			return txClient.GetTxReceipt(signedTx.Hash())
 		})
 		if success {
 			onSuccess()
 		} else {
 			fmt.Printf("Failed to get evm transaction receipt: %v \n", errs)
+			if txClient.shouldResetNonce.CompareAndSwap(false, true) {
+				_ = txClient.ResetNonce()
+			}
 		}
 	}()
 
 }
 
-// GetNextClient return the next available eth client randomly
+// GetNextEthClient return the next available eth client randomly
 //
 //nolint:staticcheck
-func (txSender *EvmTxSender) GetNextClient() *ethclient.Client {
-	numClients := len(txSender.clients)
+func GetNextEthClient(clients []*ethclient.Client) *ethclient.Client {
+	numClients := len(clients)
 	if numClients <= 0 {
 		panic("There's no ETH client available, make sure your connection are valid")
 	}
 	rand.Seed(time.Now().Unix())
-	return txSender.clients[rand.Int()%numClients]
+	return clients[rand.Int()%numClients]
 }
 
-func (txSender *EvmTxSender) GetTxReceipt(txHash common.Hash) error {
-	_, err := txSender.GetNextClient().TransactionReceipt(context.Background(), txHash)
+// GetTxReceipt query the transaction receipt to check if the tx succeed or not
+func (txClient *EvmTxClient) GetTxReceipt(txHash common.Hash) error {
+	_, err := GetNextEthClient(txClient.ethClients).TransactionReceipt(context.Background(), txHash)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func PeriodicRetry(callFunc func() error) (bool, error) {
+// ResetNonce need to be called when tx failed
+func (txClient *EvmTxClient) ResetNonce() error {
+	txClient.mtx.Lock()
+	defer txClient.mtx.Unlock()
+	client := GetNextEthClient(txClient.ethClients)
+	newNonce, err := client.PendingNonceAt(context.Background(), txClient.accountAddress)
+	if err != nil {
+		return err
+	}
+	txClient.nonce.Store(newNonce)
+	txClient.shouldResetNonce.Store(false)
+	return nil
+}
+
+func withRetry(callFunc func() error) (bool, error) {
 	retryCount := 0
 	for {
 		err := callFunc()

@@ -27,8 +27,9 @@ import (
 type LoadTestClient struct {
 	LoadTestConfig     Config
 	TestConfig         EncodingConfig
+	AccountKeys        []cryptotypes.PrivKey
 	TxClients          []typestx.ServiceClient
-	EvmTxSender        *EvmTxSender
+	EvmTxClients       []*EvmTxClient
 	SignerClient       *SignerClient
 	ChainID            string
 	GrpcConns          []*grpc.ClientConn
@@ -46,15 +47,20 @@ type LoadTestClient struct {
 }
 
 func NewLoadTestClient(config Config) *LoadTestClient {
+	signerClient := NewSignerClient(config.NodeURI)
+	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts))
 	txClients, grpcConns := BuildGrpcClients(config)
-	evnTxSender := BuildEvmTxSender(config)
+	var evmTxClients []*EvmTxClient
+	if config.EvmRpcEndpoints != "" {
+		evmTxClients = BuildEvmTxClients(config, keys)
+	}
 
 	return &LoadTestClient{
 		LoadTestConfig:                config,
 		TestConfig:                    TestConfig,
 		TxClients:                     txClients,
-		EvmTxSender:                   evnTxSender,
-		SignerClient:                  NewSignerClient(config.NodeURI),
+		EvmTxClients:                  evmTxClients,
+		SignerClient:                  signerClient,
 		ChainID:                       config.ChainID,
 		GrpcConns:                     grpcConns,
 		StakingQueryClient:            stakingtypes.NewQueryClient(grpcConns[0]),
@@ -117,9 +123,13 @@ func BuildGrpcClients(config Config) ([]typestx.ServiceClient, []*grpc.ClientCon
 	return txClients, grpcConns
 }
 
-// BuildEvmTxSender build a with EvmTxSender with a list of go-ethereum client
-func BuildEvmTxSender(config Config) *EvmTxSender {
+// BuildEvmTxClients build a list of EvmTxClients with a list of go-ethereum client
+func BuildEvmTxClients(config Config, keys []cryptotypes.PrivKey) []*EvmTxClient {
+	clients := make([]*EvmTxClient, len(keys))
 	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
+	if len(ethEndpoints) <= 0 {
+		return clients
+	}
 	ethClients := make([]*ethclient.Client, len(ethEndpoints))
 	for i, endpoint := range ethEndpoints {
 		client, err := ethclient.Dial(endpoint)
@@ -128,7 +138,21 @@ func BuildEvmTxSender(config Config) *EvmTxSender {
 		}
 		ethClients[i] = client
 	}
-	return NewEvmTxSender(ethClients)
+	// Get chainId
+	chainID, err := ethClients[0].NetworkID(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get chain ID: %v \n", err))
+	}
+	// Get gas price
+	gasPrice, err := ethClients[0].SuggestGasPrice(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("Failed to suggest gas price: %v\n", err))
+	}
+	// Build one client per key
+	for i, key := range keys {
+		clients[i] = NewEvmTxClient(key, chainID, gasPrice, ethClients)
+	}
+	return clients
 }
 
 func (c *LoadTestClient) Close() {
@@ -139,7 +163,7 @@ func (c *LoadTestClient) Close() {
 
 func (c *LoadTestClient) BuildTxs(
 	txQueue chan SignedTx,
-	key cryptotypes.PrivKey,
+	keyIndex int,
 	wg *sync.WaitGroup,
 	done <-chan struct{},
 	rateLimiter *rate.Limiter,
@@ -162,14 +186,14 @@ func (c *LoadTestClient) BuildTxs(
 			signedTx := SignedTx{}
 			// Sign EVM and Cosmos TX differently
 			if messageType == EVM {
-				tx := c.generatedSignedEvmTxs(key)
+				tx := c.generatedSignedEvmTxs(keyIndex)
 				if tx != nil {
 					signedTx = SignedTx{EvmTx: tx}
 				} else {
 					continue
 				}
 			} else {
-				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(key, messageType)}
+				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType)}
 			}
 			select {
 			case txQueue <- signedTx:
@@ -181,7 +205,8 @@ func (c *LoadTestClient) BuildTxs(
 	}
 }
 
-func (c *LoadTestClient) generateSignedCosmosTxs(key cryptotypes.PrivKey, msgType string) []byte {
+func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string) []byte {
+	key := c.AccountKeys[keyIndex]
 	msgs, _, _, gas, fee := c.generateMessage(key, msgType)
 	txBuilder := TestConfig.TxConfig.NewTxBuilder()
 	_ = txBuilder.SetMsgs(msgs...)
@@ -195,12 +220,13 @@ func (c *LoadTestClient) generateSignedCosmosTxs(key cryptotypes.PrivKey, msgTyp
 	return txBytes
 }
 
-func (c *LoadTestClient) generatedSignedEvmTxs(key cryptotypes.PrivKey) *ethtypes.Transaction {
-	return c.EvmTxSender.GenerateEvmSignedTx(key)
+func (c *LoadTestClient) generatedSignedEvmTxs(keyIndex int) *ethtypes.Transaction {
+	return c.EvmTxClients[keyIndex].GenerateEvmSignedTx()
 }
 
 func (c *LoadTestClient) SendTxs(
 	txQueue chan SignedTx,
+	keyIndex int,
 	done <-chan struct{},
 	sentCount *atomic.Int64,
 	semaphore *semaphore.Weighted,
@@ -231,7 +257,7 @@ func (c *LoadTestClient) SendTxs(
 				}
 			} else if tx.EvmTx != nil {
 				// Send EVM Transactions
-				c.EvmTxSender.SendEvmTx(tx.EvmTx, func() {
+				c.EvmTxClients[keyIndex].SendEvmTx(tx.EvmTx, func() {
 					sentCount.Add(1)
 				})
 			}

@@ -7,7 +7,6 @@ import (
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
 	"io"
-	"math"
 	"math/rand"
 	"net/http"
 	"os"
@@ -99,28 +98,21 @@ func startLoadtestWorkers(config Config) {
 	var blockHeights []int
 	var blockTimes []string
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
+	keys := client.AccountKeys
 
-	// preload all accounts
-	keys := client.SignerClient.GetTestAccountsKeys(int(config.TargetTps))
-	if config.EvmRpcEndpoints != "" {
-		// initialize evm tx sender
-		client.EvmTxSender.Setup(keys)
-	}
-
-	// Create producers
+	// Create producers and consumers
 	fmt.Printf("Starting loadtest producers and consumers\n")
-	numWorkers := int(math.Min(float64(config.NumWorkers), float64(len(keys))))
 	txQueues := make([]chan SignedTx, len(keys))
-	for i := range keys {
-		txQueues[i] = make(chan SignedTx, 2)
+	for i := range txQueues {
+		txQueues[i] = make(chan SignedTx, 10)
 	}
 	done := make(chan struct{})
 	producerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
 	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
 	var wg sync.WaitGroup
-	for i := 0; i < numWorkers; i++ {
-		go client.BuildTxs(txQueues[i], keys[i], &wg, done, producerRateLimiter, &producedCount)
-		go client.SendTxs(txQueues[i], done, &sentCount, consumerSemaphore, &wg)
+	for i := 0; i < len(keys); i++ {
+		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCount)
+		go client.SendTxs(txQueues[i], i, done, &sentCount, consumerSemaphore, &wg)
 	}
 	// Give producers some time to populate queue
 	if config.TargetTps > 1000 {

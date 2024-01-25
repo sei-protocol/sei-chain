@@ -7,7 +7,7 @@
     "msgs_per_tx": 1,
     "chain_id": "sei-loadtest-testnet",
     "target_tps": 500,
-	"num_workers": 500,
+	"max_accounts": 500,
     "price_distribution": {
         "min": "45",
         "max": "55",
