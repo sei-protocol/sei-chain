@@ -578,11 +578,6 @@ func (k Keeper) GetMessageDependencies(ctx sdk.Context, msg sdk.Msg) []acltypes.
 			ctx.Logger().Error(errorMessage)
 		}
 	}
-	if dependencyMapping.DynamicEnabled {
-		// there was an issue with dynamic generation, so lets disable it
-		// this will not error, the validation check was done in previous calls already
-		_ = k.SetDependencyMappingDynamicFlag(ctx, messageKey, false)
-	}
 	return dependencyMapping.AccessOps
 }
 

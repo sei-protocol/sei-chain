@@ -112,7 +112,8 @@ func TestInvalidGetMessageDependencies(t *testing.T) {
 	delete(app.AccessControlKeeper.MessageDependencyGeneratorMapper, undelegateKey)
 	accessOps := app.AccessControlKeeper.GetMessageDependencies(ctx, &stakingUndelegate)
 	require.Equal(t, types.SynchronousMessageDependencyMapping("").AccessOps, accessOps)
-	require.False(t, app.AccessControlKeeper.GetResourceDependencyMapping(ctx, undelegateKey).DynamicEnabled)
+	// no longer gets disabled such that there arent writes in the dependency generation path
+	require.True(t, app.AccessControlKeeper.GetResourceDependencyMapping(ctx, undelegateKey).DynamicEnabled)
 }
 
 func TestWasmDependencyMapping(t *testing.T) {
@@ -2464,14 +2465,14 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 	req.Equal(delegateStaticMapping.AccessOps, accessOps)
 	// verify dynamic got disabled
 	dependencyMapping = app.AccessControlKeeper.GetResourceDependencyMapping(ctx, delegateKey)
-	req.Equal(false, dependencyMapping.DynamicEnabled)
+	req.Equal(true, dependencyMapping.DynamicEnabled)
 
 	// lets also try with undelegate, but this time there is no dynamic generator, so we disable it as well
 	accessOps = app.AccessControlKeeper.GetMessageDependencies(ctx, &stakingUndelegate)
 	req.Equal(undelegateStaticMapping.AccessOps, accessOps)
 	// verify dynamic got disabled
 	dependencyMapping = app.AccessControlKeeper.GetResourceDependencyMapping(ctx, undelegateKey)
-	req.Equal(false, dependencyMapping.DynamicEnabled)
+	req.Equal(true, dependencyMapping.DynamicEnabled)
 }
 
 func (suite *KeeperTestSuite) TestImportContractReferences() {
