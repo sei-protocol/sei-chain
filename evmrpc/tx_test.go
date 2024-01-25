@@ -152,6 +152,7 @@ func TestGetPendingTransactionByHash(t *testing.T) {
 }
 
 func TestGetTransactionCount(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
 	// happy path
 	bodyByNumber := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"0x8\"],\"id\":\"test\"}"
 	bodyByHash := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"0x1234567890123456789012345678901234567890\",\"0x3030303030303030303030303030303030303030303030303030303030303031\"],\"id\":\"test\"}"
@@ -202,6 +203,7 @@ func TestGetTransactionCount(t *testing.T) {
 		errMsg := errMap["message"].(string)
 		require.Equal(t, errStr, errMsg)
 	}
+	Ctx = Ctx.WithBlockHeight(8)
 }
 
 func TestGetTransactionError(t *testing.T) {

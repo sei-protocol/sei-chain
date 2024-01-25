@@ -12,6 +12,7 @@ contract EVMCompatibilityTester {
     event AddressSet(address indexed performer);
     event Uint256Set(address indexed performer, uint256 value);
     event StringSet(address indexed performer, string value);
+    event LogIndexEvent(address indexed performer, uint256 value);
 
     struct MsgDetails {
         address sender;
@@ -23,6 +24,9 @@ contract EVMCompatibilityTester {
     // Example of contract storing and retrieving data
     uint256 private storedData;
 
+    // deployer of the contract
+    address public owner;
+
     // one of each type
     address public addressVar;
     bool public boolVar;
@@ -33,6 +37,10 @@ contract EVMCompatibilityTester {
     MsgDetails public lastMsgDetails;
 
     mapping(address => uint256) public balances;
+
+    constructor() {
+        owner = msg.sender;
+    }
 
     function storeData(uint256 data) public {
         storedData = data;
@@ -53,6 +61,12 @@ contract EVMCompatibilityTester {
     function setBoolVar(bool value) public {
         boolVar = value;
         emit BoolSet(msg.sender, value);
+    }
+
+    function emitMultipleLogs(uint256 count) public {
+        for (uint256 i = 0; i < count; i++) {
+            emit LogIndexEvent(msg.sender, i);
+        }
     }
 
     function setStringVar(string memory value) public {
@@ -130,6 +144,16 @@ contract EVMCompatibilityTester {
             data: msg.data,
             gas: gasleft()
         });
+    }
+
+    function depositEther() external payable {
+        require(msg.value > 0, "No Ether sent");
+    }
+
+    function sendEther(address payable recipient, uint256 amount) external payable {
+        require(msg.sender == owner, "Only owner can send Ether");
+        require(address(this).balance >= amount, "Insufficient balance");
+        recipient.transfer(amount);
     }
 }
 

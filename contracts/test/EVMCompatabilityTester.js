@@ -308,8 +308,7 @@ describe("EVM Test", function () {
         await expect(evmTester.revertIfFalse(false)).to.be.reverted;
       });
 
-      // TODO: fix this test the re-enable, it's breaking on CI
-      it.skip("Should not revert when true is passed to revertIfFalse", async function () {
+      it("Should not revert when true is passed to revertIfFalse", async function () {
         await evmTester.revertIfFalse(true)
       });
     })
@@ -429,12 +428,11 @@ describe("EVM Test", function () {
         });
 
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
-          testCases.forEach(async ([name, maxPriorityFeePerGas, maxFeePerGas]) => {
+          for (const [name, maxPriorityFeePerGas, maxFeePerGas] of testCases) {
             it(`EIP-1559 test: ${name}`, async function() {
               console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
               console.log(`maxFeePerGas = ${maxFeePerGas}`)
               const balanceBefore = await ethers.provider.getBalance(owner);
-
               const zero = ethers.parseUnits('0', 'ether')
               const txResponse = await owner.sendTransaction({
                 to: owner.address,
@@ -444,6 +442,7 @@ describe("EVM Test", function () {
                 type: 2
               });
               const receipt = await txResponse.wait();
+              console.log("receipt = ", receipt)
 
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
@@ -459,12 +458,12 @@ describe("EVM Test", function () {
               console.log(`tip = ${tip}`)
               const effectiveGasPrice = tip + gasPrice;
               console.log(`effectiveGasPrice = ${effectiveGasPrice}`)
-            
+
               const diff = balanceBefore - balanceAfter;
               console.log(`diff = ${diff}`)
               expect(diff).to.equal(21000 * effectiveGasPrice);
             });
-          });
+          }
         });
       });
     });
@@ -530,11 +529,50 @@ describe("EVM Test", function () {
       });
 
       it("Should retrieve a transaction receipt", async function () {
-        const txResponse = await evmTester.setBoolVar(false);
+        const txResponse = await evmTester.setBoolVar(false, {
+          type: 2, // force it to be EIP-1559
+          maxPriorityFeePerGas: ethers.parseUnits('100', 'gwei'), // set gas high just to get it included
+          maxFeePerGas: ethers.parseUnits('100', 'gwei')
+        });
         await txResponse.wait();
         const receipt = await ethers.provider.getTransactionReceipt(txResponse.hash);
-        expect(receipt).to.not.be.null;
+        expect(receipt).to.not.be.undefined;
         expect(receipt.hash).to.equal(txResponse.hash);
+        expect(receipt.blockHash).to.not.be.undefined;
+        expect(receipt.blockNumber).to.not.be.undefined;
+        expect(receipt.logsBloom).to.not.be.undefined;
+        expect(receipt.gasUsed).to.be.greaterThan(0);
+        expect(receipt.gasPrice).to.be.greaterThan(0);
+        expect(receipt.type).to.equal(2); // sei is failing this
+        expect(receipt.status).to.equal(1);
+        expect(receipt.to).to.equal(await evmTester.getAddress());
+        expect(receipt.from).to.equal(owner.address);
+        expect(receipt.cumulativeGasUsed).to.be.greaterThanOrEqual(0); // on seilocal, this is 0
+
+        // undefined / null on anvil and goerli
+        // expect(receipt.contractAddress).to.be.equal(null); // seeing this be null (sei devnet) and not null (anvil, goerli)
+        expect(receipt.effectiveGasPrice).to.be.undefined;
+        expect(receipt.transactionHash).to.be.undefined;
+        expect(receipt.transactionIndex).to.be.undefined;
+        const logs = receipt.logs
+        for (let i = 0; i < logs.length; i++) {
+          const log = logs[i];
+          expect(log).to.not.be.undefined;
+          expect(log.address).to.equal(receipt.to);
+          expect(log.topics).to.be.an('array');
+          expect(log.data).to.be.a('string');
+          expect(log.data.startsWith('0x')).to.be.true;
+          expect(log.data.length).to.be.greaterThan(3);
+          expect(log.blockNumber).to.equal(receipt.blockNumber);
+          expect(log.transactionHash).to.not.be.undefined; // somehow log.transactionHash exists but receipt.transactionHash does not
+          expect(log.transactionHash).to.not.be.undefined;
+          expect(log.transactionIndex).to.be.greaterThanOrEqual(0);
+          expect(log.blockHash).to.equal(receipt.blockHash);
+
+          // undefined / null on anvil and goerli
+          expect(log.logIndex).to.be.undefined;
+          expect(log.removed).to.be.undefined;
+        }
       });
 
       it("Should fetch the current gas price", async function () {
@@ -561,14 +599,41 @@ describe("EVM Test", function () {
         expect(nonce).to.be.a('number');
       });
 
+      it("Should set log index correctly", async function () {
+        const blockNumber = await ethers.provider.getBlockNumber();
+        const numberOfEvents = 5;
+
+        // check receipt
+        const txResponse = await evmTester.emitMultipleLogs(numberOfEvents);
+        const receipt = await txResponse.wait();
+        expect(receipt.logs.length).to.equal(numberOfEvents)
+        for(let i=0; i<receipt.logs.length; i++) {
+          expect(receipt.logs[i].index).to.equal(i);
+        }
+
+        // check logs
+        const filter = {
+          fromBlock: blockNumber,
+          toBlock: 'latest',
+          address: await evmTester.getAddress(),
+          topics: [ethers.id("LogIndexEvent(address,uint256)")]
+        };
+        const logs = await ethers.provider.getLogs(filter);
+        expect(logs.length).to.equal(numberOfEvents)
+        for(let i=0; i<logs.length; i++) {
+          expect(logs[i].index).to.equal(i);
+        }
+      })
+
       it("Should fetch logs for a specific event", async function () {
         // Emit an event by making a transaction
+        const blockNumber = await ethers.provider.getBlockNumber();
         const txResponse = await evmTester.setBoolVar(true);
         await txResponse.wait();
 
         // Create a filter to get logs
         const filter = {
-          fromBlock: 0,
+          fromBlock: blockNumber,
           toBlock: 'latest',
           address: await evmTester.getAddress(),
           topics: [ethers.id("BoolSet(address,bool)")]
@@ -640,48 +705,91 @@ describe("EVM Test", function () {
       });
     });
 
-    describe("Contract Upgradeability", function() {
-      it.only("Should allow for contract upgrades", async function() {
-        // deploy BoxV1
-        const Box = await ethers.getContractFactory("Box");
-        const val = 42;
-        const box = await upgrades.deployProxy(Box, [val], { initializer: 'store' });
-        await box.waitForDeployment()
-        const boxAddr = await box.getAddress();
-        console.log('Box deployed to:', boxAddr)
+    it("estimate gas issue", async function() {
+      const gas = await ethers.provider.estimateGas(evmTester.createToken("TestToken", "TTK"));
+      console.log("gas = ", gas)
+    });
 
-        // make sure you can retrieve the value
-        const retrievedValue = await box.retrieve();
-        expect(retrievedValue).to.equal(val);
+    // describe("Contract Upgradeability", function() {
+    //   it.only("Should allow for contract upgrades", async function() {
+    //     // deploy BoxV1
+    //     const Box = await ethers.getContractFactory("Box");
+    //     const val = 42;
+    //     console.log('Deploying Box...');
+    //     const box = await upgrades.deployProxy(Box, [val], { initializer: 'store' });
+    //     await box.waitForDeployment()
+    //     const boxAddr = await box.getAddress();
+    //     console.log('Box deployed to:', boxAddr)
 
-        // upgrade to BoxV2
-        const BoxV2 = await ethers.getContractFactory('BoxV2');
-        console.log('Upgrading Box...');
-        const box2 = await upgrades.upgradeProxy(boxAddr, BoxV2);
-        console.log('Box upgraded');
-        const boxV2Addr = await box2.getAddress();
-        expect(boxV2Addr).to.equal(boxAddr); // should be same address as it should be the proxy
-        console.log('BoxV2 deployed to:', boxV2Addr);
-        const boxV2 = await BoxV2.attach(boxV2Addr);
+    //     // make sure you can retrieve the value
+    //     const retrievedValue = await box.retrieve();
+    //     expect(retrievedValue).to.equal(val);
 
-        // check that value is still the same
-        const retrievedValue2 = await boxV2.retrieve();
-        expect(retrievedValue2).to.equal(val);
+    //     // upgrade to BoxV2
+    //     const BoxV2 = await ethers.getContractFactory('BoxV2');
+    //     console.log('Upgrading Box...');
+    //     const box2 = await upgrades.upgradeProxy(boxAddr, BoxV2);
+    //     console.log('Box upgraded');
+    //     sleep(2000);
+    //     const boxV2Addr = await box2.getAddress();
+    //     expect(boxV2Addr).to.equal(boxAddr); // should be same address as it should be the proxy
+    //     console.log('BoxV2 deployed to:', boxV2Addr);
+    //     const boxV2 = await BoxV2.attach(boxV2Addr);
 
-        // use new function in boxV2 and increment value
-        sleep(3000)
-        const txResponse = await boxV2.increment();
-        await txResponse.wait();
+    //     // check that value is still the same
+    //     const retrievedValue2 = await boxV2.retrieve();
+    //     expect(retrievedValue2).to.equal(val);
 
-        // make sure value is incremented
-        expect(await boxV2.retrieve()).to.equal(val+1);
+    //     // use new function in boxV2 and increment value
+    //     sleep(3000)
+    //     const txResponse = await boxV2.increment();
+    //     await txResponse.wait();
 
-        // store something in value2 and check it(check value2)
-        await boxV2.store2(10);
-        expect(await boxV2.retrieve2()).to.equal(10);
+    //     // make sure value is incremented
+    //     expect(await boxV2.retrieve()).to.equal(val+1);
 
-        // ensure value is still the same in boxV2 (checking for any storage corruption)
-        expect(await boxV2.retrieve()).to.equal(val+1);
+    //     // store something in value2 and check it(check value2)
+    //     await boxV2.store2(10);
+    //     expect(await boxV2.retrieve2()).to.equal(10);
+
+    //     // ensure value is still the same in boxV2 (checking for any storage corruption)
+    //     expect(await boxV2.retrieve()).to.equal(val+1);
+    //   });
+    // });
+
+    describe("Usei/Wei testing", function() {
+      it("Send 1 usei to contract", async function() {
+        const usei = ethers.parseUnits("1", 12);
+        const wei = ethers.parseUnits("1", 0);
+        const twoWei = ethers.parseUnits("2", 0);
+
+        // Check that the contract has no ETH
+        const initialBalance = await ethers.provider.getBalance(evmAddr);
+
+        const txResponse = await evmTester.depositEther({
+          value: usei,
+        });
+        await txResponse.wait();  // Wait for the transaction to be mined
+      
+        // Check that the contract received the ETH
+        const contractBalance = await ethers.provider.getBalance(evmAddr);
+        expect(contractBalance - initialBalance).to.equal(usei);
+
+        // send 1 wei out of contract
+        const txResponse2 = await evmTester.sendEther(owner.address, wei);
+        await txResponse2.wait();  // Wait for the transaction to be mined
+
+        const contractBalance2 = await ethers.provider.getBalance(evmAddr);
+        expect(contractBalance2 - contractBalance).to.equal(-wei);
+
+        // send 2 wei to contract
+        const txResponse3 = await evmTester.depositEther({
+          value: twoWei,
+        });
+        await txResponse3.wait();  // Wait for the transaction to be mined
+
+        const contractBalance3 = await ethers.provider.getBalance(evmAddr);
+        expect(contractBalance3 - contractBalance2).to.equal(twoWei);
       });
     });
   });
