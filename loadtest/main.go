@@ -256,12 +256,13 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	case Bank:
 		msgs = []sdk.Msg{}
 		for i := 0; i < int(msgPerTx); i++ {
+
 			msgs = append(msgs, &banktypes.MsgSend{
 				FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 				ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 				Amount: sdk.NewCoins(sdk.Coin{
 					Denom:  "usei",
-					Amount: sdk.NewInt(1),
+					Amount: sdk.NewInt(int64(rand.Uint32())),
 				}),
 			})
 		}
