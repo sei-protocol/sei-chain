@@ -50,6 +50,29 @@ func TestTxPriorityQueue_ReapHalf(t *testing.T) {
 func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
 	testCases := []TxTestCase{
 		{
+			name: "PriorityWithEVMAndNonEVMDuplicateNonce",
+			inputTxs: []*WrappedTx{
+				{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
+				{sender: "3", isEVM: true, evmAddress: "0xabc", evmNonce: 3, priority: 9},
+				{sender: "2", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 7},
+			},
+			expectedOutput: []int64{1, 2, 3},
+		},
+		{
+			name: "PriorityWithEVMAndNonEVMDuplicateNonce",
+			inputTxs: []*WrappedTx{
+				{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
+				{sender: "2", isEVM: false, priority: 9},
+				{sender: "4", isEVM: true, evmAddress: "0xabc", evmNonce: 0, priority: 9}, // Same EVM address as first, lower nonce
+				{sender: "5", isEVM: true, evmAddress: "0xdef", evmNonce: 1, priority: 7},
+				{sender: "5", isEVM: true, evmAddress: "0xdef", evmNonce: 1, priority: 7},
+				{sender: "3", isEVM: true, evmAddress: "0xdef", evmNonce: 0, priority: 8},
+				{sender: "6", isEVM: false, priority: 6},
+				{sender: "7", isEVM: true, evmAddress: "0xghi", evmNonce: 2, priority: 5},
+			},
+			expectedOutput: []int64{2, 4, 1, 3, 5, 5, 6, 7},
+		},
+		{
 			name: "PriorityWithEVMAndNonEVM",
 			inputTxs: []*WrappedTx{
 				{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
@@ -107,6 +130,7 @@ func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
 			// Add input transactions to the queue and set timestamp to order inserted
 			for i, tx := range tc.inputTxs {
 				tx.timestamp = now.Add(time.Duration(i) * time.Second)
+				tx.tx = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
 				pq.PushTx(tx)
 			}
 
@@ -126,9 +150,9 @@ func TestTxPriorityQueue_SameAddressDifferentNonces(t *testing.T) {
 	address := "0x123"
 
 	// Insert transactions with the same address but different nonces and priorities
-	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 2, priority: 10})
-	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 1, priority: 5})
-	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 3, priority: 15})
+	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 2, priority: 10, tx: []byte("tx1")})
+	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 1, priority: 5, tx: []byte("tx2")})
+	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 3, priority: 15, tx: []byte("tx3")})
 
 	// Pop transactions and verify they are in the correct order of nonce
 	tx1 := pq.PopTx()
@@ -154,6 +178,7 @@ func TestTxPriorityQueue(t *testing.T) {
 			pq.PushTx(&WrappedTx{
 				priority:  int64(i),
 				timestamp: time.Now(),
+				tx:        []byte(fmt.Sprintf("%d", i)),
 			})
 
 			wg.Done()
@@ -278,12 +303,14 @@ func TestTxPriorityQueue_RemoveTxEvm(t *testing.T) {
 		isEVM:      true,
 		evmAddress: "0xabc",
 		evmNonce:   1,
+		tx:         []byte("tx1"),
 	}
 	tx2 := &WrappedTx{
 		priority:   1,
 		isEVM:      true,
 		evmAddress: "0xabc",
 		evmNonce:   2,
+		tx:         []byte("tx2"),
 	}
 
 	pq.PushTx(tx1)
@@ -306,6 +333,7 @@ func TestTxPriorityQueue_RemoveTx(t *testing.T) {
 		x := rng.Intn(100000)
 		pq.PushTx(&WrappedTx{
 			priority: int64(x),
+			tx:       []byte(fmt.Sprintf("%d", i)),
 		})
 
 		values[i] = x

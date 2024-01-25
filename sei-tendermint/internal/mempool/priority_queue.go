@@ -13,14 +13,11 @@ var _ heap.Interface = (*TxPriorityQueue)(nil)
 // TxPriorityQueue defines a thread-safe priority queue for valid transactions.
 type TxPriorityQueue struct {
 	mtx      sync.RWMutex
-	txs      []*WrappedTx
-	evmQueue map[string][]*WrappedTx
+	txs      []*WrappedTx            // priority heap
+	evmQueue map[string][]*WrappedTx // sorted by nonce
 }
 
-func insertToEVMQueue(queue []*WrappedTx, tx *WrappedTx) []*WrappedTx {
-	// Using BinarySearch to find the appropriate index to insert tx
-	i := binarySearch(queue, tx)
-
+func insertToEVMQueue(queue []*WrappedTx, tx *WrappedTx, i int) []*WrappedTx {
 	// Make room for new value and add it
 	queue = append(queue, nil)
 	copy(queue[i+1:], queue[i:])
@@ -33,7 +30,7 @@ func binarySearch(queue []*WrappedTx, tx *WrappedTx) int {
 	low, high := 0, len(queue)
 	for low < high {
 		mid := low + (high-low)/2
-		if queue[mid].evmNonce < tx.evmNonce {
+		if queue[mid].evmNonce <= tx.evmNonce {
 			low = mid + 1
 		} else {
 			high = mid
@@ -117,12 +114,15 @@ func (pq *TxPriorityQueue) NumTxs() int {
 func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) {
 	if queue, ok := pq.evmQueue[tx.evmAddress]; ok {
 		for i, t := range queue {
-			if t.evmNonce == tx.evmNonce {
+			if t.tx.Key() == tx.tx.Key() {
 				pq.evmQueue[tx.evmAddress] = append(queue[:i], queue[i+1:]...)
 				if len(pq.evmQueue[tx.evmAddress]) == 0 {
 					delete(pq.evmQueue, tx.evmAddress)
 				} else {
-					heap.Push(pq, pq.evmQueue[tx.evmAddress][0])
+					// only if removing the first item, then push next onto queue
+					if i == 0 {
+						heap.Push(pq, pq.evmQueue[tx.evmAddress][0])
+					}
 				}
 				break
 			}
@@ -174,8 +174,66 @@ func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {
 		heap.Push(pq, tx)
 	}
 
-	pq.evmQueue[tx.evmAddress] = insertToEVMQueue(queue, tx)
+	pq.evmQueue[tx.evmAddress] = insertToEVMQueue(queue, tx, binarySearch(queue, tx))
+
 }
+
+// These are available if we need to test the invariant checks
+// these can be used to troubleshoot invariant violations
+//func (pq *TxPriorityQueue) checkInvariants(msg string) {
+//
+//	uniqHashes := make(map[string]bool)
+//	for _, tx := range pq.txs {
+//		if _, ok := uniqHashes[fmt.Sprintf("%x", tx.tx.Key())]; ok {
+//			pq.print()
+//			panic(fmt.Sprintf("INVARIANT (%s): duplicate hash=%x in heap", msg, tx.tx.Key()))
+//		}
+//		uniqHashes[fmt.Sprintf("%x", tx.tx.Key())] = true
+//		if tx.isEVM {
+//			if queue, ok := pq.evmQueue[tx.evmAddress]; ok {
+//				if queue[0].tx.Key() != tx.tx.Key() {
+//					pq.print()
+//					panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not at front of evmQueue hash=%x", msg, tx.tx.Key()))
+//				}
+//			} else {
+//				pq.print()
+//				panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not in evmQueue hash=%x", msg, tx.tx.Key()))
+//			}
+//		}
+//	}
+//
+//	// each item in all queues should be unique nonce
+//	for _, queue := range pq.evmQueue {
+//		hashes := make(map[string]bool)
+//		for idx, tx := range queue {
+//			if idx == 0 {
+//				_, ok := pq.findTxIndexUnsafe(tx)
+//				if !ok {
+//					pq.print()
+//					panic(fmt.Sprintf("INVARIANT (%s): did not find tx[0] hash=%x nonce=%d in heap", msg, tx.tx.Key(), tx.evmNonce))
+//				}
+//			}
+//			if _, ok := hashes[fmt.Sprintf("%x", tx.tx.Key())]; ok {
+//				pq.print()
+//				panic(fmt.Sprintf("INVARIANT (%s): duplicate hash=%x in queue nonce=%d", msg, tx.tx.Key(), tx.evmNonce))
+//			}
+//			hashes[fmt.Sprintf("%x", tx.tx.Key())] = true
+//		}
+//	}
+//}
+
+// for debugging situations where invariant violations occur
+//func (pq *TxPriorityQueue) print() {
+//	for _, tx := range pq.txs {
+//		fmt.Printf("DEBUG PRINT: heap: nonce=%d, hash=%x\n", tx.evmNonce, tx.tx.Key())
+//	}
+//
+//	for _, queue := range pq.evmQueue {
+//		for idx, tx := range queue {
+//			fmt.Printf("DEBUG PRINT: evmQueue[%d]: nonce=%d, hash=%x\n", idx, tx.evmNonce, tx.tx.Key())
+//		}
+//	}
+//}
 
 // PushTx adds a valid transaction to the priority queue. It is thread safe.
 func (pq *TxPriorityQueue) PushTx(tx *WrappedTx) {
@@ -185,6 +243,9 @@ func (pq *TxPriorityQueue) PushTx(tx *WrappedTx) {
 }
 
 func (pq *TxPriorityQueue) popTxUnsafe() *WrappedTx {
+	if len(pq.txs) == 0 {
+		return nil
+	}
 	x := heap.Pop(pq)
 	if x == nil {
 		return nil
@@ -209,6 +270,31 @@ func (pq *TxPriorityQueue) PopTx() *WrappedTx {
 }
 
 // dequeue up to `max` transactions and reenqueue while locked
+func (pq *TxPriorityQueue) ForEachTx(handler func(wtx *WrappedTx) bool) {
+	pq.mtx.Lock()
+	defer pq.mtx.Unlock()
+
+	numTxs := len(pq.txs) + pq.numQueuedUnsafe()
+
+	txs := make([]*WrappedTx, 0, numTxs)
+
+	defer func() {
+		for _, tx := range txs {
+			pq.pushTxUnsafe(tx)
+		}
+	}()
+
+	for i := 0; i < numTxs; i++ {
+		popped := pq.popTxUnsafe()
+		txs = append(txs, popped)
+		if !handler(popped) {
+			return
+		}
+	}
+}
+
+// dequeue up to `max` transactions and reenqueue while locked
+// TODO: use ForEachTx instead
 func (pq *TxPriorityQueue) PeekTxs(max int) []*WrappedTx {
 	pq.mtx.Lock()
 	defer pq.mtx.Unlock()

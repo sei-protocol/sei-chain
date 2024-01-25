@@ -399,42 +399,28 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGas int64) types.Txs {
 		totalSize int64
 	)
 
-	// wTxs contains a list of *WrappedTx retrieved from the priority queue that
-	// need to be re-enqueued prior to returning.
-	wTxs := make([]*WrappedTx, 0, txmp.priorityIndex.NumTxs())
-	defer func() {
-		for _, wtx := range wTxs {
-			txmp.priorityIndex.PushTx(wtx)
-		}
-	}()
-
-	txs := make([]types.Tx, 0, txmp.priorityIndex.NumTxs())
+	var txs []types.Tx
 	if uint64(txmp.Size()) < txmp.config.TxNotifyThreshold {
 		// do not reap anything if threshold is not met
 		return txs
 	}
-	for txmp.priorityIndex.NumTxs() > 0 {
-		wtx := txmp.priorityIndex.PopTx()
-		txs = append(txs, wtx.tx)
-		wTxs = append(wTxs, wtx)
+	txmp.priorityIndex.ForEachTx(func(wtx *WrappedTx) bool {
 		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.tx})
 
-		// Ensure we have capacity for the transaction with respect to the
-		// transaction size.
 		if maxBytes > -1 && totalSize+size > maxBytes {
-			return txs[:len(txs)-1]
+			return false
 		}
-
 		totalSize += size
-
-		// ensure we have capacity for the transaction with respect to total gas
 		gas := totalGas + wtx.gasWanted
 		if maxGas > -1 && gas > maxGas {
-			return txs[:len(txs)-1]
+			return false
 		}
 
 		totalGas = gas
-	}
+
+		txs = append(txs, wtx.tx)
+		return true
+	})
 
 	return txs
 }
