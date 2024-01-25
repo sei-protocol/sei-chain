@@ -161,6 +161,8 @@ func (c *LoadTestClient) BuildTxs(
 				tx := c.generatedSignedEvmTxs(key)
 				if tx != nil {
 					signedTx = SignedTx{EvmTx: tx}
+				} else {
+					continue
 				}
 			} else {
 				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(key, messageType)}
@@ -210,6 +212,7 @@ func (c *LoadTestClient) SendTxs(
 		case <-done:
 			return
 		case tx, ok := <-txQueue:
+			fmt.Println("Got a new tx from txQueue")
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				return
@@ -229,6 +232,7 @@ func (c *LoadTestClient) SendTxs(
 				}
 			} else if tx.EvmTx != nil {
 				// Send EVM Transactions
+				fmt.Println("Sending evm tx")
 				c.EvmTxSender.SendEvmTx(tx.EvmTx, func() {
 					sentCount.Add(1)
 				})
