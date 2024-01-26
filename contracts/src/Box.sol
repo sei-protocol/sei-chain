@@ -14,4 +14,9 @@ contract Box {
     function retrieve() public view returns (uint256) {
         return _value;
     }
+
+    function boxIncr() public {
+        _value = _value + 1;
+        emit ValueChanged(_value);
+    }
 }

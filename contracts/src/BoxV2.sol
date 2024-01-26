@@ -16,6 +16,11 @@ contract BoxV2 {
         return _value;
     }
 
+    function boxV2Incr() public {
+        _value = _value + 1;
+        emit ValueChanged(_value);
+    }
+
     function store2(uint256 value) public {
         _value2 = value;
         emit ValueChanged(value);
@@ -23,10 +28,5 @@ contract BoxV2 {
 
     function retrieve2() public view returns (uint256) {
         return _value2;
-    }
-
-    function increment() public {
-        _value = _value + 1;
-        emit ValueChanged(_value);
     }
 }
