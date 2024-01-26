@@ -27,7 +27,7 @@ import (
 
 type Keeper struct {
 	storeKey    sdk.StoreKey
-	memStoreKey *sdk.MemoryStoreKey
+	memStoreKey sdk.StoreKey
 	Paramstore  paramtypes.Subspace
 
 	bankKeeper    bankkeeper.Keeper
@@ -54,7 +54,7 @@ type addressNoncePair struct {
 }
 
 func NewKeeper(
-	storeKey sdk.StoreKey, memStoreKey *sdk.MemoryStoreKey, paramstore paramtypes.Subspace,
+	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, paramstore paramtypes.Subspace,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
