@@ -4,29 +4,35 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+
+	"io"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
-
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/std"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/cosmos/cosmos-sdk/std"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/time/rate"
 )
 
 var TestConfig EncodingConfig
@@ -36,6 +42,14 @@ const (
 )
 
 var FromMili = sdk.NewDec(1000000)
+
+type BlockData struct {
+	Txs []string `json:"txs"`
+}
+
+type BlockHeader struct {
+	Time string `json:"time"`
+}
 
 func init() {
 	cdc := codec.NewLegacyAmino()
@@ -52,53 +66,127 @@ func init() {
 	std.RegisterInterfaces(TestConfig.InterfaceRegistry)
 	app.ModuleBasics.RegisterLegacyAminoCodec(TestConfig.Amino)
 	app.ModuleBasics.RegisterInterfaces(TestConfig.InterfaceRegistry)
+	// Add this so that we don't end up getting disconnected for EVM client
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 100
 }
 
 func run(config Config) {
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(config)
-	sleepDuration := time.Duration(config.LoadInterval) * time.Second
 
-	if config.Constant {
-		fmt.Printf("Running in constant mode with interval=%d\n", config.LoadInterval)
-		for {
-			fmt.Printf("Sleeping for %f seconds before next run...\n", sleepDuration.Seconds())
-			time.Sleep(sleepDuration)
-			runOnce(config)
-		}
-	} else {
-		runOnce(config)
-		fmt.Print("Sleeping for 60 seconds for metrics to be scraped...\n")
-		time.Sleep(time.Duration(60))
-	}
+	startLoadtestWorkers(config)
 }
 
-func runOnce(config Config) {
+// starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
+// workers continue running. If config.Constant is false, then we will gather load test results in a file
+func startLoadtestWorkers(config Config) {
+	fmt.Printf("Starting loadtest workers\n")
 	client := NewLoadTestClient(config)
 	client.SetValidators()
-
-	if config.TxsPerBlock < config.MsgsPerTx {
-		panic("Must have more TxsPerBlock than MsgsPerTx")
-	}
-
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
-	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
-	workgroups, sendersList := client.BuildTxs()
+	// Catch OS signals for graceful shutdown
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
-	go client.SendTxs(workgroups, sendersList)
+	start := time.Now()
+	var producedCount = atomic.Int64{}
+	var sentCount = atomic.Int64{}
+	var prevSentCount = atomic.Int64{}
+	var blockHeights []int
+	var blockTimes []string
+	var startHeight = getLastHeight(config.BlockchainEndpoint)
+	keys := client.AccountKeys
 
-	// Waits until SendTx is done processing before proceeding to write and validate TXs
-	client.GatherTxHashes()
+	// Create producers and consumers
+	fmt.Printf("Starting loadtest producers and consumers\n")
+	txQueues := make([]chan SignedTx, len(keys))
+	for i := range txQueues {
+		txQueues[i] = make(chan SignedTx, 10)
+	}
+	done := make(chan struct{})
+	producerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
+	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
+	var wg sync.WaitGroup
+	for i := 0; i < len(keys); i++ {
+		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCount)
+		go client.SendTxs(txQueues[i], i, done, &sentCount, consumerSemaphore, &wg)
+	}
+	// Give producers some time to populate queue
+	if config.TargetTps > 1000 {
+		fmt.Printf("Wait 5 seconds to pre-generate initial txs\n")
+		time.Sleep(5 * time.Second)
+	}
 
-	// Records the resulting TxHash to file
-	client.WriteTxHashToFile()
-	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+	// Statistics reporting goroutine
+	ticker := time.NewTicker(1 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				currHeight := getLastHeight(config.BlockchainEndpoint)
 
-	// Validate Tx will close the connection when it's done
-	go client.ValidateTxs()
+				for i := startHeight; i <= currHeight; i++ {
+					_, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
+					if err != nil {
+						fmt.Printf("Encountered error scraping data: %s\n", err)
+						return
+					}
+					blockHeights = append(blockHeights, i)
+					blockTimes = append(blockTimes, blockTime)
+				}
+
+				printStats(start, &producedCount, &sentCount, &prevSentCount, blockHeights, blockTimes)
+				startHeight = currHeight
+				start = time.Now()
+				blockHeights, blockTimes = nil, nil
+
+			case <-done:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+
+	// Wait for a termination signal
+	<-signals
+	fmt.Println("SIGINT received, shutting down producers and consumers...")
+	close(done)
+
+	fmt.Println("Waiting for wait groups...")
+
+	wg.Wait()
+	fmt.Println("Closing channels...")
+	for i := range txQueues {
+		close(txQueues[i])
+	}
+}
+
+func printStats(startTime time.Time, producedCount *atomic.Int64, sentCount *atomic.Int64, prevSentCount *atomic.Int64, blockHeights []int, blockTimes []string) {
+	elapsed := time.Since(startTime)
+	produced := producedCount.Load()
+	sent := sentCount.Load()
+	tps := float64(sent-prevSentCount.Load()) / elapsed.Seconds()
+	prevSentCount.Store(sent)
+	var totalDuration time.Duration
+	var prevTime time.Time
+	for i, blockTimeStr := range blockTimes {
+		blockTime, _ := time.Parse(time.RFC3339Nano, blockTimeStr)
+		if i > 0 {
+			duration := blockTime.Sub(prevTime)
+			totalDuration += duration
+		}
+		prevTime = blockTime
+	}
+	if len(blockTimes)-1 < 1 {
+
+		fmt.Printf("Unable to calculate stats, not enough data. Skipping...\n")
+	} else {
+		avgDuration := totalDuration.Milliseconds() / int64(len(blockTimes)-1)
+		fmt.Printf("High Level - Time Elapsed: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, produced, sent, tps, avgDuration, blockHeights)
+	}
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors
@@ -115,28 +203,26 @@ func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
 	return messageType
 }
 
-func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
+func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
 	var msgs []sdk.Msg
-	messageTypes := strings.Split(config.MessageType, ",")
-	messageType := c.getRandomMessageType(messageTypes)
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	fmt.Printf("Message type: %s\n", messageType)
-
-	defer IncrTxMessageType(messageType)
-
+	config := c.LoadTestConfig
+	msgPerTx := config.MsgsPerTx
 	signer := key
 
-	defaultMessageTypeConfig := c.LoadTestConfig.PerMessageConfigs["default"]
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	defer IncrTxMessageType(msgType)
+
+	defaultMessageTypeConfig := config.PerMessageConfigs["default"]
 	gas := defaultMessageTypeConfig.Gas
 	fee := defaultMessageTypeConfig.Fee
 
-	messageTypeConfig, ok := c.LoadTestConfig.PerMessageConfigs[messageType]
+	messageTypeConfig, ok := config.PerMessageConfigs[msgType]
 	if ok {
 		gas = messageTypeConfig.Gas
 		fee = messageTypeConfig.Fee
 	}
 
-	switch messageType {
+	switch msgType {
 	case Vortex:
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
@@ -170,6 +256,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	case Bank:
 		msgs = []sdk.Msg{}
 		for i := 0; i < int(msgPerTx); i++ {
+
 			msgs = append(msgs, &banktypes.MsgSend{
 				FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 				ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
@@ -229,6 +316,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		chosenValidator := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
 		// Randomly pick someone to redelegate / unbond from
 		srcAddr := ""
+		c.mtx.RLock()
 		for k := range c.DelegationMap[delegatorAddr] {
 			if k == chosenValidator {
 				continue
@@ -236,6 +324,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			srcAddr = k
 			break
 		}
+		c.mtx.RUnlock()
 		msgs = []sdk.Msg{c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)}
 	case Tokenfactory:
 		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
@@ -380,18 +469,9 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx
 	return orderPlacements
 }
 
-func generateOracleMessage(key cryptotypes.PrivKey) sdk.Msg {
-	valAddr := sdk.ValAddress(key.PubKey().Address()).String()
-	addr := sdk.AccAddress(key.PubKey().Address()).String()
-	msg := &oracletypes.MsgAggregateExchangeRateVote{
-		ExchangeRates: "1usei,2uatom",
-		Feeder:        addr,
-		Validator:     valAddr,
-	}
-	return msg
-}
-
 func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
 	// Randomly unbond, redelegate or delegate
 	// However, if there are no delegations, do so first
 	var msg sdk.Msg
@@ -494,8 +574,9 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 	return msgs
 }
 
+// nolint
 func getLastHeight(blockchainEndpoint string) int {
-	out, err := exec.Command("curl", blockchainEndpoint).Output()
+	out, err := exec.Command("curl", blockchainEndpoint+"/blockchain").Output()
 	if err != nil {
 		panic(err)
 	}
@@ -508,6 +589,36 @@ func getLastHeight(blockchainEndpoint string) int {
 		panic(err)
 	}
 	return height
+}
+
+func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, error) {
+
+	resp, err := http.Get(blockchainEndpoint + "/block?height=" + height)
+	if err != nil {
+		fmt.Printf("Error query block data: %s\n", err)
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("Error reading block data: %s\n", err)
+		return 0, "", err
+	}
+
+	var blockResponse struct {
+		Block struct {
+			Header BlockHeader `json:"header"`
+			Data   BlockData   `json:"data"`
+		} `json:"block"`
+	}
+	err = json.Unmarshal(body, &blockResponse)
+	if err != nil {
+		fmt.Printf("Error reading block data: %s\n", err)
+		return 0, "", err
+	}
+
+	return len(blockResponse.Block.Data.Txs), blockResponse.Block.Header.Time, nil
 }
 
 func GetDefaultConfigFilePath() string {
