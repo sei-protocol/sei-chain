@@ -4,12 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"golang.org/x/time/rate"
 	"math/rand"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/time/rate"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/types"
@@ -185,7 +186,7 @@ func (c *LoadTestClient) BuildTxs(
 			// Generate a message type first
 			messageTypes := strings.Split(config.MessageType, ",")
 			messageType := c.getRandomMessageType(messageTypes)
-			signedTx := SignedTx{}
+			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
 			if messageType == EVM {
 				tx := c.generatedSignedEvmTxs(keyIndex)
