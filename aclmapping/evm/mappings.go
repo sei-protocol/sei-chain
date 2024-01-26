@@ -118,6 +118,8 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 			ResourceType:       sdkacltypes.ResourceType_KV_EVM_CODE_HASH,
 			IdentifierTemplate: hex.EncodeToString(append(evmtypes.CodeHashKeyPrefix, evmAddr[:]...)),
 		},
+		// TODO: maybe we modify this in the future but for now because evm doesnt use parallelv1 its fine to do this way
+		{AccessType: sdkacltypes.AccessType_UNKNOWN, ResourceType: sdkacltypes.ResourceType_ANY, IdentifierTemplate: "*"},
 
 		// Last Operation should always be a commit
 		*acltypes.CommitAccessOp(),
