@@ -75,7 +75,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		}
 		bloom := ethtypes.Bloom{}
 		bloom.SetBytes(receipt.LogsBloom)
-		server.AppendToEvmTxDeferredInfo(ctx.TxIndex(), bloom, tx.Hash())
+		server.AppendToEvmTxDeferredInfo(ctx, bloom, tx.Hash())
 		if serverRes.VmError == "" && tx.To() == nil {
 			server.AddToWhitelistIfApplicable(ctx, tx.Data(), common.HexToAddress(receipt.ContractAddress))
 		}
