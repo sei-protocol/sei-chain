@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -181,4 +182,20 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			require.Equal(t, test.expectedNonce, next)
 		})
 	}
+}
+
+func TestDeferredInfo(t *testing.T) {
+	k, ctx := keeper.MockEVMKeeper()
+	ctx = ctx.WithTxIndex(1)
+	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{1, 2, 3}, common.Hash{4, 5, 6})
+	ctx = ctx.WithTxIndex(2)
+	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{7, 8}, common.Hash{9.0})
+	infoList := k.GetEVMTxDeferredInfo(ctx)
+	require.Equal(t, 2, len(infoList))
+	require.Equal(t, 1, infoList[0].TxIndx)
+	require.Equal(t, ethtypes.Bloom{1, 2, 3}, infoList[0].TxBloom)
+	require.Equal(t, common.Hash{4, 5, 6}, infoList[0].TxHash)
+	require.Equal(t, 2, infoList[1].TxIndx)
+	require.Equal(t, ethtypes.Bloom{7, 8}, infoList[1].TxBloom)
+	require.Equal(t, common.Hash{9, 0}, infoList[1].TxHash)
 }
