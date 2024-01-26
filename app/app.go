@@ -1369,7 +1369,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 			AbsoluteIndex: absoluteIndices[txIndex],
 		}
 		// get prefill estimate
-		estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.txDecoder, app.GetAnteDepGenerator(), txIndex, tx)
+		estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, typedTxs[txIndex])
 		// if no error, then we assign the mapped writesets for prefill estimate
 		if err == nil {
 			deliverTxEntry.EstimatedWritesets = estimatedWritesets
