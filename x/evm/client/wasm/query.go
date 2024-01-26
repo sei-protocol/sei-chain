@@ -109,7 +109,7 @@ func (h *EVMQueryHandler) HandleERC20TokenInfo(ctx sdk.Context, contractAddress 
 	}
 	response.Symbol = unpacked[0].(string)
 
-	bz, err = abi.Pack("decimal")
+	bz, err = abi.Pack("decimals")
 	if err != nil {
 		return nil, err
 	}
@@ -117,11 +117,11 @@ func (h *EVMQueryHandler) HandleERC20TokenInfo(ctx sdk.Context, contractAddress 
 	if err != nil {
 		return nil, err
 	}
-	unpacked, err = abi.Unpack("decimal", res)
+	unpacked, err = abi.Unpack("decimals", res)
 	if err != nil {
 		return nil, err
 	}
-	response.Decimal = unpacked[0].(byte)
+	response.Decimals = unpacked[0].(byte)
 
 	return json.Marshal(response)
 }

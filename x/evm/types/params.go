@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/hex"
 	"errors"
 	fmt "fmt"
 
@@ -35,7 +36,8 @@ var DefaultBaseFeePerGas = sdk.NewDec(0)
 var DefaultMinFeePerGas = sdk.NewDec(1000000000)
 var DefaultChainID = sdk.NewInt(713715)
 var DefaultWhitelistedCodeHashesBankSend = generateDefaultWhitelistedCodeHashesBankSend()
-var DefaultWhitelistedCwCodeHashesForDelegateCall = [][]byte{}
+
+var DefaultWhitelistedCwCodeHashesForDelegateCall = generateDefaultWhitelistedCwCodeHashesForDelegateCall()
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -197,4 +199,10 @@ func generateDefaultWhitelistedCodeHashesBankSend() (res []string) {
 	h := crypto.Keccak256Hash(native.GetBin())
 	res = append(res, h.Hex())
 	return
+}
+
+func generateDefaultWhitelistedCwCodeHashesForDelegateCall() [][]byte {
+	cw20, _ := hex.DecodeString("A25D78D7ACD2EE47CC39C224E162FE79B53E6BBE6ED2A56E8C0A86593EBE6102")
+	cw721, _ := hex.DecodeString("C4A6994780564207DC00662339E450180FCD75638CE460627ECA1C49A91F9138")
+	return [][]byte{cw20, cw721}
 }
