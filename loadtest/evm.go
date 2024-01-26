@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
-
 	"math/big"
 	"math/rand"
 	"sync"
