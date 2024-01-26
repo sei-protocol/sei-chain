@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,7 +54,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts))
 	txClients, grpcConns := BuildGrpcClients(config)
 	var evmTxClients []*EvmTxClient
-	if config.EvmRpcEndpoints != "" && strings.Contains(config.MessageType, EVM) {
+	if config.EvmRpcEndpoints != "" && slices.Contains(config.MessageTypes, EVM) {
 		evmTxClients = BuildEvmTxClients(config, keys)
 	}
 
@@ -76,7 +77,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 }
 
 func (c *LoadTestClient) SetValidators() {
-	if strings.Contains(c.LoadTestConfig.MessageType, "staking") {
+	if slices.Contains(c.LoadTestConfig.MessageTypes, "staking") {
 		resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
 		if err != nil {
 			panic(err)
@@ -185,8 +186,7 @@ func (c *LoadTestClient) BuildTxs(
 				continue
 			}
 			// Generate a message type first
-			messageTypes := strings.Split(config.MessageType, ",")
-			messageType := c.getRandomMessageType(messageTypes)
+			messageType := c.getRandomMessageType(config.MessageTypes)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
 			if messageType == EVM {

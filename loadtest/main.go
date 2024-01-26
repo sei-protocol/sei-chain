@@ -461,10 +461,10 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_parallelism\":{\"value\": %d}}", value))),
 		}}
 	default:
-		fmt.Printf("Unrecognized message type %s\n", messageType)
+		fmt.Printf("Unrecognized message type %s\n", msgType)
 	}
 
-	if strings.Contains(messageType, "failure") {
+	if strings.Contains(msgType, "failure") {
 		return msgs, true, signer, gas, int64(fee)
 	}
 	return msgs, false, signer, gas, int64(fee)
