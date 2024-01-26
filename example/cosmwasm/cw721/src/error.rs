@@ -6,6 +6,6 @@ pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
 
-    #[error("ERC20 does not support the requested functionality in it's base spec")]
+    #[error("ERC721 does not have the requested functionality in specification")]
     NotSupported {},
 }

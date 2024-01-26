@@ -49,6 +49,25 @@ func TestGetBlockTransactionCount(t *testing.T) {
 	require.Equal(t, "0x1", resObj["result"])
 }
 
+func TestGetBlockReceipts(t *testing.T) {
+	resObj := sendRequestGood(t, "getBlockReceipts", "0x2")
+	result := resObj["result"].([]interface{})
+	require.Equal(t, 3, len(result))
+	receipt1 := result[0].(map[string]interface{})
+	require.Equal(t, "0x2", receipt1["blockNumber"])
+	require.Equal(t, "0x0", receipt1["transactionIndex"])
+	require.Equal(t, "0x0123456789012345678902345678901234567890123456789012345678900001", receipt1["transactionHash"])
+	receipt2 := result[1].(map[string]interface{})
+	require.Equal(t, "0x2", receipt2["blockNumber"])
+	require.Equal(t, "0x1", receipt2["transactionIndex"])
+	require.Equal(t, "0x0123456789012345678902345678901234567890123456789012345678900002", receipt2["transactionHash"])
+	receipt3 := result[2].(map[string]interface{})
+	require.Equal(t, "0x2", receipt3["blockNumber"])
+	require.Equal(t, "0x2", receipt3["transactionIndex"])
+	require.Equal(t, "0x0123456789012345678902345678901234567890123456789012345678900003", receipt3["transactionHash"])
+
+}
+
 func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	resObj = resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x0", resObj["difficulty"])
@@ -82,10 +101,10 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0", tx["type"])
 	require.Equal(t, []interface{}{}, tx["accessList"])
 	require.Equal(t, "0xae3f3", tx["chainId"])
-	require.Equal(t, "0x1b", tx["v"])
+	require.Equal(t, "0x0", tx["v"])
 	require.Equal(t, "0xa1ac0e5b8202742e54ae7af350ed855313cc4f9861c2d75a0e541b4aff7c981e", tx["r"])
 	require.Equal(t, "0x288b16881aed9640cd360403b9db1ce3961b29af0b00158311856d1446670996", tx["s"])
-	require.Equal(t, "0x1", tx["yParity"])
+	require.Equal(t, "0x0", tx["yParity"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", resObj["transactionsRoot"])
 	require.Equal(t, []interface{}{}, resObj["uncles"])
 	require.Equal(t, "0x0", resObj["baseFeePerGas"])

@@ -1,14 +1,13 @@
-use cosmwasm_std::{CosmosMsg, CustomMsg, CustomQuery, StdResult, Uint128, WasmMsg};
-use cw20::Cw20ReceiveMsg;
+use cosmwasm_std::{CosmosMsg, CustomMsg, CustomQuery};
 use schemars::JsonSchema;
 use cosmwasm_schema::cw_serde;
 use serde::{Deserialize, Serialize};
 
-pub use cw20::{Cw20ExecuteMsg as ExecuteMsg, Cw20QueryMsg as QueryMsg};
+pub use cw721::{Cw721ExecuteMsg as ExecuteMsg, Cw721QueryMsg as QueryMsg};
 
 #[cw_serde]
 pub struct InstantiateMsg {
-    pub erc20_address: String,
+    pub erc721_address: String,
 }
 
 /// SeiRoute is enum type to represent sei query route path
@@ -33,31 +32,43 @@ impl CustomQuery for EvmQueryWrapper {}
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EvmQuery {
-    Erc20TransferPayload {
+    Erc721TransferPayload {
+        from: String,
         recipient: String,
-        amount: Uint128,
+        token_id: String,
     },
-    Erc20TransferFromPayload {
-        owner: String,
-        recipient: String,
-        amount: Uint128,
-    },
-    Erc20ApprovePayload {
+    Erc721ApprovePayload {
         spender: String,
-        amount: Uint128,
+        token_id: String,
     },
-    Erc20Allowance {
-        contract_address: String,
-        owner: String,
-        spender: String,
-    },
-    Erc20TokenInfo {
-        contract_address: String,
+    Erc721Owner {
         caller: String,
-    },
-    Erc20Balance {
         contract_address: String,
-        account: String,
+        token_id: String,
+    },
+    Erc721Approved {
+        caller: String,
+        contract_address: String,
+        token_id: String,
+    },
+    Erc721IsApprovedForAll {
+        caller: String,
+        contract_address: String,
+        owner: String,
+        operator: String,
+    },
+    Erc721SetApprovalAllPayload {
+        to: String,
+        approved: bool,
+    },
+    Erc721NameSymbol {
+        caller: String,
+        contract_address: String,
+    },
+    Erc721Uri {
+        caller: String,
+        contract_address: String,
+        token_id: String,
     },
 }
 
@@ -67,8 +78,29 @@ pub struct ErcPayloadResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct Erc20AllowanceResponse {
-    pub allowance: Uint128,
+pub struct Erc721OwnerResponse {
+    pub owner: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Erc721ApprovedResponse {
+    pub approved: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Erc721IsApprovedForAllResponse {
+    pub is_approved: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Erc721NameSymbolResponse {
+    pub name: String,
+    pub symbol: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Erc721UriResponse {
+    pub uri: String,
 }
 
 // implement custom query
@@ -88,19 +120,4 @@ pub enum EvmMsg {
         to: String,
         data: String, // base64 encoded
     },
-}
-
-/// Helper to convert a Cw20ReceiveMsg into an EvmMsg
-pub fn cw20receive_into_cosmos_msg<T: Into<String>, C>(contract_addr: T, message: Cw20ReceiveMsg) -> StdResult<CosmosMsg<C>> 
-where
-    C: Clone + std::fmt::Debug + PartialEq + JsonSchema,
-{
-    let msg = message.into_binary()?;
-    let execute = WasmMsg::Execute {
-        contract_addr: contract_addr.into(),
-        msg,
-        funds: vec![],
-    };
-
-    Ok(execute.into())
 }
