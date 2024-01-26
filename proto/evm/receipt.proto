@@ -1,0 +1,54 @@
+syntax = "proto3";
+package seiprotocol.seichain.evm;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
+
+message Log {
+  string address = 1;
+  repeated string topics = 2;
+  bytes data = 3;
+  uint32 index = 4;
+}
+
+message Receipt {
+    uint32 tx_type = 1 [
+      (gogoproto.moretags) = "yaml:\"tx_type\""
+    ];
+    uint64 cumulative_gas_used = 2 [
+      (gogoproto.moretags) = "yaml:\"cumulative_gas_used\""
+    ];
+    string contract_address = 3 [
+      (gogoproto.moretags) = "yaml:\"contract_address\""
+    ];
+    string tx_hash_hex = 4 [
+      (gogoproto.moretags) = "yaml:\"tx_hash_hex\""
+    ];
+    uint64 gas_used = 5 [
+      (gogoproto.moretags) = "yaml:\"gas_used\""
+    ];
+    uint64 effective_gas_price = 6 [
+      (gogoproto.moretags) = "yaml:\"effective_gas_price\""
+    ];
+    uint64 block_number = 7 [
+      (gogoproto.moretags) = "yaml:\"block_number\""
+    ];
+    uint32 transaction_index = 8 [
+        (gogoproto.moretags) = "yaml:\"transaction_index\""
+      ];
+      uint32 status = 9 [
+        (gogoproto.moretags) = "yaml:\"status\""
+      ];
+      string from = 10 [
+        (gogoproto.moretags) = "yaml:\"from\""
+      ];
+      string to = 11 [
+        (gogoproto.moretags) = "yaml:\"to\""
+      ];
+      string vm_error = 12 [
+        (gogoproto.moretags) = "yaml:\"vm_error\""
+      ];
+      repeated Log logs = 13;
+      bytes logsBloom = 14;
+}

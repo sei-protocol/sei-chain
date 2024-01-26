@@ -27,7 +27,7 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 
 	for i := 1; i <= 10; i++ {
-		testWrapper := app.NewTestWrapper(t, tm, valPub)
+		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
 		testWrapper.App.Commit(context.Background())
 		data := res.AppHash
@@ -109,7 +109,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 	account := sdk.AccAddress(valPub.Address()).String()
 	validator := sdk.ValAddress(valPub.Address()).String()
@@ -192,12 +192,22 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		otherTx,
 		mixedTx,
 	}
+	typedTxs := []sdk.Tx{
+		oracleTxBuilder.GetTx(),
+		contractRegisterBuilder.GetTx(),
+		contractUnregisterBuilder.GetTx(),
+		contractUnsuspendBuilder.GetTx(),
+		otherTxBuilder.GetTx(),
+		mixedTxBuilder.GetTx(),
+	}
 
-	prioritizedTxs, otherTxs, prioIdxs, otherIdxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs)
+	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs, typedTxs)
 	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
 	require.Equal(t, []int{0, 1, 2, 3}, prioIdxs)
 	require.Equal(t, []int{4, 5}, otherIdxs)
+	require.Equal(t, 4, len(prioritizedTypedTxs))
+	require.Equal(t, 2, len(otherTypedTxs))
 
 	diffOrderTxs := [][]byte{
 		oracleTx,
@@ -207,12 +217,22 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		mixedTx,
 		contractSuspendTx,
 	}
+	differOrderTypedTxs := []sdk.Tx{
+		oracleTxBuilder.GetTx(),
+		otherTxBuilder.GetTx(),
+		contractRegisterBuilder.GetTx(),
+		contractUnregisterBuilder.GetTx(),
+		mixedTxBuilder.GetTx(),
+		contractUnsuspendBuilder.GetTx(),
+	}
 
-	prioritizedTxs, otherTxs, prioIdxs, otherIdxs = testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, diffOrderTxs)
+	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs = testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, diffOrderTxs, differOrderTypedTxs)
 	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
 	require.Equal(t, []int{0, 2, 3, 5}, prioIdxs)
 	require.Equal(t, []int{1, 4}, otherIdxs)
+	require.Equal(t, 4, len(prioritizedTypedTxs))
+	require.Equal(t, 2, len(otherTypedTxs))
 }
 
 func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
@@ -220,7 +240,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 	secondAcc := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 	account := sdk.AccAddress(valPub.Address()).String()
 	account2 := sdk.AccAddress(secondAcc.Address()).String()
@@ -306,7 +326,7 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	ap := testWrapper.App
 	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
 		Block: &types.BlockParams{MaxGas: 10},

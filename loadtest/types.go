@@ -8,11 +8,13 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
 	Bank                 string = "bank"
+	EVM                  string = "evm"
 	CollectRewards       string = "collect_rewards"
 	DistributeRewards    string = "distribute_rewards"
 	FailureBankMalformed string = "failure_bank_malformed"
@@ -39,12 +41,13 @@ type WasmIteratorWriteMsg struct {
 type Config struct {
 	ChainID            string                `json:"chain_id"`
 	GrpcEndpoints      string                `json:"grpc_endpoints"`
+	EvmRpcEndpoints    string                `json:"evm_rpc_endpoints"`
 	BlockchainEndpoint string                `json:"blockchain_endpoint"`
 	NodeURI            string                `json:"node_uri"`
 	TargetTps          uint64                `json:"target_tps"`
+	MaxAccounts        uint64                `json:"max_accounts"`
 	MsgsPerTx          uint64                `json:"msgs_per_tx"`
 	MessageTypes       []string              `json:"message_types"`
-	RunOracle          bool                  `json:"run_oracle"`
 	PriceDistr         NumericDistribution   `json:"price_distribution"`
 	QuantityDistr      NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr       MsgTypeDistribution   `json:"message_type_distribution"`
@@ -175,4 +178,9 @@ type VortexContract struct {
 type WasmInstantiateType struct {
 	CodeID  uint64 `json:"code_id"`
 	Payload string `json:"payload"`
+}
+
+type SignedTx struct {
+	TxBytes []byte
+	EvmTx   *ethtypes.Transaction
 }

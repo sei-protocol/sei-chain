@@ -242,7 +242,7 @@ func (suite *KeeperTestSuite) TestMsgCancelOrder() {
 func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 	oracleVote := oracletypes.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1usei",
