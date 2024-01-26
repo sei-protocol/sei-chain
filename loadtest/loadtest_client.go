@@ -77,14 +77,12 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 }
 
 func (c *LoadTestClient) SetValidators() {
-	for _, mType := range c.LoadTestConfig.MessageTypes {
-		if mType == Staking {
-			resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
-			if err != nil {
-				panic(err)
-			}
-			c.Validators = resp.Validators
+	if slices.Contains(c.LoadTestConfig.MessageTypes, "staking") {
+		resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
+		if err != nil {
+			panic(err)
 		}
+		c.Validators = resp.Validators
 	}
 }
 
