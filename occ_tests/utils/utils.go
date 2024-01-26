@@ -95,7 +95,7 @@ func addressToValAddress(addr sdk.AccAddress) sdk.ValAddress {
 // NewTestContext initializes a new TestContext with a new app and a new contract
 func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, workers int, occEnabled bool) *TestContext {
 	contractFile := "../integration_test/contracts/mars.wasm"
-	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, func(ba *baseapp.BaseApp) {
+	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, false, func(ba *baseapp.BaseApp) {
 		ba.SetOccEnabled(occEnabled)
 		ba.SetConcurrencyWorkers(workers)
 	})
