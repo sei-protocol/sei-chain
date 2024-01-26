@@ -208,10 +208,11 @@ var ResourceTypeToStoreKeyMap = aclsdktypes.ResourceTypeToStoreKeyMap{
 	aclsdktypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS: dextypes.MemStoreKey,
 
 	// ~~~~ BANK Resource Types ~~~~
-	aclsdktypes.ResourceType_KV_BANK:          banktypes.StoreKey,
-	aclsdktypes.ResourceType_KV_BANK_BALANCES: banktypes.StoreKey,
-	aclsdktypes.ResourceType_KV_BANK_SUPPLY:   banktypes.StoreKey,
-	aclsdktypes.ResourceType_KV_BANK_DENOM:    banktypes.StoreKey,
+	aclsdktypes.ResourceType_KV_BANK:             banktypes.StoreKey,
+	aclsdktypes.ResourceType_KV_BANK_BALANCES:    banktypes.StoreKey,
+	aclsdktypes.ResourceType_KV_BANK_SUPPLY:      banktypes.StoreKey,
+	aclsdktypes.ResourceType_KV_BANK_DENOM:       banktypes.StoreKey,
+	aclsdktypes.ResourceType_KV_BANK_WEI_BALANCE: banktypes.StoreKey,
 
 	// ~~~~ BANK DEFERRED Resource Types ~~~~
 	aclsdktypes.ResourceType_KV_BANK_DEFERRED:                 banktypes.DeferredCacheStoreKey,
@@ -296,4 +297,18 @@ var ResourceTypeToStoreKeyMap = aclsdktypes.ResourceTypeToStoreKeyMap{
 	aclsdktypes.ResourceType_KV_WASM_CONTRACT_CODE_HISTORY: wasmtypes.StoreKey,
 	aclsdktypes.ResourceType_KV_WASM_CONTRACT_BY_CODE_ID:   wasmtypes.StoreKey,
 	aclsdktypes.ResourceType_KV_WASM_PINNED_CODE_INDEX:     wasmtypes.StoreKey,
+
+	// ~~~~ EVM Resource Types ~~~~
+	aclsdktypes.ResourceType_KV_EVM:                   evmtypes.StoreKey,
+	aclsdktypes.ResourceType_KV_EVM_BALANCE:           evmtypes.StoreKey, // EVM_BALANCE is deprecated and not used anymore
+	aclsdktypes.ResourceType_KV_EVM_TRANSIENT:         evmtypes.StoreKey,
+	aclsdktypes.ResourceType_KV_EVM_ACCOUNT_TRANSIENT: evmtypes.StoreKey,
+	aclsdktypes.ResourceType_KV_EVM_MODULE_TRANSIENT:  evmtypes.StoreKey,
+	aclsdktypes.ResourceType_KV_EVM_NONCE:             evmtypes.StoreKey,
+	aclsdktypes.ResourceType_KV_EVM_RECEIPT:           evmtypes.StoreKey,
+	aclsdktypes.ResourceType_KV_EVM_S2E:               evmtypes.StoreKey,
+	aclsdktypes.ResourceType_KV_EVM_E2S:               evmtypes.StoreKey,
+	aclsdktypes.ResourceType_KV_EVM_CODE_HASH:         evmtypes.StoreKey,
+	aclsdktypes.ResourceType_KV_EVM_CODE:              evmtypes.StoreKey,
+	aclsdktypes.ResourceType_KV_EVM_CODE_SIZE:         evmtypes.StoreKey,
 }
