@@ -110,14 +110,15 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 }
 
 func (k *Keeper) getGasPool(ctx sdk.Context) (sdk.Context, core.GasPool) {
-	if ctx.BlockGasMeter() == nil {
-		ctx = ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
-	}
-	if ctx.BlockGasMeter().Limit() == 0 {
-		// infinite gas meter
-		return ctx, math.MaxUint64
-	}
-	return ctx, core.GasPool(ctx.BlockGasMeter().Limit() - ctx.BlockGasMeter().GasConsumedToLimit())
+	return ctx, math.MaxUint64
+	// if ctx.BlockGasMeter() == nil {
+	// 	ctx = ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
+	// }
+	// if ctx.BlockGasMeter().Limit() == 0 {
+	// 	// infinite gas meter
+	// 	return ctx, math.MaxUint64
+	// }
+	// return ctx, core.GasPool(ctx.BlockGasMeter().Limit() - ctx.BlockGasMeter().GasConsumedToLimit())
 }
 
 func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction) (*core.Message, error) {
@@ -141,13 +142,13 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 
 func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, stateDB *state.DBImpl) (*types.Receipt, error) {
 	cumulativeGasUsed := response.GasUsed
-	if ctx.BlockGasMeter() != nil {
-		limit := ctx.BlockGasMeter().Limit()
-		cumulativeGasUsed += ctx.BlockGasMeter().GasConsumed()
-		if cumulativeGasUsed > limit {
-			cumulativeGasUsed = limit
-		}
-	}
+	// if ctx.BlockGasMeter() != nil {
+	// 	limit := ctx.BlockGasMeter().Limit()
+	// 	cumulativeGasUsed += ctx.BlockGasMeter().GasConsumed()
+	// 	if cumulativeGasUsed > limit {
+	// 		cumulativeGasUsed = limit
+	// 	}
+	// }
 
 	ethLogs := stateDB.GetAllLogs()
 	bloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: ethLogs}})
