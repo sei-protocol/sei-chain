@@ -4,8 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"golang.org/x/sync/semaphore"
-	"golang.org/x/time/rate"
+
 	"io"
 	"math/rand"
 	"net/http"
@@ -32,6 +31,8 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/time/rate"
 )
 
 var TestConfig EncodingConfig
