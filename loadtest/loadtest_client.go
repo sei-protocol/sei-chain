@@ -15,20 +15,15 @@ import (
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"golang.org/x/sync/semaphore"
-	"golang.org/x/time/rate"
 	"google.golang.org/grpc/connectivity"
 
 	"github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 
-	"crypto/tls"
-
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 )
 
