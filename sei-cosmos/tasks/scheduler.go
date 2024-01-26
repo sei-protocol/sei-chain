@@ -121,9 +121,9 @@ func NewScheduler(workers int, tracingInfo *tracing.Info, deliverTxFunc func(ctx
 
 func (s *scheduler) invalidateTask(task *deliverTxTask) {
 	for _, mv := range s.multiVersionStores {
-		mv.InvalidateWriteset(task.Index, task.Incarnation)
-		mv.ClearReadset(task.Index)
-		mv.ClearIterateset(task.Index)
+		mv.InvalidateWriteset(task.AbsoluteIndex, task.Incarnation)
+		mv.ClearReadset(task.AbsoluteIndex)
+		mv.ClearIterateset(task.AbsoluteIndex)
 	}
 }
 
@@ -163,7 +163,7 @@ func (s *scheduler) findConflicts(task *deliverTxTask) (bool, []int) {
 	uniq := make(map[int]struct{})
 	valid := true
 	for _, mv := range s.multiVersionStores {
-		ok, mvConflicts := mv.ValidateTransactionState(task.Index)
+		ok, mvConflicts := mv.ValidateTransactionState(task.AbsoluteIndex)
 		for _, c := range mvConflicts {
 			if _, ok := uniq[c]; !ok {
 				conflicts = append(conflicts, c)
@@ -468,6 +468,7 @@ func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask)
 	if task != nil {
 		span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", sha256.Sum256(task.Request.Tx))))
 		span.SetAttributes(attribute.Int("txIndex", task.Index))
+		span.SetAttributes(attribute.Int("absoluteIndex", task.AbsoluteIndex))
 		span.SetAttributes(attribute.Int("txIncarnation", task.Incarnation))
 	}
 	ctx = ctx.WithTraceSpanContext(spanCtx)
@@ -492,7 +493,7 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 		// init version stores by store key
 		vs := make(map[store.StoreKey]*multiversion.VersionIndexedStore)
 		for storeKey, mvs := range s.multiVersionStores {
-			vs[storeKey] = mvs.VersionedIndexedStore(task.Index, task.Incarnation, abortCh)
+			vs[storeKey] = mvs.VersionedIndexedStore(task.AbsoluteIndex, task.Incarnation, abortCh)
 		}
 
 		// save off version store so we can ask it things later

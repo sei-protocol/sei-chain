@@ -121,7 +121,9 @@ func TestDeliverTxBatch(t *testing.T) {
 			txBytes, err := codec.Marshal(tx)
 			require.NoError(t, err)
 			requests = append(requests, &sdk.DeliverTxEntry{
-				Request: abci.RequestDeliverTx{Tx: txBytes},
+				Request:       abci.RequestDeliverTx{Tx: txBytes},
+				SdkTx:         *tx,
+				AbsoluteIndex: i,
 			})
 		}
 

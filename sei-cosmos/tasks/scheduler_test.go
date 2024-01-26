@@ -26,7 +26,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 )
 
-type mockDeliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTx) types.ResponseDeliverTx
+type mockDeliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx)
 
 var testStoreKey = sdk.NewKVStoreKey("mock")
 var itemKey = []byte("key")
@@ -38,6 +38,8 @@ func requestList(n int) []*sdk.DeliverTxEntry {
 			Request: types.RequestDeliverTx{
 				Tx: []byte(fmt.Sprintf("%d", i)),
 			},
+			AbsoluteIndex: i,
+			// TODO: maybe we need to add dummy sdkTx message types and handler routers too
 		}
 
 	}
@@ -95,7 +97,7 @@ func TestProcessAll(t *testing.T) {
 			runs:      10,
 			addStores: true,
 			requests:  requestList(0),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) types.ResponseDeliverTx {
+			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
 				panic("should not deliver")
 			},
 			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
@@ -116,7 +118,7 @@ func TestProcessAll(t *testing.T) {
 					kv.Set([]byte(fmt.Sprintf("%d", i)), []byte(fmt.Sprintf("%d", i)))
 				}
 			},
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) (response types.ResponseDeliverTx) {
+			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
 				defer abortRecoveryFunc(&response)
 				kv := ctx.MultiStore().GetKVStore(testStoreKey)
 				if ctx.TxIndex()%2 == 0 {
@@ -157,7 +159,7 @@ func TestProcessAll(t *testing.T) {
 			runs:      10,
 			addStores: true,
 			requests:  requestList(1000),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) (response types.ResponseDeliverTx) {
+			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
 				defer abortRecoveryFunc(&response)
 				// all txs read and write to the same key to maximize conflicts
 				kv := ctx.MultiStore().GetKVStore(testStoreKey)
@@ -189,7 +191,7 @@ func TestProcessAll(t *testing.T) {
 			runs:      5,
 			addStores: true,
 			requests:  requestList(1000),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) (response types.ResponseDeliverTx) {
+			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
 				defer abortRecoveryFunc(&response)
 				// all txs read and write to the same key to maximize conflicts
 				kv := ctx.MultiStore().GetKVStore(testStoreKey)
@@ -253,7 +255,7 @@ func TestProcessAll(t *testing.T) {
 			runs:      10,
 			addStores: false,
 			requests:  requestList(10),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) (response types.ResponseDeliverTx) {
+			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
 				defer abortRecoveryFunc(&response)
 				return types.ResponseDeliverTx{
 					Info: fmt.Sprintf("%d", ctx.TxIndex()),
