@@ -150,7 +150,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 		}
 		rewards, err := i.getRewards(block, baseFee, rewardPercentiles)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		result.Reward = append(result.Reward, rewards)
 	}
