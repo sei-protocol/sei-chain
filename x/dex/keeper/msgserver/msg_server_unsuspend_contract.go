@@ -39,7 +39,7 @@ func (k msgServer) UnsuspendContract(goCtx context.Context, msg *types.MsgUnsusp
 	}
 
 	// suspension changes will also affect dependency traversal since suspended contracts are skipped
-	dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
+	dexutils.GetMemState(ctx.Context()).ClearContractToDependencies(ctx)
 
 	return &types.MsgUnsuspendContractResponse{}, nil
 }

@@ -120,6 +120,19 @@ func MeasureDeliverTxDuration(start time.Time) {
 	)
 }
 
+// Measures the time taken to execute a batch tx
+// Metric Names:
+//
+//	sei_deliver_batch_tx_duration_miliseconds
+//	sei_deliver_batch_tx_duration_miliseconds_count
+//	sei_deliver_batch_tx_duration_miliseconds_sum
+func MeasureDeliverBatchTxDuration(start time.Time) {
+	metrics.MeasureSince(
+		[]string{"sei", "deliver", "batch", "tx", "milliseconds"},
+		start.UTC(),
+	)
+}
+
 // sei_oracle_vote_penalty_count
 func SetOracleVotePenaltyCount(count uint64, valAddr string, penaltyType string) {
 	metrics.SetGaugeWithLabels(
@@ -220,5 +233,32 @@ func IncrementOptimisticProcessingCounter(enabled bool) {
 		[]string{"sei", "optimistic", "processing", "counter"},
 		float32(1),
 		[]metrics.Label{telemetry.NewLabel("enabled", strconv.FormatBool(enabled))},
+	)
+}
+
+// Measures RPC endpoint request throughput
+// Metric Name:
+//
+//	sei_rpc_request_counter
+func IncrementRpcRequestCounter(endpoint string, success bool) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "rpc", "request", "counter"},
+		float32(1),
+		[]metrics.Label{
+			telemetry.NewLabel("endpoint", endpoint),
+			telemetry.NewLabel("success", strconv.FormatBool(success)),
+		},
+	)
+}
+
+// Measures the RPC request latency in milliseconds
+// Metric Name:
+//
+//	sei_rpc_request_latency_ms
+func MeasureRpcRequestLatency(endpoint string, startTime time.Time) {
+	metrics.MeasureSinceWithLabels(
+		[]string{"sei", "rpc", "request", "latency_ms"},
+		startTime.UTC(),
+		[]metrics.Label{telemetry.NewLabel("endpoint", endpoint)},
 	)
 }

@@ -339,7 +339,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) (ret []abc
 		}
 		validContractsInfo = am.keeper.GetAllProcessableContractInfo(ctx) // reload contract info to get updated dependencies due to unregister above
 		if len(failedContractToReasons) != 0 {
-			dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
+			dexutils.GetMemState(ctx.Context()).ClearContractToDependencies(ctx)
 		}
 		// technically we don't really need this if `EndBlockerAtomic` guarantees that `validContractsInfo` size will
 		// always shrink if not `ok`, but just in case, we decided to have an explicit termination criteria here to

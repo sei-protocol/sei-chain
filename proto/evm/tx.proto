@@ -1,0 +1,44 @@
+syntax = "proto3";
+package seiprotocol.seichain.evm;
+
+import "google/protobuf/any.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
+
+service Msg {
+  rpc EVMTransaction(MsgEVMTransaction) returns (MsgEVMTransactionResponse);
+}
+
+message MsgEVMTransaction {
+  google.protobuf.Any data = 1;
+  bytes derived = 2 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/x/evm/derived.Derived"];
+}
+
+message MsgEVMTransactionResponse {
+  uint64 gas_used = 1;
+  string vm_error = 2;
+  bytes return_data = 3;
+  string hash = 4;
+}
+
+message MsgInternalEVMCall {
+  string sender = 1;
+  string value = 2 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
+  ];
+  string to = 3;
+  bytes data = 4;
+}
+
+message MsgInternalEVMCallResponse {}
+
+message MsgInternalEVMDelegateCall {
+  string sender = 1;
+  bytes codeHash = 2;
+  string to = 3;
+  bytes data = 4;
+  string fromContract = 5;
+}
+
+message MsgInternalEVMDelegateCallResponse {}
