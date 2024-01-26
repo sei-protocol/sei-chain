@@ -413,7 +413,7 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey, banktypes.DeferredCacheStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey, banktypes.DeferredCacheStoreKey, evmtypes.MemStoreKey)
 
 	app := &App{
 		BaseApp:           bApp,
@@ -584,7 +584,7 @@ func New(
 		wasmOpts...,
 	)
 
-	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper)
+	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey], app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper)
 	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
