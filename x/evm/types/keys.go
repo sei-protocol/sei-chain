@@ -16,6 +16,8 @@ const (
 	// StoreKey is string representation of the store key for auth
 	StoreKey = "evm"
 
+	MemStoreKey = "evm_mem"
+
 	// QuerierRoute is the querier route for auth
 	QuerierRoute = ModuleName
 )
@@ -36,6 +38,9 @@ var (
 	BlockBloomPrefix                           = []byte{0x0d}
 	TxHashesPrefix                             = []byte{0x0e}
 	WhitelistedCodeHashesForDelegateCallPrefix = []byte{0x0f}
+	//mem
+	TxHashPrefix  = []byte{0x10}
+	TxBloomPrefix = []byte{0x11}
 )
 
 func EVMAddressToSeiAddressKey(evmAddress common.Address) []byte {
