@@ -1,10 +1,12 @@
 package keeper
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"math/big"
 	"slices"
+	"sort"
 	"sync"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -24,8 +26,9 @@ import (
 )
 
 type Keeper struct {
-	storeKey   sdk.StoreKey
-	Paramstore paramtypes.Subspace
+	storeKey    sdk.StoreKey
+	memStoreKey sdk.StoreKey
+	Paramstore  paramtypes.Subspace
 
 	bankKeeper    bankkeeper.Keeper
 	accountKeeper *authkeeper.AccountKeeper
@@ -33,8 +36,6 @@ type Keeper struct {
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
-	evmTxDeferredInfoMtx         *sync.Mutex
-	evmTxDeferredInfoList        []EvmTxDeferredInfo
 	nonceMx                      *sync.RWMutex
 	pendingNonces                map[string][]uint64
 	completedNonces              *lru.LRU[string, bool]
@@ -53,7 +54,7 @@ type addressNoncePair struct {
 }
 
 func NewKeeper(
-	storeKey sdk.StoreKey, paramstore paramtypes.Subspace,
+	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, paramstore paramtypes.Subspace,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
@@ -65,15 +66,14 @@ func NewKeeper(
 	}
 	k := &Keeper{
 		storeKey:                     storeKey,
+		memStoreKey:                  memStoreKey,
 		Paramstore:                   paramstore,
 		bankKeeper:                   bankKeeper,
 		accountKeeper:                accountKeeper,
 		stakingKeeper:                stakingKeeper,
-		evmTxDeferredInfoList:        []EvmTxDeferredInfo{},
 		pendingNonces:                make(map[string][]uint64),
 		completedNonces:              cn,
 		nonceMx:                      &sync.RWMutex{},
-		evmTxDeferredInfoMtx:         &sync.Mutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*addressNoncePair),
 	}
@@ -149,24 +149,42 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 	}
 }
 
-func (k *Keeper) ClearEvmTxDeferredInfo() {
-	// no need to acquire mutex here since it's only called by BeginBlock
-	k.evmTxDeferredInfoList = []EvmTxDeferredInfo{}
+func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []EvmTxDeferredInfo) {
+	hashMap, bloomMap := map[int]common.Hash{}, map[int]ethtypes.Bloom{}
+	hashIter := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxHashPrefix).Iterator(nil, nil)
+	for ; hashIter.Valid(); hashIter.Next() {
+		h := common.Hash{}
+		h.SetBytes(hashIter.Value())
+		hashMap[int(binary.BigEndian.Uint32(hashIter.Key()))] = h
+	}
+	hashIter.Close()
+	bloomIter := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxBloomPrefix).Iterator(nil, nil)
+	for ; bloomIter.Valid(); bloomIter.Next() {
+		b := ethtypes.Bloom{}
+		b.SetBytes(bloomIter.Value())
+		bloomMap[int(binary.BigEndian.Uint32(bloomIter.Key()))] = b
+	}
+	bloomIter.Close()
+	for idx, h := range hashMap {
+		i := EvmTxDeferredInfo{TxIndx: idx, TxHash: h}
+		if b, ok := bloomMap[idx]; ok {
+			i.TxBloom = b
+			delete(bloomMap, idx)
+		}
+		res = append(res, i)
+	}
+	for idx, b := range bloomMap {
+		res = append(res, EvmTxDeferredInfo{TxIndx: idx, TxBloom: b})
+	}
+	sort.SliceStable(res, func(i, j int) bool { return res[i].TxIndx < res[j].TxIndx })
+	return
 }
 
-func (k *Keeper) GetEVMTxDeferredInfo() []EvmTxDeferredInfo {
-	// no need to acquire mutex here since it's only called by EndBlock
-	return k.evmTxDeferredInfoList
-}
-
-func (k *Keeper) AppendToEvmTxDeferredInfo(idx int, bloom ethtypes.Bloom, txHash common.Hash) {
-	k.evmTxDeferredInfoMtx.Lock()
-	defer k.evmTxDeferredInfoMtx.Unlock()
-	k.evmTxDeferredInfoList = append(k.evmTxDeferredInfoList, EvmTxDeferredInfo{
-		TxIndx:  idx,
-		TxBloom: bloom,
-		TxHash:  txHash,
-	})
+func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom, txHash common.Hash) {
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint32(key, uint32(ctx.TxIndex()))
+	prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxHashPrefix).Set(key, txHash[:])
+	prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxBloomPrefix).Set(key, bloom[:])
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
