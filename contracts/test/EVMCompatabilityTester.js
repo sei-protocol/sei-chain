@@ -726,6 +726,7 @@ describe("EVM Test", function () {
             };
           
             const logs = await ethers.provider.getLogs(filter);
+            console.log("block range filter logs = ", logs)
             expect(logs).to.be.an('array');
             expect(logs.length).to.equal(numTxs);
           });
