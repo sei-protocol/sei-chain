@@ -57,10 +57,7 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 	tx, _ := evmMsg.AsTransaction()
 	toAddress := tx.To()
 	if toAddress != nil {
-		seiAddress, associated := evmKeeper.GetSeiAddress(ctx, *toAddress)
-		if !associated {
-			seiAddress = sdk.AccAddress((*toAddress)[:])
-		}
+		seiAddress := evmKeeper.GetSeiAddressOrDefault(ctx, *toAddress)
 		ops = appendRWBalanceOps(ops, seiAddress)
 		ops = append(ops, sdkacltypes.AccessOperation{
 			AccessType:         sdkacltypes.AccessType_READ,
