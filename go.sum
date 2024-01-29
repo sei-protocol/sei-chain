@@ -1345,8 +1345,8 @@ github.com/sei-protocol/go-ethereum v1.13.5-sei-5 h1:7+mdflZ0EHSTjhN+6yxYwUsJSvH
 github.com/sei-protocol/go-ethereum v1.13.5-sei-5/go.mod h1:kcRZmuzRn1lVejiFNTz4l4W7imnpq1bDAnuKS/RyhbQ=
 github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQpIbXDA=
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
-github.com/sei-protocol/sei-cosmos v0.2.72-evm-fix-duplicate-txs h1:+dCUA8gG7Y8x6XibzJuYrvkt7KsM+NF/mCYHWb54Z00=
-github.com/sei-protocol/sei-cosmos v0.2.72-evm-fix-duplicate-txs/go.mod h1:PriTiZcrp7V3rfnsAiKBt4T/66NGN/JH27AtOWIG1Hc=
+github.com/sei-protocol/sei-cosmos v0.2.72-evm-fix-duplicate-txs-2 h1:ZGyxmEjhwXEpRjI4yKryYSVbf2+iYZKlp8AqZ9XfBXY=
+github.com/sei-protocol/sei-cosmos v0.2.72-evm-fix-duplicate-txs-2/go.mod h1:PriTiZcrp7V3rfnsAiKBt4T/66NGN/JH27AtOWIG1Hc=
 github.com/sei-protocol/sei-db v0.0.28 h1:RE4k2aXSERUixJC2kZri201w1fG3WJ7PZfvCJHCYkiM=
 github.com/sei-protocol/sei-db v0.0.28/go.mod h1:F/ZKZA8HJPcUzSZPA8yt6pfwlGriJ4RDR4eHKSGLStI=
 github.com/sei-protocol/sei-iavl v0.1.8 h1:HcK7Nv64PtJXUSdPV2+8AwRNRrcFQwsAmSZX6Em625E=
