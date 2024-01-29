@@ -856,6 +856,32 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool) {
 	wtx.removeHandler(removeFromCache)
 }
 
+func (txmp *TxMempool) expire(blockHeight int64, wtx *WrappedTx) {
+	txmp.metrics.ExpiredTxs.Add(1)
+	txmp.logExpiredTx(blockHeight, wtx)
+	wtx.removeHandler(!txmp.config.KeepInvalidTxsInCache)
+}
+
+func (txmp *TxMempool) logExpiredTx(blockHeight int64, wtx *WrappedTx) {
+	// defensive check
+	if wtx == nil {
+		return
+	}
+
+	txmp.logger.Info(
+		"transaction expired",
+		"priority", wtx.priority,
+		"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
+		"address", wtx.evmAddress,
+		"evm", wtx.isEVM,
+		"nonce", wtx.evmNonce,
+		"height", blockHeight,
+		"tx_height", wtx.height,
+		"tx_timestamp", wtx.timestamp,
+		"age", time.Since(wtx.timestamp),
+	)
+}
+
 // purgeExpiredTxs removes all transactions that have exceeded their respective
 // height- and/or time-based TTLs from their respective indexes. Every expired
 // transaction will be removed from the mempool, but preserved in the cache (except for pending txs).
@@ -902,14 +928,12 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 	}
 
 	for _, wtx := range expiredTxs {
-		txmp.metrics.ExpiredTxs.Add(1)
-		txmp.removeTx(wtx, !txmp.config.KeepInvalidTxsInCache)
+		txmp.expire(blockHeight, wtx)
 	}
 
 	// remove pending txs that have expired
 	txmp.pendingTxs.PurgeExpired(txmp.config.TTLNumBlocks, blockHeight, txmp.config.TTLDuration, now, func(wtx *WrappedTx) {
-		txmp.metrics.ExpiredTxs.Add(1)
-		wtx.removeHandler(!txmp.config.KeepInvalidTxsInCache)
+		txmp.expire(blockHeight, wtx)
 	})
 }
 
