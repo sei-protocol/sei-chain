@@ -41,7 +41,7 @@ type ERC20TransferFromPayloadRequest struct {
 
 type ERC20ApprovePayloadRequest struct {
 	Spender string   `json:"spender"`
-	Amount  *sdk.Int `json:"token_id"`
+	Amount  *sdk.Int `json:"amount"`
 }
 
 type ERC20AllowanceRequest struct {
@@ -121,7 +121,7 @@ type ERC721OwnerResponse struct {
 type ERC20TokenInfoResponse struct {
 	Name        string   `json:"name"`
 	Symbol      string   `json:"symbol"`
-	Decimal     byte     `json:"decimal"`
+	Decimals    byte     `json:"decimals"`
 	TotalSupply *sdk.Int `json:"total_supply"`
 }
 

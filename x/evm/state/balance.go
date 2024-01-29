@@ -60,15 +60,11 @@ func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int) {
 	}
 }
 
-func (s *DBImpl) getSeiAddress(evmAddr common.Address) (seiAddr sdk.AccAddress) {
+func (s *DBImpl) getSeiAddress(evmAddr common.Address) sdk.AccAddress {
 	if feeCollector, _ := s.k.GetFeeCollectorAddress(s.ctx); feeCollector == evmAddr {
-		seiAddr = s.coinbaseAddress
-	} else if associated, ok := s.k.GetSeiAddress(s.ctx, evmAddr); ok {
-		seiAddr = associated
-	} else {
-		seiAddr = sdk.AccAddress(evmAddr[:])
+		return s.coinbaseAddress
 	}
-	return
+	return s.k.GetSeiAddressOrDefault(s.ctx, evmAddr)
 }
 
 func (s *DBImpl) send(from sdk.AccAddress, to sdk.AccAddress, amt *big.Int) {
