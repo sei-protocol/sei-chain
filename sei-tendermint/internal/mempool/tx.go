@@ -74,6 +74,12 @@ type WrappedTx struct {
 	isEVM      bool
 }
 
+// IsBefore returns true if the WrappedTx is before the given WrappedTx
+// this applies to EVM transactions only
+func (wtx *WrappedTx) IsBefore(tx *WrappedTx) bool {
+	return wtx.evmNonce < tx.evmNonce || (wtx.evmNonce == tx.evmNonce && wtx.timestamp.Before(tx.timestamp))
+}
+
 func (wtx *WrappedTx) Size() int {
 	return len(wtx.tx)
 }

@@ -332,6 +332,11 @@ func (txmp *TxMempool) CheckTx(
 	return nil
 }
 
+func (txmp *TxMempool) isInMempool(tx types.Tx) bool {
+	existingTx := txmp.txStore.GetTxByHash(tx.Key())
+	return existingTx != nil && !existingTx.removed
+}
+
 func (txmp *TxMempool) RemoveTxByKey(txKey types.TxKey) error {
 	txmp.Lock()
 	defer txmp.Unlock()
@@ -635,15 +640,17 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 	txmp.metrics.Size.Set(float64(txmp.Size()))
 	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
 
-	txmp.insertTx(wtx)
-	txmp.logger.Debug(
-		"inserted good transaction",
-		"priority", wtx.priority,
-		"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
-		"height", txmp.height,
-		"num_txs", txmp.Size(),
-	)
-	txmp.notifyTxsAvailable()
+	if txmp.insertTx(wtx) {
+		txmp.logger.Debug(
+			"inserted good transaction",
+			"priority", wtx.priority,
+			"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
+			"height", txmp.height,
+			"num_txs", txmp.Size(),
+		)
+		txmp.notifyTxsAvailable()
+	}
+
 	return nil
 }
 
@@ -809,7 +816,11 @@ func (txmp *TxMempool) canAddTx(wtx *WrappedTx) error {
 	return nil
 }
 
-func (txmp *TxMempool) insertTx(wtx *WrappedTx) {
+func (txmp *TxMempool) insertTx(wtx *WrappedTx) bool {
+	if txmp.isInMempool(wtx.tx) {
+		return false
+	}
+
 	txmp.txStore.SetTx(wtx)
 	txmp.priorityIndex.PushTx(wtx)
 	txmp.heightIndex.Insert(wtx)
@@ -822,6 +833,7 @@ func (txmp *TxMempool) insertTx(wtx *WrappedTx) {
 	wtx.gossipEl = gossipEl
 
 	atomic.AddInt64(&txmp.sizeBytes, int64(wtx.Size()))
+	return true
 }
 
 func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool) {

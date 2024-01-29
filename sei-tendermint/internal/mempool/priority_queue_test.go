@@ -196,6 +196,7 @@ func TestTxPriorityQueue(t *testing.T) {
 	pq.PushTx(&WrappedTx{
 		priority:  1000,
 		timestamp: now,
+		tx:        []byte(fmt.Sprintf("%d", time.Now().UnixNano())),
 	})
 	require.Equal(t, 1001, pq.NumTxs())
 
