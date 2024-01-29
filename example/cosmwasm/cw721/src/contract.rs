@@ -92,7 +92,6 @@ pub fn execute_approve(
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
     let res = Response::new()
         .add_attribute("action", "approve")
-        .add_attribute("spender", spender)
         .add_attribute("token_id", token_id)
         .add_message(msg);
 

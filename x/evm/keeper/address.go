@@ -29,6 +29,18 @@ func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (comm
 	return addr, true
 }
 
+func (k *Keeper) GetEVMAddressOrDefault(ctx sdk.Context, seiAddress sdk.AccAddress) common.Address {
+	addr, ok := k.GetEVMAddress(ctx, seiAddress)
+	if ok {
+		return addr
+	}
+	return common.BytesToAddress(seiAddress)
+}
+
+func (k *Keeper) GetEVMAddressFromBech32OrDefault(ctx sdk.Context, seiAddress string) common.Address {
+	return k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(seiAddress))
+}
+
 func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (sdk.AccAddress, bool) {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.EVMAddressToSeiAddressKey(evmAddress))
@@ -36,4 +48,12 @@ func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (sdk.
 		return []byte{}, false
 	}
 	return bz, true
+}
+
+func (k *Keeper) GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress {
+	addr, ok := k.GetSeiAddress(ctx, evmAddress)
+	if ok {
+		return addr
+	}
+	return sdk.AccAddress(evmAddress[:])
 }

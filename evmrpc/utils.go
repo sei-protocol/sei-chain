@@ -146,17 +146,8 @@ func hydrateBankSendTransaction(ctx sdk.Context, msg *banktypes.MsgSend, k *keep
 	value := new(big.Int).Mul(useiAmount.BigInt(), state.UseiToSweiMultiplier)
 	fromSeiAddr := sdk.MustAccAddressFromBech32(msg.FromAddress)
 	toSeiAddr := sdk.MustAccAddressFromBech32(msg.ToAddress)
-	var from, to common.Address
-	if fromAddr, ok := k.GetEVMAddress(ctx, fromSeiAddr); ok {
-		from = fromAddr
-	} else {
-		from = common.BytesToAddress(fromSeiAddr)
-	}
-	if toAddr, ok := k.GetEVMAddress(ctx, toSeiAddr); ok {
-		to = toAddr
-	} else {
-		to = common.BytesToAddress(toSeiAddr)
-	}
+	from := k.GetEVMAddressOrDefault(ctx, fromSeiAddr)
+	to := k.GetEVMAddressOrDefault(ctx, toSeiAddr)
 	return RPCTransaction{
 		From:  from,
 		To:    &to,

@@ -223,11 +223,7 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")
 	}
-	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, addr)
-	if !found {
-		return sdk.AccAddress(addr[:]), nil
-	}
-	return seiAddr, nil
+	return p.evmKeeper.GetSeiAddressOrDefault(ctx, addr), nil
 }
 
 func (Precompile) IsTransaction(method string) bool {

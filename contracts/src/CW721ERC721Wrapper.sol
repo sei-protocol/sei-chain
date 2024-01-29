@@ -47,13 +47,15 @@ contract CW721ERC721Wrapper is ERC721 {
     }
 
     function getApproved(uint256 tokenId) public view override returns (address) {
-        string memory spender = _formatPayload("spender", _doubleQuotes(AddrPrecompile.getSeiAddr(msg.sender)));
         string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
-        string memory req = _curlyBrace(_formatPayload("approval", _curlyBrace(_join(spender, tId, ","))));
+        string memory req = _curlyBrace(_formatPayload("approvals", _curlyBrace(tId)));
         bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
-        bytes memory approval = JsonPrecompile.extractAsBytes(response, "approval");
-        bytes memory res = JsonPrecompile.extractAsBytes(approval, "spender");
-        return AddrPrecompile.getEvmAddr(string(res));
+        bytes[] memory approvals = JsonPrecompile.extractAsBytesList(response, "approvals");
+        if (approvals.length > 0) {
+            bytes memory res = JsonPrecompile.extractAsBytes(approvals[0], "spender");
+            return AddrPrecompile.getEvmAddr(string(res));
+        }
+        return address(0);
     }
 
     function isApprovedForAll(address owner, address operator) public view override returns (bool) {

@@ -11,6 +11,7 @@ type EVMKeeper interface {
 	PrefixStore(sdk.Context, []byte) sdk.KVStore
 	PurgePrefix(sdk.Context, []byte)
 	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
+	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress
 	BankKeeper() bankkeeper.Keeper
 	GetBaseDenom(sdk.Context) string
 	DeleteAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
