@@ -127,7 +127,6 @@ describe("EVM Test", function () {
 
     // This function deploys a new instance of the contract before each test
     beforeEach(async function () {
-      console.log("beforeEach")
       if(evmTester && testToken) {
         return
       }
@@ -719,9 +718,6 @@ describe("EVM Test", function () {
               blockStart = Math.min(blockStart, receipt.blockNumber);
               blockEnd = Math.max(blockEnd, receipt.blockNumber);
             }
-
-            console.log(`blockStart = ${blockStart}`)
-            console.log(`blockEnd = ${blockEnd}`)
           });
 
           it("Block range filter", async function () {
