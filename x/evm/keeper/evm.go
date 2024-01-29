@@ -90,7 +90,7 @@ func (k *Keeper) StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.
 }
 
 func (k *Keeper) callEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, val *sdk.Int, data []byte, f EVMCallFunc) ([]byte, error) {
-	sender := k.SeiAddrToEvmAddr(ctx, from)
+	sender := k.GetEVMAddressOrDefault(ctx, from)
 	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
 	if ctx.GasMeter().Limit() <= 0 {
 		// infinite gas meter (used in queries)
@@ -126,18 +126,8 @@ func (k *Keeper) getOrCreateEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, 
 		return nil, nil, err
 	}
 	cfg := k.GetChainConfig(executionCtx).EthereumConfig(k.ChainID(executionCtx))
-	txCtx := vm.TxContext{Origin: k.SeiAddrToEvmAddr(ctx, from)}
+	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
 	evm = vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	stateDB.SetEVM(evm)
 	return evm, stateDB.Finalize, nil
-}
-
-func (k *Keeper) SeiAddrToEvmAddr(ctx sdk.Context, addr sdk.AccAddress) common.Address {
-	evmAddr, found := k.GetEVMAddress(ctx, addr)
-	if found {
-		return evmAddr
-	}
-	evmAddr = common.Address{}
-	evmAddr.SetBytes(addr)
-	return evmAddr
 }

@@ -203,6 +203,6 @@ func generateDefaultWhitelistedCodeHashesBankSend() (res []string) {
 
 func generateDefaultWhitelistedCwCodeHashesForDelegateCall() [][]byte {
 	cw20, _ := hex.DecodeString("A25D78D7ACD2EE47CC39C224E162FE79B53E6BBE6ED2A56E8C0A86593EBE6102")
-	cw721, _ := hex.DecodeString("C4A6994780564207DC00662339E450180FCD75638CE460627ECA1C49A91F9138")
+	cw721, _ := hex.DecodeString("94CDD9C3E85C26F7CEC43C23BFB4B3B2B2D71A0A8D85C58DF12FFEC0741FEBC8")
 	return [][]byte{cw20, cw721}
 }
