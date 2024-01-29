@@ -108,13 +108,12 @@ func CmdAssociateAddress() *cobra.Command {
 				return err
 			}
 			V := big.NewInt(int64(sig[64]))
-			txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes()}
-			bz, err := txData.Marshal()
+			txData := evmrpc.AssociateRequest{V: hex.EncodeToString(V.Bytes()), R: hex.EncodeToString(R.Bytes()), S: hex.EncodeToString(S.Bytes())}
+			bz, err := json.Marshal(txData)
 			if err != nil {
 				return err
 			}
-			payload := "0x" + hex.EncodeToString(bz)
-			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_sendRawTransaction\",\"params\":[\"%s\"],\"id\":\"associate_addr\"}", payload)
+			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_associate\",\"params\":[%s],\"id\":\"associate_addr\"}", string(bz))
 			rpc, err := cmd.Flags().GetString(FlagRPC)
 			if err != nil {
 				return err
