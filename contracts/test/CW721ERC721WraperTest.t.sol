@@ -137,13 +137,15 @@ contract CW721ERC721WrapperTest is Test {
     function testGetApproved() public {
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"approval\":{\"spender\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"}}")),
-            abi.encode("{\"approval\":{\"spender\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}}")
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"approvals\":{\"token_id\":\"1\"}}")),
+            abi.encode("{\"approvals\":[{\"spender\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}]}")
         );
+        bytes[] memory response = new bytes[](1);
+        response[0] = bytes("{\"spender\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}");
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("extractAsBytes(bytes,string)", bytes("{\"approval\":{\"spender\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}}"), "approval"),
-            abi.encode(bytes("{\"spender\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}}"))
+            abi.encodeWithSignature("extractAsBytesList(bytes,string)", bytes("{\"approvals\":[{\"spender\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}]}"), "approvals"),
+            abi.encode(response)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
