@@ -47,6 +47,20 @@ func TestTxPriorityQueue_ReapHalf(t *testing.T) {
 	}
 }
 
+func TestAvoidPanicIfTransactionIsNil(t *testing.T) {
+	pq := NewTxPriorityQueue()
+	pq.Push(&WrappedTx{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10})
+	pq.txs = append(pq.txs, nil)
+
+	var count int
+	pq.ForEachTx(func(tx *WrappedTx) bool {
+		count++
+		return true
+	})
+
+	require.Equal(t, 1, count)
+}
+
 func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
 	testCases := []TxTestCase{
 		{
