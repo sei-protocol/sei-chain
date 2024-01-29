@@ -101,29 +101,13 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte) (bz []byte,
 
 func (p Precompile) getSeiAddr(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 1)
-
-	evmAddr := args[0].(common.Address)
-	seiAddrStr := sdk.AccAddress(evmAddr[:]).String()
-	associatedAddr, found := p.evmKeeper.GetSeiAddress(ctx, evmAddr)
-	if found {
-		seiAddrStr = associatedAddr.String()
-	}
+	seiAddrStr := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
 	return method.Outputs.Pack(seiAddrStr)
 }
 
 func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 1)
-
-	seiAddrStr := args[0].(string)
-	seiAddr, err := sdk.AccAddressFromBech32(seiAddrStr)
-	if err != nil {
-		return nil, err
-	}
-	evmAddr := common.BytesToAddress(seiAddr)
-	associatedAddr, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
-	if found {
-		evmAddr = associatedAddr
-	}
+	evmAddr := p.evmKeeper.GetEVMAddressFromBech32OrDefault(ctx, args[0].(string))
 	return method.Outputs.Pack(evmAddr)
 }
 
