@@ -211,6 +211,13 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 		if blockNumErr != nil {
 			return 0, blockNumErr
 		}
+		if blockNumber == nil {
+			// we don't want to get the latest block from Tendermint's perspective, because
+			// Tendermint writes store in TM store before commits application state. The
+			// latest block in Tendermint may not have its application state committed yet.
+			currentHeight := b.ctxProvider(LatestCtxHeight).BlockHeight()
+			blockNumber = &currentHeight
+		}
 		block, err = b.tmClient.Block(ctx, blockNumber)
 	} else {
 		block, err = b.tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
