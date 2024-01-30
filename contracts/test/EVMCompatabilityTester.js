@@ -708,7 +708,7 @@ describe("EVM Test", function () {
           let blockEnd;
           let numTxs = 5;
           before(async function() {
-            await sleep(5000);
+            await sleep(5000); // wait for a block to pass so we get a fresh block number
             blockStart = await ethers.provider.getBlockNumber();
 
             // Emit an event by making a transaction
@@ -716,10 +716,9 @@ describe("EVM Test", function () {
               const txResponse = await evmTester.emitDummyEvent("test", i);
               await txResponse.wait();
             }
-            blockEnd = await ethers.provider.getBlockNumber() + 1;
+            blockEnd = await ethers.provider.getBlockNumber();
             console.log("blockStart = ", blockStart)
             console.log("blockEnd = ", blockEnd)
-            await sleep(5000);
           });
 
           it.only("Block range filter", async function () {
