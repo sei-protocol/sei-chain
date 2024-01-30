@@ -708,7 +708,7 @@ describe("EVM Test", function () {
         describe("log topic filtering", async function() {
           let blockStart = 10000000000000;
           let blockEnd = 0;
-          let numTxs = 1;
+          let numTxs = 5;
           before(async function() {
             // Emit an event by making a transaction
             for (let i = 1; i < 1+numTxs; i++) {
