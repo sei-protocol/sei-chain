@@ -442,8 +442,6 @@ describe("EVM Test", function () {
                 type: 2
               });
               const receipt = await txResponse.wait();
-              console.log("receipt = ", receipt)
-
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
               const gasPrice = Number(receipt.gasPrice);
@@ -731,7 +729,6 @@ describe("EVM Test", function () {
             };
           
             const logs = await ethers.provider.getLogs(filter);
-            console.log("block range filter logs = ", logs)
             expect(logs).to.be.an('array');
             expect(logs.length).to.equal(numTxs);
           });
