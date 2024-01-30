@@ -7,6 +7,7 @@ import "./TestToken.sol";
 
 contract EVMCompatibilityTester {
     // verify different events with var types
+    event DummyEvent(string indexed str, bool flag, address indexed addr, uint256 indexed num, bytes data);
     event ActionPerformed(string action, address indexed performer);
     event BoolSet(address performer, bool value);
     event AddressSet(address indexed performer);
@@ -154,6 +155,11 @@ contract EVMCompatibilityTester {
         require(msg.sender == owner, "Only owner can send Ether");
         require(address(this).balance >= amount, "Insufficient balance");
         recipient.transfer(amount);
+    }
+
+    function emitDummyEvent(string memory str, uint256 num) external {
+        bytes memory bytes_ = bytes(string(abi.encodePacked(str, "Bytes")));
+        emit DummyEvent(str, true, msg.sender, num, bytes_);
     }
 }
 
