@@ -198,4 +198,8 @@ func TestDeferredInfo(t *testing.T) {
 	require.Equal(t, 2, infoList[1].TxIndx)
 	require.Equal(t, ethtypes.Bloom{7, 8}, infoList[1].TxBloom)
 	require.Equal(t, common.Hash{9, 0}, infoList[1].TxHash)
+	// test clear tx deferred info
+	k.ClearEVMTxDeferredInfo(ctx)
+	infoList = k.GetEVMTxDeferredInfo(ctx)
+	require.Empty(t, len(infoList))
 }
