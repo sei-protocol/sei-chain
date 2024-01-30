@@ -717,9 +717,9 @@ describe("EVM Test", function () {
               blockStart = Math.min(blockStart, receipt.blockNumber);
               blockEnd = Math.max(blockEnd, receipt.blockNumber);
             }
+            console.log("blockStart = ", blockStart)
+            console.log("blockEnd = ", blockEnd)
           });
-          console.log("blockStart = ", blockStart)
-          console.log("blockEnd = ", blockEnd)
 
           it("Block range filter", async function () {
             const filter = {
