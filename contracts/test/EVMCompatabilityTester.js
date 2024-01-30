@@ -710,6 +710,7 @@ describe("EVM Test", function () {
           let blockEnd;
           let numTxs = 1;
           before(async function() {
+            await sleep(2000);
             blockStart = await ethers.provider.getBlockNumber();
 
             // Emit an event by making a transaction
