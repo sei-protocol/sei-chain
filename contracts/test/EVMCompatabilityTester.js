@@ -51,72 +51,6 @@ async function sendTx(sender, txn, responses) {
   responses.push({nonce: txn.nonce, response: txResponse})
 }
 
-describe("EVM throughput", function(){
-
-  it("send 100 transactions from one account", async function(){
-    const wallet = generateWallet()
-    const toAddress =await wallet.getAddress()
-    const accounts = await ethers.getSigners();
-    const sender = accounts[0]
-    const address = await sender.getAddress();
-    const txCount = 100;
-
-    const nonce = await ethers.provider.getTransactionCount(address);
-    const responses = []
-
-    let txs = []
-    let maxNonce = 0
-    for(let i=0; i<txCount; i++){
-      const nextNonce = nonce+i;
-      txs.push({
-        to: toAddress,
-        value: 1,
-        nonce: nextNonce,
-      })
-      maxNonce = nextNonce;
-    }
-
-    // send out of order because it's legal
-    txs = shuffle(txs)
-    const promises = txs.map((txn)=> {
-      return sendTx(sender, txn, responses)
-    });
-    await Promise.all(promises)
-
-    // wait for last nonce to mine (means all prior mined)
-    for(let r of responses){
-      if(r.nonce === maxNonce) {
-        await r.response.wait()
-        break;
-      }
-    }
-
-    // get represented block numbers
-    let blockNumbers = []
-    for(let response of responses){
-      const receipt = await response.response.wait()
-      const blockNumber = receipt.blockNumber
-      blockNumbers.push(blockNumber)
-    }
-
-    blockNumbers = uniq(blockNumbers).sort((a,b)=>{return a-b})
-    const minedNonceOrder = []
-    for(const blockNumber of blockNumbers){
-      const block = await ethers.provider.getBlock(parseInt(blockNumber,10));
-      // get receipt for transaction hash in block
-      for(const txHash of block.transactions){
-        const tx = await ethers.provider.getTransaction(txHash)
-        minedNonceOrder.push(tx.nonce)
-      }
-    }
-
-    expect(minedNonceOrder.length).to.equal(txCount);
-    for (let i = 0; i < minedNonceOrder.length; i++) {
-      expect(minedNonceOrder[i]).to.equal(i+nonce)
-    }
-  })
-})
-
 describe("EVM Test", function () {
 
   describe("EVMCompatibilityTester", function () {
@@ -124,6 +58,10 @@ describe("EVM Test", function () {
     let testToken;
     let owner;
     let evmAddr;
+
+    // The first contract address deployed from 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
+    // should always be 0xbD5d765B226CaEA8507EE030565618dAFFD806e2 when sent with nonce=0
+    const firstContractAddress = "0xbD5d765B226CaEA8507EE030565618dAFFD806e2";
 
     // This function deploys a new instance of the contract before each test
     beforeEach(async function () {
@@ -153,6 +91,10 @@ describe("EVM Test", function () {
         expect(await evmTester.getAddress()).to.be.properAddress;
         expect(await testToken.getAddress()).to.be.properAddress;
         expect(await evmTester.getAddress()).to.not.equal(await testToken.getAddress());
+
+        // The first contract address deployed from 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
+        // should always be 0xbD5d765B226CaEA8507EE030565618dAFFD806e2 when sent with nonce=0
+        expect(await testToken.getAddress()).to.equal(firstContractAddress);
       });
     });
 
@@ -742,3 +684,69 @@ describe("EVM Test", function () {
     });
   });
 });
+
+describe("EVM throughput", function(){
+
+  it("send 100 transactions from one account", async function(){
+    const wallet = generateWallet()
+    const toAddress =await wallet.getAddress()
+    const accounts = await ethers.getSigners();
+    const sender = accounts[0]
+    const address = await sender.getAddress();
+    const txCount = 100;
+
+    const nonce = await ethers.provider.getTransactionCount(address);
+    const responses = []
+
+    let txs = []
+    let maxNonce = 0
+    for(let i=0; i<txCount; i++){
+      const nextNonce = nonce+i;
+      txs.push({
+        to: toAddress,
+        value: 1,
+        nonce: nextNonce,
+      })
+      maxNonce = nextNonce;
+    }
+
+    // send out of order because it's legal
+    txs = shuffle(txs)
+    const promises = txs.map((txn)=> {
+      return sendTx(sender, txn, responses)
+    });
+    await Promise.all(promises)
+
+    // wait for last nonce to mine (means all prior mined)
+    for(let r of responses){
+      if(r.nonce === maxNonce) {
+        await r.response.wait()
+        break;
+      }
+    }
+
+    // get represented block numbers
+    let blockNumbers = []
+    for(let response of responses){
+      const receipt = await response.response.wait()
+      const blockNumber = receipt.blockNumber
+      blockNumbers.push(blockNumber)
+    }
+
+    blockNumbers = uniq(blockNumbers).sort((a,b)=>{return a-b})
+    const minedNonceOrder = []
+    for(const blockNumber of blockNumbers){
+      const block = await ethers.provider.getBlock(parseInt(blockNumber,10));
+      // get receipt for transaction hash in block
+      for(const txHash of block.transactions){
+        const tx = await ethers.provider.getTransaction(txHash)
+        minedNonceOrder.push(tx.nonce)
+      }
+    }
+
+    expect(minedNonceOrder.length).to.equal(txCount);
+    for (let i = 0; i < minedNonceOrder.length; i++) {
+      expect(minedNonceOrder[i]).to.equal(i+nonce)
+    }
+  })
+})
