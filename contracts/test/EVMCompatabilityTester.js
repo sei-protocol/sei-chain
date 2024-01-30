@@ -2,6 +2,7 @@ const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
 const { ethers, upgrades } = require('hardhat');
+const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -155,7 +156,7 @@ describe("EVM Test", function () {
         expect(await evmTester.getAddress()).to.not.equal(await testToken.getAddress());
       });
 
-      it.only("Should estimate gas for a contract deployment", async function () {
+      it("Should estimate gas for a contract deployment", async function () {
         const gas = await ethers.provider.estimateGas(evmTester.createToken("TestToken", "TTK"));
         expect(gas).to.be.greaterThan(0);
       });
@@ -711,14 +712,17 @@ describe("EVM Test", function () {
     });
 
     describe("Contract Upgradeability", function() {
-      it.only("Should allow for contract upgrades", async function() {
+      it("Should allow for contract upgrades", async function() {
         // deploy BoxV1
         const Box = await ethers.getContractFactory("Box");
         const val = 42;
         console.log('Deploying Box...');
-        const box = await upgrades.deployProxy(Box, [val], { initializer: 'store' }); // <- happens on this line
-        await box.waitForDeployment()
+        const box = await upgrades.deployProxy(Box, [val], { initializer: 'store' });
+        const boxReceipt = await box.waitForDeployment()
+        console.log("boxReceipt = ", JSON.stringify(boxReceipt))
         const boxAddr = await box.getAddress();
+        const implementationAddress = await getImplementationAddress(ethers.provider, boxAddr);
+        console.log('Box Implementation address:', implementationAddress);
         console.log('Box deployed to:', boxAddr)
 
         // make sure you can retrieve the value
@@ -737,20 +741,22 @@ describe("EVM Test", function () {
         // upgrade to BoxV2
         const BoxV2 = await ethers.getContractFactory('BoxV2');
         console.log('Upgrading Box...');
-        const box2 = await upgrades.upgradeProxy(boxAddr, BoxV2);
+        const box2 = await upgrades.upgradeProxy(boxAddr, BoxV2, [val+1], { initializer: 'store' });
+        await box2.deployTransaction.wait();
         console.log('Box upgraded');
-        sleep(2000);
         const boxV2Addr = await box2.getAddress();
         expect(boxV2Addr).to.equal(boxAddr); // should be same address as it should be the proxy
         console.log('BoxV2 deployed to:', boxV2Addr);
         const boxV2 = await BoxV2.attach(boxV2Addr);
 
         // check that value is still the same
+        console.log("Calling boxV2 retrieve()...")
         const retrievedValue2 = await boxV2.retrieve();
+        console.log("retrievedValue2 = ", retrievedValue2)
         expect(retrievedValue2).to.equal(val+1);
 
         // use new function in boxV2 and increment value
-        sleep(5000);
+        console.log("Calling boxV2 boxV2Incr()...")
         const txResponse = await boxV2.boxV2Incr();
         await txResponse.wait();
 
@@ -758,7 +764,8 @@ describe("EVM Test", function () {
         expect(await boxV2.retrieve()).to.equal(val+2);
 
         // store something in value2 and check it(check value2)
-        await boxV2.store2(10);
+        const store2Resp = await boxV2.store2(10);
+        await store2Resp.wait();
         expect(await boxV2.retrieve2()).to.equal(10);
 
         // ensure value is still the same in boxV2 (checking for any storage corruption)
