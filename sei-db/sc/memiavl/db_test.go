@@ -100,8 +100,9 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	require.NoError(t, err)
 
 	// spin up goroutine to keep querying the tree
+	stopped := false
 	go func() {
-		for {
+		for !stopped {
 			value := db.TreeByName("test").Get([]byte("hello1"))
 			require.True(t, value == nil || string(value) == "world1")
 		}
@@ -133,6 +134,7 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 
 	// three files: snapshot, current link, rlog, LOCK
 	require.Equal(t, 4, len(entries))
+	stopped = true
 }
 
 func TestRlog(t *testing.T) {

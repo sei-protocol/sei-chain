@@ -534,6 +534,7 @@ func (db *DB) reload() error {
 }
 
 func (db *DB) reloadMultiTree(mtree *MultiTree) error {
+	// catch-up the pending changes
 	if err := mtree.apply(db.pendingLogEntry); err != nil {
 		return err
 	}
