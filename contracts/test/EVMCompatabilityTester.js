@@ -104,7 +104,7 @@ describe("EVM Test", function () {
           to: await evmTester.getAddress(),
           data: callData
         });
-        expect(isBigNumber(estimatedGas)).to.greaterThan(0);
+        expect(estimatedGas).to.greaterThan(0);
       });
     });
 
@@ -654,7 +654,7 @@ describe("EVM Test", function () {
         expect(isContract).to.be.true;
       });
 
-      it"advanced log topic filtering", async function() {
+      it("advanced log topic filtering", async function() {
         describe("log topic filtering", async function() {
           let blockStart;
           let blockEnd;
