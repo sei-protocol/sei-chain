@@ -10,7 +10,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -183,12 +182,6 @@ func EncodeTmBlock(
 					}
 					transactions = append(transactions, hydrateTransaction(ethtx, number, blockhash, receipt))
 				}
-			case *banktypes.MsgSend:
-				// bank send does not have an EVM tx hash, so we only consider fullTx case here
-				if !fullTx {
-					continue
-				}
-				transactions = append(transactions, hydrateBankSendTransaction(ctx, m, k))
 			}
 		}
 	}
