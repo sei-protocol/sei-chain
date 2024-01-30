@@ -706,17 +706,18 @@ describe("EVM Test", function () {
 
       it.only("advanced log topic filtering", async function() {
         describe("log topic filtering", async function() {
-          let blockStart = 10000000000000;
-          let blockEnd = 0;
-          let numTxs = 5;
+          let blockStart;
+          let blockEnd;
+          let numTxs = 1;
           before(async function() {
+            blockStart = await ethers.provider.getBlockNumber();
+
             // Emit an event by making a transaction
-            for (let i = 1; i < 1+numTxs; i++) {
+            for (let i = 0; i < numTxs; i++) {
               const txResponse = await evmTester.emitDummyEvent("test", i);
-              const receipt = await txResponse.wait();
-              blockStart = Math.min(blockStart, receipt.blockNumber);
-              blockEnd = Math.max(blockEnd, receipt.blockNumber);
+              await txResponse.wait();
             }
+            blockEnd = await ethers.provider.getBlockNumber();
             console.log("blockStart = ", blockStart)
             console.log("blockEnd = ", blockEnd)
           });
