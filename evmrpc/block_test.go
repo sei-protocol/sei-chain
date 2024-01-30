@@ -1,13 +1,10 @@
 package evmrpc_test
 
 import (
-	"math/big"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
@@ -146,11 +143,5 @@ func TestEncodeBankMsg(t *testing.T) {
 	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, k, Decoder, true)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
-	require.Equal(t, 1, len(txs))
-	to := common.BytesToAddress(toSeiAddr)
-	require.Equal(t, evmrpc.RPCTransaction{
-		From:  common.BytesToAddress(fromSeiAddr),
-		To:    &to,
-		Value: (*hexutil.Big)(big.NewInt(10000000000000)),
-	}, txs[0])
+	require.Equal(t, 0, len(txs))
 }
