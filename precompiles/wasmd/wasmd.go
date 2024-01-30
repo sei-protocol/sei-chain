@@ -148,10 +148,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
 	codeID := args[0].(uint64)
-	creatorAddr := sdk.AccAddress(caller[:])
-	if associatedAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller); found {
-		creatorAddr = associatedAddr
-	}
+	creatorAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	var adminAddr sdk.AccAddress
 	adminAddrStr := args[1].(string)
 	if len(adminAddrStr) > 0 {
@@ -199,10 +196,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		rerr = err
 		return
 	}
-	senderAddr := sdk.AccAddress(caller[:])
-	if associatedAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller); found {
-		senderAddr = associatedAddr
-	}
+	senderAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	msg := args[1].([]byte)
 	coins := sdk.NewCoins()
 	coinsBz := args[2].([]byte)
