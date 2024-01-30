@@ -53,68 +53,68 @@ async function sendTx(sender, txn, responses) {
 
 describe("EVM throughput", function(){
 
-//   it("send 100 transactions from one account", async function(){
-//     const wallet = generateWallet()
-//     const toAddress =await wallet.getAddress()
-//     const accounts = await ethers.getSigners();
-//     const sender = accounts[0]
-//     const address = await sender.getAddress();
-//     const txCount = 100;
+  it("send 100 transactions from one account", async function(){
+    const wallet = generateWallet()
+    const toAddress =await wallet.getAddress()
+    const accounts = await ethers.getSigners();
+    const sender = accounts[0]
+    const address = await sender.getAddress();
+    const txCount = 100;
 
-//     const nonce = await ethers.provider.getTransactionCount(address);
-//     const responses = []
+    const nonce = await ethers.provider.getTransactionCount(address);
+    const responses = []
 
-//     let txs = []
-//     let maxNonce = 0
-//     for(let i=0; i<txCount; i++){
-//       const nextNonce = nonce+i;
-//       txs.push({
-//         to: toAddress,
-//         value: 1,
-//         nonce: nextNonce,
-//       })
-//       maxNonce = nextNonce;
-//     }
+    let txs = []
+    let maxNonce = 0
+    for(let i=0; i<txCount; i++){
+      const nextNonce = nonce+i;
+      txs.push({
+        to: toAddress,
+        value: 1,
+        nonce: nextNonce,
+      })
+      maxNonce = nextNonce;
+    }
 
-//     // send out of order because it's legal
-//     txs = shuffle(txs)
-//     const promises = txs.map((txn)=> {
-//       return sendTx(sender, txn, responses)
-//     });
-//     await Promise.all(promises)
+    // send out of order because it's legal
+    txs = shuffle(txs)
+    const promises = txs.map((txn)=> {
+      return sendTx(sender, txn, responses)
+    });
+    await Promise.all(promises)
 
-//     // wait for last nonce to mine (means all prior mined)
-//     for(let r of responses){
-//       if(r.nonce === maxNonce) {
-//         await r.response.wait()
-//         break;
-//       }
-//     }
+    // wait for last nonce to mine (means all prior mined)
+    for(let r of responses){
+      if(r.nonce === maxNonce) {
+        await r.response.wait()
+        break;
+      }
+    }
 
-//     // get represented block numbers
-//     let blockNumbers = []
-//     for(let response of responses){
-//       const receipt = await response.response.wait()
-//       const blockNumber = receipt.blockNumber
-//       blockNumbers.push(blockNumber)
-//     }
+    // get represented block numbers
+    let blockNumbers = []
+    for(let response of responses){
+      const receipt = await response.response.wait()
+      const blockNumber = receipt.blockNumber
+      blockNumbers.push(blockNumber)
+    }
 
-//     blockNumbers = uniq(blockNumbers).sort((a,b)=>{return a-b})
-//     const minedNonceOrder = []
-//     for(const blockNumber of blockNumbers){
-//       const block = await ethers.provider.getBlock(parseInt(blockNumber,10));
-//       // get receipt for transaction hash in block
-//       for(const txHash of block.transactions){
-//         const tx = await ethers.provider.getTransaction(txHash)
-//         minedNonceOrder.push(tx.nonce)
-//       }
-//     }
+    blockNumbers = uniq(blockNumbers).sort((a,b)=>{return a-b})
+    const minedNonceOrder = []
+    for(const blockNumber of blockNumbers){
+      const block = await ethers.provider.getBlock(parseInt(blockNumber,10));
+      // get receipt for transaction hash in block
+      for(const txHash of block.transactions){
+        const tx = await ethers.provider.getTransaction(txHash)
+        minedNonceOrder.push(tx.nonce)
+      }
+    }
 
-//     expect(minedNonceOrder.length).to.equal(txCount);
-//     for (let i = 0; i < minedNonceOrder.length; i++) {
-//       expect(minedNonceOrder[i]).to.equal(i+nonce)
-//     }
-//   })
+    expect(minedNonceOrder.length).to.equal(txCount);
+    for (let i = 0; i < minedNonceOrder.length; i++) {
+      expect(minedNonceOrder[i]).to.equal(i+nonce)
+    }
+  })
 })
 
 describe("EVM Test", function () {
@@ -704,7 +704,7 @@ describe("EVM Test", function () {
         expect(isContract).to.be.true;
       });
 
-      it.only("advanced log topic filtering", async function() {
+      it("advanced log topic filtering", async function() {
         describe("log topic filtering", async function() {
           let blockStart;
           let blockEnd;
