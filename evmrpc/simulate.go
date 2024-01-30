@@ -73,7 +73,6 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 		bNrOrHash = *blockNrOrHash
 	}
 	estimate, err := ethapi.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, s.backend.RPCGasCap())
-	fmt.Println("EstimateGas: estimate = ", estimate, ", err = ", err)
 	return estimate, err
 }
 

@@ -157,8 +157,12 @@ describe("EVM Test", function () {
       });
 
       it("Should estimate gas for a contract deployment", async function () {
-        const gas = await ethers.provider.estimateGas(evmTester.createToken("TestToken", "TTK"));
-        expect(gas).to.be.greaterThan(0);
+        const callData = evmTester.interface.encodeFunctionData("createToken", ["TestToken", "TTK"]);
+        const estimatedGas = await ethers.provider.estimateGas({
+          to: await evmTester.getAddress(),
+          data: callData
+        });
+        expect(isBigNumber(estimatedGas)).to.greaterThan(0);
       });
     });
 
