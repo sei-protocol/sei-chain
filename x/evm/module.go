@@ -3,7 +3,6 @@ package evm
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 
 	// this line is used by starport scaffolding # 1
 
@@ -162,14 +161,12 @@ func (AppModule) ConsensusVersion() uint64 { return 3 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
-	am.keeper.ClearEvmTxDeferredInfo()
 }
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
-	evmTxDeferredInfoList := am.keeper.GetEVMTxDeferredInfo()
-	sort.SliceStable(evmTxDeferredInfoList, func(i, j int) bool { return evmTxDeferredInfoList[i].TxIndx < evmTxDeferredInfoList[j].TxIndx })
+	evmTxDeferredInfoList := am.keeper.GetEVMTxDeferredInfo(ctx)
 	denom := am.keeper.GetBaseDenom(ctx)
 	for _, deferredInfo := range evmTxDeferredInfoList {
 		idx := deferredInfo.TxIndx
@@ -192,5 +189,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	}
 	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }))
 	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) ethtypes.Bloom { return i.TxBloom }))
+	// clear the TxDeferredInfo
+	am.keeper.ClearEVMTxDeferredInfo(ctx)
 	return []abci.ValidatorUpdate{}
 }
