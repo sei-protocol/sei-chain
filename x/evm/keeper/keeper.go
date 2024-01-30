@@ -187,6 +187,34 @@ func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom
 	prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxBloomPrefix).Set(key, bloom[:])
 }
 
+func (k *Keeper) ClearEVMTxDeferredInfo(ctx sdk.Context) {
+	hashStore := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxHashPrefix)
+	hashIterator := hashStore.Iterator(nil, nil)
+	defer hashIterator.Close()
+	hashKeysToDelete := [][]byte{}
+	for ; hashIterator.Valid(); hashIterator.Next() {
+		hashKeysToDelete = append(hashKeysToDelete, hashIterator.Key())
+	}
+	// close the first iterator for safety
+	hashIterator.Close()
+	for _, key := range hashKeysToDelete {
+		hashStore.Delete(key)
+	}
+
+	bloomStore := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxBloomPrefix)
+	bloomIterator := bloomStore.Iterator(nil, nil)
+	bloomKeysToDelete := [][]byte{}
+	defer bloomIterator.Close()
+	for ; bloomIterator.Valid(); bloomIterator.Next() {
+		bloomKeysToDelete = append(bloomKeysToDelete, bloomIterator.Key())
+	}
+	// close the second iterator for safety
+	bloomIterator.Close()
+	for _, key := range bloomKeysToDelete {
+		bloomStore.Delete(key)
+	}
+}
+
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	histInfo, found := k.stakingKeeper.GetHistoricalInfo(ctx, h)
 	if !found {
