@@ -718,7 +718,7 @@ describe("EVM Test", function () {
               const txResponse = await evmTester.emitDummyEvent("test", i);
               await txResponse.wait();
             }
-            blockEnd = await ethers.provider.getBlockNumber();
+            blockEnd = await ethers.provider.getBlockNumber() + 1;
             console.log("blockStart = ", blockStart)
             console.log("blockEnd = ", blockEnd)
           });
