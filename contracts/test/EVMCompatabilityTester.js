@@ -711,7 +711,7 @@ describe("EVM Test", function () {
           let numTxs = 1;
           before(async function() {
             // Emit an event by making a transaction
-            for (let i = 0; i < numTxs; i++) {
+            for (let i = 1; i < 1+numTxs; i++) {
               const txResponse = await evmTester.emitDummyEvent("test", i);
               const receipt = await txResponse.wait();
               blockStart = Math.min(blockStart, receipt.blockNumber);
