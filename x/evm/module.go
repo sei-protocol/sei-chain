@@ -189,5 +189,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	}
 	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }))
 	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) ethtypes.Bloom { return i.TxBloom }))
+	// clear the TxDeferredInfo
+	am.keeper.ClearEVMTxDeferredInfo(ctx)
 	return []abci.ValidatorUpdate{}
 }
