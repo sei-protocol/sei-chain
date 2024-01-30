@@ -538,8 +538,7 @@ func (db *DB) reloadMultiTree(mtree *MultiTree) error {
 	if err := mtree.apply(db.pendingLogEntry); err != nil {
 		return err
 	}
-	db.MultiTree.ReplaceWith(mtree)
-	return nil
+	return db.MultiTree.ReplaceWith(mtree)
 }
 
 // rewriteIfApplicable execute the snapshot rewrite strategy according to current height

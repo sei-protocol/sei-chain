@@ -414,7 +414,7 @@ func (t *MultiTree) Close() error {
 	return errors.Join(errs...)
 }
 
-func (t *MultiTree) ReplaceWith(other *MultiTree) {
+func (t *MultiTree) ReplaceWith(other *MultiTree) error {
 	errs := make([]error, 0, len(t.trees))
 	for _, entry := range t.trees {
 		errs = append(errs, entry.Tree.ReplaceWith(other.TreeByName(entry.Name)))
@@ -422,6 +422,7 @@ func (t *MultiTree) ReplaceWith(other *MultiTree) {
 	t.treesByName = other.treesByName
 	t.lastCommitInfo = other.lastCommitInfo
 	t.metadata = other.metadata
+	return errors.Join(errs...)
 }
 
 func readMetadata(dir string) (*proto.MultiTreeMetadata, error) {
