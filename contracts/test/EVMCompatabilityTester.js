@@ -384,8 +384,6 @@ describe("EVM Test", function () {
                 type: 2
               });
               const receipt = await txResponse.wait();
-              console.log("receipt = ", receipt)
-
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
               const gasPrice = Number(receipt.gasPrice);
@@ -644,6 +642,194 @@ describe("EVM Test", function () {
         const code = await ethers.provider.getCode(await evmTester.getAddress());
         const isContract = code !== '0x';
         expect(isContract).to.be.true;
+      });
+
+      it.only("advanced log topic filtering", async function() {
+        describe("log topic filtering", async function() {
+          let blockStart;
+          let blockEnd;
+          let numTxs = 5;
+          before(async function() {
+            await sleep(5000); // wait for a block to pass so we get a fresh block number
+            blockStart = await ethers.provider.getBlockNumber();
+
+            // Emit an event by making a transaction
+            for (let i = 0; i < numTxs; i++) {
+              const txResponse = await evmTester.emitDummyEvent("test", i);
+              await txResponse.wait();
+            }
+            blockEnd = await ethers.provider.getBlockNumber();
+            console.log("blockStart = ", blockStart)
+            console.log("blockEnd = ", blockEnd)
+          });
+
+          it.only("Block range filter", async function () {
+            const filter = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+            };
+          
+            const logs = await ethers.provider.getLogs(filter);
+            expect(logs).to.be.an('array');
+            expect(logs.length).to.equal(numTxs);
+          });
+
+          it("Single topic filter", async function() {
+            const filter = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [ethers.id("DummyEvent(string,bool,address,uint256,bytes)")]
+            };
+          
+            const logs = await ethers.provider.getLogs(filter);
+            expect(logs).to.be.an('array');
+            expect(logs.length).to.equal(numTxs);
+          });
+
+          it("Blockhash filter", async function() {
+            // first get a log
+            const filter = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [ethers.id("DummyEvent(string,bool,address,uint256,bytes)")]
+            };
+          
+            const logs = await ethers.provider.getLogs(filter);
+            const blockHash = logs[0].blockHash;
+
+            // now get logs by blockhash
+            const blockHashFilter = {
+              blockHash: blockHash,
+            };
+
+            const blockHashLogs = await ethers.provider.getLogs(blockHashFilter);
+            expect(blockHashLogs).to.be.an('array');
+            for (let i = 0; i < blockHashLogs.length; i++) {
+              expect(blockHashLogs[i].blockHash).to.equal(blockHash);
+            }
+          });
+
+          it("Multiple topic filter", async function() {
+            // Topic A and B represented as [A, B]
+            const paddedOwnerAddr = "0x" + owner.address.slice(2).padStart(64, '0');
+            const filter1 = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [
+                ethers.id("DummyEvent(string,bool,address,uint256,bytes)"),
+                ethers.id("test"),
+                paddedOwnerAddr,
+              ]
+            };
+          
+            const logs = await ethers.provider.getLogs(filter1);
+          
+            expect(logs).to.be.an('array');
+            expect(logs.length).to.equal(numTxs);
+
+            // Topic A and B represented as [A, [B]]
+            const filter2 = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [
+                ethers.id("DummyEvent(string,bool,address,uint256,bytes)"),
+                [ethers.id("test")],
+                [paddedOwnerAddr],
+              ]
+            };
+
+            const logs2 = await ethers.provider.getLogs(filter1);
+          
+            expect(logs2).to.be.an('array');
+            expect(logs2.length).to.equal(numTxs);
+          });
+
+          it("Wildcard topic filter", async function() {
+            const filter1 = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [
+                ethers.id("DummyEvent(string,bool,address,uint256,bytes)"),
+                ethers.id("test"),
+                null,
+                "0x0000000000000000000000000000000000000000000000000000000000000003",
+              ]
+            };
+          
+            const logs1 = await ethers.provider.getLogs(filter1);
+            expect(logs1).to.be.an('array');
+            expect(logs1.length).to.equal(1);
+
+            // filter for topic A and (B or C) = [A, [B, C]]
+            const filter2 = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [
+                ethers.id("DummyEvent(string,bool,address,uint256,bytes)"),
+                ethers.id("test"),
+                null,
+                [
+                    "0x0000000000000000000000000000000000000000000000000000000000000002",
+                    "0x0000000000000000000000000000000000000000000000000000000000000003",
+                ]
+              ]
+            }
+            const logs2 = await ethers.provider.getLogs(filter2);
+            expect(logs2).to.be.an('array');
+            expect(logs2.length).to.equal(2);
+          });
+
+          it("Address and topics combination filter", async function() {
+            const filter = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              address: await evmTester.getAddress(),
+              topics: [
+                ethers.id("DummyEvent(string,bool,address,uint256,bytes)"),
+              ]
+            }
+            const logs = await ethers.provider.getLogs(filter);
+            expect(logs).to.be.an('array');
+            expect(logs.length).to.equal(numTxs);
+          });
+
+          it("Empty result filter", async function() {
+            const filter = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [
+                ethers.id("DummyEvent(string,bool,address,uint256,bytes)"),
+                ethers.id("nonexistent event string"),
+              ]
+            };
+          
+            const logs = await ethers.provider.getLogs(filter);
+            expect(logs).to.be.an('array');
+            expect(logs.length).to.equal(0);
+          });
+
+          it("Overlapping criteria filter", async function() {
+            // [ (topic[0] = A) OR (topic[0] = B) ] AND [ (topic[1] = C) OR (topic[1] = D) ]
+            const filter = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [
+                ethers.id("DummyEvent(string,bool,address,uint256,bytes)"),
+                [ethers.id("test"), ethers.id("nonexistent event string")],
+                null,
+                [
+                    "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "0x0000000000000000000000000000000000000000000000000000000000000002",
+                    "0x0000000000000000000000000000000000000000000000000000000000000003",
+                ]
+              ]
+            }
+
+            const logs = await ethers.provider.getLogs(filter);
+            expect(logs).to.be.an('array');
+            expect(logs.length).to.equal(3);
+          });
+        });
       });
     });
 
