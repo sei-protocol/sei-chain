@@ -237,6 +237,8 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		return rs.CacheMultiStore(), nil
 	}
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
 	stores := make(map[types.StoreKey]types.CacheWrapper)
 	// add the transient/mem stores registered in current app.
 	for k, store := range rs.ckvStores {
