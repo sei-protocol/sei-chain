@@ -654,7 +654,7 @@ describe("EVM Test", function () {
         expect(isContract).to.be.true;
       });
 
-      it.only("advanced log topic filtering", async function() {
+      it"advanced log topic filtering", async function() {
         describe("log topic filtering", async function() {
           let blockStart;
           let blockEnd;
@@ -673,7 +673,7 @@ describe("EVM Test", function () {
             console.log("blockEnd = ", blockEnd)
           });
 
-          it.only("Block range filter", async function () {
+          it("Block range filter", async function () {
             const filter = {
               fromBlock: blockStart,
               toBlock: blockEnd,
