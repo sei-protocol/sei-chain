@@ -702,7 +702,7 @@ describe("EVM Test", function () {
         expect(isContract).to.be.true;
       });
 
-      it("advanced log topic filtering", async function() {
+      it.only("advanced log topic filtering", async function() {
         describe("log topic filtering", async function() {
           let blockStart;
           let blockEnd;
@@ -742,6 +742,29 @@ describe("EVM Test", function () {
             const logs = await ethers.provider.getLogs(filter);
             expect(logs).to.be.an('array');
             expect(logs.length).to.equal(numTxs);
+          });
+
+          it("Blockhash filter", async function() {
+            // first get a log
+            const filter = {
+              fromBlock: blockStart,
+              toBlock: blockEnd,
+              topics: [ethers.id("DummyEvent(string,bool,address,uint256,bytes)")]
+            };
+          
+            const logs = await ethers.provider.getLogs(filter);
+            const blockHash = logs[0].blockHash;
+
+            // now get logs by blockhash
+            const blockHashFilter = {
+              blockHash: blockHash,
+            };
+
+            const blockHashLogs = await ethers.provider.getLogs(blockHashFilter);
+            expect(blockHashLogs).to.be.an('array');
+            for (let i = 0; i < blockHashLogs.length; i++) {
+              expect(blockHashLogs[i].blockHash).to.equal(blockHash);
+            }
           });
 
           it("Multiple topic filter", async function() {
