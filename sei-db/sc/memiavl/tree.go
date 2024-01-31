@@ -94,6 +94,8 @@ func (t *Tree) SetInitialVersion(initialVersion int64) error {
 // Copy returns a snapshot of the tree which won't be modified by further modifications on the main tree,
 // the returned new tree can be accessed concurrently with the main tree.
 func (t *Tree) Copy(_ int) *Tree {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
 	if _, ok := t.root.(*MemNode); ok {
 		// protect the existing `MemNode`s from get modified in-place
 		t.cowVersion = t.version
@@ -115,8 +117,8 @@ func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
 }
 
 func (t *Tree) Set(key, value []byte) {
-	t.mtx.RLock()
-	defer t.mtx.RUnlock()
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
 	if value == nil {
 		// the value could be nil when replaying changes from write-ahead-log because of protobuf decoding
 		value = []byte{}
@@ -125,8 +127,8 @@ func (t *Tree) Set(key, value []byte) {
 }
 
 func (t *Tree) Remove(key []byte) {
-	t.mtx.RLock()
-	defer t.mtx.RUnlock()
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
 	_, t.root, _ = removeRecursive(t.root, key, t.version+1, t.cowVersion)
 }
 
@@ -153,6 +155,8 @@ func (t *Tree) Version() int64 {
 // RootHash updates the hashes and return the current root hash,
 // it clones the persisted node's bytes, so the returned bytes is safe to retain.
 func (t *Tree) RootHash() []byte {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
 	if t.root == nil {
 		return emptyHash
 	}
