@@ -89,7 +89,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "debug",
-			Service:   NewDebugAPI(ctxProvider, k, tmClient, nil),
+			Service:   NewDebugAPI(ctxProvider, k, tmClient),
 		},
 	}
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
