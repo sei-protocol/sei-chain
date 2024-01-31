@@ -88,8 +88,8 @@ func NewEVMHTTPServer(
 			Service:   &Web3API{},
 		},
 		{
-			Namespace: "trace",
-			Service:   NewTraceAPI(ctxProvider, k, tmClient, nil),
+			Namespace: "debug",
+			Service:   NewDebugAPI(ctxProvider, k, tmClient, nil),
 		},
 	}
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
