@@ -27,7 +27,7 @@ import (
 )
 
 type SimulationAPI struct {
-	backend *Backend
+	backend *SimulateBackend
 }
 
 func NewSimulationAPI(
@@ -37,7 +37,7 @@ func NewSimulationAPI(
 	config *SimulateConfig,
 ) *SimulationAPI {
 	return &SimulationAPI{
-		backend: NewBackend(ctxProvider, keeper, tmClient, config),
+		backend: NewSimulateBackend(ctxProvider, keeper, tmClient, config),
 	}
 }
 
@@ -129,7 +129,7 @@ type SimulateConfig struct {
 	EVMTimeout time.Duration
 }
 
-type Backend struct {
+type SimulateBackend struct {
 	*eth.EthAPIBackend
 	ctxProvider func(int64) sdk.Context
 	keeper      *keeper.Keeper
@@ -137,11 +137,11 @@ type Backend struct {
 	config      *SimulateConfig
 }
 
-func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmClient rpcclient.Client, config *SimulateConfig) *Backend {
-	return &Backend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient, config: config}
+func NewSimulateBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmClient rpcclient.Client, config *SimulateConfig) *SimulateBackend {
+	return &SimulateBackend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient, config: config}
 }
 
-func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
+func (b *SimulateBackend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
 	height, err := b.getBlockHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, nil, err
@@ -154,30 +154,30 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 }
 
 // returns block header only
-func (b *Backend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*ethtypes.Block, error) {
+func (b *SimulateBackend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*ethtypes.Block, error) {
 	return ethtypes.NewBlock(&ethtypes.Header{
 		GasLimit: b.RPCGasCap(),
 	}, []*ethtypes.Transaction{}, []*ethtypes.Header{}, []*ethtypes.Receipt{}, nil), nil
 }
 
-func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
+func (b *SimulateBackend) RPCGasCap() uint64 { return b.config.GasCap }
 
-func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
+func (b *SimulateBackend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
-func (b *Backend) ChainConfig() *params.ChainConfig {
+func (b *SimulateBackend) ChainConfig() *params.ChainConfig {
 	ctx := b.ctxProvider(LatestCtxHeight)
 	return b.keeper.GetChainConfig(ctx).EthereumConfig(b.keeper.ChainID(ctx))
 }
 
-func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {
+func (b *SimulateBackend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {
 	return state.NewDBImpl(b.ctxProvider(LatestCtxHeight), b.keeper, true).GetNonce(addr), nil
 }
 
-func (b *Backend) Engine() consensus.Engine {
+func (b *SimulateBackend) Engine() consensus.Engine {
 	return &Engine{ctxProvider: b.ctxProvider, keeper: b.keeper}
 }
 
-func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Header, error) {
+func (b *SimulateBackend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Header, error) {
 	height, err := b.getBlockHeight(ctx, rpc.BlockNumberOrHashWithNumber(bn))
 	if err != nil {
 		return nil, err
@@ -185,7 +185,7 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	return b.getHeader(big.NewInt(height)), nil
 }
 
-func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) *vm.EVM {
+func (b *SimulateBackend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) *vm.EVM {
 	txContext := core.NewEVMTxContext(msg)
 	context, _ := b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
 	evm := vm.NewEVM(*context, txContext, stateDB, b.ChainConfig(), *vmConfig)
@@ -195,15 +195,15 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	return evm
 }
 
-func (b *Backend) CurrentHeader() *ethtypes.Header {
+func (b *SimulateBackend) CurrentHeader() *ethtypes.Header {
 	return b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()))
 }
 
-func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
+func (b *SimulateBackend) SuggestGasTipCap(context.Context) (*big.Int, error) {
 	return big.NewInt(0), nil
 }
 
-func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
+func (b *SimulateBackend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
 	var block *coretypes.ResultBlock
 	var err error
 	if blockNr, ok := blockNrOrHash.Number(); ok {
@@ -228,7 +228,7 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 	return block.Block.Height, nil
 }
 
-func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
+func (b *SimulateBackend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	return &ethtypes.Header{
 		Difficulty: common.Big0,
 		Number:     blockNumber,

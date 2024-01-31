@@ -36,6 +36,7 @@ func NewEVMHTTPServer(
 		return nil, err
 	}
 	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
+	//tracerConfig := &TracerConfig{}
 	sendAPI := NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig)
 	apis := []rpc.API{
 		{
@@ -85,6 +86,10 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "web3",
 			Service:   &Web3API{},
+		},
+		{
+			Namespace: "debug",
+			Service:   NewDebugAPI(ctxProvider, k, tmClient, nil),
 		},
 	}
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
