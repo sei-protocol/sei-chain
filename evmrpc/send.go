@@ -28,7 +28,7 @@ type SendAPI struct {
 	keeper      *keeper.Keeper
 	ctxProvider func(int64) sdk.Context
 	homeDir     string
-	backend     *Backend
+	backend     *SimulateBackend
 }
 
 type SendConfig struct {
