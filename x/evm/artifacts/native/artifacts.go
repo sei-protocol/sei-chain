@@ -51,9 +51,12 @@ func IsCodeFromBin(code []byte) bool {
 		return false
 	}
 	args, err := abi.Constructor.Inputs.Unpack(code[binLen:])
-	if err != nil || len(args) != 1 {
+	if err != nil || len(args) != 4 {
 		return false
 	}
-	_, isString := args[0].(string)
-	return isString
+	_, isString1 := args[0].(string)
+	_, isString2 := args[1].(string)
+	_, isString3 := args[2].(string)
+	_, isUint8 := args[3].(uint8)
+	return isString1 && isString2 && isString3 && isUint8
 }
