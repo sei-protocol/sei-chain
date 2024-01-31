@@ -48,7 +48,7 @@ contract NativeSeiTokensERC20Test is Test {
     function setUp() public {
         alice = makeAddr("alice");
         bob = makeAddr("bob");
-        seiERC20 = new NativeSeiTokensERC20("usei");
+        seiERC20 = new NativeSeiTokensERC20("usei", "SEI", "SEISYMBOL", 6);
 
         MockBank mockBank = new MockBank();
         vm.etch(BANK_PRECOMPILE_ADDRESS, address(mockBank).code);
@@ -59,13 +59,11 @@ contract NativeSeiTokensERC20Test is Test {
     }
 
     function testName() public {
-        vm.mockCall(BANK_PRECOMPILE_ADDRESS, abi.encodeWithSelector(IBank.name.selector, "usei"), abi.encode("SEI_NAME"));
-        assertEq(seiERC20.name(), "SEI_NAME");
+        assertEq(seiERC20.name(), "SEI");
     }
 
     function testSymbol() public {
-        vm.mockCall(BANK_PRECOMPILE_ADDRESS, abi.encodeWithSelector(IBank.symbol.selector, "usei"), abi.encode("SEI_SYMBOL"));
-        assertEq(seiERC20.symbol(), "SEI_SYMBOL");
+        assertEq(seiERC20.symbol(), "SEISYMBOL");
     }
 
     function testBalanceOf() public {
@@ -74,8 +72,7 @@ contract NativeSeiTokensERC20Test is Test {
     }
 
     function testDecimals() public {
-        vm.mockCall(BANK_PRECOMPILE_ADDRESS, abi.encodeWithSelector(IBank.decimals.selector, "usei"), abi.encode(18));
-        assertEq(seiERC20.decimals(), 18);
+        assertEq(seiERC20.decimals(), 6);
     }
 
     function testTotalSupply() public {
