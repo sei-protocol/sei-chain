@@ -8,42 +8,39 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"time"
 )
 
 type DebugAPI struct {
 	backend *DebugBackend
 }
 
-type TraceConfig struct {
-	GasCap     uint64
-	EVMTimeout time.Duration
-}
+//type TraceConfig struct {
+//	GasCap     uint64
+//	EVMTimeout time.Duration
+//}
 
 type DebugBackend struct {
 	*eth.EthAPIBackend
 	ctxProvider func(int64) sdk.Context
 	keeper      *keeper.Keeper
 	tmClient    rpcclient.Client
-	config      *TraceConfig
 }
 
 func NewDebugAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
 	tmClient rpcclient.Client,
-	config *TraceConfig,
 ) *DebugAPI {
 	return &DebugAPI{
-		backend: NewDebugBackend(ctxProvider, keeper, tmClient, config),
+		backend: NewDebugBackend(ctxProvider, keeper, tmClient),
 	}
 }
 
-func NewDebugBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmClient rpcclient.Client, config *TraceConfig) *DebugBackend {
-	return &DebugBackend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient, config: config}
+func NewDebugBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmClient rpcclient.Client) *DebugBackend {
+	return &DebugBackend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient}
 }
 
-func (a *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *TraceConfig) (result interface{}, returnErr error) {
+func (a *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	tracerAPI := tracers.NewAPI(a.backend)
-	return tracerAPI.TraceTransaction(ctx, hash, nil)
+	return tracerAPI.TraceTransaction(ctx, hash, config)
 }
