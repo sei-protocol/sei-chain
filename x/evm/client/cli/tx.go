@@ -60,6 +60,7 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdDeployErcCw20())
 	cmd.AddCommand(CmdCallContract())
 	cmd.AddCommand(CmdDeployErcCw721())
+	cmd.AddCommand(CmdERC20Send())
 
 	return cmd
 }
@@ -468,6 +469,70 @@ func CmdCallContract() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			contract := common.HexToAddress(args[0])
 			payload, err := hex.DecodeString(args[1])
+			if err != nil {
+				return err
+			}
+
+			key, err := getPrivateKey(cmd)
+			if err != nil {
+				return err
+			}
+
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			nonce, err := getNonce(rpc, key.PublicKey)
+			if err != nil {
+				return err
+			}
+
+			txData, err := getTxData(cmd)
+			if err != nil {
+				return err
+			}
+			txData.Nonce = uint64(*nonce)
+			txData.Value = big.NewInt(0)
+			txData.Data = payload
+			txData.To = &contract
+
+			resp, err := sendTx(txData, rpc, key)
+			if err != nil {
+				return err
+			}
+
+			fmt.Println("Transaction hash:", resp.Hex())
+			return nil
+		},
+	}
+
+	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
+	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
+	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdERC20Send() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "erc20-send [addr] [recipient] [amount] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Short: "send recipient <amount> (in smallest unit) ERC20 tokens",
+		Long:  "",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			contract := common.HexToAddress(args[0])
+			recipient := common.HexToAddress(args[1])
+			amt, err := strconv.ParseUint(args[2], 10, 64)
+			if err != nil {
+				return err
+			}
+			abi, err := native.NativeMetaData.GetAbi()
+			if err != nil {
+				return err
+			}
+			payload, err := abi.Pack("transfer", recipient, new(big.Int).SetUint64(amt))
 			if err != nil {
 				return err
 			}
