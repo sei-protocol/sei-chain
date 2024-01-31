@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
@@ -206,16 +208,25 @@ type Response struct {
 
 func CmdDeployErc20() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deploy-erc20 [denom] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "deploy-erc20 [denom] [name] [symbol] [decimal] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
 		Short: "Deploy ERC20 contract for a native Sei token",
 		Long:  "",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			err = sdk.ValidateDenom(args[0])
 			if err != nil {
 				return err
 			}
 			denom := args[0]
+			name := args[1]
+			symbol := args[2]
+			decimal, err := strconv.ParseUint(args[3], 10, 64)
+			if err != nil {
+				return err
+			}
+			if decimal > math.MaxUint8 {
+				return fmt.Errorf("decimal cannot be larger than %d", math.MaxUint8)
+			}
 
 			bytecode := native.GetBin()
 			abi := native.GetABI()
@@ -225,7 +236,7 @@ func CmdDeployErc20() *cobra.Command {
 				return err
 			}
 			constructorArguments := []interface{}{
-				denom,
+				denom, name, symbol, uint8(decimal),
 			}
 
 			packedArgs, err := parsedABI.Pack("", constructorArguments...)
