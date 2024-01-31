@@ -7,7 +7,7 @@ on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "evm" ]
 
 defaults:
   run:
@@ -69,7 +69,6 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml"
             ]
-
           },
           {
             name: "Distribution Module",
@@ -98,6 +97,13 @@ jobs:
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
               "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+            ],
+          },
+          {
+            name: "Hardhat tests",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/evm_module/hardhat_test.yaml",
+              "./scripts/hardhat.sh"
             ]
           },
         ]
@@ -106,6 +112,9 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '16'
 
       - name: Pyyaml
         run: |
@@ -117,7 +126,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.19
+          go-version: '1.21'
 
       - name: Start 4 node docker cluster
         run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &

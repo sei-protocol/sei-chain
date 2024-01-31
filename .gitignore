@@ -5,8 +5,9 @@ release/
 .vscode/
 .DS_Store
 build/
+cache/
 
-Local .terraform directories
+# Local .terraform directories
 **/.terraform
 
 # .tfstate files
@@ -18,8 +19,6 @@ yarn.lock
 # node ignores
 oracle/node_modules/
 node_modules/
-package-lock.json
-*/package-lock.json
 
 # test coverage output
 c.out
@@ -45,3 +44,11 @@ integration_test/**/*.txt
 # Coverage Files
 coverage.html
 coverage.out
+
+# example artifacts
+example/cosmwasm/echo/target
+example/cosmwasm/cw20/target
+example/cosmwasm/cw721/target
+
+# Solidity contracts artifacts
+contracts/artifacts
