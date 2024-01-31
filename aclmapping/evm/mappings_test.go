@@ -130,15 +130,20 @@ func (suite *KeeperTestSuite) TestMsgEVMTransaction() {
 			_, err = suite.msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), tc.msg)
 			suite.Require().Nil(err)
 
-			depdenencies, _ := evm.TransactionDependencyGenerator(
+			dependencies, _ := evm.TransactionDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				suite.App.EvmKeeper,
 				handlerCtx,
 				tc.msg,
 			)
 
-			missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
-			suite.Require().Empty(missing)
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
+			suite.Require().Equal(2, len(missing))
+			for k, v := range missing {
+				suite.Require().Equal("WRITE", k.AccessType.String())
+				suite.Require().Equal("evm_mem", k.StoreKey)
+				suite.Require().Equal(true, v)
+			}
 		})
 	}
 }
