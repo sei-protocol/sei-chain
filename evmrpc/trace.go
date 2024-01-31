@@ -11,39 +11,39 @@ import (
 	"time"
 )
 
-type DebugAPI struct {
-	backend *DebugBackend
+type TraceAPI struct {
+	backend *TraceBackend
 }
 
-type DebugConfig struct {
+type TraceConfig struct {
 	GasCap     uint64
 	EVMTimeout time.Duration
 }
 
-type DebugBackend struct {
+type TraceBackend struct {
 	*eth.EthAPIBackend
 	ctxProvider func(int64) sdk.Context
 	keeper      *keeper.Keeper
 	tmClient    rpcclient.Client
-	config      *DebugConfig
+	config      *TraceConfig
 }
 
-func NewDebugAPI(
+func NewTraceAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
 	tmClient rpcclient.Client,
-	config *DebugConfig,
-) *DebugAPI {
-	return &DebugAPI{
-		backend: NewDebugBackend(ctxProvider, keeper, tmClient, config),
+	config *TraceConfig,
+) *TraceAPI {
+	return &TraceAPI{
+		backend: NewTraceBackend(ctxProvider, keeper, tmClient, config),
 	}
 }
 
-func NewDebugBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmClient rpcclient.Client, config *DebugConfig) *DebugBackend {
-	return &DebugBackend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient, config: config}
+func NewTraceBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmClient rpcclient.Client, config *TraceConfig) *TraceBackend {
+	return &TraceBackend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient, config: config}
 }
 
-func (a *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {
+func (a *TraceAPI) TraceTransaction(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {
 	tracerAPI := tracers.NewAPI(a.backend)
 	return tracerAPI.TraceTransaction(ctx, hash, nil)
 }
