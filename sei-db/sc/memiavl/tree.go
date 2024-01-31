@@ -29,7 +29,7 @@ type Tree struct {
 	// when true, the get and iterator methods could return a slice pointing to mmaped blob files.
 	zeroCopy bool
 
-	// sync.RWMutex is used to protect the cache for thread safety
+	// sync.RWMutex is used to protect the tree for thread safety during snapshot reload
 	mtx *sync.RWMutex
 }
 
@@ -93,13 +93,14 @@ func (t *Tree) SetInitialVersion(initialVersion int64) error {
 
 // Copy returns a snapshot of the tree which won't be modified by further modifications on the main tree,
 // the returned new tree can be accessed concurrently with the main tree.
-func (t *Tree) Copy(cacheSize int) *Tree {
+func (t *Tree) Copy(_ int) *Tree {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
 	if _, ok := t.root.(*MemNode); ok {
 		// protect the existing `MemNode`s from get modified in-place
 		t.cowVersion = t.version
 	}
 	newTree := *t
-	// cache is not copied along because it's not thread-safe to access
 	newTree.mtx = &sync.RWMutex{}
 	return &newTree
 }
@@ -116,6 +117,8 @@ func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
 }
 
 func (t *Tree) Set(key, value []byte) {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
 	if value == nil {
 		// the value could be nil when replaying changes from write-ahead-log because of protobuf decoding
 		value = []byte{}
@@ -124,6 +127,8 @@ func (t *Tree) Set(key, value []byte) {
 }
 
 func (t *Tree) Remove(key []byte) {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
 	_, t.root, _ = removeRecursive(t.root, key, t.version+1, t.cowVersion)
 }
 
@@ -150,6 +155,8 @@ func (t *Tree) Version() int64 {
 // RootHash updates the hashes and return the current root hash,
 // it clones the persisted node's bytes, so the returned bytes is safe to retain.
 func (t *Tree) RootHash() []byte {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
 	if t.root == nil {
 		return emptyHash
 	}
@@ -157,6 +164,8 @@ func (t *Tree) RootHash() []byte {
 }
 
 func (t *Tree) GetWithIndex(key []byte) (int64, []byte) {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
 	if t.root == nil {
 		return 0, nil
 	}
@@ -169,6 +178,8 @@ func (t *Tree) GetWithIndex(key []byte) (int64, []byte) {
 }
 
 func (t *Tree) GetByIndex(index int64) ([]byte, []byte) {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
 	if index > math.MaxUint32 {
 		return nil, nil
 	}
@@ -195,12 +206,16 @@ func (t *Tree) Has(key []byte) bool {
 }
 
 func (t *Tree) Iterator(start, end []byte, ascending bool) dbm.Iterator {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
 	return NewIterator(start, end, ascending, t.root, t.zeroCopy)
 }
 
 // ScanPostOrder scans the tree in post-order, and call the callback function on each node.
 // If the callback function returns false, the scan will be stopped.
 func (t *Tree) ScanPostOrder(callback func(node Node) bool) {
+	t.mtx.RLock()
+	defer t.mtx.RUnlock()
 	if t.root == nil {
 		return
 	}
@@ -248,6 +263,8 @@ func (t *Tree) Export() *Exporter {
 }
 
 func (t *Tree) Close() error {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
 	var err error
 	if t.snapshot != nil {
 		err = t.snapshot.Close()
@@ -255,6 +272,23 @@ func (t *Tree) Close() error {
 	}
 	t.root = nil
 	return err
+}
+
+// ReplaceWith is used during reload to replace the current tree with the newly loaded snapshot
+func (t *Tree) ReplaceWith(other *Tree) error {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+	snapshot := t.snapshot
+	t.version = other.version
+	t.root = other.root
+	t.snapshot = other.snapshot
+	t.initialVersion = other.initialVersion
+	t.cowVersion = other.cowVersion
+	t.zeroCopy = other.zeroCopy
+	if snapshot != nil {
+		return snapshot.Close()
+	}
+	return nil
 }
 
 // nextVersionU32 is compatible with existing golang iavl implementation.

@@ -99,6 +99,15 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// spin up goroutine to keep querying the tree
+	stopped := false
+	go func() {
+		for !stopped {
+			value := db.TreeByName("test").Get([]byte("hello1"))
+			require.True(t, value == nil || string(value) == "world1")
+		}
+	}()
+
 	for i, changes := range ChangeSets {
 		cs := []*proto.NamedChangeSet{
 			{
@@ -111,15 +120,12 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, i+1, int(v))
 		require.Equal(t, RefHashes[i], db.lastCommitInfo.StoreInfos[0].CommitId.Hash)
-
 		_ = db.RewriteSnapshotBackground()
 		time.Sleep(time.Millisecond * 20)
 	}
-
 	for db.snapshotRewriteChan != nil {
 		require.NoError(t, db.checkAsyncTasks())
 	}
-
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
 
@@ -128,6 +134,7 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 
 	// three files: snapshot, current link, rlog, LOCK
 	require.Equal(t, 4, len(entries))
+	stopped = true
 }
 
 func TestRlog(t *testing.T) {
