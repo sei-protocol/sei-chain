@@ -43,7 +43,7 @@ func NewDebugBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper,
 	return &DebugBackend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient, config: config}
 }
 
-func (a *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {
+func (a *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *TraceConfig) (result interface{}, returnErr error) {
 	tracerAPI := tracers.NewAPI(a.backend)
 	return tracerAPI.TraceTransaction(ctx, hash, nil)
 }
