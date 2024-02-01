@@ -120,6 +120,14 @@ func (coin Coin) Sub(coinB Coin) Coin {
 	return res
 }
 
+func (coin Coin) SubUnsafe(coinB Coin) Coin {
+	if coin.Denom != coinB.Denom {
+		panic(fmt.Sprintf("invalid coin denominations; %s, %s", coin.Denom, coinB.Denom))
+	}
+
+	return Coin{coin.Denom, coin.Amount.Sub(coinB.Amount)}
+}
+
 // SubAmount subtracts an amount from the Coin.
 func (coin Coin) SubAmount(amount Int) Coin {
 	res := Coin{coin.Denom, coin.Amount.Sub(amount)}

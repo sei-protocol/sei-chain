@@ -200,7 +200,7 @@ func (k BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr 
 		}
 
 		balances = balances.Add(balance)
-		err := k.setBalance(ctx, delegatorAddr, balance.Sub(coin))
+		err := k.setBalance(ctx, delegatorAddr, balance.Sub(coin), true)
 		if err != nil {
 			return err
 		}
@@ -214,7 +214,7 @@ func (k BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr 
 		types.NewCoinSpentEvent(delegatorAddr, amt),
 	)
 
-	err := k.addCoins(ctx, moduleAccAddr, amt)
+	err := k.addCoins(ctx, moduleAccAddr, amt, true)
 	if err != nil {
 		return err
 	}
@@ -237,7 +237,7 @@ func (k BaseKeeper) UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAdd
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amt.String())
 	}
 
-	err := k.subUnlockedCoins(ctx, moduleAccAddr, amt)
+	err := k.subUnlockedCoins(ctx, moduleAccAddr, amt, true)
 	if err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func (k BaseKeeper) UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAdd
 		return sdkerrors.Wrap(err, "failed to track undelegation")
 	}
 
-	err = k.addCoins(ctx, delegatorAddr, amt)
+	err = k.addCoins(ctx, delegatorAddr, amt, true)
 	if err != nil {
 		return err
 	}
@@ -410,7 +410,7 @@ func (k BaseKeeper) DeferredSendCoinsFromAccountToModule(
 		panic("bank keeper created without deferred cache")
 	}
 	// Deducts Fees from the Sender Account
-	err := k.subUnlockedCoins(ctx, senderAddr, amount)
+	err := k.subUnlockedCoins(ctx, senderAddr, amount, true)
 	if err != nil {
 		return err
 	}
@@ -468,7 +468,7 @@ func (k BaseKeeper) WriteDeferredBalances(ctx sdk.Context) []abci.Event {
 			ctx.Logger().Error(err.Error())
 			panic(err)
 		}
-		err := k.addCoins(ctx, sdk.MustAccAddressFromBech32(moduleBech32Addr), amount)
+		err := k.addCoins(ctx, sdk.MustAccAddressFromBech32(moduleBech32Addr), amount, true)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("Failed to add coin=%s to module address=%s, error is: %s", amount, moduleBech32Addr, err))
 			panic(err)
@@ -570,7 +570,7 @@ func (k BaseKeeper) MintCoins(ctx sdk.Context, moduleName string, amounts sdk.Co
 		if acc == nil {
 			return errors.New(fmt.Sprintf("module account for %s not found", moduleName))
 		}
-		return k.addCoins(ctx, acc.GetAddress(), amounts)
+		return k.addCoins(ctx, acc.GetAddress(), amounts, true)
 	}
 
 	err := k.createCoins(ctx, moduleName, amounts, addFn)
@@ -616,7 +616,7 @@ func (k BaseKeeper) destroyCoins(ctx sdk.Context, moduleName string, amounts sdk
 func (k BaseKeeper) BurnCoins(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
 	subFn := func(ctx sdk.Context, moduleName string, amounts sdk.Coins) error {
 		acc := k.ak.GetModuleAccount(ctx, moduleName)
-		return k.subUnlockedCoins(ctx, acc.GetAddress(), amounts)
+		return k.subUnlockedCoins(ctx, acc.GetAddress(), amounts, true)
 	}
 
 	err := k.destroyCoins(ctx, moduleName, amounts, subFn)

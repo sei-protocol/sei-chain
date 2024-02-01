@@ -89,7 +89,7 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 			return err
 		}
 
-		err = k.subUnlockedCoins(ctx, inAddress, in.Coins)
+		err = k.subUnlockedCoins(ctx, inAddress, in.Coins, true)
 		if err != nil {
 			return err
 		}
@@ -107,7 +107,7 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 		if err != nil {
 			return err
 		}
-		err = k.addCoins(ctx, outAddress, out.Coins)
+		err = k.addCoins(ctx, outAddress, out.Coins, true)
 		if err != nil {
 			return err
 		}
@@ -155,12 +155,16 @@ func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAd
 }
 
 func (k BaseSendKeeper) SendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
-	err := k.subUnlockedCoins(ctx, fromAddr, amt)
+	return k.sendCoinsWithoutAccCreation(ctx, fromAddr, toAddr, amt, true)
+}
+
+func (k BaseSendKeeper) sendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error {
+	err := k.subUnlockedCoins(ctx, fromAddr, amt, checkNeg)
 	if err != nil {
 		return err
 	}
 
-	err = k.addCoins(ctx, toAddr, amt)
+	err = k.addCoins(ctx, toAddr, amt, checkNeg)
 	if err != nil {
 		return err
 	}
@@ -184,7 +188,7 @@ func (k BaseSendKeeper) SendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sd
 // subUnlockedCoins removes the unlocked amt coins of the given account. An error is
 // returned if the resulting balance is negative or the initial amount is invalid.
 // A coin_spent event is emitted after.
-func (k BaseSendKeeper) subUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins) error {
+func (k BaseSendKeeper) subUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error {
 	if !amt.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amt.String())
 	}
@@ -193,17 +197,24 @@ func (k BaseSendKeeper) subUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, a
 
 	for _, coin := range amt {
 		balance := k.GetBalance(ctx, addr, coin.Denom)
-		locked := sdk.NewCoin(coin.Denom, lockedCoins.AmountOf(coin.Denom))
-		spendable := balance.Sub(locked)
+		if checkNeg {
+			locked := sdk.NewCoin(coin.Denom, lockedCoins.AmountOf(coin.Denom))
+			spendable := balance.Sub(locked)
 
-		_, hasNeg := sdk.Coins{spendable}.SafeSub(sdk.Coins{coin})
-		if hasNeg {
-			return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%s is smaller than %s", spendable, coin)
+			_, hasNeg := sdk.Coins{spendable}.SafeSub(sdk.Coins{coin})
+			if hasNeg {
+				return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%s is smaller than %s", spendable, coin)
+			}
 		}
 
-		newBalance := balance.Sub(coin)
+		var newBalance sdk.Coin
+		if checkNeg {
+			newBalance = balance.Sub(coin)
+		} else {
+			newBalance = balance.SubUnsafe(coin)
+		}
 
-		err := k.setBalance(ctx, addr, newBalance)
+		err := k.setBalance(ctx, addr, newBalance, checkNeg)
 		if err != nil {
 			return err
 		}
@@ -218,7 +229,7 @@ func (k BaseSendKeeper) subUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, a
 
 // addCoins increase the addr balance by the given amt. Fails if the provided amt is invalid.
 // It emits a coin received event.
-func (k BaseSendKeeper) addCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins) error {
+func (k BaseSendKeeper) addCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error {
 	if !amt.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amt.String())
 	}
@@ -227,7 +238,7 @@ func (k BaseSendKeeper) addCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.C
 		balance := k.GetBalance(ctx, addr, coin.Denom)
 		newBalance := balance.Add(coin)
 
-		err := k.setBalance(ctx, addr, newBalance)
+		err := k.setBalance(ctx, addr, newBalance, checkNeg)
 		if err != nil {
 			return err
 		}
@@ -262,8 +273,8 @@ func (k BaseSendKeeper) initBalances(ctx sdk.Context, addr sdk.AccAddress, balan
 }
 
 // setBalance sets the coin balance for an account by address.
-func (k BaseSendKeeper) setBalance(ctx sdk.Context, addr sdk.AccAddress, balance sdk.Coin) error {
-	if !balance.IsValid() {
+func (k BaseSendKeeper) setBalance(ctx sdk.Context, addr sdk.AccAddress, balance sdk.Coin, checkNeg bool) error {
+	if checkNeg && !balance.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, balance.String())
 	}
 
@@ -343,7 +354,7 @@ func (k BaseSendKeeper) SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to
 			return err
 		}
 		// need to send one sei to escrow because wei balance is insufficient
-		if err := k.SendCoinsWithoutAccCreation(ctx, from, escrow, sdk.NewCoins(sdk.NewCoin(denom, sdk.OneInt()))); err != nil {
+		if err := k.sendCoinsWithoutAccCreation(ctx, from, escrow, sdk.NewCoins(sdk.NewCoin(denom, sdk.OneInt())), false); err != nil {
 			return err
 		}
 	}
@@ -359,13 +370,7 @@ func (k BaseSendKeeper) SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to
 		}
 		// need to redeem one sei from escrow because wei balance overflowed
 		one := sdk.NewCoins(sdk.NewCoin(denom, sdk.OneInt()))
-		if err := k.SendCoinsWithoutAccCreation(ctx, escrow, to, one); err != nil {
-			if sdkerrors.ErrInsufficientFunds.Is(err) && customEscrow != nil {
-				// custom escrow does not have enough balance to redeem. Try the global escrow instead
-				if err := k.SendCoinsWithoutAccCreation(ctx, k.ak.GetModuleAddress(types.WeiEscrowName), to, one); err != nil {
-					return err
-				}
-			}
+		if err := k.sendCoinsWithoutAccCreation(ctx, escrow, to, one, false); err != nil {
 			return err
 		}
 	}
