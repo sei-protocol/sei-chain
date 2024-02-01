@@ -14,6 +14,10 @@ service Query {
     rpc EVMAddressBySeiAddress(QueryEVMAddressBySeiAddressRequest) returns (QueryEVMAddressBySeiAddressResponse) {
         option (google.api.http).get = "/sei-protocol/seichain/evm/evm_address";
     }
+
+    rpc StaticCall(QueryStaticCallRequest) returns (QueryStaticCallResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/static_call";
+    }
 }
 
 message QuerySeiAddressByEVMAddressRequest {
@@ -32,4 +36,13 @@ message QueryEVMAddressBySeiAddressRequest {
 message QueryEVMAddressBySeiAddressResponse {
     string evm_address = 1;
     bool associated = 2;
+}
+
+message QueryStaticCallRequest {
+    bytes data = 1;
+    string to = 2;
+}
+
+message QueryStaticCallResponse {
+    bytes data = 1;
 }

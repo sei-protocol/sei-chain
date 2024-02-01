@@ -38,10 +38,9 @@ import (
 )
 
 const (
-	FlagGasFeeCap  = "gas-fee-cap"
-	FlagGas        = "gas-limit"
-	FlagEVMChainID = "evm-chain-id"
-	FlagRPC        = "evm-rpc"
+	FlagGasFeeCap = "gas-fee-cap"
+	FlagGas       = "gas-limit"
+	FlagRPC       = "evm-rpc"
 )
 
 // GetTxCmd returns the transaction commands for this module
@@ -60,6 +59,7 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdDeployErcCw20())
 	cmd.AddCommand(CmdCallContract())
 	cmd.AddCommand(CmdDeployErcCw721())
+	cmd.AddCommand(CmdERC20Send())
 
 	return cmd
 }
@@ -193,7 +193,6 @@ func CmdSend() *cobra.Command {
 
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 21000, "Gas limit for the transaction")
-	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	flags.AddTxFlagsToCmd(cmd)
 
@@ -290,7 +289,6 @@ func CmdDeployErc20() *cobra.Command {
 
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 5000000, "Gas limit for the transaction")
-	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	flags.AddTxFlagsToCmd(cmd)
 
@@ -371,7 +369,6 @@ func CmdDeployErcCw20() *cobra.Command {
 
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
-	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	flags.AddTxFlagsToCmd(cmd)
 
@@ -452,7 +449,6 @@ func CmdDeployErcCw721() *cobra.Command {
 
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
-	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	flags.AddTxFlagsToCmd(cmd)
 
@@ -507,7 +503,69 @@ func CmdCallContract() *cobra.Command {
 
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
-	cmd.Flags().Uint64(FlagEVMChainID, 713715, "EVM chain ID")
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdERC20Send() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "erc20-send [addr] [recipient] [amount] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Short: "send recipient <amount> (in smallest unit) ERC20 tokens",
+		Long:  "",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			contract := common.HexToAddress(args[0])
+			recipient := common.HexToAddress(args[1])
+			amt, err := strconv.ParseUint(args[2], 10, 64)
+			if err != nil {
+				return err
+			}
+			abi, err := native.NativeMetaData.GetAbi()
+			if err != nil {
+				return err
+			}
+			payload, err := abi.Pack("transfer", recipient, new(big.Int).SetUint64(amt))
+			if err != nil {
+				return err
+			}
+
+			key, err := getPrivateKey(cmd)
+			if err != nil {
+				return err
+			}
+
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			nonce, err := getNonce(rpc, key.PublicKey)
+			if err != nil {
+				return err
+			}
+
+			txData, err := getTxData(cmd)
+			if err != nil {
+				return err
+			}
+			txData.Nonce = uint64(*nonce)
+			txData.Value = big.NewInt(0)
+			txData.Data = payload
+			txData.To = &contract
+
+			resp, err := sendTx(txData, rpc, key)
+			if err != nil {
+				return err
+			}
+
+			fmt.Println("Transaction hash:", resp.Hex())
+			return nil
+		},
+	}
+
+	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
+	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	flags.AddTxFlagsToCmd(cmd)
 
@@ -565,6 +623,33 @@ func getNonce(rpc string, key ecdsa.PublicKey) (*hexutil.Uint64, error) {
 	return nonce, nil
 }
 
+func getChainId(rpc string) (*big.Int, error) {
+	q := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_chainId\",\"params\":[],\"id\":\"send-cli\"}"
+	req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(q))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	resObj := map[string]interface{}{}
+	if err := json.Unmarshal(resBody, &resObj); err != nil {
+		return nil, err
+	}
+	chainId := new(hexutil.Big)
+	if err := chainId.UnmarshalText([]byte(resObj["result"].(string))); err != nil {
+		return nil, err
+	}
+	return chainId.ToInt(), nil
+}
+
 func getTxData(cmd *cobra.Command) (*ethtypes.DynamicFeeTx, error) {
 	gasFeeCap, err := cmd.Flags().GetUint64(FlagGasFeeCap)
 	if err != nil {
@@ -574,7 +659,11 @@ func getTxData(cmd *cobra.Command) (*ethtypes.DynamicFeeTx, error) {
 	if err != nil {
 		return nil, err
 	}
-	chainID, err := cmd.Flags().GetUint64(FlagEVMChainID)
+	rpc, err := cmd.Flags().GetString(FlagRPC)
+	if err != nil {
+		return nil, err
+	}
+	chainID, err := getChainId(rpc)
 	if err != nil {
 		return nil, err
 	}
@@ -582,7 +671,7 @@ func getTxData(cmd *cobra.Command) (*ethtypes.DynamicFeeTx, error) {
 		GasFeeCap: new(big.Int).SetUint64(gasFeeCap),
 		GasTipCap: new(big.Int).SetUint64(gasFeeCap),
 		Gas:       gasLimit,
-		ChainID:   new(big.Int).SetUint64(chainID),
+		ChainID:   chainID,
 	}, nil
 }
 

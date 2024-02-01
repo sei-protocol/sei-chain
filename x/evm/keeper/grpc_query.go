@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -46,4 +47,17 @@ func (q Querier) EVMAddressBySeiAddress(c context.Context, req *types.QueryEVMAd
 	}
 
 	return &types.QueryEVMAddressBySeiAddressResponse{EvmAddress: addr.Hex(), Associated: true}, nil
+}
+
+func (q Querier) StaticCall(c context.Context, req *types.QueryStaticCallRequest) (*types.QueryStaticCallResponse, error) {
+	ctx := sdk.UnwrapSDKContext(c)
+	if req.To == "" {
+		return nil, errors.New("cannot use static call to create contracts")
+	}
+	to := common.HexToAddress(req.To)
+	res, err := q.Keeper.StaticCallEVM(ctx, q.Keeper.AccountKeeper().GetModuleAddress(types.ModuleName), &to, req.Data)
+	if err != nil {
+		return nil, err
+	}
+	return &types.QueryStaticCallResponse{Data: res}, nil
 }
