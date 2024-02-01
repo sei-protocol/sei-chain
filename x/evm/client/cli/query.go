@@ -3,7 +3,9 @@ package cli
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -13,6 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -31,6 +34,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryEVMAddress())
 	cmd.AddCommand(CmdQueryERC20Payload())
 	cmd.AddCommand(CmdQueryERC721Payload())
+	cmd.AddCommand(CmdQueryERC20())
 
 	return cmd
 }
@@ -75,6 +79,65 @@ func CmdQueryEVMAddress() *cobra.Command {
 			}
 
 			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdQueryERC20() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "erc20 [addr] [method] [arguments...]",
+		Short: "get hex payload for the given inputs",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx := client.GetClientContextFromCmd(cmd)
+			queryClient := types.NewQueryClient(clientCtx)
+			abi, err := native.NativeMetaData.GetAbi()
+			if err != nil {
+				return err
+			}
+			var bz []byte
+			switch args[1] {
+			case "name", "symbol", "decimals", "totalSupply":
+				bz, err = abi.Pack(args[1])
+			case "balanceOf":
+				acc := common.HexToAddress(args[2])
+				bz, err = abi.Pack(args[1], acc)
+			case "allowance":
+				owner := common.HexToAddress(args[2])
+				spender := common.HexToAddress(args[3])
+				bz, err = abi.Pack(args[1], owner, spender)
+			default:
+				return errors.New("unknown method")
+			}
+			if err != nil {
+				return err
+			}
+			res, err := queryClient.StaticCall(context.Background(), &types.QueryStaticCallRequest{
+				To:   args[0],
+				Data: bz,
+			})
+			if err != nil {
+				return err
+			}
+			fields, err := abi.Unpack(args[1], res.Data)
+			if err != nil {
+				return err
+			}
+			var output string
+			switch args[1] {
+			case "name", "symbol":
+				output = fields[0].(string)
+			case "decimals":
+				output = fmt.Sprintf("%d", fields[0].(uint8))
+			case "totalSupply", "balanceOf", "allowance":
+				output = fields[0].(*big.Int).String()
+			}
+
+			return clientCtx.PrintString(output)
 		},
 	}
 
