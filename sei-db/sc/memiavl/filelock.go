@@ -8,6 +8,7 @@ import (
 
 type FileLock interface {
 	Unlock() error
+	Destroy() error
 }
 
 func LockFile(fname string) (FileLock, error) {

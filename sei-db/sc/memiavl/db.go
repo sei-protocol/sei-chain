@@ -630,6 +630,7 @@ func (db *DB) Close() error {
 
 	if db.fileLock != nil {
 		errs = append(errs, db.fileLock.Unlock())
+		errs = append(errs, db.fileLock.Destroy())
 		db.fileLock = nil
 	}
 
