@@ -14,7 +14,7 @@ import (
 )
 
 func TestMultiplierGasSetter(t *testing.T) {
-	testApp := app.Setup(false)
+	testApp := app.Setup(false, false)
 	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
 	otherContractAddr, err := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
@@ -95,7 +95,7 @@ func TestMultiplierGasSetter(t *testing.T) {
 }
 
 func TestMultiplierGasSetterWithWasmReference(t *testing.T) {
-	testApp := app.Setup(false)
+	testApp := app.Setup(false, false)
 	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	referredContractAddr, err := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestMultiplierGasSetterWithWasmReference(t *testing.T) {
 }
 
 func TestMultiplierGasSetterWithWasmReferenceCycle(t *testing.T) {
-	testApp := app.Setup(false)
+	testApp := app.Setup(false, false)
 	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	referredContractAddr, err := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
 	require.NoError(t, err)
