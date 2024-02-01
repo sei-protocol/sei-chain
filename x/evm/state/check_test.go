@@ -38,7 +38,7 @@ func TestEmpty(t *testing.T) {
 
 	// has balance
 	k.BankKeeper().MintCoins(statedb.Ctx(), types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))))
-	k.BankKeeper().SendCoinsFromModuleToAccount(statedb.Ctx(), types.ModuleName, state.GetMiddleManAddress(ctx), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(statedb.Ctx(), types.ModuleName, state.GetMiddleManAddress(ctx.TxIndex()), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))))
 	statedb.AddBalance(addr, big.NewInt(1000000000000))
 	require.False(t, statedb.Empty(addr))
 
