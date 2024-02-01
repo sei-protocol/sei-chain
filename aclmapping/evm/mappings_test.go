@@ -138,12 +138,7 @@ func (suite *KeeperTestSuite) TestMsgEVMTransaction() {
 			)
 
 			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
-			suite.Require().Equal(2, len(missing))
-			for k, v := range missing {
-				suite.Require().Equal("WRITE", k.AccessType.String())
-				suite.Require().Equal("evm_mem", k.StoreKey)
-				suite.Require().Equal(true, v)
-			}
+			suite.Require().Empty(missing)
 		})
 	}
 }
