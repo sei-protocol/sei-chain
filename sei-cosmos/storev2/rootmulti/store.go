@@ -91,7 +91,7 @@ func NewStore(
 // Commit implements interface Committer, called by ABCI Commit
 func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	if !bumpVersion {
-		return rs.lastCommitInfo.CommitID()
+		panic("Commit should always bump version in root multistore")
 	}
 	if err := rs.flush(); err != nil {
 		panic(err)
@@ -206,8 +206,8 @@ func (rs *Store) GetStoreType() types.StoreType {
 }
 
 // Implements interface CacheWrapper
-func (rs *Store) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
-	return rs.CacheMultiStore().CacheWrap(storeKey)
+func (rs *Store) CacheWrap(_ types.StoreKey) types.CacheWrap {
+	return rs.CacheMultiStore().(types.CacheWrap)
 }
 
 // Implements interface CacheWrapper
@@ -356,6 +356,12 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	if err := rs.scStore.Initialize(initialStores); err != nil {
 		return err
 	}
+	if version > 0 {
+		_, err := rs.scStore.LoadVersion(version, false)
+		if err != nil {
+			return nil
+		}
+	}
 
 	var treeUpgrades []*proto.TreeNameUpgrade
 	for _, key := range storesKeys {
@@ -488,6 +494,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		return sdkerrors.QueryResult(err)
 	}
 	var store types.Queryable
+	var commitInfo *types.CommitInfo
 
 	if !req.Prove && version < rs.lastCommitInfo.Version && rs.ssStore != nil {
 		// Serve abci query from ss store if no proofs needed
@@ -500,9 +507,13 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 			return sdkerrors.QueryResult(err)
 		}
 		store = types.Queryable(commitment.NewStore(scStore.GetTreeByName(storeName), rs.logger))
+		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
+		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	} else {
 		// Serve directly from latest sc store
 		store = types.Queryable(commitment.NewStore(rs.scStore.GetTreeByName(storeName), rs.logger))
+		commitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
+		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}
 
 	// trim the path and execute the query
@@ -511,14 +522,13 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 
 	if !req.Prove || !rootmulti.RequireProof(subPath) {
 		return res
+	} else if commitInfo != nil {
+		// Restore origin path and append proof op.
+		res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
 	}
 	if res.ProofOps == nil || len(res.ProofOps.Ops) == 0 {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidRequest, "proof is unexpectedly empty; ensure height has not been pruned"))
 	}
-	commitInfo := convertCommitInfo(rs.scStore.LastCommitInfo())
-	commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
-	// Restore origin path and append proof op.
-	res.ProofOps.Ops = append(res.ProofOps.Ops, commitInfo.ProofOp(storeName))
 	return res
 }
 
