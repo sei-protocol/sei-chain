@@ -130,12 +130,12 @@ func OpenSnapshot(snapshotDir string) (*Snapshot, error) {
 
 	nodesData, err := NewNodes(nodes)
 	if err != nil {
-		return nil, err
+		return nil, cleanupHandles(err)
 	}
 
 	leavesData, err := NewLeaves(leaves)
 	if err != nil {
-		return nil, err
+		return nil, cleanupHandles(err)
 	}
 
 	snapshot := &Snapshot{
