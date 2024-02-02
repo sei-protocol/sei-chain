@@ -35,3 +35,15 @@ func TestAddLog(t *testing.T) {
 	logs = statedb.GetLogs(common.Hash{}, 0, common.Hash{})
 	require.Equal(t, 2, len(logs))
 }
+
+func TestLogIndex(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	statedb := state.NewDBImpl(ctx, k, false)
+	statedb.AddLog(&ethtypes.Log{})
+	statedb.Snapshot()
+	statedb.AddLog(&ethtypes.Log{})
+	logs := statedb.GetAllLogs()
+	require.Equal(t, 2, len(logs))
+	require.Equal(t, uint(0), logs[0].Index)
+	require.Equal(t, uint(1), logs[1].Index)
+}
