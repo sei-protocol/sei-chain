@@ -3,7 +3,6 @@ package keeper
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/tendermint/tendermint/libs/log"
 	"math"
 	"math/big"
 	"slices"
@@ -22,6 +21,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	lru "github.com/hashicorp/golang-lru/v2/simplelru"
+	"github.com/tendermint/tendermint/libs/log"
 	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/x/evm/types"
