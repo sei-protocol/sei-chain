@@ -348,7 +348,7 @@ func (k *Keeper) ReapExpiredNonces() {
 // startNonceReaper is a background process that periodically checks for expired nonces
 // this exists for safety in case a bug is introduced that does not clear a nonce
 func (k *Keeper) startNonceReaper() {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(10 * time.Second)
 	for {
 		<-ticker.C
 		k.ReapExpiredNonces()
