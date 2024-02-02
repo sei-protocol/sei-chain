@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -42,6 +43,9 @@ type Keeper struct {
 	keyToNonce                   map[tmtypes.TxKey]*addressNoncePair
 }
 
+// NonceExpiration is able to be overridden for a test
+var NonceExpiration = 1 * time.Minute
+
 type EvmTxDeferredInfo struct {
 	TxIndx  int
 	TxHash  common.Hash
@@ -49,8 +53,13 @@ type EvmTxDeferredInfo struct {
 }
 
 type addressNoncePair struct {
-	address common.Address
-	nonce   uint64
+	address   common.Address
+	nonce     uint64
+	timestamp time.Time
+}
+
+func (p addressNoncePair) IsExpired() bool {
+	return time.Since(p.timestamp) > NonceExpiration
 }
 
 func NewKeeper(
@@ -77,6 +86,7 @@ func NewKeeper(
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*addressNoncePair),
 	}
+	go k.startNonceReaper()
 	return k
 }
 
@@ -281,8 +291,9 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 
 	addrStr := addr.Hex()
 	k.keyToNonce[key] = &addressNoncePair{
-		address: addr,
-		nonce:   nonce,
+		address:   addr,
+		nonce:     nonce,
+		timestamp: time.Now().UTC(),
 	}
 	k.pendingNonces[addrStr] = append(k.pendingNonces[addrStr], nonce)
 	slices.Sort(k.pendingNonces[addrStr])
@@ -293,6 +304,10 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
+	k.expirePendingNonceUnsafe(key)
+}
+
+func (k *Keeper) expirePendingNonceUnsafe(key tmtypes.TxKey) {
 	tx, ok := k.keyToNonce[key]
 
 	if !ok {
@@ -312,6 +327,31 @@ func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
 			}
 			return
 		}
+	}
+}
+
+func (k *Keeper) ReapExpiredNonces() {
+	k.nonceMx.Lock()
+	defer k.nonceMx.Unlock()
+
+	var toExpire []tmtypes.TxKey
+	for key, nonce := range k.keyToNonce {
+		if nonce.IsExpired() {
+			toExpire = append(toExpire, key)
+		}
+	}
+	for _, key := range toExpire {
+		k.expirePendingNonceUnsafe(key)
+	}
+}
+
+// startNonceReaper is a background process that periodically checks for expired nonces
+// this exists for safety in case a bug is introduced that does not clear a nonce
+func (k *Keeper) startNonceReaper() {
+	ticker := time.NewTicker(1 * time.Minute)
+	for {
+		<-ticker.C
+		k.ReapExpiredNonces()
 	}
 }
 
