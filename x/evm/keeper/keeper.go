@@ -3,6 +3,7 @@ package keeper
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/tendermint/tendermint/libs/log"
 	"math"
 	"math/big"
 	"slices"
@@ -27,6 +28,7 @@ import (
 )
 
 type Keeper struct {
+	logger      log.Logger
 	storeKey    sdk.StoreKey
 	memStoreKey sdk.StoreKey
 	Paramstore  paramtypes.Subspace
@@ -63,6 +65,7 @@ func (p addressNoncePair) IsExpired() bool {
 }
 
 func NewKeeper(
+	logger log.Logger,
 	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, paramstore paramtypes.Subspace,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
@@ -74,6 +77,7 @@ func NewKeeper(
 		panic(fmt.Sprintf("could not create lru: %v", err))
 	}
 	k := &Keeper{
+		logger:                       logger,
 		storeKey:                     storeKey,
 		memStoreKey:                  memStoreKey,
 		Paramstore:                   paramstore,
@@ -337,6 +341,10 @@ func (k *Keeper) ReapExpiredNonces() {
 	var toExpire []tmtypes.TxKey
 	for key, nonce := range k.keyToNonce {
 		if nonce.IsExpired() {
+			k.logger.Info("expiring pending nonce",
+				"nonce", nonce.nonce,
+				"address", nonce.address.Hex(),
+				"age_ms", time.Since(nonce.timestamp).Milliseconds())
 			toExpire = append(toExpire, key)
 		}
 	}
