@@ -20,7 +20,6 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	lru "github.com/hashicorp/golang-lru/v2/simplelru"
 	"github.com/tendermint/tendermint/libs/log"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -41,7 +40,7 @@ type Keeper struct {
 	cachedFeeCollectorAddress    *common.Address
 	nonceMx                      *sync.RWMutex
 	pendingNonces                map[string][]*addressNoncePair
-	completedNonces              *lru.LRU[string, bool]
+	completedNonces              map[string]*addressNoncePair
 	keyToNonce                   map[tmtypes.TxKey]*addressNoncePair
 }
 
@@ -72,11 +71,6 @@ func NewKeeper(
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
-	// needs to be bounded to avoid leaking forever
-	cn, err := lru.NewLRU[string, bool](100000, nil)
-	if err != nil {
-		panic(fmt.Sprintf("could not create lru: %v", err))
-	}
 	k := &Keeper{
 		logger:                       logger,
 		storeKey:                     storeKey,
@@ -86,7 +80,7 @@ func NewKeeper(
 		accountKeeper:                accountKeeper,
 		stakingKeeper:                stakingKeeper,
 		pendingNonces:                make(map[string][]*addressNoncePair),
-		completedNonces:              cn,
+		completedNonces:              make(map[string]*addressNoncePair),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*addressNoncePair),
@@ -276,7 +270,8 @@ func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, includ
 	// The completed nonces are limited to 100k entries
 	for {
 		// if it's not in pending and not completed, then it's the next nonce
-		if !sortedListContains(pending, nextNonce) && !k.completedNonces.Contains(nonceCacheKey(addr, nextNonce)) {
+		_, completed := k.completedNonces[nonceCacheKey(addr, nextNonce)]
+		if !sortedListContains(pending, nextNonce) && !completed {
 			return nextNonce
 		}
 		nextNonce++
@@ -373,6 +368,11 @@ func (k *Keeper) ReapExpiredNonces() {
 		}
 		k.pendingNonces[addr] = remaining
 	}
+	for nonceKey, pair := range k.completedNonces {
+		if pair.IsExpired(now) {
+			delete(k.completedNonces, nonceKey)
+		}
+	}
 	for key, v := range k.keyToNonce {
 		if v.IsExpired(now) {
 			panic(fmt.Sprintf("keyToNonce has a key that is not in pendingNonces: %X, %v", key, v))
@@ -386,7 +386,7 @@ func (k *Keeper) startNonceReaper() {
 	ticker := time.NewTicker(10 * time.Second)
 	for {
 		<-ticker.C
-		k.logger.Info("DEBUG: nonce reaper start", "keyToNonceLen", len(k.keyToNonce), "pendingNonceLen", len(k.pendingNonces))
+		k.logger.Info("DEBUG: nonce reaper start", "keyToNonce", len(k.keyToNonce), "pendingNonce", len(k.pendingNonces), "completedNonce", len(k.completedNonces))
 		k.ReapExpiredNonces()
 	}
 }
@@ -431,7 +431,7 @@ func (k *Keeper) CompletePendingNonce(key tmtypes.TxKey) {
 			if len(k.pendingNonces[addrStr]) == 0 {
 				delete(k.pendingNonces, addrStr)
 			}
-			k.completedNonces.Add(nonceCacheKey(address, nonce), true)
+			k.completedNonces[nonceCacheKey(address, nonce)] = pair
 			return
 		}
 	}
