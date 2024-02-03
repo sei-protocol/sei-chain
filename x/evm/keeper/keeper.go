@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -350,6 +351,7 @@ func (k *Keeper) expirePendingNonceUnsafe(key tmtypes.TxKey) {
 func (k *Keeper) ReapExpiredNonces() {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
+	k.print()
 	for addr, nonces := range k.pendingNonces {
 		var remaining []*addressNoncePair
 		for _, nonce := range nonces {
@@ -374,14 +376,17 @@ func (k *Keeper) startNonceReaper() {
 	for {
 		<-ticker.C
 		k.logger.Info("DEBUG: nonce reaper start", "keyToNonceLen", len(k.keyToNonce), "pendingNonceLen", len(k.pendingNonces))
-		k.print()
 		k.ReapExpiredNonces()
 	}
 }
 
 func (k *Keeper) print() {
-	for _, v := range k.keyToNonce {
-		k.logger.Info("DEBUG: nonce reaper print()", "address", v.address.Hex(), "nonce", v.nonce, "age", time.Since(v.timestamp).Milliseconds())
+	for addr, nonces := range k.pendingNonces {
+		var nonceStrs []string
+		for _, n := range nonces {
+			nonceStrs = append(nonceStrs, fmt.Sprintf("%d(%dms)", n.nonce, time.Since(n.timestamp).Milliseconds()))
+		}
+		k.logger.Info("DEBUG: nonce reaper print()", "address", addr, "nonces", strings.Join(nonceStrs, ","))
 	}
 }
 
