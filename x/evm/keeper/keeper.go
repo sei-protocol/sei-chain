@@ -61,8 +61,8 @@ type addressNoncePair struct {
 	timestamp time.Time
 }
 
-func (p addressNoncePair) IsExpired() bool {
-	return time.Since(p.timestamp) > NonceExpiration
+func (p addressNoncePair) IsExpired(now time.Time) bool {
+	return now.Sub(p.timestamp) > NonceExpiration
 }
 
 func NewKeeper(
@@ -307,6 +307,7 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 	pair := &addressNoncePair{
 		address:   addr,
 		nonce:     nonce,
+		key:       key,
 		timestamp: time.Now().UTC(),
 	}
 
@@ -352,20 +353,30 @@ func (k *Keeper) ReapExpiredNonces() {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
 	k.print()
+	now := time.Now().UTC()
 	for addr, nonces := range k.pendingNonces {
 		var remaining []*addressNoncePair
 		for _, nonce := range nonces {
-			if !nonce.IsExpired() {
+			if !nonce.IsExpired(now) {
 				remaining = append(remaining, nonce)
 				continue
 			}
 			k.logger.Error("reaper expiring nonce",
 				"nonce", nonce.nonce,
 				"address", addr,
-				"age_ms", time.Since(nonce.timestamp).Milliseconds())
+				"age_ms", now.Sub(nonce.timestamp).Milliseconds())
 			delete(k.keyToNonce, nonce.key)
 		}
+		if len(remaining) == 0 {
+			delete(k.pendingNonces, addr)
+			continue
+		}
 		k.pendingNonces[addr] = remaining
+	}
+	for key, v := range k.keyToNonce {
+		if v.IsExpired(now) {
+			panic(fmt.Sprintf("keyToNonce has a key that is not in pendingNonces: %X, %v", key, v))
+		}
 	}
 }
 
