@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -40,7 +39,7 @@ type Keeper struct {
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
 	nonceMx                      *sync.RWMutex
-	pendingNonces                map[string][]uint64
+	pendingNonces                map[string][]*addressNoncePair
 	completedNonces              *lru.LRU[string, bool]
 	keyToNonce                   map[tmtypes.TxKey]*addressNoncePair
 }
@@ -55,6 +54,7 @@ type EvmTxDeferredInfo struct {
 }
 
 type addressNoncePair struct {
+	key       tmtypes.TxKey
 	address   common.Address
 	nonce     uint64
 	timestamp time.Time
@@ -84,7 +84,7 @@ func NewKeeper(
 		bankKeeper:                   bankKeeper,
 		accountKeeper:                accountKeeper,
 		stakingKeeper:                stakingKeeper,
-		pendingNonces:                make(map[string][]uint64),
+		pendingNonces:                make(map[string][]*addressNoncePair),
 		completedNonces:              cn,
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
@@ -245,6 +245,14 @@ func nonceCacheKey(addr common.Address, nonce uint64) string {
 	return fmt.Sprintf("%s|%d", addr.Hex(), nonce)
 }
 
+func toNonceList(pair []*addressNoncePair) []uint64 {
+	out := make([]uint64, len(pair))
+	for i, p := range pair {
+		out[i] = p.nonce
+	}
+	return out
+}
+
 // CalculateNextNonce calculates the next nonce for an address
 // If includePending is true, it will consider pending nonces
 // If includePending is false, it will only return the next nonce from GetNonce
@@ -260,7 +268,7 @@ func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, includ
 	}
 
 	// get the pending nonces (nil is fine)
-	pending := k.pendingNonces[addr.Hex()]
+	pending := toNonceList(k.pendingNonces[addr.Hex()])
 
 	// Check each nonce starting from latest until we find a gap
 	// That gap is the next nonce we should use.
@@ -294,13 +302,19 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 	defer k.nonceMx.Unlock()
 
 	addrStr := addr.Hex()
-	k.keyToNonce[key] = &addressNoncePair{
+
+	pair := &addressNoncePair{
 		address:   addr,
 		nonce:     nonce,
 		timestamp: time.Now().UTC(),
 	}
-	k.pendingNonces[addrStr] = append(k.pendingNonces[addrStr], nonce)
-	slices.Sort(k.pendingNonces[addrStr])
+
+	k.keyToNonce[key] = pair
+	k.pendingNonces[addrStr] = append(k.pendingNonces[addrStr], pair)
+
+	sort.Slice(k.pendingNonces[addrStr], func(i, j int) bool {
+		return k.pendingNonces[addrStr][i].nonce < k.pendingNonces[addrStr][j].nonce
+	})
 }
 
 // ExpirePendingNonce removes a pending nonce from the keeper but leaves a hole
@@ -319,10 +333,9 @@ func (k *Keeper) expirePendingNonceUnsafe(key tmtypes.TxKey) {
 	}
 
 	delete(k.keyToNonce, key)
-
 	addr := tx.address.Hex()
-	for i, n := range k.pendingNonces[addr] {
-		if n == tx.nonce {
+	for i, pair := range k.pendingNonces[addr] {
+		if pair.nonce == tx.nonce {
 			// remove nonce but keep prior nonces in the slice (unlike the completion scenario)
 			k.pendingNonces[addr] = append(k.pendingNonces[addr][:i], k.pendingNonces[addr][i+1:]...)
 			// If the slice is empty, delete the key from the map
@@ -337,19 +350,20 @@ func (k *Keeper) expirePendingNonceUnsafe(key tmtypes.TxKey) {
 func (k *Keeper) ReapExpiredNonces() {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
-
-	var toExpire []tmtypes.TxKey
-	for key, nonce := range k.keyToNonce {
-		if nonce.IsExpired() {
+	for addr, nonces := range k.pendingNonces {
+		var remaining []*addressNoncePair
+		for _, nonce := range nonces {
+			if !nonce.IsExpired() {
+				remaining = append(remaining, nonce)
+				continue
+			}
 			k.logger.Info("expiring pending nonce",
 				"nonce", nonce.nonce,
-				"address", nonce.address.Hex(),
+				"address", addr,
 				"age_ms", time.Since(nonce.timestamp).Milliseconds())
-			toExpire = append(toExpire, key)
+			delete(k.keyToNonce, nonce.key)
 		}
-	}
-	for _, key := range toExpire {
-		k.expirePendingNonceUnsafe(key)
+		k.pendingNonces[addr] = remaining
 	}
 }
 
@@ -359,7 +373,15 @@ func (k *Keeper) startNonceReaper() {
 	ticker := time.NewTicker(10 * time.Second)
 	for {
 		<-ticker.C
+		k.logger.Info("DEBUG: nonce reaper start", "keyToNonceLen", len(k.keyToNonce), "pendingNonceLen", len(k.pendingNonces))
+		k.print()
 		k.ReapExpiredNonces()
+	}
+}
+
+func (k *Keeper) print() {
+	for _, v := range k.keyToNonce {
+		k.logger.Info("DEBUG: pending nonce", "address", v.address.Hex(), "nonce", v.nonce, "age", time.Since(v.timestamp).Milliseconds())
 	}
 }
 
@@ -384,8 +406,8 @@ func (k *Keeper) CompletePendingNonce(key tmtypes.TxKey) {
 		return
 	}
 
-	for i, n := range k.pendingNonces[addrStr] {
-		if n >= nonce {
+	for i, pair := range k.pendingNonces[addrStr] {
+		if pair.nonce >= nonce {
 			// remove the nonce and all prior nonces from the slice
 			copy(k.pendingNonces[addrStr], k.pendingNonces[addrStr][i+1:])
 			k.pendingNonces[addrStr] = k.pendingNonces[addrStr][:len(k.pendingNonces[addrStr])-i-1]
