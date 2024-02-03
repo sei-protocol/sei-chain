@@ -415,7 +415,6 @@ func (k *Keeper) CompletePendingNonce(key tmtypes.TxKey) {
 	nonce := acctNonce.nonce
 
 	delete(k.keyToNonce, key)
-	k.completedNonces.Add(nonceCacheKey(address, nonce), true)
 
 	addrStr := address.Hex()
 	if _, ok := k.pendingNonces[addrStr]; !ok {
@@ -432,7 +431,9 @@ func (k *Keeper) CompletePendingNonce(key tmtypes.TxKey) {
 			if len(k.pendingNonces[addrStr]) == 0 {
 				delete(k.pendingNonces, addrStr)
 			}
+			k.completedNonces.Add(nonceCacheKey(address, nonce), true)
 			return
 		}
 	}
+
 }
