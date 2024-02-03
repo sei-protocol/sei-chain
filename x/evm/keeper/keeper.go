@@ -357,7 +357,7 @@ func (k *Keeper) ReapExpiredNonces() {
 				remaining = append(remaining, nonce)
 				continue
 			}
-			k.logger.Info("expiring pending nonce",
+			k.logger.Error("reaper expiring nonce",
 				"nonce", nonce.nonce,
 				"address", addr,
 				"age_ms", time.Since(nonce.timestamp).Milliseconds())
@@ -381,7 +381,7 @@ func (k *Keeper) startNonceReaper() {
 
 func (k *Keeper) print() {
 	for _, v := range k.keyToNonce {
-		k.logger.Info("DEBUG: pending nonce", "address", v.address.Hex(), "nonce", v.nonce, "age", time.Since(v.timestamp).Milliseconds())
+		k.logger.Info("DEBUG: nonce reaper print()", "address", v.address.Hex(), "nonce", v.nonce, "age", time.Since(v.timestamp).Milliseconds())
 	}
 }
 
