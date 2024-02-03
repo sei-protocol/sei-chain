@@ -319,10 +319,6 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
-	k.expirePendingNonceUnsafe(key)
-}
-
-func (k *Keeper) expirePendingNonceUnsafe(key tmtypes.TxKey) {
 	tx, ok := k.keyToNonce[key]
 
 	if !ok {
@@ -332,7 +328,7 @@ func (k *Keeper) expirePendingNonceUnsafe(key tmtypes.TxKey) {
 	delete(k.keyToNonce, key)
 	addr := tx.address.Hex()
 	for i, pair := range k.pendingNonces[addr] {
-		if pair.nonce == tx.nonce {
+		if pair.key == tx.key {
 			// remove nonce but keep prior nonces in the slice (unlike the completion scenario)
 			k.pendingNonces[addr] = append(k.pendingNonces[addr][:i], k.pendingNonces[addr][i+1:]...)
 			// If the slice is empty, delete the key from the map
@@ -375,7 +371,7 @@ func (k *Keeper) ReapExpiredNonces() {
 	}
 	for key, v := range k.keyToNonce {
 		if v.IsExpired(now) {
-			panic(fmt.Sprintf("keyToNonce has a key that is not in pendingNonces: %X, %v", key, v))
+			delete(k.keyToNonce, key)
 		}
 	}
 }
