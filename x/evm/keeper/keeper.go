@@ -383,7 +383,7 @@ func (k *Keeper) startNonceReaper() {
 		<-ticker.C
 		start := time.Now().UTC()
 		k.ReapExpiredNonces()
-		k.logger.Info("DEBUG: nonce reaper", "pendingTxs", len(k.keyToNonce), "completedTxs", len(k.completedNonces), "addresses", len(k.pendingNonces), "durationMs", time.Since(start).Milliseconds()
+		k.logger.Info("DEBUG: nonce reaper", "pendingTxs", len(k.keyToNonce), "completedTxs", len(k.completedNonces), "addresses", len(k.pendingNonces), "durationMs", time.Since(start).Milliseconds())
 	}
 }
 
