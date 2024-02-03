@@ -343,7 +343,6 @@ func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
 func (k *Keeper) ReapExpiredNonces() {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
-	k.print()
 	now := time.Now().UTC()
 	for addr, nonces := range k.pendingNonces {
 		var remaining []*addressNoncePair
@@ -352,7 +351,7 @@ func (k *Keeper) ReapExpiredNonces() {
 				remaining = append(remaining, nonce)
 				continue
 			}
-			k.logger.Error("reaper expiring nonce",
+			k.logger.Error("reaper expiring nonce (>1m)",
 				"nonce", nonce.nonce,
 				"address", addr,
 				"age_ms", now.Sub(nonce.timestamp).Milliseconds())
@@ -382,8 +381,9 @@ func (k *Keeper) startNonceReaper() {
 	ticker := time.NewTicker(10 * time.Second)
 	for {
 		<-ticker.C
-		k.logger.Info("DEBUG: nonce reaper start", "keyToNonce", len(k.keyToNonce), "pendingNonce", len(k.pendingNonces), "completedNonce", len(k.completedNonces))
+		start := time.Now().UTC()
 		k.ReapExpiredNonces()
+		k.logger.Info("DEBUG: nonce reaper", "pendingTxs", len(k.keyToNonce), "completedTxs", len(k.completedNonces), "addresses", len(k.pendingNonces), "durationMs", time.Since(start).Milliseconds()
 	}
 }
 
