@@ -9,6 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
+	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 )
 
@@ -20,6 +21,7 @@ func InitializePrecompiles(
 	bankKeeper common.BankKeeper,
 	wasmdKeeper common.WasmdKeeper,
 	wasmdViewKeeper common.WasmdViewKeeper,
+	stakingKeeper common.StakingKeeper,
 ) error {
 	SetupMtx.Lock()
 	defer SetupMtx.Unlock()
@@ -46,6 +48,11 @@ func InitializePrecompiles(
 		return err
 	}
 	addPrecompileToVM(addrp, addrp.Address())
+	stakingp, err := staking.NewPrecompile(stakingKeeper, evmKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(stakingp, stakingp.Address())
 	Initialized = true
 	return nil
 }
