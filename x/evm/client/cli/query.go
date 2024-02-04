@@ -23,6 +23,9 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+const TrueStr = "true"
+const FalseStr = "false"
+
 // GetQueryCmd returns the cli query commands for this module
 func GetQueryCmd(_ string) *cobra.Command {
 	// Group epoch queries under a subcommand
@@ -197,7 +200,7 @@ func CmdQueryPayload() *cobra.Command {
 						case 32:
 							arg = int32(val)
 						case 64:
-							arg = int64(val)
+							arg = val
 						}
 					}
 				case abi.UintTy:
@@ -219,14 +222,14 @@ func CmdQueryPayload() *cobra.Command {
 						case 32:
 							arg = uint32(val)
 						case 64:
-							arg = uint64(val)
+							arg = val
 						}
 					}
 				case abi.BoolTy:
-					if args[idx] != "true" && args[idx] != "false" {
-						err = errors.New("boolean argument has to be either \"true\" or \"false\"")
+					if args[idx] != TrueStr && args[idx] != FalseStr {
+						err = fmt.Errorf("boolean argument has to be either \"%s\" or \"%s\"", TrueStr, FalseStr)
 					} else {
-						arg = args[idx] == "true"
+						arg = args[idx] == TrueStr
 					}
 				case abi.StringTy:
 					arg = args[idx]

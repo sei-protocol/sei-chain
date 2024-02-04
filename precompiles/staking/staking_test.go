@@ -137,6 +137,79 @@ func TestStaking(t *testing.T) {
 	require.Equal(t, int64(20), d.Shares.RoundInt().Int64())
 }
 
+func TestStakingError(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+	valPub1 := secp256k1.GenPrivKey().PubKey()
+	valPub2 := secp256k1.GenPrivKey().PubKey()
+	val := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub1)
+	val2 := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub2)
+
+	abi := staking.GetABI()
+	args, err := abi.Pack("undelegate", val.String(), big.NewInt(100))
+
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	addr := common.HexToAddress(staking.StakingAddress)
+	txData := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      20000000,
+		To:       &addr,
+		Value:    big.NewInt(0),
+		Data:     args,
+		Nonce:    0,
+	}
+	chainID := k.ChainID(ctx)
+	evmParams := k.GetParams(ctx)
+	chainCfg := evmParams.GetChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err := types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
+	require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, evmAddr[:], amt))
+
+	msgServer := keeper.NewMsgServerImpl(k)
+
+	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.Nil(t, err)
+	require.NotEmpty(t, res.VmError)
+
+	// redelegate
+	args, err = abi.Pack("redelegate", val.String(), val2.String(), big.NewInt(50))
+	require.Nil(t, err)
+	txData = ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      20000000,
+		To:       &addr,
+		Value:    big.NewInt(0),
+		Data:     args,
+		Nonce:    1,
+	}
+	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err = ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err = types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.Nil(t, err)
+	require.NotEmpty(t, res.VmError)
+}
+
 func setupValidator(t *testing.T, ctx sdk.Context, a *app.App, bondStatus stakingtypes.BondStatus, valPub crptotypes.PubKey) sdk.ValAddress {
 	valAddr := sdk.ValAddress(valPub.Address())
 	bondDenom := a.StakingKeeper.GetParams(ctx).BondDenom
