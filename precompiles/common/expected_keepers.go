@@ -1,8 +1,11 @@
 package common
 
 import (
+	"context"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -23,6 +26,7 @@ type EVMKeeper interface {
 	IsCodeHashWhitelistedForDelegateCall(ctx sdk.Context, h common.Hash) bool
 	IsCodeHashWhitelistedForBankSend(ctx sdk.Context, h common.Hash) bool
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
+	GetBaseDenom(ctx sdk.Context) string
 }
 
 type WasmdKeeper interface {
@@ -32,4 +36,10 @@ type WasmdKeeper interface {
 
 type WasmdViewKeeper interface {
 	QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
+}
+
+type StakingKeeper interface {
+	Delegate(goCtx context.Context, msg *stakingtypes.MsgDelegate) (*stakingtypes.MsgDelegateResponse, error)
+	BeginRedelegate(goCtx context.Context, msg *stakingtypes.MsgBeginRedelegate) (*stakingtypes.MsgBeginRedelegateResponse, error)
+	Undelegate(goCtx context.Context, msg *stakingtypes.MsgUndelegate) (*stakingtypes.MsgUndelegateResponse, error)
 }
