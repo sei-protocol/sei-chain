@@ -4,6 +4,7 @@ import (
 	"math"
 	"sync"
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -48,6 +49,40 @@ func TestGetHashFn(t *testing.T) {
 	require.Equal(t, common.BytesToHash(ctx.HeaderHash()), f(uint64(ctx.BlockHeight())))
 	require.Equal(t, common.Hash{}, f(uint64(ctx.BlockHeight())+1))
 	require.Equal(t, common.Hash{}, f(uint64(ctx.BlockHeight())-1))
+}
+
+func TestKeeper_ReapExpiredNonces_Empty(t *testing.T) {
+	k, _ := keeper.MockEVMKeeper()
+	require.NotPanics(t, func() { k.ReapExpiredNonces() })
+}
+
+func TestKeeper_ReapExpiredNonces(t *testing.T) {
+	// put the value back at the end of the test
+	defer func() {
+		evmkeeper.NonceExpiration = 1 * time.Minute
+	}()
+	evmkeeper.NonceExpiration = 1 * time.Nanosecond
+	k, ctx := keeper.MockEVMKeeper()
+	key1 := tmtypes.TxKey(rand.NewRand().Bytes(32))
+	key2 := tmtypes.TxKey(rand.NewRand().Bytes(32))
+	addr1 := common.BytesToAddress([]byte("addr1"))
+
+	// setup state
+	k.SetNonce(ctx, addr1, 50)
+	k.AddPendingNonce(key1, addr1, 50)
+	k.AddPendingNonce(key2, addr1, 51)
+
+	// next nonce should normally be 52
+	require.Equal(t, uint64(52), k.CalculateNextNonce(ctx, addr1, true))
+
+	// override so we can see expiration work
+	time.Sleep(1 * time.Millisecond)
+
+	// reap all expired pending nonces (all of them)
+	k.ReapExpiredNonces()
+
+	// now pending nonces should be gone, so it should be 50
+	require.Equal(t, uint64(50), k.CalculateNextNonce(ctx, addr1, true))
 }
 
 func TestKeeper_CalculateNextNonce(t *testing.T) {
