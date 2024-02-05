@@ -57,6 +57,8 @@ cloud.google.com/go/storage v1.8.0/go.mod h1:Wv1Oy7z6Yz3DshWRJFhqM/UCfaWIRTdp0RX
 cloud.google.com/go/storage v1.10.0/go.mod h1:FLPqc6j+Ki4BU591ie1oL6qBQGu2Bl/tZ9ullr3+Kg0=
 cloud.google.com/go/storage v1.14.0/go.mod h1:GrKmX003DSIwi9o29oFT7YDnHYwZoctc3fOKtUw0Xmo=
 contrib.go.opencensus.io/exporter/stackdriver v0.13.4/go.mod h1:aXENhDJ1Y4lIg4EUaVTwzvYETVNZk10Pu26tevFKLUc=
+cosmossdk.io/errors v1.0.0 h1:nxF07lmlBbB8NKQhtJ+sJm6ef5uV1XkvPXG2bUntb04=
+cosmossdk.io/errors v1.0.0/go.mod h1:+hJZLuhdDE0pYN8HkOrVNwrIOYvUGnn6+4fjnJs/oV0=
 dmitri.shuralyov.com/gpu/mtl v0.0.0-20190408044501-666a987793e9/go.mod h1:H6x//7gZCb22OMCxBHrMx7a5I7Hp++hsVxbQ4BYO7hU=
 filippo.io/edwards25519 v1.0.0-rc.1 h1:m0VOOB23frXZvAOK44usCgLWvtsxIoMCTBGJZlpmGfU=
 filippo.io/edwards25519 v1.0.0-rc.1/go.mod h1:N1IkdkCkiLB6tki+MYJoSx2JTY9NUlxZE7eHn5EwJns=
@@ -1169,8 +1171,8 @@ github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQp
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
 github.com/sei-protocol/sei-cosmos v0.2.67-0.20231121181801-abddea4602b5 h1:eILFuTbx+kXvn8XoTc5r/WbXLwwKWC3/jJq2cbksCkc=
 github.com/sei-protocol/sei-cosmos v0.2.67-0.20231121181801-abddea4602b5/go.mod h1:WwG98LAihyucEiN6jttl8lLiyu9lRTmCvc0PI0nmYME=
-github.com/sei-protocol/sei-db v0.0.30 h1:dlAOTE+7nByzzAD9cb1/DxaHWbxXOHFh58a2ImvcoYs=
-github.com/sei-protocol/sei-db v0.0.30/go.mod h1:F/ZKZA8HJPcUzSZPA8yt6pfwlGriJ4RDR4eHKSGLStI=
+github.com/sei-protocol/sei-db v0.0.22 h1:F61xF4kK4uK/dR6l15pT9h5Z14NZ+spCCiXAhY5F+L4=
+github.com/sei-protocol/sei-db v0.0.22/go.mod h1:NzhbWeiNcxYgdkkAAk0qM7D0XHaq5qWwUHSgA4dGuY4=
 github.com/sei-protocol/sei-iavl v0.1.8-0.20230726213826-031d03d26f2d h1:FWWK/dxqrurTRR3SBlpk0v/FgXef+Ev7/d3X1KBPrTo=
 github.com/sei-protocol/sei-iavl v0.1.8-0.20230726213826-031d03d26f2d/go.mod h1:7PfkEVT5dcoQE+s/9KWdoXJ8VVVP1QpYYPLdxlkSXFk=
 github.com/sei-protocol/sei-ibc-go/v3 v3.3.0 h1:/mjpTuCSEVDJ51nUDSHU92N0bRSwt49r1rmdC/lqgp8=
