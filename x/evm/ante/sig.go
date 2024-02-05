@@ -54,7 +54,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 		// if the mempool expires a transaction, this handler is invoked
 		ctx = ctx.WithExpireTxHandler(func() {
 			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
-			svd.evmKeeper.ExpirePendingNonce(txKey)
+			svd.evmKeeper.RemovePendingNonce(txKey)
 		})
 
 		if txNonce > nextNonce {

@@ -119,8 +119,9 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 				k.SetNonce(ctx, address1, 50)
 				k.AddPendingNonce(key1, address1, 50)
 				k.AddPendingNonce(key2, address1, 51)
-				k.CompletePendingNonce(key1)
-				k.CompletePendingNonce(key2)
+				k.SetNonce(ctx, address1, 52)
+				k.RemovePendingNonce(key1)
+				k.RemovePendingNonce(key2)
 			},
 			expectedNonce: 52,
 		},
@@ -132,7 +133,7 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 				k.SetNonce(ctx, address1, 50)
 				k.AddPendingNonce(key1, address1, 50)
 				k.AddPendingNonce(key2, address1, 51)
-				k.ExpirePendingNonce(key1)
+				k.RemovePendingNonce(key1)
 			},
 			expectedNonce: 50,
 		},
