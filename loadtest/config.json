@@ -1,105 +1,104 @@
 {
-    "grpc_endpoint": "127.0.0.1:9090",
-    "blockchain_endpoint": "http://localhost:26657/blockchain",
-    "node_uri": "tcp://localhost:26657",
-    "tls": false,
-    "msgs_per_tx": 10,
-    "chain_id": "sei-loadtest-testnet",
-    "txs_per_block": 400,
-    "rounds": 5,
-    "price_distribution": {
-        "min": "45",
-        "max": "55",
-        "number_of_distinct_values": 20
-    },
-    "quantity_distribution": {
-        "min": "1",
-        "max": "21",
-        "number_of_distinct_values": 20
-    },
-    "message_configs": {
-      "default": {
-        "gas": 3000000,
-        "fee": 300000
-      },
-      "collect_rewards": {
-        "gas": 10000000,
-        "fee": 1000000
-      },
-      "distribute_rewards": {
-        "gas": 10000000,
-        "fee": 1000000
-      }
-    },
-    "message_type_distribution": {
-        "dex": {
-            "limit_order_percentage": "0.2",
-            "market_order_percentage": "0.8"
-        },
-        "staking": {
-            "delegate_percentage": "0.5",
-            "undelegate_percentage": "0.25",
-            "begin_redelegate_percentage": "0.25"
-        }
-    },
-    "constant": true,
-    "loadtest_interval": 600,
-    "message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
-    "run_oracle": false,
-    "metrics_port": 9695,
-    "wasm_msg_types": {
-      "wasm_mint_nft": {
-        "contract_address": "sei1k83mp2vdgk57rgyuzrmm8yhume44lwtwmku5a7v3waanqe0qxkvssfjfvj"
-      },
-      "vortex": {
-        "contract_address": "sei12k3aacdygvjuran5hz60067pgu2uuuscz3styw2zk3q4aedj0v2sjq3tsj",
-        "num_orders_per_tx": 1
-      },
-      "instantiate": {
-        "code_id": 1,
-        "payload": "{}"
-      }
-    },
-    "contract_distribution": [
-      {
-        "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
-        "percentage": "0.1"
-      },
-      {
-        "contract_address": "sei1436kxs0w2es6xlqpp9rd35e3d0cjnw4sv8j3a7483sgks29jqwgs5z6axv",
-        "percentage": "0.1"
-      },
-      {
-        "contract_address": "sei1mf6ptkssddfmxvhdx0ech0k03ktp6kf9yk59renau2gvht3nq2gqw4umh9",
-        "percentage": "0.1"
-      },
-      {
-        "contract_address": "sei1kj8q8g2pmhnagmfepp9jh9g2mda7gzd0m5zdq0s08ulvac8ck4dqky7tlh",
-        "percentage": "0.1"
-      },
-      {
-        "contract_address": "sei1sthrn5ep8ls5vzz8f9gp89khhmedahhdqd244dh9uqzk3hx2pzrsfgf5u9",
-        "percentage": "0.1"
-      },
-      {
-        "contract_address": "sei1sr06m8yqg0wzqqyqvzvp5t07dj4nevx9u8qc7j4qa72qu8e3ct8q6c6arh",
-        "percentage": "0.1"
-      },
-      {
-        "contract_address": "sei1w798gp0zqv3s9hjl3jlnwxtwhykga6rn93p46q2crsdqhaj3y4gslx7gpp",
-        "percentage": "0.1"
-      },
-      {
-        "contract_address": "sei149ltwdnpxrhx9al42s359glcjnsuc6x3dalz28f04dsxhlu7jhmq8ymcll",
-        "percentage": "0.1"
-      },
-      {
-        "contract_address": "sei1qu43pvag5hu95hmml7y658t3k8sd9plnmpj8xmw9qgy0t458nyrqdcjxxz",
-        "percentage": "0.1"
-      },
-      {
-        "contract_address": "sei1nwp0ynjv84wxysf2f5ctvysl6dpm8ngm70hss6jeqt8q7e7u345s8zru6u",
-        "percentage": "0.1"
-      }
-  ]
+	"grpc_endpoints": "127.0.0.1:9090",
+	"evm_rpc_endpoints": "http://127.0.0.1:8545",
+	"blockchain_endpoint": "http://localhost:26657",
+	"node_uri": "tcp://localhost:26657",
+	"tls": false,
+	"msgs_per_tx": 1,
+	"chain_id": "sei-loadtest-testnet",
+	"target_tps": 500,
+	"max_accounts": 500,
+	"price_distribution": {
+		"min": "45",
+		"max": "55",
+		"number_of_distinct_values": 20
+	},
+	"quantity_distribution": {
+		"min": "1",
+		"max": "21",
+		"number_of_distinct_values": 20
+	},
+	"message_configs": {
+		"default": {
+			"gas": 3000000,
+			"fee": 200000
+		},
+		"collect_rewards": {
+			"gas": 10000000,
+			"fee": 1000000
+		},
+		"distribute_rewards": {
+			"gas": 10000000,
+			"fee": 1000000
+		}
+	},
+	"message_type_distribution": {
+		"dex": {
+			"limit_order_percentage": "0.2",
+			"market_order_percentage": "0.8"
+		},
+		"staking": {
+			"delegate_percentage": "0.5",
+			"undelegate_percentage": "0.25",
+			"begin_redelegate_percentage": "0.25"
+		}
+	},
+	"message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
+	"run_oracle": false,
+	"metrics_port": 9695,
+	"wasm_msg_types": {
+		"wasm_mint_nft": {
+			"contract_address": "sei1k83mp2vdgk57rgyuzrmm8yhume44lwtwmku5a7v3waanqe0qxkvssfjfvj"
+		},
+		"vortex": {
+			"contract_address": "sei12k3aacdygvjuran5hz60067pgu2uuuscz3styw2zk3q4aedj0v2sjq3tsj",
+			"num_orders_per_tx": 1
+		},
+		"instantiate": {
+			"code_id": 1,
+			"payload": "{}"
+		}
+	},
+	"contract_distribution": [
+		{
+			"contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
+			"percentage": "0.1"
+		},
+		{
+			"contract_address": "sei1436kxs0w2es6xlqpp9rd35e3d0cjnw4sv8j3a7483sgks29jqwgs5z6axv",
+			"percentage": "0.1"
+		},
+		{
+			"contract_address": "sei1mf6ptkssddfmxvhdx0ech0k03ktp6kf9yk59renau2gvht3nq2gqw4umh9",
+			"percentage": "0.1"
+		},
+		{
+			"contract_address": "sei1kj8q8g2pmhnagmfepp9jh9g2mda7gzd0m5zdq0s08ulvac8ck4dqky7tlh",
+			"percentage": "0.1"
+		},
+		{
+			"contract_address": "sei1sthrn5ep8ls5vzz8f9gp89khhmedahhdqd244dh9uqzk3hx2pzrsfgf5u9",
+			"percentage": "0.1"
+		},
+		{
+			"contract_address": "sei1sr06m8yqg0wzqqyqvzvp5t07dj4nevx9u8qc7j4qa72qu8e3ct8q6c6arh",
+			"percentage": "0.1"
+		},
+		{
+			"contract_address": "sei1w798gp0zqv3s9hjl3jlnwxtwhykga6rn93p46q2crsdqhaj3y4gslx7gpp",
+			"percentage": "0.1"
+		},
+		{
+			"contract_address": "sei149ltwdnpxrhx9al42s359glcjnsuc6x3dalz28f04dsxhlu7jhmq8ymcll",
+			"percentage": "0.1"
+		},
+		{
+			"contract_address": "sei1qu43pvag5hu95hmml7y658t3k8sd9plnmpj8xmw9qgy0t458nyrqdcjxxz",
+			"percentage": "0.1"
+		},
+		{
+			"contract_address": "sei1nwp0ynjv84wxysf2f5ctvysl6dpm8ngm70hss6jeqt8q7e7u345s8zru6u",
+			"percentage": "0.1"
+		}
+	]
 }

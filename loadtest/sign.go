@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -62,9 +63,27 @@ func NewSignerClient(nodeURI string) *SignerClient {
 	}
 }
 
-func (sc *SignerClient) GetTestAccountKeyPath(accountID uint64) string {
+func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivKey {
 	userHomeDir, _ := os.UserHomeDir()
-	return filepath.Join(userHomeDir, "test_accounts", fmt.Sprintf("ta%d.json", accountID))
+	files, _ := os.ReadDir(filepath.Join(userHomeDir, "test_accounts"))
+	var testAccountsKeys = make([]cryptotypes.PrivKey, int(math.Min(float64(len(files)), float64(maxAccounts))))
+	var wg sync.WaitGroup
+	fmt.Printf("Loading accounts\n")
+	for i, file := range files {
+		if i >= maxAccounts {
+			break
+		}
+		wg.Add(1)
+		go func(i int, fileName string) {
+			defer wg.Done()
+			key := sc.GetKey(fmt.Sprint(i), "test", filepath.Join(userHomeDir, "test_accounts", fileName))
+			testAccountsKeys[i] = key
+		}(i, file.Name())
+	}
+	wg.Wait()
+	fmt.Printf("Finished loading %d accounts \n", len(testAccountsKeys))
+
+	return testAccountsKeys
 }
 
 func (sc *SignerClient) GetAdminAccountKeyPath() string {
