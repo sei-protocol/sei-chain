@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
@@ -1398,14 +1397,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	typedTxs := []sdk.Tx{}
 
-	// keep up with address/nonce pairs and remove them from pending at the end of the block
-	evmTxs := make([]tmtypes.TxKey, 0, len(txs))
-	defer func() {
-		for _, key := range evmTxs {
-			app.EvmKeeper.CompletePendingNonce(key)
-		}
-	}()
-
 	for i, tx := range txs {
 		typedTx, err := app.txDecoder(tx)
 		// get txkey from tx
@@ -1414,7 +1405,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			typedTxs = append(typedTxs, nil)
 		} else {
 			if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
-				evmTxs = append(evmTxs, tmtypes.Tx(tx).Key())
 				msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
 				if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.GetParams(ctx)); err != nil {
 					ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
