@@ -286,27 +286,32 @@ func (txmp *TxMempool) CheckTx(
 	}
 
 	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
+
+	// when a transaction is removed/expired/rejected, this should be called
+	// The expire tx handler unreserves the pending nonce
+	removeHandler := func(removeFromCache bool) {
+		if removeFromCache {
+			txmp.cache.Remove(tx)
+		}
+		if res.ExpireTxHandler != nil {
+			res.ExpireTxHandler()
+		}
+	}
+
 	if err != nil {
-		txmp.cache.Remove(tx)
+		removeHandler(true)
 		res.Log = txmp.AppendCheckTxErr(res.Log, err.Error())
 	}
 
 	wtx := &WrappedTx{
-		tx:         tx,
-		hash:       txHash,
-		timestamp:  time.Now().UTC(),
-		height:     txmp.height,
-		evmNonce:   res.EVMNonce,
-		evmAddress: res.EVMSenderAddress,
-		isEVM:      res.IsEVM,
-		removeHandler: func(removeFromCache bool) {
-			if removeFromCache {
-				txmp.cache.Remove(tx)
-			}
-			if res.ExpireTxHandler != nil {
-				res.ExpireTxHandler()
-			}
-		},
+		tx:            tx,
+		hash:          txHash,
+		timestamp:     time.Now().UTC(),
+		height:        txmp.height,
+		evmNonce:      res.EVMNonce,
+		evmAddress:    res.EVMSenderAddress,
+		isEVM:         res.IsEVM,
+		removeHandler: removeHandler,
 	}
 
 	if err == nil {
@@ -561,9 +566,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 
 		txmp.metrics.FailedTxs.Add(1)
 
-		if !txmp.config.KeepInvalidTxsInCache {
-			txmp.cache.Remove(wtx.tx)
-		}
+		wtx.removeHandler(!txmp.config.KeepInvalidTxsInCache)
 		if res.Code != abci.CodeTypeOK {
 			txmp.mtxFailedCheckTxCounts.Lock()
 			defer txmp.mtxFailedCheckTxCounts.Unlock()
@@ -601,7 +604,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		if len(evictTxs) == 0 {
 			// No room for the new incoming transaction so we just remove it from
 			// the cache.
-			txmp.cache.Remove(wtx.tx)
+			wtx.removeHandler(true)
 			txmp.logger.Error(
 				"rejected incoming good transaction; mempool full",
 				"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
@@ -982,7 +985,7 @@ func (txmp *TxMempool) handlePendingTransactions() {
 	}
 	if !txmp.config.KeepInvalidTxsInCache {
 		for _, tx := range rejected {
-			txmp.cache.Remove(tx.tx.tx)
+			tx.tx.removeHandler(true)
 		}
 	}
 }
