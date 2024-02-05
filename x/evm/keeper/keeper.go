@@ -19,7 +19,6 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	lru "github.com/hashicorp/golang-lru/v2/simplelru"
 	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -38,7 +37,6 @@ type Keeper struct {
 	cachedFeeCollectorAddress    *common.Address
 	nonceMx                      *sync.RWMutex
 	pendingNonces                map[string][]uint64
-	completedNonces              *lru.LRU[string, bool]
 	keyToNonce                   map[tmtypes.TxKey]*addressNoncePair
 }
 
@@ -59,11 +57,6 @@ func NewKeeper(
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
-	// needs to be bounded to avoid leaking forever
-	cn, err := lru.NewLRU[string, bool](100000, nil)
-	if err != nil {
-		panic(fmt.Sprintf("could not create lru: %v", err))
-	}
 	k := &Keeper{
 		storeKey:                     storeKey,
 		memStoreKey:                  memStoreKey,
@@ -72,7 +65,6 @@ func NewKeeper(
 		accountKeeper:                accountKeeper,
 		stakingKeeper:                stakingKeeper,
 		pendingNonces:                make(map[string][]uint64),
-		completedNonces:              cn,
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*addressNoncePair),
@@ -226,11 +218,6 @@ func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	return common.BytesToHash(header.Hash())
 }
 
-// nonceCacheKey is a helper function to create a key for the completed nonces cache
-func nonceCacheKey(addr common.Address, nonce uint64) string {
-	return fmt.Sprintf("%s|%d", addr.Hex(), nonce)
-}
-
 // CalculateNextNonce calculates the next nonce for an address
 // If includePending is true, it will consider pending nonces
 // If includePending is false, it will only return the next nonce from GetNonce
@@ -250,28 +237,12 @@ func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, includ
 
 	// Check each nonce starting from latest until we find a gap
 	// That gap is the next nonce we should use.
-	// The completed nonces are limited to 100k entries
-	for {
-		// if it's not in pending and not completed, then it's the next nonce
-		if !sortedListContains(pending, nextNonce) && !k.completedNonces.Contains(nonceCacheKey(addr, nextNonce)) {
+	for ; ; nextNonce++ {
+		// if it's not in pending, then it's the next nonce
+		if _, found := sort.Find(len(pending), func(i int) int { return uint64Cmp(nextNonce, pending[i]) }); !found {
 			return nextNonce
 		}
-		nextNonce++
 	}
-}
-
-// sortedListContains is a helper function to check if a sorted slice contains a specific element
-func sortedListContains(slice []uint64, item uint64) bool {
-	for _, v := range slice {
-		if v == item {
-			return true
-		}
-		// because it's sorted, we can bail if it's higher
-		if v > item {
-			return false
-		}
-	}
-	return false
 }
 
 // AddPendingNonce adds a pending nonce to the keeper
@@ -280,6 +251,16 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 	defer k.nonceMx.Unlock()
 
 	addrStr := addr.Hex()
+	if existing, ok := k.keyToNonce[key]; ok {
+		if existing.nonce != nonce {
+			fmt.Printf("Seeing transactions with the same hash %X but different nonces (%d vs. %d), which should be impossible\n", key, nonce, existing.nonce)
+		}
+		if existing.address != addr {
+			fmt.Printf("Seeing transactions with the same hash %X but different addresses (%s vs. %s), which should be impossible\n", key, addr.Hex(), existing.address.Hex())
+		}
+		// we want to no-op whether it's a genuine duplicate or not
+		return
+	}
 	k.keyToNonce[key] = &addressNoncePair{
 		address: addr,
 		nonce:   nonce,
@@ -288,9 +269,9 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 	slices.Sort(k.pendingNonces[addrStr])
 }
 
-// ExpirePendingNonce removes a pending nonce from the keeper but leaves a hole
-// so that a future transaction must use this nonce
-func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
+// RemovePendingNonce removes a pending nonce from the keeper but leaves a hole
+// so that a future transaction must use this nonce.
+func (k *Keeper) RemovePendingNonce(key tmtypes.TxKey) {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
 	tx, ok := k.keyToNonce[key]
@@ -302,51 +283,23 @@ func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
 	delete(k.keyToNonce, key)
 
 	addr := tx.address.Hex()
-	for i, n := range k.pendingNonces[addr] {
-		if n == tx.nonce {
-			// remove nonce but keep prior nonces in the slice (unlike the completion scenario)
-			k.pendingNonces[addr] = append(k.pendingNonces[addr][:i], k.pendingNonces[addr][i+1:]...)
-			// If the slice is empty, delete the key from the map
-			if len(k.pendingNonces[addr]) == 0 {
-				delete(k.pendingNonces, addr)
-			}
-			return
-		}
+	pendings := k.pendingNonces[addr]
+	firstMatch, found := sort.Find(len(pendings), func(i int) int { return uint64Cmp(tx.nonce, pendings[i]) })
+	if !found {
+		fmt.Printf("Removing tx %X without a corresponding pending nonce, which should not happen\n", key)
+		return
+	}
+	k.pendingNonces[addr] = append(k.pendingNonces[addr][:firstMatch], k.pendingNonces[addr][firstMatch+1:]...)
+	if len(k.pendingNonces[addr]) == 0 {
+		delete(k.pendingNonces, addr)
 	}
 }
 
-// CompletePendingNonce removes a pending nonce from the keeper
-// success means this transaction was processed and this nonce is used
-func (k *Keeper) CompletePendingNonce(key tmtypes.TxKey) {
-	k.nonceMx.Lock()
-	defer k.nonceMx.Unlock()
-
-	acctNonce, ok := k.keyToNonce[key]
-	if !ok {
-		return
+func uint64Cmp(a, b uint64) int {
+	if a < b {
+		return -1
+	} else if a == b {
+		return 0
 	}
-	address := acctNonce.address
-	nonce := acctNonce.nonce
-
-	delete(k.keyToNonce, key)
-	k.completedNonces.Add(nonceCacheKey(address, nonce), true)
-
-	addrStr := address.Hex()
-	if _, ok := k.pendingNonces[addrStr]; !ok {
-		return
-	}
-
-	for i, n := range k.pendingNonces[addrStr] {
-		if n >= nonce {
-			// remove the nonce and all prior nonces from the slice
-			copy(k.pendingNonces[addrStr], k.pendingNonces[addrStr][i+1:])
-			k.pendingNonces[addrStr] = k.pendingNonces[addrStr][:len(k.pendingNonces[addrStr])-i-1]
-
-			// If the slice is empty, delete the key from the map
-			if len(k.pendingNonces[addrStr]) == 0 {
-				delete(k.pendingNonces, addrStr)
-			}
-			return
-		}
-	}
+	return 1
 }
