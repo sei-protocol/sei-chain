@@ -19,8 +19,8 @@ jobs:
 
       - name: Check Latest Dependencies
         run: |
-          git clone -b evm-temp https://github.com/sei-protocol/sei-cosmos.git
-          git clone -b evm-temp https://github.com/sei-protocol/sei-tendermint.git
+          git clone -b evm https://github.com/sei-protocol/sei-cosmos.git
+          git clone -b evm https://github.com/sei-protocol/sei-tendermint.git
           git clone https://github.com/sei-protocol/sei-iavl.git
           git clone https://github.com/sei-protocol/go-ethereum.git
           go mod edit -replace github.com/cosmos/iavl=./sei-iavl
