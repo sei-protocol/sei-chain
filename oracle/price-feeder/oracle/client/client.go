@@ -17,6 +17,7 @@ import (
 	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/rs/zerolog"
@@ -191,7 +192,7 @@ func (oc OracleClient) BroadcastTx(
 
 	oc.Logger.Info().Msg(fmt.Sprintf("Sending broadcastTx with account sequence number %d", txf.Sequence()))
 	resp, err := clientCtx.BroadcastTx(txBytes)
-	if resp != nil && resp.Code != 0 {
+	if resp != nil && resp.Code != 0 && resp.Code != sdkerrors.ErrAlreadyExists.ABCICode() {
 		err = fmt.Errorf("received error response code from broadcast tx: %d", resp.Code)
 	}
 	if err != nil {
