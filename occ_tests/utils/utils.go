@@ -95,13 +95,12 @@ func addressToValAddress(addr sdk.AccAddress) sdk.ValAddress {
 // NewTestContext initializes a new TestContext with a new app and a new contract
 func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, workers int) *TestContext {
 	contractFile := "../integration_test/contracts/mars.wasm"
-	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, func(ba *baseapp.BaseApp) {
+	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, false, func(ba *baseapp.BaseApp) {
 		ba.SetConcurrencyWorkers(workers)
 	})
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(dextypes.MemStoreKey))))
-	ctx = ctx.WithBlockGasMeter(sdk.NewGasMeter(100000000))
 	ctx = ctx.WithBlockHeader(tmproto.Header{Height: ctx.BlockHeader().Height, ChainID: ctx.BlockHeader().ChainID, Time: blockTime})
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
 	bankkeeper := testApp.BankKeeper

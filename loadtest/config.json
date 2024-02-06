@@ -6,8 +6,8 @@
 	"tls": false,
 	"msgs_per_tx": 1,
 	"chain_id": "sei-loadtest-testnet",
-	"target_tps": 500,
-	"max_accounts": 500,
+	"target_tps": 1000,
+	"max_accounts": 1000,
 	"price_distribution": {
 		"min": "45",
 		"max": "55",
@@ -43,7 +43,7 @@
 			"begin_redelegate_percentage": "0.25"
 		}
 	},
-	"message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
+	"message_type": "evm",
 	"run_oracle": false,
 	"metrics_port": 9695,
 	"wasm_msg_types": {
