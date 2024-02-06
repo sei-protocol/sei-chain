@@ -287,8 +287,6 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	_, txResults, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
 			1,
-		).WithBlockGasMeter(
-			sdk.NewInfiniteGasMeter(),
 		),
 		txs,
 		req,
@@ -311,8 +309,6 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	_, txResults2, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
 			1,
-		).WithBlockGasMeter(
-			sdk.NewInfiniteGasMeter(),
 		),
 		diffOrderTxs,
 		req,

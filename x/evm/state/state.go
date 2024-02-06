@@ -33,15 +33,19 @@ func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash)
 }
 
 func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.Hash {
-	val := s.k.PrefixStore(s.ctx, types.TransientStateKeyForAddress(s.ctx, addr)).Get(key[:])
-	if val == nil {
-		return common.Hash{}
+	if m, ok := s.transientStates[addr.Hex()]; ok {
+		if v, ok := m[key.Hex()]; ok {
+			return v
+		}
 	}
-	return common.BytesToHash(val)
+	return common.Hash{}
 }
 
 func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
-	s.k.PrefixStore(s.ctx, types.TransientStateKeyForAddress(s.ctx, addr)).Set(key[:], val[:])
+	if _, ok := s.transientStates[addr.Hex()]; !ok {
+		s.transientStates[addr.Hex()] = make(map[string]common.Hash)
+	}
+	s.transientStates[addr.Hex()][key.Hex()] = val
 }
 
 // burns account's balance
@@ -72,8 +76,11 @@ func (s *DBImpl) Selfdestruct6780(acc common.Address) {
 // the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
 // **CURRENT** block
 func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
-	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKey(s.ctx))
-	return bytes.Equal(store.Get(acc[:]), AccountDeleted)
+	v, ok := s.transientAccounts[acc.Hex()]
+	if !ok {
+		return false
+	}
+	return bytes.Equal(v, AccountDeleted)
 }
 
 func (s *DBImpl) Snapshot() int {
@@ -102,17 +109,21 @@ func (s *DBImpl) clearAccountState(acc common.Address) {
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
-	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKey(s.ctx))
 	if status == nil {
-		store.Delete(acc[:])
+		if _, ok := s.transientAccounts[acc.Hex()]; ok {
+			delete(s.transientAccounts, acc.Hex())
+		}
 	} else {
-		store.Set(acc[:], status)
+		s.transientAccounts[acc.Hex()] = status
 	}
 }
 
 func (s *DBImpl) Created(acc common.Address) bool {
-	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKey(s.ctx))
-	return bytes.Equal(store.Get(acc[:]), AccountCreated)
+	v, ok := s.transientAccounts[acc.Hex()]
+	if !ok {
+		return false
+	}
+	return bytes.Equal(v, AccountCreated)
 }
 
 func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {

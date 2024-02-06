@@ -30,16 +30,23 @@ type DBImpl struct {
 
 	k          EVMKeeper
 	simulation bool
+
+	transientStates       map[string]map[string]common.Hash
+	transientAccounts     map[string][]byte
+	transientModuleStates map[string][]byte
 }
 
 func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	s := &DBImpl{
-		ctx:              ctx,
-		k:                k,
-		snapshottedCtxs:  []sdk.Context{},
-		middleManAddress: GetMiddleManAddress(ctx),
-		coinbaseAddress:  GetCoinbaseAddress(ctx),
-		simulation:       simulation,
+		ctx:                   ctx,
+		k:                     k,
+		snapshottedCtxs:       []sdk.Context{},
+		middleManAddress:      GetMiddleManAddress(ctx),
+		coinbaseAddress:       GetCoinbaseAddress(ctx),
+		simulation:            simulation,
+		transientStates:       make(map[string]map[string]common.Hash),
+		transientAccounts:     make(map[string][]byte),
+		transientModuleStates: make(map[string][]byte),
 	}
 	s.Snapshot() // take an initial snapshot for GetCommitted
 	return s
@@ -75,9 +82,6 @@ func (s *DBImpl) Finalize() error {
 }
 
 func (s *DBImpl) flushCtx(ctx sdk.Context) {
-	s.k.PurgePrefix(ctx, types.TransientStateKey(s.ctx))
-	s.k.PurgePrefix(ctx, types.AccountTransientStateKey(s.ctx))
-	s.k.PurgePrefix(ctx, types.TransientModuleStateKey(s.ctx))
 	ctx.MultiStore().(sdk.CacheMultiStore).Write()
 }
 
@@ -93,15 +97,18 @@ func (s *DBImpl) GetStorageRoot(common.Address) common.Hash {
 func (s *DBImpl) Copy() vm.StateDB {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore())
 	return &DBImpl{
-		ctx:              newCtx,
-		snapshottedCtxs:  append(s.snapshottedCtxs, s.ctx),
-		logs:             []*ethtypes.Log{},
-		snapshottedLogs:  append(s.snapshottedLogs, s.logs),
-		k:                s.k,
-		middleManAddress: s.middleManAddress,
-		coinbaseAddress:  s.coinbaseAddress,
-		simulation:       s.simulation,
-		err:              s.err,
+		ctx:                   newCtx,
+		snapshottedCtxs:       append(s.snapshottedCtxs, s.ctx),
+		logs:                  []*ethtypes.Log{},
+		snapshottedLogs:       append(s.snapshottedLogs, s.logs),
+		k:                     s.k,
+		middleManAddress:      s.middleManAddress,
+		coinbaseAddress:       s.coinbaseAddress,
+		simulation:            s.simulation,
+		err:                   s.err,
+		transientStates:       s.transientStates,
+		transientAccounts:     s.transientAccounts,
+		transientModuleStates: s.transientModuleStates,
 	}
 }
 
