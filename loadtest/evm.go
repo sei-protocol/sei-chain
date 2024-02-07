@@ -85,7 +85,7 @@ func (txClient *EvmTxClient) GenerateEvmSignedTx() *ethtypes.Transaction {
 	// Generate random amount to send
 	rand.Seed(time.Now().Unix())
 	value := big.NewInt(rand.Int63n(math.MaxInt64 - 1))
-	gasLimit := uint64(200000)
+	gasLimit := uint64(21000)
 	tx := ethtypes.NewTransaction(nextNonce, txClient.accountAddress, value, gasLimit, txClient.gasPrice, nil)
 	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), privateKey)
 	if err != nil {
@@ -102,18 +102,21 @@ func (txClient *EvmTxClient) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 		fmt.Printf("Failed to send evm transaction: %v \n", err)
 	}
 
-	go func() {
-		success, errs := withRetry(func() error {
-			return txClient.GetTxReceipt(signedTx.Hash())
-		})
-		if success {
-			onSuccess()
-		} else {
-			fmt.Printf("Failed to get evm transaction receipt: %v \n", errs)
-			_ = txClient.ResetNonce()
-		}
-	}()
+	// TODO: to make this async, we'll need to make sure that we look for these in order of nonce
+	// We may need to separate these into a list of nonce-ordered txs to look for
+	// with some intelligence to stop looking if nonce is reset to a prior value to prevent a snowball
+	// This might be a managed list of pending txs with a singleton checker routine.
 
+	// This performs a synchronous check for the tx receipt to prevent a snowball effect
+	success, errs := withRetry(func() error {
+		return txClient.GetTxReceipt(signedTx.Hash())
+	})
+	if success {
+		onSuccess()
+	} else {
+		fmt.Printf("Failed to get evm transaction receipt: %v \n", errs)
+		_ = txClient.ResetNonce()
+	}
 }
 
 // GetNextEthClient return the next available eth client randomly
@@ -139,7 +142,6 @@ func (txClient *EvmTxClient) GetTxReceipt(txHash common.Hash) error {
 
 // ResetNonce need to be called when tx failed
 func (txClient *EvmTxClient) ResetNonce() error {
-
 	txClient.mtx.Lock()
 	defer txClient.mtx.Unlock()
 	client := GetNextEthClient(txClient.ethClients)
@@ -158,10 +160,10 @@ func withRetry(callFunc func() error) (bool, error) {
 		err := callFunc()
 		if err != nil {
 			retryCount++
-			if retryCount >= 5 {
+			if retryCount >= 15 {
 				return false, err
 			}
-			time.Sleep(1 * time.Second)
+			time.Sleep(300 * time.Millisecond)
 			continue
 		} else {
 			return true, nil
