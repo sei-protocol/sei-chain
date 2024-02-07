@@ -3,7 +3,6 @@ package staking
 import (
 	"bytes"
 	"embed"
-	"errors"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -162,12 +161,4 @@ func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller commo
 		return nil, err
 	}
 	return method.Outputs.Pack(true)
-}
-
-func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
-	addr := arg.(common.Address)
-	if addr == (common.Address{}) {
-		return nil, errors.New("invalid addr")
-	}
-	return p.evmKeeper.GetSeiAddressOrDefault(ctx, addr), nil
 }

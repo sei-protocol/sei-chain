@@ -588,11 +588,6 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
 	}
-	if enableCustomEVMPrecompiles {
-		if err := precompiles.InitializePrecompiles(&app.EvmKeeper, app.BankKeeper, wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), app.WasmKeeper, stakingkeeper.NewMsgServerImpl(app.StakingKeeper)); err != nil {
-			panic(err)
-		}
-	}
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
@@ -638,6 +633,20 @@ func New(
 	ibcRouter.AddRoute(wasm.ModuleName, wasm.NewIBCHandler(app.WasmKeeper, app.IBCKeeper.ChannelKeeper))
 	// this line is used by starport scaffolding # ibc/app/router
 	app.IBCKeeper.SetRouter(ibcRouter)
+
+	if enableCustomEVMPrecompiles {
+		if err := precompiles.InitializePrecompiles(
+			&app.EvmKeeper,
+			app.BankKeeper,
+			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
+			app.WasmKeeper,
+			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
+			app.GovKeeper,
+			app.DistrKeeper,
+		); err != nil {
+			panic(err)
+		}
+	}
 
 	/****  Module Options ****/
 
