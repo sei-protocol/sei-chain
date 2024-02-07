@@ -17,7 +17,9 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 		return
 	}
 
-	s.send(s.getSeiAddress(evmAddr), s.middleManAddress, amt)
+	usei, _ := SplitUseiWeiAmount(amt) // ignore wei in loadtest
+	s.err = s.k.BankKeeper().SubUnlockedCoins(s.ctx, s.getSeiAddress(evmAddr), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewIntFromBigInt(usei))), false)
+	// s.send(s.getSeiAddress(evmAddr), s.middleManAddress, amt)
 }
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
@@ -29,7 +31,9 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 		return
 	}
 
-	s.send(s.middleManAddress, s.getSeiAddress(evmAddr), amt)
+	usei, _ := SplitUseiWeiAmount(amt) // ignore wei in loadtest
+	s.err = s.k.BankKeeper().AddCoins(s.ctx, s.getSeiAddress(evmAddr), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewIntFromBigInt(usei))), false)
+	// s.send(s.middleManAddress, s.getSeiAddress(evmAddr), amt)
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
