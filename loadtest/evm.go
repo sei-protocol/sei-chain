@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"math/big"
 	"math/rand"
 	"sync"
@@ -84,7 +83,7 @@ func (txClient *EvmTxClient) GenerateEvmSignedTx() *ethtypes.Transaction {
 
 	// Generate random amount to send
 	rand.Seed(time.Now().Unix())
-	value := big.NewInt(rand.Int63n(math.MaxInt64 - 1))
+	value := big.NewInt(rand.Int63n(9000000) * 1000000000000)
 	gasLimit := uint64(21000)
 	tx := ethtypes.NewTransaction(nextNonce, txClient.accountAddress, value, gasLimit, txClient.gasPrice, nil)
 	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), privateKey)
@@ -100,22 +99,9 @@ func (txClient *EvmTxClient) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 	err := GetNextEthClient(txClient.ethClients).SendTransaction(context.Background(), signedTx)
 	if err != nil {
 		fmt.Printf("Failed to send evm transaction: %v \n", err)
-	}
-
-	// TODO: to make this async, we'll need to make sure that we look for these in order of nonce
-	// We may need to separate these into a list of nonce-ordered txs to look for
-	// with some intelligence to stop looking if nonce is reset to a prior value to prevent a snowball
-	// This might be a managed list of pending txs with a singleton checker routine.
-
-	// This performs a synchronous check for the tx receipt to prevent a snowball effect
-	success, errs := withRetry(func() error {
-		return txClient.GetTxReceipt(signedTx.Hash())
-	})
-	if success {
-		onSuccess()
 	} else {
-		fmt.Printf("Failed to get evm transaction receipt: %v \n", errs)
-		_ = txClient.ResetNonce()
+		// We choose not to GetTxReceipt because we assume the EVM RPC would be running with broadcast mode = block
+		onSuccess()
 	}
 }
 
