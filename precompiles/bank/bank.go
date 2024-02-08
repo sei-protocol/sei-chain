@@ -16,12 +16,13 @@ import (
 )
 
 const (
-	SendMethod     = "send"
-	BalanceMethod  = "balance"
-	NameMethod     = "name"
-	SymbolMethod   = "symbol"
-	DecimalsMethod = "decimals"
-	SupplyMethod   = "supply"
+	SendMethod       = "send"
+	SendNativeMethod = "sendNative"
+	BalanceMethod    = "balance"
+	NameMethod       = "name"
+	SymbolMethod     = "symbol"
+	DecimalsMethod   = "decimals"
+	SupplyMethod     = "supply"
 )
 
 const (
@@ -41,12 +42,13 @@ type Precompile struct {
 	evmKeeper  pcommon.EVMKeeper
 	address    common.Address
 
-	SendID     []byte
-	BalanceID  []byte
-	NameID     []byte
-	SymbolID   []byte
-	DecimalsID []byte
-	SupplyID   []byte
+	SendID       []byte
+	SendNativeID []byte
+	BalanceID    []byte
+	NameID       []byte
+	SymbolID     []byte
+	DecimalsID   []byte
+	SupplyID     []byte
 }
 
 func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
@@ -71,15 +73,17 @@ func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (
 		switch name {
 		case SendMethod:
 			p.SendID = m.ID
-		case "balance":
+		case SendNativeMethod:
+			p.SendNativeID = m.ID
+		case BalanceMethod:
 			p.BalanceID = m.ID
-		case "name":
+		case NameMethod:
 			p.NameID = m.ID
-		case "symbol":
+		case SymbolMethod:
 			p.SymbolID = m.ID
-		case "decimals":
+		case DecimalsMethod:
 			p.DecimalsID = m.ID
-		case "supply":
+		case SupplyMethod:
 			p.SupplyID = m.ID
 		}
 	}
@@ -116,6 +120,11 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 			return nil, err
 		}
 		return p.send(ctx, method, args)
+	case SendNativeMethod:
+		if err := p.validateCaller(ctx, caller); err != nil {
+			return nil, err
+		}
+		return p.sendNative(ctx, method, args)
 	case BalanceMethod:
 		return p.balance(ctx, method, args)
 	case NameMethod:
@@ -140,7 +149,7 @@ func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address) error
 	if p.evmKeeper.IsCodeHashWhitelistedForBankSend(ctx, codeHash) {
 		return nil
 	}
-	return fmt.Errorf("caller %s with code hash %s is not whitelisted for arbirary bank send", caller.Hex(), codeHash.Hex())
+	return fmt.Errorf("caller %s with code hash %s is not whitelisted for arbitrary bank send", caller.Hex(), codeHash.Hex())
 }
 
 func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
@@ -160,6 +169,38 @@ func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}
 		return nil, err
 	}
 	receiverSeiAddr, err := p.accAddressFromArg(ctx, args[1])
+	if err != nil {
+		return nil, err
+	}
+	if err := p.bankKeeper.SendCoins(ctx, senderSeiAddr, receiverSeiAddr, sdk.NewCoins(sdk.NewCoin(denom, sdk.NewIntFromBigInt(amount)))); err != nil {
+		return nil, err
+	}
+	return method.Outputs.Pack(true)
+}
+
+func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 4)
+	denom := args[2].(string)
+	if denom == "" {
+		return nil, errors.New("invalid denom")
+	}
+	amount := args[3].(*big.Int)
+	if amount.Cmp(big.NewInt(0)) == 0 {
+		// short circuit
+		return method.Outputs.Pack(true)
+	}
+
+	senderSeiAddr, err := p.accAddressFromArg(ctx, args[0])
+	if err != nil {
+		return nil, err
+	}
+
+	receiverAddr, ok := (args[1]).(string)
+	if !ok || receiverAddr == "" {
+		return nil, errors.New("invalid addr")
+	}
+
+	receiverSeiAddr, err := sdk.AccAddressFromBech32(receiverAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -229,6 +270,8 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 func (Precompile) IsTransaction(method string) bool {
 	switch method {
 	case SendMethod:
+		return true
+	case SendNativeMethod:
 		return true
 	default:
 		return false

@@ -38,6 +38,14 @@ func TestRun(t *testing.T) {
 	_, err = p.Run(&evm, senderEVMAddr, append(p.SendID, args...)) // should error because address is not whitelisted
 	require.NotNil(t, err)
 
+	sendNative, err := p.ABI.MethodById(p.SendNativeID)
+	require.Nil(t, err)
+	seiAddrString := seiAddr.String()
+	argsNative, err := sendNative.Inputs.Pack(senderEVMAddr, seiAddrString, "usei", big.NewInt(25))
+	require.Nil(t, err)
+	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNative...)) // should error because address is not whitelisted
+	require.NotNil(t, err)
+
 	k.BankKeeper().SendCoins(ctx, senderAddr, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(50))))
 
 	balance, err := p.ABI.MethodById(p.BalanceID)
