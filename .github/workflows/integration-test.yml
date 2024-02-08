@@ -111,6 +111,14 @@ jobs:
               "./scripts/hardhat.sh"
             ]
           },
+          {
+            name: "SeiDB State Store",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
+              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
