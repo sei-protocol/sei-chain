@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var ALL_MODULES = []string{
+var AllModules = []string{
 	"dex", "wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
 }
 
@@ -61,7 +61,7 @@ func DumpIAVLData(module string, dbDir string, outputDir string, height int64) e
 	defer db.Close()
 	modules := []string{}
 	if module == "" {
-		modules = ALL_MODULES
+		modules = AllModules
 	} else {
 		modules = append(modules, module)
 	}
