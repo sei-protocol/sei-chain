@@ -67,32 +67,31 @@ func DumpIAVLData(module string, dbDir string, outputDir string, height int64) e
 	}
 
 	for _, moduleName := range modules {
-		fmt.Printf("Dumping module: %s \n", moduleName)
-		currentFile, err := utils.CreateFile(outputDir, moduleName)
-		if err != nil {
-			return err
-		}
-		tree := db.TreeByName(module)
+		tree := db.TreeByName(moduleName)
 		if tree == nil {
 			fmt.Printf("Tree does not exist for module %s \n", moduleName)
-			continue
 		} else {
-			_, err := currentFile.WriteString(fmt.Sprintf("Tree %s has version %d and root hash: %X \n", moduleName, tree.Version(), tree.RootHash()))
+			fmt.Printf("Dumping module: %s \n", moduleName)
+			currentFile, err := utils.CreateFile(outputDir, moduleName)
+			if err != nil {
+				return err
+			}
+			_, err = currentFile.WriteString(fmt.Sprintf("Tree %s has version %d and root hash: %X \n", moduleName, tree.Version(), tree.RootHash()))
 			if err != nil {
 				return nil
 			}
-		}
-		tree.ScanPostOrder(func(node memiavl.Node) bool {
-			if node.IsLeaf() {
-				_, err := currentFile.WriteString(fmt.Sprintf("Key: %X, Value: %X \n", node.Key(), node.Value()))
-				if err != nil {
-					panic(err)
+			tree.ScanPostOrder(func(node memiavl.Node) bool {
+				if node.IsLeaf() {
+					_, err := currentFile.WriteString(fmt.Sprintf("Key: %X, Value: %X \n", node.Key(), node.Value()))
+					if err != nil {
+						panic(err)
+					}
 				}
-			}
-			return true
-		})
-		currentFile.Close()
-		fmt.Printf("Finished dumping module: %s \n", moduleName)
+				return true
+			})
+			currentFile.Close()
+			fmt.Printf("Finished dumping module: %s \n", moduleName)
+		}
 	}
 	return nil
 }
