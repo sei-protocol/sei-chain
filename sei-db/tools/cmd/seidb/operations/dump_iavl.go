@@ -16,7 +16,7 @@ func DumpIAVLCmd() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringP("db-dir", "d", "", "Database Directory")
-	cmd.PersistentFlags().Int64P("height", "h", 0, "Block Height")
+	cmd.PersistentFlags().Int64("height", 0, "Block Height")
 	cmd.PersistentFlags().StringP("module", "m", "", "Module to export. Default to export all")
 	return cmd
 }
