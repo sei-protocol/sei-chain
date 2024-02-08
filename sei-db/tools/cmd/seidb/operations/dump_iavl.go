@@ -16,7 +16,7 @@ var ALL_MODULES = []string{
 func DumpIAVLCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dump-iavl",
-		Short: "Iterate and dump memIAVL data and shape",
+		Short: "Iterate and dump memIAVL data",
 		Run:   execute,
 	}
 
@@ -67,6 +67,7 @@ func DumpIAVLData(module string, dbDir string, outputDir string, height int64) e
 	}
 
 	for _, moduleName := range modules {
+		fmt.Printf("Dumping module: %s \n", moduleName)
 		currentFile, err := utils.CreateFile(outputDir, moduleName)
 		if err != nil {
 			return err
