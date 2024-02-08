@@ -2,7 +2,7 @@ package operations
 
 import (
 	"fmt"
-	
+
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/sc/memiavl"
 	"github.com/spf13/cobra"
@@ -47,6 +47,7 @@ func DumpIAVLData(module string, dbDir string, height int64) {
 	if err != nil {
 		panic(err)
 	}
+	defer db.Close()
 	tree := db.TreeByName(module)
 	if tree == nil {
 		panic(fmt.Sprintf("Tree does not exist for module %s", module))
