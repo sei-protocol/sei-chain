@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"math/big"
 	"math/rand"
 	"sync"
@@ -84,8 +83,8 @@ func (txClient *EvmTxClient) GenerateEvmSignedTx() *ethtypes.Transaction {
 
 	// Generate random amount to send
 	rand.Seed(time.Now().Unix())
-	value := big.NewInt(rand.Int63n(math.MaxInt64 - 1))
-	gasLimit := uint64(200000)
+	value := big.NewInt(rand.Int63n(9000000) * 1000000000000)
+	gasLimit := uint64(21000)
 	tx := ethtypes.NewTransaction(nextNonce, txClient.accountAddress, value, gasLimit, txClient.gasPrice, nil)
 	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), privateKey)
 	if err != nil {
@@ -100,20 +99,10 @@ func (txClient *EvmTxClient) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 	err := GetNextEthClient(txClient.ethClients).SendTransaction(context.Background(), signedTx)
 	if err != nil {
 		fmt.Printf("Failed to send evm transaction: %v \n", err)
+	} else {
+		// We choose not to GetTxReceipt because we assume the EVM RPC would be running with broadcast mode = block
+		onSuccess()
 	}
-
-	go func() {
-		success, errs := withRetry(func() error {
-			return txClient.GetTxReceipt(signedTx.Hash())
-		})
-		if success {
-			onSuccess()
-		} else {
-			fmt.Printf("Failed to get evm transaction receipt: %v \n", errs)
-			_ = txClient.ResetNonce()
-		}
-	}()
-
 }
 
 // GetNextEthClient return the next available eth client randomly
@@ -139,7 +128,6 @@ func (txClient *EvmTxClient) GetTxReceipt(txHash common.Hash) error {
 
 // ResetNonce need to be called when tx failed
 func (txClient *EvmTxClient) ResetNonce() error {
-
 	txClient.mtx.Lock()
 	defer txClient.mtx.Unlock()
 	client := GetNextEthClient(txClient.ethClients)
@@ -150,21 +138,4 @@ func (txClient *EvmTxClient) ResetNonce() error {
 	txClient.nonce.Store(newNonce)
 	fmt.Printf("Resetting nonce to %d for addr: %s\n ", newNonce, txClient.accountAddress.String())
 	return nil
-}
-
-func withRetry(callFunc func() error) (bool, error) {
-	retryCount := 0
-	for {
-		err := callFunc()
-		if err != nil {
-			retryCount++
-			if retryCount >= 5 {
-				return false, err
-			}
-			time.Sleep(1 * time.Second)
-			continue
-		} else {
-			return true, nil
-		}
-	}
 }
