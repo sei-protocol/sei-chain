@@ -74,7 +74,8 @@ func DumpIAVLData(module string, dbDir string, outputDir string, height int64) e
 		}
 		tree := db.TreeByName(module)
 		if tree == nil {
-			panic(fmt.Sprintf("Tree does not exist for module %s", moduleName))
+			fmt.Printf("Tree does not exist for module %s \n", moduleName)
+			continue
 		} else {
 			_, err := currentFile.WriteString(fmt.Sprintf("Tree %s has version %d and root hash: %X \n", moduleName, tree.Version(), tree.RootHash()))
 			if err != nil {
@@ -91,6 +92,7 @@ func DumpIAVLData(module string, dbDir string, outputDir string, height int64) e
 			return true
 		})
 		currentFile.Close()
+		fmt.Printf("Finished dumping module: %s \n", moduleName)
 	}
 	return nil
 }
