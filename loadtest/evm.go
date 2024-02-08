@@ -139,24 +139,3 @@ func (txClient *EvmTxClient) ResetNonce() error {
 	fmt.Printf("Resetting nonce to %d for addr: %s\n ", newNonce, txClient.accountAddress.String())
 	return nil
 }
-<<<<<<< Updated upstream
-
-// nolint
-func withRetry(callFunc func() error) (bool, error) {
-	retryCount := 0
-	for {
-		err := callFunc()
-		if err != nil {
-			retryCount++
-			if retryCount >= 15 {
-				return false, err
-			}
-			time.Sleep(300 * time.Millisecond)
-			continue
-		} else {
-			return true, nil
-		}
-	}
-}
-=======
->>>>>>> Stashed changes
