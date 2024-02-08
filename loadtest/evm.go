@@ -140,6 +140,7 @@ func (txClient *EvmTxClient) ResetNonce() error {
 	return nil
 }
 
+//nolint:staticcheck
 func withRetry(callFunc func() error) (bool, error) {
 	retryCount := 0
 	for {
