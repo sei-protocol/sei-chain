@@ -17,6 +17,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -137,6 +138,22 @@ type Backend struct {
 	config      *SimulateConfig
 }
 
+// // Backend interface provides the common API services (that are provided by
+// // both full and light clients) with access to necessary functions.
+// type Backend interface {
+// 	HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error)
+// 	HeaderByNumber(ctx context.Context, number rpc.BlockNumber) (*types.Header, error)
+// 	BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error)
+// 	BlockByNumber(ctx context.Context, number rpc.BlockNumber) (*types.Block, error)
+// 	GetTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error)
+// 	RPCGasCap() uint64
+// 	ChainConfig() *params.ChainConfig
+// 	Engine() consensus.Engine
+// 	ChainDb() ethdb.Database
+// 	StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, StateReleaseFunc, error)
+// 	StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, vm.StateDB, StateReleaseFunc, error)
+// }
+
 func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmClient rpcclient.Client, config *SimulateConfig) *Backend {
 	return &Backend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient, config: config}
 }
@@ -151,6 +168,14 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		return nil, nil, err
 	}
 	return state.NewDBImpl(b.ctxProvider(height), b.keeper, true), b.getHeader(big.NewInt(height)), nil
+}
+
+func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
+	panic("implement me")
+}
+
+func (b *Backend) ChainDb() ethdb.Database {
+	panic("implement me")
 }
 
 // returns block header only

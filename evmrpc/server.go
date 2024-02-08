@@ -86,6 +86,10 @@ func NewEVMHTTPServer(
 			Namespace: "web3",
 			Service:   &Web3API{},
 		},
+		{
+			Namespace: "debug",
+			Service:   NewDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig),
+		},
 	}
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
 		CorsAllowedOrigins: strings.Split(config.CORSOrigins, ","),

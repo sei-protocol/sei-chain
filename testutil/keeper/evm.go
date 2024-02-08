@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"crypto/ecdsa"
+	"crypto/rand"
 	"encoding/hex"
 	"sync"
 
@@ -82,6 +84,14 @@ func MockPrivateKey() cryptotypes.PrivKey {
 	algo := hd.Secp256k1
 	derivedPriv, _ := algo.Derive()(mnemonic, "", "")
 	return algo.Generate()(derivedPriv)
+}
+
+func MockECSDAPrivateKey() *ecdsa.PrivateKey {
+	privateKeyECDSA, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	return privateKeyECDSA
 }
 
 func PrivateKeyToAddresses(privKey cryptotypes.PrivKey) (sdk.AccAddress, common.Address) {
