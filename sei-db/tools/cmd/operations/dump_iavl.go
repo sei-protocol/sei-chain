@@ -56,7 +56,7 @@ func DumpIAVLData(module string, dbDir string, height int64) {
 	}
 	tree.ScanPostOrder(func(node memiavl.Node) bool {
 		if node.IsLeaf() {
-			fmt.Printf("Key: %X, Value: %X", node.Key(), node.Value())
+			fmt.Printf("Key: %X, Value: %X \n", node.Key(), node.Value())
 		}
 		return true
 	})
