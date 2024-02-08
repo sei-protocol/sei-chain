@@ -5,7 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss"
-	"github.com/sei-protocol/sei-db/tools/cmd/benchmark"
+	"github.com/sei-protocol/sei-db/tools/cmd/seidb/benchmark"
 	"github.com/spf13/cobra"
 )
 
