@@ -41,17 +41,17 @@
     - type: eval
       expr: BEGINNING_LIST_CODE_LENGTH == 0
     - type: eval
-      expr: FIRST_SET_LIST_CODE_LENGTH == 100
+      expr: FIRST_SET_LIST_CODE_LENGTH == 10
     - type: eval
-      expr: FIRST_SET_LIST_CODE_LENGTH_REVERSE == 100
+      expr: FIRST_SET_LIST_CODE_LENGTH_REVERSE == 10
     - type: eval
-      expr: SECOND_SET_LIST_CODE_LENGTH == 200
+      expr: SECOND_SET_LIST_CODE_LENGTH == 20
     - type: eval
-      expr: SECOND_SET_LIST_CODE_LENGTH_REVERSE == 200
+      expr: SECOND_SET_LIST_CODE_LENGTH_REVERSE == 20
     - type: eval
-      expr: THIRD_SET_LIST_CODE_LENGTH == 300
+      expr: THIRD_SET_LIST_CODE_LENGTH == 30
     - type: eval
-      expr: THIRD_SET_LIST_CODE_LENGTH_REVERSE == 300
+      expr: THIRD_SET_LIST_CODE_LENGTH_REVERSE == 30
 
 - name: Test state store historical data checking specific wasm codes
   inputs:
@@ -87,7 +87,7 @@
     - type: eval
       expr: FIRST_ID_FIRST_SET == 1
     - type: eval
-      expr: SECOND_ID_FIRST_SET == 200
+      expr: SECOND_ID_FIRST_SET == 20
 
 - name: Test state store iteration through tokenfactory denoms
   inputs:
@@ -123,8 +123,8 @@
     - type: eval
       expr: BEGINNING_TFK_DENOMS == 0
     - type: eval
-      expr: FIRST_SET_TFK_DENOMS == 100
+      expr: FIRST_SET_TFK_DENOMS == 10
     - type: eval
-      expr: SECOND_SET_TFK_DENOMS == 200
+      expr: SECOND_SET_TFK_DENOMS == 20
     - type: eval
-      expr: THIRD_SET_TFK_DENOMS == 300
+      expr: THIRD_SET_TFK_DENOMS == 30
