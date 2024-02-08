@@ -193,7 +193,7 @@ func (oc OracleClient) BroadcastTx(
 	oc.Logger.Info().Msg(fmt.Sprintf("Sending broadcastTx with account sequence number %d", txf.Sequence()))
 	resp, err := clientCtx.BroadcastTx(txBytes)
 	if resp != nil && resp.Code != 0 && resp.Code != sdkerrors.ErrAlreadyExists.ABCICode() {
-		err = fmt.Errorf("received error response code from broadcast tx: %d", resp.Code)
+		err = fmt.Errorf("received error response code %d from broadcast tx: %s", resp.Code, resp.Logs.String())
 	}
 	if err != nil {
 		// When error happen, it could be that the sequence number are mismatching
