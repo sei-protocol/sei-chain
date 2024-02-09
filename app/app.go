@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"go.opentelemetry.io/otel/trace"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
@@ -1300,16 +1301,30 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.E
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
-	entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
+	entries := make([]*sdk.DeliverTxEntry, len(txs))
+	var span trace.Span
+	if app.TracingEnabled {
+		_, span = app.TracingInfo.Start("GenerateEstimatedWritesets")
+	}
+	wg := sync.WaitGroup{}
 	for txIndex, tx := range txs {
-		deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
-		// get prefill estimate
-		estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.txDecoder, app.GetAnteDepGenerator(), txIndex, tx)
-		// if no error, then we assign the mapped writesets for prefill estimate
-		if err == nil {
-			deliverTxEntry.EstimatedWritesets = estimatedWritesets
-		}
-		entries = append(entries, deliverTxEntry)
+		wg.Add(1)
+		go func(txIndex int, tx []byte) {
+			defer wg.Done()
+			deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
+			// get prefill estimate
+			estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.txDecoder, app.GetAnteDepGenerator(), txIndex, tx)
+			// if no error, then we assign the mapped writesets for prefill estimate
+			if err == nil {
+				deliverTxEntry.EstimatedWritesets = estimatedWritesets
+			}
+			entries[txIndex] = deliverTxEntry
+		}(txIndex, tx)
+	}
+	wg.Wait()
+
+	if app.TracingEnabled {
+		span.End()
 	}
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
