@@ -189,7 +189,7 @@ func (c *LoadTestClient) BuildTxs(
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
 			if messageType == EVM {
-				tx := c.generatedSignedEvmTxs(keyIndex)
+				tx := c.generateEVMSendFundsTx(keyIndex)
 				if tx != nil {
 					signedTx = SignedTx{EvmTx: tx}
 				} else {
@@ -223,8 +223,8 @@ func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, p
 	return txBytes
 }
 
-func (c *LoadTestClient) generatedSignedEvmTxs(keyIndex int) *ethtypes.Transaction {
-	return c.EvmTxClients[keyIndex].GenerateEvmSignedTx()
+func (c *LoadTestClient) generateEVMSendFundsTx(keyIndex int) *ethtypes.Transaction {
+	return c.EvmTxClients[keyIndex].GenerateSendFundsTx()
 }
 
 func (c *LoadTestClient) SendTxs(

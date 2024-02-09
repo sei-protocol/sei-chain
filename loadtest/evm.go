@@ -19,7 +19,6 @@ import (
 )
 
 type EvmTxClient struct {
-	privateKey       cryptotypes.PrivKey
 	accountAddress   common.Address
 	nonce            atomic.Uint64
 	shouldResetNonce atomic.Bool
@@ -27,6 +26,7 @@ type EvmTxClient struct {
 	gasPrice         *big.Int
 	ethClients       []*ethclient.Client
 	mtx              sync.RWMutex
+	privateKey       *ecdsa.PrivateKey
 }
 
 func NewEvmTxClient(
@@ -36,7 +36,6 @@ func NewEvmTxClient(
 	ethClients []*ethclient.Client,
 ) *EvmTxClient {
 	txClient := &EvmTxClient{
-		privateKey: key,
 		chainId:    chainId,
 		gasPrice:   gasPrice,
 		ethClients: ethClients,
@@ -47,6 +46,7 @@ func NewEvmTxClient(
 	if err != nil {
 		fmt.Printf("Failed to load private key: %v \n", err)
 	}
+	txClient.privateKey = privateKey
 
 	publicKey := privateKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
@@ -65,33 +65,32 @@ func NewEvmTxClient(
 	return txClient
 }
 
-// GenerateEvmSignedTx takes a private key and generate a signed bank send TX
+// GenerateSendFundsTx returns a random send funds tx
 //
 //nolint:staticcheck
-func (txClient *EvmTxClient) GenerateEvmSignedTx() *ethtypes.Transaction {
-	txClient.mtx.RLock()
-	defer txClient.mtx.RUnlock()
+func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    txClient.nextNonce(),
+		GasPrice: txClient.gasPrice,
+		Gas:      uint64(21000),
+		To:       &txClient.accountAddress,
+		Value:    big.NewInt(rand.Int63n(9000000) * 1000000000000),
+	})
+	return txClient.sign(tx)
+}
 
-	privKeyHex := hex.EncodeToString(txClient.privateKey.Bytes())
-	privateKey, err := crypto.HexToECDSA(privKeyHex)
+func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transaction {
+	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), txClient.privateKey)
 	if err != nil {
-		fmt.Printf("Failed to load private key: %v \n", err)
-	}
-
-	// Get the next nonce
-	nextNonce := txClient.nonce.Add(1) - 1
-
-	// Generate random amount to send
-	rand.Seed(time.Now().Unix())
-	value := big.NewInt(rand.Int63n(9000000) * 1000000000000)
-	gasLimit := uint64(21000)
-	tx := ethtypes.NewTransaction(nextNonce, txClient.accountAddress, value, gasLimit, txClient.gasPrice, nil)
-	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), privateKey)
-	if err != nil {
-		fmt.Printf("Failed to sign evm tx: %v \n", err)
-		return nil
+		// this should not happen
+		panic(err)
 	}
 	return signedTx
+}
+func (txClient *EvmTxClient) nextNonce() uint64 {
+	txClient.mtx.RLock()
+	defer txClient.mtx.RUnlock()
+	return txClient.nonce.Add(1) - 1
 }
 
 // SendEvmTx takes any signed evm tx and send it out
