@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"go.opentelemetry.io/otel/trace"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
@@ -1301,6 +1302,10 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.E
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
+	var span trace.Span
+	if app.TracingEnabled {
+		_, span = app.TracingInfo.Start("GenerateEstimatedWritesets")
+	}
 	for txIndex, tx := range txs {
 		deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
 		// get prefill estimate
@@ -1310,6 +1315,10 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTx
 			deliverTxEntry.EstimatedWritesets = estimatedWritesets
 		}
 		entries = append(entries, deliverTxEntry)
+	}
+
+	if app.TracingEnabled {
+		span.End()
 	}
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
