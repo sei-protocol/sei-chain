@@ -1064,7 +1064,8 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.E
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	txResults := []*abci.ExecTxResult{}
-	for _, tx := range txs {
+	for i, tx := range txs {
+		ctx := ctx.WithTxIndex(i)
 		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx))
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
