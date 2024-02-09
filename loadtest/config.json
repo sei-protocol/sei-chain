@@ -1,11 +1,13 @@
 {
     "grpc_endpoints": "127.0.0.1:9090",
+    "evm_rpc_endpoints": "http://127.0.0.1:8545",
     "blockchain_endpoint": "http://localhost:26657",
     "node_uri": "tcp://localhost:26657",
     "tls": false,
     "msgs_per_tx": 1,
     "chain_id": "sei-loadtest-testnet",
     "target_tps": 500,
+    "max_accounts": 500,
     "price_distribution": {
         "min": "45",
         "max": "55",
@@ -52,7 +54,8 @@
         "wasm_instantiate",
         "wasm_occ_iterator_write",
         "wasm_occ_iterator_range",
-        "wasm_occ_parallel_write"
+        "wasm_occ_parallel_write",
+        "evm"
     ],
     "run_oracle": false,
     "metrics_port": 9695,

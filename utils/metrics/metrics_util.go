@@ -235,3 +235,30 @@ func IncrementOptimisticProcessingCounter(enabled bool) {
 		[]metrics.Label{telemetry.NewLabel("enabled", strconv.FormatBool(enabled))},
 	)
 }
+
+// Measures RPC endpoint request throughput
+// Metric Name:
+//
+//	sei_rpc_request_counter
+func IncrementRpcRequestCounter(endpoint string, success bool) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "rpc", "request", "counter"},
+		float32(1),
+		[]metrics.Label{
+			telemetry.NewLabel("endpoint", endpoint),
+			telemetry.NewLabel("success", strconv.FormatBool(success)),
+		},
+	)
+}
+
+// Measures the RPC request latency in milliseconds
+// Metric Name:
+//
+//	sei_rpc_request_latency_ms
+func MeasureRpcRequestLatency(endpoint string, startTime time.Time) {
+	metrics.MeasureSinceWithLabels(
+		[]string{"sei", "rpc", "request", "latency_ms"},
+		startTime.UTC(),
+		[]metrics.Label{telemetry.NewLabel("endpoint", endpoint)},
+	)
+}
