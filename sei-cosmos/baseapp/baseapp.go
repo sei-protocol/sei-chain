@@ -889,7 +889,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 		var anteSpan trace.Span
 		if app.TracingEnabled {
 			// trace AnteHandler
-			_, anteSpan := app.TracingInfo.StartWithContext("AnteHandler", ctx.TraceSpanContext())
+			_, anteSpan = app.TracingInfo.StartWithContext("AnteHandler", ctx.TraceSpanContext())
 			defer anteSpan.End()
 		}
 		var (
