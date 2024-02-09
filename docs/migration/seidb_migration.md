@@ -157,7 +157,7 @@ systemctl stop seid
 echo "Removing data files..."
 cp $SEID_HOME/data/priv_validator_state.json /root/priv_validator_state.json
 cp $SEID_HOME/config/priv_validator_key.json /root/priv_validator_key.json
-cp $SEID_HOME/genesis.json /root/genesis.json
+cp $SEID_HOME/config/genesis.json /root/genesis.json
 rm -rf $SEID_HOME/data/*
 rm -rf $SEID_HOME/wasm
 rm -rf $SEID_HOME/config/priv_validator_key.json
