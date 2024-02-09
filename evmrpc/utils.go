@@ -274,3 +274,20 @@ func bankExists(ctx sdk.Context, k *keeper.Keeper) bool {
 func evmExists(ctx sdk.Context, k *keeper.Keeper) bool {
 	return ctx.KVStore(k.GetStoreKey()).VersionExists(ctx.BlockHeight())
 }
+
+// func receiptToTx(receipt *types.Receipt) *ethtypes.Transaction {
+// 	switch receipt.TxType {
+// 	case ethtypes.LegacyTxType:
+// 		return ethtypes.NewTx(&ethtypes.LegacyTx{
+// 			Nonce:   receipt.Nonce,
+// 			GasPrice: receipt.GasPrice,
+
+// 		})
+// 	case ethtypes.AccessListTxType:
+// 		// ...
+// 	case ethtypes.DynamicFeeTxType:
+// 		// ...
+// 	case ethtypes.BlobTxType:
+// 		// ...
+// 	}
+// }

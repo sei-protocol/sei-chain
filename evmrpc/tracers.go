@@ -21,7 +21,7 @@ type DebugAPI struct {
 }
 
 func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, config *SimulateConfig) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, tmClient, config)
+	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config)
 	tracersAPI := tracers.NewAPI(backend)
 	return &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder}
 }

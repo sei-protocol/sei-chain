@@ -34,11 +34,12 @@ type SimulationAPI struct {
 func NewSimulationAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
+	txDecoder sdk.TxDecoder,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
 ) *SimulationAPI {
 	return &SimulationAPI{
-		backend: NewBackend(ctxProvider, keeper, tmClient, config),
+		backend: NewBackend(ctxProvider, keeper, txDecoder, tmClient, config),
 	}
 }
 
@@ -133,6 +134,7 @@ type SimulateConfig struct {
 type Backend struct {
 	*eth.EthAPIBackend
 	ctxProvider func(int64) sdk.Context
+	txDecoder   sdk.TxDecoder
 	keeper      *keeper.Keeper
 	tmClient    rpcclient.Client
 	config      *SimulateConfig
@@ -154,8 +156,8 @@ type Backend struct {
 // 	StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, vm.StateDB, StateReleaseFunc, error)
 // }
 
-func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmClient rpcclient.Client, config *SimulateConfig) *Backend {
-	return &Backend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient, config: config}
+func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txDecoder sdk.TxDecoder, tmClient rpcclient.Client, config *SimulateConfig) *Backend {
+	return &Backend{ctxProvider: ctxProvider, keeper: keeper, txDecoder: txDecoder, tmClient: tmClient, config: config}
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
@@ -171,11 +173,32 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 }
 
 func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
-	panic("implement me")
+	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	receipt, err := b.keeper.GetReceipt(sdkCtx, txHash)
+	if err != nil {
+		return nil, common.Hash{}, 0, 0, err
+	}
+	txHeight := int64(receipt.BlockNumber)
+	block, err := b.tmClient.Block(ctx, &txHeight)
+	if err != nil {
+		return nil, common.Hash{}, 0, 0, err
+	}
+	txIndex := hexutil.Uint(receipt.TransactionIndex)
+	tmTx := block.Block.Txs[int(index)]
+	tx = getEthTxForTxBz(tmTx, b.txDecoder)
+	return tx, common.HexToHash(receipt.TxHashHex), uint64(txHeight), uint64(txIndex), nil
 }
 
 func (b *Backend) ChainDb() ethdb.Database {
 	panic("implement me")
+}
+
+func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
+	return b.BlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(bn))
+}
+
+func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
+	return b.BlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithHash(hash, false))
 }
 
 // returns block header only
