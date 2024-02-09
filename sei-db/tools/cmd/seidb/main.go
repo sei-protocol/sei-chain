@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sei-protocol/sei-db/tools/cmd/benchmark"
-	"github.com/sei-protocol/sei-db/tools/cmd/operations"
+	"github.com/sei-protocol/sei-db/tools/cmd/seidb/benchmark"
+	"github.com/sei-protocol/sei-db/tools/cmd/seidb/operations"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +22,8 @@ func main() {
 		benchmark.DBIterationCmd(),
 		benchmark.DBReverseIterationCmd(),
 		operations.DumpDbCmd(),
-		operations.PruneCmd())
+		operations.PruneCmd(),
+		operations.DumpIAVLCmd())
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
