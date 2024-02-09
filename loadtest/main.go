@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
 
 	"io"
 	"math/rand"
@@ -70,12 +72,38 @@ func init() {
 	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 100
 }
 
-func run(config Config) {
+// deployEvmContract executes a bash script and returns its output as a string.
+func deployEvmContract(scriptPath string) (common.Address, error) {
+	cmd := exec.Command("bash", scriptPath)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err != nil {
+		return common.Address{}, err
+	}
+	return common.HexToAddress(out.String()), nil
+}
+
+func deployEvmContracts(config *Config) {
+	config.EVMAddresses = &EVMAddresses{}
+	if config.ContainsAnyMessageTypes(ERC20) {
+		erc20, err := deployEvmContract("loadtest/contracts/deploy_erc20.sh")
+		if err != nil {
+			panic(err)
+		}
+		config.EVMAddresses = &EVMAddresses{
+			ERC20: erc20,
+		}
+	}
+}
+
+func run(config *Config) {
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
-	go metricsServer.StartMetricsClient(config)
+	go metricsServer.StartMetricsClient(*config)
 
-	startLoadtestWorkers(config)
+	deployEvmContracts(config)
+	startLoadtestWorkers(*config)
 }
 
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
@@ -641,5 +669,5 @@ func main() {
 
 	config := ReadConfig(*configFilePath)
 	fmt.Printf("Using config file: %s\n", *configFilePath)
-	run(config)
+	run(&config)
 }

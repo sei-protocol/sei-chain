@@ -1,5 +1,7 @@
 #!/bin/bash
 
+cd bindings || exit 1
+
 # Loop through the subdirectories
 for dir in */ ; do
     # Navigate into the token's directory
@@ -15,5 +17,5 @@ for dir in */ ; do
         echo "abi.json not found in $dir"
     fi
     # Navigate back to the evm directory
-    cd ..
+    cd .. || exit 1
 done
