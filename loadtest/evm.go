@@ -86,6 +86,8 @@ func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
 	return txClient.sign(tx)
 }
 
+// GenerateERC20TransferTx returns a random ERC20 send
+// the contract it interacts with needs no funding (infinite balances)
 func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
 	opts := txClient.getTransactOpts()
 	if opts == nil {
@@ -118,6 +120,8 @@ func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 	auth.GasLimit = uint64(21000)
 	auth.GasPrice = txClient.gasPrice
 	auth.Context = context.Background()
+	auth.From = txClient.accountAddress
+	auth.NoSend = true
 	return auth
 }
 
@@ -133,7 +137,9 @@ func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transactio
 func (txClient *EvmTxClient) nextNonce() uint64 {
 	txClient.mtx.RLock()
 	defer txClient.mtx.RUnlock()
-	return txClient.nonce.Add(1) - 1
+	currentNonce := txClient.nonce.Load()
+	txClient.nonce.Add(1)
+	return currentNonce
 }
 
 // SendEvmTx takes any signed evm tx and send it out
