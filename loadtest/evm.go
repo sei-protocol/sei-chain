@@ -146,9 +146,7 @@ func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transactio
 func (txClient *EvmTxClient) nextNonce() uint64 {
 	txClient.mtx.Lock()
 	defer txClient.mtx.Unlock()
-	currentNonce := txClient.nonce.Load()
-	txClient.nonce.Add(1)
-	return currentNonce
+	return txClient.nonce.Add(1) - 1
 }
 
 // SendEvmTx takes any signed evm tx and send it out
