@@ -26,7 +26,7 @@ type SendAPI struct {
 	keeper      *keeper.Keeper
 	ctxProvider func(int64) sdk.Context
 	homeDir     string
-	backend     *Backend
+	backend     *SimulateBackend
 }
 
 type SendConfig struct {
@@ -41,7 +41,7 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 		keeper:      k,
 		ctxProvider: ctxProvider,
 		homeDir:     homeDir,
-		backend:     NewBackend(ctxProvider, k, tmClient, simulateConfig),
+		backend:     NewSimulateBackend(ctxProvider, k, tmClient, simulateConfig),
 	}
 }
 

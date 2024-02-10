@@ -1,6 +1,8 @@
 package evmrpc
 
 import (
+	"encoding/json"
+	"github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"time"
 
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
@@ -52,6 +54,16 @@ type Config struct {
 
 	// Timeout for EVM call in simulation
 	SimulationEVMTimeout time.Duration `mapstructure:"simulation_evm_timeout"`
+
+	TracerTimeout time.Duration `mapstructure:"tracer_timeout"`
+
+	*logger.Config
+	Tracer  *string
+	Timeout *string
+	Reexec  *uint64
+	// Config specific to given tracer. Note struct logger
+	// config are historically embedded in main object.
+	TracerConfig json.RawMessage
 
 	// list of CORS allowed origins, separated by comma
 	CORSOrigins string `mapstructure:"cors_origins"`
