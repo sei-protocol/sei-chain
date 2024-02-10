@@ -93,7 +93,7 @@ func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
 	}
 	opts.GasLimit = uint64(100000)
 	tokenAddress := txClient.evmAddresses.ERC20
-	instance, err := erc20.NewErc20(tokenAddress, GetNextEthClient(txClient.ethClients))
+	instance, err := erc20.NewErc20(tokenAddress, nil)
 	if err != nil {
 		fmt.Println(err.Error())
 		return nil
@@ -127,6 +127,7 @@ func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transactio
 		// this should not happen
 		panic(err)
 	}
+	fmt.Println(signedTx)
 	return signedTx
 }
 
