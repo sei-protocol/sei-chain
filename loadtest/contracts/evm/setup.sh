@@ -9,6 +9,7 @@ then
     # Source the user's profile to make foundryup available in the current session
     # Assuming bash is the shell, adjust accordingly if using a different shell
     source ~/.bashrc || source ~/.bash_profile || source ~/.profile
+    foundryup
 fi
 
 # Install OpenZeppelin contracts
