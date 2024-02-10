@@ -144,8 +144,8 @@ func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transactio
 }
 
 func (txClient *EvmTxClient) nextNonce() uint64 {
-	txClient.mtx.Lock()
-	defer txClient.mtx.Unlock()
+	txClient.mtx.RLock()
+	defer txClient.mtx.RUnlock()
 	return txClient.nonce.Add(1) - 1
 }
 
