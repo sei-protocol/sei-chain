@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# This script is used to deploy the NoopToken contract to the local network
+# This avoids trying to predict what address it might be deployed to
+
 cd loadtest/contracts/evm || exit 1
 
 ./setup.sh
