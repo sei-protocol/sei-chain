@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"math/rand"
 	"strings"
 	"sync"
@@ -16,7 +17,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
@@ -191,20 +191,8 @@ func (c *LoadTestClient) BuildTxs(
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
 			switch messageType {
-			case EVM:
-				tx := c.generateEVMSendFundsTx(keyIndex)
-				if tx != nil {
-					signedTx = SignedTx{EvmTx: tx}
-				} else {
-					continue
-				}
-			case ERC20:
-				tx := c.EvmTxClients[keyIndex].GenerateERC20TransferTx()
-				if tx != nil {
-					signedTx = SignedTx{EvmTx: tx}
-				} else {
-					continue
-				}
+			case EVM, ERC20:
+				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType)}
 			default:
 				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, producedCount)}
 			}
@@ -217,6 +205,10 @@ func (c *LoadTestClient) BuildTxs(
 			}
 		}
 	}
+}
+
+func (c *LoadTestClient) generateSignedEvmTx(keyIndex int, msgType string) *ethtypes.Transaction {
+	return c.EvmTxClients[keyIndex].GetTxForMsgType(msgType)
 }
 
 func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, producedCount *atomic.Int64) []byte {
@@ -232,10 +224,6 @@ func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, p
 	c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(producedCount.Load()))
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
 	return txBytes
-}
-
-func (c *LoadTestClient) generateEVMSendFundsTx(keyIndex int) *ethtypes.Transaction {
-	return c.EvmTxClients[keyIndex].GenerateSendFundsTx()
 }
 
 func (c *LoadTestClient) SendTxs(

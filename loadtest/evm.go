@@ -72,6 +72,21 @@ func NewEvmTxClient(
 	return txClient
 }
 
+func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transaction {
+	switch msgType {
+	case EVM:
+		return txClient.GenerateSendFundsTx()
+	case ERC20:
+		return txClient.GenerateERC20TransferTx()
+	default:
+		panic("invalid message type")
+	}
+}
+
+func randomValue() *big.Int {
+	return big.NewInt(rand.Int63n(9000000) * 1000000000000)
+}
+
 // GenerateSendFundsTx returns a random send funds tx
 //
 //nolint:staticcheck
@@ -81,7 +96,7 @@ func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
 		GasPrice: txClient.gasPrice,
 		Gas:      uint64(21000),
 		To:       &txClient.accountAddress,
-		Value:    big.NewInt(rand.Int63n(9000000) * 1000000000000),
+		Value:    randomValue(),
 	})
 	return txClient.sign(tx)
 }
@@ -90,20 +105,16 @@ func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
 // the contract it interacts with needs no funding (infinite balances)
 func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
 	opts := txClient.getTransactOpts()
-	if opts == nil {
-		return nil
-	}
+	// override gas limit for an ERC20 transfer
 	opts.GasLimit = uint64(100000)
 	tokenAddress := txClient.evmAddresses.ERC20
 	token, err := erc20.NewErc20(tokenAddress, GetNextEthClient(txClient.ethClients))
 	if err != nil {
-		fmt.Println(err.Error())
-		return nil
+		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
 	}
-	tx, err := token.Transfer(opts, txClient.accountAddress, big.NewInt(rand.Int63n(9000000)*1000000000000))
+	tx, err := token.Transfer(opts, txClient.accountAddress, randomValue())
 	if err != nil {
-		fmt.Println(err.Error())
-		return nil
+		panic(fmt.Sprintf("Failed to create ERC20 transfer: %v \n", err))
 	}
 	return tx
 }
@@ -111,10 +122,8 @@ func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
 func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 	auth, err := bind.NewKeyedTransactorWithChainID(txClient.privateKey, txClient.chainId)
 	if err != nil {
-		fmt.Println(err.Error())
-		return nil
+		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
 	}
-
 	auth.Nonce = big.NewInt(int64(txClient.nextNonce()))
 	auth.Value = big.NewInt(0)
 	auth.GasLimit = uint64(21000)
