@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
+
 	"math/big"
 	"math/rand"
 	"sync"
@@ -12,10 +13,13 @@ import (
 	"time"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+
+	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc20"
 )
 
 type EvmTxClient struct {
@@ -27,6 +31,7 @@ type EvmTxClient struct {
 	ethClients       []*ethclient.Client
 	mtx              sync.RWMutex
 	privateKey       *ecdsa.PrivateKey
+	evmAddresses     *EVMAddresses
 }
 
 func NewEvmTxClient(
@@ -34,12 +39,14 @@ func NewEvmTxClient(
 	chainId *big.Int,
 	gasPrice *big.Int,
 	ethClients []*ethclient.Client,
+	evmAddresses *EVMAddresses,
 ) *EvmTxClient {
 	txClient := &EvmTxClient{
-		chainId:    chainId,
-		gasPrice:   gasPrice,
-		ethClients: ethClients,
-		mtx:        sync.RWMutex{},
+		chainId:      chainId,
+		gasPrice:     gasPrice,
+		ethClients:   ethClients,
+		mtx:          sync.RWMutex{},
+		evmAddresses: evmAddresses,
 	}
 	privKeyHex := hex.EncodeToString(key.Bytes())
 	privateKey, err := crypto.HexToECDSA(privKeyHex)
@@ -79,6 +86,41 @@ func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
 	return txClient.sign(tx)
 }
 
+func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
+	opts := txClient.getTransactOpts()
+	if opts == nil {
+		return nil
+	}
+	opts.GasLimit = uint64(100000)
+	tokenAddress := txClient.evmAddresses.ERC20
+	instance, err := erc20.NewErc20(tokenAddress, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil
+	}
+	tx, err := instance.Transfer(opts, txClient.accountAddress, big.NewInt(rand.Int63n(9000000)*1000000000000))
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil
+	}
+	return tx
+}
+
+func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
+	auth, err := bind.NewKeyedTransactorWithChainID(txClient.privateKey, txClient.chainId)
+	if err != nil {
+		fmt.Println(err.Error())
+		return nil
+	}
+
+	auth.Nonce = big.NewInt(int64(txClient.nextNonce()))
+	auth.Value = big.NewInt(0)
+	auth.GasLimit = uint64(21000)
+	auth.GasPrice = txClient.gasPrice
+	auth.Context = context.Background()
+	return auth
+}
+
 func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transaction {
 	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), txClient.privateKey)
 	if err != nil {
@@ -87,6 +129,7 @@ func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transactio
 	}
 	return signedTx
 }
+
 func (txClient *EvmTxClient) nextNonce() uint64 {
 	txClient.mtx.RLock()
 	defer txClient.mtx.RUnlock()

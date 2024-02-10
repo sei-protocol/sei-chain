@@ -155,7 +155,7 @@ func BuildEvmTxClients(config Config, keys []cryptotypes.PrivKey) []*EvmTxClient
 	}
 	// Build one client per key
 	for i, key := range keys {
-		clients[i] = NewEvmTxClient(key, chainID, gasPrice, ethClients)
+		clients[i] = NewEvmTxClient(key, chainID, gasPrice, ethClients, config.EVMAddresses)
 	}
 	return clients
 }
@@ -190,16 +190,25 @@ func (c *LoadTestClient) BuildTxs(
 			messageType := c.getRandomMessageType(messageTypes)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
-			if messageType == EVM {
+			switch messageType {
+			case EVM:
 				tx := c.generateEVMSendFundsTx(keyIndex)
 				if tx != nil {
 					signedTx = SignedTx{EvmTx: tx}
 				} else {
 					continue
 				}
-			} else {
+			case ERC20:
+				tx := c.EvmTxClients[keyIndex].GenerateERC20TransferTx()
+				if tx != nil {
+					signedTx = SignedTx{EvmTx: tx}
+				} else {
+					continue
+				}
+			default:
 				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, producedCount)}
 			}
+
 			select {
 			case txQueue <- signedTx:
 				producedCount.Add(1)
