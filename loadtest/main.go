@@ -89,6 +89,7 @@ func deployEvmContracts(config *Config) {
 	if config.ContainsAnyMessageTypes(ERC20) {
 		erc20, err := deployEvmContract("loadtest/contracts/deploy_erc20.sh")
 		if err != nil {
+			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
 			panic(err)
 		}
 		config.EVMAddresses = &EVMAddresses{
