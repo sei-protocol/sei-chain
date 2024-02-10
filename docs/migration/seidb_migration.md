@@ -156,19 +156,9 @@ systemctl stop seid
 # Step 2: remove and clean up data
 echo "Removing data files..."
 cp $SEID_HOME/data/priv_validator_state.json /root/priv_validator_state.json
-cp $SEID_HOME/config/priv_validator_key.json /root/priv_validator_key.json
-cp $SEID_HOME/genesis.json /root/genesis.json
 rm -rf $SEID_HOME/data/*
-rm -rf $SEID_HOME/wasm
-rm -rf $SEID_HOME/config/priv_validator_key.json
-rm -rf $SEID_HOME/config/genesis.json
-rm -rf $SEID_HOME/config/config.toml
 
-# Step 3: seid init will create reset config and genesis
-echo "Seid Init and set config..."
-seid init --chain-id "$CHAIN_ID" "$MONIKER"
-
-# Step 4: Get trusted height and hash
+# Step 3: Get trusted height and hash
 LATEST_HEIGHT=$(curl -s "$PRIMARY_ENDPOINT"/status | jq -r ".sync_info.latest_block_height")
 if [[ "$LATEST_HEIGHT" -gt "$TRUST_HEIGHT_DELTA" ]]; then
   SYNC_BLOCK_HEIGHT=$(($LATEST_HEIGHT - $TRUST_HEIGHT_DELTA))
@@ -177,24 +167,22 @@ else
 fi
 SYNC_BLOCK_HASH=$(curl -s "$PRIMARY_ENDPOINT/block?height=$SYNC_BLOCK_HEIGHT" | jq -r ".block_id.hash")
 
-# Step 5: Get persistent peers
+# Step 4: Get persistent peers
 SELF=$(cat $SEID_HOME/config/node_key.json |jq -r .id)
 curl "$PRIMARY_ENDPOINT"/net_info |jq -r '.peers[] | .url' |sed -e 's#mconn://##' |grep -v "$SELF" > PEERS
 PERSISTENT_PEERS=$(paste -s -d ',' PEERS)
 
-# Step 6: Update configs for state sync
+# Step 5: Update configs for state sync
 sed -i.bak -e "s|^rpc-servers *=.*|rpc-servers = \"$PRIMARY_ENDPOINT,$PRIMARY_ENDPOINT\"|" $SEID_HOME/config/config.toml
 sed -i.bak -e "s|^trust-height *=.*|trust-height = $SYNC_BLOCK_HEIGHT|" $SEID_HOME/config/config.toml
 sed -i.bak -e "s|^trust-hash *=.*|trust-hash = \"$SYNC_BLOCK_HASH\"|" $SEID_HOME/config/config.toml
 sed -i.bak -e "s|^persistent-peers *=.*|persistent-peers = \"$PERSISTENT_PEERS\"|" $SEID_HOME/config/config.toml
 sed -i.bak -e "s|^enable *=.*|enable = true|" $SEID_HOME/config/config.toml
 
-# Step 7: Copy backed up files
+# Step 6: Copy backed up files
 cp /root/priv_validator_state.json $SEID_HOME/data/priv_validator_state.json
-cp /root/priv_validator_key.json $SEID_HOME/config/priv_validator_key.json
-cp /root/genesis.json $SEID_HOME/config/genesis.json
 
-# Step 8: Restart seid
+# Step 7: Restart seid
 echo "Restarting seid process..."
 systemctl restart seid
 ```
