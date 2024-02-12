@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/tracers"
+	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s in native to register native tracers
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
