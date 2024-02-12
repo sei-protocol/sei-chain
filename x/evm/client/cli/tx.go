@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/big"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -57,6 +58,7 @@ func GetTxCmd() *cobra.Command {
 
 	cmd.AddCommand(CmdAssociateAddress())
 	cmd.AddCommand(CmdSend())
+	cmd.AddCommand(CmdDeployContract())
 	cmd.AddCommand(CmdDeployErc20())
 	cmd.AddCommand(CmdDeployErcCw20())
 	cmd.AddCommand(CmdCallContract())
@@ -212,6 +214,101 @@ type Response struct {
 	Jsonrpc string `json:"jsonrpc"`
 	ID      string `json:"id"`
 	Result  string `json:"result"`
+}
+
+func CmdDeployContract() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "deploy-contract <abi> <bin> [<constructor_input_hex>] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Short: "Deploy a contract (does not work with constructor arguments)",
+		Long:  "",
+		Args:  cobra.RangeArgs(2, 3),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			abi, err := os.ReadFile(args[0])
+			if err != nil {
+				return err
+			}
+
+			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
+			if err != nil {
+				fmt.Println("failed at parsing abi")
+				return err
+			}
+
+			bytecodeHex, err := os.ReadFile(args[1])
+			if err != nil {
+				return err
+			}
+
+			bytecode, err := hex.DecodeString(string(bytecodeHex))
+			if err != nil {
+				return err
+			}
+
+			contractData := bytecode
+
+			if len(parsedABI.Constructor.Inputs) != 0 && len(args) == 2 {
+				if len(args) == 2 {
+					fmt.Println("constructor arguments must be provided in packed hex format")
+					return errors.New("constructor arguments not provided")
+				}
+
+				packedArgs, err := hex.DecodeString(args[2])
+				if err != nil {
+					return err
+				}
+
+				contractData = append(contractData, packedArgs...)
+			}
+
+			key, err := getPrivateKey(cmd)
+			if err != nil {
+				return err
+			}
+
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			nonce, err := getNonce(rpc, key.PublicKey)
+			if err != nil {
+				return err
+			}
+
+			txData, err := getTxData(cmd)
+			if err != nil {
+				return err
+			}
+			txData.Nonce = uint64(*nonce)
+			txData.Value = big.NewInt(0)
+			txData.Data = contractData
+
+			resp, err := sendTx(txData, rpc, key)
+			if err != nil {
+				return err
+			}
+
+			senderAddr := crypto.PubkeyToAddress(key.PublicKey)
+			data, err := rlp.EncodeToBytes([]interface{}{senderAddr, nonce})
+			if err != nil {
+				return err
+			}
+			hash := crypto.Keccak256Hash(data)
+			contractAddress := hash.Bytes()[12:]
+			contractAddressHex := hex.EncodeToString(contractAddress)
+
+			fmt.Println("Deployer:", senderAddr)
+			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
+			fmt.Println("Transaction hash:", resp.Hex())
+			return nil
+		},
+	}
+
+	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
+	cmd.Flags().Uint64(FlagGas, 5000000, "Gas limit for the transaction")
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
 }
 
 func CmdDeployErc20() *cobra.Command {
