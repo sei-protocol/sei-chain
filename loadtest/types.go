@@ -62,6 +62,11 @@ type Config struct {
 	EVMAddresses *EVMAddresses
 }
 
+func (c *Config) EVMRpcEndpoint() string {
+	endpoints := strings.Split(c.EvmRpcEndpoints, ",")
+	return endpoints[0]
+}
+
 func (c *Config) ContainsAnyMessageTypes(types ...string) bool {
 	mTypes := strings.Split(c.MessageType, ",")
 	for _, t := range types {

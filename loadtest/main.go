@@ -73,8 +73,8 @@ func init() {
 }
 
 // deployEvmContract executes a bash script and returns its output as a string.
-func deployEvmContract(scriptPath string) (common.Address, error) {
-	cmd := exec.Command("bash", scriptPath)
+func deployEvmContract(scriptPath string, config *Config) (common.Address, error) {
+	cmd := exec.Command("bash", scriptPath, config.EVMRpcEndpoint())
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
@@ -87,7 +87,7 @@ func deployEvmContract(scriptPath string) (common.Address, error) {
 func deployEvmContracts(config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(ERC20) {
-		erc20, err := deployEvmContract("loadtest/contracts/deploy_erc20.sh")
+		erc20, err := deployEvmContract("loadtest/contracts/deploy_erc20.sh", config)
 		if err != nil {
 			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
 			panic(err)
