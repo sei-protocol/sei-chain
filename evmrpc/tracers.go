@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -34,12 +35,12 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	fmt.Printf("In TraceTransaction, config = %v\n", config)
 	res, err := api.tracersAPI.TraceTransaction(ctx, hash, config)
 	fmt.Printf("In TraceTransaction, res = %v, err = %v\n", res, err)
-	// var r json.RawMessage
-	// resBytes := res.([]byte)
-	// err = r.UnmarshalJSON(resBytes)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// fmt.Println("In TraceTransaction, res as string = ", string(resBytes))
+	var r json.RawMessage
+	resBytes := res.(json.RawMessage)
+	err = r.UnmarshalJSON(resBytes)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("In TraceTransaction, res as string = ", string(resBytes))
 	return res, nil
 }
