@@ -6,7 +6,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Forked from go-ethereum, except journaling logic which is unnecessary with cacheKV
@@ -78,10 +77,9 @@ func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *
 }
 
 func (s *DBImpl) getAccessList() *accessList {
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
-	bz := store.Get(AccessListKey)
+	bz, found := s.getTransientModule(AccessListKey)
 	al := accessList{Addresses: make(map[common.Address]int)}
-	if bz == nil {
+	if !found || bz == nil {
 		return &al
 	}
 	if err := json.Unmarshal(bz, &al); err != nil {
@@ -95,6 +93,5 @@ func (s *DBImpl) saveAccessList(al *accessList) {
 	if err != nil {
 		panic(err)
 	}
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
-	store.Set(AccessListKey, albz)
+	s.tempStateCurrent.transientModuleStates[string(AccessListKey)] = albz
 }
