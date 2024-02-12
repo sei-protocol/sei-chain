@@ -3,15 +3,12 @@ package state
 import (
 	"encoding/binary"
 	"fmt"
-
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func (s *DBImpl) AddRefund(gas uint64) {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, s.GetRefund()+gas)
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
-	store.Set(GasRefundKey, bz)
+	s.tempStateCurrent.transientModuleStates[string(GasRefundKey)] = bz
 }
 
 // Copied from go-ethereum as-is
@@ -24,14 +21,12 @@ func (s *DBImpl) SubRefund(gas uint64) {
 	}
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, refund-gas)
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
-	store.Set(GasRefundKey, bz)
+	s.tempStateCurrent.transientModuleStates[string(GasRefundKey)] = bz
 }
 
 func (s *DBImpl) GetRefund() uint64 {
-	store := s.k.PrefixStore(s.ctx, types.TransientModuleStateKey(s.ctx))
-	bz := store.Get(GasRefundKey)
-	if bz == nil {
+	bz, found := s.getTransientModule(GasRefundKey)
+	if !found || bz == nil {
 		return 0
 	}
 	return binary.BigEndian.Uint64(bz)
