@@ -39,13 +39,10 @@ func TestTraceTransaction(t *testing.T) {
 	result := resObj["result"].(string)
 	fmt.Println("hash = ", tx.Hash().Hex())
 	require.Equal(t, tx.Hash().Hex(), result)
-	args := map[string]interface{}{
-		"tracer": "callTracer",
-	}
+	args := map[string]interface{}{}
 	resObj = sendRequestGoodWithNamespace(t, "debug", "traceTransaction", tx.Hash().Hex(), args)
 	fmt.Println("resObj = ", resObj)
 	result = resObj["result"].(string)
 	fmt.Println("result = ", result)
-
 	// 2nd test: trace a contract call
 }

@@ -2,7 +2,6 @@ package evmrpc
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
