@@ -12,3 +12,4 @@ docs/
 
 # Dotenv file
 .env
+.openzeppelin
