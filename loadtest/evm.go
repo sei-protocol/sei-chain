@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
+
 	"math/big"
 	"math/rand"
 	"sync"
@@ -12,14 +13,16 @@ import (
 	"time"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+
+	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc20"
 )
 
 type EvmTxClient struct {
-	privateKey       cryptotypes.PrivKey
 	accountAddress   common.Address
 	nonce            atomic.Uint64
 	shouldResetNonce atomic.Bool
@@ -27,6 +30,8 @@ type EvmTxClient struct {
 	gasPrice         *big.Int
 	ethClients       []*ethclient.Client
 	mtx              sync.RWMutex
+	privateKey       *ecdsa.PrivateKey
+	evmAddresses     *EVMAddresses
 }
 
 func NewEvmTxClient(
@@ -34,19 +39,21 @@ func NewEvmTxClient(
 	chainId *big.Int,
 	gasPrice *big.Int,
 	ethClients []*ethclient.Client,
+	evmAddresses *EVMAddresses,
 ) *EvmTxClient {
 	txClient := &EvmTxClient{
-		privateKey: key,
-		chainId:    chainId,
-		gasPrice:   gasPrice,
-		ethClients: ethClients,
-		mtx:        sync.RWMutex{},
+		chainId:      chainId,
+		gasPrice:     gasPrice,
+		ethClients:   ethClients,
+		mtx:          sync.RWMutex{},
+		evmAddresses: evmAddresses,
 	}
 	privKeyHex := hex.EncodeToString(key.Bytes())
 	privateKey, err := crypto.HexToECDSA(privKeyHex)
 	if err != nil {
 		fmt.Printf("Failed to load private key: %v \n", err)
 	}
+	txClient.privateKey = privateKey
 
 	publicKey := privateKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
@@ -65,33 +72,81 @@ func NewEvmTxClient(
 	return txClient
 }
 
-// GenerateEvmSignedTx takes a private key and generate a signed bank send TX
+func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transaction {
+	switch msgType {
+	case EVM:
+		return txClient.GenerateSendFundsTx()
+	case ERC20:
+		return txClient.GenerateERC20TransferTx()
+	default:
+		panic("invalid message type")
+	}
+}
+
+func randomValue() *big.Int {
+	return big.NewInt(rand.Int63n(9000000) * 1000000000000)
+}
+
+// GenerateSendFundsTx returns a random send funds tx
 //
 //nolint:staticcheck
-func (txClient *EvmTxClient) GenerateEvmSignedTx() *ethtypes.Transaction {
-	txClient.mtx.RLock()
-	defer txClient.mtx.RUnlock()
+func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
+	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    txClient.nextNonce(),
+		GasPrice: txClient.gasPrice,
+		Gas:      uint64(21000),
+		To:       &txClient.accountAddress,
+		Value:    randomValue(),
+	})
+	return txClient.sign(tx)
+}
 
-	privKeyHex := hex.EncodeToString(txClient.privateKey.Bytes())
-	privateKey, err := crypto.HexToECDSA(privKeyHex)
+// GenerateERC20TransferTx returns a random ERC20 send
+// the contract it interacts with needs no funding (infinite balances)
+func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
+	opts := txClient.getTransactOpts()
+	// override gas limit for an ERC20 transfer
+	opts.GasLimit = uint64(100000)
+	tokenAddress := txClient.evmAddresses.ERC20
+	token, err := erc20.NewErc20(tokenAddress, GetNextEthClient(txClient.ethClients))
 	if err != nil {
-		fmt.Printf("Failed to load private key: %v \n", err)
+		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
 	}
-
-	// Get the next nonce
-	nextNonce := txClient.nonce.Add(1) - 1
-
-	// Generate random amount to send
-	rand.Seed(time.Now().Unix())
-	value := big.NewInt(rand.Int63n(9000000) * 1000000000000)
-	gasLimit := uint64(21000)
-	tx := ethtypes.NewTransaction(nextNonce, txClient.accountAddress, value, gasLimit, txClient.gasPrice, nil)
-	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), privateKey)
+	tx, err := token.Transfer(opts, txClient.accountAddress, randomValue())
 	if err != nil {
-		fmt.Printf("Failed to sign evm tx: %v \n", err)
-		return nil
+		panic(fmt.Sprintf("Failed to create ERC20 transfer: %v \n", err))
+	}
+	return tx
+}
+
+func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
+	auth, err := bind.NewKeyedTransactorWithChainID(txClient.privateKey, txClient.chainId)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
+	}
+	auth.Nonce = big.NewInt(int64(txClient.nextNonce()))
+	auth.Value = big.NewInt(0)
+	auth.GasLimit = uint64(21000)
+	auth.GasPrice = txClient.gasPrice
+	auth.Context = context.Background()
+	auth.From = txClient.accountAddress
+	auth.NoSend = true
+	return auth
+}
+
+func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transaction {
+	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), txClient.privateKey)
+	if err != nil {
+		// this should not happen
+		panic(err)
 	}
 	return signedTx
+}
+
+func (txClient *EvmTxClient) nextNonce() uint64 {
+	txClient.mtx.RLock()
+	defer txClient.mtx.RUnlock()
+	return txClient.nonce.Add(1) - 1
 }
 
 // SendEvmTx takes any signed evm tx and send it out

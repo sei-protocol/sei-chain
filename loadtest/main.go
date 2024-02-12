@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -27,11 +28,13 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/ethereum/go-ethereum/common"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-	"golang.org/x/sync/semaphore"
-	"golang.org/x/time/rate"
 )
 
 var TestConfig EncodingConfig
@@ -69,12 +72,42 @@ func init() {
 	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 100
 }
 
-func run(config Config) {
+// deployEvmContract executes a bash script and returns its output as a string.
+//
+//nolint:gosec
+func deployEvmContract(scriptPath string, config *Config) (common.Address, error) {
+	cmd := exec.Command(scriptPath, config.EVMRpcEndpoint())
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err != nil {
+		return common.Address{}, err
+	}
+	return common.HexToAddress(out.String()), nil
+}
+
+func deployEvmContracts(config *Config) {
+	config.EVMAddresses = &EVMAddresses{}
+	if config.ContainsAnyMessageTypes(ERC20) {
+		fmt.Println("Deploying ERC20 contract")
+		erc20, err := deployEvmContract("loadtest/contracts/deploy_erc20.sh", config)
+		if err != nil {
+			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
+			panic(err)
+		}
+		config.EVMAddresses = &EVMAddresses{
+			ERC20: erc20,
+		}
+	}
+}
+
+func run(config *Config) {
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
-	go metricsServer.StartMetricsClient(config)
+	go metricsServer.StartMetricsClient(*config)
 
-	startLoadtestWorkers(config)
+	deployEvmContracts(config)
+	startLoadtestWorkers(*config)
 }
 
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
@@ -683,5 +716,5 @@ func main() {
 
 	config := ReadConfig(*configFilePath)
 	fmt.Printf("Using config file: %s\n", *configFilePath)
-	run(config)
+	run(&config)
 }

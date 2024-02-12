@@ -3,18 +3,22 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
 	Bank                 string = "bank"
 	EVM                  string = "evm"
+	ERC20                string = "erc20"
 	CollectRewards       string = "collect_rewards"
 	DistributeRewards    string = "distribute_rewards"
 	FailureBankMalformed string = "failure_bank_malformed"
@@ -38,6 +42,10 @@ type WasmIteratorWriteMsg struct {
 	Values [][]uint64 `json:"values"`
 }
 
+type EVMAddresses struct {
+	ERC20 common.Address
+}
+
 type Config struct {
 	ChainID            string                `json:"chain_id"`
 	GrpcEndpoints      string                `json:"grpc_endpoints"`
@@ -57,6 +65,26 @@ type Config struct {
 	MetricsPort        uint64                `json:"metrics_port"`
 	TLS                bool                  `json:"tls"`
 	SeiTesterAddress   string                `json:"sei_tester_address"`
+
+	// These are dynamically set at startup
+	EVMAddresses *EVMAddresses
+}
+
+func (c *Config) EVMRpcEndpoint() string {
+	endpoints := strings.Split(c.EvmRpcEndpoints, ",")
+	return endpoints[0]
+}
+
+func (c *Config) ContainsAnyMessageTypes(types ...string) bool {
+	mTypes := c.MessageTypes
+	for _, t := range types {
+		for _, mt := range mTypes {
+			if mt == t {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type EncodingConfig struct {
