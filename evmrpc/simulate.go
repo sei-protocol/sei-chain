@@ -275,21 +275,23 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	return b.getHeader(big.NewInt(height)), nil
 }
 
+// TODO: figure out what resources you need to throw for StateReleaseFunc
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
 	// panic("throw stack trace")
 	fmt.Println("In StateAtTransaction")
 	// Short circuit if it's genesis block.
 	fmt.Printf("In StateAtTransaction, block = %+v", block)
 	fmt.Printf("In StateAtTransaction, block.header = %+v", block.Header())
+	emptyRelease := func() {}
 	if block.Number().Int64() == 0 {
-		return nil, vm.BlockContext{}, nil, nil, errors.New("no transaction in genesis")
+		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("no transaction in genesis")
 	}
 	// get the parent block using block.parentHash
 	prevBlockHeight := block.Number().Int64() - 1
 	// Get statedb of parent block from the store
 	statedb := state.NewDBImpl(b.ctxProvider(prevBlockHeight), b.keeper, true)
 	if txIndex == 0 && len(block.Transactions()) == 0 {
-		return nil, vm.BlockContext{}, statedb, nil, nil
+		return nil, vm.BlockContext{}, statedb, emptyRelease, nil
 	}
 	// Recompute transactions up to the target index. (only doing EVM at the moment, but should do both EVM + Cosmos)
 	signer := ethtypes.MakeSigner(b.ChainConfig(), block.Number(), block.Time())
@@ -301,7 +303,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 			return nil, vm.BlockContext{}, nil, nil, err
 		}
 		if idx == txIndex {
-			return msg, *blockContext, statedb, nil, nil
+			return msg, *blockContext, statedb, emptyRelease, nil
 		}
 		// Not yet the searched for transaction, execute on top of the current state
 		vmenv := vm.NewEVM(*blockContext, txContext, statedb, b.ChainConfig(), vm.Config{})
