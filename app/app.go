@@ -971,15 +971,17 @@ func (app *App) ClearOptimisticProcessingInfo() {
 	app.optimisticProcessingInfo = nil
 }
 
-func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
-	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
-	// by recording the decoding results and avoid decoding again later on.
+func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
+	// TODO: This check decodes transactions which is redone in subsequent processing.
+	// We might be able to optimize performance by recording the decoding results
+	// and avoid decoding again later on.
 	if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
 	}
+
 	if app.optimisticProcessingInfo == nil {
 		completionSignal := make(chan struct{}, 1)
 		optimisticProcessingInfo := &OptimisticProcessingInfo{
@@ -987,15 +989,32 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			Hash:       req.Hash,
 			Completion: completionSignal,
 		}
+
 		app.optimisticProcessingInfo = optimisticProcessingInfo
 
 		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
 		if found && plan.ShouldExecute(ctx) {
-			app.Logger().Info(fmt.Sprintf("Potential upgrade planned for height=%d skipping optimistic processing", plan.Height))
+			app.Logger().Info("Potential upgrade planned; skipping optimistic processing", "height", plan.Height)
 			app.optimisticProcessingInfo.Aborted = true
 			app.optimisticProcessingInfo.Completion <- struct{}{}
 		} else {
 			go func() {
+				defer func() {
+					if err := recover(); err != nil {
+						app.Logger().Error(
+							"panic recovered in application ProcessProposal handler",
+							"height", req.Height,
+							"time", req.Time,
+							"hash", fmt.Sprintf("%X", req.Hash),
+							"panic", err,
+						)
+
+						resp = &abci.ResponseProcessProposal{
+							Status: abci.ResponseProcessProposal_REJECT,
+						}
+					}
+				}()
+
 				ctx = ctx.WithContext(app.decorateProcessProposalContextWithDexMemState(ctx.Context()))
 				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
 				optimisticProcessingInfo.Events = events
@@ -1007,9 +1026,12 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
 		app.optimisticProcessingInfo.Aborted = true
 	}
-	return &abci.ResponseProcessProposal{
+
+	resp = &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
-	}, nil
+	}
+
+	return resp, nil
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
