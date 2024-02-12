@@ -19,12 +19,13 @@ import (
 
 func TestPurgePrefixNotHang(t *testing.T) {
 	k, ctx := keeper.MockEVMKeeper()
+	_, evmAddr := keeper.MockAddressPair()
 	for i := 0; i < 50; i++ {
 		ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
-		store := k.PrefixStore(ctx, types.TransientModuleStateKey(ctx))
+		store := k.PrefixStore(ctx, types.StateKey(evmAddr))
 		store.Set([]byte{0x03}, []byte("test"))
 	}
-	require.NotPanics(t, func() { k.PurgePrefix(ctx, types.TransientModuleStateKey(ctx)) })
+	require.NotPanics(t, func() { k.PurgePrefix(ctx, types.StateKey(evmAddr)) })
 }
 
 func TestGetChainID(t *testing.T) {

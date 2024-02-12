@@ -6,7 +6,6 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -33,15 +32,20 @@ func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash)
 }
 
 func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.Hash {
-	val := s.k.PrefixStore(s.ctx, types.TransientStateKeyForAddress(s.ctx, addr)).Get(key[:])
-	if val == nil {
+	val, found := s.getTransientState(addr, key)
+	if !found {
 		return common.Hash{}
 	}
-	return common.BytesToHash(val)
+	return val
 }
 
 func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
-	s.k.PrefixStore(s.ctx, types.TransientStateKeyForAddress(s.ctx, addr)).Set(key[:], val[:])
+	st, ok := s.tempStateCurrent.transientStates[addr.Hex()]
+	if !ok {
+		st = make(map[string]common.Hash)
+		s.tempStateCurrent.transientStates[addr.Hex()] = st
+	}
+	st[key.Hex()] = val
 }
 
 // burns account's balance
@@ -72,24 +76,27 @@ func (s *DBImpl) Selfdestruct6780(acc common.Address) {
 // the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
 // **CURRENT** block
 func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
-	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKey(s.ctx))
-	return bytes.Equal(store.Get(acc[:]), AccountDeleted)
+	val, found := s.getTransientAccount(acc)
+	if !found || val == nil {
+		return false
+	}
+	return bytes.Equal(val, AccountDeleted)
 }
 
 func (s *DBImpl) Snapshot() int {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore())
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
-	s.snapshottedLogs = append(s.snapshottedLogs, s.logs)
-	s.logs = []*ethtypes.Log{}
+	s.tempStatesHist = append(s.tempStatesHist, s.tempStateCurrent)
+	s.tempStateCurrent = NewTemporaryState()
 	return len(s.snapshottedCtxs) - 1
 }
 
 func (s *DBImpl) RevertToSnapshot(rev int) {
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
-	s.logs = s.snapshottedLogs[rev]
-	s.snapshottedLogs = s.snapshottedLogs[:rev]
+	s.tempStateCurrent = s.tempStatesHist[rev]
+	s.tempStatesHist = s.tempStatesHist[:rev]
 	s.Snapshot()
 }
 
@@ -102,17 +109,16 @@ func (s *DBImpl) clearAccountState(acc common.Address) {
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
-	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKey(s.ctx))
-	if status == nil {
-		store.Delete(acc[:])
-	} else {
-		store.Set(acc[:], status)
-	}
+	// val being nil means it's deleted
+	s.tempStateCurrent.transientAccounts[acc.Hex()] = status
 }
 
 func (s *DBImpl) Created(acc common.Address) bool {
-	store := s.k.PrefixStore(s.ctx, types.AccountTransientStateKey(s.ctx))
-	return bytes.Equal(store.Get(acc[:]), AccountCreated)
+	val, found := s.getTransientAccount(acc)
+	if !found || val == nil {
+		return false
+	}
+	return bytes.Equal(val, AccountCreated)
 }
 
 func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
@@ -120,6 +126,37 @@ func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.H
 	for key, val := range states {
 		s.SetState(addr, key, val)
 	}
+}
+
+func (s *DBImpl) getTransientAccount(acc common.Address) ([]byte, bool) {
+	val, found := s.tempStateCurrent.transientAccounts[acc.Hex()]
+	for i := len(s.tempStatesHist) - 1; !found && i >= 0; i-- {
+		val, found = s.tempStatesHist[i].transientAccounts[acc.Hex()]
+	}
+	return val, found
+}
+
+func (s *DBImpl) getTransientModule(key []byte) ([]byte, bool) {
+	val, found := s.tempStateCurrent.transientModuleStates[string(key)]
+	for i := len(s.tempStatesHist) - 1; !found && i >= 0; i-- {
+		val, found = s.tempStatesHist[i].transientModuleStates[string(key)]
+	}
+	return val, found
+}
+
+func (s *DBImpl) getTransientState(acc common.Address, key common.Hash) (common.Hash, bool) {
+	var val common.Hash
+	m, found := s.tempStateCurrent.transientStates[acc.Hex()]
+	if found {
+		val, found = m[key.Hex()]
+	}
+	for i := len(s.tempStatesHist) - 1; !found && i >= 0; i-- {
+		m, found = s.tempStatesHist[i].transientStates[acc.Hex()]
+		if found {
+			val, found = m[key.Hex()]
+		}
+	}
+	return val, found
 }
 
 func deleteIfExists(store storetypes.KVStore, key []byte) {
