@@ -26,9 +26,9 @@ var (
 	EVMAddressToSeiAddressKeyPrefix            = []byte{0x01}
 	SeiAddressToEVMAddressKeyPrefix            = []byte{0x02}
 	StateKeyPrefix                             = []byte{0x03}
-	TransientStateKeyPrefix                    = []byte{0x04}
-	AccountTransientStateKeyPrefix             = []byte{0x05}
-	TransientModuleStateKeyPrefix              = []byte{0x06}
+	TransientStateKeyPrefix                    = []byte{0x04} // deprecated
+	AccountTransientStateKeyPrefix             = []byte{0x05} // deprecated
+	TransientModuleStateKeyPrefix              = []byte{0x06} // deprecated
 	CodeKeyPrefix                              = []byte{0x07}
 	CodeHashKeyPrefix                          = []byte{0x08}
 	CodeSizeKeyPrefix                          = []byte{0x09}
@@ -55,22 +55,6 @@ func StateKey(evmAddress common.Address) []byte {
 	return append(StateKeyPrefix, evmAddress[:]...)
 }
 
-func TransientStateKey(ctx sdk.Context) []byte {
-	return append(TransientStateKeyPrefix, getTxIndexBz(ctx)...)
-}
-
-func TransientStateKeyForAddress(ctx sdk.Context, evmAddress common.Address) []byte {
-	return append(TransientStateKey(ctx), evmAddress[:]...)
-}
-
-func AccountTransientStateKey(ctx sdk.Context) []byte {
-	return append(AccountTransientStateKeyPrefix, getTxIndexBz(ctx)...)
-}
-
-func TransientModuleStateKey(ctx sdk.Context) []byte {
-	return append(TransientModuleStateKeyPrefix, getTxIndexBz(ctx)...)
-}
-
 func ReceiptKey(txHash common.Hash) []byte {
 	return append(ReceiptKeyPrefix, txHash[:]...)
 }
@@ -85,10 +69,4 @@ func TxHashesKey(height int64) []byte {
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, uint64(height))
 	return append(TxHashesPrefix, bz...)
-}
-
-func getTxIndexBz(ctx sdk.Context) []byte {
-	res := make([]byte, 8)
-	binary.BigEndian.PutUint64(res, uint64(ctx.TxIndex()))
-	return res
 }
