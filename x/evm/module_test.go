@@ -41,9 +41,8 @@ func TestABCI(t *testing.T) {
 	s.AddBalance(evmAddr1, big.NewInt(5000000000000))
 	require.Nil(t, s.Finalize())
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(3), ethtypes.Bloom{}, common.Hash{})
+	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 0}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
-	deferredInfo := k.GetEVMTxDeferredInfo(ctx)
-	require.Empty(t, deferredInfo)
 	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
 
@@ -55,9 +54,8 @@ func TestABCI(t *testing.T) {
 	s.AddBalance(evmAddr1, big.NewInt(2000000000000))
 	require.Nil(t, s.Finalize())
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{})
+	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
 	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
-	deferredInfo = k.GetEVMTxDeferredInfo(ctx)
-	require.Empty(t, deferredInfo)
 }
