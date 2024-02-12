@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
@@ -187,7 +188,9 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(index)]
 	tx = getEthTxForTxBz(tmTx, b.txDecoder)
-	return tx, common.HexToHash(receipt.TxHashHex), uint64(txHeight), uint64(txIndex), nil
+	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
+	fmt.Printf("In GetTransaction, returning block hash = %+v\n", blockHash)
+	return tx, blockHash, uint64(txHeight), uint64(txIndex), nil
 }
 
 func (b *Backend) ChainDb() ethdb.Database {
@@ -195,18 +198,56 @@ func (b *Backend) ChainDb() ethdb.Database {
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
-	return b.BlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithNumber(bn))
+	fmt.Println("Entered BlockByNumber, block number = ", bn)
+	bnn := bn.Int64()
+	tmBlock, err := b.tmClient.Block(ctx, &bnn)
+	if err != nil {
+		return nil, err
+	}
+	blockRes, err := b.tmClient.BlockResults(ctx, &tmBlock.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	var txs []*ethtypes.Transaction
+	for i, _ := range blockRes.TxsResults {
+		decoded, err := b.txDecoder(tmBlock.Block.Txs[i])
+		if err != nil {
+			return nil, err
+		}
+		for _, msg := range decoded.GetMsgs() {
+			switch m := msg.(type) {
+			case *types.MsgEVMTransaction:
+				if m.IsAssociateTx() {
+					continue
+				}
+				ethtx, _ := m.AsTransaction()
+				txs = append(txs, ethtx)
+			}
+		}
+	}
+	header := b.getHeader(big.NewInt(bn.Int64()))
+	block := &ethtypes.Block{
+		Header_: header,
+		Txs:     txs,
+	}
+	fmt.Printf("In BlockByNumber, returning block = %+v\n", block)
+	fmt.Printf("In BlockByNumber, returning block.header = %+v\n", block.Header_)
+	return block, nil
 }
 
 func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
-	return b.BlockByNumberOrHash(ctx, rpc.BlockNumberOrHashWithHash(hash, false))
-}
-
-// returns block header only
-func (b *Backend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*ethtypes.Block, error) {
-	return ethtypes.NewBlock(&ethtypes.Header{
-		GasLimit: b.RPCGasCap(),
-	}, []*ethtypes.Transaction{}, []*ethtypes.Header{}, []*ethtypes.Receipt{}, nil), nil
+	fmt.Println("In BlockByHash, param hash = ", hash)
+	tmBlock, err := b.tmClient.BlockByHash(ctx, hash.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	if tmBlock.Block == nil {
+		panic("tmBlock.Block is nil")
+	}
+	fmt.Printf("In BlockByHash, pulled tmBlock.Block = %+v\n", tmBlock.Block)
+	blockNumber := rpc.BlockNumber(tmBlock.Block.Height)
+	fmt.Printf("In BlockByHash, querying for BlockByNumber = %+v\n", blockNumber)
+	return b.BlockByNumber(ctx, blockNumber)
 }
 
 func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
@@ -235,6 +276,7 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 }
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
+	// panic("throw stack trace")
 	fmt.Println("In StateAtTransaction")
 	// Short circuit if it's genesis block.
 	fmt.Printf("In StateAtTransaction, block = %+v", block)
