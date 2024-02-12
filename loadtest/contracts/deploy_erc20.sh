@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script is used to deploy the NoopToken contract to the local network
+# This script is used to deploy the NoopToken contract to the target network
 # This avoids trying to predict what address it might be deployed to
 
 evm_endpoint=$1
