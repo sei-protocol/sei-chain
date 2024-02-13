@@ -148,7 +148,11 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []EvmTxDeferredInfo) {
 	k.deferredInfo.Range(func(key, value any) bool {
 		txIdx := key.(int)
-		if txIdx >= 0 && txIdx < len(k.txResults) && k.txResults[txIdx].Code == 0 {
+		if txIdx < 0 || txIdx >= len(k.txResults) {
+			ctx.Logger().Error(fmt.Sprintf("getting invalid tx index in EVM deferred info: %d, num of txs: %d", txIdx, len(k.txResults)))
+			return true
+		}
+		if k.txResults[txIdx].Code == 0 {
 			res = append(res, *(value.(*EvmTxDeferredInfo)))
 		}
 		return true

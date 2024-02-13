@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
+	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 func TestSettleCommon(t *testing.T) {
@@ -51,6 +52,7 @@ func TestSettleCommon(t *testing.T) {
 	globalEscrowBalance := k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(banktypes.WeiEscrowName), "usei")
 	require.True(t, globalEscrowBalance.Amount.IsZero())
 
+	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 0}})
 	deferredInfo := k.GetEVMTxDeferredInfo(ctx)
 	k.SettleWeiEscrowAccounts(ctx, deferredInfo)
 	globalEscrowBalance = k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(banktypes.WeiEscrowName), "usei")
@@ -99,6 +101,7 @@ func TestSettleMultiRedeem(t *testing.T) {
 	globalEscrowBalance := k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(banktypes.WeiEscrowName), "usei")
 	require.True(t, globalEscrowBalance.Amount.IsZero())
 
+	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}})
 	deferredInfo := k.GetEVMTxDeferredInfo(ctx)
 	k.SettleWeiEscrowAccounts(ctx, deferredInfo)
 	globalEscrowBalance = k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(banktypes.WeiEscrowName), "usei")
