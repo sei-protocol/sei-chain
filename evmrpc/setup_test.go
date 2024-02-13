@@ -577,7 +577,7 @@ func setupLogs() {
 		}},
 	})
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash(DebugTraceHashHex), &types.Receipt{
-		BlockNumber:      DebugTraceMockHeight, // needs to be unique block number compared to other tests to not get interference
+		BlockNumber:      DebugTraceMockHeight,
 		TransactionIndex: 0,
 		TxHashHex:        DebugTraceHashHex,
 	})
