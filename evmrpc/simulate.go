@@ -193,7 +193,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		return nil, err
 	}
 	var txs []*ethtypes.Transaction
-	for i, _ := range blockRes.TxsResults {
+	for i := range blockRes.TxsResults {
 		decoded, err := b.txDecoder(tmBlock.Block.Txs[i])
 		if err != nil {
 			return nil, err
