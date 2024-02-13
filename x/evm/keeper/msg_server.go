@@ -68,14 +68,15 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 			return
 		}
-		err = stateDB.Finalize()
-		if err != nil {
+		surplusUsei, surplusWei, ferr := stateDB.Finalize()
+		if ferr != nil {
+			err = ferr
 			ctx.Logger().Error(fmt.Sprintf("failed to finalize EVM stateDB: %s", err))
 			return
 		}
 		bloom := ethtypes.Bloom{}
 		bloom.SetBytes(receipt.LogsBloom)
-		server.AppendToEvmTxDeferredInfo(ctx, bloom, tx.Hash())
+		server.AppendToEvmTxDeferredInfo(ctx, bloom, tx.Hash(), surplusUsei, surplusWei)
 		if serverRes.VmError == "" && tx.To() == nil {
 			server.AddToWhitelistIfApplicable(ctx, tx.Data(), common.HexToAddress(receipt.ContractAddress))
 		}
