@@ -42,8 +42,8 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 		return []sdkacltypes.AccessOperation{}, err
 	}
 	ops := []sdkacltypes.AccessOperation{}
-	ops = appendRWBalanceOps(ops, state.GetMiddleManAddress(ctx))
-	ops = appendRWBalanceOps(ops, state.GetCoinbaseAddress(ctx))
+	ops = appendRWBalanceOps(ops, state.GetMiddleManAddress(ctx.TxIndex()))
+	ops = appendRWBalanceOps(ops, state.GetCoinbaseAddress(ctx.TxIndex()))
 	sender := evmMsg.Derived.SenderSeiAddr
 	ops = appendRWBalanceOps(ops, sender)
 	ops = append(ops,

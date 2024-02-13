@@ -171,10 +171,11 @@ func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	evmTxDeferredInfoList := am.keeper.GetEVMTxDeferredInfo(ctx)
+	am.keeper.SettleWeiEscrowAccounts(ctx, evmTxDeferredInfoList)
 	denom := am.keeper.GetBaseDenom(ctx)
 	for _, deferredInfo := range evmTxDeferredInfoList {
 		idx := deferredInfo.TxIndx
-		middleManAddress := state.GetMiddleManAddress(sdk.Context{}.WithTxIndex(idx))
+		middleManAddress := state.GetMiddleManAddress(idx)
 		balance := am.keeper.BankKeeper().GetBalance(ctx, middleManAddress, denom)
 		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, middleManAddress)
 		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
@@ -182,7 +183,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 				panic(err)
 			}
 		}
-		coinbaseAddress := state.GetCoinbaseAddress(sdk.Context{}.WithTxIndex(idx))
+		coinbaseAddress := state.GetCoinbaseAddress(idx)
 		balance = am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom)
 		weiBalance = am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
 		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
