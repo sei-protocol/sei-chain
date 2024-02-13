@@ -1480,7 +1480,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		} else {
 			if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
 				msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
-				if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.GetParams(ctx)); err != nil {
+				if err := evmante.Preprocess(ctx, msg); err != nil {
 					ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
 					typedTxs = append(typedTxs, nil)
 					continue

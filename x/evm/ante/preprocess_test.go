@@ -39,8 +39,7 @@ func TestPreprocessAnteHandler(t *testing.T) {
 		Data:     []byte("abc"),
 	}
 	chainID := k.ChainID(ctx)
-	evmParams := k.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
+	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
