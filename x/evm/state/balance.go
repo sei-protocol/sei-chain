@@ -69,5 +69,5 @@ func (s *DBImpl) getSeiAddress(evmAddr common.Address) sdk.AccAddress {
 
 func (s *DBImpl) send(from sdk.AccAddress, to sdk.AccAddress, amt *big.Int) {
 	usei, wei := SplitUseiWeiAmount(amt)
-	s.err = s.k.BankKeeper().SendCoinsAndWei(s.ctx, from, to, nil, s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(usei), sdk.NewIntFromBigInt(wei))
+	s.err = s.k.BankKeeper().SendCoinsAndWei(s.ctx, from, to, s.weiEscrowAddress, s.k.GetBaseDenom(s.ctx), sdk.NewIntFromBigInt(usei), sdk.NewIntFromBigInt(wei))
 }
