@@ -161,6 +161,10 @@ func (AppModule) ConsensusVersion() uint64 { return 3 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
+	// clear tx responses from last block
+	am.keeper.SetTxResults([]*abci.ExecTxResult{})
+	// clear the TxDeferredInfo
+	am.keeper.ClearEVMTxDeferredInfo()
 }
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
@@ -189,7 +193,5 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	}
 	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }))
 	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) ethtypes.Bloom { return i.TxBloom }))
-	// clear the TxDeferredInfo
-	am.keeper.ClearEVMTxDeferredInfo(ctx)
 	return []abci.ValidatorUpdate{}
 }
