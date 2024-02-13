@@ -25,8 +25,6 @@ func TestTraceTransaction(t *testing.T) {
 	args["tracer"] = "prestateTracer"
 	resObj = sendRequestGoodWithNamespace(t, "debug", "traceTransaction", DebugTraceHashHex, args)
 	result = resObj["result"].(map[string]interface{})
-	fmt.Println("result = ", result)
-	// iterate over keys of the map
 	for _, v := range result {
 		require.Contains(t, v, "balance")
 		balanceMap := v.(map[string]interface{})

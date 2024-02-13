@@ -135,20 +135,6 @@ type SimulateConfig struct {
 
 var _ tracers.Backend = (*Backend)(nil)
 
-// type Backend interface {
-// 	HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error)
-// 	HeaderByNumber(ctx context.Context, number rpc.BlockNumber) (*types.Header, error)
-// 	BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error)
-// 	BlockByNumber(ctx context.Context, number rpc.BlockNumber) (*types.Block, error)
-// 	GetTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error)
-// 	RPCGasCap() uint64
-// 	ChainConfig() *params.ChainConfig
-// 	Engine() consensus.Engine
-// 	ChainDb() ethdb.Database
-// 	StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, StateReleaseFunc, error)
-// 	StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, vm.StateDB, StateReleaseFunc, error)
-// }
-
 type Backend struct {
 	*eth.EthAPIBackend
 	ctxProvider func(int64) sdk.Context
@@ -189,7 +175,6 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 	tmTx := block.Block.Txs[int(index)]
 	tx = getEthTxForTxBz(tmTx, b.txDecoder)
 	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
-	fmt.Printf("In GetTransaction, returning block hash = %+v\n", blockHash)
 	return tx, blockHash, uint64(txHeight), uint64(txIndex), nil
 }
 
@@ -198,7 +183,6 @@ func (b *Backend) ChainDb() ethdb.Database {
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
-	fmt.Println("Entered BlockByNumber, block number = ", bn)
 	bnn := bn.Int64()
 	tmBlock, err := b.tmClient.Block(ctx, &bnn)
 	if err != nil {
@@ -230,13 +214,10 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		Header_: header,
 		Txs:     txs,
 	}
-	fmt.Printf("In BlockByNumber, returning block = %+v\n", block)
-	fmt.Printf("In BlockByNumber, returning block.header = %+v\n", block.Header_)
 	return block, nil
 }
 
 func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
-	fmt.Println("In BlockByHash, param hash = ", hash)
 	tmBlock, err := b.tmClient.BlockByHash(ctx, hash.Bytes())
 	if err != nil {
 		return nil, err
@@ -244,9 +225,7 @@ func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.B
 	if tmBlock.Block == nil {
 		panic("tmBlock.Block is nil")
 	}
-	fmt.Printf("In BlockByHash, pulled tmBlock.Block = %+v\n", tmBlock.Block)
 	blockNumber := rpc.BlockNumber(tmBlock.Block.Height)
-	fmt.Printf("In BlockByHash, querying for BlockByNumber = %+v\n", blockNumber)
 	return b.BlockByNumber(ctx, blockNumber)
 }
 
@@ -275,14 +254,9 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	return b.getHeader(big.NewInt(height)), nil
 }
 
-// TODO: figure out what resources you need to throw for StateReleaseFunc
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
-	// panic("throw stack trace")
-	fmt.Println("In StateAtTransaction, txIndex = ", txIndex)
-	// Short circuit if it's genesis block.
-	fmt.Printf("In StateAtTransaction, block = %+v", block)
-	fmt.Printf("In StateAtTransaction, block.header = %+v", block.Header())
 	emptyRelease := func() {}
+	// Short circuit if it's genesis block.
 	if block.Number().Int64() == 0 {
 		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("no transaction in genesis")
 	}
@@ -296,14 +270,12 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	// Recompute transactions up to the target index. (only doing EVM at the moment, but should do both EVM + Cosmos)
 	signer := ethtypes.MakeSigner(b.ChainConfig(), block.Number(), block.Time())
 	for idx, tx := range block.Transactions() {
-		fmt.Println("In StateAtTransaction, processing transaction with idx = ", idx)
 		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
 		txContext := core.NewEVMTxContext(msg)
 		blockContext, err := b.keeper.GetVMBlockContext(b.ctxProvider(prevBlockHeight), core.GasPool(b.RPCGasCap()))
 		if err != nil {
 			return nil, vm.BlockContext{}, nil, nil, err
 		}
-		fmt.Println("In StateAtTransaction, txIndex = ", txIndex, "idx = ", idx)
 		if idx == txIndex {
 			return msg, *blockContext, statedb, emptyRelease, nil
 		}

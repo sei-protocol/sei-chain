@@ -199,16 +199,13 @@ func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock,
 }
 
 func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
-	fmt.Println("MockClient: Called BlockByHash with hash: ", hash.String())
 	if hash.String() == DebugTraceBlockHash {
-		fmt.Println("MockClient: Returning debug trace block")
 		return c.mockBlock(DebugTraceMockHeight), nil
 	}
 	return c.mockBlock(MockHeight), nil
 }
 
 func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
-	fmt.Println("MockClient: Called BlockResults with height = ", height)
 	return &coretypes.ResultBlockResults{
 		TxsResults: []*abci.ExecTxResult{
 			{
@@ -417,7 +414,7 @@ func generateTxData() {
 		Data:      []byte("abc"),
 		ChainID:   chainId,
 	})
-	debugTraceTxBuilder, debugTraceTx := buildTx(ethtypes.DynamicFeeTx{
+	debugTraceTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
 		GasFeeCap: big.NewInt(10),
 		Gas:       22000,
@@ -426,7 +423,6 @@ func generateTxData() {
 		Data:      []byte("abc"),
 		ChainID:   chainId,
 	})
-	fmt.Println("debugTraceTx hash = ", debugTraceTx.Hash().Hex())
 	Tx = txBuilder.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	TxNonEvm = app.TestTx{}
@@ -454,7 +450,6 @@ func generateTxData() {
 		panic(err)
 	}
 	evmAddr := common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))
-	fmt.Println("In setupTest, evmAddr = ", evmAddr)
 	EVMKeeper.SetAddressMapping(Ctx, seiAddr, evmAddr)
 	unassociatedAddr := common.HexToAddress("0x1234567890123456789023456789012345678901")
 	debugTraceAddr := common.HexToAddress("0x5B4eba929F3811980f5AE0c5D04fa200f837DF4E")
@@ -619,7 +614,6 @@ func sendRequestWithNamespace(t *testing.T, namespace string, port int, method s
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
 	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_%s\",\"params\":[%s],\"id\":\"test\"}", namespace, method, paramsFormatted)
-	fmt.Println("In sendRequestWithNamespace, body = ", body)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")

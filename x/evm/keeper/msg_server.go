@@ -165,6 +165,5 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 
 	receipt.From = origMsg.Derived.SenderEVMAddr.Hex()
 
-	fmt.Println("In msgServer, Setting receipt on txHash = ", tx.Hash())
 	return receipt, server.SetReceipt(ctx, tx.Hash(), receipt)
 }

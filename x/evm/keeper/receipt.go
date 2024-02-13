@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"errors"
-	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -13,7 +12,6 @@ import (
 // Many EVM applications (e.g. MetaMask) relies on being on able to query receipt
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	fmt.Println("In Keeper, calling GetReceipt on txHash = ", txHash)
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.ReceiptKey(txHash))
 	if bz == nil {
@@ -23,12 +21,10 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	if err := r.Unmarshal(bz); err != nil {
 		return nil, err
 	}
-	fmt.Println("In Keeper, GetReceipt returning r = ", r)
 	return &r, nil
 }
 
 func (k *Keeper) SetReceipt(ctx sdk.Context, txHash common.Hash, receipt *types.Receipt) error {
-	fmt.Println("In Keeper, Called set receipt on txHash = ", txHash)
 	store := ctx.KVStore(k.storeKey)
 	bz, err := receipt.Marshal()
 	if err != nil {
