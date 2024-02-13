@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -172,9 +173,12 @@ func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}
 	if err != nil {
 		return nil, err
 	}
-	if err := p.bankKeeper.SendCoins(ctx, senderSeiAddr, receiverSeiAddr, sdk.NewCoins(sdk.NewCoin(denom, sdk.NewIntFromBigInt(amount)))); err != nil {
+
+	usei, wei := state.SplitUseiWeiAmount(amount)
+	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, nil, denom, sdk.NewIntFromBigInt(usei), sdk.NewIntFromBigInt(wei)); err != nil {
 		return nil, err
 	}
+
 	return method.Outputs.Pack(true)
 }
 
@@ -204,9 +208,12 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 	if err != nil {
 		return nil, err
 	}
-	if err := p.bankKeeper.SendCoins(ctx, senderSeiAddr, receiverSeiAddr, sdk.NewCoins(sdk.NewCoin(denom, sdk.NewIntFromBigInt(amount)))); err != nil {
+
+	usei, wei := state.SplitUseiWeiAmount(amount)
+	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, nil, denom, sdk.NewIntFromBigInt(usei), sdk.NewIntFromBigInt(wei)); err != nil {
 		return nil, err
 	}
+
 	return method.Outputs.Pack(true)
 }
 
