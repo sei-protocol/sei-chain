@@ -21,7 +21,7 @@ import (
 )
 
 func TestGetTxReceipt(t *testing.T) {
-	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0x566f1c956c74b089643a1e6f880ac65745de0e5cd8cfc3c7482d20a486576219\"],\"id\":\"test\"}"
+	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}"
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -60,7 +60,7 @@ func TestGetTxReceipt(t *testing.T) {
 	require.Equal(t, "0x1", resObj["type"].(string))
 	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["contractAddress"].(string))
 
-	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0x566f1c956c74b089643a1e6f880ac65745de0e5cd8cfc3c7482d20a486576219"))
+	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"))
 	require.Nil(t, err)
 	receipt.ContractAddress = ""
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"), receipt)
@@ -112,13 +112,13 @@ func TestGetTransaction(t *testing.T) {
 		require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["blockHash"].(string))
 		require.Equal(t, "0x8", resObj["blockNumber"].(string))
 		require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["from"].(string))
-		require.Equal(t, "0x3e8", resObj["gas"].(string))
+		require.Equal(t, "0x55f0", resObj["gas"].(string))
 		require.Equal(t, "0xa", resObj["gasPrice"].(string))
 		require.Equal(t, "0xa", resObj["maxFeePerGas"].(string))
 		require.Equal(t, "0x0", resObj["maxPriorityFeePerGas"].(string))
-		require.Equal(t, "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e", resObj["hash"].(string))
+		require.Equal(t, "0x566f1c956c74b089643a1e6f880ac65745de0e5cd8cfc3c7482d20a486576219", resObj["hash"].(string))
 		require.Equal(t, "0x616263", resObj["input"].(string))
-		require.Equal(t, "0x1", resObj["nonce"].(string))
+		require.Equal(t, "0x0", resObj["nonce"].(string))
 		require.Equal(t, "0x0000000000000000000000000000000000010203", resObj["to"].(string))
 		require.Equal(t, "0x0", resObj["transactionIndex"].(string))
 		require.Equal(t, "0x3e8", resObj["value"].(string))
