@@ -21,7 +21,7 @@ import (
 )
 
 func TestGetTxReceipt(t *testing.T) {
-	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}"
+	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0x566f1c956c74b089643a1e6f880ac65745de0e5cd8cfc3c7482d20a486576219\"],\"id\":\"test\"}"
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -60,7 +60,7 @@ func TestGetTxReceipt(t *testing.T) {
 	require.Equal(t, "0x1", resObj["type"].(string))
 	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["contractAddress"].(string))
 
-	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"))
+	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0x566f1c956c74b089643a1e6f880ac65745de0e5cd8cfc3c7482d20a486576219"))
 	require.Nil(t, err)
 	receipt.ContractAddress = ""
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"), receipt)
