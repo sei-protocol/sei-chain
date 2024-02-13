@@ -108,7 +108,7 @@ In addition to handlers events, the bank keeper will produce events when the fol
 }
 ```
 
-### addCoins
+### AddCoins
 
 ```json
 {
@@ -128,7 +128,7 @@ In addition to handlers events, the bank keeper will produce events when the fol
 }
 ```
 
-### subUnlockedCoins/DelegateCoins
+### SubUnlockedCoins/DelegateCoins
 
 ```json
 {
