@@ -15,7 +15,7 @@ func TestAddBalance(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(15)))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
-	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, state.GetMiddleManAddress(ctx), amt)
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, state.GetMiddleManAddress(ctx.TxIndex()), amt)
 	db := state.NewDBImpl(ctx, k, false)
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))

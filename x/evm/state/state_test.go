@@ -61,7 +61,7 @@ func TestCreate(t *testing.T) {
 	statedb.SetState(evmAddr, key, val)
 	statedb.SetTransientState(evmAddr, tkey, tval)
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10))))
-	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, state.GetMiddleManAddress(ctx), sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, state.GetMiddleManAddress(ctx.TxIndex()), sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10))))
 	statedb.AddBalance(evmAddr, big.NewInt(10000000000000))
 	// recreate an account should clear its state, but keep its balance and transient state
 	statedb.CreateAccount(evmAddr)
