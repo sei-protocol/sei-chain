@@ -278,7 +278,7 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 // TODO: figure out what resources you need to throw for StateReleaseFunc
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
 	// panic("throw stack trace")
-	fmt.Println("In StateAtTransaction")
+	fmt.Println("In StateAtTransaction, txIndex = ", txIndex)
 	// Short circuit if it's genesis block.
 	fmt.Printf("In StateAtTransaction, block = %+v", block)
 	fmt.Printf("In StateAtTransaction, block.header = %+v", block.Header())
@@ -296,12 +296,14 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	// Recompute transactions up to the target index. (only doing EVM at the moment, but should do both EVM + Cosmos)
 	signer := ethtypes.MakeSigner(b.ChainConfig(), block.Number(), block.Time())
 	for idx, tx := range block.Transactions() {
+		fmt.Println("In StateAtTransaction, processing transaction with idx = ", idx)
 		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
 		txContext := core.NewEVMTxContext(msg)
 		blockContext, err := b.keeper.GetVMBlockContext(b.ctxProvider(prevBlockHeight), core.GasPool(b.RPCGasCap()))
 		if err != nil {
 			return nil, vm.BlockContext{}, nil, nil, err
 		}
+		fmt.Println("In StateAtTransaction, txIndex = ", txIndex, "idx = ", idx)
 		if idx == txIndex {
 			return msg, *blockContext, statedb, emptyRelease, nil
 		}

@@ -389,9 +389,9 @@ func generateTxData() {
 	chainId := big.NewInt(types.DefaultChainID.Int64())
 	to := common.HexToAddress("010203")
 	txBuilder, tx := buildTx(ethtypes.DynamicFeeTx{
-		Nonce:     1,
+		Nonce:     0,
 		GasFeeCap: big.NewInt(10),
-		Gas:       1000,
+		Gas:       22000,
 		To:        &to,
 		Value:     big.NewInt(1000),
 		Data:      []byte("abc"),
@@ -423,11 +423,15 @@ func generateTxData() {
 		panic(err)
 	}
 	evmAddr := common.HexToAddress(common.Bytes2Hex([]byte("evmAddr")))
+	fmt.Println("In setupTest, evmAddr = ", evmAddr)
 	EVMKeeper.SetAddressMapping(Ctx, seiAddr, evmAddr)
 	unassociatedAddr := common.HexToAddress("0x1234567890123456789023456789012345678901")
-	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(1000)))
+	debugTraceAddr := common.HexToAddress("0x5B4eba929F3811980f5AE0c5D04fa200f837DF4E")
+	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(1000000)))
+	smallAmts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(100000)))
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
-	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(unassociatedAddr[:]), amts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(unassociatedAddr[:]), smallAmts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(debugTraceAddr[:]), smallAmts)
 	EVMKeeper.SetCode(Ctx, common.HexToAddress("0x1234567890123456789023456789012345678901"), []byte("abc"))
 	EVMKeeper.SetState(
 		Ctx,
@@ -440,6 +444,11 @@ func generateTxData() {
 		sdk.MustAccAddressFromBech32("sei1mf0llhmqane5w2y8uynmghmk2w4mh0xll9seym"),
 		common.HexToAddress("0x1df809C639027b465B931BD63Ce71c8E5834D9d6"),
 	)
+	// EVMKeeper.SetAddressMapping(
+	// 	Ctx,
+	// 	sdk.MustAccAddressFromBech32("sei1e2uwvf2s97jqwyev5r4x695gw80lsydyw9uvvh"),
+	// 	debugTraceAddr,
+	// )
 	EVMKeeper.SetNonce(Ctx, common.HexToAddress("0x1234567890123456789012345678901234567890"), 1)
 	unconfirmedTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     2,
@@ -545,10 +554,18 @@ func setupLogs() {
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
 		}},
 	})
+	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x1234567890123456789023456789012345678901234567890123456789000004"), &types.Receipt{
+		BlockNumber:      101, // needs to be unique block number compared to other tests to not get interference
+		TransactionIndex: 0,
+		TxHashHex:        "0x1234567890123456789023456789012345678901234567890123456789000004",
+	})
 	EVMKeeper.SetTxHashesOnHeight(Ctx, 2, []common.Hash{
 		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"),
 		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"),
 		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900003"),
+	})
+	EVMKeeper.SetTxHashesOnHeight(Ctx, 101, []common.Hash{
+		common.HexToHash("0x1234567890123456789023456789012345678901234567890123456789000004"),
 	})
 	EVMKeeper.SetBlockBloom(Ctx, 2, []ethtypes.Bloom{bloom1, bloom2, bloom3})
 }
@@ -578,6 +595,7 @@ func sendRequestWithNamespace(t *testing.T, namespace string, port int, method s
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
 	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_%s\",\"params\":[%s],\"id\":\"test\"}", namespace, method, paramsFormatted)
+	fmt.Println("In sendRequestWithNamespace, body = ", body)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")

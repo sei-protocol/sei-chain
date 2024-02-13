@@ -1,48 +1,22 @@
 package evmrpc_test
 
 import (
-	"encoding/hex"
 	"fmt"
-	"math/big"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTraceTransaction(t *testing.T) {
-	// build tx
-	to := common.HexToAddress("010203")
-	txData := ethtypes.DynamicFeeTx{
-		Nonce:     1,
-		GasFeeCap: big.NewInt(10),
-		Gas:       1000,
-		To:        &to,
-		Value:     big.NewInt(1000),
-		Data:      []byte("abc"),
-		ChainID:   EVMKeeper.ChainID(Ctx),
-	}
-	key := keeper.MockECSDAPrivateKey()
-	evmParams := EVMKeeper.GetParams(Ctx)
-	ethCfg := evmParams.GetChainConfig().EthereumConfig(EVMKeeper.ChainID(Ctx))
-	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
-	tx := ethtypes.NewTx(&txData)
-	tx, err := ethtypes.SignTx(tx, signer, key)
-	require.Nil(t, err)
-	bz, err := tx.MarshalBinary()
-	require.Nil(t, err)
-	payload := "0x" + hex.EncodeToString(bz)
-
-	resObj := sendRequestGood(t, "sendRawTransaction", payload)
-	result := resObj["result"].(string)
-	fmt.Println("hash = ", tx.Hash().Hex())
-	require.Equal(t, tx.Hash().Hex(), result)
+	hash := "0x1234567890123456789023456789012345678901234567890123456789000004"
 	args := map[string]interface{}{}
-	resObj = sendRequestGoodWithNamespace(t, "debug", "traceTransaction", tx.Hash().Hex(), args)
-	fmt.Println("resObj = ", resObj)
-	result = resObj["result"].(string)
-	fmt.Println("result = ", result)
-	// 2nd test: trace a contract call
+	args["tracer"] = "callTracer"
+	resObj := sendRequestGoodWithNamespace(t, "debug", "traceTransaction", hash, args)
+	result := resObj["result"].(map[string]interface{})
+	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", result["from"])
+	require.Equal(t, "0x55f0", result["gas"])
+	require.Equal(t, "0x616263", result["input"])
+	require.Equal(t, "0x0000000000000000000000000000000000010203", result["to"])
+	require.Equal(t, "CALL", result["type"])
+	require.Equal(t, "0x3e8", result["value"])
 }
