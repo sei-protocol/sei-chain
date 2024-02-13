@@ -30,24 +30,33 @@ func TestSettleCommon(t *testing.T) {
 	s := state.NewDBImpl(ctx.WithTxIndex(1), k, false)
 	s.SubBalance(addr1, big.NewInt(1_000_000_000_001))
 	s.AddBalance(addr2, big.NewInt(1_000_000_000_001))
-	require.Nil(t, s.Finalize())
-	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{})
+	surplusUsei, surpluseWei, err := s.Finalize()
+	require.Equal(t, sdk.ZeroInt(), surplusUsei)
+	require.Equal(t, sdk.ZeroInt(), surpluseWei)
+	require.Nil(t, err)
+	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{}, surplusUsei, surpluseWei)
 
 	// addr2 send two weis to addr3
 	// escrow 2 would have a one-sei surplus
 	s = state.NewDBImpl(ctx.WithTxIndex(2), k, false)
 	s.SubBalance(addr2, big.NewInt(2))
 	s.AddBalance(addr3, big.NewInt(2))
-	require.Nil(t, s.Finalize())
-	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{})
+	surplusUsei, surpluseWei, err = s.Finalize()
+	require.Equal(t, sdk.ZeroInt(), surplusUsei)
+	require.Equal(t, sdk.ZeroInt(), surpluseWei)
+	require.Nil(t, err)
+	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{}, surplusUsei, surpluseWei)
 
 	// addr1 send one wei to addr2
 	// escrow 3 would have a one-sei deficit
 	s = state.NewDBImpl(ctx.WithTxIndex(3), k, false)
 	s.SubBalance(addr1, big.NewInt(1))
 	s.AddBalance(addr2, big.NewInt(1))
-	require.Nil(t, s.Finalize())
-	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(3), ethtypes.Bloom{}, common.Hash{})
+	surplusUsei, surpluseWei, err = s.Finalize()
+	require.Equal(t, sdk.ZeroInt(), surplusUsei)
+	require.Equal(t, sdk.ZeroInt(), surpluseWei)
+	require.Nil(t, err)
+	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(3), ethtypes.Bloom{}, common.Hash{}, surplusUsei, surpluseWei)
 
 	globalEscrowBalance := k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(banktypes.WeiEscrowName), "usei")
 	require.True(t, globalEscrowBalance.Amount.IsZero())
@@ -81,8 +90,11 @@ func TestSettleMultiRedeem(t *testing.T) {
 	s.AddBalance(addr3, big.NewInt(1))
 	s.SubBalance(addr2, big.NewInt(1))
 	s.AddBalance(addr3, big.NewInt(1))
-	require.Nil(t, s.Finalize())
-	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{})
+	surplusUsei, surpluseWei, err := s.Finalize()
+	require.Equal(t, sdk.ZeroInt(), surplusUsei)
+	require.Equal(t, sdk.ZeroInt(), surpluseWei)
+	require.Nil(t, err)
+	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{}, surplusUsei, surpluseWei)
 
 	// addr3 send one wei to addr1
 	// addr3 send one wei to addr2
@@ -95,8 +107,11 @@ func TestSettleMultiRedeem(t *testing.T) {
 	s.AddBalance(addr2, big.NewInt(1))
 	s.SubBalance(addr3, big.NewInt(1))
 	s.AddBalance(addr1, big.NewInt(1))
-	require.Nil(t, s.Finalize())
-	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{})
+	surplusUsei, surpluseWei, err = s.Finalize()
+	require.Equal(t, sdk.ZeroInt(), surplusUsei)
+	require.Equal(t, sdk.ZeroInt(), surpluseWei)
+	require.Nil(t, err)
+	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{}, surplusUsei, surpluseWei)
 
 	globalEscrowBalance := k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(banktypes.WeiEscrowName), "usei")
 	require.True(t, globalEscrowBalance.Amount.IsZero())

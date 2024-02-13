@@ -171,29 +171,35 @@ func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
 	am.keeper.ClearEVMTxDeferredInfo()
 }
 
-// EndBlock executes all ABCI EndBlock logic respective to the capability module. It
+// EndBlock executes all ABCI EndBlock logic respective to the evm module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	evmTxDeferredInfoList := am.keeper.GetEVMTxDeferredInfo(ctx)
 	am.keeper.SettleWeiEscrowAccounts(ctx, evmTxDeferredInfoList)
 	denom := am.keeper.GetBaseDenom(ctx)
+	surplusUsei := sdk.NewInt(0)
+	surplusWei := sdk.NewInt(0)
 	for _, deferredInfo := range evmTxDeferredInfoList {
 		idx := deferredInfo.TxIndx
-		middleManAddress := state.GetMiddleManAddress(idx)
-		balance := am.keeper.BankKeeper().GetBalance(ctx, middleManAddress, denom)
-		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, middleManAddress)
-		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
-			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, middleManAddress, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), nil, denom, balance.Amount, weiBalance); err != nil {
-				panic(err)
-			}
-		}
 		coinbaseAddress := state.GetCoinbaseAddress(idx)
-		balance = am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom)
-		weiBalance = am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
+		balance := am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom)
+		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
 		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
 			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), nil, denom, balance.Amount, weiBalance); err != nil {
 				panic(err)
 			}
+		}
+		surplusUsei = surplusUsei.Add(deferredInfo.SurplusUsei)
+		surplusWei = surplusWei.Add(deferredInfo.SurplusWei)
+	}
+	if surplusUsei.GT(sdk.ZeroInt()) {
+		if err := am.keeper.BankKeeper().AddCoins(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(am.keeper.GetBaseDenom(ctx), surplusUsei)), true); err != nil {
+			ctx.Logger().Error("failed to send usei surplus of %s to EVM module account", surplusUsei)
+		}
+	}
+	if surplusWei.GT(sdk.ZeroInt()) {
+		if err := am.keeper.BankKeeper().AddWei(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), nil, am.keeper.GetBaseDenom(ctx), surplusWei); err != nil {
+			ctx.Logger().Error("failed to send wei surplus of %s to EVM module account", surplusWei)
 		}
 	}
 	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }))
