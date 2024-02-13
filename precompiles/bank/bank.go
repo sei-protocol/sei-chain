@@ -132,11 +132,6 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 
 func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address) error {
 	codeHash := p.evmKeeper.GetCodeHash(ctx, caller)
-	for _, whitelisted := range p.evmKeeper.WhitelistedCodehashesBankSend(ctx) {
-		if codeHash.Hex() == whitelisted {
-			return nil
-		}
-	}
 	if p.evmKeeper.IsCodeHashWhitelistedForBankSend(ctx, codeHash) {
 		return nil
 	}

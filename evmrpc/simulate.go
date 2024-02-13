@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
@@ -166,7 +167,7 @@ func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
 func (b *Backend) ChainConfig() *params.ChainConfig {
 	ctx := b.ctxProvider(LatestCtxHeight)
-	return b.keeper.GetChainConfig(ctx).EthereumConfig(b.keeper.ChainID(ctx))
+	return types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID(ctx))
 }
 
 func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {
