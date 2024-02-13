@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 	"math/big"
@@ -19,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -28,6 +28,9 @@ type Keeper struct {
 	storeKey    sdk.StoreKey
 	memStoreKey sdk.StoreKey
 	Paramstore  paramtypes.Subspace
+
+	deferredInfo *sync.Map
+	txResults    []*abci.ExecTxResult
 
 	bankKeeper    bankkeeper.Keeper
 	accountKeeper *authkeeper.AccountKeeper
@@ -68,6 +71,7 @@ func NewKeeper(
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*addressNoncePair),
+		deferredInfo:                 &sync.Map{},
 	}
 	return k
 }
@@ -142,69 +146,27 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 }
 
 func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []EvmTxDeferredInfo) {
-	hashMap, bloomMap := map[int]common.Hash{}, map[int]ethtypes.Bloom{}
-	hashIter := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxHashPrefix).Iterator(nil, nil)
-	for ; hashIter.Valid(); hashIter.Next() {
-		h := common.Hash{}
-		h.SetBytes(hashIter.Value())
-		hashMap[int(binary.BigEndian.Uint32(hashIter.Key()))] = h
-	}
-	hashIter.Close()
-	bloomIter := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxBloomPrefix).Iterator(nil, nil)
-	for ; bloomIter.Valid(); bloomIter.Next() {
-		b := ethtypes.Bloom{}
-		b.SetBytes(bloomIter.Value())
-		bloomMap[int(binary.BigEndian.Uint32(bloomIter.Key()))] = b
-	}
-	bloomIter.Close()
-	for idx, h := range hashMap {
-		i := EvmTxDeferredInfo{TxIndx: idx, TxHash: h}
-		if b, ok := bloomMap[idx]; ok {
-			i.TxBloom = b
-			delete(bloomMap, idx)
+	k.deferredInfo.Range(func(key, value any) bool {
+		txIdx := key.(int)
+		if txIdx >= 0 && txIdx < len(k.txResults) && k.txResults[txIdx].Code == 0 {
+			res = append(res, *(value.(*EvmTxDeferredInfo)))
 		}
-		res = append(res, i)
-	}
-	for idx, b := range bloomMap {
-		res = append(res, EvmTxDeferredInfo{TxIndx: idx, TxBloom: b})
-	}
+		return true
+	})
 	sort.SliceStable(res, func(i, j int) bool { return res[i].TxIndx < res[j].TxIndx })
 	return
 }
 
 func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom, txHash common.Hash) {
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint32(key, uint32(ctx.TxIndex()))
-	prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxHashPrefix).Set(key, txHash[:])
-	prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxBloomPrefix).Set(key, bloom[:])
+	k.deferredInfo.Store(ctx.TxIndex(), &EvmTxDeferredInfo{
+		TxIndx:  ctx.TxIndex(),
+		TxBloom: bloom,
+		TxHash:  txHash,
+	})
 }
 
-func (k *Keeper) ClearEVMTxDeferredInfo(ctx sdk.Context) {
-	hashStore := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxHashPrefix)
-	hashIterator := hashStore.Iterator(nil, nil)
-	defer hashIterator.Close()
-	hashKeysToDelete := [][]byte{}
-	for ; hashIterator.Valid(); hashIterator.Next() {
-		hashKeysToDelete = append(hashKeysToDelete, hashIterator.Key())
-	}
-	// close the first iterator for safety
-	hashIterator.Close()
-	for _, key := range hashKeysToDelete {
-		hashStore.Delete(key)
-	}
-
-	bloomStore := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxBloomPrefix)
-	bloomIterator := bloomStore.Iterator(nil, nil)
-	bloomKeysToDelete := [][]byte{}
-	defer bloomIterator.Close()
-	for ; bloomIterator.Valid(); bloomIterator.Next() {
-		bloomKeysToDelete = append(bloomKeysToDelete, bloomIterator.Key())
-	}
-	// close the second iterator for safety
-	bloomIterator.Close()
-	for _, key := range bloomKeysToDelete {
-		bloomStore.Delete(key)
-	}
+func (k *Keeper) ClearEVMTxDeferredInfo() {
+	k.deferredInfo = &sync.Map{}
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
@@ -293,6 +255,10 @@ func (k *Keeper) RemovePendingNonce(key tmtypes.TxKey) {
 	if len(k.pendingNonces[addr]) == 0 {
 		delete(k.pendingNonces, addr)
 	}
+}
+
+func (k *Keeper) SetTxResults(txResults []*abci.ExecTxResult) {
+	k.txResults = txResults
 }
 
 func uint64Cmp(a, b uint64) int {
