@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,8 +40,7 @@ func TestSendRawTransaction(t *testing.T) {
 	privKey := hd.Secp256k1.Generate()(derivedPriv)
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
-	evmParams := EVMKeeper.GetParams(Ctx)
-	ethCfg := evmParams.GetChainConfig().EthereumConfig(EVMKeeper.ChainID(Ctx))
+	ethCfg := types.DefaultChainConfig().EthereumConfig(EVMKeeper.ChainID(Ctx))
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
 	tx := ethtypes.NewTx(&txData)
 	tx, err := ethtypes.SignTx(tx, signer, key)
