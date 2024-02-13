@@ -7,6 +7,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+const BaseDenom = "usei"
+
 func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.Paramstore.SetParamSet(ctx, &params)
 }
@@ -18,11 +20,7 @@ func (k *Keeper) GetParams(ctx sdk.Context) types.Params {
 }
 
 func (k *Keeper) GetBaseDenom(ctx sdk.Context) string {
-	return k.GetParams(ctx).BaseDenom
-}
-
-func (k *Keeper) GetChainConfig(ctx sdk.Context) types.ChainConfig {
-	return k.GetParams(ctx).ChainConfig
+	return BaseDenom
 }
 
 func (k *Keeper) GetPriorityNormalizer(ctx sdk.Context) sdk.Dec {
@@ -39,10 +37,6 @@ func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 
 func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 	return k.GetParams(ctx).ChainId.BigInt()
-}
-
-func (k *Keeper) WhitelistedCodehashesBankSend(ctx sdk.Context) []string {
-	return k.GetParams(ctx).WhitelistedCodehashesBankSend
 }
 
 func (k *Keeper) WhitelistedCwCodeHashesForDelegateCall(ctx sdk.Context) [][]byte {
