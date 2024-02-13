@@ -113,7 +113,7 @@ func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Addre
 			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
 			if etx != nil {
 				signer := ethtypes.MakeSigner(
-					t.keeper.GetChainConfig(sdkCtx).EthereumConfig(t.keeper.ChainID(sdkCtx)),
+					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
 					big.NewInt(sdkCtx.BlockHeight()),
 					uint64(sdkCtx.BlockTime().Unix()),
 				)
@@ -145,7 +145,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
 			if etx != nil && etx.Hash() == hash {
 				signer := ethtypes.MakeSigner(
-					t.keeper.GetChainConfig(sdkCtx).EthereumConfig(t.keeper.ChainID(sdkCtx)),
+					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
 					big.NewInt(sdkCtx.BlockHeight()),
 					uint64(sdkCtx.BlockTime().Unix()),
 				)

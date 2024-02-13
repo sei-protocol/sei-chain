@@ -7,24 +7,15 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"gopkg.in/yaml.v2"
 )
 
 var (
-	KeyBaseDenom                              = []byte("KeyBaseDenom")
 	KeyPriorityNormalizer                     = []byte("KeyPriorityNormalizer")
 	KeyBaseFeePerGas                          = []byte("KeyBaseFeePerGas")
 	KeyMinFeePerGas                           = []byte("KeyMinFeePerGas")
-	KeyChainConfig                            = []byte("KeyChainConfig")
 	KeyChainID                                = []byte("KeyChainID")
-	KeyWhitelistedCodeHashesBankSend          = []byte("KeyWhitelistedCodeHashesBankSend")
 	KeyWhitelistedCwCodeHashesForDelegateCall = []byte("KeyWhitelistedCwCodeHashesForDelegateCall")
-)
-
-const (
-	DefaultBaseDenom = "usei"
 )
 
 var DefaultPriorityNormalizer = sdk.NewDec(1)
@@ -35,7 +26,6 @@ var DefaultPriorityNormalizer = sdk.NewDec(1)
 var DefaultBaseFeePerGas = sdk.NewDec(0)
 var DefaultMinFeePerGas = sdk.NewDec(1000000000)
 var DefaultChainID = sdk.NewInt(713715)
-var DefaultWhitelistedCodeHashesBankSend = generateDefaultWhitelistedCodeHashesBankSend()
 
 var DefaultWhitelistedCwCodeHashesForDelegateCall = generateDefaultWhitelistedCwCodeHashesForDelegateCall()
 
@@ -47,34 +37,25 @@ func ParamKeyTable() paramtypes.KeyTable {
 
 func DefaultParams() Params {
 	return Params{
-		BaseDenom:                              DefaultBaseDenom,
 		PriorityNormalizer:                     DefaultPriorityNormalizer,
 		BaseFeePerGas:                          DefaultBaseFeePerGas,
 		MinimumFeePerGas:                       DefaultMinFeePerGas,
-		ChainConfig:                            DefaultChainConfig(),
 		ChainId:                                DefaultChainID,
-		WhitelistedCodehashesBankSend:          DefaultWhitelistedCodeHashesBankSend,
 		WhitelistedCwCodeHashesForDelegateCall: DefaultWhitelistedCwCodeHashesForDelegateCall,
 	}
 }
 
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
-		paramtypes.NewParamSetPair(KeyBaseDenom, &p.BaseDenom, validateBaseDenom),
 		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &p.PriorityNormalizer, validatePriorityNormalizer),
 		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &p.BaseFeePerGas, validateBaseFeePerGas),
 		paramtypes.NewParamSetPair(KeyMinFeePerGas, &p.MinimumFeePerGas, validateMinFeePerGas),
-		paramtypes.NewParamSetPair(KeyChainConfig, &p.ChainConfig, validateChainConfig),
 		paramtypes.NewParamSetPair(KeyChainID, &p.ChainId, validateChainID),
-		paramtypes.NewParamSetPair(KeyWhitelistedCodeHashesBankSend, &p.WhitelistedCodehashesBankSend, validateWhitelistedCodeHashesBankSend),
 		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &p.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
 	}
 }
 
 func (p Params) Validate() error {
-	if err := validateBaseDenom(p.BaseDenom); err != nil {
-		return err
-	}
 	if err := validatePriorityNormalizer(p.PriorityNormalizer); err != nil {
 		return err
 	}
@@ -90,31 +71,12 @@ func (p Params) Validate() error {
 	if err := validateChainID(p.ChainId); err != nil {
 		return err
 	}
-	if err := validateChainConfig(p.ChainConfig); err != nil {
-		return err
-	}
-	if err := validateWhitelistedCodeHashesBankSend(p.WhitelistedCodehashesBankSend); err != nil {
-		return err
-	}
 	return validateWhitelistedCwHashesForDelegateCall(p.WhitelistedCwCodeHashesForDelegateCall)
 }
 
 func (p Params) String() string {
 	out, _ := yaml.Marshal(p)
 	return string(out)
-}
-
-func validateBaseDenom(i interface{}) error {
-	v, ok := i.(string)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v == "" {
-		return errors.New("empty base denom")
-	}
-
-	return nil
 }
 
 func validatePriorityNormalizer(i interface{}) error {
@@ -156,15 +118,6 @@ func validateMinFeePerGas(i interface{}) error {
 	return nil
 }
 
-func validateChainConfig(i interface{}) error {
-	v, ok := i.(ChainConfig)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	return v.Validate()
-}
-
 func validateChainID(i interface{}) error {
 	v, ok := i.(sdk.Int)
 	if !ok {
@@ -178,27 +131,12 @@ func validateChainID(i interface{}) error {
 	return nil
 }
 
-func validateWhitelistedCodeHashesBankSend(i interface{}) error {
-	_, ok := i.([]string)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	return nil
-}
-
 func validateWhitelistedCwHashesForDelegateCall(i interface{}) error {
 	_, ok := i.([][]byte)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 	return nil
-}
-
-func generateDefaultWhitelistedCodeHashesBankSend() (res []string) {
-	h := crypto.Keccak256Hash(native.GetBin())
-	res = append(res, h.Hex())
-	return
 }
 
 func generateDefaultWhitelistedCwCodeHashesForDelegateCall() [][]byte {

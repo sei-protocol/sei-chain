@@ -41,8 +41,7 @@ func TestEVMTransaction(t *testing.T) {
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	evmParams := k.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
+	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -61,7 +60,7 @@ func TestEVMTransaction(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -95,7 +94,7 @@ func TestEVMTransaction(t *testing.T) {
 	require.Nil(t, err)
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -123,8 +122,7 @@ func TestEVMTransactionError(t *testing.T) {
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	evmParams := k.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
+	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -142,7 +140,7 @@ func TestEVMTransactionError(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err) // there should only be VM error, no msg-level error
 	require.NotEmpty(t, res.VmError)
@@ -174,8 +172,7 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	evmParams := k.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
+	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -194,7 +191,7 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract with insufficient gas
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	_, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "intrinsic gas too low") // this can only happen in test because we didn't call CheckTx in this test
@@ -218,8 +215,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 		Nonce:     0,
 	}
 	chainID := k.ChainID(ctx)
-	evmParams := k.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
+	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -238,7 +234,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -255,7 +251,6 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 func TestEVMPrecompiles(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeperWithPrecompiles()
 	params := k.GetParams(ctx)
-	params.WhitelistedCodehashesBankSend = append(params.WhitelistedCodehashesBankSend, "0x3071724680db53f64fe250bcb067e7f21280a0b6359486ba3a84a319eb3ef249")
 	k.SetParams(ctx, params)
 	code, err := os.ReadFile("../../../example/contracts/sendall/SendAll.bin")
 	require.Nil(t, err)
@@ -273,8 +268,7 @@ func TestEVMPrecompiles(t *testing.T) {
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	evmParams := k.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
+	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -293,7 +287,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy SendAll contract
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(500000))
@@ -306,6 +300,8 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), receipt.Status)
+	codeHash := k.GetCodeHash(ctx, common.HexToAddress(receipt.ContractAddress))
+	k.AddCodeHashWhitelistedForBankSend(ctx, codeHash)
 
 	// call sendall
 	addr1, evmAddr1 := testkeeper.MockAddressPair()
@@ -333,7 +329,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Nil(t, err)
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -354,7 +350,7 @@ func TestEVMAssociateTx(t *testing.T) {
 	require.Nil(t, err)
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Equal(t, types.MsgEVMTransactionResponse{}, *res)
@@ -378,8 +374,7 @@ func TestEVMBlockEnv(t *testing.T) {
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	evmParams := k.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
+	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -398,7 +393,7 @@ func TestEVMBlockEnv(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -432,7 +427,7 @@ func TestEVMBlockEnv(t *testing.T) {
 	require.Nil(t, err)
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))

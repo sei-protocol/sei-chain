@@ -125,7 +125,7 @@ func (k *Keeper) getOrCreateEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, 
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg := k.GetChainConfig(executionCtx).EthereumConfig(k.ChainID(executionCtx))
+	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(executionCtx))
 	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
 	evm = vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	stateDB.SetEVM(evm)

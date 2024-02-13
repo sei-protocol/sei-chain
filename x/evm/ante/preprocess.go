@@ -49,7 +49,7 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 //nolint:revive
 func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
-	if err := Preprocess(ctx, msg, p.evmKeeper.GetParams(ctx)); err != nil {
+	if err := Preprocess(ctx, msg); err != nil {
 		return ctx, err
 	}
 
@@ -111,7 +111,7 @@ func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk
 }
 
 // stateless
-func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, params evmtypes.Params) error {
+func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) error {
 	if msgEVMTransaction.Derived != nil {
 		if msgEVMTransaction.Derived.PubKey == nil {
 			// this means the message has `Derived` set from the outside, in which case we should reject
@@ -147,7 +147,7 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 	if ethTx.Protected() {
 		chainID = ethTx.ChainId()
 	}
-	chainCfg := params.GetChainConfig()
+	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	version := GetVersion(ctx, ethCfg)
 	signer := SignerMap[version](chainID)
