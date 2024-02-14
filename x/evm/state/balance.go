@@ -23,12 +23,11 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 	if s.err != nil {
 		return
 	}
-	s.err = s.k.BankKeeper().SubWei(s.ctx, addr, s.weiEscrowAddress, s.k.GetBaseDenom(s.ctx), wei)
+	s.err = s.k.BankKeeper().SubWei(s.ctx, addr, wei)
 	if s.err != nil {
 		return
 	}
-	s.tempStateCurrent.surplusUsei = s.tempStateCurrent.surplusUsei.Add(usei)
-	s.tempStateCurrent.surplusWei = s.tempStateCurrent.surplusWei.Add(wei)
+	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Add(sdk.NewIntFromBigInt(amt))
 }
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
@@ -46,12 +45,11 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 	if s.err != nil {
 		return
 	}
-	s.err = s.k.BankKeeper().AddWei(s.ctx, addr, s.weiEscrowAddress, s.k.GetBaseDenom(s.ctx), wei)
+	s.err = s.k.BankKeeper().AddWei(s.ctx, addr, wei)
 	if s.err != nil {
 		return
 	}
-	s.tempStateCurrent.surplusUsei = s.tempStateCurrent.surplusUsei.Sub(usei)
-	s.tempStateCurrent.surplusWei = s.tempStateCurrent.surplusWei.Sub(wei)
+	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Sub(sdk.NewIntFromBigInt(amt))
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
@@ -91,5 +89,5 @@ func (s *DBImpl) getSeiAddress(evmAddr common.Address) sdk.AccAddress {
 
 func (s *DBImpl) send(from sdk.AccAddress, to sdk.AccAddress, amt *big.Int) {
 	usei, wei := SplitUseiWeiAmount(amt)
-	s.err = s.k.BankKeeper().SendCoinsAndWei(s.ctx, from, to, s.weiEscrowAddress, s.k.GetBaseDenom(s.ctx), usei, wei)
+	s.err = s.k.BankKeeper().SendCoinsAndWei(s.ctx, from, to, usei, wei)
 }

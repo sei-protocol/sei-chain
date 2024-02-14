@@ -147,7 +147,7 @@ func TestSnapshot(t *testing.T) {
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, common.Hash{}, newStateDB.GetState(evmAddr, key))
 
-	_, _, err := statedb.Finalize()
+	_, err := statedb.Finalize()
 	require.Nil(t, err)
 	newStateDB = state.NewDBImpl(ctx, k, false)
 	// prev state DB committed except for transient states
