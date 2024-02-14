@@ -41,7 +41,7 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 		keeper:      k,
 		ctxProvider: ctxProvider,
 		homeDir:     homeDir,
-		backend:     NewBackend(ctxProvider, k, tmClient, simulateConfig),
+		backend:     NewBackend(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig),
 	}
 }
 
