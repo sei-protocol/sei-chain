@@ -17,9 +17,7 @@ interface IBank {
     ) external returns (bool success);
 
     function sendNative(
-        address fromAddress,
         string memory toNativeAddress,
-        string memory denom,
         uint256 amount
     ) external returns (bool success);
 

@@ -122,10 +122,8 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 		}
 		return p.send(ctx, method, args)
 	case SendNativeMethod:
-		if err := p.validateCaller(ctx, caller); err != nil {
-			return nil, err
-		}
-		return p.sendNative(ctx, method, args)
+		// TODO: Add validation on caller separate from validation above
+		return p.sendNative(ctx, method, args, caller)
 	case BalanceMethod:
 		return p.balance(ctx, method, args)
 	case NameMethod:
@@ -174,32 +172,26 @@ func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}
 		return nil, err
 	}
 
-	usei, wei := state.SplitUseiWeiAmount(amount)
-	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, nil, denom, sdk.NewIntFromBigInt(usei), sdk.NewIntFromBigInt(wei)); err != nil {
+	if err := p.bankKeeper.SendCoins(ctx, senderSeiAddr, receiverSeiAddr, sdk.NewCoins(sdk.NewCoin(denom, sdk.NewIntFromBigInt(amount)))); err != nil {
 		return nil, err
 	}
 
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
-	pcommon.AssertArgsLength(args, 4)
-	denom := args[2].(string)
-	if denom == "" {
-		return nil, errors.New("invalid denom")
-	}
-	amount := args[3].(*big.Int)
+func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) ([]byte, error) {
+	amount := args[1].(*big.Int)
 	if amount.Cmp(big.NewInt(0)) == 0 {
 		// short circuit
 		return method.Outputs.Pack(true)
 	}
 
-	senderSeiAddr, err := p.accAddressFromArg(ctx, args[0])
-	if err != nil {
-		return nil, err
+	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !ok {
+		return nil, errors.New("invalid addr")
 	}
 
-	receiverAddr, ok := (args[1]).(string)
+	receiverAddr, ok := (args[0]).(string)
 	if !ok || receiverAddr == "" {
 		return nil, errors.New("invalid addr")
 	}
@@ -210,7 +202,7 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 	}
 
 	usei, wei := state.SplitUseiWeiAmount(amount)
-	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, nil, denom, sdk.NewIntFromBigInt(usei), sdk.NewIntFromBigInt(wei)); err != nil {
+	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, nil, p.evmKeeper.GetBaseDenom(ctx), sdk.NewIntFromBigInt(usei), sdk.NewIntFromBigInt(wei)); err != nil {
 		return nil, err
 	}
 

@@ -15,6 +15,7 @@ type BankKeeper interface {
 }
 
 type EVMKeeper interface {
+	GetBaseDenom(sdk.Context) string
 	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
 	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress
 	GetEVMAddress(sdk.Context, sdk.AccAddress) (common.Address, bool)
