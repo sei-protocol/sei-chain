@@ -174,7 +174,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		balance := am.keeper.BankKeeper().GetBalance(ctx, middleManAddress, denom)
 		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, middleManAddress)
 		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
-			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, middleManAddress, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), nil, denom, balance.Amount, weiBalance); err != nil {
+			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, middleManAddress, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), balance.Amount, weiBalance); err != nil {
 				panic(err)
 			}
 		}
@@ -182,7 +182,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		balance = am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom)
 		weiBalance = am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
 		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
-			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), nil, denom, balance.Amount, weiBalance); err != nil {
+			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), balance.Amount, weiBalance); err != nil {
 				panic(err)
 			}
 		}
