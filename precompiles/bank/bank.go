@@ -180,6 +180,7 @@ func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}
 }
 
 func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 2)
 	amount := args[1].(*big.Int)
 	if amount.Cmp(big.NewInt(0)) == 0 {
 		// short circuit
