@@ -1,8 +1,6 @@
 package keeper
 
 import (
-	"errors"
-
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	"github.com/cosmos/cosmos-sdk/telemetry"
@@ -20,11 +18,11 @@ type SendKeeper interface {
 	InputOutputCoins(ctx sdk.Context, inputs []types.Input, outputs []types.Output) error
 	SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error
-	SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to sdk.AccAddress, customEscrow sdk.AccAddress, denom string, amt sdk.Int, wei sdk.Int) error
+	SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to sdk.AccAddress, amt sdk.Int, wei sdk.Int) error
 	SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error
 	AddCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error
-	SubWei(ctx sdk.Context, addr sdk.AccAddress, customEscrow sdk.AccAddress, denom string, amt sdk.Int) error
-	AddWei(ctx sdk.Context, addr sdk.AccAddress, customEscrow sdk.AccAddress, denom string, amt sdk.Int) error
+	SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error
+	AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error
 
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
@@ -36,7 +34,7 @@ type SendKeeper interface {
 }
 
 var _ SendKeeper = (*BaseSendKeeper)(nil)
-var MaxWeiBalance sdk.Int = sdk.NewInt(1_000_000_000_000)
+var OneUseiInWei sdk.Int = sdk.NewInt(1_000_000_000_000)
 
 // BaseSendKeeper only allows transfers between accounts without the possibility of
 // creating coins. It implements the SendKeeper interface.
@@ -332,75 +330,59 @@ func (k BaseSendKeeper) BlockedAddr(addr sdk.AccAddress) bool {
 	return k.blockedAddrs[addr.String()]
 }
 
-func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr sdk.AccAddress, customEscrow sdk.AccAddress, denom string, amt sdk.Int) error {
+func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error {
 	if amt.Equal(sdk.ZeroInt()) {
 		return nil
-	}
-	if amt.GTE(MaxWeiBalance) {
-		return errors.New("cannot send more than 10^12 wei")
-	}
-	escrow := customEscrow
-	if escrow == nil {
-		escrow = k.ak.GetModuleAddress(types.WeiEscrowName)
 	}
 	currentWeiBalance := k.GetWeiBalance(ctx, addr)
-	postWeiBalance := currentWeiBalance.Sub(amt)
-	if postWeiBalance.GTE(sdk.ZeroInt()) {
-		if err := k.setWeiBalance(ctx, addr, postWeiBalance); err != nil {
-			return err
-		}
-	} else {
-		if err := k.setWeiBalance(ctx, addr, MaxWeiBalance.Add(postWeiBalance)); err != nil {
-			// postWeiBalanceFrom is negative
-			return err
-		}
-		// need to send one sei to escrow because wei balance is insufficient
-		if err := k.sendCoinsWithoutAccCreation(ctx, addr, escrow, sdk.NewCoins(sdk.NewCoin(denom, sdk.OneInt())), false); err != nil {
-			return err
-		}
+	if amt.LTE(currentWeiBalance) {
+		// no need to change usei balance
+		return k.setWeiBalance(ctx, addr, currentWeiBalance.Sub(amt))
 	}
-	return nil
+	currentUseiBalance := k.GetBalance(ctx, addr, sdk.MustGetBaseDenom()).Amount
+	currentAggregatedBalance := currentUseiBalance.Mul(OneUseiInWei).Add(currentWeiBalance)
+	postAggregatedbalance := currentAggregatedBalance.Sub(amt)
+	if postAggregatedbalance.IsNegative() {
+		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%swei is smaller than %swei", currentAggregatedBalance, amt)
+	}
+	useiBalance, weiBalance := SplitUseiWeiAmount(postAggregatedbalance)
+	if err := k.setBalance(ctx, addr, sdk.NewCoin(sdk.MustGetBaseDenom(), useiBalance), true); err != nil {
+		return err
+	}
+	return k.setWeiBalance(ctx, addr, weiBalance)
 }
 
-func (k BaseSendKeeper) AddWei(ctx sdk.Context, addr sdk.AccAddress, customEscrow sdk.AccAddress, denom string, amt sdk.Int) error {
+func (k BaseSendKeeper) AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) error {
 	if amt.Equal(sdk.ZeroInt()) {
 		return nil
-	}
-	if amt.GTE(MaxWeiBalance) {
-		return errors.New("cannot send more than 10^12 wei")
-	}
-	escrow := customEscrow
-	if escrow == nil {
-		escrow = k.ak.GetModuleAddress(types.WeiEscrowName)
 	}
 	currentWeiBalance := k.GetWeiBalance(ctx, addr)
 	postWeiBalance := currentWeiBalance.Add(amt)
-	if postWeiBalance.LT(MaxWeiBalance) {
-		if err := k.setWeiBalance(ctx, addr, postWeiBalance); err != nil {
-			return err
-		}
-	} else {
-		if err := k.setWeiBalance(ctx, addr, postWeiBalance.Sub(MaxWeiBalance)); err != nil {
-			return err
-		}
-		// need to redeem one sei from escrow because wei balance overflowed
-		one := sdk.NewCoins(sdk.NewCoin(denom, sdk.OneInt()))
-		if err := k.sendCoinsWithoutAccCreation(ctx, escrow, addr, one, false); err != nil {
-			return err
-		}
+	if postWeiBalance.LT(OneUseiInWei) {
+		// no need to change usei balance
+		return k.setWeiBalance(ctx, addr, postWeiBalance)
+	}
+	currentUseiBalance := k.GetBalance(ctx, addr, sdk.MustGetBaseDenom()).Amount
+	useiCredit, weiBalance := SplitUseiWeiAmount(postWeiBalance)
+	if err := k.setBalance(ctx, addr, sdk.NewCoin(sdk.MustGetBaseDenom(), currentUseiBalance.Add(useiCredit)), true); err != nil {
+		return err
+	}
+	return k.setWeiBalance(ctx, addr, weiBalance)
+}
+
+func (k BaseSendKeeper) SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to sdk.AccAddress, amt sdk.Int, wei sdk.Int) error {
+	if err := k.SubWei(ctx, from, wei); err != nil {
+		return err
+	}
+	if err := k.AddWei(ctx, to, wei); err != nil {
+		return err
+	}
+	if amt.GT(sdk.ZeroInt()) {
+		return k.SendCoinsWithoutAccCreation(ctx, from, to, sdk.NewCoins(sdk.NewCoin(sdk.MustGetBaseDenom(), amt)))
 	}
 	return nil
 }
 
-func (k BaseSendKeeper) SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to sdk.AccAddress, customEscrow sdk.AccAddress, denom string, amt sdk.Int, wei sdk.Int) error {
-	if err := k.SubWei(ctx, from, customEscrow, denom, wei); err != nil {
-		return err
-	}
-	if err := k.AddWei(ctx, to, customEscrow, denom, wei); err != nil {
-		return err
-	}
-	if amt.GT(sdk.ZeroInt()) {
-		return k.SendCoinsWithoutAccCreation(ctx, from, to, sdk.NewCoins(sdk.NewCoin(denom, amt)))
-	}
-	return nil
+func SplitUseiWeiAmount(amt sdk.Int) (sdk.Int, sdk.Int) {
+	return amt.Quo(OneUseiInWei), amt.Mod(OneUseiInWei)
 }

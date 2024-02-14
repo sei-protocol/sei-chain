@@ -76,7 +76,6 @@ func (suite *IntegrationTestSuite) initKeepersWithmAccPerms(blockedAddrs map[str
 	appCodec := simapp.MakeTestEncodingConfig().Marshaler
 
 	maccPerms[holder] = nil
-	maccPerms[types.WeiEscrowName] = nil
 	maccPerms[authtypes.Burner] = []string{authtypes.Burner}
 	maccPerms[authtypes.Minter] = []string{authtypes.Minter}
 	maccPerms[multiPerm] = []string{authtypes.Burner, authtypes.Minter, authtypes.Staking}
@@ -112,7 +111,8 @@ func (suite *IntegrationTestSuite) SetupTest() {
 func (suite *IntegrationTestSuite) TestSendCoinsAndWei() {
 	ctx := suite.ctx
 	require := suite.Require()
-	authKeeper, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+	sdk.RegisterDenom(sdk.DefaultBondDenom, sdk.OneDec())
+	_, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
 	amt := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(100)))
 	require.NoError(keeper.MintCoins(ctx, authtypes.Minter, amt))
 	addr1 := sdk.AccAddress([]byte("addr1_______________"))
@@ -120,42 +120,35 @@ func (suite *IntegrationTestSuite) TestSendCoinsAndWei() {
 	addr3 := sdk.AccAddress([]byte("addr3_______________"))
 	require.NoError(keeper.SendCoinsFromModuleToAccount(ctx, authtypes.Minter, addr1, amt))
 	// should no-op if sending zero
-	require.NoError(keeper.SendCoinsAndWei(ctx, addr1, addr2, nil, sdk.DefaultBondDenom, sdk.ZeroInt(), sdk.ZeroInt()))
+	require.NoError(keeper.SendCoinsAndWei(ctx, addr1, addr2, sdk.ZeroInt(), sdk.ZeroInt()))
 	require.Equal(sdk.ZeroInt(), keeper.GetWeiBalance(ctx, addr1))
 	require.Equal(sdk.ZeroInt(), keeper.GetWeiBalance(ctx, addr2))
 	require.Equal(sdk.NewInt(100), keeper.GetBalance(ctx, addr1, sdk.DefaultBondDenom).Amount)
 	require.Equal(sdk.ZeroInt(), keeper.GetBalance(ctx, addr2, sdk.DefaultBondDenom).Amount)
-	require.Equal(sdk.ZeroInt(), keeper.GetBalance(ctx, authKeeper.GetModuleAddress(types.WeiEscrowName), sdk.DefaultBondDenom).Amount)
 	// should just do usei send if wei is zero
-	require.NoError(keeper.SendCoinsAndWei(ctx, addr1, addr3, nil, sdk.DefaultBondDenom, sdk.NewInt(50), sdk.ZeroInt()))
+	require.NoError(keeper.SendCoinsAndWei(ctx, addr1, addr3, sdk.NewInt(50), sdk.ZeroInt()))
 	require.Equal(sdk.ZeroInt(), keeper.GetWeiBalance(ctx, addr1))
 	require.Equal(sdk.ZeroInt(), keeper.GetWeiBalance(ctx, addr3))
 	require.Equal(sdk.NewInt(50), keeper.GetBalance(ctx, addr1, sdk.DefaultBondDenom).Amount)
 	require.Equal(sdk.NewInt(50), keeper.GetBalance(ctx, addr3, sdk.DefaultBondDenom).Amount)
-	require.Equal(sdk.ZeroInt(), keeper.GetBalance(ctx, authKeeper.GetModuleAddress(types.WeiEscrowName), sdk.DefaultBondDenom).Amount)
-	// should return error if wei amount overflows
-	require.Error(keeper.SendCoinsAndWei(ctx, addr1, addr2, nil, sdk.DefaultBondDenom, sdk.ZeroInt(), sdk.NewInt(1_000_000_000_000)))
 	// sender gets escrowed one usei, recipient does not get redeemed
-	require.NoError(keeper.SendCoinsAndWei(ctx, addr1, addr2, nil, sdk.DefaultBondDenom, sdk.NewInt(1), sdk.NewInt(1)))
+	require.NoError(keeper.SendCoinsAndWei(ctx, addr1, addr2, sdk.NewInt(1), sdk.NewInt(1)))
 	require.Equal(sdk.NewInt(999_999_999_999), keeper.GetWeiBalance(ctx, addr1))
 	require.Equal(sdk.OneInt(), keeper.GetWeiBalance(ctx, addr2))
 	require.Equal(sdk.NewInt(48), keeper.GetBalance(ctx, addr1, sdk.DefaultBondDenom).Amount)
 	require.Equal(sdk.OneInt(), keeper.GetBalance(ctx, addr2, sdk.DefaultBondDenom).Amount)
-	require.Equal(sdk.OneInt(), keeper.GetBalance(ctx, authKeeper.GetModuleAddress(types.WeiEscrowName), sdk.DefaultBondDenom).Amount)
 	// sender does not get escrowed due to sufficient wei balance, recipient does not get redeemed
-	require.NoError(keeper.SendCoinsAndWei(ctx, addr1, addr3, nil, sdk.DefaultBondDenom, sdk.NewInt(1), sdk.NewInt(999_999_999_999)))
+	require.NoError(keeper.SendCoinsAndWei(ctx, addr1, addr3, sdk.NewInt(1), sdk.NewInt(999_999_999_999)))
 	require.Equal(sdk.ZeroInt(), keeper.GetWeiBalance(ctx, addr1))
 	require.Equal(sdk.NewInt(999_999_999_999), keeper.GetWeiBalance(ctx, addr3))
 	require.Equal(sdk.NewInt(47), keeper.GetBalance(ctx, addr1, sdk.DefaultBondDenom).Amount)
 	require.Equal(sdk.NewInt(51), keeper.GetBalance(ctx, addr3, sdk.DefaultBondDenom).Amount)
-	require.Equal(sdk.OneInt(), keeper.GetBalance(ctx, authKeeper.GetModuleAddress(types.WeiEscrowName), sdk.DefaultBondDenom).Amount)
 	// sender gets escrowed and recipient gets redeemed
-	require.NoError(keeper.SendCoinsAndWei(ctx, addr1, addr3, nil, sdk.DefaultBondDenom, sdk.NewInt(1), sdk.NewInt(2)))
+	require.NoError(keeper.SendCoinsAndWei(ctx, addr1, addr3, sdk.NewInt(1), sdk.NewInt(2)))
 	require.Equal(sdk.NewInt(999_999_999_998), keeper.GetWeiBalance(ctx, addr1))
 	require.Equal(sdk.NewInt(1), keeper.GetWeiBalance(ctx, addr3))
 	require.Equal(sdk.NewInt(45), keeper.GetBalance(ctx, addr1, sdk.DefaultBondDenom).Amount)
 	require.Equal(sdk.NewInt(53), keeper.GetBalance(ctx, addr3, sdk.DefaultBondDenom).Amount)
-	require.Equal(sdk.OneInt(), keeper.GetBalance(ctx, authKeeper.GetModuleAddress(types.WeiEscrowName), sdk.DefaultBondDenom).Amount)
 }
 
 func (suite *IntegrationTestSuite) TestSupply() {

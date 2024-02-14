@@ -53,6 +53,14 @@ func GetBaseDenom() (string, error) {
 	return baseDenom, nil
 }
 
+func MustGetBaseDenom() string {
+	bd, err := GetBaseDenom()
+	if err != nil {
+		panic(err)
+	}
+	return bd
+}
+
 // ConvertCoin attempts to convert a coin to a given denomination. If the given
 // denomination is invalid or if neither denomination is registered, an error
 // is returned.

@@ -37,6 +37,14 @@ func NonnegativeBalanceInvariant(k ViewKeeper) sdk.Invariant {
 
 			return false
 		})
+		k.IterateAllWeiBalances(ctx, func(addr sdk.AccAddress, balance sdk.Int) bool {
+			if balance.IsNegative() {
+				count++
+				msg += fmt.Sprintf("\t%s has a negative wei balance of %s\n", addr, balance)
+			}
+
+			return false
+		})
 
 		broken := count != 0
 
@@ -51,6 +59,7 @@ func NonnegativeBalanceInvariant(k ViewKeeper) sdk.Invariant {
 func TotalSupply(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		expectedTotal := sdk.Coins{}
+		weiTotal := sdk.NewInt(0)
 		supply, _, err := k.GetPaginatedTotalSupply(ctx, &query.PageRequest{Limit: query.MaxLimit})
 
 		if err != nil {
@@ -67,6 +76,23 @@ func TotalSupply(k Keeper) sdk.Invariant {
 			expectedTotal = expectedTotal.Add(coin)
 			return false
 		})
+		k.IterateAllWeiBalances(ctx, func(addr sdk.AccAddress, balance sdk.Int) bool {
+			weiTotal = weiTotal.Add(balance)
+			return false
+		})
+		weiInUsei, weiRemainder := SplitUseiWeiAmount(weiTotal)
+		if !weiRemainder.IsZero() {
+			return sdk.FormatInvariant(types.ModuleName, "total supply",
+				fmt.Sprintf(
+					"\twei remainder: %v\n",
+					weiRemainder)), true
+		}
+		baseDenom, err := sdk.GetBaseDenom()
+		if err == nil {
+			expectedTotal = expectedTotal.Add(sdk.NewCoin(baseDenom, weiInUsei))
+		} else if !weiInUsei.IsZero() {
+			return sdk.FormatInvariant(types.ModuleName, "total supply", "non-zero wei balance without base denom"), true
+		}
 
 		broken := !expectedTotal.IsEqual(supply)
 
