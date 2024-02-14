@@ -54,8 +54,7 @@ func TestStaking(t *testing.T) {
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	evmParams := k.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
+	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -73,7 +72,7 @@ func TestStaking(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -100,7 +99,7 @@ func TestStaking(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -127,7 +126,7 @@ func TestStaking(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -162,8 +161,7 @@ func TestStakingError(t *testing.T) {
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	evmParams := k.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
+	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -181,7 +179,7 @@ func TestStakingError(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.NotEmpty(t, res.VmError)
@@ -204,7 +202,7 @@ func TestStakingError(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.NotEmpty(t, res.VmError)

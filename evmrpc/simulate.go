@@ -235,7 +235,7 @@ func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
 func (b *Backend) ChainConfig() *params.ChainConfig {
 	ctx := b.ctxProvider(LatestCtxHeight)
-	return b.keeper.GetChainConfig(ctx).EthereumConfig(b.keeper.ChainID(ctx))
+	return types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID(ctx))
 }
 
 func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {

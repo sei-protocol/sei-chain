@@ -44,7 +44,7 @@ func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 
 func DefaultChainConfig() ChainConfig {
 	return ChainConfig{
-		CancunTime: -1,
+		CancunTime: 0,
 		PragueTime: -1,
 		VerkleTime: -1,
 	}

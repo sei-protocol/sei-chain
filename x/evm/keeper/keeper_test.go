@@ -13,18 +13,20 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
+	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/rand"
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 func TestPurgePrefixNotHang(t *testing.T) {
 	k, ctx := keeper.MockEVMKeeper()
+	_, evmAddr := keeper.MockAddressPair()
 	for i := 0; i < 50; i++ {
 		ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
-		store := k.PrefixStore(ctx, types.TransientModuleStateKey(ctx))
+		store := k.PrefixStore(ctx, types.StateKey(evmAddr))
 		store.Set([]byte{0x03}, []byte("test"))
 	}
-	require.NotPanics(t, func() { k.PurgePrefix(ctx, types.TransientModuleStateKey(ctx)) })
+	require.NotPanics(t, func() { k.PurgePrefix(ctx, types.StateKey(evmAddr)) })
 }
 
 func TestGetChainID(t *testing.T) {
@@ -190,7 +192,10 @@ func TestDeferredInfo(t *testing.T) {
 	ctx = ctx.WithTxIndex(1)
 	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{1, 2, 3}, common.Hash{4, 5, 6})
 	ctx = ctx.WithTxIndex(2)
-	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{7, 8}, common.Hash{9.0})
+	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{7, 8}, common.Hash{9, 0})
+	ctx = ctx.WithTxIndex(3) // should be ignored because txResult has non-zero code
+	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{11, 12}, common.Hash{13, 14})
+	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 1}})
 	infoList := k.GetEVMTxDeferredInfo(ctx)
 	require.Equal(t, 2, len(infoList))
 	require.Equal(t, 1, infoList[0].TxIndx)
@@ -200,7 +205,7 @@ func TestDeferredInfo(t *testing.T) {
 	require.Equal(t, ethtypes.Bloom{7, 8}, infoList[1].TxBloom)
 	require.Equal(t, common.Hash{9, 0}, infoList[1].TxHash)
 	// test clear tx deferred info
-	k.ClearEVMTxDeferredInfo(ctx)
+	k.ClearEVMTxDeferredInfo()
 	infoList = k.GetEVMTxDeferredInfo(ctx)
 	require.Empty(t, len(infoList))
 }

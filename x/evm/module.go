@@ -133,6 +133,10 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 2, func(ctx sdk.Context) error {
 		return migrations.AddNewParamsAndSetAllToDefaults(ctx, am.keeper)
 	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 3, func(ctx sdk.Context) error {
+		return migrations.AddNewParamsAndSetAllToDefaults(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -157,20 +161,25 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 3 }
+func (AppModule) ConsensusVersion() uint64 { return 4 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
+	// clear tx responses from last block
+	am.keeper.SetTxResults([]*abci.ExecTxResult{})
+	// clear the TxDeferredInfo
+	am.keeper.ClearEVMTxDeferredInfo()
 }
 
 // EndBlock executes all ABCI EndBlock logic respective to the capability module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	evmTxDeferredInfoList := am.keeper.GetEVMTxDeferredInfo(ctx)
+	am.keeper.SettleWeiEscrowAccounts(ctx, evmTxDeferredInfoList)
 	denom := am.keeper.GetBaseDenom(ctx)
 	for _, deferredInfo := range evmTxDeferredInfoList {
 		idx := deferredInfo.TxIndx
-		middleManAddress := state.GetMiddleManAddress(sdk.Context{}.WithTxIndex(idx))
+		middleManAddress := state.GetMiddleManAddress(idx)
 		balance := am.keeper.BankKeeper().GetBalance(ctx, middleManAddress, denom)
 		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, middleManAddress)
 		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
@@ -178,7 +187,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 				panic(err)
 			}
 		}
-		coinbaseAddress := state.GetCoinbaseAddress(sdk.Context{}.WithTxIndex(idx))
+		coinbaseAddress := state.GetCoinbaseAddress(idx)
 		balance = am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom)
 		weiBalance = am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
 		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
@@ -189,7 +198,5 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	}
 	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }))
 	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) ethtypes.Bloom { return i.TxBloom }))
-	// clear the TxDeferredInfo
-	am.keeper.ClearEVMTxDeferredInfo(ctx)
 	return []abci.ValidatorUpdate{}
 }
