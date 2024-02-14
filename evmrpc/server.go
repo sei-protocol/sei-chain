@@ -64,7 +64,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, tmClient, simulateConfig),
+			Service:   NewSimulationAPI(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig),
 		},
 		{
 			Namespace: "net",
@@ -85,6 +85,10 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "web3",
 			Service:   &Web3API{},
+		},
+		{
+			Namespace: "debug",
+			Service:   NewDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig),
 		},
 	}
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
@@ -142,7 +146,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, tmClient, simulateConfig),
+			Service:   NewSimulationAPI(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig),
 		},
 		{
 			Namespace: "net",

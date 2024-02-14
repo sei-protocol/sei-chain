@@ -17,6 +17,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -34,11 +36,12 @@ type SimulationAPI struct {
 func NewSimulationAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
+	txDecoder sdk.TxDecoder,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
 ) *SimulationAPI {
 	return &SimulationAPI{
-		backend: NewBackend(ctxProvider, keeper, tmClient, config),
+		backend: NewBackend(ctxProvider, keeper, txDecoder, tmClient, config),
 	}
 }
 
@@ -130,16 +133,19 @@ type SimulateConfig struct {
 	EVMTimeout time.Duration
 }
 
+var _ tracers.Backend = (*Backend)(nil)
+
 type Backend struct {
 	*eth.EthAPIBackend
 	ctxProvider func(int64) sdk.Context
+	txDecoder   sdk.TxDecoder
 	keeper      *keeper.Keeper
 	tmClient    rpcclient.Client
 	config      *SimulateConfig
 }
 
-func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, tmClient rpcclient.Client, config *SimulateConfig) *Backend {
-	return &Backend{ctxProvider: ctxProvider, keeper: keeper, tmClient: tmClient, config: config}
+func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txDecoder sdk.TxDecoder, tmClient rpcclient.Client, config *SimulateConfig) *Backend {
+	return &Backend{ctxProvider: ctxProvider, keeper: keeper, txDecoder: txDecoder, tmClient: tmClient, config: config}
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
@@ -154,11 +160,73 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 	return state.NewDBImpl(b.ctxProvider(height), b.keeper, true), b.getHeader(big.NewInt(height)), nil
 }
 
-// returns block header only
-func (b *Backend) BlockByNumberOrHash(context.Context, rpc.BlockNumberOrHash) (*ethtypes.Block, error) {
-	return ethtypes.NewBlock(&ethtypes.Header{
-		GasLimit: b.RPCGasCap(),
-	}, []*ethtypes.Transaction{}, []*ethtypes.Header{}, []*ethtypes.Receipt{}, nil), nil
+func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
+	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	receipt, err := b.keeper.GetReceipt(sdkCtx, txHash)
+	if err != nil {
+		return nil, common.Hash{}, 0, 0, err
+	}
+	txHeight := int64(receipt.BlockNumber)
+	block, err := b.tmClient.Block(ctx, &txHeight)
+	if err != nil {
+		return nil, common.Hash{}, 0, 0, err
+	}
+	txIndex := hexutil.Uint(receipt.TransactionIndex)
+	tmTx := block.Block.Txs[int(index)]
+	tx = getEthTxForTxBz(tmTx, b.txDecoder)
+	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
+	return tx, blockHash, uint64(txHeight), uint64(txIndex), nil
+}
+
+func (b *Backend) ChainDb() ethdb.Database {
+	panic("implement me")
+}
+
+func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
+	bnn := bn.Int64()
+	tmBlock, err := b.tmClient.Block(ctx, &bnn)
+	if err != nil {
+		return nil, err
+	}
+	blockRes, err := b.tmClient.BlockResults(ctx, &tmBlock.Block.Height)
+	if err != nil {
+		return nil, err
+	}
+	var txs []*ethtypes.Transaction
+	for i := range blockRes.TxsResults {
+		decoded, err := b.txDecoder(tmBlock.Block.Txs[i])
+		if err != nil {
+			return nil, err
+		}
+		for _, msg := range decoded.GetMsgs() {
+			switch m := msg.(type) {
+			case *types.MsgEVMTransaction:
+				if m.IsAssociateTx() {
+					continue
+				}
+				ethtx, _ := m.AsTransaction()
+				txs = append(txs, ethtx)
+			}
+		}
+	}
+	header := b.getHeader(big.NewInt(bn.Int64()))
+	block := &ethtypes.Block{
+		Header_: header,
+		Txs:     txs,
+	}
+	return block, nil
+}
+
+func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
+	tmBlock, err := b.tmClient.BlockByHash(ctx, hash.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	if tmBlock.Block == nil {
+		panic("tmBlock.Block is nil")
+	}
+	blockNumber := rpc.BlockNumber(tmBlock.Block.Height)
+	return b.BlockByNumber(ctx, blockNumber)
 }
 
 func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
@@ -184,6 +252,44 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 		return nil, err
 	}
 	return b.getHeader(big.NewInt(height)), nil
+}
+
+func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
+	emptyRelease := func() {}
+	// Short circuit if it's genesis block.
+	if block.Number().Int64() == 0 {
+		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("no transaction in genesis")
+	}
+	// get the parent block using block.parentHash
+	prevBlockHeight := block.Number().Int64() - 1
+	// Get statedb of parent block from the store
+	statedb := state.NewDBImpl(b.ctxProvider(prevBlockHeight), b.keeper, true)
+	if txIndex == 0 && len(block.Transactions()) == 0 {
+		return nil, vm.BlockContext{}, statedb, emptyRelease, nil
+	}
+	// Recompute transactions up to the target index. (only doing EVM at the moment, but should do both EVM + Cosmos)
+	signer := ethtypes.MakeSigner(b.ChainConfig(), block.Number(), block.Time())
+	for idx, tx := range block.Transactions() {
+		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
+		txContext := core.NewEVMTxContext(msg)
+		blockContext, err := b.keeper.GetVMBlockContext(b.ctxProvider(prevBlockHeight), core.GasPool(b.RPCGasCap()))
+		if err != nil {
+			return nil, vm.BlockContext{}, nil, nil, err
+		}
+		if idx == txIndex {
+			return msg, *blockContext, statedb, emptyRelease, nil
+		}
+		// Not yet the searched for transaction, execute on top of the current state
+		vmenv := vm.NewEVM(*blockContext, txContext, statedb, b.ChainConfig(), vm.Config{})
+		statedb.SetTxContext(tx.Hash(), idx)
+		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas())); err != nil {
+			return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
+		}
+		// Ensure any modifications are committed to the state
+		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
+		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
+	}
+	return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
 }
 
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) *vm.EVM {
