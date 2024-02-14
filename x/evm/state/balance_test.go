@@ -83,7 +83,7 @@ func TestSurplus(t *testing.T) {
 	// test negative usei surplus negative wei surplus
 	db := state.NewDBImpl(ctx, k, false)
 	db.AddBalance(evmAddr, big.NewInt(1_000_000_000_001))
-	_, _, err := db.Finalize()
+	_, err := db.Finalize()
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "negative surplus values")
 
@@ -91,7 +91,7 @@ func TestSurplus(t *testing.T) {
 	db = state.NewDBImpl(ctx, k, false)
 	db.AddBalance(evmAddr, big.NewInt(1_000_000_000_000))
 	db.SubBalance(evmAddr, big.NewInt(1))
-	_, _, err = db.Finalize()
+	_, err = db.Finalize()
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "negative surplus values")
 
@@ -100,17 +100,16 @@ func TestSurplus(t *testing.T) {
 	db.AddBalance(evmAddr, big.NewInt(1_000_000_000_000))
 	db.SubBalance(evmAddr, big.NewInt(2))
 	db.SubBalance(evmAddr, big.NewInt(999_999_999_999))
-	surplusUsei, surplusWei, err := db.Finalize()
+	surplus, err := db.Finalize()
 	require.Nil(t, err)
-	require.Equal(t, sdk.ZeroInt(), surplusUsei)
-	require.Equal(t, sdk.OneInt(), surplusWei)
+	require.Equal(t, sdk.OneInt(), surplus)
 
 	// test positive usei surplus negative wei surplus (negative total)
 	db = state.NewDBImpl(ctx, k, false)
 	db.SubBalance(evmAddr, big.NewInt(1_000_000_000_000))
 	db.AddBalance(evmAddr, big.NewInt(2))
 	db.AddBalance(evmAddr, big.NewInt(999_999_999_999))
-	_, _, err = db.Finalize()
+	_, err = db.Finalize()
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "negative surplus values")
 
@@ -118,10 +117,9 @@ func TestSurplus(t *testing.T) {
 	db = state.NewDBImpl(ctx, k, false)
 	db.SubBalance(evmAddr, big.NewInt(1_000_000_000_000))
 	db.AddBalance(evmAddr, big.NewInt(999_999_999_999))
-	surplusUsei, surplusWei, err = db.Finalize()
+	surplus, err = db.Finalize()
 	require.Nil(t, err)
-	require.Equal(t, sdk.ZeroInt(), surplusUsei)
-	require.Equal(t, sdk.OneInt(), surplusWei)
+	require.Equal(t, sdk.OneInt(), surplus)
 
 	// test snapshots
 	db = state.NewDBImpl(ctx, k, false)
@@ -133,8 +131,7 @@ func TestSurplus(t *testing.T) {
 	db.Snapshot()
 	db.SubBalance(evmAddr, big.NewInt(1_000_000_000_000))
 	db.AddBalance(evmAddr, big.NewInt(999_999_999_999))
-	surplusUsei, surplusWei, err = db.Finalize()
+	surplus, err = db.Finalize()
 	require.Nil(t, err)
-	require.Equal(t, sdk.ZeroInt(), surplusUsei)
-	require.Equal(t, sdk.NewInt(3), surplusWei)
+	require.Equal(t, sdk.NewInt(3), surplus)
 }

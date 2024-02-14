@@ -26,8 +26,6 @@ type DBImpl struct {
 	// no single bottleneck for fee collection. Its account state and balance will be deleted
 	// before the block commits
 	coinbaseAddress sdk.AccAddress
-	// a temporary address that will serve as the Wei escrow account for this specific transaction.
-	weiEscrowAddress sdk.AccAddress
 
 	k          EVMKeeper
 	simulation bool
@@ -39,7 +37,6 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 		k:                k,
 		snapshottedCtxs:  []sdk.Context{},
 		coinbaseAddress:  GetCoinbaseAddress(ctx.TxIndex()),
-		weiEscrowAddress: GetTempWeiEscrowAddress(ctx.TxIndex()),
 		simulation:       simulation,
 		tempStateCurrent: NewTemporaryState(),
 	}
@@ -58,7 +55,7 @@ func (s *DBImpl) SetEVM(evm *vm.EVM) {
 // to the database.
 func (s *DBImpl) AddPreimage(_ common.Hash, _ []byte) {}
 
-func (s *DBImpl) Finalize() (surplusUsei sdk.Int, surplusWei sdk.Int, err error) {
+func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	if s.simulation {
 		panic("should never call finalize on a simulation DB")
 	}
@@ -74,19 +71,12 @@ func (s *DBImpl) Finalize() (surplusUsei sdk.Int, surplusWei sdk.Int, err error)
 	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
 		s.flushCtx(s.snapshottedCtxs[i])
 	}
-	surplusUsei = s.tempStateCurrent.surplusUsei
-	surplusWei = s.tempStateCurrent.surplusWei
+	surplus = s.tempStateCurrent.surplus
 	for _, ts := range s.tempStatesHist {
-		surplusUsei = surplusUsei.Add(ts.surplusUsei)
-		surplusWei = surplusWei.Add(ts.surplusWei)
+		surplus = surplus.Add(ts.surplus)
 	}
-	if surplusWei.IsNegative() || surplusUsei.IsNegative() {
-		surplus := surplusUsei.Mul(sdk.NewIntFromBigInt(UseiToSweiMultiplier)).Add(surplusWei)
-		if surplus.IsNegative() {
-			err = fmt.Errorf("negative surplus values: (usei %s, wei %s)", surplusUsei.String(), surplusWei.String())
-			return
-		}
-		surplusUsei, surplusWei = SplitUseiWeiAmount(surplus.BigInt())
+	if surplus.IsNegative() {
+		err = fmt.Errorf("negative surplus value: %s", surplus.String())
 	}
 	return
 }
@@ -113,7 +103,6 @@ func (s *DBImpl) Copy() vm.StateDB {
 		tempStatesHist:   append(s.tempStatesHist, s.tempStateCurrent),
 		k:                s.k,
 		coinbaseAddress:  s.coinbaseAddress,
-		weiEscrowAddress: s.weiEscrowAddress,
 		simulation:       s.simulation,
 		err:              s.err,
 	}
@@ -167,8 +156,7 @@ type TemporaryState struct {
 	transientStates       map[string]map[string]common.Hash
 	transientAccounts     map[string][]byte
 	transientModuleStates map[string][]byte
-	surplusUsei           sdk.Int
-	surplusWei            sdk.Int
+	surplus               sdk.Int // in wei
 }
 
 func NewTemporaryState() *TemporaryState {
@@ -177,7 +165,6 @@ func NewTemporaryState() *TemporaryState {
 		transientStates:       make(map[string]map[string]common.Hash),
 		transientAccounts:     make(map[string][]byte),
 		transientModuleStates: make(map[string][]byte),
-		surplusUsei:           sdk.NewInt(0),
-		surplusWei:            sdk.NewInt(0),
+		surplus:               sdk.NewInt(0),
 	}
 }
