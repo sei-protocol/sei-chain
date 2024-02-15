@@ -23,15 +23,14 @@ import (
 )
 
 type EvmTxClient struct {
-	accountAddress   common.Address
-	nonce            atomic.Uint64
-	shouldResetNonce atomic.Bool
-	chainId          *big.Int
-	gasPrice         *big.Int
-	ethClients       []*ethclient.Client
-	mtx              sync.RWMutex
-	privateKey       *ecdsa.PrivateKey
-	evmAddresses     *EVMAddresses
+	accountAddress common.Address
+	nonce          atomic.Uint64
+	chainId        *big.Int
+	gasPrice       *big.Int
+	ethClients     []*ethclient.Client
+	mtx            sync.RWMutex
+	privateKey     *ecdsa.PrivateKey
+	evmAddresses   *EVMAddresses
 }
 
 func NewEvmTxClient(
