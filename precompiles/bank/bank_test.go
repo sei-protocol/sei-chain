@@ -50,12 +50,12 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 
 	// Send native 10_000_000_000_000, split into 10 usei
+	err = k.BankKeeper().SendCoins(ctx, senderAddr, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000))))
+	require.Nil(t, err)
+
 	argsNative, err := sendNative.Inputs.Pack(seiAddrString, big.NewInt(10_000_000_000_000))
 	require.Nil(t, err)
 	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNative...))
-	require.Nil(t, err)
-
-	err = k.BankKeeper().SendCoins(ctx, senderAddr, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000))))
 	require.Nil(t, err)
 
 	balance, err := p.ABI.MethodById(p.BalanceID)
