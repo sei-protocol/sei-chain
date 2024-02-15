@@ -57,7 +57,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(receipt, block)
+	return encodeReceipt(receipt, t.txConfig.TxDecoder(), block)
 }
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
@@ -269,7 +269,7 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 	return ethtx
 }
 
-func encodeReceipt(receipt *types.Receipt, block *coretypes.ResultBlock) (map[string]interface{}, error) {
+func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock) (map[string]interface{}, error) {
 	blockHash := block.Block.Hash()
 	bh := common.HexToHash(blockHash.String())
 	logs := keeper.GetLogsForTx(receipt)
@@ -279,7 +279,7 @@ func encodeReceipt(receipt *types.Receipt, block *coretypes.ResultBlock) (map[st
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	txIndexWithoutCosmosTxs := 0
 	for _, tx := range block.Block.Txs {
-		etx := getEthTxForTxBz(tx, nil)
+		etx := getEthTxForTxBz(tx, decoder)
 		if etx != nil && etx.Hash() == common.HexToHash(receipt.TxHashHex) {
 			break
 		}

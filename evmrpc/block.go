@@ -124,7 +124,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber)
 					mtx.Unlock()
 				}
 			} else {
-				encodedReceipt, err := encodeReceipt(receipt, block)
+				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
