@@ -58,14 +58,6 @@ type BlockHeader struct {
 	Time string `json:"time"`
 }
 
-type BlockData struct {
-	Txs []string `json:"txs"`
-}
-
-type BlockHeader struct {
-	Time string `json:"time"`
-}
-
 func init() {
 	cdc := codec.NewLegacyAmino()
 	interfaceRegistry := types.NewInterfaceRegistry()
