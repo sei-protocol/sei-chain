@@ -349,6 +349,7 @@ func getPrimeNums(lo int, hi int) []int {
 
 // initAppConfig helps to override default appConfig template and configs.
 // return "", nil if no custom configuration is required for the application.
+// nolint: staticcheck
 func initAppConfig() (string, interface{}) {
 	// The following code snippet is just for reference.
 
