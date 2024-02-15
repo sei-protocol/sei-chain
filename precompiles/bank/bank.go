@@ -198,6 +198,7 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 	}
 
 	usei, wei := state.SplitUseiWeiAmount(amount)
+	fmt.Printf("DEBUG - sendNative usei %+v sei %+v\n", usei, wei)
 	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, nil, p.evmKeeper.GetBaseDenom(ctx), sdk.NewIntFromBigInt(usei), sdk.NewIntFromBigInt(wei)); err != nil {
 		return nil, err
 	}

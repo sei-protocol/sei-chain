@@ -19,9 +19,9 @@ func TestRun(t *testing.T) {
 
 	senderAddr, senderEVMAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
-	err := k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100))))
+	err := k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000))))
 	require.Nil(t, err)
-	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100))))
+	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000))))
 	require.Nil(t, err)
 
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
@@ -55,6 +55,9 @@ func TestRun(t *testing.T) {
 	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNative...))
 	require.Nil(t, err)
 
+	err = k.BankKeeper().SendCoins(ctx, senderAddr, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000))))
+	require.Nil(t, err)
+
 	balance, err := p.ABI.MethodById(p.BalanceID)
 	require.Nil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "usei")
@@ -64,7 +67,7 @@ func TestRun(t *testing.T) {
 	is, err := balance.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(is))
-	require.Equal(t, big.NewInt(10), is[0].(*big.Int))
+	require.Equal(t, big.NewInt(5010), is[0].(*big.Int))
 	res, err = p.Run(&evm, common.Address{}, append(p.BalanceID, args[:1]...))
 	require.NotNil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "")
@@ -75,6 +78,7 @@ func TestRun(t *testing.T) {
 	// invalid input
 	_, err = p.Run(&evm, common.Address{}, []byte{1, 2, 3, 4})
 	require.NotNil(t, err)
+
 }
 
 // func TestMetadata(t *testing.T) {
