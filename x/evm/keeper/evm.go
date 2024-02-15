@@ -129,5 +129,8 @@ func (k *Keeper) getOrCreateEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, 
 	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
 	evm = vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	stateDB.SetEVM(evm)
-	return evm, stateDB.Finalize, nil
+	return evm, func() error {
+		_, err := stateDB.Finalize()
+		return err
+	}, nil
 }
