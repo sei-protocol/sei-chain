@@ -233,11 +233,13 @@ func (c *LoadTestClient) SendTxs(
 	sentCount *atomic.Int64,
 	semaphore *semaphore.Weighted,
 	wg *sync.WaitGroup,
+	blockchainEndpoint string,
 ) {
 	wg.Add(1)
 	defer wg.Done()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	lastHeight := 0
 	for {
 		select {
 		case <-done:
@@ -246,6 +248,11 @@ func (c *LoadTestClient) SendTxs(
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				return
+			}
+			currHeight := getLastHeight(blockchainEndpoint)
+			for lastHeight == currHeight {
+				time.Sleep(10 * time.Millisecond)
+				currHeight = getLastHeight(blockchainEndpoint)
 			}
 			// Acquire a semaphore
 			if err := semaphore.Acquire(ctx, 1); err != nil {
@@ -265,6 +272,7 @@ func (c *LoadTestClient) SendTxs(
 			}
 			// Release the semaphore
 			semaphore.Release(1)
+			lastHeight = currHeight
 		}
 	}
 }
