@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 	"math/big"
@@ -19,7 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	lru "github.com/hashicorp/golang-lru/v2/simplelru"
+	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -30,6 +29,9 @@ type Keeper struct {
 	memStoreKey sdk.StoreKey
 	Paramstore  paramtypes.Subspace
 
+	deferredInfo *sync.Map
+	txResults    []*abci.ExecTxResult
+
 	bankKeeper    bankkeeper.Keeper
 	accountKeeper *authkeeper.AccountKeeper
 	stakingKeeper *stakingkeeper.Keeper
@@ -38,7 +40,6 @@ type Keeper struct {
 	cachedFeeCollectorAddress    *common.Address
 	nonceMx                      *sync.RWMutex
 	pendingNonces                map[string][]uint64
-	completedNonces              *lru.LRU[string, bool]
 	keyToNonce                   map[tmtypes.TxKey]*addressNoncePair
 }
 
@@ -59,11 +60,6 @@ func NewKeeper(
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
-	// needs to be bounded to avoid leaking forever
-	cn, err := lru.NewLRU[string, bool](100000, nil)
-	if err != nil {
-		panic(fmt.Sprintf("could not create lru: %v", err))
-	}
 	k := &Keeper{
 		storeKey:                     storeKey,
 		memStoreKey:                  memStoreKey,
@@ -72,10 +68,10 @@ func NewKeeper(
 		accountKeeper:                accountKeeper,
 		stakingKeeper:                stakingKeeper,
 		pendingNonces:                make(map[string][]uint64),
-		completedNonces:              cn,
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*addressNoncePair),
+		deferredInfo:                 &sync.Map{},
 	}
 	return k
 }
@@ -150,69 +146,31 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 }
 
 func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []EvmTxDeferredInfo) {
-	hashMap, bloomMap := map[int]common.Hash{}, map[int]ethtypes.Bloom{}
-	hashIter := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxHashPrefix).Iterator(nil, nil)
-	for ; hashIter.Valid(); hashIter.Next() {
-		h := common.Hash{}
-		h.SetBytes(hashIter.Value())
-		hashMap[int(binary.BigEndian.Uint32(hashIter.Key()))] = h
-	}
-	hashIter.Close()
-	bloomIter := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxBloomPrefix).Iterator(nil, nil)
-	for ; bloomIter.Valid(); bloomIter.Next() {
-		b := ethtypes.Bloom{}
-		b.SetBytes(bloomIter.Value())
-		bloomMap[int(binary.BigEndian.Uint32(bloomIter.Key()))] = b
-	}
-	bloomIter.Close()
-	for idx, h := range hashMap {
-		i := EvmTxDeferredInfo{TxIndx: idx, TxHash: h}
-		if b, ok := bloomMap[idx]; ok {
-			i.TxBloom = b
-			delete(bloomMap, idx)
+	k.deferredInfo.Range(func(key, value any) bool {
+		txIdx := key.(int)
+		if txIdx < 0 || txIdx >= len(k.txResults) {
+			ctx.Logger().Error(fmt.Sprintf("getting invalid tx index in EVM deferred info: %d, num of txs: %d", txIdx, len(k.txResults)))
+			return true
 		}
-		res = append(res, i)
-	}
-	for idx, b := range bloomMap {
-		res = append(res, EvmTxDeferredInfo{TxIndx: idx, TxBloom: b})
-	}
+		if k.txResults[txIdx].Code == 0 {
+			res = append(res, *(value.(*EvmTxDeferredInfo)))
+		}
+		return true
+	})
 	sort.SliceStable(res, func(i, j int) bool { return res[i].TxIndx < res[j].TxIndx })
 	return
 }
 
 func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom, txHash common.Hash) {
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint32(key, uint32(ctx.TxIndex()))
-	prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxHashPrefix).Set(key, txHash[:])
-	prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxBloomPrefix).Set(key, bloom[:])
+	k.deferredInfo.Store(ctx.TxIndex(), &EvmTxDeferredInfo{
+		TxIndx:  ctx.TxIndex(),
+		TxBloom: bloom,
+		TxHash:  txHash,
+	})
 }
 
-func (k *Keeper) ClearEVMTxDeferredInfo(ctx sdk.Context) {
-	hashStore := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxHashPrefix)
-	hashIterator := hashStore.Iterator(nil, nil)
-	defer hashIterator.Close()
-	hashKeysToDelete := [][]byte{}
-	for ; hashIterator.Valid(); hashIterator.Next() {
-		hashKeysToDelete = append(hashKeysToDelete, hashIterator.Key())
-	}
-	// close the first iterator for safety
-	hashIterator.Close()
-	for _, key := range hashKeysToDelete {
-		hashStore.Delete(key)
-	}
-
-	bloomStore := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.TxBloomPrefix)
-	bloomIterator := bloomStore.Iterator(nil, nil)
-	bloomKeysToDelete := [][]byte{}
-	defer bloomIterator.Close()
-	for ; bloomIterator.Valid(); bloomIterator.Next() {
-		bloomKeysToDelete = append(bloomKeysToDelete, bloomIterator.Key())
-	}
-	// close the second iterator for safety
-	bloomIterator.Close()
-	for _, key := range bloomKeysToDelete {
-		bloomStore.Delete(key)
-	}
+func (k *Keeper) ClearEVMTxDeferredInfo() {
+	k.deferredInfo = &sync.Map{}
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
@@ -224,11 +182,6 @@ func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
 	header, _ := tmtypes.HeaderFromProto(&histInfo.Header)
 
 	return common.BytesToHash(header.Hash())
-}
-
-// nonceCacheKey is a helper function to create a key for the completed nonces cache
-func nonceCacheKey(addr common.Address, nonce uint64) string {
-	return fmt.Sprintf("%s|%d", addr.Hex(), nonce)
 }
 
 // CalculateNextNonce calculates the next nonce for an address
@@ -250,28 +203,12 @@ func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, includ
 
 	// Check each nonce starting from latest until we find a gap
 	// That gap is the next nonce we should use.
-	// The completed nonces are limited to 100k entries
-	for {
-		// if it's not in pending and not completed, then it's the next nonce
-		if !sortedListContains(pending, nextNonce) && !k.completedNonces.Contains(nonceCacheKey(addr, nextNonce)) {
+	for ; ; nextNonce++ {
+		// if it's not in pending, then it's the next nonce
+		if _, found := sort.Find(len(pending), func(i int) int { return uint64Cmp(nextNonce, pending[i]) }); !found {
 			return nextNonce
 		}
-		nextNonce++
 	}
-}
-
-// sortedListContains is a helper function to check if a sorted slice contains a specific element
-func sortedListContains(slice []uint64, item uint64) bool {
-	for _, v := range slice {
-		if v == item {
-			return true
-		}
-		// because it's sorted, we can bail if it's higher
-		if v > item {
-			return false
-		}
-	}
-	return false
 }
 
 // AddPendingNonce adds a pending nonce to the keeper
@@ -280,6 +217,16 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 	defer k.nonceMx.Unlock()
 
 	addrStr := addr.Hex()
+	if existing, ok := k.keyToNonce[key]; ok {
+		if existing.nonce != nonce {
+			fmt.Printf("Seeing transactions with the same hash %X but different nonces (%d vs. %d), which should be impossible\n", key, nonce, existing.nonce)
+		}
+		if existing.address != addr {
+			fmt.Printf("Seeing transactions with the same hash %X but different addresses (%s vs. %s), which should be impossible\n", key, addr.Hex(), existing.address.Hex())
+		}
+		// we want to no-op whether it's a genuine duplicate or not
+		return
+	}
 	k.keyToNonce[key] = &addressNoncePair{
 		address: addr,
 		nonce:   nonce,
@@ -288,9 +235,9 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 	slices.Sort(k.pendingNonces[addrStr])
 }
 
-// ExpirePendingNonce removes a pending nonce from the keeper but leaves a hole
-// so that a future transaction must use this nonce
-func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
+// RemovePendingNonce removes a pending nonce from the keeper but leaves a hole
+// so that a future transaction must use this nonce.
+func (k *Keeper) RemovePendingNonce(key tmtypes.TxKey) {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
 	tx, ok := k.keyToNonce[key]
@@ -302,51 +249,27 @@ func (k *Keeper) ExpirePendingNonce(key tmtypes.TxKey) {
 	delete(k.keyToNonce, key)
 
 	addr := tx.address.Hex()
-	for i, n := range k.pendingNonces[addr] {
-		if n == tx.nonce {
-			// remove nonce but keep prior nonces in the slice (unlike the completion scenario)
-			k.pendingNonces[addr] = append(k.pendingNonces[addr][:i], k.pendingNonces[addr][i+1:]...)
-			// If the slice is empty, delete the key from the map
-			if len(k.pendingNonces[addr]) == 0 {
-				delete(k.pendingNonces, addr)
-			}
-			return
-		}
+	pendings := k.pendingNonces[addr]
+	firstMatch, found := sort.Find(len(pendings), func(i int) int { return uint64Cmp(tx.nonce, pendings[i]) })
+	if !found {
+		fmt.Printf("Removing tx %X without a corresponding pending nonce, which should not happen\n", key)
+		return
+	}
+	k.pendingNonces[addr] = append(k.pendingNonces[addr][:firstMatch], k.pendingNonces[addr][firstMatch+1:]...)
+	if len(k.pendingNonces[addr]) == 0 {
+		delete(k.pendingNonces, addr)
 	}
 }
 
-// CompletePendingNonce removes a pending nonce from the keeper
-// success means this transaction was processed and this nonce is used
-func (k *Keeper) CompletePendingNonce(key tmtypes.TxKey) {
-	k.nonceMx.Lock()
-	defer k.nonceMx.Unlock()
+func (k *Keeper) SetTxResults(txResults []*abci.ExecTxResult) {
+	k.txResults = txResults
+}
 
-	acctNonce, ok := k.keyToNonce[key]
-	if !ok {
-		return
+func uint64Cmp(a, b uint64) int {
+	if a < b {
+		return -1
+	} else if a == b {
+		return 0
 	}
-	address := acctNonce.address
-	nonce := acctNonce.nonce
-
-	delete(k.keyToNonce, key)
-	k.completedNonces.Add(nonceCacheKey(address, nonce), true)
-
-	addrStr := address.Hex()
-	if _, ok := k.pendingNonces[addrStr]; !ok {
-		return
-	}
-
-	for i, n := range k.pendingNonces[addrStr] {
-		if n >= nonce {
-			// remove the nonce and all prior nonces from the slice
-			copy(k.pendingNonces[addrStr], k.pendingNonces[addrStr][i+1:])
-			k.pendingNonces[addrStr] = k.pendingNonces[addrStr][:len(k.pendingNonces[addrStr])-i-1]
-
-			// If the slice is empty, delete the key from the map
-			if len(k.pendingNonces[addrStr]) == 0 {
-				delete(k.pendingNonces, addrStr)
-			}
-			return
-		}
-	}
+	return 1
 }

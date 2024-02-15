@@ -8,7 +8,10 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/addr"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/distribution"
+	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
+	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 )
 
@@ -20,6 +23,9 @@ func InitializePrecompiles(
 	bankKeeper common.BankKeeper,
 	wasmdKeeper common.WasmdKeeper,
 	wasmdViewKeeper common.WasmdViewKeeper,
+	stakingKeeper common.StakingKeeper,
+	govKeeper common.GovKeeper,
+	distrKeeper common.DistributionKeeper,
 ) error {
 	SetupMtx.Lock()
 	defer SetupMtx.Unlock()
@@ -46,6 +52,21 @@ func InitializePrecompiles(
 		return err
 	}
 	addPrecompileToVM(addrp, addrp.Address())
+	stakingp, err := staking.NewPrecompile(stakingKeeper, evmKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(stakingp, stakingp.Address())
+	govp, err := gov.NewPrecompile(govKeeper, evmKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(govp, govp.Address())
+	distrp, err := distribution.NewPrecompile(distrKeeper, evmKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(distrp, distrp.Address())
 	Initialized = true
 	return nil
 }

@@ -19,13 +19,10 @@ import (
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-// send 1 token to 0x34b575c2eaae50b81375f077517e6490adbd9735
-const CallData = "0xa9059cbb00000000000000000000000034b575c2eaae50b81375f077517e6490adbd97350000000000000000000000000000000000000000000000000000000000000001"
-
 func TestSimple(t *testing.T) {
 	bytecode := native.GetBin()
 	abi, err := native.NativeMetaData.GetAbi()
-	args, err := abi.Pack("", "test")
+	args, err := abi.Pack("", "test", "TST", "TST", uint8(6))
 	contractData := append(bytecode, args...)
 
 	testApp := testkeeper.EVMTestApp
@@ -43,8 +40,7 @@ func TestSimple(t *testing.T) {
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	evmParams := k.GetParams(ctx)
-	chainCfg := evmParams.GetChainConfig()
+	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -64,8 +60,7 @@ func TestSimple(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	// Deploy Simple Storage contract
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -77,7 +72,7 @@ func TestSimple(t *testing.T) {
 
 	// send transaction to the contract
 	contractAddr := common.HexToAddress(receipt.ContractAddress)
-	data, err := hex.DecodeString(CallData[2:])
+	data, err := abi.Pack("transfer", common.HexToAddress("0x34b575c2eaae50b81375f077517e6490adbd9735"), big.NewInt(1))
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
@@ -93,7 +88,7 @@ func TestSimple(t *testing.T) {
 	require.Nil(t, err)
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-	ante.Preprocess(ctx, req, k.GetParams(ctx))
+	ante.Preprocess(ctx, req)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)

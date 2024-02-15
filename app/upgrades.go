@@ -60,17 +60,26 @@ var upgradesList = []string{
 	"3.0.6",
 	"3.0.7",
 	"3.0.8",
+	// We change naming convention to prepend version with "v"
 	"v3.0.9",
 	"v3.1.1",
 	"v3.2.1",
 	"v3.3.0",
 	"v3.5.0",
+	"v3.6.1",
 	"v4.0.0-evm-devnet",
 	"v4.0.1-evm-devnet",
 	"v4.0.3-evm-devnet",
 	"v4.0.4-evm-devnet",
 	"v4.0.5-evm-devnet",
 	"v4.0.6-evm-devnet",
+	"v4.0.7-evm-devnet",
+	"v4.0.8-evm-devnet",
+	"v4.0.9-evm-devnet",
+	"v4.1.0-evm-devnet",
+	"v4.1.1-evm-devnet",
+	"v4.1.2-evm-devnet",
+	"v4.1.3-evm-devnet",
 }
 
 // if there is an override list, use that instead, for integration tests

@@ -1,7 +1,10 @@
 - name: Hardhat Test
   inputs:
     # Fund owner account in hardhat tests
-    - cmd: printf "12345678\n" | seid tx evm send 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 10000000000000000000 --from admin
+    - cmd: printf "12345678\n" | seid tx evm send 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 10000000000000000000 --from admin | cut -d':' -f2-
+      env: TX_HASH
+    - cmd: cast receipt "$TX_HASH" -j |jq -r ."status"
+      env: RESULT
   verifiers:
     - type: eval
-      expr: 1 == 1
+      expr: RESULT == "0x1"

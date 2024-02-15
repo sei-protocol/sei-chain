@@ -17,7 +17,7 @@ func TestInternalCallCreateContract(t *testing.T) {
 	bytecode := native.GetBin()
 	abi, err := native.NativeMetaData.GetAbi()
 	require.Nil(t, err)
-	args, err := abi.Pack("", "test")
+	args, err := abi.Pack("", "test", "TST", "TST", uint8(6))
 	require.Nil(t, err)
 	contractData := append(bytecode, args...)
 
@@ -39,7 +39,7 @@ func TestInternalCall(t *testing.T) {
 	bytecode := native.GetBin()
 	abi, err := native.NativeMetaData.GetAbi()
 	require.Nil(t, err)
-	args, err := abi.Pack("", "test")
+	args, err := abi.Pack("", "test", "TST", "TST", uint8(6))
 	require.Nil(t, err)
 	contractData := append(bytecode, args...)
 
@@ -82,7 +82,7 @@ func TestStaticCall(t *testing.T) {
 	bytecode := native.GetBin()
 	abi, err := native.NativeMetaData.GetAbi()
 	require.Nil(t, err)
-	args, err := abi.Pack("", "test")
+	args, err := abi.Pack("", "test", "TST", "TST", uint8(6))
 	require.Nil(t, err)
 	contractData := append(bytecode, args...)
 

@@ -21,7 +21,6 @@ require (
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
-	github.com/hashicorp/golang-lru/v2 v2.0.1
 	github.com/holiman/uint256 v1.2.4
 	github.com/justinas/alice v1.2.0
 	github.com/k0kubun/pp/v3 v3.2.0
@@ -44,8 +43,8 @@ require (
 	golang.org/x/sync v0.5.0
 	golang.org/x/text v0.14.0
 	golang.org/x/time v0.3.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20240102182953-50ed04b92917
-	google.golang.org/grpc v1.60.1
+	google.golang.org/genproto/googleapis/api v0.0.0-20240125205218-1f4bbc51befe
+	google.golang.org/grpc v1.61.0
 	google.golang.org/protobuf v1.32.0
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -180,6 +179,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-version v1.6.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/hdevalence/ed25519consensus v0.0.0-20220222234857-c00d1f31bab3 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
@@ -313,15 +313,15 @@ require (
 	go.opencensus.io v0.23.0 // indirect
 	go.opentelemetry.io/otel/exporters/jaeger v1.9.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.9.0 // indirect
-	golang.org/x/crypto v0.16.0 // indirect
+	golang.org/x/crypto v0.18.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20220218215828-6cf2b201936e // indirect
 	golang.org/x/mod v0.14.0 // indirect
-	golang.org/x/net v0.19.0 // indirect
-	golang.org/x/sys v0.15.0 // indirect
-	golang.org/x/term v0.15.0 // indirect
+	golang.org/x/net v0.20.0 // indirect
+	golang.org/x/sys v0.16.0 // indirect
+	golang.org/x/term v0.16.0 // indirect
 	golang.org/x/tools v0.15.0 // indirect
-	google.golang.org/genproto v0.0.0-20231212172506-995d672761c0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240102182953-50ed04b92917 // indirect
+	google.golang.org/genproto v0.0.0-20240116215550-a9fa1716bcac // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240125205218-1f4bbc51befe // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	honnef.co/go/tools v0.3.1 // indirect
@@ -347,14 +347,14 @@ replace (
 	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.0.7
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.73-evm-rebase-10
-	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.8
+	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.9
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.0
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-6
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-8
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
-	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.28
+	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.30
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.2.36-evm-rebase-4
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.2.36-evm-rebase-5
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )

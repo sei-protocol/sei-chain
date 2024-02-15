@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -24,7 +23,6 @@ type SendAPI struct {
 	tmClient    rpcclient.Client
 	txConfig    client.TxConfig
 	sendConfig  *SendConfig
-	slowMu      *sync.Mutex
 	keeper      *keeper.Keeper
 	ctxProvider func(int64) sdk.Context
 	homeDir     string
@@ -40,21 +38,16 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 		tmClient:    tmClient,
 		txConfig:    txConfig,
 		sendConfig:  sendConfig,
-		slowMu:      &sync.Mutex{},
 		keeper:      k,
 		ctxProvider: ctxProvider,
 		homeDir:     homeDir,
-		backend:     NewBackend(ctxProvider, k, tmClient, simulateConfig),
+		backend:     NewBackend(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig),
 	}
 }
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_sendRawTransaction", startTime, err == nil)
-	if s.sendConfig.slow {
-		s.slowMu.Lock()
-		defer s.slowMu.Unlock()
-	}
 	tx := new(ethtypes.Transaction)
 	if err = tx.UnmarshalBinary(input); err != nil {
 		return

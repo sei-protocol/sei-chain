@@ -1,7 +1,8 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
-const { ethers } = require("hardhat");
 const {uniq, shuffle} = require("lodash");
+const { ethers, upgrades } = require('hardhat');
+const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -95,6 +96,15 @@ describe("EVM Test", function () {
         // The first contract address deployed from 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
         // should always be 0xbD5d765B226CaEA8507EE030565618dAFFD806e2 when sent with nonce=0
         expect(await testToken.getAddress()).to.equal(firstContractAddress);
+      });
+
+      it("Should estimate gas for a contract deployment", async function () {
+        const callData = evmTester.interface.encodeFunctionData("createToken", ["TestToken", "TTK"]);
+        const estimatedGas = await ethers.provider.estimateGas({
+          to: await evmTester.getAddress(),
+          data: callData
+        });
+        expect(estimatedGas).to.greaterThan(0);
       });
     });
 
@@ -644,7 +654,7 @@ describe("EVM Test", function () {
         expect(isContract).to.be.true;
       });
 
-      it.only("advanced log topic filtering", async function() {
+      it("advanced log topic filtering", async function() {
         describe("log topic filtering", async function() {
           let blockStart;
           let blockEnd;
@@ -663,7 +673,7 @@ describe("EVM Test", function () {
             console.log("blockEnd = ", blockEnd)
           });
 
-          it.only("Block range filter", async function () {
+          it("Block range filter", async function () {
             const filter = {
               fromBlock: blockStart,
               toBlock: blockEnd,
@@ -830,6 +840,68 @@ describe("EVM Test", function () {
             expect(logs.length).to.equal(3);
           });
         });
+      });
+    });
+
+    describe("Contract Upgradeability", function() {
+      it("Should allow for contract upgrades", async function() {
+        // deploy BoxV1
+        const Box = await ethers.getContractFactory("Box");
+        const val = 42;
+        console.log('Deploying Box...');
+        const box = await upgrades.deployProxy(Box, [val], { initializer: 'store' });
+        const boxReceipt = await box.waitForDeployment()
+        console.log("boxReceipt = ", JSON.stringify(boxReceipt))
+        const boxAddr = await box.getAddress();
+        const implementationAddress = await getImplementationAddress(ethers.provider, boxAddr);
+        console.log('Box Implementation address:', implementationAddress);
+        console.log('Box deployed to:', boxAddr)
+
+        // make sure you can retrieve the value
+        const retrievedValue = await box.retrieve();
+        expect(retrievedValue).to.equal(val);
+
+        // increment value
+        console.log("Incrementing value...")
+        const resp = await box.boxIncr();
+        await resp.wait();
+
+        // make sure value is incremented
+        const retrievedValue1 = await box.retrieve();
+        expect(retrievedValue1).to.equal(val+1);
+
+        // upgrade to BoxV2
+        const BoxV2 = await ethers.getContractFactory('BoxV2');
+        console.log('Upgrading Box...');
+        const box2 = await upgrades.upgradeProxy(boxAddr, BoxV2, [val+1], { initializer: 'store' });
+        await box2.deployTransaction.wait();
+        console.log('Box upgraded');
+        const boxV2Addr = await box2.getAddress();
+        expect(boxV2Addr).to.equal(boxAddr); // should be same address as it should be the proxy
+        console.log('BoxV2 deployed to:', boxV2Addr);
+        const boxV2 = await BoxV2.attach(boxV2Addr);
+
+        // check that value is still the same
+        console.log("Calling boxV2 retrieve()...")
+        const retrievedValue2 = await boxV2.retrieve();
+        console.log("retrievedValue2 = ", retrievedValue2)
+        expect(retrievedValue2).to.equal(val+1);
+
+        // use new function in boxV2 and increment value
+        console.log("Calling boxV2 boxV2Incr()...")
+        const txResponse = await boxV2.boxV2Incr();
+        await txResponse.wait();
+
+        // make sure value is incremented
+        expect(await boxV2.retrieve()).to.equal(val+2);
+
+        // store something in value2 and check it(check value2)
+        const store2Resp = await boxV2.store2(10);
+        await store2Resp.wait();
+        expect(await boxV2.retrieve2()).to.equal(10);
+
+        // ensure value is still the same in boxV2 (checking for any storage corruption)
+        expect(await boxV2.retrieve()).to.equal(val+2);
       });
     });
 

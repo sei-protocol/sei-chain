@@ -38,12 +38,12 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 		return []sdkacltypes.AccessOperation{*acltypes.CommitAccessOp()}, nil
 	}
 
-	if err := ante.Preprocess(ctx, evmMsg, evmKeeper.GetParams(ctx)); err != nil {
+	if err := ante.Preprocess(ctx, evmMsg); err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
 	ops := []sdkacltypes.AccessOperation{}
-	ops = appendRWBalanceOps(ops, state.GetMiddleManAddress(ctx))
-	ops = appendRWBalanceOps(ops, state.GetCoinbaseAddress(ctx))
+	ops = appendRWBalanceOps(ops, state.GetMiddleManAddress(ctx.TxIndex()))
+	ops = appendRWBalanceOps(ops, state.GetCoinbaseAddress(ctx.TxIndex()))
 	sender := evmMsg.Derived.SenderSeiAddr
 	ops = appendRWBalanceOps(ops, sender)
 	ops = append(ops,
@@ -84,37 +84,6 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 
 	evmAddr := evmMsg.Derived.SenderEVMAddr
 	return append(ops, []sdkacltypes.AccessOperation{
-
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_EVM_TRANSIENT,
-			IdentifierTemplate: hex.EncodeToString(evmtypes.TransientStateKey(ctx)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_EVM_TRANSIENT,
-			IdentifierTemplate: hex.EncodeToString(evmtypes.TransientStateKey(ctx)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_EVM_ACCOUNT_TRANSIENT,
-			IdentifierTemplate: hex.EncodeToString(evmtypes.AccountTransientStateKey(ctx)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_EVM_ACCOUNT_TRANSIENT,
-			IdentifierTemplate: hex.EncodeToString(evmtypes.AccountTransientStateKey(ctx)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_READ,
-			ResourceType:       sdkacltypes.ResourceType_KV_EVM_MODULE_TRANSIENT,
-			IdentifierTemplate: hex.EncodeToString(evmtypes.TransientModuleStateKey(ctx)),
-		},
-		{
-			AccessType:         sdkacltypes.AccessType_WRITE,
-			ResourceType:       sdkacltypes.ResourceType_KV_EVM_MODULE_TRANSIENT,
-			IdentifierTemplate: hex.EncodeToString(evmtypes.TransientModuleStateKey(ctx)),
-		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_EVM_NONCE,

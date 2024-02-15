@@ -82,8 +82,7 @@ func (suite *KeeperTestSuite) buildSendMsgTo(to common.Address, amt *big.Int) *t
 		Data:      []byte(""),
 		ChainID:   suite.App.EvmKeeper.ChainID(suite.Ctx),
 	}
-	evmParams := suite.App.EvmKeeper.GetParams(suite.Ctx)
-	ethCfg := evmParams.GetChainConfig().EthereumConfig(suite.App.EvmKeeper.ChainID(suite.Ctx))
+	ethCfg := types.DefaultChainConfig().EthereumConfig(suite.App.EvmKeeper.ChainID(suite.Ctx))
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(suite.Ctx.BlockHeight()), uint64(suite.Ctx.BlockTime().Unix()))
 	tx := ethtypes.NewTx(&txData)
 	tx, err := ethtypes.SignTx(tx, signer, suite.sender)
@@ -130,14 +129,14 @@ func (suite *KeeperTestSuite) TestMsgEVMTransaction() {
 			_, err = suite.msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), tc.msg)
 			suite.Require().Nil(err)
 
-			depdenencies, _ := evm.TransactionDependencyGenerator(
+			dependencies, _ := evm.TransactionDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				suite.App.EvmKeeper,
 				handlerCtx,
 				tc.msg,
 			)
 
-			missing := handlerCtx.MsgValidator().ValidateAccessOperations(depdenencies, cms.GetEvents())
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
 			suite.Require().Empty(missing)
 		})
 	}

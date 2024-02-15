@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
@@ -585,11 +584,6 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
 	}
-	if enableCustomEVMPrecompiles {
-		if err := precompiles.InitializePrecompiles(&app.EvmKeeper, app.BankKeeper, wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), app.WasmKeeper); err != nil {
-			panic(err)
-		}
-	}
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators(app.EvmKeeper)))
@@ -634,6 +628,20 @@ func New(
 	ibcRouter.AddRoute(wasm.ModuleName, wasm.NewIBCHandler(app.WasmKeeper, app.IBCKeeper.ChannelKeeper))
 	// this line is used by starport scaffolding # ibc/app/router
 	app.IBCKeeper.SetRouter(ibcRouter)
+
+	if enableCustomEVMPrecompiles {
+		if err := precompiles.InitializePrecompiles(
+			&app.EvmKeeper,
+			app.BankKeeper,
+			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
+			app.WasmKeeper,
+			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
+			app.GovKeeper,
+			app.DistrKeeper,
+		); err != nil {
+			panic(err)
+		}
+	}
 
 	/****  Module Options ****/
 
@@ -1397,14 +1405,6 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	typedTxs := []sdk.Tx{}
 
-	// keep up with address/nonce pairs and remove them from pending at the end of the block
-	evmTxs := make([]tmtypes.TxKey, 0, len(txs))
-	defer func() {
-		for _, key := range evmTxs {
-			app.EvmKeeper.CompletePendingNonce(key)
-		}
-	}()
-
 	for i, tx := range txs {
 		typedTx, err := app.txDecoder(tx)
 		// get txkey from tx
@@ -1413,9 +1413,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			typedTxs = append(typedTxs, nil)
 		} else {
 			if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
-				evmTxs = append(evmTxs, tmtypes.Tx(tx).Key())
 				msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
-				if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.GetParams(ctx)); err != nil {
+				if err := evmante.Preprocess(ctx, msg); err != nil {
 					ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
 					typedTxs = append(typedTxs, nil)
 					continue
@@ -1443,6 +1442,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}
+	app.EvmKeeper.SetTxResults(txResults)
 
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)

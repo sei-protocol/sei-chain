@@ -52,8 +52,10 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts))
 	txClients, grpcConns := BuildGrpcClients(config)
 	var evmTxClients []*EvmTxClient
-	if config.EvmRpcEndpoints != "" && strings.Contains(config.MessageType, EVM) {
-		evmTxClients = BuildEvmTxClients(config, keys)
+	if config.EvmRpcEndpoints != "" {
+		if config.ContainsAnyMessageTypes(EVM, ERC20) {
+			evmTxClients = BuildEvmTxClients(config, keys)
+		}
 	}
 
 	return &LoadTestClient{
@@ -153,7 +155,7 @@ func BuildEvmTxClients(config Config, keys []cryptotypes.PrivKey) []*EvmTxClient
 	}
 	// Build one client per key
 	for i, key := range keys {
-		clients[i] = NewEvmTxClient(key, chainID, gasPrice, ethClients)
+		clients[i] = NewEvmTxClient(key, chainID, gasPrice, ethClients, config.EVMAddresses)
 	}
 	return clients
 }
@@ -188,16 +190,13 @@ func (c *LoadTestClient) BuildTxs(
 			messageType := c.getRandomMessageType(messageTypes)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
-			if messageType == EVM {
-				tx := c.generatedSignedEvmTxs(keyIndex)
-				if tx != nil {
-					signedTx = SignedTx{EvmTx: tx}
-				} else {
-					continue
-				}
-			} else {
+			switch messageType {
+			case EVM, ERC20:
+				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType)}
+			default:
 				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, producedCount)}
 			}
+
 			select {
 			case txQueue <- signedTx:
 				producedCount.Add(1)
@@ -206,6 +205,10 @@ func (c *LoadTestClient) BuildTxs(
 			}
 		}
 	}
+}
+
+func (c *LoadTestClient) generateSignedEvmTx(keyIndex int, msgType string) *ethtypes.Transaction {
+	return c.EvmTxClients[keyIndex].GetTxForMsgType(msgType)
 }
 
 func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, producedCount *atomic.Int64) []byte {
@@ -221,10 +224,6 @@ func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, p
 	c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(producedCount.Load()))
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
 	return txBytes
-}
-
-func (c *LoadTestClient) generatedSignedEvmTxs(keyIndex int) *ethtypes.Transaction {
-	return c.EvmTxClients[keyIndex].GenerateEvmSignedTx()
 }
 
 func (c *LoadTestClient) SendTxs(
