@@ -270,6 +270,7 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 }
 
 func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock) (map[string]interface{}, error) {
+	fmt.Println("In encodeReceipt, receipt hash = ", receipt.TxHashHex)
 	blockHash := block.Block.Hash()
 	bh := common.HexToHash(blockHash.String())
 	logs := keeper.GetLogsForTx(receipt)
@@ -280,7 +281,13 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 	txIndexWithoutCosmosTxs := 0
 	for _, tx := range block.Block.Txs {
 		etx := getEthTxForTxBz(tx, decoder)
-		if etx != nil && etx.Hash() == common.HexToHash(receipt.TxHashHex) {
+		if etx == nil { // cosmos tx, skip
+			continue
+		}
+		fmt.Println("In encodeReceipt: etx hash = ", etx.Hash())
+		if etx.Hash() == common.HexToHash(receipt.TxHashHex) {
+			fmt.Println("In encodeReceipt: etx hash matches receipt hash")
+			fmt.Println("In encodeReceipt: txIndexWithoutCosmosTxs = ", txIndexWithoutCosmosTxs)
 			break
 		}
 		txIndexWithoutCosmosTxs++

@@ -52,7 +52,7 @@ func TestGetBlockReceipts(t *testing.T) {
 	require.Equal(t, 3, len(result))
 	receipt1 := result[0].(map[string]interface{})
 	require.Equal(t, "0x2", receipt1["blockNumber"])
-	require.Equal(t, "0x0", receipt1["transactionIndex"])
+	require.Equal(t, "0x1", receipt1["transactionIndex"])
 	require.Equal(t, "0x0123456789012345678902345678901234567890123456789012345678900001", receipt1["transactionHash"])
 	receipt2 := result[1].(map[string]interface{})
 	require.Equal(t, "0x2", receipt2["blockNumber"])

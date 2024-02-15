@@ -191,6 +191,7 @@ func (c *MockClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) 
 }
 
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
+	fmt.Println("pulling block")
 	height := int64(MockHeight)
 	if h != nil {
 		height = *h
@@ -206,6 +207,7 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 }
 
 func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
+	fmt.Println("pulling block results")
 	return &coretypes.ResultBlockResults{
 		TxsResults: []*abci.ExecTxResult{
 			{
