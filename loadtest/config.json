@@ -1,11 +1,13 @@
 {
     "grpc_endpoints": "127.0.0.1:9090",
+    "evm_rpc_endpoints": "http://127.0.0.1:8545",
     "blockchain_endpoint": "http://localhost:26657",
     "node_uri": "tcp://localhost:26657",
     "tls": false,
     "msgs_per_tx": 1,
     "chain_id": "sei-loadtest-testnet",
     "target_tps": 500,
+    "max_accounts": 500,
     "price_distribution": {
         "min": "45",
         "max": "55",
@@ -19,7 +21,7 @@
     "message_configs": {
       "default": {
         "gas": 3000000,
-        "fee": 300000
+        "fee": 200000
       },
       "collect_rewards": {
         "gas": 10000000,
@@ -41,19 +43,7 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
-    "message_types": [
-        "bank",
-        "dex",
-        "staking",
-        "failure_dex_malformed",
-        "failure_dex_invalid",
-        "collect_rewards",
-        "distribute_rewards",
-        "wasm_instantiate",
-        "wasm_occ_iterator_write",
-        "wasm_occ_iterator_range",
-        "wasm_occ_parallel_write"
-    ],
+    "message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {
@@ -69,7 +59,6 @@
         "payload": "{}"
       }
     },
-    "sei_tester_address": "",
     "contract_distribution": [
       {
         "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
