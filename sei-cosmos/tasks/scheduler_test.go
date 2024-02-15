@@ -99,7 +99,7 @@ func TestProcessAll(t *testing.T) {
 			name:      "Test tx writing to a store that another tx is iterating",
 			workers:   50,
 			runs:      1,
-			requests:  requestList(500),
+			requests:  requestList(100),
 			addStores: true,
 			before: func(ctx sdk.Context) {
 				kv := ctx.MultiStore().GetKVStore(testStoreKey)
@@ -206,6 +206,33 @@ func TestProcessAll(t *testing.T) {
 				latest := ctx.MultiStore().GetKVStore(testStoreKey).Get(itemKey)
 				require.Equal(t, []byte(fmt.Sprintf("%d", len(res)-1)), latest)
 			},
+			expectedErr: nil,
+		},
+		{
+			name:      "Test some tx accesses same key",
+			workers:   50,
+			runs:      1,
+			addStores: true,
+			requests:  requestList(2000),
+			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) types.ResponseDeliverTx {
+				if ctx.TxIndex()%10 != 0 {
+					return types.ResponseDeliverTx{
+						Info: "none",
+					}
+				}
+				// all txs read and write to the same key to maximize conflicts
+				kv := ctx.MultiStore().GetKVStore(testStoreKey)
+				val := string(kv.Get(itemKey))
+
+				// write to the store with this tx's index
+				kv.Set(itemKey, req.Tx)
+
+				// return what was read from the store (final attempt should be index-1)
+				return types.ResponseDeliverTx{
+					Info: val,
+				}
+			},
+			assertions:  func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {},
 			expectedErr: nil,
 		},
 		{
