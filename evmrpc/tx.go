@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/tendermint/tendermint/libs/bytes"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -58,7 +57,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(receipt, block.BlockID.Hash)
+	return encodeReceipt(receipt, block)
 }
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
@@ -270,11 +269,21 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 	return ethtx
 }
 
-func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes) (map[string]interface{}, error) {
+func encodeReceipt(receipt *types.Receipt, block *coretypes.ResultBlock) (map[string]interface{}, error) {
+	blockHash := block.Block.Hash()
 	bh := common.HexToHash(blockHash.String())
 	logs := keeper.GetLogsForTx(receipt)
 	for _, log := range logs {
 		log.BlockHash = bh
+	}
+	// convert tx index including cosmos txs to tx index excluding cosmos txs
+	txIndexWithoutCosmosTxs := 0
+	for _, tx := range block.Block.Txs {
+		etx := getEthTxForTxBz(tx, nil)
+		if etx != nil && etx.Hash() == common.HexToHash(receipt.TxHashHex) {
+			break
+		}
+		txIndexWithoutCosmosTxs++
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
@@ -282,7 +291,7 @@ func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes) (map[string
 		"blockHash":         bh,
 		"blockNumber":       hexutil.Uint64(receipt.BlockNumber),
 		"transactionHash":   common.HexToHash(receipt.TxHashHex),
-		"transactionIndex":  hexutil.Uint64(receipt.TransactionIndex),
+		"transactionIndex":  hexutil.Uint64(txIndexWithoutCosmosTxs),
 		"from":              common.HexToAddress(receipt.From),
 		"to":                common.HexToAddress(receipt.To),
 		"gasUsed":           hexutil.Uint64(receipt.GasUsed),
