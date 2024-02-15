@@ -132,7 +132,7 @@ func BuildGrpcClients(config Config) ([]typestx.ServiceClient, []*grpc.ClientCon
 func BuildEvmTxClients(config Config, keys []cryptotypes.PrivKey) []*EvmTxClient {
 	clients := make([]*EvmTxClient, len(keys))
 	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
-	if len(ethEndpoints) <= 0 {
+	if len(ethEndpoints) == 0 {
 		return clients
 	}
 	ethClients := make([]*ethclient.Client, len(ethEndpoints))
