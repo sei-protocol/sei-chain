@@ -43,7 +43,12 @@ const (
 	VortexData = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
 )
 
-var FromMili = sdk.NewDec(1000000)
+var (
+	FromMili      = sdk.NewDec(1000000)
+	producedCount = atomic.Int64{}
+	sentCount     = atomic.Int64{}
+	prevSentCount = atomic.Int64{}
+)
 
 type BlockData struct {
 	Txs []string `json:"txs"`
@@ -123,10 +128,6 @@ func startLoadtestWorkers(config Config) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
-	start := time.Now()
-	var producedCount = atomic.Int64{}
-	var sentCount = atomic.Int64{}
-	var prevSentCount = atomic.Int64{}
 	var blockHeights []int
 	var blockTimes []string
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
@@ -146,20 +147,15 @@ func startLoadtestWorkers(config Config) {
 		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCount)
 		go client.SendTxs(txQueues[i], i, done, &sentCount, consumerSemaphore, &wg)
 	}
-	// Give producers some time to populate queue
-	if config.TargetTps > 1000 {
-		fmt.Printf("Wait 5 seconds to pre-generate initial txs\n")
-		time.Sleep(5 * time.Second)
-	}
 
 	// Statistics reporting goroutine
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(10 * time.Second)
 	go func() {
+		start := time.Now()
 		for {
 			select {
 			case <-ticker.C:
 				currHeight := getLastHeight(config.BlockchainEndpoint)
-
 				for i := startHeight; i <= currHeight; i++ {
 					_, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
 					if err != nil {
@@ -170,11 +166,14 @@ func startLoadtestWorkers(config Config) {
 					blockTimes = append(blockTimes, blockTime)
 				}
 
-				printStats(start, &producedCount, &sentCount, &prevSentCount, blockHeights, blockTimes)
+				totalProduced := producedCount.Load()
+				totalSent := sentCount.Load()
+				prevTotalSent := prevSentCount.Load()
+				printStats(start, totalProduced, totalSent, prevTotalSent, blockHeights, blockTimes)
 				startHeight = currHeight
-				start = time.Now()
 				blockHeights, blockTimes = nil, nil
-
+				start = time.Now()
+				prevSentCount.Store(totalSent)
 			case <-done:
 				ticker.Stop()
 				return
@@ -196,12 +195,10 @@ func startLoadtestWorkers(config Config) {
 	}
 }
 
-func printStats(startTime time.Time, producedCount *atomic.Int64, sentCount *atomic.Int64, prevSentCount *atomic.Int64, blockHeights []int, blockTimes []string) {
+func printStats(startTime time.Time, totalProduced int64, totalSent int64, prevTotalSent int64, blockHeights []int, blockTimes []string) {
 	elapsed := time.Since(startTime)
-	produced := producedCount.Load()
-	sent := sentCount.Load()
-	tps := float64(sent-prevSentCount.Load()) / elapsed.Seconds()
-	prevSentCount.Store(sent)
+	tps := float64(totalSent-prevTotalSent) / elapsed.Seconds()
+
 	var totalDuration time.Duration
 	var prevTime time.Time
 	for i, blockTimeStr := range blockTimes {
@@ -217,7 +214,7 @@ func printStats(startTime time.Time, producedCount *atomic.Int64, sentCount *ato
 		fmt.Printf("Unable to calculate stats, not enough data. Skipping...\n")
 	} else {
 		avgDuration := totalDuration.Milliseconds() / int64(len(blockTimes)-1)
-		fmt.Printf("High Level - Time Elapsed: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, produced, sent, tps, avgDuration, blockHeights)
+		fmt.Printf("High Level - Time Elapsed: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, totalProduced, totalSent, tps, avgDuration, blockHeights)
 	}
 }
 
