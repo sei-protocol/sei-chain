@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 	"sync"
@@ -98,6 +99,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber)
 	}
 	// Get the block by height
 	block, err := blockWithRetry(ctx, a.tmClient, heightPtr)
+	fmt.Println("pulled block = ", block)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +108,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber)
 	if heightPtr != nil {
 		height = *heightPtr
 	}
+	fmt.Println("trying to pull tx hashes for height = ", height)
 	txHashes := a.keeper.GetTxHashesOnHeight(a.ctxProvider(height), height)
+	fmt.Println("pulled tx hashes = ", txHashes)
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
@@ -115,7 +119,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber)
 		wg.Add(1)
 		go func(i int, hash common.Hash) {
 			defer wg.Done()
+			fmt.Println("pulling receipt for hash = ", hash)
 			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash)
+			fmt.Println("receipt = ", receipt, "err = ", err)
 			if err != nil {
 				// When the transaction doesn't exist, skip it
 				if !strings.Contains(err.Error(), "not found") {
