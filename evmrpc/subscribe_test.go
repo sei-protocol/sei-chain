@@ -2,6 +2,7 @@ package evmrpc_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -19,6 +20,13 @@ func TestSubscribeNewHeads(t *testing.T) {
 	receivedEvents := false
 	timer := time.NewTimer(1 * time.Second)
 
+	expectedKeys := []string{
+		"parentHash", "sha3Uncles", "miner", "stateRoot", "transactionsRoot",
+		"receiptsRoot", "logsBloom", "difficulty", "number", "gasLimit",
+		"gasUsed", "timestamp", "extraData", "mixHash", "nonce",
+		"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas",
+		"parentBeaconBlockRoot", "hash",
+	}
 	var subscriptionId string
 
 	for {
@@ -44,12 +52,14 @@ func TestSubscribeNewHeads(t *testing.T) {
 				t.Fatal("Subscription ID does not match")
 			}
 			resultMap := paramMap["result"].(map[string]interface{})
-			// check some basic stuff like number and transactionRoot
-			if resultMap["number"] == nil {
-				t.Fatal("Block number is nil")
-			}
-			if resultMap["transactionsRoot"] == nil {
-				t.Fatal("Transaction root is nil")
+			// check all fields
+			for _, key := range expectedKeys {
+				if _, ok := resultMap[key]; !ok {
+					t.Fatalf("%s is nil", key)
+				}
+				if key == "parentHash" {
+					fmt.Printf("key: %s and value: %s\n", key, resultMap[key])
+				}
 			}
 		case <-timer.C:
 			if !receivedSubMsg || !receivedEvents {
