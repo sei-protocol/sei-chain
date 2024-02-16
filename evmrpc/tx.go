@@ -44,6 +44,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	startTime := time.Now()
 	defer recordMetrics("eth_getTransactionReceipt", startTime, returnErr == nil)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
+	fmt.Println("found receipt = ", receipt)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			// When the transaction doesn't exist, the RPC method should return JSON null
@@ -271,7 +272,8 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 
 func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock) (map[string]interface{}, error) {
 	fmt.Println("In encodeReceipt, receipt hash = ", receipt.TxHashHex)
-	blockHash := block.Block.Hash()
+	blockHash := block.BlockID.Hash
+	fmt.Println("In encodeReceipt, block hash = ", blockHash.String())
 	bh := common.HexToHash(blockHash.String())
 	logs := keeper.GetLogsForTx(receipt)
 	for _, log := range logs {
@@ -279,6 +281,7 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 	}
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	txIndexWithoutCosmosTxs := 0
+	foundTx := false
 	for _, tx := range block.Block.Txs {
 		etx := getEthTxForTxBz(tx, decoder)
 		if etx == nil { // cosmos tx, skip
@@ -288,9 +291,13 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 		if etx.Hash() == common.HexToHash(receipt.TxHashHex) {
 			fmt.Println("In encodeReceipt: etx hash matches receipt hash")
 			fmt.Println("In encodeReceipt: txIndexWithoutCosmosTxs = ", txIndexWithoutCosmosTxs)
+			foundTx = true
 			break
 		}
 		txIndexWithoutCosmosTxs++
+	}
+	if !foundTx {
+		return nil, errors.New("failed to find transaction in block")
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)

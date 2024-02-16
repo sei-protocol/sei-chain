@@ -45,6 +45,7 @@ const TestWSPort = 7778
 const TestBadPort = 7779
 
 const MockHeight = 8
+const MultiTxBlockHeight = 2
 const DebugTraceMockHeight = 101
 
 var DebugTraceHashHex = "0x1234567890123456789023456789012345678901234567890123456789000004"
@@ -54,7 +55,14 @@ var EncodingConfig = app.MakeEncodingConfig()
 var TxConfig = EncodingConfig.TxConfig
 var Encoder = TxConfig.TxEncoder()
 var Decoder = TxConfig.TxDecoder()
-var Tx sdk.Tx
+var Tx1 sdk.Tx
+var tx1 *ethtypes.Transaction
+var Tx1_5 sdk.Tx
+var Tx2 sdk.Tx
+var Tx3 sdk.Tx
+var tx1_5 *ethtypes.Transaction
+var tx2 *ethtypes.Transaction
+var tx3 *ethtypes.Transaction
 var DebugTraceTx sdk.Tx
 var TxNonEvm sdk.Tx
 var UnconfirmedTx sdk.Tx
@@ -101,6 +109,37 @@ func mockBlockHeader(height int64) tmtypes.Header {
 }
 
 func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
+	if height == MultiTxBlockHeight {
+		return &coretypes.ResultBlock{
+			BlockID: MockBlockID,
+			Block: &tmtypes.Block{
+				Header: mockBlockHeader(height),
+				Data: tmtypes.Data{
+					Txs: []tmtypes.Tx{
+						func() []byte {
+							bz, _ := Encoder(TxNonEvm)
+							return bz
+						}(),
+						func() []byte {
+							bz, _ := Encoder(Tx1_5)
+							return bz
+						}(),
+						func() []byte {
+							bz, _ := Encoder(Tx2)
+							return bz
+						}(),
+						func() []byte {
+							bz, _ := Encoder(Tx3)
+							return bz
+						}(),
+					},
+				},
+				LastCommit: &tmtypes.Commit{
+					Height: height,
+				},
+			},
+		}
+	}
 	res := &coretypes.ResultBlock{
 		BlockID: MockBlockID,
 		Block: &tmtypes.Block{
@@ -108,7 +147,7 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 			Data: tmtypes.Data{
 				Txs: []tmtypes.Tx{
 					func() []byte {
-						bz, _ := Encoder(Tx)
+						bz, _ := Encoder(Tx1)
 						return bz
 					}(),
 					func() []byte {
@@ -191,11 +230,11 @@ func (c *MockClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) 
 }
 
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
-	fmt.Println("pulling block")
 	height := int64(MockHeight)
 	if h != nil {
 		height = *h
 	}
+	fmt.Println("pulling block with height = ", height)
 	return c.mockBlock(height), nil
 }
 
@@ -212,7 +251,7 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 		TxsResults: []*abci.ExecTxResult{
 			{
 				Data: func() []byte {
-					bz, _ := Encoder(Tx)
+					bz, _ := Encoder(Tx1_5)
 					return bz
 				}(),
 				GasWanted: 10,
@@ -407,8 +446,36 @@ func init() {
 func generateTxData() {
 	chainId := big.NewInt(types.DefaultChainID.Int64())
 	to := common.HexToAddress("010203")
-	txBuilder, tx := buildTx(ethtypes.DynamicFeeTx{
+	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3 client.TxBuilder
+	txBuilder1, tx1 = buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     1,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   chainId,
+	})
+	txBuilder1_5, tx1_5 = buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     2,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   chainId,
+	})
+	txBuilder2, tx2 = buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     3,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   chainId,
+	})
+	txBuilder3, tx3 = buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     4,
 		GasFeeCap: big.NewInt(10),
 		Gas:       1000,
 		To:        &to,
@@ -425,10 +492,13 @@ func generateTxData() {
 		Data:      []byte("abc"),
 		ChainID:   chainId,
 	})
-	Tx = txBuilder.GetTx()
+	Tx1 = txBuilder1.GetTx()
+	Tx1_5 = txBuilder1_5.GetTx()
+	Tx2 = txBuilder2.GetTx()
+	Tx3 = txBuilder3.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	TxNonEvm = app.TestTx{}
-	if err := EVMKeeper.SetReceipt(Ctx, tx.Hash(), &types.Receipt{
+	if err := EVMKeeper.SetReceipt(Ctx, tx1.Hash(), &types.Receipt{
 		From:              "0x1234567890123456789012345678901234567890",
 		To:                "0x1234567890123456789012345678901234567890",
 		TransactionIndex:  0,
@@ -436,7 +506,7 @@ func generateTxData() {
 		TxType:            1,
 		ContractAddress:   "0x1234567890123456789012345678901234567890",
 		CumulativeGasUsed: 123,
-		TxHashHex:         "0x123456789012345678902345678901234567890123456789012345678901234",
+		TxHashHex:         tx1.Hash().Hex(),
 		GasUsed:           55,
 		Status:            0,
 		EffectiveGasPrice: 10,
@@ -530,11 +600,12 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
 		},
 	}}}})
-	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"), &types.Receipt{
-		BlockNumber:      2,
+	EVMKeeper.SetReceipt(Ctx, tx1_5.Hash(), &types.Receipt{
+		BlockNumber:      MultiTxBlockHeight,
 		TransactionIndex: 0,
-		TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900001",
-		LogsBloom:        bloom1[:],
+		// TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900001",
+		TxHashHex: tx1_5.Hash().Hex(),
+		LogsBloom: bloom1[:],
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111112",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
@@ -550,11 +621,12 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
 		},
 	}}}})
-	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"), &types.Receipt{
-		BlockNumber:      2,
+	EVMKeeper.SetReceipt(Ctx, tx2.Hash(), &types.Receipt{
+		BlockNumber:      MultiTxBlockHeight,
 		TransactionIndex: 1,
-		TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900002",
-		LogsBloom:        bloom2[:],
+		// TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900002",
+		TxHashHex: tx2.Hash().Hex(),
+		LogsBloom: bloom2[:],
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111113",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
@@ -567,11 +639,12 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
 		},
 	}}}})
-	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900003"), &types.Receipt{
-		BlockNumber:      2,
+	EVMKeeper.SetReceipt(Ctx, tx3.Hash(), &types.Receipt{
+		BlockNumber:      MultiTxBlockHeight,
 		TransactionIndex: 2,
-		TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900003",
-		LogsBloom:        bloom3[:],
+		// TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900003",
+		TxHashHex: tx3.Hash().Hex(),
+		LogsBloom: bloom3[:],
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111114",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
