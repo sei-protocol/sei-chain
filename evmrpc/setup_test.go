@@ -600,7 +600,7 @@ func setupLogs() {
 	}}}})
 	EVMKeeper.SetReceipt(Ctx, multiTxBlockTx1.Hash(), &types.Receipt{
 		BlockNumber:      MultiTxBlockHeight,
-		TransactionIndex: 1,
+		TransactionIndex: 1, // start at 1 bc 0 is the non-evm tx
 		TxHashHex:        multiTxBlockTx1.Hash().Hex(),
 		LogsBloom:        bloom1[:],
 		Logs: []*types.Log{{
