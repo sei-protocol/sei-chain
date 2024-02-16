@@ -117,11 +117,15 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 				Data: tmtypes.Data{
 					Txs: []tmtypes.Tx{
 						func() []byte {
-							bz, _ := Encoder(TxNonEvm)
+							bz, _ := Encoder(TxNonEvm) // non evm tx
 							return bz
 						}(),
 						func() []byte {
 							bz, _ := Encoder(MultiTxBlockTx1)
+							return bz
+						}(),
+						func() []byte {
+							bz, _ := Encoder(TxNonEvm) // non evm tx
 							return bz
 						}(),
 						func() []byte {
