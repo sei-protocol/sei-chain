@@ -1,7 +1,6 @@
 package evmrpc_test
 
 import (
-	"fmt"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -50,20 +49,19 @@ func TestGetBlockTransactionCount(t *testing.T) {
 func TestGetBlockReceipts(t *testing.T) {
 	resObj := sendRequestGood(t, "getBlockReceipts", "0x2")
 	result := resObj["result"].([]interface{})
-	fmt.Println("result", result)
 	require.Equal(t, 3, len(result))
 	receipt1 := result[0].(map[string]interface{})
 	require.Equal(t, "0x2", receipt1["blockNumber"])
 	require.Equal(t, "0x0", receipt1["transactionIndex"])
-	require.Equal(t, tx1_5.Hash().Hex(), receipt1["transactionHash"])
+	require.Equal(t, multiTxBlockTx1.Hash().Hex(), receipt1["transactionHash"])
 	receipt2 := result[1].(map[string]interface{})
 	require.Equal(t, "0x2", receipt2["blockNumber"])
 	require.Equal(t, "0x1", receipt2["transactionIndex"])
-	require.Equal(t, tx2.Hash().Hex(), receipt2["transactionHash"])
+	require.Equal(t, multiTxBlockTx2.Hash().Hex(), receipt2["transactionHash"])
 	receipt3 := result[2].(map[string]interface{})
 	require.Equal(t, "0x2", receipt3["blockNumber"])
 	require.Equal(t, "0x2", receipt3["transactionIndex"])
-	require.Equal(t, tx3.Hash().Hex(), receipt3["transactionHash"])
+	require.Equal(t, multiTxBlockTx3.Hash().Hex(), receipt3["transactionHash"])
 
 }
 

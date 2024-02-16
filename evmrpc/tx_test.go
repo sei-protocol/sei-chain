@@ -28,12 +28,10 @@ func TestGetTxReceipt(t *testing.T) {
 	res, err := http.DefaultClient.Do(req)
 	require.Nil(t, err)
 	resBody, err := io.ReadAll(res.Body)
-	fmt.Println("result", resBody)
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 	resObj = resObj["result"].(map[string]interface{})
-	fmt.Println("resObj", resObj)
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["blockHash"].(string))
 	require.Equal(t, "0x8", resObj["blockNumber"].(string))
 	// require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["contractAddress"].(string))
