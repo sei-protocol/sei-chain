@@ -183,18 +183,14 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 func encodeTmHeader(
 	header tmtypes.EventDataNewBlockHeader,
 ) (map[string]interface{}, error) {
-	// this prints 0000000000000000000000000000000000000000000000000000000000000006
-	fmt.Printf("PSUDEBUG HEADER: %v\n", header.Header.LastBlockID.Hash)
-	// this prints 0x0000000000000000000000000000000000000000000000000000000000000000
-	fmt.Printf("PSUDEBUG HEADER: %v\n", common.HexToHash(string(header.Header.LastBlockID.Hash)))
-	blockHash := common.HexToHash(string(header.Header.Hash()))
+	blockHash := common.HexToHash(header.Header.Hash().String())
 	number := big.NewInt(header.Header.Height)
-	miner := common.HexToAddress(string(header.Header.ProposerAddress))
+	miner := common.HexToAddress(header.Header.ProposerAddress.String())
 	gasLimit, gasWanted := int64(0), int64(0)
-	lastHash := common.HexToHash(string(header.Header.LastBlockID.Hash))
-	resultHash := common.HexToHash(string(header.Header.LastResultsHash))
-	appHash := common.HexToHash(string(header.Header.AppHash))
-	txHash := common.HexToHash(string(header.Header.DataHash))
+	lastHash := common.HexToHash(header.Header.LastBlockID.Hash.String())
+	resultHash := common.HexToHash(header.Header.LastResultsHash.String())
+	appHash := common.HexToHash(header.Header.AppHash.String())
+	txHash := common.HexToHash(header.Header.DataHash.String())
 	for _, txRes := range header.ResultFinalizeBlock.TxResults {
 		gasLimit += txRes.GasWanted
 		gasWanted += txRes.GasUsed

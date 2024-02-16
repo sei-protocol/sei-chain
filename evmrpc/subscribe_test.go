@@ -3,6 +3,7 @@ package evmrpc_test
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"testing"
 	"time"
 
@@ -26,6 +27,14 @@ func TestSubscribeNewHeads(t *testing.T) {
 		"gasUsed", "timestamp", "extraData", "mixHash", "nonce",
 		"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas",
 		"parentBeaconBlockRoot", "hash",
+	}
+	inapplicableKeys := make(map[string]struct{})
+	for _, key := range []string{
+		"difficulty", "extraData", "logsBloom", "nonce", "sha3Uncles", "mixHash",
+		"excessBlobGas", "parentBeaconBlockRoot", "withdrawlsRoot", "baseFeePerGas",
+		"withdrawalsRoot", "blobGasUsed",
+	} {
+		inapplicableKeys[key] = struct{}{}
 	}
 	var subscriptionId string
 
@@ -57,8 +66,11 @@ func TestSubscribeNewHeads(t *testing.T) {
 				if _, ok := resultMap[key]; !ok {
 					t.Fatalf("%s is nil", key)
 				}
-				if key == "parentHash" {
-					fmt.Printf("key: %s and value: %s\n", key, resultMap[key])
+				// check that applicable keys aren't all 0's
+				if _, inapplicable := inapplicableKeys[key]; !inapplicable {
+					if matched, err := regexp.MatchString("^0+$", fmt.Sprintf("%v", resultMap[key])); err != nil || matched {
+						t.Fatalf("%s was unable to parse or expected non-zero value", key)
+					}
 				}
 			}
 		case <-timer.C:
