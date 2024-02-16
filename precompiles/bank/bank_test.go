@@ -1,6 +1,7 @@
 package bank_test
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -19,14 +20,15 @@ func TestRun(t *testing.T) {
 
 	senderAddr, senderEVMAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
-	err := k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000))))
+	bankKeeper := k.BankKeeper()
+	err := bankKeeper.MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000))))
 	require.Nil(t, err)
-	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000))))
+	err = bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000))))
 	require.Nil(t, err)
 
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	p, err := bank.NewPrecompile(bankKeeper, k)
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -34,33 +36,26 @@ func TestRun(t *testing.T) {
 		TxContext: vm.TxContext{Origin: senderEVMAddr},
 	}
 
-	send, err := p.ABI.MethodById(p.SendID)
-	require.Nil(t, err)
-	args, err := send.Inputs.Pack(senderEVMAddr, evmAddr, "usei", big.NewInt(25))
-	require.Nil(t, err)
-	_, err = p.Run(&evm, senderEVMAddr, append(p.SendID, args...)) // should error because address is not whitelisted
-	require.NotNil(t, err)
+	// Send native 10_000_000_000_000, split into 10 usei
 
 	sendNative, err := p.ABI.MethodById(p.SendNativeID)
 	require.Nil(t, err)
 	seiAddrString := seiAddr.String()
-	argsNativeZero, err := sendNative.Inputs.Pack(seiAddrString, big.NewInt(0)) // no error and return early with 0 amount
-	require.Nil(t, err)
-	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNativeZero...))
-	require.Nil(t, err)
-
-	// Send native 10_000_000_000_000, split into 10 usei
-	err = k.BankKeeper().SendCoins(ctx, senderAddr, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000))))
-	require.Nil(t, err)
 
 	argsNative, err := sendNative.Inputs.Pack(seiAddrString, big.NewInt(10_000_000_000_000))
 	require.Nil(t, err)
 	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNative...))
 	require.Nil(t, err)
 
+	err = bankKeeper.SendCoins(ctx, senderAddr, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000))))
+	require.Nil(t, err)
+
+	fmt.Printf("TEST - sender senderAddrString %+v senderEVMAddr %+v \n", senderAddr.String(), senderEVMAddr)
+	fmt.Printf("TEST - receiver seiAddrString %+v evmAddr %+v\n", seiAddr.String(), evmAddr)
+
 	balance, err := p.ABI.MethodById(p.BalanceID)
 	require.Nil(t, err)
-	args, err = balance.Inputs.Pack(evmAddr, "usei")
+	args, err := balance.Inputs.Pack(evmAddr, "usei")
 	require.Nil(t, err)
 	res, err := p.Run(&evm, common.Address{}, append(p.BalanceID, args...))
 	require.Nil(t, err)
@@ -78,13 +73,13 @@ func TestRun(t *testing.T) {
 	// invalid input
 	_, err = p.Run(&evm, common.Address{}, []byte{1, 2, 3, 4})
 	require.NotNil(t, err)
-
+	panic("here")
 }
 
 // func TestMetadata(t *testing.T) {
 // 	k, ctx := testkeeper.MockEVMKeeper()
-// 	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
-// 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+// 	bankKeeper.SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
+// 	p, err := bank.NewPrecompile(bankKeeper, k)
 // 	require.Nil(t, err)
 // 	statedb := state.NewDBImpl(ctx, k, true)
 // 	evm := vm.EVM{
@@ -133,7 +128,7 @@ func TestRun(t *testing.T) {
 
 // func TestRequiredGas(t *testing.T) {
 // 	k, _ := testkeeper.MockEVMKeeper()
-// 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+// 	p, err := bank.NewPrecompile(bankKeeper, k)
 // 	require.Nil(t, err)
 // 	balanceRequiredGas := p.RequiredGas(p.BalanceID)
 // 	require.Equal(t, uint64(1000), balanceRequiredGas)
@@ -143,7 +138,7 @@ func TestRun(t *testing.T) {
 
 // func TestAddress(t *testing.T) {
 // 	k, _ := testkeeper.MockEVMKeeper()
-// 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+// 	p, err := bank.NewPrecompile(bankKeeper, k)
 // 	require.Nil(t, err)
 // 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
 // }

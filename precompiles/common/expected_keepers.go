@@ -12,7 +12,7 @@ import (
 
 type BankKeeper interface {
 	SendCoins(sdk.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error
-	SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to sdk.AccAddress, customEscrow sdk.AccAddress, denom string, amt sdk.Int, wei sdk.Int) error
+	SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to sdk.AccAddress, amt sdk.Int, wei sdk.Int) error
 	GetBalance(sdk.Context, sdk.AccAddress, string) sdk.Coin
 	GetDenomMetaData(ctx sdk.Context, denom string) (banktypes.Metadata, bool)
 	GetSupply(ctx sdk.Context, denom string) sdk.Coin

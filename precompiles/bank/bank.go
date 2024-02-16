@@ -198,8 +198,11 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 	}
 
 	usei, wei := state.SplitUseiWeiAmount(amount)
-	fmt.Printf("DEBUG - sendNative usei %+v sei %+v\n", usei, wei)
-	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, nil, p.evmKeeper.GetBaseDenom(ctx), sdk.NewIntFromBigInt(usei), sdk.NewIntFromBigInt(wei)); err != nil {
+	fmt.Printf("PRECOMPILE - sendNative caller %+v senderSeiAddr %+v\nPRECOMPILE - sendNative receiverAddr %+v receiverSeiAddr %+v\n\n", caller, senderSeiAddr.String(), receiverAddr, receiverSeiAddr.String())
+	// fmt.Printf("sender senderAddrString %+v senderEVMAddr %+v \n", senderAddr.String(), senderEVMAddr)
+	// fmt.Printf("receiver seiAddrString %+v evmAddr %+v\n", seiAddr.String(), evmAddr)
+
+	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, usei, wei); err != nil {
 		return nil, err
 	}
 
@@ -217,6 +220,7 @@ func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interfac
 	if denom == "" {
 		return nil, errors.New("invalid denom")
 	}
+	fmt.Printf("balance evm addr %+v sei addr %+v\n", args[0], addr.String())
 	return method.Outputs.Pack(p.bankKeeper.GetBalance(ctx, addr, denom).Amount.BigInt())
 }
 
