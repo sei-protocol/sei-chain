@@ -640,9 +640,8 @@ func setupLogs() {
 	EVMKeeper.SetReceipt(Ctx, multiTxBlockTx3.Hash(), &types.Receipt{
 		BlockNumber:      MultiTxBlockHeight,
 		TransactionIndex: 2,
-		// TxHashHex:        "0x123456789012345678902345678901234567890123456789012345678900003",
-		TxHashHex: multiTxBlockTx3.Hash().Hex(),
-		LogsBloom: bloom3[:],
+		TxHashHex:        multiTxBlockTx3.Hash().Hex(),
+		LogsBloom:        bloom3[:],
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111114",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
@@ -657,9 +656,6 @@ func setupLogs() {
 		multiTxBlockTx1.Hash(),
 		multiTxBlockTx2.Hash(),
 		multiTxBlockTx3.Hash(),
-		// common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900001"),
-		// common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900002"),
-		// common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900003"),
 	})
 	EVMKeeper.SetBlockBloom(Ctx, 2, []ethtypes.Bloom{bloom1, bloom2, bloom3})
 }

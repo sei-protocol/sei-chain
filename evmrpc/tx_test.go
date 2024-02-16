@@ -34,7 +34,6 @@ func TestGetTxReceipt(t *testing.T) {
 	resObj = resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["blockHash"].(string))
 	require.Equal(t, "0x8", resObj["blockNumber"].(string))
-	// require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["contractAddress"].(string))
 	require.Equal(t, "0x7b", resObj["cumulativeGasUsed"].(string))
 	require.Equal(t, "0xa", resObj["effectiveGasPrice"].(string))
 	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["from"].(string))
