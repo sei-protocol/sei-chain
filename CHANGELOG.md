@@ -27,6 +27,9 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v3.7.1
+sei-chain:
+
 ## v3.6.1
 sei-chain:
 * [#1204](https://github.com/sei-protocol/sei-chain/pull/1204) Cleanup removed oracle feeds

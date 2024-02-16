@@ -1170,8 +1170,8 @@ github.com/securego/gosec/v2 v2.11.0/go.mod h1:SX8bptShuG8reGC0XS09+a4H2BoWSJi+f
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
 github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQpIbXDA=
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
-github.com/sei-protocol/sei-cosmos v0.2.73-hotfix-2 h1:3AipLPlcAvQyrLCNGM53+EvstzOwhQ2iE4ARyKLsIIw=
-github.com/sei-protocol/sei-cosmos v0.2.73-hotfix-2/go.mod h1:CykNPmj90YkwBorkvnc05u9k9MBNDHC3h4CIdmq3R98=
+github.com/sei-protocol/sei-cosmos v0.2.74 h1:UAXI4+aCO8nUJ1cAqRBZZbnIjjzfZLJCf94zOre0ZCA=
+github.com/sei-protocol/sei-cosmos v0.2.74/go.mod h1:CykNPmj90YkwBorkvnc05u9k9MBNDHC3h4CIdmq3R98=
 github.com/sei-protocol/sei-db v0.0.30 h1:dlAOTE+7nByzzAD9cb1/DxaHWbxXOHFh58a2ImvcoYs=
 github.com/sei-protocol/sei-db v0.0.30/go.mod h1:F/ZKZA8HJPcUzSZPA8yt6pfwlGriJ4RDR4eHKSGLStI=
 github.com/sei-protocol/sei-iavl v0.1.9 h1:y4mVYftxLNRs6533zl7N0/Ch+CzRQc04JDfHolIxgBE=
