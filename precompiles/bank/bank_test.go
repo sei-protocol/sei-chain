@@ -75,7 +75,6 @@ func TestRun(t *testing.T) {
 	// invalid input
 	_, err = p.Run(&evm, common.Address{}, []byte{1, 2, 3, 4})
 	require.NotNil(t, err)
-	panic("here")
 }
 
 // func TestMetadata(t *testing.T) {
