@@ -42,11 +42,13 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	seiAddrString := seiAddr.String()
 
-	argsNative, err := sendNative.Inputs.Pack(seiAddrString, big.NewInt(10_000_000_000_000))
+	argsNative, err := sendNative.Inputs.Pack(seiAddrString, big.NewInt(10))
 	require.Nil(t, err)
 	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNative...))
 	require.Nil(t, err)
 
+	ctx, _, _, err = p.Prepare(&evm, append(p.SendNativeID, argsNative...))
+	require.Nil(t, err)
 	err = bankKeeper.SendCoins(ctx, senderAddr, seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(5000))))
 	require.Nil(t, err)
 
