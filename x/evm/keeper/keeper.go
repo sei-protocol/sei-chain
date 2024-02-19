@@ -47,6 +47,7 @@ type EvmTxDeferredInfo struct {
 	TxIndx  int
 	TxHash  common.Hash
 	TxBloom ethtypes.Bloom
+	Surplus sdk.Int
 }
 
 type addressNoncePair struct {
@@ -161,11 +162,12 @@ func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []EvmTxDeferredInfo)
 	return
 }
 
-func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom, txHash common.Hash) {
+func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom, txHash common.Hash, surplus sdk.Int) {
 	k.deferredInfo.Store(ctx.TxIndex(), &EvmTxDeferredInfo{
 		TxIndx:  ctx.TxIndex(),
 		TxBloom: bloom,
 		TxHash:  txHash,
+		Surplus: surplus,
 	})
 }
 

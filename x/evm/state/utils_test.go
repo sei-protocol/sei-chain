@@ -41,7 +41,7 @@ func TestSplitUseiWeiAmount(t *testing.T) {
 		},
 	} {
 		usei, wei := state.SplitUseiWeiAmount(test.amt)
-		require.Equal(t, test.expectedSei, usei)
-		require.Equal(t, test.expectedWei, wei)
+		require.Equal(t, test.expectedSei, usei.BigInt())
+		require.Equal(t, test.expectedWei, wei.BigInt())
 	}
 }

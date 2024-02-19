@@ -4,10 +4,8 @@ import (
 	"math/big"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,8 +35,6 @@ func TestEmpty(t *testing.T) {
 	require.True(t, statedb.Empty(addr))
 
 	// has balance
-	k.BankKeeper().MintCoins(statedb.Ctx(), types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))))
-	k.BankKeeper().SendCoinsFromModuleToAccount(statedb.Ctx(), types.ModuleName, state.GetMiddleManAddress(ctx.TxIndex()), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))))
 	statedb.AddBalance(addr, big.NewInt(1000000000000))
 	require.False(t, statedb.Empty(addr))
 
