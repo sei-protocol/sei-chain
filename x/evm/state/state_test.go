@@ -60,8 +60,6 @@ func TestCreate(t *testing.T) {
 	tval := common.BytesToHash([]byte("mno"))
 	statedb.SetState(evmAddr, key, val)
 	statedb.SetTransientState(evmAddr, tkey, tval)
-	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10))))
-	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, state.GetMiddleManAddress(ctx.TxIndex()), sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10))))
 	statedb.AddBalance(evmAddr, big.NewInt(10000000000000))
 	// recreate an account should clear its state, but keep its balance and transient state
 	statedb.CreateAccount(evmAddr)
@@ -149,7 +147,8 @@ func TestSnapshot(t *testing.T) {
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, common.Hash{}, newStateDB.GetState(evmAddr, key))
 
-	require.Nil(t, statedb.Finalize())
+	_, err := statedb.Finalize()
+	require.Nil(t, err)
 	newStateDB = state.NewDBImpl(ctx, k, false)
 	// prev state DB committed except for transient states
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
