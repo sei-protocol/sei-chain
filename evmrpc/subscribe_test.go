@@ -2,6 +2,8 @@ package evmrpc_test
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"testing"
 	"time"
 
@@ -19,6 +21,21 @@ func TestSubscribeNewHeads(t *testing.T) {
 	receivedEvents := false
 	timer := time.NewTimer(1 * time.Second)
 
+	expectedKeys := []string{
+		"parentHash", "sha3Uncles", "miner", "stateRoot", "transactionsRoot",
+		"receiptsRoot", "logsBloom", "difficulty", "number", "gasLimit",
+		"gasUsed", "timestamp", "extraData", "mixHash", "nonce",
+		"baseFeePerGas", "withdrawalsRoot", "blobGasUsed", "excessBlobGas",
+		"parentBeaconBlockRoot", "hash",
+	}
+	inapplicableKeys := make(map[string]struct{})
+	for _, key := range []string{
+		"difficulty", "extraData", "logsBloom", "nonce", "sha3Uncles", "mixHash",
+		"excessBlobGas", "parentBeaconBlockRoot", "withdrawlsRoot", "baseFeePerGas",
+		"withdrawalsRoot", "blobGasUsed",
+	} {
+		inapplicableKeys[key] = struct{}{}
+	}
 	var subscriptionId string
 
 	for {
@@ -44,12 +61,17 @@ func TestSubscribeNewHeads(t *testing.T) {
 				t.Fatal("Subscription ID does not match")
 			}
 			resultMap := paramMap["result"].(map[string]interface{})
-			// check some basic stuff like number and transactionRoot
-			if resultMap["number"] == nil {
-				t.Fatal("Block number is nil")
-			}
-			if resultMap["transactionsRoot"] == nil {
-				t.Fatal("Transaction root is nil")
+			// check all fields
+			for _, key := range expectedKeys {
+				if _, ok := resultMap[key]; !ok {
+					t.Fatalf("%s is nil", key)
+				}
+				// check that applicable keys aren't all 0's
+				if _, inapplicable := inapplicableKeys[key]; !inapplicable {
+					if matched, err := regexp.MatchString("^0+$", fmt.Sprintf("%v", resultMap[key])); err != nil || matched {
+						t.Fatalf("%s was unable to parse or expected non-zero value", key)
+					}
+				}
 			}
 		case <-timer.C:
 			if !receivedSubMsg || !receivedEvents {
