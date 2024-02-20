@@ -2,6 +2,7 @@
 package types
 
 // event types
+// nolint
 const (
 	AttributeAmount              = "amount"
 	AttributeCreator             = "creator"
