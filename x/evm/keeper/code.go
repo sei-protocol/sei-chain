@@ -10,10 +10,17 @@ import (
 )
 
 func (k *Keeper) GetCode(ctx sdk.Context, addr common.Address) []byte {
-	return k.PrefixStore(ctx, types.CodeKeyPrefix).Get(addr[:])
+	code := k.PrefixStore(ctx, types.CodeKeyPrefix).Get(addr[:])
+	if len(code) == 0 {
+		return nil
+	}
+	return code
 }
 
 func (k *Keeper) SetCode(ctx sdk.Context, addr common.Address, code []byte) {
+	if code == nil {
+		code = []byte{}
+	}
 	k.PrefixStore(ctx, types.CodeKeyPrefix).Set(addr[:], code)
 	length := make([]byte, 8)
 	binary.BigEndian.PutUint64(length, uint64(len(code)))
