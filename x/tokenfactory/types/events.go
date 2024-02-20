@@ -2,6 +2,7 @@
 package types
 
 // event types
+// #nosec G101
 const (
 	AttributeAmount              = "amount"
 	AttributeCreator             = "creator"
