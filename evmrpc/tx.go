@@ -279,12 +279,12 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	evmTxIndex := 0
 	foundTx := false
-	for _, tx := range block.Block.Txs {
+	for i, tx := range block.Block.Txs {
 		etx := getEthTxForTxBz(tx, decoder)
 		if etx == nil { // cosmos tx, skip
 			continue
 		}
-		if etx.Hash() == common.HexToHash(receipt.TxHashHex) {
+		if i == int(receipt.TransactionIndex) {
 			foundTx = true
 			break
 		}
