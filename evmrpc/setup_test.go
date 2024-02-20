@@ -624,7 +624,7 @@ func setupLogs() {
 	}}}})
 	EVMKeeper.SetReceipt(Ctx, multiTxBlockTx2.Hash(), &types.Receipt{
 		BlockNumber:      MultiTxBlockHeight,
-		TransactionIndex: 2,
+		TransactionIndex: 3,
 		TxHashHex:        multiTxBlockTx2.Hash().Hex(),
 		LogsBloom:        bloom2[:],
 		Logs: []*types.Log{{
@@ -641,7 +641,7 @@ func setupLogs() {
 	}}}})
 	EVMKeeper.SetReceipt(Ctx, multiTxBlockTx3.Hash(), &types.Receipt{
 		BlockNumber:      MultiTxBlockHeight,
-		TransactionIndex: 3,
+		TransactionIndex: 4,
 		TxHashHex:        multiTxBlockTx3.Hash().Hex(),
 		LogsBloom:        bloom3[:],
 		Logs: []*types.Log{{
