@@ -13,9 +13,6 @@ import (
 
 func TestAddBalance(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
-	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(15)))
-	k.BankKeeper().MintCoins(ctx, types.ModuleName, amt)
-	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, state.GetMiddleManAddress(ctx.TxIndex()), amt)
 	db := state.NewDBImpl(ctx, k, false)
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))
@@ -77,4 +74,64 @@ func TestSetBalance(t *testing.T) {
 	k.SetAddressMapping(db.Ctx(), seiAddr2, evmAddr2)
 	db.SetBalance(evmAddr2, big.NewInt(10000000000000))
 	require.Equal(t, big.NewInt(10000000000000), db.GetBalance(evmAddr2))
+}
+
+func TestSurplus(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	_, evmAddr := testkeeper.MockAddressPair()
+
+	// test negative usei surplus negative wei surplus
+	db := state.NewDBImpl(ctx, k, false)
+	db.AddBalance(evmAddr, big.NewInt(1_000_000_000_001))
+	_, err := db.Finalize()
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "negative surplus value")
+
+	// test negative usei surplus positive wei surplus (negative total)
+	db = state.NewDBImpl(ctx, k, false)
+	db.AddBalance(evmAddr, big.NewInt(1_000_000_000_000))
+	db.SubBalance(evmAddr, big.NewInt(1))
+	_, err = db.Finalize()
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "negative surplus value")
+
+	// test negative usei surplus positive wei surplus (positive total)
+	db = state.NewDBImpl(ctx, k, false)
+	db.AddBalance(evmAddr, big.NewInt(1_000_000_000_000))
+	db.SubBalance(evmAddr, big.NewInt(2))
+	db.SubBalance(evmAddr, big.NewInt(999_999_999_999))
+	surplus, err := db.Finalize()
+	require.Nil(t, err)
+	require.Equal(t, sdk.OneInt(), surplus)
+
+	// test positive usei surplus negative wei surplus (negative total)
+	db = state.NewDBImpl(ctx, k, false)
+	db.SubBalance(evmAddr, big.NewInt(1_000_000_000_000))
+	db.AddBalance(evmAddr, big.NewInt(2))
+	db.AddBalance(evmAddr, big.NewInt(999_999_999_999))
+	_, err = db.Finalize()
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "negative surplus value")
+
+	// test positive usei surplus negative wei surplus (positive total)
+	db = state.NewDBImpl(ctx, k, false)
+	db.SubBalance(evmAddr, big.NewInt(1_000_000_000_000))
+	db.AddBalance(evmAddr, big.NewInt(999_999_999_999))
+	surplus, err = db.Finalize()
+	require.Nil(t, err)
+	require.Equal(t, sdk.OneInt(), surplus)
+
+	// test snapshots
+	db = state.NewDBImpl(ctx, k, false)
+	db.SubBalance(evmAddr, big.NewInt(1_000_000_000_000))
+	db.AddBalance(evmAddr, big.NewInt(999_999_999_999))
+	db.Snapshot()
+	db.SubBalance(evmAddr, big.NewInt(1_000_000_000_000))
+	db.AddBalance(evmAddr, big.NewInt(999_999_999_999))
+	db.Snapshot()
+	db.SubBalance(evmAddr, big.NewInt(1_000_000_000_000))
+	db.AddBalance(evmAddr, big.NewInt(999_999_999_999))
+	surplus, err = db.Finalize()
+	require.Nil(t, err)
+	require.Equal(t, sdk.NewInt(3), surplus)
 }
