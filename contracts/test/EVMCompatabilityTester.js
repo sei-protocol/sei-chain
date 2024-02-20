@@ -87,6 +87,35 @@ describe("EVM Test", function () {
       debug(`Token: ${tokenAddr}, EvmAddr: ${evmAddr}`);
     });
 
+    describe("Historical query test", function() {
+      // Send 1 eth, get the block, (wait for current block to move ahead)
+      // make sure the block before and on block differs by exact amount sent + gas
+      it.only("Should be able to get historical block data", async function() {
+        const balanceBefore = await ethers.provider.getBalance(owner);
+
+        const feeData = await ethers.provider.getFeeData();
+        const gasPrice = Number(feeData.gasPrice);
+
+        const zero = ethers.parseUnits('0', 'ether')
+        const txResponse = await owner.sendTransaction({
+          to: owner.address,
+          gasPrice: gasPrice,
+          value: zero,
+          type: 1,
+        });
+        const receipt = await txResponse.wait();
+        console.log("Historical query receipt = ", receipt);
+
+        const balanceAfter = await ethers.provider.getBalance(owner);
+
+        const diff = balanceBefore - balanceAfter;
+        expect(diff).to.equal(21000 * gasPrice);
+
+        const success = await sendTransactionAndCheckGas(owner, owner, 0)
+        expect(success).to.be.true
+      });
+    });
+
     describe("Deployment", function () {
       it("Should deploy successfully", async function () {
         expect(await evmTester.getAddress()).to.be.properAddress;
