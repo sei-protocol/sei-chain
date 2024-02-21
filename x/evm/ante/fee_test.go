@@ -2,7 +2,6 @@ package ante_test
 
 import (
 	"encoding/hex"
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"testing"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
