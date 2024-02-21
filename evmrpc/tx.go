@@ -3,9 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
-	"sort"
 	"strings"
 	"time"
 
@@ -17,7 +15,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -92,42 +89,6 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 		return nil, err
 	}
 	return t.getTransactionWithBlock(block, index)
-}
-
-func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Address) (result string, returnErr error) {
-	startTime := time.Now()
-	defer recordMetrics("eth_getPendingNonces", startTime, returnErr == nil)
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
-	nonces := []int{}
-	perPage := UnconfirmedTxQueryPerPage
-	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
-		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, &perPage)
-		if err != nil {
-			return "", err
-		}
-		if len(res.Txs) == 0 {
-			break
-		}
-		for _, tx := range res.Txs {
-			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
-			if etx != nil {
-				signer := ethtypes.MakeSigner(
-					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
-					big.NewInt(sdkCtx.BlockHeight()),
-					uint64(sdkCtx.BlockTime().Unix()),
-				)
-				from, _ := ethtypes.Sender(signer, etx)
-				if from == addr {
-					nonces = append(nonces, int(etx.Nonce()))
-				}
-			}
-		}
-		if page*perPage >= res.Total {
-			break
-		}
-	}
-	sort.Ints(nonces)
-	return strings.Join(utils.Map(nonces, func(i int) string { return fmt.Sprintf("%d", i) }), ","), nil
 }
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *RPCTransaction, returnErr error) {
