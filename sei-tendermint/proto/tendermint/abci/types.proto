@@ -260,6 +260,7 @@ message ResponseInfo {
 
   int64 last_block_height   = 4;
   bytes last_block_app_hash = 5;
+  string minimum_gas_prices = 6;
 }
 
 message ResponseInitChain {
