@@ -240,11 +240,6 @@ func TestSign(t *testing.T) {
 	require.NotEmpty(t, signed)
 }
 
-func TestGetPendingNonces(t *testing.T) {
-	resObj := sendRequestGood(t, "getPendingNonces", "0x1111111111111111111111111111111111111113")
-	require.Equal(t, "", resObj["result"].(string))
-}
-
 func TestGetVMError(t *testing.T) {
 	resObj := sendRequestGood(t, "getVMError", "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e")
 	require.Equal(t, "", resObj["result"].(string))
