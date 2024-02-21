@@ -2,6 +2,7 @@ package ante_test
 
 import (
 	"encoding/hex"
+	"github.com/stretchr/testify/assert"
 	"math/big"
 	"testing"
 
@@ -168,4 +169,69 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
+}
+
+func TestCalculatePriorityScenarios(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	decorator := ante.NewEVMFeeCheckDecorator(k)
+
+	scenarios := []struct {
+		name             string
+		txData           ethtypes.TxData
+		expectedPriority *big.Int
+	}{
+		{
+			name: "DynamicFeeTx with Tip",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: big.NewInt(10000000000000),
+				GasTipCap: big.NewInt(10000000000000),
+				Gas:       1000,
+				Value:     big.NewInt(1000000000000000),
+			},
+			expectedPriority: big.NewInt(10),
+		},
+		{
+			name: "DynamicFeeTx with no Tip",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: big.NewInt(10000000000000),
+				GasTipCap: big.NewInt(0),
+				Gas:       1000,
+				Value:     big.NewInt(1000000000000000),
+			},
+			expectedPriority: big.NewInt(0),
+		},
+		{
+			name: "LegacyTx has zero priority even with gas price",
+			txData: &ethtypes.LegacyTx{
+				GasPrice: big.NewInt(1000),
+				Gas:      1000,
+				Value:    big.NewInt(1000000000000000),
+			},
+			expectedPriority: big.NewInt(0),
+		},
+		{
+			name: "LegacyTx has zero priority with zero gas price",
+			txData: &ethtypes.LegacyTx{
+				GasPrice: big.NewInt(0),
+				Gas:      1000,
+				Value:    big.NewInt(1000000000000000),
+			},
+			expectedPriority: big.NewInt(0),
+		},
+	}
+
+	// Run each scenario
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			tx := ethtypes.NewTx(s.txData)
+			txData, err := ethtx.NewTxDataFromTx(tx)
+			assert.NoError(t, err)
+			priority := decorator.CalculatePriority(ctx, txData)
+
+			// Check the returned value
+			if priority.Cmp(s.expectedPriority) != 0 {
+				t.Errorf("Expected priority %v, but got %v", s.expectedPriority, priority)
+			}
+		})
+	}
 }

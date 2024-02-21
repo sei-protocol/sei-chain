@@ -1,6 +1,7 @@
 package ante
 
 import (
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -81,18 +82,24 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 }
 
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
-	if txData.GetGasFeeCap() == nil {
+	if txData.GetGasFeeCap() == nil || txData.TxType() != ethtypes.DynamicFeeTxType {
 		return big.NewInt(0)
 	}
 	fee := txData.Fee()
-	tipCapPct := big.NewInt(0)
+	feeFloat, _ := fee.Float64()
+
+	tipCapPct := big.NewFloat(0)
 	if txData.GetGasTipCap() != nil {
-		tipCapPct = new(big.Int).Quo(txData.GetGasTipCap(), txData.GetGasFeeCap())
-		if tipCapPct.Cmp(big.NewInt(1)) > 0 {
-			tipCapPct = big.NewInt(1)
+		gasTipCap, _ := txData.GetGasTipCap().Float64()
+		gasFeeCap, _ := txData.GetGasFeeCap().Float64()
+		tipCapPct = new(big.Float).Quo(big.NewFloat(gasTipCap), big.NewFloat(gasFeeCap))
+
+		if tipCapPct.Cmp(big.NewFloat(1)) > 0 {
+			tipCapPct = big.NewFloat(1)
 		}
 	}
-	discountedFee := new(big.Int).Mul(fee, tipCapPct)
+
+	discountedFee, _ := new(big.Float).Mul(big.NewFloat(feeFloat), tipCapPct).Int(nil)
 	adjustedFee := new(big.Int).Quo(discountedFee, state.UseiToSweiMultiplier)
 	nativeGasPrice := new(big.Int).Quo(adjustedFee, new(big.Int).SetUint64(txData.GetGas()))
 	return new(big.Int).Quo(nativeGasPrice, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
