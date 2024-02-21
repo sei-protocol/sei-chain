@@ -290,6 +290,32 @@ describe("EVM Test", function () {
       });
     })
 
+    describe("Historical query test", function() {
+      it.only("Should be able to get historical block data", async function() {
+        const feeData = await ethers.provider.getFeeData();
+        const gasPrice = Number(feeData.gasPrice);
+        const zero = ethers.parseUnits('0', 'ether')
+        const txResponse = await owner.sendTransaction({
+          to: owner.address,
+          gasPrice: gasPrice,
+          value: zero,
+          type: 1,
+        });
+        const receipt = await txResponse.wait();
+        const bn = receipt.blockNumber;
+
+        // Check historical balance
+        const balance1 = await ethers.provider.getBalance(owner, bn-1);
+        const balance2 = await ethers.provider.getBalance(owner, bn);
+        expect(balance1 - balance2).to.equal(21000 * Number(gasPrice))
+
+        // Check historical nonce
+        const nonce1 = await ethers.provider.getTransactionCount(owner, bn-1);
+        const nonce2 = await ethers.provider.getTransactionCount(owner, bn);
+        expect(nonce1 + 1).to.equal(nonce2)
+      });
+    });
+
     describe("Gas tests", function() {
       it("Should deduct correct amount of gas on transfer", async function () {
         const balanceBefore = await ethers.provider.getBalance(owner);
