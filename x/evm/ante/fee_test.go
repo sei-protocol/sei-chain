@@ -238,7 +238,7 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			expectedPriority: big.NewInt(0),
 		},
 		{
-			name: "LegacyTx with a non-multiple of 10 tip",
+			name: "LegacyTx with a non-multiple of 10 gas price",
 			txData: &ethtypes.LegacyTx{
 				GasPrice: big.NewInt(9999999999999),
 				Gas:      1000,
