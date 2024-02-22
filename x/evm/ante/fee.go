@@ -82,7 +82,7 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 
 // CalculatePriority returns a priority based on the effective gas price of the transaction
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
-	gp := txData.EffectiveGasPrice(fc.getBaseFee(ctx))
+	gp := txData.EffectiveGasPrice(big.NewInt(0))
 	nativeGasPrice := new(big.Int).Quo(gp, state.UseiToSweiMultiplier)
 	return new(big.Int).Quo(nativeGasPrice, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
 }
