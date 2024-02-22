@@ -1,6 +1,7 @@
 package ante
 
 import (
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -93,7 +94,17 @@ func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.T
 		}
 	}
 	discountedFee := new(big.Int).Mul(fee, tipCapPct)
-	adjustedFee := new(big.Int).Quo(discountedFee, state.UseiToSweiMultiplier)
-	nativeGasPrice := new(big.Int).Quo(adjustedFee, new(big.Int).SetUint64(txData.GetGas()))
-	return new(big.Int).Quo(nativeGasPrice, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
+	fmt.Println("In CalculatePriority: discountedFee", discountedFee)
+	adjuster := new(big.Int).Quo(state.UseiToSweiMultiplier, fc.getMinimumFee(ctx))
+	adjustedFee := new(big.Int).Mul(new(big.Int).Quo(discountedFee, state.UseiToSweiMultiplier), adjuster)
+	fmt.Println("In CalculatePriority: adjustedFee", adjustedFee)
+	txGetGas := new(big.Int).SetUint64(txData.GetGas())
+	fmt.Println("In CalculatePriority: txGetGas", txGetGas)
+	nativeGasPrice := new(big.Int).Quo(adjustedFee, txGetGas)
+	fmt.Println("In CalculatePriority: nativeGasPrice", nativeGasPrice)
+	priorityNormalizer := fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt()
+	fmt.Println("In CalculatePriority: priorityNormaizer", priorityNormalizer)
+	finalPriority := new(big.Int).Quo(nativeGasPrice, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
+	fmt.Println("In CalculatePriority: finalPriority", finalPriority)
+	return finalPriority
 }
