@@ -169,3 +169,92 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	})
 	require.NotNil(t, err)
 }
+
+func TestCalculatePriorityScenarios(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	decorator := ante.NewEVMFeeCheckDecorator(k)
+
+	scenarios := []struct {
+		name             string
+		txData           ethtypes.TxData
+		expectedPriority *big.Int
+	}{
+		{
+			name: "DynamicFeeTx with tip",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: big.NewInt(10000000000000),
+				GasTipCap: big.NewInt(10000000000000),
+				Value:     big.NewInt(1000000000000000),
+			},
+			expectedPriority: big.NewInt(10),
+		},
+		{
+			name: "DynamicFeeTx value does not change priority",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: big.NewInt(10000000000000),
+				GasTipCap: big.NewInt(10000000000000),
+				Value:     big.NewInt(1),
+			},
+			expectedPriority: big.NewInt(10),
+		},
+		{
+			name: "DynamicFeeTx with no tip",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: big.NewInt(10000000000000),
+				GasTipCap: big.NewInt(0),
+				Value:     big.NewInt(1000000000000000),
+			},
+			expectedPriority: big.NewInt(0),
+		},
+		{
+			name: "DynamicFeeTx with a non-multiple of 10 tip",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: big.NewInt(1000000000000000),
+				GasTipCap: big.NewInt(9999999999999),
+				Value:     big.NewInt(1000000000),
+			},
+			expectedPriority: big.NewInt(9),
+		},
+		{
+			name: "LegacyTx has priority with gas price",
+			txData: &ethtypes.LegacyTx{
+				GasPrice: big.NewInt(10000000000000),
+				Value:    big.NewInt(1000000000000000),
+			},
+			expectedPriority: big.NewInt(10),
+		},
+		{
+			name: "LegacyTx has zero priority with zero gas price",
+			txData: &ethtypes.LegacyTx{
+				GasPrice: big.NewInt(0),
+				Value:    big.NewInt(1000000000000000),
+			},
+			expectedPriority: big.NewInt(0),
+		},
+		{
+			name: "LegacyTx with a non-multiple of 10 gas price",
+			txData: &ethtypes.LegacyTx{
+				GasPrice: big.NewInt(9999999999999),
+				Value:    big.NewInt(1000000000000000),
+			},
+			expectedPriority: big.NewInt(9),
+		},
+	}
+
+	// Run each scenario
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			tx := ethtypes.NewTx(s.txData)
+			txData, err := ethtx.NewTxDataFromTx(tx)
+			require.NoError(t, err)
+			priority := decorator.CalculatePriority(ctx, txData)
+
+			if s.expectedPriority != nil {
+				// Check the returned value
+				if priority.Cmp(s.expectedPriority) != 0 {
+					t.Errorf("Expected priority %v, but got %v", s.expectedPriority, priority)
+				}
+			}
+		})
+	}
+}
