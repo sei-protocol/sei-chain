@@ -184,7 +184,6 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			txData: &ethtypes.DynamicFeeTx{
 				GasFeeCap: big.NewInt(10000000000000),
 				GasTipCap: big.NewInt(10000000000000),
-				Gas:       1000,
 				Value:     big.NewInt(1000000000000000),
 			},
 			expectedPriority: big.NewInt(10),
@@ -194,7 +193,6 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			txData: &ethtypes.DynamicFeeTx{
 				GasFeeCap: big.NewInt(10000000000000),
 				GasTipCap: big.NewInt(10000000000000),
-				Gas:       1000,
 				Value:     big.NewInt(1),
 			},
 			expectedPriority: big.NewInt(10),
@@ -204,7 +202,6 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			txData: &ethtypes.DynamicFeeTx{
 				GasFeeCap: big.NewInt(10000000000000),
 				GasTipCap: big.NewInt(0),
-				Gas:       1000,
 				Value:     big.NewInt(1000000000000000),
 			},
 			expectedPriority: big.NewInt(0),
@@ -214,7 +211,6 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			txData: &ethtypes.DynamicFeeTx{
 				GasFeeCap: big.NewInt(1000000000000000),
 				GasTipCap: big.NewInt(9999999999999),
-				Gas:       1000,
 				Value:     big.NewInt(1000000000),
 			},
 			expectedPriority: big.NewInt(9),
@@ -223,7 +219,6 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			name: "LegacyTx has priority with gas price",
 			txData: &ethtypes.LegacyTx{
 				GasPrice: big.NewInt(10000000000000),
-				Gas:      1000,
 				Value:    big.NewInt(1000000000000000),
 			},
 			expectedPriority: big.NewInt(10),
@@ -232,7 +227,6 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			name: "LegacyTx has zero priority with zero gas price",
 			txData: &ethtypes.LegacyTx{
 				GasPrice: big.NewInt(0),
-				Gas:      1000,
 				Value:    big.NewInt(1000000000000000),
 			},
 			expectedPriority: big.NewInt(0),
@@ -241,7 +235,6 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			name: "LegacyTx with a non-multiple of 10 gas price",
 			txData: &ethtypes.LegacyTx{
 				GasPrice: big.NewInt(9999999999999),
-				Gas:      1000,
 				Value:    big.NewInt(1000000000000000),
 			},
 			expectedPriority: big.NewInt(9),
