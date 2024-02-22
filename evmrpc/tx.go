@@ -3,9 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
-	"sort"
 	"strings"
 	"time"
 
@@ -17,10 +15,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/tendermint/tendermint/libs/bytes"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -58,7 +54,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(receipt, block.BlockID.Hash)
+	return encodeReceipt(receipt, t.txConfig.TxDecoder(), block)
 }
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
@@ -93,42 +89,6 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 		return nil, err
 	}
 	return t.getTransactionWithBlock(block, index)
-}
-
-func (t *TransactionAPI) GetPendingNonces(ctx context.Context, addr common.Address) (result string, returnErr error) {
-	startTime := time.Now()
-	defer recordMetrics("eth_getPendingNonces", startTime, returnErr == nil)
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
-	nonces := []int{}
-	perPage := UnconfirmedTxQueryPerPage
-	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
-		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, &perPage)
-		if err != nil {
-			return "", err
-		}
-		if len(res.Txs) == 0 {
-			break
-		}
-		for _, tx := range res.Txs {
-			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
-			if etx != nil {
-				signer := ethtypes.MakeSigner(
-					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
-					big.NewInt(sdkCtx.BlockHeight()),
-					uint64(sdkCtx.BlockTime().Unix()),
-				)
-				from, _ := ethtypes.Sender(signer, etx)
-				if from == addr {
-					nonces = append(nonces, int(etx.Nonce()))
-				}
-			}
-		}
-		if page*perPage >= res.Total {
-			break
-		}
-	}
-	sort.Ints(nonces)
-	return strings.Join(utils.Map(nonces, func(i int) string { return fmt.Sprintf("%d", i) }), ","), nil
 }
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *RPCTransaction, returnErr error) {
@@ -270,11 +230,41 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 	return ethtx
 }
 
-func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes) (map[string]interface{}, error) {
+// Gets the EVM tx index based on the tx index (typically from receipt.TransactionIndex
+// Essentially loops through and calculates the index if we ignore cosmos txs
+func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder) (index int, found bool) {
+	evmTxIndex := 0
+	foundTx := false
+	for i, tx := range txs {
+		etx := getEthTxForTxBz(tx, decoder)
+		if etx == nil { // cosmos tx, skip
+			continue
+		}
+		if i == int(txIndex) {
+			foundTx = true
+			break
+		}
+		evmTxIndex++
+	}
+	if !foundTx {
+		return -1, false
+	} else {
+		return evmTxIndex, true
+
+	}
+}
+
+func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock) (map[string]interface{}, error) {
+	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	logs := keeper.GetLogsForTx(receipt)
 	for _, log := range logs {
 		log.BlockHash = bh
+	}
+	evmTxIndex, foundTx := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, decoder)
+	// convert tx index including cosmos txs to tx index excluding cosmos txs
+	if !foundTx {
+		return nil, errors.New("failed to find transaction in block")
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
@@ -282,7 +272,7 @@ func encodeReceipt(receipt *types.Receipt, blockHash bytes.HexBytes) (map[string
 		"blockHash":         bh,
 		"blockNumber":       hexutil.Uint64(receipt.BlockNumber),
 		"transactionHash":   common.HexToHash(receipt.TxHashHex),
-		"transactionIndex":  hexutil.Uint64(receipt.TransactionIndex),
+		"transactionIndex":  hexutil.Uint64(evmTxIndex),
 		"from":              common.HexToAddress(receipt.From),
 		"to":                common.HexToAddress(receipt.To),
 		"gasUsed":           hexutil.Uint64(receipt.GasUsed),

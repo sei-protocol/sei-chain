@@ -183,32 +183,41 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 func encodeTmHeader(
 	header tmtypes.EventDataNewBlockHeader,
 ) (map[string]interface{}, error) {
+	blockHash := common.HexToHash(header.Header.Hash().String())
 	number := big.NewInt(header.Header.Height)
-	miner := common.HexToAddress(string(header.Header.ProposerAddress))
+	miner := common.HexToAddress(header.Header.ProposerAddress.String())
 	gasLimit, gasWanted := int64(0), int64(0)
-	lastHash := common.HexToHash(string(header.Header.LastBlockID.Hash))
-	resultHash := common.HexToHash(string(header.Header.LastResultsHash))
-	appHash := common.HexToHash(string(header.Header.AppHash))
-	txHash := common.HexToHash(string(header.Header.DataHash))
+	lastHash := common.HexToHash(header.Header.LastBlockID.Hash.String())
+	resultHash := common.HexToHash(header.Header.LastResultsHash.String())
+	appHash := common.HexToHash(header.Header.AppHash.String())
+	txHash := common.HexToHash(header.Header.DataHash.String())
 	for _, txRes := range header.ResultFinalizeBlock.TxResults {
 		gasLimit += txRes.GasWanted
 		gasWanted += txRes.GasUsed
 	}
 	result := map[string]interface{}{
-		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
-		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
-		"gasLimit":         hexutil.Uint64(gasLimit),
-		"gasUsed":          hexutil.Uint64(gasWanted),
-		"logsBloom":        ethtypes.Bloom{}, // inapplicable to Sei
-		"miner":            miner,
-		"nonce":            ethtypes.BlockNonce{}, // inapplicable to Sei
-		"number":           (*hexutil.Big)(number),
-		"parentHash":       lastHash,
-		"receiptsRoot":     resultHash,
-		"sha3Uncles":       common.Hash{}, // inapplicable to Sei
-		"stateRoot":        appHash,
-		"timestamp":        hexutil.Uint64(header.Header.Time.Unix()),
-		"transactionsRoot": txHash,
+		"difficulty":            (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
+		"extraData":             hexutil.Bytes{},               // inapplicable to Sei
+		"gasLimit":              hexutil.Uint64(gasLimit),
+		"gasUsed":               hexutil.Uint64(gasWanted),
+		"logsBloom":             ethtypes.Bloom{}, // inapplicable to Sei
+		"miner":                 miner,
+		"nonce":                 ethtypes.BlockNonce{}, // inapplicable to Sei
+		"number":                (*hexutil.Big)(number),
+		"parentHash":            lastHash,
+		"receiptsRoot":          resultHash,
+		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
+		"stateRoot":             appHash,
+		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()),
+		"transactionsRoot":      txHash,
+		"mixHash":               common.Hash{},     // inapplicable to Sei
+		"excessBlobGas":         hexutil.Uint64(0), // inapplicable to Sei
+		"parentBeaconBlockRoot": common.Hash{},     // inapplicable to Sei
+		"hash":                  blockHash,
+		"withdrawlsRoot":        common.Hash{},     // inapplicable to Sei
+		"baseFeePerGas":         hexutil.Uint64(0), // inapplicable to Sei
+		"withdrawalsRoot":       common.Hash{},     // inapplicable to Sei
+		"blobGasUsed":           hexutil.Uint64(0), // inapplicable to Sei
 	}
 	return result, nil
 }
