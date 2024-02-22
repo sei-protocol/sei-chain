@@ -77,69 +77,69 @@ func TestRun(t *testing.T) {
 	require.NotNil(t, err)
 }
 
-// func TestMetadata(t *testing.T) {
-// 	k, ctx := testkeeper.MockEVMKeeper()
-// 	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
-// 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
-// 	require.Nil(t, err)
-// 	statedb := state.NewDBImpl(ctx, k, true)
-// 	evm := vm.EVM{
-// 		StateDB: statedb,
-// 	}
-// 	name, err := p.ABI.MethodById(p.NameID)
-// 	require.Nil(t, err)
-// 	args, err := name.Inputs.Pack("usei")
-// 	require.Nil(t, err)
-// 	res, err := p.Run(&evm, common.Address{}, append(p.NameID, args...))
-// 	require.Nil(t, err)
-// 	outputs, err := name.Outputs.Unpack(res)
-// 	require.Nil(t, err)
-// 	require.Equal(t, "SEI", outputs[0])
+func TestMetadata(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
+	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{
+		StateDB: statedb,
+	}
+	name, err := p.ABI.MethodById(p.NameID)
+	require.Nil(t, err)
+	args, err := name.Inputs.Pack("usei")
+	require.Nil(t, err)
+	res, err := p.Run(&evm, common.Address{}, append(p.NameID, args...))
+	require.Nil(t, err)
+	outputs, err := name.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, "SEI", outputs[0])
 
-// 	symbol, err := p.ABI.MethodById(p.SymbolID)
-// 	require.Nil(t, err)
-// 	args, err = symbol.Inputs.Pack("usei")
-// 	require.Nil(t, err)
-// 	res, err = p.Run(&evm, common.Address{}, append(p.SymbolID, args...))
-// 	require.Nil(t, err)
-// 	outputs, err = symbol.Outputs.Unpack(res)
-// 	require.Nil(t, err)
-// 	require.Equal(t, "usei", outputs[0])
+	symbol, err := p.ABI.MethodById(p.SymbolID)
+	require.Nil(t, err)
+	args, err = symbol.Inputs.Pack("usei")
+	require.Nil(t, err)
+	res, err = p.Run(&evm, common.Address{}, append(p.SymbolID, args...))
+	require.Nil(t, err)
+	outputs, err = symbol.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, "usei", outputs[0])
 
-// 	decimal, err := p.ABI.MethodById(p.DecimalsID)
-// 	require.Nil(t, err)
-// 	args, err = decimal.Inputs.Pack("usei")
-// 	require.Nil(t, err)
-// 	res, err = p.Run(&evm, common.Address{}, append(p.DecimalsID, args...))
-// 	require.Nil(t, err)
-// 	outputs, err = decimal.Outputs.Unpack(res)
-// 	require.Nil(t, err)
-// 	require.Equal(t, uint8(0), outputs[0])
+	decimal, err := p.ABI.MethodById(p.DecimalsID)
+	require.Nil(t, err)
+	args, err = decimal.Inputs.Pack("usei")
+	require.Nil(t, err)
+	res, err = p.Run(&evm, common.Address{}, append(p.DecimalsID, args...))
+	require.Nil(t, err)
+	outputs, err = decimal.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, uint8(0), outputs[0])
 
-// 	supply, err := p.ABI.MethodById(p.SupplyID)
-// 	require.Nil(t, err)
-// 	args, err = supply.Inputs.Pack("usei")
-// 	require.Nil(t, err)
-// 	res, err = p.Run(&evm, common.Address{}, append(p.SupplyID, args...))
-// 	require.Nil(t, err)
-// 	outputs, err = supply.Outputs.Unpack(res)
-// 	require.Nil(t, err)
-// 	require.Equal(t, big.NewInt(10), outputs[0])
-// }
+	supply, err := p.ABI.MethodById(p.SupplyID)
+	require.Nil(t, err)
+	args, err = supply.Inputs.Pack("usei")
+	require.Nil(t, err)
+	res, err = p.Run(&evm, common.Address{}, append(p.SupplyID, args...))
+	require.Nil(t, err)
+	outputs, err = supply.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, big.NewInt(10), outputs[0])
+}
 
-// func TestRequiredGas(t *testing.T) {
-// 	k, _ := testkeeper.MockEVMKeeper()
-// 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
-// 	require.Nil(t, err)
-// 	balanceRequiredGas := p.RequiredGas(p.BalanceID)
-// 	require.Equal(t, uint64(1000), balanceRequiredGas)
-// 	// invalid method
-// 	require.Equal(t, uint64(0), p.RequiredGas([]byte{1, 1, 1, 1}))
-// }
+func TestRequiredGas(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	require.Nil(t, err)
+	balanceRequiredGas := p.RequiredGas(p.BalanceID)
+	require.Equal(t, uint64(1000), balanceRequiredGas)
+	// invalid method
+	require.Equal(t, uint64(0), p.RequiredGas([]byte{1, 1, 1, 1}))
+}
 
-// func TestAddress(t *testing.T) {
-// 	k, _ := testkeeper.MockEVMKeeper()
-// 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
-// 	require.Nil(t, err)
-// 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
-// }
+func TestAddress(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	require.Nil(t, err)
+	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
+}
