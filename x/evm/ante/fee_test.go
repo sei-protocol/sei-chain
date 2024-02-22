@@ -181,7 +181,7 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 		expectedPriority *big.Int
 	}{
 		{
-			name: "DynamicFeeTx with Tip",
+			name: "DynamicFeeTx with tip",
 			txData: &ethtypes.DynamicFeeTx{
 				GasFeeCap: big.NewInt(10000000000000),
 				GasTipCap: big.NewInt(10000000000000),
@@ -191,7 +191,7 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			expectedPriority: big.NewInt(10),
 		},
 		{
-			name: "DynamicFeeTx with no Tip",
+			name: "DynamicFeeTx with no tip",
 			txData: &ethtypes.DynamicFeeTx{
 				GasFeeCap: big.NewInt(10000000000000),
 				GasTipCap: big.NewInt(0),
@@ -201,13 +201,23 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			expectedPriority: big.NewInt(0),
 		},
 		{
-			name: "LegacyTx has zero priority even with gas price",
+			name: "DynamicFeeTx with a non-multiple of 10 tip",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: big.NewInt(1000000000000000),
+				GasTipCap: big.NewInt(9999999999999),
+				Gas:       1000,
+				Value:     big.NewInt(1000000000),
+			},
+			expectedPriority: big.NewInt(9),
+		},
+		{
+			name: "LegacyTx has priority with gas price",
 			txData: &ethtypes.LegacyTx{
-				GasPrice: big.NewInt(1000),
+				GasPrice: big.NewInt(10000000000000),
 				Gas:      1000,
 				Value:    big.NewInt(1000000000000000),
 			},
-			expectedPriority: big.NewInt(0),
+			expectedPriority: big.NewInt(10),
 		},
 		{
 			name: "LegacyTx has zero priority with zero gas price",
@@ -217,6 +227,15 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 				Value:    big.NewInt(1000000000000000),
 			},
 			expectedPriority: big.NewInt(0),
+		},
+		{
+			name: "LegacyTx with a non-multiple of 10 tip",
+			txData: &ethtypes.LegacyTx{
+				GasPrice: big.NewInt(9999999999999),
+				Gas:      1000,
+				Value:    big.NewInt(1000000000000000),
+			},
+			expectedPriority: big.NewInt(9),
 		},
 	}
 
@@ -228,9 +247,11 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			assert.NoError(t, err)
 			priority := decorator.CalculatePriority(ctx, txData)
 
-			// Check the returned value
-			if priority.Cmp(s.expectedPriority) != 0 {
-				t.Errorf("Expected priority %v, but got %v", s.expectedPriority, priority)
+			if s.expectedPriority != nil {
+				// Check the returned value
+				if priority.Cmp(s.expectedPriority) != 0 {
+					t.Errorf("Expected priority %v, but got %v", s.expectedPriority, priority)
+				}
 			}
 		})
 	}

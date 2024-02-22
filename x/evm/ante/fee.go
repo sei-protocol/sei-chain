@@ -6,7 +6,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -81,26 +80,9 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 	return fc.evmKeeper.GetMinimumFeePerGas(ctx).RoundInt().BigInt()
 }
 
+// CalculatePriority returns a priority based on the effective gas price of the transaction
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
-	if txData.GetGasFeeCap() == nil || txData.TxType() != ethtypes.DynamicFeeTxType {
-		return big.NewInt(0)
-	}
-	fee := txData.Fee()
-	feeFloat, _ := fee.Float64()
-
-	tipCapPct := big.NewFloat(0)
-	if txData.GetGasTipCap() != nil {
-		gasTipCap, _ := txData.GetGasTipCap().Float64()
-		gasFeeCap, _ := txData.GetGasFeeCap().Float64()
-		tipCapPct = new(big.Float).Quo(big.NewFloat(gasTipCap), big.NewFloat(gasFeeCap))
-
-		if tipCapPct.Cmp(big.NewFloat(1)) > 0 {
-			tipCapPct = big.NewFloat(1)
-		}
-	}
-
-	discountedFee, _ := new(big.Float).Mul(big.NewFloat(feeFloat), tipCapPct).Int(nil)
-	adjustedFee := new(big.Int).Quo(discountedFee, state.UseiToSweiMultiplier)
-	nativeGasPrice := new(big.Int).Quo(adjustedFee, new(big.Int).SetUint64(txData.GetGas()))
+	gp := txData.EffectiveGasPrice(fc.getBaseFee(ctx))
+	nativeGasPrice := new(big.Int).Quo(gp, state.UseiToSweiMultiplier)
 	return new(big.Int).Quo(nativeGasPrice, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
 }
