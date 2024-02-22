@@ -191,6 +191,16 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			expectedPriority: big.NewInt(10),
 		},
 		{
+			name: "DynamicFeeTx value does not change priority",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: big.NewInt(10000000000000),
+				GasTipCap: big.NewInt(10000000000000),
+				Gas:       1000,
+				Value:     big.NewInt(1),
+			},
+			expectedPriority: big.NewInt(10),
+		},
+		{
 			name: "DynamicFeeTx with no tip",
 			txData: &ethtypes.DynamicFeeTx{
 				GasFeeCap: big.NewInt(10000000000000),
