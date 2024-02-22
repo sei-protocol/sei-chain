@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -254,7 +253,7 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 		t.Run(s.name, func(t *testing.T) {
 			tx := ethtypes.NewTx(s.txData)
 			txData, err := ethtx.NewTxDataFromTx(tx)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			priority := decorator.CalculatePriority(ctx, txData)
 
 			if s.expectedPriority != nil {
