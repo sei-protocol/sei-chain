@@ -80,20 +80,10 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 	return fc.evmKeeper.GetMinimumFeePerGas(ctx).RoundInt().BigInt()
 }
 
+// CalculatePriority returns a priority based on the effective gas price of the transaction
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
-	if txData.GetGasFeeCap() == nil {
-		return big.NewInt(0)
-	}
-	fee := txData.Fee()
-	tipCapPct := big.NewInt(0)
-	if txData.GetGasTipCap() != nil {
-		tipCapPct = new(big.Int).Quo(txData.GetGasTipCap(), txData.GetGasFeeCap())
-		if tipCapPct.Cmp(big.NewInt(1)) > 0 {
-			tipCapPct = big.NewInt(1)
-		}
-	}
-	discountedFee := new(big.Int).Mul(fee, tipCapPct)
-	adjustedFee := new(big.Int).Quo(discountedFee, state.UseiToSweiMultiplier)
-	nativeGasPrice := new(big.Int).Quo(adjustedFee, new(big.Int).SetUint64(txData.GetGas()))
+	// base fee does not go to validator, so zero is passed here to avoid having it influence priority
+	gp := txData.EffectiveGasPrice(big.NewInt(0))
+	nativeGasPrice := new(big.Int).Quo(gp, state.UseiToSweiMultiplier)
 	return new(big.Int).Quo(nativeGasPrice, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
 }
