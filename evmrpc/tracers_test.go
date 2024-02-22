@@ -34,6 +34,7 @@ func TestTraceTransaction(t *testing.T) {
 
 func TestTraceBlockByNumber(t *testing.T) {
 	args := map[string]interface{}{}
+	// test callTracer
 	args["tracer"] = "callTracer"
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByNumber", "0x65", args)
 	result := resObj["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})
@@ -43,10 +44,15 @@ func TestTraceBlockByNumber(t *testing.T) {
 	require.Equal(t, "0x0000000000000000000000000000000000010203", result["to"])
 	require.Equal(t, "CALL", result["type"])
 	require.Equal(t, "0x3e8", result["value"])
+	args["tracer"] = "prestateTracer"
+	resObj = sendRequestGoodWithNamespace(t, "debug", "traceBlockByNumber", "0x65", args)
+	result = resObj["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})
+	require.Equal(t, 3, len(result))
 }
 
 func TestTraceBlockByHash(t *testing.T) {
 	args := map[string]interface{}{}
+	// test callTracer
 	args["tracer"] = "callTracer"
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByHash", "0xBE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B", args)
 	result := resObj["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})
@@ -56,4 +62,10 @@ func TestTraceBlockByHash(t *testing.T) {
 	require.Equal(t, "0x0000000000000000000000000000000000010203", result["to"])
 	require.Equal(t, "CALL", result["type"])
 	require.Equal(t, "0x3e8", result["value"])
+
+	// test prestateTracer
+	args["tracer"] = "prestateTracer"
+	resObj = sendRequestGoodWithNamespace(t, "debug", "traceBlockByHash", "0xBE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B", args)
+	result = resObj["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})
+	require.Equal(t, 3, len(result))
 }
