@@ -95,7 +95,7 @@ func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.T
 	}
 	discountedFee := new(big.Int).Mul(fee, tipCapPct)
 	fmt.Println("In CalculatePriority: discountedFee", discountedFee)
-	adjuster := new(big.Int).Quo(state.UseiToSweiMultiplier, fc.getMinimumFee(ctx))
+	adjuster := new(big.Int).Mul(new(big.Int).Quo(state.UseiToSweiMultiplier, fc.getMinimumFee(ctx)), big.NewInt(1000))
 	adjustedFee := new(big.Int).Mul(new(big.Int).Quo(discountedFee, state.UseiToSweiMultiplier), adjuster)
 	fmt.Println("In CalculatePriority: adjustedFee", adjustedFee)
 	txGetGas := new(big.Int).SetUint64(txData.GetGas())
