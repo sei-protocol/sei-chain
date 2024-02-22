@@ -172,10 +172,15 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 		return nil, common.Hash{}, 0, 0, err
 	}
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
-	tmTx := block.Block.Txs[int(index)]
+	tmTx := block.Block.Txs[int(txIndex)]
+	// We need to find the ethIndex
+	evmTxIndex, found := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, b.txDecoder)
+	if !found {
+		return nil, common.Hash{}, 0, 0, errors.New("failed to find transaction in block")
+	}
 	tx = getEthTxForTxBz(tmTx, b.txDecoder)
 	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
-	return tx, blockHash, uint64(txHeight), uint64(txIndex), nil
+	return tx, blockHash, uint64(txHeight), uint64(evmTxIndex), nil
 }
 
 func (b *Backend) ChainDb() ethdb.Database {
