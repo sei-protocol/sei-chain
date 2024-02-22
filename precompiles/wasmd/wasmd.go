@@ -105,7 +105,7 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int) (ret []byte, remainingGas uint64, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, 0, err
@@ -131,7 +131,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	return
 }
 
-func (p Precompile) Run(*vm.EVM, common.Address, []byte) ([]byte, error) {
+func (p Precompile) Run(*vm.EVM, common.Address, []byte, *big.Int) ([]byte, error) {
 	panic("static gas Run is not implemented for dynamic gas precompile")
 }
 

@@ -5,15 +5,16 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
+func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason state.BalanceChangeReason) {
 	if amt.Sign() == 0 {
 		return
 	}
 	if amt.Sign() < 0 {
-		s.AddBalance(evmAddr, new(big.Int).Neg(amt))
+		s.AddBalance(evmAddr, new(big.Int).Neg(amt), reason)
 		return
 	}
 
@@ -30,12 +31,12 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Add(sdk.NewIntFromBigInt(amt))
 }
 
-func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
+func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason state.BalanceChangeReason) {
 	if amt.Sign() == 0 {
 		return
 	}
 	if amt.Sign() < 0 {
-		s.SubBalance(evmAddr, new(big.Int).Neg(amt))
+		s.SubBalance(evmAddr, new(big.Int).Neg(amt), reason)
 		return
 	}
 
@@ -59,7 +60,7 @@ func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
 }
 
 // should only be called during simulation
-func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int) {
+func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int, reason state.BalanceChangeReason) {
 	if !s.simulation {
 		panic("should never call SetBalance in a non-simulation setting")
 	}
