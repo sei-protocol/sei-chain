@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
@@ -30,4 +31,16 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	startTime := time.Now()
 	defer recordMetrics("debug_traceTransaction", startTime, true)
 	return api.tracersAPI.TraceTransaction(ctx, hash, config)
+}
+
+func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (interface{}, error) {
+	startTime := time.Now()
+	defer recordMetrics("debug_traceBlockByNumber", startTime, true)
+	return api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+}
+
+func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (interface{}, error) {
+	startTime := time.Now()
+	defer recordMetrics("debug_traceBlockByHash", startTime, true)
+	return api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 }
