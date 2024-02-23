@@ -7,16 +7,18 @@ import (
 	"fmt"
 )
 
-//go:embed CW721ERC721Wrapper.abi
-//go:embed CW721ERC721Wrapper.bin
+//go:embed CW721ERC721Pointer.abi
+//go:embed CW721ERC721Pointer.bin
+//go:embed legacy.bin
 var f embed.FS
 
 var cachedBin []byte
+var cachedLegacyBin []byte
 
 func GetABI() []byte {
-	bz, err := f.ReadFile("CW721ERC721Wrapper.abi")
+	bz, err := f.ReadFile("CW721ERC721Pointer.abi")
 	if err != nil {
-		panic("failed to read CW721ERC721Wrapper contract ABI")
+		panic("failed to read CW721ERC721Pointer contract ABI")
 	}
 	return bz
 }
@@ -25,24 +27,44 @@ func GetBin() []byte {
 	if cachedBin != nil {
 		return cachedBin
 	}
-	code, err := f.ReadFile("CW721ERC721Wrapper.bin")
+	code, err := f.ReadFile("CW721ERC721Pointer.bin")
 	if err != nil {
-		panic("failed to read CW721ERC721Wrapper contract binary")
+		panic("failed to read CW721ERC721Pointer contract binary")
 	}
 	bz, err := hex.DecodeString(string(code))
 	if err != nil {
-		panic("failed to decode CW721ERC721Wrapper contract binary")
+		panic("failed to decode CW721ERC721Pointer contract binary")
 	}
 	cachedBin = bz
 	return bz
 }
 
+func GetLegacyBin() []byte {
+	if cachedLegacyBin != nil {
+		return cachedLegacyBin
+	}
+	code, err := f.ReadFile("legacy.bin")
+	if err != nil {
+		panic("failed to read CW721ERC721Pointer legacy contract binary")
+	}
+	bz, err := hex.DecodeString(string(code))
+	if err != nil {
+		panic("failed to decode CW721ERC721Pointer legacy contract binary")
+	}
+	cachedLegacyBin = bz
+	return bz
+}
+
 func IsCodeFromBin(code []byte) bool {
-	binLen := len(GetBin())
+	return isCodeFromBin(code, GetBin()) || isCodeFromBin(code, GetLegacyBin())
+}
+
+func isCodeFromBin(code []byte, bin []byte) bool {
+	binLen := len(bin)
 	if len(code) < binLen {
 		return false
 	}
-	if !bytes.Equal(code[:binLen], GetBin()) {
+	if !bytes.Equal(code[:binLen], bin) {
 		return false
 	}
 	abi, err := Cw721MetaData.GetAbi()

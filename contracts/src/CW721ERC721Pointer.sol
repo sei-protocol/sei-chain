@@ -8,7 +8,7 @@ import {IWasmd} from "./precompiles/IWasmd.sol";
 import {IJson} from "./precompiles/IJson.sol";
 import {IAddr} from "./precompiles/IAddr.sol";
 
-contract CW721ERC721Wrapper is ERC721 {
+contract CW721ERC721Pointer is ERC721 {
 
     address constant WASMD_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001002;
     address constant JSON_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001003;

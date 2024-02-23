@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {CW721ERC721Wrapper} from "../src/CW721ERC721Wrapper.sol";
+import {CW721ERC721Pointer} from "../src/CW721ERC721Pointer.sol";
 import {IWasmd} from "../src/precompiles/IWasmd.sol";
 import {IJson} from "../src/precompiles/IJson.sol";
 import {IAddr} from "../src/precompiles/IAddr.sol";
@@ -75,18 +75,18 @@ contract MockAddr is IAddr {
     }
 }
 
-contract CW721ERC721WrapperTest is Test {
+contract CW721ERC721PointerTest is Test {
     event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
     event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
 
-    CW721ERC721Wrapper wrapper;
+    CW721ERC721Pointer pointer;
     MockWasmd mockWasmd;
     MockJson mockJson;
     MockAddr mockAddr;
 
     function setUp() public {
-        wrapper = new CW721ERC721Wrapper(MockCWContractAddress, "name", "symbol");
+        pointer = new CW721ERC721Pointer(MockCWContractAddress, "name", "symbol");
         mockWasmd = new MockWasmd();
         mockJson = new MockJson();
         mockAddr = new MockAddr();
@@ -96,11 +96,11 @@ contract CW721ERC721WrapperTest is Test {
     }
 
     function testName() public {
-        assertEq(wrapper.name(), "name");
+        assertEq(pointer.name(), "name");
     }
 
     function testSymbol() public {
-        assertEq(wrapper.symbol(), "symbol");
+        assertEq(pointer.symbol(), "symbol");
     }
 
     function testBalanceOf() public {
@@ -117,7 +117,7 @@ contract CW721ERC721WrapperTest is Test {
             abi.encodeWithSignature("extractAsBytesList(bytes,string)", bytes("{\"tokens\":[\"a\",\"b\"]}"), "tokens"),
             abi.encode(response)
         );
-        assertEq(wrapper.balanceOf(MockCallerEVMAddr), 2);
+        assertEq(pointer.balanceOf(MockCallerEVMAddr), 2);
     }
 
     function testOwnerOf() public {
@@ -131,7 +131,7 @@ contract CW721ERC721WrapperTest is Test {
             abi.encodeWithSignature("extractAsBytes(bytes,string)", bytes("{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\"}"), "owner"),
             abi.encode(bytes("sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw"))
         );
-        assertEq(wrapper.ownerOf(1), 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
+        assertEq(pointer.ownerOf(1), 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
     }
 
     function testGetApproved() public {
@@ -153,7 +153,7 @@ contract CW721ERC721WrapperTest is Test {
             abi.encode(bytes("sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe"))
         );
         vm.startPrank(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
-        assertEq(wrapper.getApproved(1), 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267);
+        assertEq(pointer.getApproved(1), 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267);
         vm.stopPrank();
     }
 
@@ -175,7 +175,7 @@ contract CW721ERC721WrapperTest is Test {
             abi.encodeWithSignature("extractAsBytes(bytes,string)", bytes("{\"spender\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}}"), "spender"),
             abi.encode(bytes("sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe"))
         );
-        assertEq(wrapper.isApprovedForAll(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267), true);
+        assertEq(pointer.isApprovedForAll(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267), true);
     }
 
     function testTransferFrom() public {
@@ -187,7 +187,7 @@ contract CW721ERC721WrapperTest is Test {
         vm.startPrank(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
         vm.expectEmit();
         emit Transfer(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, 1);
-        wrapper.transferFrom(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, 1);
+        pointer.transferFrom(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, 1);
         vm.stopPrank();
     }
 
@@ -210,7 +210,7 @@ contract CW721ERC721WrapperTest is Test {
         vm.startPrank(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
         vm.expectEmit();
         emit Approval(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, 1);
-        wrapper.approve(0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, 1);
+        pointer.approve(0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, 1);
         vm.stopPrank();
     }
 
@@ -223,7 +223,7 @@ contract CW721ERC721WrapperTest is Test {
         vm.startPrank(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
         vm.expectEmit();
         emit ApprovalForAll(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, true);
-        wrapper.setApprovalForAll(0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, true);
+        pointer.setApprovalForAll(0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, true);
         vm.stopPrank();
     }
 
@@ -236,7 +236,7 @@ contract CW721ERC721WrapperTest is Test {
         vm.startPrank(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
         vm.expectEmit();
         emit ApprovalForAll(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, 0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, false);
-        wrapper.setApprovalForAll(0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, false);
+        pointer.setApprovalForAll(0xF39fD6e51Aad88F6f4CE6AB8827279CFffb92267, false);
         vm.stopPrank();
     }
 }
