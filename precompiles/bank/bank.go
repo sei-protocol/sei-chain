@@ -139,9 +139,7 @@ func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address) error
 }
 
 func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, fmt.Errorf("`send` is not a payable function but received value %s", value)
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 4)
 	denom := args[2].(string)
 	if denom == "" {
@@ -168,9 +166,7 @@ func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}
 }
 
 func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, fmt.Errorf("`balance` is not a payable function but received value %s", value)
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 2)
 
 	addr, err := p.accAddressFromArg(ctx, args[0])
@@ -185,9 +181,7 @@ func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interfac
 }
 
 func (p Precompile) name(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, fmt.Errorf("`name` is not a payable function but received value %s", value)
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 
 	denom := args[0].(string)
@@ -199,9 +193,7 @@ func (p Precompile) name(ctx sdk.Context, method *abi.Method, args []interface{}
 }
 
 func (p Precompile) symbol(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, fmt.Errorf("`symbol` is not a payable function but received value %s", value)
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 
 	denom := args[0].(string)
@@ -213,17 +205,13 @@ func (p Precompile) symbol(ctx sdk.Context, method *abi.Method, args []interface
 }
 
 func (p Precompile) decimals(_ sdk.Context, method *abi.Method, _ []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, fmt.Errorf("`decimal` is not a payable function but received value %s", value)
-	}
+	pcommon.AssertNonPayable(value)
 	// all native tokens are integer-based
 	return method.Outputs.Pack(uint8(0))
 }
 
 func (p Precompile) totalSupply(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, fmt.Errorf("`totalSupply` is not a payable function but received value %s", value)
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 
 	denom := args[0].(string)

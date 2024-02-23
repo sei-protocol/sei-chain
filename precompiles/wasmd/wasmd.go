@@ -14,7 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
 const (
@@ -47,7 +46,7 @@ type Precompile struct {
 	QueryID       []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper) (*Precompile, error) {
+func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper, bankKeeper pcommon.BankKeeper) (*Precompile, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
 		return nil, fmt.Errorf("error loading the staking ABI %s", err)
@@ -63,6 +62,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 		wasmdKeeper:     wasmdKeeper,
 		wasmdViewKeeper: wasmdViewKeeper,
 		evmKeeper:       evmKeeper,
+		bankKeeper:      bankKeeper,
 		address:         common.HexToAddress(WasmdAddress),
 	}
 
@@ -170,18 +170,13 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		rerr = err
 		return
 	}
-	if coins.AmountOf(sdk.MustGetBaseDenom()) != sdk.ZeroInt() {
+	if !coins.AmountOf(sdk.MustGetBaseDenom()).IsZero() {
 		rerr = errors.New("deposit of usei must be done through the `value` field")
 		return
 	}
 	if value != nil {
-		usei, wei := state.SplitUseiWeiAmount(value)
-		if wei != sdk.ZeroInt() {
-			rerr = fmt.Errorf("wasmd does not accept deposit with non-zero wei remainder: received %s", value)
-			return
-		}
-		coin := sdk.NewCoin(sdk.MustGetBaseDenom(), usei)
-		if err := p.bankKeeper.SendCoins(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, sdk.NewCoins(coin)); err != nil {
+		coin, err := pcommon.HandlePayment(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, value, p.bankKeeper)
+		if err != nil {
 			rerr = err
 			return
 		}
@@ -225,18 +220,13 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		rerr = err
 		return
 	}
-	if coins.AmountOf(sdk.MustGetBaseDenom()) != sdk.ZeroInt() {
+	if !coins.AmountOf(sdk.MustGetBaseDenom()).IsZero() {
 		rerr = errors.New("deposit of usei must be done through the `value` field")
 		return
 	}
 	if value != nil {
-		usei, wei := state.SplitUseiWeiAmount(value)
-		if wei != sdk.ZeroInt() {
-			rerr = fmt.Errorf("wasmd does not accept deposit with non-zero wei remainder: received %s", value)
-			return
-		}
-		coin := sdk.NewCoin(sdk.MustGetBaseDenom(), usei)
-		if err := p.bankKeeper.SendCoins(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, sdk.NewCoins(coin)); err != nil {
+		coin, err := pcommon.HandlePayment(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, value, p.bankKeeper)
+		if err != nil {
 			rerr = err
 			return
 		}
@@ -261,10 +251,7 @@ func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{
 			return
 		}
 	}()
-	if value != nil && value != big.NewInt(0) {
-		rerr = fmt.Errorf("wasmd query is not a payable function but received %s as value", value)
-		return
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 2)
 
 	contractAddrStr := args[0].(string)

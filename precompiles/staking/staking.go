@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"errors"
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
 const (
@@ -58,13 +56,14 @@ type Precompile struct {
 	UndelegateID []byte
 }
 
-func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
 		Precompile:    pcommon.Precompile{ABI: newAbi},
 		stakingKeeper: stakingKeeper,
 		evmKeeper:     evmKeeper,
+		bankKeeper:    bankKeeper,
 		address:       common.HexToAddress(StakingAddress),
 	}
 
@@ -118,22 +117,17 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 }
 
 func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertArgsLength(args, 2)
+	pcommon.AssertArgsLength(args, 1)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	validatorBech32 := args[0].(string)
-	amount := args[1].(*big.Int) // deprecated
-	if amount != big.NewInt(0) || value == nil || value == big.NewInt(0) {
-		return nil, errors.New("use `value` field to send delegate fund instead")
+	if value == nil || value.Sign() == 0 {
+		return nil, errors.New("set `value` field to non-zero to send delegate fund")
 	}
-	usei, wei := state.SplitUseiWeiAmount(value)
-	if wei != sdk.ZeroInt() {
-		return nil, fmt.Errorf("staking does not allow delegate with non-zero wei remainder: received %s", value)
-	}
-	coin := sdk.NewCoin(sdk.MustGetBaseDenom(), usei)
-	if err := p.bankKeeper.SendCoins(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), delegator, sdk.NewCoins(coin)); err != nil {
+	coin, err := pcommon.HandlePayment(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), delegator, value, p.bankKeeper)
+	if err != nil {
 		return nil, err
 	}
-	_, err := p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgDelegate{
+	_, err = p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgDelegate{
 		DelegatorAddress: delegator.String(),
 		ValidatorAddress: validatorBech32,
 		Amount:           coin,
@@ -145,14 +139,12 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 }
 
 func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 3)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	srcValidatorBech32 := args[0].(string)
 	dstValidatorBech32 := args[1].(string)
 	amount := args[2].(*big.Int)
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("redelegate is not a payable function")
-	}
 	_, err := p.stakingKeeper.BeginRedelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgBeginRedelegate{
 		DelegatorAddress:    delegator.String(),
 		ValidatorSrcAddress: srcValidatorBech32,
@@ -166,9 +158,7 @@ func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller commo
 }
 
 func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("redelegate is not a payable function")
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 2)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	validatorBech32 := args[0].(string)

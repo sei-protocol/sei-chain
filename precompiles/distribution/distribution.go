@@ -106,9 +106,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 }
 
 func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("setWithdrawAddress is not a payable function")
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	withdrawAddr, err := p.accAddressFromArg(ctx, args[0])
@@ -123,9 +121,7 @@ func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, call
 }
 
 func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("withdrawDelegationRewards is not a payable function")
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	validator, err := sdk.ValAddressFromBech32(args[0].(string))

@@ -45,15 +45,16 @@ func GetABI() abi.ABI {
 
 type Precompile struct {
 	pcommon.Precompile
-	govKeeper pcommon.GovKeeper
-	evmKeeper pcommon.EVMKeeper
-	address   common.Address
+	govKeeper  pcommon.GovKeeper
+	evmKeeper  pcommon.EVMKeeper
+	bankKeeper pcommon.BankKeeper
+	address    common.Address
 
 	VoteID    []byte
 	DepositID []byte
 }
 
-func NewPrecompile(govKeeper pcommon.GovKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(govKeeper pcommon.GovKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
@@ -61,6 +62,7 @@ func NewPrecompile(govKeeper pcommon.GovKeeper, evmKeeper pcommon.EVMKeeper) (*P
 		govKeeper:  govKeeper,
 		evmKeeper:  evmKeeper,
 		address:    common.HexToAddress(GovAddress),
+		bankKeeper: bankKeeper,
 	}
 
 	for name, m := range newAbi.Methods {
@@ -107,9 +109,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 }
 
 func (p Precompile) vote(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("vote is not a payable function")
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 2)
 	voter := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	proposalID := args[0].(uint64)
@@ -122,14 +122,17 @@ func (p Precompile) vote(ctx sdk.Context, method *abi.Method, caller common.Addr
 }
 
 func (p Precompile) deposit(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("deposit is not a payable function")
-	}
-	pcommon.AssertArgsLength(args, 2)
+	pcommon.AssertArgsLength(args, 1)
 	depositor := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	proposalID := args[0].(uint64)
-	amount := args[1].(*big.Int)
-	res, err := p.govKeeper.AddDeposit(ctx, proposalID, depositor, sdk.NewCoins(sdk.NewCoin(p.evmKeeper.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amount))))
+	if value == nil || value.Sign() == 0 {
+		return nil, errors.New("set `value` field to non-zero to deposit fund")
+	}
+	coin, err := pcommon.HandlePayment(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), depositor, value, p.bankKeeper)
+	if err != nil {
+		return nil, err
+	}
+	res, err := p.govKeeper.AddDeposit(ctx, proposalID, depositor, sdk.NewCoins(coin))
 	if err != nil {
 		return nil, err
 	}

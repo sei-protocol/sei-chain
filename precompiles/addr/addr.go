@@ -3,7 +3,6 @@ package addr
 import (
 	"bytes"
 	"embed"
-	"errors"
 	"fmt"
 	"math/big"
 
@@ -102,18 +101,14 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte, value *big.
 }
 
 func (p Precompile) getSeiAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("getSeiAddr is not a payable function")
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 	seiAddrStr := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
 	return method.Outputs.Pack(seiAddrStr)
 }
 
 func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("getEvmAddr is not a payable function")
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 	evmAddr := p.evmKeeper.GetEVMAddressFromBech32OrDefault(ctx, args[0].(string))
 	return method.Outputs.Pack(evmAddr)

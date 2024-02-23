@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	gjson "encoding/json"
-	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -109,9 +108,7 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte, value *big.
 }
 
 func (p Precompile) extractAsBytes(_ sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("extractAsBytes is not a payable function")
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 2)
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
@@ -134,9 +131,7 @@ func (p Precompile) extractAsBytes(_ sdk.Context, method *abi.Method, args []int
 }
 
 func (p Precompile) extractAsBytesList(_ sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("extractAsBytesList is not a payable function")
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 2)
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
@@ -155,9 +150,7 @@ func (p Precompile) extractAsBytesList(_ sdk.Context, method *abi.Method, args [
 }
 
 func (p Precompile) ExtractAsUint256(_ sdk.Context, _ *abi.Method, args []interface{}, value *big.Int) (*big.Int, error) {
-	if value != nil && value != big.NewInt(0) {
-		return nil, errors.New("ExtractAsUint256 is not a payable function")
-	}
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 2)
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
