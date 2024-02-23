@@ -4,7 +4,7 @@ const { exec } = require("child_process"); // Importing exec from child_process
 const { cons } = require("fp-ts/lib/NonEmptyArray2v");
 
 // Run instructions
-// Should be run on a local chain using: `npx hardhat test --network seilocal test/CW20ERC20WrapperTest.js`
+// Should be run on a local chain using: `npx hardhat test --network seilocal test/CW20ERC20PointerTest.js`
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -27,12 +27,12 @@ const secondAnvilPk = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603
 const secondAnvilWallet = new ethers.Wallet(secondAnvilPk);
 const secondAnvilSigner = secondAnvilWallet.connect(ethers.provider);
 
-describe("CW20ERC20WrapperTest", function () {
+describe("CW20ERC20PointerTest", function () {
     let adminAddrSei;
     let contractAddress;
     let deployerAddrETH;
     let deployerAddrSEI;
-    let cW20ERC20Wrapper;
+    let cW20ERC20Pointer;
 
     before(async function () {
         // fund addresses with SEI
@@ -63,17 +63,17 @@ describe("CW20ERC20WrapperTest", function () {
         );
 
         await delay();
-        const CW20ERC20Wrapper = await ethers.getContractFactory("CW20ERC20Wrapper");
+        const CW20ERC20Pointer = await ethers.getContractFactory("CW20ERC20Pointer");
         await delay();
-        console.log("deploying cw20 erc20 wrapper...")
-        cW20ERC20Wrapper = await CW20ERC20Wrapper.deploy(contractAddress, "BTOK", "TOK");
-        await cW20ERC20Wrapper.waitForDeployment();
-        console.log("CW20ERC20Wrapper address = ", cW20ERC20Wrapper.target)
+        console.log("deploying cw20 erc20 pointer...")
+        cW20ERC20Pointer = await CW20ERC20Pointer.deploy(contractAddress, "BTOK", "TOK");
+        await cW20ERC20Pointer.waitForDeployment();
+        console.log("CW20ERC20Pointer address = ", cW20ERC20Pointer.target)
     });
 
     describe("name", function () {
         it("name should work", async function () {
-            const name = await cW20ERC20Wrapper.name();
+            const name = await cW20ERC20Pointer.name();
             console.log(`Name: ${name}`);
             expect(name).to.equal("BTOK");
         });
@@ -81,7 +81,7 @@ describe("CW20ERC20WrapperTest", function () {
 
     describe("symbol", function () {
         it("symbol should work", async function () {
-            const symbol = await cW20ERC20Wrapper.symbol();
+            const symbol = await cW20ERC20Pointer.symbol();
             console.log(`Symbol: ${symbol}`);
             expect(symbol).to.equal("TOK"); // Replace "TOK" with the expected symbol
         });
@@ -89,7 +89,7 @@ describe("CW20ERC20WrapperTest", function () {
 
     describe("decimals", function () {
         it("decimals should work", async function () {
-            const decimals = await cW20ERC20Wrapper.decimals();
+            const decimals = await cW20ERC20Pointer.decimals();
             console.log(`Decimals: ${decimals}`);
             expect(Number(decimals)).to.be.greaterThan(0);
         });
@@ -99,7 +99,7 @@ describe("CW20ERC20WrapperTest", function () {
         it("balanceOf should work", async function () {
             let addressToCheck = secondAnvilAddrETH;
             console.log(`addressToCheck: ${addressToCheck}`);
-            let secondAnvilAddrBalance = await cW20ERC20Wrapper.balanceOf(addressToCheck);
+            let secondAnvilAddrBalance = await cW20ERC20Pointer.balanceOf(addressToCheck);
             console.log(`Balance of ${addressToCheck}: ${secondAnvilAddrBalance}`); // without this line the test fails more frequently
             expect(Number(secondAnvilAddrBalance)).to.be.greaterThan(0);
         });
@@ -107,7 +107,7 @@ describe("CW20ERC20WrapperTest", function () {
 
     describe("totalSupply", function () {
         it("totalSupply should work", async function () {
-            let totalSupply = await cW20ERC20Wrapper.totalSupply();
+            let totalSupply = await cW20ERC20Pointer.totalSupply();
             console.log(`Total supply: ${totalSupply}`);
             // expect total supply to be great than 0
             expect(Number(totalSupply)).to.be.greaterThan(0);
@@ -118,7 +118,7 @@ describe("CW20ERC20WrapperTest", function () {
         it("increase allowance should work", async function () {
             let owner = deployerAddrETH; // Replace with the owner's address
             let spender = deployerAddrETH; // Replace with the spender's address
-            let allowance = await cW20ERC20Wrapper.allowance(owner, spender);
+            let allowance = await cW20ERC20Pointer.allowance(owner, spender);
             console.log(`Allowance for ${spender} from ${owner}: ${allowance}`);
             expect(Number(allowance)).to.equal(0); // Replace with the expected allowance
         });
@@ -128,9 +128,9 @@ describe("CW20ERC20WrapperTest", function () {
         it("increasing approval should work", async function () {
             let spender = secondAnvilAddrETH;
             let amount = 1000000; // Replace with the amount to approve
-            const tx = await cW20ERC20Wrapper.approve(spender, amount);
+            const tx = await cW20ERC20Pointer.approve(spender, amount);
             await tx.wait();
-            const allowance = await cW20ERC20Wrapper.allowance(deployerAddrETH, spender);
+            const allowance = await cW20ERC20Pointer.allowance(deployerAddrETH, spender);
             console.log(`Allowance for ${spender} from ${deployerAddrETH}: ${allowance}`);
             expect(Number(allowance)).to.equal(amount);
         });
@@ -140,13 +140,13 @@ describe("CW20ERC20WrapperTest", function () {
             let amount = 10; // Replace with the amount to approve
 
             // check that current allowance is greater than amount
-            const currentAllowance = await cW20ERC20Wrapper.allowance(deployerAddrETH, spender);
+            const currentAllowance = await cW20ERC20Pointer.allowance(deployerAddrETH, spender);
             expect(Number(currentAllowance)).to.be.greaterThan(amount);
 
             // decrease allowance
-            const tx = await cW20ERC20Wrapper.approve(spender, amount);
+            const tx = await cW20ERC20Pointer.approve(spender, amount);
             await tx.wait();
-            const allowance = await cW20ERC20Wrapper.allowance(deployerAddrETH, spender);
+            const allowance = await cW20ERC20Pointer.allowance(deployerAddrETH, spender);
             console.log(`Allowance for ${spender} from ${deployerAddrETH}: ${allowance}`);
             expect(Number(allowance)).to.equal(amount);
         });
@@ -158,31 +158,31 @@ describe("CW20ERC20WrapperTest", function () {
             let amount = 8; // Replace with the amount to transfer
 
             // check that balanceOf sender address has enough ERC20s to send
-            let balanceOfDeployer = await cW20ERC20Wrapper.balanceOf(deployerAddrETH);
+            let balanceOfDeployer = await cW20ERC20Pointer.balanceOf(deployerAddrETH);
             expect(Number(balanceOfDeployer)).to.be.greaterThan(amount);
             console.log("transfer: deployerAddr balance = ", balanceOfDeployer);
 
             // capture recipient balance before the transfer
-            let balanceOfRecipientBefore = await cW20ERC20Wrapper.balanceOf(recipient);
+            let balanceOfRecipientBefore = await cW20ERC20Pointer.balanceOf(recipient);
             console.log("transfer: recipient balance before = ", balanceOfRecipientBefore);
 
             // do the transfer
-            const tx = await cW20ERC20Wrapper.transfer(recipient, amount);
+            const tx = await cW20ERC20Pointer.transfer(recipient, amount);
             await tx.wait();
 
             // compare recipient balance before and after the transfer
-            let balanceOfRecipientAfter = await cW20ERC20Wrapper.balanceOf(recipient);
+            let balanceOfRecipientAfter = await cW20ERC20Pointer.balanceOf(recipient);
             let diff = balanceOfRecipientAfter - balanceOfRecipientBefore;
             expect(diff).to.equal(amount);
         });
 
         it("transfer should fail if sender has insufficient balance", async function () {
-            const balanceOfDeployer = await cW20ERC20Wrapper.balanceOf(deployerAddrETH);
+            const balanceOfDeployer = await cW20ERC20Pointer.balanceOf(deployerAddrETH);
 
             const recipient = secondAnvilAddrETH;
             const amount = balanceOfDeployer + BigInt(1); // This should be more than the sender's balance
 
-            await expect(cW20ERC20Wrapper.transfer(recipient, amount)).to.be.revertedWith("CosmWasm execute failed");
+            await expect(cW20ERC20Pointer.transfer(recipient, amount)).to.be.revertedWith("CosmWasm execute failed");
         });
     });
 
@@ -193,17 +193,17 @@ describe("CW20ERC20WrapperTest", function () {
             const recipient = thirdAnvilAddrETH;
             // check balanceOf deployer
             console.log("transferFrom: checking balanceOf deployer...")
-            const balanceOfDeployer = await cW20ERC20Wrapper.balanceOf(deployerAddrETH);
+            const balanceOfDeployer = await cW20ERC20Pointer.balanceOf(deployerAddrETH);
             expect(Number(balanceOfDeployer)).to.be.greaterThanOrEqual(amountToTransfer);
 
             // give allowance of deployer to spender (third party)
             console.log("transferFrom: doing approve...")
-            const tx = await cW20ERC20Wrapper.approve(spender, amountToTransfer);
+            const tx = await cW20ERC20Pointer.approve(spender, amountToTransfer);
             await tx.wait();
 
             // check allownce of deployer to spender
             console.log("transferFrom: checking allowance...")
-            const allowanceBefore = await cW20ERC20Wrapper.allowance(deployerAddrETH, spender);
+            const allowanceBefore = await cW20ERC20Pointer.allowance(deployerAddrETH, spender);
             expect(Number(allowanceBefore)).to.be.greaterThanOrEqual(amountToTransfer);
 
             // check that spender has gas
@@ -214,59 +214,59 @@ describe("CW20ERC20WrapperTest", function () {
 
             // capture recipient balance before transfer
             console.log("transferFrom: checking balanceOf recipient before transfer...")
-            const balanceOfRecipientBefore = await cW20ERC20Wrapper.balanceOf(recipient);
+            const balanceOfRecipientBefore = await cW20ERC20Pointer.balanceOf(recipient);
 
             // check balanceOf sender (deployerAddr) to ensure it went down
-            const balanceOfSenderBefore = await cW20ERC20Wrapper.balanceOf(deployerAddrETH);
+            const balanceOfSenderBefore = await cW20ERC20Pointer.balanceOf(deployerAddrETH);
 
             // have deployer transferFrom spender to recipient
             console.log("transferFrom: doing actual transferFrom...")
-            const tfTx = await cW20ERC20Wrapper.connect(secondAnvilSigner).transferFrom(deployerAddrETH, recipient, amountToTransfer);
+            const tfTx = await cW20ERC20Pointer.connect(secondAnvilSigner).transferFrom(deployerAddrETH, recipient, amountToTransfer);
             await tfTx.wait();
 
             // check balance diff to ensure transfer went through
             console.log("transferFrom: checking balanceOf recipient after transfer...")
-            const balanceOfRecipientAfter = await cW20ERC20Wrapper.balanceOf(recipient);
+            const balanceOfRecipientAfter = await cW20ERC20Pointer.balanceOf(recipient);
             const diff = balanceOfRecipientAfter - balanceOfRecipientBefore;
             expect(diff).to.equal(amountToTransfer);
 
             // check balanceOf sender (deployerAddr) to ensure it went down
-            const balanceOfSenderAfter = await cW20ERC20Wrapper.balanceOf(deployerAddrETH);
+            const balanceOfSenderAfter = await cW20ERC20Pointer.balanceOf(deployerAddrETH);
             const diff2 = balanceOfSenderBefore - balanceOfSenderAfter;
             expect(diff2).to.equal(amountToTransfer);
 
             // check that allowance has gone down by amountToTransfer
-            const allowanceAfter = await cW20ERC20Wrapper.allowance(deployerAddrETH, spender);
+            const allowanceAfter = await cW20ERC20Pointer.allowance(deployerAddrETH, spender);
             expect(Number(allowanceBefore) - Number(allowanceAfter)).to.equal(amountToTransfer);
         });
 
         it("transferFrom should fail if sender has insufficient balance", async function() {
-            const fromAddrBalance = await cW20ERC20Wrapper.balanceOf(deployerAddrETH);
+            const fromAddrBalance = await cW20ERC20Pointer.balanceOf(deployerAddrETH);
             const spender = secondAnvilAddrETH;
             const recipient = thirdAnvilAddrETH;
 
             // try to transfer more than the balance
             const amountToTransfer = fromAddrBalance + BigInt(1);
 
-            const tx = await cW20ERC20Wrapper.approve(spender, amountToTransfer);
+            const tx = await cW20ERC20Pointer.approve(spender, amountToTransfer);
             await tx.wait();
 
-            await expect(cW20ERC20Wrapper.connect(secondAnvilSigner).transferFrom(deployerAddrETH, recipient, amountToTransfer))
+            await expect(cW20ERC20Pointer.connect(secondAnvilSigner).transferFrom(deployerAddrETH, recipient, amountToTransfer))
                 .to.be.revertedWith("CosmWasm execute failed");
         });
 
         it("transferFrom should fail if proper allowance not given", async function () {
-            const fromAddrBalance = await cW20ERC20Wrapper.balanceOf(deployerAddrETH);
+            const fromAddrBalance = await cW20ERC20Pointer.balanceOf(deployerAddrETH);
             const spender = secondAnvilAddrETH;
             const recipient = thirdAnvilAddrETH;
 
             const amountToTransfer = 1
 
             // set approval to 0
-            const tx = await cW20ERC20Wrapper.approve(spender, 0);
+            const tx = await cW20ERC20Pointer.approve(spender, 0);
             await tx.wait();
 
-            await expect(cW20ERC20Wrapper.connect(secondAnvilSigner).transferFrom(deployerAddrETH, recipient, amountToTransfer))
+            await expect(cW20ERC20Pointer.connect(secondAnvilSigner).transferFrom(deployerAddrETH, recipient, amountToTransfer))
                 .to.be.revertedWith("CosmWasm execute failed");
         });
 
