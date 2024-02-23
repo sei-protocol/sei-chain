@@ -145,7 +145,13 @@ type Backend struct {
 }
 
 func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txDecoder sdk.TxDecoder, tmClient rpcclient.Client, config *SimulateConfig) *Backend {
-	return &Backend{ctxProvider: ctxProvider, keeper: keeper, txDecoder: txDecoder, tmClient: tmClient, config: config}
+	return &Backend{
+		ctxProvider: ctxProvider,
+		keeper:      keeper,
+		txDecoder:   txDecoder,
+		tmClient:    tmClient,
+		config:      config,
+	}
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
@@ -297,6 +303,12 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
 }
 
+func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
+	emptyRelease := func() {}
+	statedb := state.NewDBImpl(b.ctxProvider(block.Number().Int64()-1), b.keeper, true)
+	return statedb, emptyRelease, nil
+}
+
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) *vm.EVM {
 	txContext := core.NewEVMTxContext(msg)
 	context, _ := b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
@@ -341,13 +353,19 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 }
 
 func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
-	return &ethtypes.Header{
+	header := &ethtypes.Header{
 		Difficulty: common.Big0,
 		Number:     blockNumber,
 		BaseFee:    b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
 		GasLimit:   b.config.GasCap,
 		Time:       uint64(time.Now().Unix()),
 	}
+	number := blockNumber.Int64()
+	block, err := b.tmClient.Block(context.Background(), &number)
+	if err == nil {
+		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
+	}
+	return header
 }
 
 type Engine struct {
