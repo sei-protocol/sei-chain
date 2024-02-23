@@ -17,6 +17,8 @@ const (
 	DelegateMethod   = "delegate"
 	RedelegateMethod = "redelegate"
 	UndelegateMethod = "undelegate"
+	DelegationQuery  = "getDelegation"
+	StakingPoolQuery = "getStakingPool"
 )
 
 const (
@@ -49,9 +51,11 @@ type Precompile struct {
 	evmKeeper     pcommon.EVMKeeper
 	address       common.Address
 
-	DelegateID   []byte
-	RedelegateID []byte
-	UndelegateID []byte
+	DelegateID    []byte
+	RedelegateID  []byte
+	UndelegateID  []byte
+	DelegationID  []byte
+	StakingPoolID []byte
 }
 
 func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
@@ -72,7 +76,12 @@ func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKee
 			p.RedelegateID = m.ID
 		case UndelegateMethod:
 			p.UndelegateID = m.ID
+		case DelegationQuery:
+			p.DelegationID = m.ID
+		case StakingPoolQuery:
+			p.StakingPoolID = m.ID
 		}
+
 	}
 
 	return p, nil
@@ -88,6 +97,10 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 		return 70000
 	} else if bytes.Equal(methodID, p.UndelegateID) {
 		return 50000
+	} else if bytes.Equal(methodID, p.DelegationID) {
+		return 5000
+	} else if bytes.Equal(methodID, p.StakingPoolID) {
+		return 5000
 	}
 	panic("unknown method")
 }
@@ -109,6 +122,10 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 		return p.redelegate(ctx, method, caller, args)
 	case UndelegateMethod:
 		return p.undelegate(ctx, method, caller, args)
+	case DelegationQuery:
+		return p.getDelegation(ctx, method, caller, args)
+	case StakingPoolQuery:
+		return p.getStakingPool(ctx, method, caller, args)
 	}
 	return
 }
@@ -161,4 +178,25 @@ func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller commo
 		return nil, err
 	}
 	return method.Outputs.Pack(true)
+}
+
+func (p Precompile) getDelegation(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 2)
+	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+	validatorBech32 := args[0].(string)
+	delegation, err := p.stakingKeeper.Delegation(sdk.WrapSDKContext(ctx), delegator.String(), validatorBech32)
+	if err != nil {
+		return nil, err
+	}
+	return method.Outputs.Pack(delegation.DelegationResponse.Balance)
+}
+
+func (p Precompile) getStakingPool(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 1)
+	validatorBech32 := args[0].(string)
+	validator, err := p.stakingKeeper.Validator(sdk.WrapSDKContext(ctx), validatorBech32)
+	if err != nil {
+		return nil, err
+	}
+	return method.Outputs.Pack(validator.Validator.Tokens, validator.Validator.DelegatorShares)
 }
