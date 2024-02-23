@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -13,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
 const (
@@ -35,6 +37,7 @@ var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 type Precompile struct {
 	pcommon.Precompile
 	evmKeeper       pcommon.EVMKeeper
+	bankKeeper      pcommon.BankKeeper
 	wasmdKeeper     pcommon.WasmdKeeper
 	wasmdViewKeeper pcommon.WasmdViewKeeper
 	address         common.Address
@@ -105,7 +108,7 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int) (ret []byte, remainingGas uint64, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, 0, err
@@ -122,20 +125,20 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 
 	switch method.Name {
 	case InstantiateMethod:
-		return p.instantiate(ctx, method, caller, args)
+		return p.instantiate(ctx, method, caller, args, value)
 	case ExecuteMethod:
-		return p.execute(ctx, method, caller, args)
+		return p.execute(ctx, method, caller, args, value)
 	case QueryMethod:
-		return p.query(ctx, method, args)
+		return p.query(ctx, method, args, value)
 	}
 	return
 }
 
-func (p Precompile) Run(*vm.EVM, common.Address, []byte) ([]byte, error) {
+func (p Precompile) Run(*vm.EVM, common.Address, []byte, *big.Int) ([]byte, error) {
 	panic("static gas Run is not implemented for dynamic gas precompile")
 }
 
-func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -167,6 +170,24 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		rerr = err
 		return
 	}
+	if coins.AmountOf(sdk.MustGetBaseDenom()) != sdk.ZeroInt() {
+		rerr = errors.New("deposit of usei must be done through the `value` field")
+		return
+	}
+	if value != nil {
+		usei, wei := state.SplitUseiWeiAmount(value)
+		if wei != sdk.ZeroInt() {
+			rerr = fmt.Errorf("wasmd does not accept deposit with non-zero wei remainder: received %s", value)
+			return
+		}
+		coin := sdk.NewCoin(sdk.MustGetBaseDenom(), usei)
+		if err := p.bankKeeper.SendCoins(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, sdk.NewCoins(coin)); err != nil {
+			rerr = err
+			return
+		}
+		coins = coins.Add(coin)
+	}
+
 	addr, data, err := p.wasmdKeeper.Instantiate(ctx, codeID, creatorAddr, adminAddr, msg, label, coins)
 	if err != nil {
 		rerr = err
@@ -177,7 +198,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	return
 }
 
-func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -204,6 +225,23 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		rerr = err
 		return
 	}
+	if coins.AmountOf(sdk.MustGetBaseDenom()) != sdk.ZeroInt() {
+		rerr = errors.New("deposit of usei must be done through the `value` field")
+		return
+	}
+	if value != nil {
+		usei, wei := state.SplitUseiWeiAmount(value)
+		if wei != sdk.ZeroInt() {
+			rerr = fmt.Errorf("wasmd does not accept deposit with non-zero wei remainder: received %s", value)
+			return
+		}
+		coin := sdk.NewCoin(sdk.MustGetBaseDenom(), usei)
+		if err := p.bankKeeper.SendCoins(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, sdk.NewCoins(coin)); err != nil {
+			rerr = err
+			return
+		}
+		coins = coins.Add(coin)
+	}
 	res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
 	if err != nil {
 		rerr = err
@@ -214,7 +252,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 	return
 }
 
-func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -223,6 +261,10 @@ func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{
 			return
 		}
 	}()
+	if value != nil && value != big.NewInt(0) {
+		rerr = fmt.Errorf("wasmd query is not a payable function but received %s as value", value)
+		return
+	}
 	pcommon.AssertArgsLength(args, 2)
 
 	contractAddrStr := args[0].(string)
