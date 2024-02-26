@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -84,7 +85,7 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte, value *big.Int) (bz []byte, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err
@@ -92,20 +93,22 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte) (bz []byte,
 
 	switch method.Name {
 	case GetSeiAddressMethod:
-		return p.getSeiAddr(ctx, method, args)
+		return p.getSeiAddr(ctx, method, args, value)
 	case GetEvmAddressMethod:
-		return p.getEvmAddr(ctx, method, args)
+		return p.getEvmAddr(ctx, method, args, value)
 	}
 	return
 }
 
-func (p Precompile) getSeiAddr(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+func (p Precompile) getSeiAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 	seiAddrStr := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
 	return method.Outputs.Pack(seiAddrStr)
 }
 
-func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 	evmAddr := p.evmKeeper.GetEVMAddressFromBech32OrDefault(ctx, args[0].(string))
 	return method.Outputs.Pack(evmAddr)

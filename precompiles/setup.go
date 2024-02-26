@@ -37,7 +37,7 @@ func InitializePrecompiles(
 		return err
 	}
 	addPrecompileToVM(bankp, bankp.Address())
-	wasmdp, err := wasmd.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper)
+	wasmdp, err := wasmd.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)
 	if err != nil {
 		return err
 	}
@@ -52,12 +52,12 @@ func InitializePrecompiles(
 		return err
 	}
 	addPrecompileToVM(addrp, addrp.Address())
-	stakingp, err := staking.NewPrecompile(stakingKeeper, evmKeeper)
+	stakingp, err := staking.NewPrecompile(stakingKeeper, evmKeeper, bankKeeper)
 	if err != nil {
 		return err
 	}
 	addPrecompileToVM(stakingp, stakingp.Address())
-	govp, err := gov.NewPrecompile(govKeeper, evmKeeper)
+	govp, err := gov.NewPrecompile(govKeeper, evmKeeper, bankKeeper)
 	if err != nil {
 		return err
 	}

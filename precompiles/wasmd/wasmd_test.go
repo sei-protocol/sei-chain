@@ -2,6 +2,7 @@ package wasmd_test
 
 import (
 	"fmt"
+	"math/big"
 	"os"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ import (
 
 func TestRequiredGas(t *testing.T) {
 	testApp := app.Setup(false, false)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper), testApp.WasmKeeper)
+	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper), testApp.WasmKeeper, testApp.BankKeeper)
 	require.Nil(t, err)
 	require.Equal(t, uint64(2000), p.RequiredGas(p.ExecuteID))
 	require.Equal(t, uint64(2000), p.RequiredGas(p.InstantiateID))
@@ -29,7 +30,7 @@ func TestRequiredGas(t *testing.T) {
 
 func TestAddress(t *testing.T) {
 	testApp := app.Setup(false, false)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper), testApp.WasmKeeper)
+	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper), testApp.WasmKeeper, testApp.BankKeeper)
 	require.Nil(t, err)
 	require.Equal(t, "0x0000000000000000000000000000000000001002", p.Address().Hex())
 }
@@ -39,7 +40,7 @@ func TestInstantiate(t *testing.T) {
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper)
+	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
 	require.Nil(t, err)
 	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
 	require.Nil(t, err)
@@ -56,12 +57,13 @@ func TestInstantiate(t *testing.T) {
 		"test",
 		amtsbz,
 	)
+	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
 	suppliedGas := uint64(1000000)
-	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, args...), suppliedGas)
+	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, args...), suppliedGas, nil)
 	require.Nil(t, err)
 	outputs, err := instantiateMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
@@ -78,16 +80,16 @@ func TestInstantiate(t *testing.T) {
 		"test",
 		amtsbz,
 	)
-	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, args...), suppliedGas)
+	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, args...), suppliedGas, nil)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 
 	// bad inputs
 	badArgs, _ := instantiateMethod.Inputs.Pack(codeID, "not bech32", []byte("{}"), "test", amtsbz)
-	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, badArgs...), suppliedGas)
+	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, badArgs...), suppliedGas, nil)
 	require.NotNil(t, err)
 	badArgs, _ = instantiateMethod.Inputs.Pack(codeID, mockAddr.String(), []byte("{}"), "test", []byte("bad coins"))
-	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, badArgs...), suppliedGas)
+	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, badArgs...), suppliedGas, nil)
 	require.NotNil(t, err)
 }
 
@@ -97,7 +99,7 @@ func TestExecute(t *testing.T) {
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper)
+	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
 	require.Nil(t, err)
 	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
 	require.Nil(t, err)
@@ -122,40 +124,48 @@ func TestExecute(t *testing.T) {
 		StateDB: statedb,
 	}
 	suppliedGas := uint64(1000000)
-	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas)
+	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
+	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, nil)
+	require.NotNil(t, err) // used coins instead of `value` to send usei to the contract
+
+	amtsbz, err = sdk.NewCoins().MarshalJSON()
+	require.Nil(t, err)
+	args, err = executeMethod.Inputs.Pack(contractAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
+	require.Nil(t, err)
+	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000))
 	require.Nil(t, err)
 	outputs, err := executeMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(outputs))
 	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string(outputs[0].([]byte)))
-	require.Equal(t, uint64(915782), g)
+	require.Equal(t, uint64(906042), g)
+	require.Equal(t, int64(1000), testApp.BankKeeper.GetBalance(statedb.Ctx(), contractAddr, "usei").Amount.Int64())
 
 	// allowed delegatecall
-	fmt.Println(testApp.BankKeeper.GetBalance(ctx, mockAddr, "usei"))
 	contractAddrAllowed := common.BytesToAddress([]byte("contractA"))
 	testApp.EvmKeeper.SetCode(ctx, contractAddrAllowed, []byte("allowed"))
 	testApp.EvmKeeper.AddCodeHashWhitelistedForDelegateCall(ctx, testApp.EvmKeeper.GetCodeHash(ctx, contractAddrAllowed))
-	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrAllowed, append(p.ExecuteID, args...), suppliedGas)
+	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrAllowed, append(p.ExecuteID, args...), suppliedGas, nil)
 	require.Nil(t, err)
 
 	// disallowed delegatecall
 	contractAddrDisallowed := common.BytesToAddress([]byte("contractB"))
-	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.ExecuteID, args...), suppliedGas)
+	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.ExecuteID, args...), suppliedGas, nil)
 	require.NotNil(t, err)
 
 	// bad contract address
 	args, _ = executeMethod.Inputs.Pack(mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
-	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas)
+	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, nil)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 
 	// bad inputs
 	args, _ = executeMethod.Inputs.Pack("not bech32", []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
-	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas)
+	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, nil)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 	args, _ = executeMethod.Inputs.Pack(contractAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), []byte("bad coins"))
-	res, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas)
+	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, nil)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 }
@@ -165,7 +175,7 @@ func TestQuery(t *testing.T) {
 	mockAddr, _ := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
-	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper)
+	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
 	require.Nil(t, err)
 	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
 	require.Nil(t, err)
@@ -183,7 +193,7 @@ func TestQuery(t *testing.T) {
 		StateDB: statedb,
 	}
 	suppliedGas := uint64(1000000)
-	res, g, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.QueryID, args...), suppliedGas)
+	res, g, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.QueryID, args...), suppliedGas, nil)
 	require.Nil(t, err)
 	outputs, err := queryMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
@@ -193,17 +203,17 @@ func TestQuery(t *testing.T) {
 
 	// bad contract address
 	args, _ = queryMethod.Inputs.Pack(mockAddr.String(), []byte("{\"info\":{}}"))
-	res, g, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.ExecuteID, args...), suppliedGas)
+	_, g, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.ExecuteID, args...), suppliedGas, nil)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 
 	// bad input
 	args, _ = queryMethod.Inputs.Pack("not bech32", []byte("{\"info\":{}}"))
-	res, g, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.ExecuteID, args...), suppliedGas)
+	_, g, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.ExecuteID, args...), suppliedGas, nil)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 	args, _ = queryMethod.Inputs.Pack(contractAddr.String(), []byte("{\"bad\":{}}"))
-	res, g, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.ExecuteID, args...), suppliedGas)
+	_, g, err = p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.ExecuteID, args...), suppliedGas, nil)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 }
