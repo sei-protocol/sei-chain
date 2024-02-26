@@ -14,7 +14,6 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -31,7 +30,7 @@ func TestVoteDeposit(t *testing.T) {
 	abi := gov.GetABI()
 
 	// deposit
-	args, err := abi.Pack("deposit", proposal.ProposalId, big.NewInt(10000000))
+	args, err := abi.Pack("deposit", proposal.ProposalId)
 	require.Nil(t, err)
 
 	privKey := testkeeper.MockPrivateKey()
@@ -42,12 +41,12 @@ func TestVoteDeposit(t *testing.T) {
 		GasPrice: big.NewInt(1000000000000),
 		Gas:      20000000,
 		To:       &addr,
-		Value:    big.NewInt(0),
+		Value:    new(big.Int).Mul(big.NewInt(10000000), big.NewInt(1_000_000_000_000)),
 		Data:     args,
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	chainCfg := types.DefaultChainConfig()
+	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -55,7 +54,7 @@ func TestVoteDeposit(t *testing.T) {
 	require.Nil(t, err)
 	txwrapper, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
-	req, err := types.NewMsgEVMTransaction(txwrapper)
+	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
@@ -91,7 +90,7 @@ func TestVoteDeposit(t *testing.T) {
 			Nonce:    0,
 		}
 		chainID := k.ChainID(ctx)
-		chainCfg := types.DefaultChainConfig()
+		chainCfg := evmtypes.DefaultChainConfig()
 		ethCfg := chainCfg.EthereumConfig(chainID)
 		blockNum := big.NewInt(ctx.BlockHeight())
 		signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -99,7 +98,7 @@ func TestVoteDeposit(t *testing.T) {
 		require.Nil(t, err)
 		txwrapper, err := ethtx.NewLegacyTx(tx)
 		require.Nil(t, err)
-		req, err := types.NewMsgEVMTransaction(txwrapper)
+		req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 		require.Nil(t, err)
 
 		_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
