@@ -56,13 +56,22 @@ func TestRun(t *testing.T) {
 	_, err = p.Run(&evm, senderEVMAddr, append(p.SendID, args...), nil) // should error because address is not whitelisted
 	require.NotNil(t, err)
 
-	// Precompile sendNative test error (0 sent)
+	// Precompile sendNative test error
 	sendNative, err := p.ABI.MethodById(p.SendNativeID)
 	require.Nil(t, err)
 	seiAddrString := seiAddr.String()
-	argsNativeZero, err := sendNative.Inputs.Pack(seiAddrString)
+	argsNativeError, err := sendNative.Inputs.Pack(seiAddrString)
 	require.Nil(t, err)
-	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNativeZero...), big.NewInt(0))
+	// 0 amount disallowed
+	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(0))
+	require.NotNil(t, err)
+	argsNativeError, err = sendNative.Inputs.Pack("")
+	require.Nil(t, err)
+	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(100))
+	require.NotNil(t, err)
+	argsNativeError, err = sendNative.Inputs.Pack("invalidaddr")
+	require.Nil(t, err)
+	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(100))
 	require.NotNil(t, err)
 
 	// Send native 10_000_000_000_100, split into 10 usei 100wei
