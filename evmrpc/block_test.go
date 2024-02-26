@@ -95,7 +95,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0000000000000000000000000000000000010203", tx["to"])
 	require.Equal(t, "0x0", tx["transactionIndex"])
 	require.Equal(t, "0x3e8", tx["value"])
-	require.Equal(t, "0x0", tx["type"])
+	require.Equal(t, "0x2", tx["type"])
 	require.Equal(t, []interface{}{}, tx["accessList"])
 	require.Equal(t, "0xae3f3", tx["chainId"])
 	require.Equal(t, "0x0", tx["v"])
