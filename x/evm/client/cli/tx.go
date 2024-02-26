@@ -150,7 +150,7 @@ func CmdAssociateAddress() *cobra.Command {
 
 func CmdSend() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "send [to EVM address] [amount in wei] --from=<sender> --gas-fee-cap=<cap> --gas-limit=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "send [to EVM address] [amount in wei] --from=<sender> --gas-fee-cap=<cap> --gas-limit=<limit> --evm-rpc=<url>",
 		Short: "send usei to EVM address",
 		Long:  "",
 		Args:  cobra.ExactArgs(2),
@@ -209,7 +209,7 @@ type Response struct {
 
 func CmdDeployErc20() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deploy-erc20 [denom] [name] [symbol] [decimal] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "deploy-erc20 [denom] [name] [symbol] [decimal] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
 		Short: "Deploy ERC20 contract for a native Sei token",
 		Long:  "",
 		Args:  cobra.ExactArgs(4),
@@ -299,7 +299,7 @@ func CmdDeployErc20() *cobra.Command {
 
 func CmdDeployErcCw20() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deploy-erccw20 [cw20addr] [name] [symbol] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "deploy-erccw20 [cw20addr] [name] [symbol] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
 		Short: "Deploy ERC20 contract for a CW20 token",
 		Long:  "",
 		Args:  cobra.ExactArgs(3),
@@ -379,7 +379,7 @@ func CmdDeployErcCw20() *cobra.Command {
 
 func CmdDeployErcCw721() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deploy-erccw721 [cw721addr] [name] [symbol] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "deploy-erccw721 [cw721addr] [name] [symbol] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
 		Short: "Deploy ERC721 contract for a CW20 token",
 		Long:  "",
 		Args:  cobra.ExactArgs(3),
@@ -459,7 +459,7 @@ func CmdDeployErcCw721() *cobra.Command {
 
 func CmdCallContract() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "call-contract [addr] [payload hex] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "call-contract [addr] [payload hex] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
 		Short: "Call EVM contract with a bytes payload in hex",
 		Long:  "",
 		Args:  cobra.ExactArgs(2),
@@ -513,7 +513,7 @@ func CmdCallContract() *cobra.Command {
 
 func CmdERC20Send() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "erc20-send [addr] [recipient] [amount] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "erc20-send [addr] [recipient] [amount] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
 		Short: "send recipient <amount> (in smallest unit) ERC20 tokens",
 		Long:  "",
 		Args:  cobra.ExactArgs(3),
@@ -576,7 +576,7 @@ func CmdERC20Send() *cobra.Command {
 
 func CmdDelegate() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delegate [val-addr] [amount] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "delegate [val-addr] [amount] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
 		Short: "delegate recipient <amount>usei",
 		Long:  "",
 		Args:  cobra.ExactArgs(2),
