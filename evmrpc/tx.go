@@ -50,7 +50,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		return nil, err
 	}
 	height := int64(receipt.BlockNumber)
-	block, err := blockWithRetry(ctx, t.tmClient, &height)
+	block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockWithRetry(ctx, t.tmClient, blockNumber)
+	block, err := blockByNumberWithRetry(ctx, t.tmClient, blockNumber, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getTransactionByBlockHashAndIndex", startTime, returnErr == nil)
-	block, err := blockByHashWithRetry(ctx, t.tmClient, blockHash[:])
+	block, err := blockByHash(ctx, t.tmClient, blockHash[:])
 	if err != nil {
 		return nil, err
 	}
