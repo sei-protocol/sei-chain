@@ -39,7 +39,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockWithRetry(ctx, a.tmClient, numberPtr)
+	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockTransactionCountByHash", startTime, returnErr == nil)
-	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:])
+	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockByHash", startTime, returnErr == nil)
-	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:])
+	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockWithRetry(ctx, a.tmClient, numberPtr)
+	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber)
 		return nil, err
 	}
 	// Get the block by height
-	block, err := blockWithRetry(ctx, a.tmClient, heightPtr)
+	block, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
 	if err != nil {
 		return nil, err
 	}

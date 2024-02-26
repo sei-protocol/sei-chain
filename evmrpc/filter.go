@@ -272,7 +272,7 @@ type LogFetcher struct {
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
 	if crit.BlockHash != nil {
-		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:])
+		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -293,7 +293,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	res := []*ethtypes.Log{}
 	for _, height := range blockHeights {
 		h := height
-		block, err := blockWithRetry(ctx, f.tmClient, &h)
+		block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
 		if err != nil {
 			return nil, 0, err
 		}
