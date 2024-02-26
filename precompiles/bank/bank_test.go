@@ -65,7 +65,7 @@ func TestRun(t *testing.T) {
 	is, err := balance.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(is))
-	require.Equal(t, big.NewInt(10000000000000), is[0].(*big.Int))
+	require.Equal(t, big.NewInt(10), is[0].(*big.Int))
 	res, err = p.Run(&evm, common.Address{}, append(p.BalanceID, args[:1]...))
 	require.NotNil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "")

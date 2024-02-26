@@ -217,11 +217,7 @@ func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interfac
 		return nil, errors.New("invalid denom")
 	}
 
-	usei := p.bankKeeper.GetBalance(ctx, addr, denom).Amount
-	wei := p.bankKeeper.GetWeiBalance(ctx, addr)
-	balance := usei.Mul(sdk.NewIntFromBigInt(state.UseiToSweiMultiplier)).Add(wei).BigInt()
-
-	return method.Outputs.Pack(balance)
+	return method.Outputs.Pack(p.bankKeeper.GetBalance(ctx, addr, denom).Amount.BigInt())
 }
 
 func (p Precompile) name(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {

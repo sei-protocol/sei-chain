@@ -112,5 +112,5 @@ func TestStaticCall(t *testing.T) {
 	decoded, err := abi.Unpack("balanceOf", res)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(decoded))
-	require.Equal(t, big.NewInt(int64(2000000000000000)), decoded[0].(*big.Int))
+	require.Equal(t, big.NewInt(int64(2000)), decoded[0].(*big.Int))
 }
