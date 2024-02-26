@@ -225,19 +225,21 @@ func blockResultsWithRetry(ctx context.Context, client rpcclient.Client, height 
 }
 
 func blockByNumber(ctx context.Context, client rpcclient.Client, height *int64) (*coretypes.ResultBlock, error) {
-	return blockWithRetry(ctx, client, height, 0)
+	return blockByNumberWithRetry(ctx, client, height, 0)
 }
 
-func blockWithRetry(ctx context.Context, client rpcclient.Client, height *int64, retryAttempts int) (*coretypes.ResultBlock, error) {
+func blockByNumberWithRetry(ctx context.Context, client rpcclient.Client, height *int64, maxRetries int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.Block(ctx, height)
-	if err != nil {
+	var retryCount = 0
+	for err != nil && retryCount < maxRetries {
 		// retry once, since application DB and block DB are not committed atomically so it's possible for
 		// receipt to exist while block results aren't committed yet
 		time.Sleep(1 * time.Second)
 		blockRes, err = client.Block(ctx, height)
-		if err != nil {
-			return nil, err
-		}
+		retryCount++
+	}
+	if err != nil {
+		return nil, err
 	}
 	if blockRes.Block == nil {
 		return nil, fmt.Errorf("could not find block for height %d", height)
@@ -249,16 +251,18 @@ func blockByHash(ctx context.Context, client rpcclient.Client, hash bytes.HexByt
 	return blockByHashWithRetry(ctx, client, hash, 0)
 }
 
-func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes, retryAttempts int) (*coretypes.ResultBlock, error) {
+func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes, maxRetries int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.BlockByHash(ctx, hash)
-	if err != nil {
+	var retryCount = 0
+	for err != nil && retryCount < maxRetries {
 		// retry once, since application DB and block DB are not committed atomically so it's possible for
 		// receipt to exist while block results aren't committed yet
 		time.Sleep(1 * time.Second)
 		blockRes, err = client.BlockByHash(ctx, hash)
-		if err != nil {
-			return nil, err
-		}
+		retryCount++
+	}
+	if err != nil {
+		return nil, err
 	}
 	if blockRes.Block == nil {
 		return nil, fmt.Errorf("could not find block for hash %s", hash.String())

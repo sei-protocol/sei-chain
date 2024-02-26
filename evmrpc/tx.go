@@ -50,7 +50,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		return nil, err
 	}
 	height := int64(receipt.BlockNumber)
-	block, err := blockByNumber(ctx, t.tmClient, &height)
+	block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumber(ctx, t.tmClient, blockNumber)
+	block, err := blockByNumberWithRetry(ctx, t.tmClient, blockNumber, 1)
 	if err != nil {
 		return nil, err
 	}
