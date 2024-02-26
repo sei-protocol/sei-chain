@@ -20,7 +20,6 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
@@ -39,7 +38,8 @@ func TestStaking(t *testing.T) {
 
 	// delegate
 	abi := staking.GetABI()
-	args, err := abi.Pack("delegate", val.String(), big.NewInt(100))
+	args, err := abi.Pack("delegate", val.String())
+	require.Nil(t, err)
 
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
@@ -49,12 +49,12 @@ func TestStaking(t *testing.T) {
 		GasPrice: big.NewInt(1000000000000),
 		Gas:      20000000,
 		To:       &addr,
-		Value:    big.NewInt(0),
+		Value:    big.NewInt(100_000_000_000_000),
 		Data:     args,
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	chainCfg := types.DefaultChainConfig()
+	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -62,7 +62,7 @@ func TestStaking(t *testing.T) {
 	require.Nil(t, err)
 	txwrapper, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
-	req, err := types.NewMsgEVMTransaction(txwrapper)
+	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
@@ -96,7 +96,7 @@ func TestStaking(t *testing.T) {
 	require.Nil(t, err)
 	txwrapper, err = ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
-	req, err = types.NewMsgEVMTransaction(txwrapper)
+	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
 	ante.Preprocess(ctx, req)
@@ -123,7 +123,7 @@ func TestStaking(t *testing.T) {
 	require.Nil(t, err)
 	txwrapper, err = ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
-	req, err = types.NewMsgEVMTransaction(txwrapper)
+	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
 	ante.Preprocess(ctx, req)
@@ -147,6 +147,7 @@ func TestStakingError(t *testing.T) {
 
 	abi := staking.GetABI()
 	args, err := abi.Pack("undelegate", val.String(), big.NewInt(100))
+	require.Nil(t, err)
 
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
@@ -161,7 +162,7 @@ func TestStakingError(t *testing.T) {
 		Nonce:    0,
 	}
 	chainID := k.ChainID(ctx)
-	chainCfg := types.DefaultChainConfig()
+	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
@@ -169,7 +170,7 @@ func TestStakingError(t *testing.T) {
 	require.Nil(t, err)
 	txwrapper, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
-	req, err := types.NewMsgEVMTransaction(txwrapper)
+	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
@@ -199,7 +200,7 @@ func TestStakingError(t *testing.T) {
 	require.Nil(t, err)
 	txwrapper, err = ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
-	req, err = types.NewMsgEVMTransaction(txwrapper)
+	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
 	ante.Preprocess(ctx, req)
