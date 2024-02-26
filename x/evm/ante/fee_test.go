@@ -2,6 +2,7 @@ package ante_test
 
 import (
 	"encoding/hex"
+	"math"
 	"math/big"
 	"testing"
 
@@ -177,6 +178,7 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 	_1gwei := big.NewInt(100000000000)
 	_1_1gwei := big.NewInt(1100000000000)
 	_2gwei := big.NewInt(200000000000)
+	maxInt := big.NewInt(math.MaxInt64)
 
 	scenarios := []struct {
 		name             string
@@ -227,6 +229,15 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 				Value:     big.NewInt(1000000000),
 			},
 			expectedPriority: big.NewInt(9999999999999),
+		},
+		{
+			name: "DynamicFeeTx test overflow",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: new(big.Int).Add(maxInt, big.NewInt(1)),
+				GasTipCap: new(big.Int).Add(maxInt, big.NewInt(1)),
+				Value:     big.NewInt(1000000000),
+			},
+			expectedPriority: maxInt,
 		},
 		{
 			name: "LegacyTx has priority with gas price",
