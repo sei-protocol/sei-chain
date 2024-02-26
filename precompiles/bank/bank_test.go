@@ -73,6 +73,10 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(100))
 	require.NotNil(t, err)
+	argsNativeError, err = sendNative.Inputs.Pack(senderAddr.String())
+	require.Nil(t, err)
+	_, err = p.Run(&evm, evmAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(100))
+	require.NotNil(t, err)
 
 	// Send native 10_000_000_000_100, split into 10 usei 100wei
 	// Test payable with eth LegacyTx
