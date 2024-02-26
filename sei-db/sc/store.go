@@ -70,14 +70,17 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 
 func (cs *CommitStore) LoadVersion(targetVersion int64, createNew bool) (types.Committer, error) {
 	db, err := memiavl.OpenDB(cs.logger, targetVersion, cs.opts)
+	opt := cs.opts
 	if err != nil {
 		return nil, err
 	}
 	if createNew {
+		// we need to set readonly to true since we create new db only for read
+		opt.ReadOnly = true
 		return &CommitStore{
 			logger: cs.logger,
 			db:     db,
-			opts:   cs.opts,
+			opts:   opt,
 		}, nil
 	}
 	cs.db = db
