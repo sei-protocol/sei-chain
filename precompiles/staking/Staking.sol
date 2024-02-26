@@ -10,9 +10,8 @@ IStaking constant STAKING_CONTRACT = IStaking(
 interface IStaking {
     // Transactions
     function delegate(
-        string memory valAddress,
-        uint256 amount
-    ) external returns (bool success);
+        string memory valAddress
+    ) payable external returns (bool success);
 
     function redelegate(
         string memory srcAddress,

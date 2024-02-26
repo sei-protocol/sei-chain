@@ -15,7 +15,6 @@ interface IGov {
     ) external returns (bool success);
 
     function deposit(
-        uint64 proposalID,
-        uint256 amount
-    ) external returns (bool success);
+        uint64 proposalID
+    ) payable external returns (bool success);
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"errors"
+	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -89,7 +90,7 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value *big.Int) (bz []byte, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err
@@ -97,14 +98,15 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 
 	switch method.Name {
 	case SetWithdrawAddressMethod:
-		return p.setWithdrawAddress(ctx, method, caller, args)
+		return p.setWithdrawAddress(ctx, method, caller, args, value)
 	case WithdrawDelegationRewardsMethod:
-		return p.withdrawDelegationRewards(ctx, method, caller, args)
+		return p.withdrawDelegationRewards(ctx, method, caller, args, value)
 	}
 	return
 }
 
-func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	withdrawAddr, err := p.accAddressFromArg(ctx, args[0])
@@ -118,7 +120,8 @@ func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, call
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	validator, err := sdk.ValAddressFromBech32(args[0].(string))
