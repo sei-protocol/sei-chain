@@ -104,7 +104,7 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value *big.Int) (bz []byte, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err
@@ -115,17 +115,17 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 		if err := p.validateCaller(ctx, caller); err != nil {
 			return nil, err
 		}
-		return p.send(ctx, method, args)
+		return p.send(ctx, method, args, value)
 	case BalanceMethod:
-		return p.balance(ctx, method, args)
+		return p.balance(ctx, method, args, value)
 	case NameMethod:
-		return p.name(ctx, method, args)
+		return p.name(ctx, method, args, value)
 	case SymbolMethod:
-		return p.symbol(ctx, method, args)
+		return p.symbol(ctx, method, args, value)
 	case DecimalsMethod:
-		return p.decimals(ctx, method, args)
+		return p.decimals(ctx, method, args, value)
 	case SupplyMethod:
-		return p.totalSupply(ctx, method, args)
+		return p.totalSupply(ctx, method, args, value)
 	}
 	return
 }
@@ -138,7 +138,8 @@ func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address) error
 	return fmt.Errorf("caller %s with code hash %s is not whitelisted for arbirary bank send", caller.Hex(), codeHash.Hex())
 }
 
-func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 4)
 	denom := args[2].(string)
 	if denom == "" {
@@ -164,7 +165,8 @@ func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 2)
 
 	addr, err := p.accAddressFromArg(ctx, args[0])
@@ -178,7 +180,8 @@ func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interfac
 	return method.Outputs.Pack(p.bankKeeper.GetBalance(ctx, addr, denom).Amount.BigInt())
 }
 
-func (p Precompile) name(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+func (p Precompile) name(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 
 	denom := args[0].(string)
@@ -189,7 +192,8 @@ func (p Precompile) name(ctx sdk.Context, method *abi.Method, args []interface{}
 	return method.Outputs.Pack(metadata.Name)
 }
 
-func (p Precompile) symbol(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+func (p Precompile) symbol(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 
 	denom := args[0].(string)
@@ -200,12 +204,14 @@ func (p Precompile) symbol(ctx sdk.Context, method *abi.Method, args []interface
 	return method.Outputs.Pack(metadata.Symbol)
 }
 
-func (p Precompile) decimals(_ sdk.Context, method *abi.Method, _ []interface{}) ([]byte, error) {
+func (p Precompile) decimals(_ sdk.Context, method *abi.Method, _ []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	// all native tokens are integer-based
 	return method.Outputs.Pack(uint8(0))
 }
 
-func (p Precompile) totalSupply(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
+func (p Precompile) totalSupply(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
 
 	denom := args[0].(string)
