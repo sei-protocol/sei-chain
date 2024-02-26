@@ -173,7 +173,7 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 		return nil, common.Hash{}, 0, 0, err
 	}
 	txHeight := int64(receipt.BlockNumber)
-	block, err := b.tmClient.Block(ctx, &txHeight)
+	block, err := blockWithRetry(ctx, b.tmClient, &txHeight)
 	if err != nil {
 		return nil, common.Hash{}, 0, 0, err
 	}
@@ -194,8 +194,8 @@ func (b *Backend) ChainDb() ethdb.Database {
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
-	bnn := bn.Int64()
-	tmBlock, err := b.tmClient.Block(ctx, &bnn)
+	blockNum := bn.Int64()
+	tmBlock, err := blockWithRetry(ctx, b.tmClient, &blockNum)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +339,7 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 			currentHeight := b.ctxProvider(LatestCtxHeight).BlockHeight()
 			blockNumber = &currentHeight
 		}
-		block, err = b.tmClient.Block(ctx, blockNumber)
+		block, err = blockWithRetry(ctx, b.tmClient, blockNumber)
 	} else {
 		block, err = blockByHashWithRetry(ctx, b.tmClient, blockNrOrHash.BlockHash[:])
 	}
@@ -358,7 +358,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		Time:       uint64(time.Now().Unix()),
 	}
 	number := blockNumber.Int64()
-	block, err := b.tmClient.Block(context.Background(), &number)
+	block, err := blockWithRetry(context.Background(), b.tmClient, &number)
 	if err == nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
 	}

@@ -235,6 +235,9 @@ func blockWithRetry(ctx context.Context, client rpcclient.Client, height *int64)
 			return nil, err
 		}
 	}
+	if blockRes.Block == nil {
+		return nil, fmt.Errorf("could not find block for height %d", height)
+	}
 	return blockRes, err
 }
 
