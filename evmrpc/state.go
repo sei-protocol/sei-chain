@@ -113,7 +113,7 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 		}
 		block, err = a.tmClient.Block(ctx, blockNumber)
 	} else {
-		block, err = a.tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
+		block, err = blockByHashWithRetry(ctx, a.tmClient, blockNrOrHash.BlockHash[:])
 	}
 	if err != nil {
 		return nil, err

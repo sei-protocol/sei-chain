@@ -229,12 +229,9 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 }
 
 func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
-	tmBlock, err := b.tmClient.BlockByHash(ctx, hash.Bytes())
+	tmBlock, err := blockByHashWithRetry(ctx, b.tmClient, hash.Bytes())
 	if err != nil {
 		return nil, err
-	}
-	if tmBlock.Block == nil {
-		panic("tmBlock.Block is nil")
 	}
 	blockNumber := rpc.BlockNumber(tmBlock.Block.Height)
 	return b.BlockByNumber(ctx, blockNumber)
@@ -344,7 +341,7 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 		}
 		block, err = b.tmClient.Block(ctx, blockNumber)
 	} else {
-		block, err = b.tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
+		block, err = blockByHashWithRetry(ctx, b.tmClient, blockNrOrHash.BlockHash[:])
 	}
 	if err != nil {
 		return 0, err

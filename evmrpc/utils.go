@@ -138,7 +138,7 @@ func hydratePendingTransaction(
 
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
-		res, err := tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
+		res, err := blockByHashWithRetry(ctx, tmClient, blockNrOrHash.BlockHash[:])
 		if err != nil {
 			return nil, err
 		}
@@ -241,6 +241,7 @@ func blockWithRetry(ctx context.Context, client rpcclient.Client, height *int64)
 func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.BlockByHash(ctx, hash)
 	if err != nil {
+		fmt.Printf("[Debug] Error getting block by hash:%v\n", err)
 		// retry once, since application DB and block DB are not committed atomically so it's possible for
 		// receipt to exist while block results aren't committed yet
 		time.Sleep(1 * time.Second)
@@ -248,6 +249,9 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 		if err != nil {
 			return nil, err
 		}
+	}
+	if blockRes.Block == nil {
+		return nil, fmt.Errorf("could not find block for hash %s", hash.String())
 	}
 	return blockRes, err
 }
