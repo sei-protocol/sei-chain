@@ -127,7 +127,7 @@ func NewTxMempool(
 		timestampIndex: NewWrappedTxList(func(wtx1, wtx2 *WrappedTx) bool {
 			return wtx1.timestamp.After(wtx2.timestamp) || wtx1.timestamp.Equal(wtx2.timestamp)
 		}),
-		pendingTxs:          NewPendingTxs(),
+		pendingTxs:          NewPendingTxs(cfg),
 		failedCheckTxCounts: map[types.NodeID]uint64{},
 		peerManager:         peerManager,
 	}
@@ -340,7 +340,9 @@ func (txmp *TxMempool) CheckTx(
 				return err
 			}
 			atomic.AddInt64(&txmp.pendingSizeBytes, int64(wtx.Size()))
-			txmp.pendingTxs.Insert(wtx, res, txInfo)
+			if err := txmp.pendingTxs.Insert(wtx, res, txInfo); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -362,7 +364,7 @@ func (txmp *TxMempool) RemoveTxByKey(txKey types.TxKey) error {
 
 	// remove the committed transaction from the transaction store and indexes
 	if wtx := txmp.txStore.GetTxByHash(txKey); wtx != nil {
-		txmp.removeTx(wtx, false)
+		txmp.removeTx(wtx, false, true)
 		return nil
 	}
 
@@ -401,7 +403,7 @@ func (txmp *TxMempool) Flush() {
 	txmp.timestampIndex.Reset()
 
 	for _, wtx := range txmp.txStore.GetAllTxs() {
-		txmp.removeTx(wtx, false)
+		txmp.removeTx(wtx, false, false)
 	}
 
 	atomic.SwapInt64(&txmp.sizeBytes, 0)
@@ -513,7 +515,7 @@ func (txmp *TxMempool) Update(
 
 		// remove the committed transaction from the transaction store and indexes
 		if wtx := txmp.txStore.GetTxByHash(tx.Key()); wtx != nil {
-			txmp.removeTx(wtx, false)
+			txmp.removeTx(wtx, false, false)
 		}
 	}
 
@@ -634,7 +636,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		// - The transaction, toEvict, can be removed while a concurrent
 		//   reCheckTx callback is being executed for the same transaction.
 		for _, toEvict := range evictTxs {
-			txmp.removeTx(toEvict, true)
+			txmp.removeTx(toEvict, true, true)
 			txmp.logger.Debug(
 				"evicted existing good transaction; mempool full",
 				"old_tx", fmt.Sprintf("%X", toEvict.tx.Hash()),
@@ -745,7 +747,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 				panic("corrupted reCheckTx cursor")
 			}
 
-			txmp.removeTx(wtx, !txmp.config.KeepInvalidTxsInCache)
+			txmp.removeTx(wtx, !txmp.config.KeepInvalidTxsInCache, true)
 		}
 	}
 
@@ -871,13 +873,13 @@ func (txmp *TxMempool) insertTx(wtx *WrappedTx) bool {
 	return true
 }
 
-func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool) {
+func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReenqueue bool) {
 	if txmp.txStore.IsTxRemoved(wtx.hash) {
 		return
 	}
 
 	txmp.txStore.RemoveTx(wtx)
-	txmp.priorityIndex.RemoveTx(wtx)
+	toBeReenqueued := txmp.priorityIndex.RemoveTx(wtx, shouldReenqueue)
 	txmp.heightIndex.Remove(wtx)
 	txmp.timestampIndex.Remove(wtx)
 
@@ -889,6 +891,20 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool) {
 	atomic.AddInt64(&txmp.sizeBytes, int64(-wtx.Size()))
 
 	wtx.removeHandler(removeFromCache)
+
+	if shouldReenqueue {
+		for _, reenqueue := range toBeReenqueued {
+			txmp.removeTx(reenqueue, removeFromCache, false)
+		}
+		for _, reenqueue := range toBeReenqueued {
+			rtx := reenqueue.tx
+			go func() {
+				if err := txmp.CheckTx(context.Background(), rtx, nil, TxInfo{}); err != nil {
+					txmp.logger.Error(fmt.Sprintf("failed to reenqueue transaction %X due to %s", rtx.Hash(), err))
+				}
+			}()
+		}
+	}
 }
 
 func (txmp *TxMempool) expire(blockHeight int64, wtx *WrappedTx) {
@@ -967,7 +983,7 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 	}
 
 	// remove pending txs that have expired
-	txmp.pendingTxs.PurgeExpired(txmp.config.PendingTTLNumBlocks, blockHeight, txmp.config.PendingTTLDuration, now, func(wtx *WrappedTx) {
+	txmp.pendingTxs.PurgeExpired(blockHeight, now, func(wtx *WrappedTx) {
 		atomic.AddInt64(&txmp.pendingSizeBytes, int64(-wtx.Size()))
 		txmp.expire(blockHeight, wtx)
 	})

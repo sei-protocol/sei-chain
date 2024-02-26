@@ -331,7 +331,7 @@ func TestTxPriorityQueue_RemoveTxEvm(t *testing.T) {
 	pq.PushTx(tx1)
 	pq.PushTx(tx2)
 
-	pq.RemoveTx(tx1)
+	pq.RemoveTx(tx1, false)
 
 	result := pq.PopTx()
 	require.Equal(t, tx2, result)
@@ -360,14 +360,14 @@ func TestTxPriorityQueue_RemoveTx(t *testing.T) {
 	max := values[len(values)-1]
 
 	wtx := pq.txs[pq.NumTxs()/2]
-	pq.RemoveTx(wtx)
+	pq.RemoveTx(wtx, false)
 	require.Equal(t, numTxs-1, pq.NumTxs())
 	require.Equal(t, int64(max), pq.PopTx().priority)
 	require.Equal(t, numTxs-2, pq.NumTxs())
 
 	require.NotPanics(t, func() {
-		pq.RemoveTx(&WrappedTx{heapIndex: numTxs})
-		pq.RemoveTx(&WrappedTx{heapIndex: numTxs + 1})
+		pq.RemoveTx(&WrappedTx{heapIndex: numTxs}, false)
+		pq.RemoveTx(&WrappedTx{heapIndex: numTxs + 1}, false)
 	})
 	require.Equal(t, numTxs-2, pq.NumTxs())
 }

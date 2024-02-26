@@ -60,8 +60,11 @@ func (pq *TxPriorityQueue) GetEvictableTxs(priority, txSize, totalSize, cap int6
 	pq.mtx.RLock()
 	defer pq.mtx.RUnlock()
 
-	txs := make([]*WrappedTx, len(pq.txs))
-	copy(txs, pq.txs)
+	txs := []*WrappedTx{}
+	txs = append(txs, pq.txs...)
+	for _, queue := range pq.evmQueue {
+		txs = append(txs, queue[1:]...)
+	}
 
 	sort.Slice(txs, func(i, j int) bool {
 		return txs[i].priority < txs[j].priority
@@ -111,7 +114,7 @@ func (pq *TxPriorityQueue) NumTxs() int {
 	return len(pq.txs) + pq.numQueuedUnsafe()
 }
 
-func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) {
+func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) (removedIdx int) {
 	if queue, ok := pq.evmQueue[tx.evmAddress]; ok {
 		for i, t := range queue {
 			if t.tx.Key() == tx.tx.Key() {
@@ -119,10 +122,11 @@ func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) {
 				if len(pq.evmQueue[tx.evmAddress]) == 0 {
 					delete(pq.evmQueue, tx.evmAddress)
 				}
-				break
+				return i
 			}
 		}
 	}
+	return -1
 }
 
 func (pq *TxPriorityQueue) findTxIndexUnsafe(tx *WrappedTx) (int, bool) {
@@ -135,21 +139,27 @@ func (pq *TxPriorityQueue) findTxIndexUnsafe(tx *WrappedTx) (int, bool) {
 }
 
 // RemoveTx removes a specific transaction from the priority queue.
-func (pq *TxPriorityQueue) RemoveTx(tx *WrappedTx) {
+func (pq *TxPriorityQueue) RemoveTx(tx *WrappedTx, shouldReenqueue bool) (toBeReenqueued []*WrappedTx) {
 	pq.mtx.Lock()
 	defer pq.mtx.Unlock()
+
+	var removedIdx int
 
 	if idx, ok := pq.findTxIndexUnsafe(tx); ok {
 		heap.Remove(pq, idx)
 		if tx.isEVM {
-			pq.removeQueuedEvmTxUnsafe(tx)
-			if len(pq.evmQueue[tx.evmAddress]) > 0 {
+			removedIdx = pq.removeQueuedEvmTxUnsafe(tx)
+			if !shouldReenqueue && len(pq.evmQueue[tx.evmAddress]) > 0 {
 				heap.Push(pq, pq.evmQueue[tx.evmAddress][0])
 			}
 		}
 	} else if tx.isEVM {
-		pq.removeQueuedEvmTxUnsafe(tx)
+		removedIdx = pq.removeQueuedEvmTxUnsafe(tx)
 	}
+	if tx.isEVM && shouldReenqueue && len(pq.evmQueue[tx.evmAddress]) > 0 && removedIdx >= 0 {
+		toBeReenqueued = pq.evmQueue[tx.evmAddress][removedIdx:]
+	}
+	return
 }
 
 func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {

@@ -409,7 +409,7 @@ pending-size = {{ .Mempool.PendingSize }}
 
 max-pending-txs-bytes = {{ .Mempool.MaxPendingTxsBytes }}
 
-pending-ttl-duration = {{ .Mempool.PendingTTLDuration }}
+pending-ttl-duration = "{{ .Mempool.PendingTTLDuration }}"
 
 pending-ttl-num-blocks = {{ .Mempool.PendingTTLNumBlocks }}
 

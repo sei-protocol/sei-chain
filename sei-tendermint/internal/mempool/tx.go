@@ -1,11 +1,13 @@
 package mempool
 
 import (
+	"errors"
 	"sort"
 	"sync"
 	"time"
 
 	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/libs/clist"
 	"github.com/tendermint/tendermint/types"
 )
@@ -308,8 +310,10 @@ func (wtl *WrappedTxList) Remove(wtx *WrappedTx) {
 }
 
 type PendingTxs struct {
-	mtx *sync.RWMutex
-	txs []TxWithResponse
+	mtx       *sync.RWMutex
+	txs       []TxWithResponse
+	config    *config.MempoolConfig
+	sizeBytes uint64
 }
 
 type TxWithResponse struct {
@@ -318,10 +322,12 @@ type TxWithResponse struct {
 	txInfo          TxInfo
 }
 
-func NewPendingTxs() *PendingTxs {
+func NewPendingTxs(conf *config.MempoolConfig) *PendingTxs {
 	return &PendingTxs{
-		mtx: &sync.RWMutex{},
-		txs: []TxWithResponse{},
+		mtx:       &sync.RWMutex{},
+		txs:       []TxWithResponse{},
+		config:    conf,
+		sizeBytes: 0,
 	}
 }
 func (p *PendingTxs) EvaluatePendingTransactions() (
@@ -359,6 +365,7 @@ func (p *PendingTxs) popTxsAtIndices(indices []int) {
 		if idx >= len(p.txs) {
 			panic("indices popped from pending tx store out of range")
 		}
+		p.sizeBytes -= uint64(p.txs[idx].tx.Size())
 		newTxs = append(newTxs, p.txs[start:idx]...)
 		start = idx + 1
 	}
@@ -366,14 +373,21 @@ func (p *PendingTxs) popTxsAtIndices(indices []int) {
 	p.txs = newTxs
 }
 
-func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, txInfo TxInfo) {
+func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, txInfo TxInfo) error {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
+
+	if len(p.txs) >= p.config.PendingSize && uint64(tx.Size())+p.sizeBytes > uint64(p.config.MaxPendingTxsBytes) {
+		return errors.New("pending store is full")
+	}
+
 	p.txs = append(p.txs, TxWithResponse{
 		tx:              tx,
 		checkTxResponse: resCheckTx,
 		txInfo:          txInfo,
 	})
+	p.sizeBytes += uint64(tx.Size())
+	return nil
 }
 
 func (p *PendingTxs) Peek(max int) []TxWithResponse {
@@ -392,7 +406,7 @@ func (p *PendingTxs) Size() int {
 	return len(p.txs)
 }
 
-func (p *PendingTxs) PurgeExpired(ttlNumBlock int64, blockHeight int64, ttlDuration time.Duration, now time.Time, cb func(wtx *WrappedTx)) {
+func (p *PendingTxs) PurgeExpired(blockHeight int64, now time.Time, cb func(wtx *WrappedTx)) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -401,15 +415,16 @@ func (p *PendingTxs) PurgeExpired(ttlNumBlock int64, blockHeight int64, ttlDurat
 	}
 
 	// txs retains the ordering of insertion
-	if ttlNumBlock > 0 {
+	if p.config.TTLNumBlocks > 0 {
 		idxFirstNotExpiredTx := len(p.txs)
 		for i, ptx := range p.txs {
 			// once found, we can break because these are ordered
-			if (blockHeight - ptx.tx.height) <= ttlNumBlock {
+			if (blockHeight - ptx.tx.height) <= p.config.TTLNumBlocks {
 				idxFirstNotExpiredTx = i
 				break
 			} else {
 				cb(ptx.tx)
+				p.sizeBytes -= uint64(ptx.tx.Size())
 			}
 		}
 		p.txs = p.txs[idxFirstNotExpiredTx:]
@@ -419,15 +434,16 @@ func (p *PendingTxs) PurgeExpired(ttlNumBlock int64, blockHeight int64, ttlDurat
 		return
 	}
 
-	if ttlDuration > 0 {
+	if p.config.TTLDuration > 0 {
 		idxFirstNotExpiredTx := len(p.txs)
 		for i, ptx := range p.txs {
 			// once found, we can break because these are ordered
-			if now.Sub(ptx.tx.timestamp) <= ttlDuration {
+			if now.Sub(ptx.tx.timestamp) <= p.config.TTLDuration {
 				idxFirstNotExpiredTx = i
 				break
 			} else {
 				cb(ptx.tx)
+				p.sizeBytes -= uint64(ptx.tx.Size())
 			}
 		}
 		p.txs = p.txs[idxFirstNotExpiredTx:]

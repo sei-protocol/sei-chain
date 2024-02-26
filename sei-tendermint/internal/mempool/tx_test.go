@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -231,7 +232,7 @@ func TestWrappedTxList_Remove(t *testing.T) {
 }
 
 func TestPendingTxsPopTxsGood(t *testing.T) {
-	pendingTxs := NewPendingTxs()
+	pendingTxs := NewPendingTxs(config.TestMempoolConfig())
 	for _, test := range []struct {
 		origLen    int
 		popIndices []int
@@ -281,7 +282,9 @@ func TestPendingTxsPopTxsGood(t *testing.T) {
 	} {
 		pendingTxs.txs = []TxWithResponse{}
 		for i := 0; i < test.origLen; i++ {
-			pendingTxs.txs = append(pendingTxs.txs, TxWithResponse{txInfo: TxInfo{SenderID: uint16(i)}})
+			pendingTxs.txs = append(pendingTxs.txs, TxWithResponse{
+				tx:     &WrappedTx{tx: []byte{}},
+				txInfo: TxInfo{SenderID: uint16(i)}})
 		}
 		pendingTxs.popTxsAtIndices(test.popIndices)
 		require.Equal(t, len(test.expected), len(pendingTxs.txs))
@@ -292,7 +295,7 @@ func TestPendingTxsPopTxsGood(t *testing.T) {
 }
 
 func TestPendingTxsPopTxsBad(t *testing.T) {
-	pendingTxs := NewPendingTxs()
+	pendingTxs := NewPendingTxs(config.TestMempoolConfig())
 	// out of range
 	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{0}) })
 	// out of order

@@ -29,6 +29,8 @@ import (
 // transaction priority based on the value in the key/value pair.
 type application struct {
 	*kvstore.Application
+
+	occupiedNonces map[string][]uint64
 }
 
 type testTx struct {
@@ -37,6 +39,7 @@ type testTx struct {
 }
 
 func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
+
 	var (
 		priority int64
 		sender   string
@@ -57,7 +60,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*a
 				GasWanted: 1,
 			}}, nil
 		}
-		nonce, err := strconv.ParseInt(string(parts[3]), 10, 64)
+		nonce, err := strconv.ParseUint(string(parts[3]), 10, 64)
 		if err != nil {
 			// could not parse
 			return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
@@ -66,15 +69,50 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*a
 				GasWanted: 1,
 			}}, nil
 		}
+		if app.occupiedNonces == nil {
+			app.occupiedNonces = make(map[string][]uint64)
+		}
+		if _, exists := app.occupiedNonces[account]; !exists {
+			app.occupiedNonces[account] = []uint64{}
+		}
+		active := true
+		for i := uint64(0); i < nonce; i++ {
+			found := false
+			for _, occ := range app.occupiedNonces[account] {
+				if occ == i {
+					found = true
+					break
+				}
+			}
+			if !found {
+				active = false
+				break
+			}
+		}
+		app.occupiedNonces[account] = append(app.occupiedNonces[account], nonce)
 		return &abci.ResponseCheckTxV2{
 			ResponseCheckTx: &abci.ResponseCheckTx{
 				Priority:  v,
 				Code:      code.CodeTypeOK,
 				GasWanted: 1,
 			},
-			EVMNonce:         uint64(nonce),
-			EVMSenderAddress: account,
-			IsEVM:            true,
+			EVMNonce:             nonce,
+			EVMSenderAddress:     account,
+			IsEVM:                true,
+			IsPendingTransaction: !active,
+			Checker:              func() abci.PendingTxCheckerResponse { return abci.Pending },
+			ExpireTxHandler: func() {
+				idx := -1
+				for i, n := range app.occupiedNonces[account] {
+					if n == nonce {
+						idx = i
+						break
+					}
+				}
+				if idx >= 0 {
+					app.occupiedNonces[account] = append(app.occupiedNonces[account][:idx], app.occupiedNonces[account][idx+1:]...)
+				}
+			},
 		}, nil
 	}
 
@@ -501,11 +539,13 @@ func TestTxMempool_Prioritization(t *testing.T) {
 	txs := [][]byte{
 		[]byte(fmt.Sprintf("sender-0-1=peer=%d", 9)),
 		[]byte(fmt.Sprintf("sender-1-1=peer=%d", 8)),
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 7, 0)),
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 9, 1)),
 		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 6, 0)),
 		[]byte(fmt.Sprintf("sender-2-1=peer=%d", 5)),
 		[]byte(fmt.Sprintf("sender-3-1=peer=%d", 4)),
+	}
+	evmTxs := [][]byte{
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 7, 0)),
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 9, 1)),
 	}
 
 	// copy the slice of txs and shuffle the order randomly
@@ -515,6 +555,16 @@ func TestTxMempool_Prioritization(t *testing.T) {
 	rng.Shuffle(len(txsCopy), func(i, j int) {
 		txsCopy[i], txsCopy[j] = txsCopy[j], txsCopy[i]
 	})
+	txs = [][]byte{
+		[]byte(fmt.Sprintf("sender-0-1=peer=%d", 9)),
+		[]byte(fmt.Sprintf("sender-1-1=peer=%d", 8)),
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 7, 0)),
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 9, 1)),
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 6, 0)),
+		[]byte(fmt.Sprintf("sender-2-1=peer=%d", 5)),
+		[]byte(fmt.Sprintf("sender-3-1=peer=%d", 4)),
+	}
+	txsCopy = append(txsCopy, evmTxs...)
 
 	for i := range txsCopy {
 		require.NoError(t, txmp.CheckTx(ctx, txsCopy[i], nil, TxInfo{SenderID: peerID}))
@@ -533,6 +583,71 @@ func TestTxMempool_Prioritization(t *testing.T) {
 	for i, reapedTx := range reapedTxs {
 		require.Equal(t, txs[i], []byte(reapedTx))
 	}
+}
+
+func TestTxMempool_PendingStoreSize(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Wait)
+
+	txmp := setup(t, client, 100)
+	txmp.config.PendingSize = 1
+	peerID := uint16(1)
+
+	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+
+	require.NoError(t, txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 1)), nil, TxInfo{SenderID: peerID}))
+	err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 2)), nil, TxInfo{SenderID: peerID})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "mempool pending set is full")
+}
+
+func TestTxMempool_EVMEviction(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Wait)
+
+	txmp := setup(t, client, 100)
+	txmp.config.Size = 1
+	peerID := uint16(1)
+
+	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+	address2 := "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+
+	require.NoError(t, txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 0)), nil, TxInfo{SenderID: peerID}))
+	// this should evict the previous tx
+	require.NoError(t, txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 2, 0)), nil, TxInfo{SenderID: peerID}))
+	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
+	require.Equal(t, int64(2), txmp.priorityIndex.txs[0].priority)
+
+	txmp.config.Size = 2
+	require.NoError(t, txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 3, 1)), nil, TxInfo{SenderID: peerID}))
+	require.Equal(t, 0, txmp.pendingTxs.Size())
+	require.Equal(t, 2, txmp.priorityIndex.NumTxs())
+	// this would evict the tx with priority 2 and cause the tx with priority 3 to go pending
+	require.NoError(t, txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 4, 0)), nil, TxInfo{SenderID: peerID}))
+	time.Sleep(1 * time.Second) // reenqueue is async
+	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
+	tx := txmp.priorityIndex.txs[0]
+	require.Equal(t, 1, txmp.pendingTxs.Size())
+
+	require.NoError(t, txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 5, 1)), nil, TxInfo{SenderID: peerID}))
+	require.Equal(t, 2, txmp.priorityIndex.NumTxs())
+	txmp.removeTx(tx, true, false)
+	// should not reenqueue
+	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
+	time.Sleep(1 * time.Second) // pendingTxs should still be one even after sleeping for a sec
+	require.Equal(t, 1, txmp.pendingTxs.Size())
 }
 
 func TestTxMempool_CheckTxSamePeer(t *testing.T) {
