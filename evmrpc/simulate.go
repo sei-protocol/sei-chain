@@ -173,7 +173,7 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 		return nil, common.Hash{}, 0, 0, err
 	}
 	txHeight := int64(receipt.BlockNumber)
-	block, err := b.tmClient.Block(ctx, &txHeight)
+	block, err := blockByNumber(ctx, b.tmClient, &txHeight)
 	if err != nil {
 		return nil, common.Hash{}, 0, 0, err
 	}
@@ -194,8 +194,8 @@ func (b *Backend) ChainDb() ethdb.Database {
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
-	bnn := bn.Int64()
-	tmBlock, err := b.tmClient.Block(ctx, &bnn)
+	blockNum := bn.Int64()
+	tmBlock, err := blockByNumber(ctx, b.tmClient, &blockNum)
 	if err != nil {
 		return nil, err
 	}
@@ -229,12 +229,9 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 }
 
 func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
-	tmBlock, err := b.tmClient.BlockByHash(ctx, hash.Bytes())
+	tmBlock, err := blockByHash(ctx, b.tmClient, hash.Bytes())
 	if err != nil {
 		return nil, err
-	}
-	if tmBlock.Block == nil {
-		panic("tmBlock.Block is nil")
 	}
 	blockNumber := rpc.BlockNumber(tmBlock.Block.Height)
 	return b.BlockByNumber(ctx, blockNumber)
@@ -342,9 +339,9 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 			currentHeight := b.ctxProvider(LatestCtxHeight).BlockHeight()
 			blockNumber = &currentHeight
 		}
-		block, err = b.tmClient.Block(ctx, blockNumber)
+		block, err = blockByNumber(ctx, b.tmClient, blockNumber)
 	} else {
-		block, err = b.tmClient.BlockByHash(ctx, blockNrOrHash.BlockHash[:])
+		block, err = blockByHash(ctx, b.tmClient, blockNrOrHash.BlockHash[:])
 	}
 	if err != nil {
 		return 0, err
@@ -361,7 +358,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		Time:       uint64(time.Now().Unix()),
 	}
 	number := blockNumber.Int64()
-	block, err := b.tmClient.Block(context.Background(), &number)
+	block, err := blockByNumber(context.Background(), b.tmClient, &number)
 	if err == nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
 	}
