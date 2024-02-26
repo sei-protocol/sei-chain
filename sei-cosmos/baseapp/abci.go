@@ -130,6 +130,7 @@ func (app *BaseApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.Resp
 		AppVersion:       app.appVersion,
 		LastBlockHeight:  lastCommitID.Version,
 		LastBlockAppHash: lastCommitID.Hash,
+		MinimumGasPrices: app.minGasPrices.String(),
 	}, nil
 }
 
