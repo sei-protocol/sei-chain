@@ -3,6 +3,7 @@ package staking
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -47,6 +48,7 @@ type Precompile struct {
 	pcommon.Precompile
 	stakingKeeper pcommon.StakingKeeper
 	evmKeeper     pcommon.EVMKeeper
+	bankKeeper    pcommon.BankKeeper
 	address       common.Address
 
 	DelegateID   []byte
@@ -54,13 +56,14 @@ type Precompile struct {
 	UndelegateID []byte
 }
 
-func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
 		Precompile:    pcommon.Precompile{ABI: newAbi},
 		stakingKeeper: stakingKeeper,
 		evmKeeper:     evmKeeper,
+		bankKeeper:    bankKeeper,
 		address:       common.HexToAddress(StakingAddress),
 	}
 
@@ -96,7 +99,7 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value *big.Int) (bz []byte, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err
@@ -104,24 +107,30 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 
 	switch method.Name {
 	case DelegateMethod:
-		return p.delegate(ctx, method, caller, args)
+		return p.delegate(ctx, method, caller, args, value)
 	case RedelegateMethod:
-		return p.redelegate(ctx, method, caller, args)
+		return p.redelegate(ctx, method, caller, args, value)
 	case UndelegateMethod:
-		return p.undelegate(ctx, method, caller, args)
+		return p.undelegate(ctx, method, caller, args, value)
 	}
 	return
 }
 
-func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
-	pcommon.AssertArgsLength(args, 2)
+func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 1)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	validatorBech32 := args[0].(string)
-	amount := args[1].(*big.Int)
-	_, err := p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgDelegate{
+	if value == nil || value.Sign() == 0 {
+		return nil, errors.New("set `value` field to non-zero to send delegate fund")
+	}
+	coin, err := pcommon.HandlePayment(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), delegator, value, p.bankKeeper)
+	if err != nil {
+		return nil, err
+	}
+	_, err = p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgDelegate{
 		DelegatorAddress: delegator.String(),
 		ValidatorAddress: validatorBech32,
-		Amount:           sdk.NewCoin(p.evmKeeper.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amount)),
+		Amount:           coin,
 	})
 	if err != nil {
 		return nil, err
@@ -129,7 +138,8 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 3)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	srcValidatorBech32 := args[0].(string)
@@ -139,7 +149,7 @@ func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller commo
 		DelegatorAddress:    delegator.String(),
 		ValidatorSrcAddress: srcValidatorBech32,
 		ValidatorDstAddress: dstValidatorBech32,
-		Amount:              sdk.NewCoin(p.evmKeeper.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amount)),
+		Amount:              sdk.NewCoin(sdk.MustGetBaseDenom(), sdk.NewIntFromBigInt(amount)),
 	})
 	if err != nil {
 		return nil, err
@@ -147,7 +157,8 @@ func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller commo
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 2)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	validatorBech32 := args[0].(string)
