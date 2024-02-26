@@ -143,7 +143,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 		}
 		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(baseFee))
 		height := blockNum
-		block, err := i.tmClient.Block(ctx, &height)
+		block, err := blockByNumber(ctx, i.tmClient, &height)
 		if err != nil {
 			// block pruned from tendermint store. Skipping
 			continue
