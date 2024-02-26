@@ -121,7 +121,7 @@ func TestGetTransaction(t *testing.T) {
 		require.Equal(t, "0x0000000000000000000000000000000000010203", resObj["to"].(string))
 		require.Equal(t, "0x0", resObj["transactionIndex"].(string))
 		require.Equal(t, "0x3e8", resObj["value"].(string))
-		require.Equal(t, "0x0", resObj["type"].(string))
+		require.Equal(t, "0x2", resObj["type"].(string))
 		require.Equal(t, 0, len(resObj["accessList"].([]interface{})))
 		require.Equal(t, "0xae3f3", resObj["chainId"].(string))
 		require.Equal(t, "0x0", resObj["v"].(string))
@@ -148,6 +148,7 @@ func TestGetPendingTransactionByHash(t *testing.T) {
 	resObj := sendRequestGood(t, "getTransactionByHash", "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e")
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x1", result["nonce"])
+	require.Equal(t, "0x2", result["type"].(string))
 }
 
 func TestGetTransactionCount(t *testing.T) {
