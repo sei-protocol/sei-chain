@@ -138,7 +138,7 @@ func hydratePendingTransaction(
 
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
-		res, err := blockByHashWithRetry(ctx, tmClient, blockNrOrHash.BlockHash[:])
+		res, err := blockByHash(ctx, tmClient, blockNrOrHash.BlockHash[:])
 		if err != nil {
 			return nil, err
 		}
@@ -224,7 +224,11 @@ func blockResultsWithRetry(ctx context.Context, client rpcclient.Client, height 
 	return blockRes, err
 }
 
-func blockWithRetry(ctx context.Context, client rpcclient.Client, height *int64) (*coretypes.ResultBlock, error) {
+func blockByNumber(ctx context.Context, client rpcclient.Client, height *int64) (*coretypes.ResultBlock, error) {
+	return blockWithRetry(ctx, client, height, 0)
+}
+
+func blockWithRetry(ctx context.Context, client rpcclient.Client, height *int64, retryAttempts int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.Block(ctx, height)
 	if err != nil {
 		// retry once, since application DB and block DB are not committed atomically so it's possible for
@@ -241,7 +245,11 @@ func blockWithRetry(ctx context.Context, client rpcclient.Client, height *int64)
 	return blockRes, err
 }
 
-func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
+func blockByHash(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
+	return blockByHashWithRetry(ctx, client, hash, 0)
+}
+
+func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes, retryAttempts int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.BlockByHash(ctx, hash)
 	if err != nil {
 		// retry once, since application DB and block DB are not committed atomically so it's possible for

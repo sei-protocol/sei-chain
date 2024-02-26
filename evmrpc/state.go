@@ -111,9 +111,9 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 		if blockNumErr != nil {
 			return nil, blockNumErr
 		}
-		block, err = blockWithRetry(ctx, a.tmClient, blockNumber)
+		block, err = blockByNumber(ctx, a.tmClient, blockNumber)
 	} else {
-		block, err = blockByHashWithRetry(ctx, a.tmClient, blockNrOrHash.BlockHash[:])
+		block, err = blockByHash(ctx, a.tmClient, blockNrOrHash.BlockHash[:])
 	}
 	if err != nil {
 		return nil, err
