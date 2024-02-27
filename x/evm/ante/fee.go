@@ -1,6 +1,7 @@
 package ante
 
 import (
+	"math"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -82,8 +83,10 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 
 // CalculatePriority returns a priority based on the effective gas price of the transaction
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
-	// base fee does not go to validator, so zero is passed here to avoid having it influence priority
 	gp := txData.EffectiveGasPrice(big.NewInt(0))
-	nativeGasPrice := new(big.Int).Quo(gp, state.UseiToSweiMultiplier)
-	return new(big.Int).Quo(nativeGasPrice, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
+	priority := new(big.Int).Quo(gp, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
+	if priority.Cmp(big.NewInt(math.MaxInt64)) > 0 {
+		priority = big.NewInt(math.MaxInt64)
+	}
+	return priority
 }
