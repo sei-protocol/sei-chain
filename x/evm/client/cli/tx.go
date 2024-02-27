@@ -218,7 +218,7 @@ type Response struct {
 
 func CmdDeployContract() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deploy-contract <abi> <bin> [<constructor_input_hex>] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-chain-id=<chain-id> --evm-rpc=<url>",
+		Use:   "deploy-contract <abi> <bin> [<constructor_input_hex>] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
 		Short: "Deploy a contract (does not work with constructor arguments)",
 		Long:  "",
 		Args:  cobra.RangeArgs(2, 3),
