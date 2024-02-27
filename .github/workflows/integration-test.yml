@@ -5,9 +5,13 @@ name: Docker Integration Test
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+      - seiv2
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+      - seiv2
 
 defaults:
   run:
