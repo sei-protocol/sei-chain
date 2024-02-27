@@ -62,7 +62,7 @@ func AssertNonPayable(value *big.Int) {
 	}
 }
 
-func HandlePayment(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper) (sdk.Coin, error) {
+func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper) (sdk.Coin, error) {
 	usei, wei := state.SplitUseiWeiAmount(value)
 	if !wei.IsZero() {
 		return sdk.Coin{}, fmt.Errorf("selected precompile function does not allow payment with non-zero wei remainder: received %s", value)
@@ -73,4 +73,13 @@ func HandlePayment(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.Acc
 		return sdk.Coin{}, err
 	}
 	return coin, nil
+}
+
+func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper) (sdk.Int, sdk.Int, error) {
+	usei, wei := state.SplitUseiWeiAmount(value)
+	// refund payer because the following precompile logic will debit the payments from payer's account
+	if err := bankKeeper.SendCoinsAndWei(ctx, precompileAddr, payer, usei, wei); err != nil {
+		return sdk.Int{}, sdk.Int{}, err
+	}
+	return usei, wei, nil
 }
