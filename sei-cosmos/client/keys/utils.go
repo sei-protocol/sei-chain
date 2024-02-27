@@ -25,6 +25,10 @@ func printKeyInfo(w io.Writer, keyInfo cryptokeyring.Info, bechKeyOut bechKeyOut
 	if err != nil {
 		panic(err)
 	}
+	ko, err = cryptokeyring.PopulateEvmAddrIfApplicable(keyInfo, ko)
+	if err != nil {
+		panic(err)
+	}
 
 	switch output {
 	case OutputFormatText:
