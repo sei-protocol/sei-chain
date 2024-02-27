@@ -16,6 +16,10 @@ interface IBank {
         uint256 amount
     ) external returns (bool success);
 
+    function sendNative(
+        string memory toNativeAddress,
+    ) payable external returns (bool success);
+
     // Queries
     function balance(
         address acc,

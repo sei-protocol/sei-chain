@@ -175,7 +175,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		return
 	}
 	if value != nil {
-		coin, err := pcommon.HandlePayment(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, value, p.bankKeeper)
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, value, p.bankKeeper)
 		if err != nil {
 			rerr = err
 			return
@@ -225,7 +225,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		return
 	}
 	if value != nil {
-		coin, err := pcommon.HandlePayment(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, value, p.bankKeeper)
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, value, p.bankKeeper)
 		if err != nil {
 			rerr = err
 			return
