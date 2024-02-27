@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc721"
 
 	"math/big"
 	"math/rand"
@@ -78,6 +79,8 @@ func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transacti
 		return txClient.GenerateSendFundsTx()
 	case ERC20:
 		return txClient.GenerateERC20TransferTx()
+	case ERC721:
+		return txClient.GenerateERC721Mint()
 	default:
 		panic("invalid message type")
 	}
@@ -113,6 +116,22 @@ func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
 		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
 	}
 	tx, err := token.Transfer(opts, txClient.accountAddress, randomValue())
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 transfer: %v \n", err))
+	}
+	return tx
+}
+
+func (txClient *EvmTxClient) GenerateERC721Mint() *ethtypes.Transaction {
+	opts := txClient.getTransactOpts()
+	// override gas limit for an ERC20 transfer
+	opts.GasLimit = uint64(100000)
+	tokenAddress := txClient.evmAddresses.ERC721
+	token, err := erc721.NewErc721(tokenAddress, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC721 contract: %v \n", err))
+	}
+	tx, err := token.Mint(opts, txClient.accountAddress, randomValue())
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create ERC20 transfer: %v \n", err))
 	}
