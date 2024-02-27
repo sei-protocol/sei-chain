@@ -2,6 +2,7 @@ package ante_test
 
 import (
 	"encoding/hex"
+	"math"
 	"math/big"
 	"testing"
 
@@ -174,6 +175,11 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	decorator := ante.NewEVMFeeCheckDecorator(k)
 
+	_1gwei := big.NewInt(100000000000)
+	_1_1gwei := big.NewInt(1100000000000)
+	_2gwei := big.NewInt(200000000000)
+	maxInt := big.NewInt(math.MaxInt64)
+
 	scenarios := []struct {
 		name             string
 		txData           ethtypes.TxData
@@ -182,29 +188,38 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 		{
 			name: "DynamicFeeTx with tip",
 			txData: &ethtypes.DynamicFeeTx{
-				GasFeeCap: big.NewInt(10000000000000),
-				GasTipCap: big.NewInt(10000000000000),
-				Value:     big.NewInt(1000000000000000),
+				GasFeeCap: _1gwei,
+				GasTipCap: _1gwei,
+				Value:     _1gwei,
 			},
-			expectedPriority: big.NewInt(10),
+			expectedPriority: _1gwei,
+		},
+		{
+			name: "DynamicFeeTx with higher gas fee cap and gas tip cap",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: _1_1gwei,
+				GasTipCap: _1_1gwei,
+				Value:     _1gwei,
+			},
+			expectedPriority: _1_1gwei,
 		},
 		{
 			name: "DynamicFeeTx value does not change priority",
 			txData: &ethtypes.DynamicFeeTx{
-				GasFeeCap: big.NewInt(10000000000000),
-				GasTipCap: big.NewInt(10000000000000),
-				Value:     big.NewInt(1),
+				GasFeeCap: _1gwei,
+				GasTipCap: _1gwei,
+				Value:     _2gwei,
 			},
-			expectedPriority: big.NewInt(10),
+			expectedPriority: _1gwei,
 		},
 		{
 			name: "DynamicFeeTx with no tip",
 			txData: &ethtypes.DynamicFeeTx{
-				GasFeeCap: big.NewInt(10000000000000),
+				GasFeeCap: _1gwei,
 				GasTipCap: big.NewInt(0),
-				Value:     big.NewInt(1000000000000000),
+				Value:     _1gwei,
 			},
-			expectedPriority: big.NewInt(0),
+			expectedPriority: big.NewInt(0), // if you don't tip, you get lowest priority
 		},
 		{
 			name: "DynamicFeeTx with a non-multiple of 10 tip",
@@ -213,21 +228,30 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 				GasTipCap: big.NewInt(9999999999999),
 				Value:     big.NewInt(1000000000),
 			},
-			expectedPriority: big.NewInt(9),
+			expectedPriority: big.NewInt(9999999999999),
+		},
+		{
+			name: "DynamicFeeTx test overflow",
+			txData: &ethtypes.DynamicFeeTx{
+				GasFeeCap: new(big.Int).Add(maxInt, big.NewInt(1)),
+				GasTipCap: new(big.Int).Add(maxInt, big.NewInt(1)),
+				Value:     big.NewInt(1000000000),
+			},
+			expectedPriority: maxInt,
 		},
 		{
 			name: "LegacyTx has priority with gas price",
 			txData: &ethtypes.LegacyTx{
-				GasPrice: big.NewInt(10000000000000),
-				Value:    big.NewInt(1000000000000000),
+				GasPrice: _1gwei,
+				Value:    _1gwei,
 			},
-			expectedPriority: big.NewInt(10),
+			expectedPriority: _1gwei,
 		},
 		{
 			name: "LegacyTx has zero priority with zero gas price",
 			txData: &ethtypes.LegacyTx{
 				GasPrice: big.NewInt(0),
-				Value:    big.NewInt(1000000000000000),
+				Value:    _1gwei,
 			},
 			expectedPriority: big.NewInt(0),
 		},
@@ -237,7 +261,7 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 				GasPrice: big.NewInt(9999999999999),
 				Value:    big.NewInt(1000000000000000),
 			},
-			expectedPriority: big.NewInt(9),
+			expectedPriority: big.NewInt(9999999999999),
 		},
 	}
 
