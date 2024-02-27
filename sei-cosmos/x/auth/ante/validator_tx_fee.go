@@ -8,6 +8,8 @@ import (
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 )
 
+var BaseDenomGasPriceAmplfier = sdk.NewInt(1_000_000_000_000)
+
 // checkTxFeeWithValidatorMinGasPrices implements the default fee logic, where the minimum price per
 // unit of gas is fixed and set by each validator, can the tx priority is computed from the gas price.
 func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bool, paramsKeeper paramskeeper.Keeper) (sdk.Coins, int64, error) {
@@ -46,7 +48,7 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 	// realistically, if the gas limit IS set to 0, the tx will run out of gas anyways.
 	priority := int64(0)
 	if gas > 0 {
-		priority = getTxPriority(feeCoins, int64(gas))
+		priority = GetTxPriority(feeCoins, int64(gas))
 	}
 	return feeCoins, priority, nil
 }
@@ -55,15 +57,23 @@ func GetMinimumGasPricesWantedSorted(globalMinimumGasPrices, validatorMinimumGas
 	return globalMinimumGasPrices.UnionMax(validatorMinimumGasPrices).Sort()
 }
 
-// getTxPriority returns a naive tx priority based on the amount of the smallest denomination of the gas price
+// GetTxPriority returns a naive tx priority based on the amount of the smallest denomination of the gas price
 // provided in a transaction.
+// If base denom is used as fee, the calculated gas price will be amplified by 10^12 to capture higher precision
+// in priority differences.
 // NOTE: This implementation should be used with a great consideration as it opens potential attack vectors
 // where txs with multiple coins could not be prioritize as expected.
-func getTxPriority(fee sdk.Coins, gas int64) int64 {
+func GetTxPriority(fee sdk.Coins, gas int64) int64 {
 	var priority int64
+	baseDenom, err := sdk.GetBaseDenom()
 	for _, c := range fee {
 		p := int64(math.MaxInt64)
-		gasPrice := c.Amount.QuoRaw(gas)
+		var gasPrice sdk.Int
+		if err == nil && baseDenom == c.Denom {
+			gasPrice = c.Amount.Mul(BaseDenomGasPriceAmplfier).QuoRaw(gas)
+		} else {
+			gasPrice = c.Amount.QuoRaw(gas)
+		}
 		if gasPrice.IsInt64() {
 			p = gasPrice.Int64()
 		}

@@ -79,3 +79,22 @@ func TestGetMinimumGasWanted(t *testing.T) {
 
 	require.True(t, expectedMinGasWanted.IsEqual(minGasWanted))
 }
+
+func TestGetTxPriority(t *testing.T) {
+	sdk.RegisterDenom("test", sdk.NewDecWithPrec(1, 6))
+	require.Equal(
+		t,
+		int64(0),
+		ante.GetTxPriority(sdk.NewCoins(), 1000),
+	)
+	require.Equal(
+		t,
+		int64(1_000_000_000),
+		ante.GetTxPriority(sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(1))), 1000),
+	)
+	require.Equal(
+		t,
+		int64(0),
+		ante.GetTxPriority(sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(1))), 10_000_000_000_000), // gas too large
+	)
+}
