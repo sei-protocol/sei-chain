@@ -68,7 +68,7 @@ func GetTxCmd() *cobra.Command {
 
 func CmdAssociateAddress() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "associate-address [optional priv key hex] --rpc=<url> --from=<sender>",
+		Use:   "associate-address [optional priv key hex] --evm-rpc=<url> --from=<sender>",
 		Short: "associate EVM and Sei address for the sender",
 		Long:  "",
 		Args:  cobra.MaximumNArgs(1),
