@@ -1,0 +1,15 @@
+{
+  "title": "Gov Param Change",
+  "description": "Update quorum to 0.45",
+  "changes": [
+    {
+      "subspace": "gov",
+      "key": "tallyparams",
+      "value": {
+        "quorum":"0.45"
+      }
+    }
+  ],
+  "deposit": "10000000usei",
+  "is_expedited": false
+}
