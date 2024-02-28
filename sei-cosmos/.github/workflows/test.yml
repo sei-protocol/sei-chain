@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - occ-main # TODO: remove after occ work is done
+      - seiv2
 
 permissions:
   contents: read
