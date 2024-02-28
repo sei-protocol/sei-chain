@@ -90,8 +90,8 @@ func TestStaticCall(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	testAddr, senderEvmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, testAddr, senderEvmAddr)
-	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
-	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))))
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(2000)))
+	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(2000)))))
 	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, testAddr, amt))
 	req := &types.MsgInternalEVMCall{
 		Sender: testAddr.String(),
@@ -102,8 +102,8 @@ func TestStaticCall(t *testing.T) {
 	contractAddr := crypto.CreateAddress(senderEvmAddr, 0)
 	require.NotEmpty(t, k.GetCode(ctx, contractAddr))
 	require.Equal(t, ret.Data, k.GetCode(ctx, contractAddr))
-	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(200000000)))))
-	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, testAddr, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(200000000)))))
+	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(2000)))))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, testAddr, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(2000)))))
 
 	args, err = abi.Pack("balanceOf", senderEvmAddr)
 	require.Nil(t, err)
@@ -112,5 +112,5 @@ func TestStaticCall(t *testing.T) {
 	decoded, err := abi.Unpack("balanceOf", res)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(decoded))
-	require.Equal(t, big.NewInt(200000000), decoded[0].(*big.Int))
+	require.Equal(t, big.NewInt(int64(2000)), decoded[0].(*big.Int))
 }
