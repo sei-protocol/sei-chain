@@ -6,6 +6,7 @@ on:
       - "**.go"
     branches:
       - main
+      - seiv2
       - release/**
 
 jobs:
