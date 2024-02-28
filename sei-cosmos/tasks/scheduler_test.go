@@ -227,7 +227,7 @@ func TestProcessAll(t *testing.T) {
 			runs:      1,
 			addStores: true,
 			requests:  requestList(2000),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx) (response types.ResponseDeliverTx) {
+			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) types.ResponseDeliverTx {
 				defer abortRecoveryFunc(&response)
 				if ctx.TxIndex()%10 != 0 {
 					return types.ResponseDeliverTx{
