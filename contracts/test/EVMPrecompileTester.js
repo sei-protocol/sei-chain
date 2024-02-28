@@ -81,6 +81,8 @@ describe("EVM Test", function () {
         describe("EVM Gov Precompile Tester", function () {
             let govProposal;
             const setupScriptPath = './test/send_gov_deposit.sh';
+            // TODO: Import this
+            const GovPrecompileContract = '0x0000000000000000000000000000000000001006';
             before(async function() {
                 govProposal = runSetupScript(setupScriptPath, 'GOV_PROPOSAL_ID');
                 await sleep(1000);
@@ -92,26 +94,31 @@ describe("EVM Test", function () {
                 // contractArtifact.abi
                 const contractABI = require('../precompiles/gov/abi.json')
                 // Get a contract instance
-                gov = new ethers.Contract(contractAddress, contractABI, signer);
+                gov = new ethers.Contract(GovPrecompileContract, contractABI, signer);
                 console.log("end of before");
             });
     
             it("Gov deposit", async function () {
-                const deposit = await gov.deposit(govProposal, 100000)
+                const depositAmount = ethers.utils.parseEther("0.1");
+                const deposit = await gov.deposit(govProposal, {
+                    value: depositAmount,
+                })
                 expect(deposit).to.equal(true);
             });
         });
 
         describe("EVM Distribution Precompile Tester", function () {
+            // TODO: Import this
+            const DistributionPrecompileContract = '0x0000000000000000000000000000000000001007';
             before(async function() {
                 const [signer, signer2] = await ethers.getSigners();
                 owner = await signer.getAddress();
                 owner2 = await signer2.getAddress();
 
                 // contractArtifact.abi
-                const contractABI = require('../precompiles/distribution/abi.json')
+                const contractABI = require('../precompiles/distribution/abi.json');
                 // Get a contract instance
-                distribution = new ethers.Contract(contractAddress, contractABI, signer);
+                distribution = new ethers.Contract(DistributionPrecompileContract, contractABI, signer);
                 console.log("end of before");
             });
 
@@ -123,7 +130,7 @@ describe("EVM Test", function () {
 
         describe("EVM Staking Precompile Tester", function () {
             const setupScriptPath = './test/get_validator_address.sh';
-
+            const StakingPrecompileContract = '0x0000000000000000000000000000000000001005';
             before(async function() {
                 validatorAddr = runSetupScript(setupScriptPath, 'VALIDATOR_ADDR');
                 await sleep(1000);
@@ -131,14 +138,17 @@ describe("EVM Test", function () {
                 owner = await signer.getAddress();
 
                 // contractArtifact.abi
-                const contractABI = require('../precompiles/staking/abi.json')
+                const contractABI = require('../precompiles/staking/abi.json');
                 // Get a contract instance
-                staking = new ethers.Contract(contractAddress, contractABI, signer);
+                staking = new ethers.Contract(StakingPrecompileContract, contractABI, signer);
                 console.log("end of before");
             });
 
             it("Staking delegate", async function () {
-                const delegate = await staking.delegate(validatorAddr, 100)
+                const delegateAmount = ethers.utils.parseEther("0.1");
+                const delegate = await staking.delegate(validatorAddr, {
+                    value: delegateAmount,
+                });
                 expect(delegate).to.equal(true);
             });
         });
