@@ -103,7 +103,6 @@ describe("EVM Test", function () {
         });
 
         describe("EVM Distribution Precompile Tester", function () {
-            let govProposal;
             before(async function() {
                 const [signer, signer2] = await ethers.getSigners();
                 owner = await signer.getAddress();
@@ -123,12 +122,24 @@ describe("EVM Test", function () {
         });
 
         describe("EVM Staking Precompile Tester", function () {
+            const setupScriptPath = './test/get_validator_address.sh';
+
             before(async function() {
+                validatorAddr = runSetupScript(setupScriptPath, 'VALIDATOR_ADDR');
+                await sleep(1000);
+                const [signer, _] = await ethers.getSigners();
+                owner = await signer.getAddress();
+
+                // contractArtifact.abi
+                const contractABI = require('../precompiles/staking/abi.json')
+                // Get a contract instance
+                staking = new ethers.Contract(contractAddress, contractABI, signer);
                 console.log("end of before");
             });
 
             it("Staking delegate", async function () {
-
+                const delegate = await staking.delegate(validatorAddr, 100)
+                expect(delegate).to.equal(true);
             });
         });
     });
