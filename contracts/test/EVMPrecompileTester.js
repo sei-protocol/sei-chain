@@ -90,8 +90,7 @@ describe("EVM Test", function () {
                 owner = await signer.getAddress();
     
                 // contractArtifact.abi
-                const contractABI = [{"inputs":[{"internalType":"uint64","name":"proposalID","type":"uint64"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"deposit","outputs":[{"internalType":"bool","name":"success","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint64","name":"proposalID","type":"uint64"},{"internalType":"int32","name":"option","type":"int32"}],"name":"vote","outputs":[{"internalType":"bool","name":"success","type":"bool"}],"stateMutability":"nonpayable","type":"function"}];
-    
+                const contractABI = require('../precompiles/gov/abi.json')
                 // Get a contract instance
                 gov = new ethers.Contract(contractAddress, contractABI, signer);
                 console.log("end of before");
@@ -100,6 +99,36 @@ describe("EVM Test", function () {
             it("Gov deposit", async function () {
                 const deposit = await gov.deposit(govProposal, 100000)
                 expect(deposit).to.equal(true);
+            });
+        });
+
+        describe("EVM Distribution Precompile Tester", function () {
+            let govProposal;
+            before(async function() {
+                const [signer, signer2] = await ethers.getSigners();
+                owner = await signer.getAddress();
+                owner2 = await signer2.getAddress();
+
+                // contractArtifact.abi
+                const contractABI = require('../precompiles/distribution/abi.json')
+                // Get a contract instance
+                distribution = new ethers.Contract(contractAddress, contractABI, signer);
+                console.log("end of before");
+            });
+
+            it("Distribution set withdraw address", async function () {
+                const setWithdraw = await distribution.setWithdrawAddress(owner2)
+                expect(setWithdraw).to.equal(true);
+            });
+        });
+
+        describe("EVM Staking Precompile Tester", function () {
+            before(async function() {
+                console.log("end of before");
+            });
+
+            it("Staking delegate", async function () {
+
             });
         });
     });
