@@ -1105,6 +1105,7 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		GasUsed:   deliverTxResp.GasUsed,
 		Events:    deliverTxResp.Events,
 		Codespace: deliverTxResp.Codespace,
+		EvmTxInfo: deliverTxResp.EvmTxInfo,
 	}
 }
 

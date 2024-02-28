@@ -43,12 +43,12 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 		if txNonce < nextNonce {
 			return ctx, sdkerrors.ErrWrongSequence
 		}
-		ctx = ctx.WithCheckTxCallback(func(e error) {
+		ctx = ctx.WithCheckTxCallback(func(thenCtx sdk.Context, e error) {
 			if e != nil {
 				return
 			}
 			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
-			svd.evmKeeper.AddPendingNonce(txKey, evmAddr, txNonce)
+			svd.evmKeeper.AddPendingNonce(txKey, evmAddr, txNonce, thenCtx.Priority())
 		})
 
 		// if the mempool expires a transaction, this handler is invoked
@@ -64,7 +64,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 
 				// nextNonceToBeMined is the next nonce that will be mined
 				// geth calls SetNonce(n+1) after a transaction is mined
-				nextNonceToBeMined := svd.evmKeeper.GetNonce(ctx, evmAddr)
+				nextNonceToBeMined := svd.evmKeeper.GetNonce(latestCtx, evmAddr)
 
 				// nextPendingNonce is the minimum nonce a user may send without stomping on an already-sent
 				// nonce, including non-mined or pending transactions

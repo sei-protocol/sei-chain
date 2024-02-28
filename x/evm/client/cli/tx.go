@@ -42,6 +42,7 @@ const (
 	FlagGasFeeCap = "gas-fee-cap"
 	FlagGas       = "gas-limit"
 	FlagRPC       = "evm-rpc"
+	FlagNonce     = "nonce"
 )
 
 // GetTxCmd returns the transaction commands for this module
@@ -164,9 +165,14 @@ func CmdSend() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nonce, err := getNonce(rpc, key.PublicKey)
-			if err != nil {
-				return err
+			var nonce uint64
+			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
+				nonce = uint64(n)
+			} else {
+				nonce, err = getNonce(rpc, key.PublicKey)
+				if err != nil {
+					return err
+				}
 			}
 
 			to := common.HexToAddress(args[0])
@@ -178,7 +184,7 @@ func CmdSend() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			txData.Nonce = uint64(*nonce)
+			txData.Nonce = nonce
 			txData.Value = val
 			txData.Data = []byte("")
 			txData.To = &to
@@ -196,6 +202,7 @@ func CmdSend() *cobra.Command {
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 21000, "Gas limit for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -255,16 +262,21 @@ func CmdDeployErc20() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nonce, err := getNonce(rpc, key.PublicKey)
-			if err != nil {
-				return err
+			var nonce uint64
+			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
+				nonce = uint64(n)
+			} else {
+				nonce, err = getNonce(rpc, key.PublicKey)
+				if err != nil {
+					return err
+				}
 			}
 
 			txData, err := getTxData(cmd)
 			if err != nil {
 				return err
 			}
-			txData.Nonce = uint64(*nonce)
+			txData.Nonce = nonce
 			txData.Value = big.NewInt(0)
 			txData.Data = contractData
 
@@ -292,6 +304,7 @@ func CmdDeployErc20() *cobra.Command {
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 5000000, "Gas limit for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -335,16 +348,21 @@ func CmdDeployErcCw20() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nonce, err := getNonce(rpc, key.PublicKey)
-			if err != nil {
-				return err
+			var nonce uint64
+			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
+				nonce = uint64(n)
+			} else {
+				nonce, err = getNonce(rpc, key.PublicKey)
+				if err != nil {
+					return err
+				}
 			}
 
 			txData, err := getTxData(cmd)
 			if err != nil {
 				return err
 			}
-			txData.Nonce = uint64(*nonce)
+			txData.Nonce = nonce
 			txData.Value = big.NewInt(0)
 			txData.Data = contractData
 
@@ -372,6 +390,7 @@ func CmdDeployErcCw20() *cobra.Command {
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -415,16 +434,21 @@ func CmdDeployErcCw721() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nonce, err := getNonce(rpc, key.PublicKey)
-			if err != nil {
-				return err
+			var nonce uint64
+			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
+				nonce = uint64(n)
+			} else {
+				nonce, err = getNonce(rpc, key.PublicKey)
+				if err != nil {
+					return err
+				}
 			}
 
 			txData, err := getTxData(cmd)
 			if err != nil {
 				return err
 			}
-			txData.Nonce = uint64(*nonce)
+			txData.Nonce = nonce
 			txData.Value = big.NewInt(0)
 			txData.Data = contractData
 
@@ -452,6 +476,7 @@ func CmdDeployErcCw721() *cobra.Command {
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -479,16 +504,21 @@ func CmdCallContract() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nonce, err := getNonce(rpc, key.PublicKey)
-			if err != nil {
-				return err
+			var nonce uint64
+			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
+				nonce = uint64(n)
+			} else {
+				nonce, err = getNonce(rpc, key.PublicKey)
+				if err != nil {
+					return err
+				}
 			}
 
 			txData, err := getTxData(cmd)
 			if err != nil {
 				return err
 			}
-			txData.Nonce = uint64(*nonce)
+			txData.Nonce = nonce
 			txData.Value = big.NewInt(0)
 			txData.Data = payload
 			txData.To = &contract
@@ -506,6 +536,7 @@ func CmdCallContract() *cobra.Command {
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -542,16 +573,21 @@ func CmdERC20Send() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nonce, err := getNonce(rpc, key.PublicKey)
-			if err != nil {
-				return err
+			var nonce uint64
+			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
+				nonce = uint64(n)
+			} else {
+				nonce, err = getNonce(rpc, key.PublicKey)
+				if err != nil {
+					return err
+				}
 			}
 
 			txData, err := getTxData(cmd)
 			if err != nil {
 				return err
 			}
-			txData.Nonce = uint64(*nonce)
+			txData.Nonce = nonce
 			txData.Value = big.NewInt(0)
 			txData.Data = payload
 			txData.To = &contract
@@ -569,6 +605,7 @@ func CmdERC20Send() *cobra.Command {
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -600,16 +637,21 @@ func CmdDelegate() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nonce, err := getNonce(rpc, key.PublicKey)
-			if err != nil {
-				return err
+			var nonce uint64
+			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
+				nonce = uint64(n)
+			} else {
+				nonce, err = getNonce(rpc, key.PublicKey)
+				if err != nil {
+					return err
+				}
 			}
 
 			txData, err := getTxData(cmd)
 			if err != nil {
 				return err
 			}
-			txData.Nonce = uint64(*nonce)
+			txData.Nonce = nonce
 			txData.Value = big.NewInt(0)
 			txData.Data = payload
 			to := common.HexToAddress(staking.StakingAddress)
@@ -628,6 +670,7 @@ func CmdDelegate() *cobra.Command {
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -657,31 +700,31 @@ func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
 	return key, nil
 }
 
-func getNonce(rpc string, key ecdsa.PublicKey) (*hexutil.Uint64, error) {
+func getNonce(rpc string, key ecdsa.PublicKey) (uint64, error) {
 	nonceQuery := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionCount\",\"params\":[\"%s\",\"pending\"],\"id\":\"send-cli\"}", crypto.PubkeyToAddress(key).Hex())
 	req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(nonceQuery))
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	defer res.Body.Close()
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	resObj := map[string]interface{}{}
 	if err := json.Unmarshal(resBody, &resObj); err != nil {
-		return nil, err
+		return 0, err
 	}
 	nonce := new(hexutil.Uint64)
 	if err := nonce.UnmarshalText([]byte(resObj["result"].(string))); err != nil {
-		return nil, err
+		return 0, err
 	}
-	return nonce, nil
+	return uint64(*nonce), nil
 }
 
 func getChainId(rpc string) (*big.Int, error) {
