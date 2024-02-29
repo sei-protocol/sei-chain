@@ -145,17 +145,18 @@ func startLoadtestWorkers(config Config) {
 	var wg sync.WaitGroup
 	for i := 0; i < len(keys); i++ {
 		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCount)
-		go client.SendTxs(txQueues[i], i, done, &sentCount, consumerSemaphore, &wg)
+		go client.SendTxs(txQueues[i], i, done, &sentCount, consumerSemaphore, &wg, config.BlockchainEndpoint)
 	}
 
 	// Statistics reporting goroutine
 	ticker := time.NewTicker(10 * time.Second)
+	currHeight := getLastHeight(config.BlockchainEndpoint)
 	go func() {
 		start := time.Now()
 		for {
 			select {
 			case <-ticker.C:
-				currHeight := getLastHeight(config.BlockchainEndpoint)
+				currHeight = getLastHeight(config.BlockchainEndpoint)
 				for i := startHeight; i <= currHeight; i++ {
 					_, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
 					if err != nil {
