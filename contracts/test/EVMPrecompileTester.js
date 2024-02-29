@@ -1,5 +1,6 @@
 const { execSync } = require('child_process');
 const { expect } = require("chai");
+const path = require('path');
 
 describe("EVM Test", function () {
     describe("EVM Precompile Tester", function () {
@@ -50,7 +51,7 @@ describe("EVM Test", function () {
     
                 // transfer from owner to owner2
                 const balanceBefore = await erc20.balanceOf(receiver);
-                const transferFromTx = await erc20.transferFrom(owner, receiver, 100, {from: owner2});
+                const transferFromTx = await erc20.transferFrom(owner2, receiver, 100, {from: owner});
     
                 console.log("transferFromTx = ", transferFromTx);
                 // await sleep(3000);
@@ -80,7 +81,7 @@ describe("EVM Test", function () {
 
         describe("EVM Gov Precompile Tester", function () {
             let govProposal;
-            const setupScriptPath = './test/send_gov_deposit.sh';
+            const setupScriptPath = './test/send_gov_proposal.sh';
             // TODO: Import this
             const GovPrecompileContract = '0x0000000000000000000000000000000000001006';
             before(async function() {
@@ -92,18 +93,20 @@ describe("EVM Test", function () {
                 owner = await signer.getAddress();
     
                 // contractArtifact.abi
-                const contractABI = require('../precompiles/gov/abi.json')
+                const contractABIPath = path.join(__dirname, '../../precompiles/gov/abi.json');
+                const contractABI = require(contractABIPath);
                 // Get a contract instance
                 gov = new ethers.Contract(GovPrecompileContract, contractABI, signer);
                 console.log("end of before");
             });
     
             it("Gov deposit", async function () {
-                const depositAmount = ethers.utils.parseEther("0.1");
+                const depositAmount = ethers.parseEther('1');
                 const deposit = await gov.deposit(govProposal, {
                     value: depositAmount,
                 })
-                expect(deposit).to.equal(true);
+                const receipt = await deposit.wait();
+                expect(receipt.status).to.equal(1);
             });
         });
 
@@ -116,15 +119,17 @@ describe("EVM Test", function () {
                 owner2 = await signer2.getAddress();
 
                 // contractArtifact.abi
-                const contractABI = require('../precompiles/distribution/abi.json');
+                const contractABIPath = path.join(__dirname, '../../precompiles/distribution/abi.json');
+                const contractABI = require(contractABIPath);
                 // Get a contract instance
                 distribution = new ethers.Contract(DistributionPrecompileContract, contractABI, signer);
                 console.log("end of before");
             });
 
             it("Distribution set withdraw address", async function () {
-                const setWithdraw = await distribution.setWithdrawAddress(owner2)
-                expect(setWithdraw).to.equal(true);
+                const setWithdraw = await distribution.setWithdrawAddress(owner)
+                const receipt = await setWithdraw.wait();
+                expect(receipt.status).to.equal(1);
             });
         });
 
@@ -138,18 +143,20 @@ describe("EVM Test", function () {
                 owner = await signer.getAddress();
 
                 // contractArtifact.abi
-                const contractABI = require('../precompiles/staking/abi.json');
+                const contractABIPath = path.join(__dirname, '../../precompiles/staking/abi.json');
+                const contractABI = require(contractABIPath);
                 // Get a contract instance
                 staking = new ethers.Contract(StakingPrecompileContract, contractABI, signer);
                 console.log("end of before");
             });
 
             it("Staking delegate", async function () {
-                const delegateAmount = ethers.utils.parseEther("0.1");
+                const delegateAmount = ethers.parseEther('0.01');
                 const delegate = await staking.delegate(validatorAddr, {
                     value: delegateAmount,
                 });
-                expect(delegate).to.equal(true);
+                const receipt = await delegate.wait();
+                expect(receipt.status).to.equal(1);
             });
         });
     });
@@ -165,7 +172,6 @@ function runSetupScript(setupScriptPath, variableName) {
         const output = execSync('bash ' + setupScriptPath).toString();
 
         // Parse the output to find the contract address
-        console.log("output:", output);
         const regexPattern = new RegExp(variableName + '=(\\S+)');
         const match = output.match(regexPattern);
         scriptOutput = match ? match[1] : undefined;
