@@ -27,7 +27,7 @@ def add_key(account_name, local=False):
 
     splitted_outputs = add_key_output.split('\n')
     address = splitted_outputs[3].split(': ')[1]
-    mnemonic = splitted_outputs[11]
+    mnemonic = splitted_outputs[-1]
     return address, mnemonic
 
 
