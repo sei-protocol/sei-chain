@@ -9,8 +9,6 @@ associated_sei_account1=sei1m9qugvk4h66p6hunfajfg96ysc48zeq4m0d82c
 
 shopt -s expand_aliases
 
-alias seid=~/go/bin/seid
-
 gov_proposal_output=$(seid tx gov submit-proposal param-change test/param_change_proposal.json --from admin --fees 20000usei -b block -y -o json | jq -r '.logs[0].events[3].attributes[1].value')
 
 echo "GOV_PROPOSAL_ID=$gov_proposal_output"

@@ -10,8 +10,6 @@ owner2=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
 
 shopt -s expand_aliases
 
-alias seid=~/go/bin/seid
-
 echo "Funding account $account with UATOM for testing..."
 seid tx bank send $(seid keys show admin -a) $associated_sei_account1 10000uatom --fees 20000usei -b block -y > /dev/null
 
