@@ -9,17 +9,19 @@ describe("EVM Test", function () {
             let erc20;
             let owner;
             let owner2;
+            let signer;
+            let signer2
             const setupScriptPath = './test/deploy_atom_erc20.sh';
             before(async function() {
                 contractAddress = runSetupScript(setupScriptPath, 'ERC20_DEPLOY_ADDR');
                 await sleep(1000);
     
-                // TODO: create a contract object
                 // Create a signer
-                const [signer, signer2] = await ethers.getSigners();
+                [signer, signer2] = await ethers.getSigners();
                 owner = await signer.getAddress();
                 owner2 = await signer2.getAddress();
     
+                // TODO: create a contract object
                 // contractArtifact.abi
                 const contractABI = [{"type":"constructor","inputs":[{"name":"denom_","type":"string","internalType":"string"},{"name":"name_","type":"string","internalType":"string"},{"name":"symbol_","type":"string","internalType":"string"},{"name":"decimals_","type":"uint8","internalType":"uint8"}],"stateMutability":"nonpayable"},{"type":"function","name":"BankPrecompile","inputs":[],"outputs":[{"name":"","type":"address","internalType":"contract IBank"}],"stateMutability":"view"},{"type":"function","name":"allowance","inputs":[{"name":"owner","type":"address","internalType":"address"},{"name":"spender","type":"address","internalType":"address"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},{"type":"function","name":"approve","inputs":[{"name":"spender","type":"address","internalType":"address"},{"name":"value","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"stateMutability":"nonpayable"},{"type":"function","name":"balanceOf","inputs":[{"name":"account","type":"address","internalType":"address"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},{"type":"function","name":"ddecimals","inputs":[],"outputs":[{"name":"","type":"uint8","internalType":"uint8"}],"stateMutability":"view"},{"type":"function","name":"decimals","inputs":[],"outputs":[{"name":"","type":"uint8","internalType":"uint8"}],"stateMutability":"view"},{"type":"function","name":"denom","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"name","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"nname","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"ssymbol","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"symbol","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"totalSupply","inputs":[],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},{"type":"function","name":"transfer","inputs":[{"name":"to","type":"address","internalType":"address"},{"name":"value","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"stateMutability":"nonpayable"},{"type":"function","name":"transferFrom","inputs":[{"name":"from","type":"address","internalType":"address"},{"name":"to","type":"address","internalType":"address"},{"name":"value","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"stateMutability":"nonpayable"},{"type":"event","name":"Approval","inputs":[{"name":"owner","type":"address","indexed":true,"internalType":"address"},{"name":"spender","type":"address","indexed":true,"internalType":"address"},{"name":"value","type":"uint256","indexed":false,"internalType":"uint256"}],"anonymous":false},{"type":"event","name":"Transfer","inputs":[{"name":"from","type":"address","indexed":true,"internalType":"address"},{"name":"to","type":"address","indexed":true,"internalType":"address"},{"name":"value","type":"uint256","indexed":false,"internalType":"uint256"}],"anonymous":false},{"type":"error","name":"ERC20InsufficientAllowance","inputs":[{"name":"spender","type":"address","internalType":"address"},{"name":"allowance","type":"uint256","internalType":"uint256"},{"name":"needed","type":"uint256","internalType":"uint256"}]},{"type":"error","name":"ERC20InsufficientBalance","inputs":[{"name":"sender","type":"address","internalType":"address"},{"name":"balance","type":"uint256","internalType":"uint256"},{"name":"needed","type":"uint256","internalType":"uint256"}]},{"type":"error","name":"ERC20InvalidApprover","inputs":[{"name":"approver","type":"address","internalType":"address"}]},{"type":"error","name":"ERC20InvalidReceiver","inputs":[{"name":"receiver","type":"address","internalType":"address"}]},{"type":"error","name":"ERC20InvalidSender","inputs":[{"name":"sender","type":"address","internalType":"address"}]},{"type":"error","name":"ERC20InvalidSpender","inputs":[{"name":"spender","type":"address","internalType":"address"}]}];
     
@@ -48,12 +50,14 @@ describe("EVM Test", function () {
                 const approveReceipt = await approveTx.wait();
                 expect(approveReceipt.status).to.equal(1);
                 expect(await erc20.allowance(owner, owner2)).to.equal(100);
+
+                const erc20AsOwner2 = erc20.connect(signer2); 
+
     
                 // transfer from owner to owner2
                 const balanceBefore = await erc20.balanceOf(receiver);
-                const transferFromTx = await erc20.transferFrom(owner2, receiver, 100, {from: owner});
+                const transferFromTx = await erc20AsOwner2.transferFrom(owner, receiver, 100);
     
-                console.log("transferFromTx = ", transferFromTx);
                 // await sleep(3000);
                 const transferFromReceipt = await transferFromTx.wait();
                 expect(transferFromReceipt.status).to.equal(1);
@@ -79,6 +83,7 @@ describe("EVM Test", function () {
             });
         });
 
+        // TODO: Update when we add gov query precompiles
         describe("EVM Gov Precompile Tester", function () {
             let govProposal;
             const setupScriptPath = './test/send_gov_proposal.sh';
@@ -101,15 +106,17 @@ describe("EVM Test", function () {
             });
     
             it("Gov deposit", async function () {
-                const depositAmount = ethers.parseEther('1');
+                const depositAmount = ethers.parseEther('0.01');
                 const deposit = await gov.deposit(govProposal, {
                     value: depositAmount,
                 })
                 const receipt = await deposit.wait();
                 expect(receipt.status).to.equal(1);
+                // TODO: Add gov query precompile here
             });
         });
 
+        // TODO: Update when we add distribution query precompiles
         describe("EVM Distribution Precompile Tester", function () {
             // TODO: Import this
             const DistributionPrecompileContract = '0x0000000000000000000000000000000000001007';
@@ -130,9 +137,11 @@ describe("EVM Test", function () {
                 const setWithdraw = await distribution.setWithdrawAddress(owner)
                 const receipt = await setWithdraw.wait();
                 expect(receipt.status).to.equal(1);
+                // TODO: Add distribution query precompile here
             });
         });
 
+        // TODO: Update when we add staking query precompiles
         describe("EVM Staking Precompile Tester", function () {
             const setupScriptPath = './test/get_validator_address.sh';
             const StakingPrecompileContract = '0x0000000000000000000000000000000000001005';
@@ -157,6 +166,7 @@ describe("EVM Test", function () {
                 });
                 const receipt = await delegate.wait();
                 expect(receipt.status).to.equal(1);
+                // TODO: Add staking query precompile here
             });
         });
     });
