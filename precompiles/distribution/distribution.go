@@ -140,9 +140,9 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")
 	}
-	seiAddr, _ := p.evmKeeper.GetSeiAddress(ctx, addr)
-	// if !associated {
-	// 	return nil, errors.New("cannot use an unassociated address as withdraw address")
-	// }
+	seiAddr, associated := p.evmKeeper.GetSeiAddress(ctx, addr)
+	if !associated {
+		return nil, errors.New("cannot use an unassociated address as withdraw address")
+	}
 	return seiAddr, nil
 }
