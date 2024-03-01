@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"go.opentelemetry.io/otel/trace"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
@@ -240,6 +241,8 @@ var (
 	EmittedSeidVersionMetric = false
 	// EmptyAclmOpts defines a type alias for a list of wasm options.
 	EmptyACLOpts []aclkeeper.Option
+	// EnableOCC allows tests to override default OCC enablement behavior
+	EnableOCC = true
 )
 
 var (
@@ -523,6 +526,7 @@ func New(
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
+	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
 	app.AccessControlKeeper = aclkeeper.NewKeeper(
 		appCodec,
 		app.keys[acltypes.StoreKey],
@@ -974,6 +978,7 @@ func (app *App) ClearOptimisticProcessingInfo() {
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
+
 	if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
 		return &abci.ResponseProcessProposal{
@@ -1032,6 +1037,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
 	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
+
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
 	app.SetDeliverStateToCommit()
@@ -1101,6 +1107,9 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 	return ctx.WithMultiStore(msCache), msCache
 }
 
+// TODO: (occ) this is the roughly analogous to the execution + validation tasks for OCC, but this one performs validation in isolation
+// rather than comparing against a multi-version store
+// The validation happens immediately after execution all part of DeliverTx (which is a path that goes through sei-cosmos to runTx eventually)
 func (app *App) ProcessTxConcurrent(
 	ctx sdk.Context,
 	txIndex int,
@@ -1210,10 +1219,7 @@ func (app *App) ProcessTxs(
 	// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
 	// deterministic ordering between validators in the case of concurrent deliverTXs
 	processBlockCtx, processBlockCache := app.CacheContext(ctx)
-	blockGasMeterConsumed := uint64(0)
-	if processBlockCtx.BlockGasMeter() != nil {
-		blockGasMeterConsumed = processBlockCtx.BlockGasMeter().GasConsumed()
-	}
+	// TODO: (occ) replaced with scheduler sending tasks to workers such as execution and validation
 	concurrentResults, ok := processBlockConcurrentFunction(
 		processBlockCtx,
 		txs,
@@ -1237,11 +1243,7 @@ func (app *App) ProcessTxs(
 
 	dexMemState := dexutils.GetMemState(ctx.Context())
 	dexMemState.Clear(ctx)
-	dexMemState.ClearContractToDependencies()
-
-	if ctx.BlockGasMeter() != nil {
-		ctx.BlockGasMeter().RefundGas(ctx.BlockGasMeter().GasConsumed()-blockGasMeterConsumed, "concurrent failure rollback")
-	}
+	dexMemState.ClearContractToDependencies(ctx)
 
 	txResults := app.ProcessBlockSynchronous(ctx, txs)
 	processBlockCache.Write()
@@ -1287,11 +1289,70 @@ func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioriti
 	return prioritizedTxs, otherTxs, prioritizedIndices, otherIndices
 }
 
+// ExecuteTxsConcurrently calls the appropriate function for processing transacitons
+func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
+	// TODO after OCC release, remove this check and call ProcessTXsWithOCC directly
+	if ctx.IsOCCEnabled() {
+		return app.ProcessTXsWithOCC(ctx, txs)
+	}
+	results := app.ProcessBlockSynchronous(ctx, txs)
+	return results, ctx
+}
+
+// ProcessTXsWithOCC runs the transactions concurrently via OCC
+func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
+	entries := make([]*sdk.DeliverTxEntry, len(txs))
+	var span trace.Span
+	if app.TracingEnabled {
+		_, span = app.TracingInfo.Start("GenerateEstimatedWritesets")
+	}
+	wg := sync.WaitGroup{}
+	for txIndex, tx := range txs {
+		wg.Add(1)
+		go func(txIndex int, tx []byte) {
+			defer wg.Done()
+			deliverTxEntry := &sdk.DeliverTxEntry{Request: abci.RequestDeliverTx{Tx: tx}}
+			// get prefill estimate
+			estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.txDecoder, app.GetAnteDepGenerator(), txIndex, tx)
+			// if no error, then we assign the mapped writesets for prefill estimate
+			if err == nil {
+				deliverTxEntry.EstimatedWritesets = estimatedWritesets
+			}
+			entries[txIndex] = deliverTxEntry
+		}(txIndex, tx)
+	}
+	wg.Wait()
+
+	if app.TracingEnabled {
+		span.End()
+	}
+
+	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
+
+	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
+	for _, r := range batchResult.Results {
+		execResults = append(execResults, &abci.ExecTxResult{
+			Code:      r.Response.Code,
+			Data:      r.Response.Data,
+			Log:       r.Response.Log,
+			Info:      r.Response.Info,
+			GasWanted: r.Response.GasWanted,
+			GasUsed:   r.Response.GasUsed,
+			Events:    r.Response.Events,
+			Codespace: r.Response.Codespace,
+		})
+	}
+
+	return execResults, ctx
+}
+
+// BuildDependenciesAndRunTxs deprecated, use ProcessTXsWithOCC instead
+// Deprecated: this will be removed after OCC releases
+// TODO: remove after release
 func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
 	var txResults []*abci.ExecTxResult
 
 	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
-
 	switch err {
 	case nil:
 		txResults, ctx = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
@@ -1309,6 +1370,7 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
 
@@ -1341,7 +1403,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	prioritizedTxs, otherTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs)
 
 	// run the prioritized txs
-	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs)
+	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs)
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
 	}
@@ -1353,7 +1415,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
-	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, otherTxs)
+	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}

@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"sync/atomic"
+	"fmt"
 
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 )
@@ -11,23 +11,23 @@ func SendTx(
 	ctx context.Context,
 	txBytes []byte,
 	mode typestx.BroadcastMode,
-	failureExpected bool,
 	loadtestClient LoadTestClient,
-	sentCount *int64,
-) {
-	grpcRes, _ := loadtestClient.GetTxClient().BroadcastTx(
+) bool {
+	grpcRes, err := loadtestClient.GetTxClient().BroadcastTx(
 		ctx,
 		&typestx.BroadcastTxRequest{
 			Mode:    mode,
 			TxBytes: txBytes,
 		},
 	)
-
-	if failureExpected {
-		atomic.AddInt64(sentCount, 1)
-		return
-	} else if grpcRes != nil && grpcRes.TxResponse.Code == 0 {
-		atomic.AddInt64(sentCount, 1)
-		return
+	if grpcRes != nil {
+		if grpcRes.TxResponse.Code == 0 {
+			return true
+		} else {
+			fmt.Printf("Failed to broadcast tx with response: %v \n", grpcRes)
+		}
+	} else if err != nil && ctx.Err() == nil {
+		fmt.Printf("Failed to broadcast tx: %v \n", err)
 	}
+	return false
 }
