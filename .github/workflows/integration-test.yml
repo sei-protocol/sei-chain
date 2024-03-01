@@ -5,13 +5,9 @@ name: Docker Integration Test
 
 on:
   push:
-    branches:
-      - main
-      - seiv2
+    branches: [ "main" ]
   pull_request:
-    branches:
-      - main
-      - seiv2
+    branches: [ "main" ]
 
 defaults:
   run:
@@ -121,7 +117,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.21
+          go-version: 1.19
 
       - name: Start 4 node docker cluster
         run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &

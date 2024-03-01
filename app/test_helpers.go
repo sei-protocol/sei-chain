@@ -8,22 +8,20 @@ import (
 	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
-
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
-	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
 const TestContract = "TEST"
@@ -61,8 +59,8 @@ type TestWrapper struct {
 	Ctx sdk.Context
 }
 
-func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
-	appPtr := Setup(false, baseAppOptions...)
+func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey) *TestWrapper {
+	appPtr := Setup(false)
 	ctx := appPtr.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, appPtr.MemState))
 	wrapper := &TestWrapper{
@@ -155,7 +153,7 @@ func (s *TestWrapper) EndBlock() {
 	s.App.EndBlocker(s.Ctx, reqEndBlock)
 }
 
-func Setup(isCheckTx bool, baseAppOptions ...func(*baseapp.BaseApp)) *App {
+func Setup(isCheckTx bool) *App {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
@@ -173,7 +171,6 @@ func Setup(isCheckTx bool, baseAppOptions ...func(*baseapp.BaseApp)) *App {
 		TestAppOpts{},
 		EmptyWasmOpts,
 		EmptyACLOpts,
-		baseAppOptions...,
 	)
 	if !isCheckTx {
 		genesisState := NewDefaultGenesisState(cdc)
