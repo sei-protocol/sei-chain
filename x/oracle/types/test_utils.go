@@ -17,7 +17,6 @@ import (
 const OracleDecPrecision = 8
 
 // GenerateRandomTestCase nolint
-// nolint:staticcheck
 func GenerateRandomTestCase() (rates []float64, valValAddrs []sdk.ValAddress, stakingKeeper DummyStakingKeeper) {
 	valValAddrs = []sdk.ValAddress{}
 	mockValidators := []MockValidator{}

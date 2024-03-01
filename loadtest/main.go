@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -18,23 +17,21 @@ import (
 	"syscall"
 	"time"
 
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/cosmos/cosmos-sdk/std"
+
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/std"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	"github.com/ethereum/go-ethereum/common"
-	"golang.org/x/sync/semaphore"
-	"golang.org/x/time/rate"
-
 	"github.com/sei-protocol/sei-chain/app"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
 var TestConfig EncodingConfig
@@ -43,12 +40,7 @@ const (
 	VortexData = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
 )
 
-var (
-	FromMili      = sdk.NewDec(1000000)
-	producedCount = atomic.Int64{}
-	sentCount     = atomic.Int64{}
-	prevSentCount = atomic.Int64{}
-)
+var FromMili = sdk.NewDec(1000000)
 
 type BlockData struct {
 	Txs []string `json:"txs"`
@@ -73,46 +65,14 @@ func init() {
 	std.RegisterInterfaces(TestConfig.InterfaceRegistry)
 	app.ModuleBasics.RegisterLegacyAminoCodec(TestConfig.Amino)
 	app.ModuleBasics.RegisterInterfaces(TestConfig.InterfaceRegistry)
-	// Add this so that we don't end up getting disconnected for EVM client
-	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 100
 }
 
-// deployEvmContract executes a bash script and returns its output as a string.
-//
-//nolint:gosec
-func deployEvmContract(scriptPath string, config *Config) (common.Address, error) {
-	cmd := exec.Command(scriptPath, config.EVMRpcEndpoint())
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	if err != nil {
-		return common.Address{}, err
-	}
-	return common.HexToAddress(out.String()), nil
-}
-
-func deployEvmContracts(config *Config) {
-	config.EVMAddresses = &EVMAddresses{}
-	if config.ContainsAnyMessageTypes(ERC20) {
-		fmt.Println("Deploying ERC20 contract")
-		erc20, err := deployEvmContract("loadtest/contracts/deploy_erc20.sh", config)
-		if err != nil {
-			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
-			panic(err)
-		}
-		config.EVMAddresses = &EVMAddresses{
-			ERC20: erc20,
-		}
-	}
-}
-
-func run(config *Config) {
+func run(config Config) {
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
-	go metricsServer.StartMetricsClient(*config)
+	go metricsServer.StartMetricsClient(config)
 
-	deployEvmContracts(config)
-	startLoadtestWorkers(*config)
+	startLoadtestWorkers(config)
 }
 
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
@@ -121,41 +81,48 @@ func startLoadtestWorkers(config Config) {
 	fmt.Printf("Starting loadtest workers\n")
 	client := NewLoadTestClient(config)
 	client.SetValidators()
+
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
+
+	txQueue := make(chan []byte, 10000)
+	done := make(chan struct{})
+	numProducers := 1000
+	var wg sync.WaitGroup
 
 	// Catch OS signals for graceful shutdown
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
+	ticker := time.NewTicker(1 * time.Second)
+	start := time.Now()
+	var producedCount int64 = 0
+	var sentCount int64 = 0
+	var prevSentCount int64 = 0
 	var blockHeights []int
 	var blockTimes []string
 	var startHeight = getLastHeight(config.BlockchainEndpoint)
-	keys := client.AccountKeys
-
-	// Create producers and consumers
-	fmt.Printf("Starting loadtest producers and consumers\n")
-	txQueues := make([]chan SignedTx, len(keys))
-	for i := range txQueues {
-		txQueues[i] = make(chan SignedTx, 10)
+	fmt.Printf("Starting loadtest producers\n")
+	// preload all accounts
+	keys := client.SignerClient.GetTestAccountsKeys(int(config.TargetTps))
+	for i := 0; i < numProducers; i++ {
+		wg.Add(1)
+		go client.BuildTxs(txQueue, i, keys, &wg, done, &producedCount)
 	}
-	done := make(chan struct{})
-	producerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
-	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
-	var wg sync.WaitGroup
-	for i := 0; i < len(keys); i++ {
-		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCount)
-		go client.SendTxs(txQueues[i], i, done, &sentCount, consumerSemaphore, &wg)
+	// Give producers some time to populate queue
+	if config.TargetTps > 1000 {
+		time.Sleep(5 * time.Second)
 	}
 
+	fmt.Printf("Starting loadtest consumers\n")
+	go client.SendTxs(txQueue, done, &sentCount, int(config.TargetTps), &wg)
 	// Statistics reporting goroutine
-	ticker := time.NewTicker(10 * time.Second)
 	go func() {
-		start := time.Now()
 		for {
 			select {
 			case <-ticker.C:
 				currHeight := getLastHeight(config.BlockchainEndpoint)
+
 				for i := startHeight; i <= currHeight; i++ {
 					_, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
 					if err != nil {
@@ -166,14 +133,11 @@ func startLoadtestWorkers(config Config) {
 					blockTimes = append(blockTimes, blockTime)
 				}
 
-				totalProduced := producedCount.Load()
-				totalSent := sentCount.Load()
-				prevTotalSent := prevSentCount.Load()
-				printStats(start, totalProduced, totalSent, prevTotalSent, blockHeights, blockTimes)
+				printStats(start, &producedCount, &sentCount, &prevSentCount, blockHeights, blockTimes)
 				startHeight = currHeight
-				blockHeights, blockTimes = nil, nil
 				start = time.Now()
-				prevSentCount.Store(totalSent)
+				blockHeights, blockTimes = nil, nil
+
 			case <-done:
 				ticker.Stop()
 				return
@@ -183,22 +147,19 @@ func startLoadtestWorkers(config Config) {
 
 	// Wait for a termination signal
 	<-signals
-	fmt.Println("SIGINT received, shutting down producers and consumers...")
+	fmt.Println("SIGINT received, shutting down...")
 	close(done)
 
-	fmt.Println("Waiting for wait groups...")
-
 	wg.Wait()
-	fmt.Println("Closing channels...")
-	for i := range txQueues {
-		close(txQueues[i])
-	}
+	close(txQueue)
 }
 
-func printStats(startTime time.Time, totalProduced int64, totalSent int64, prevTotalSent int64, blockHeights []int, blockTimes []string) {
+func printStats(startTime time.Time, producedCount *int64, sentCount *int64, prevSentCount *int64, blockHeights []int, blockTimes []string) {
 	elapsed := time.Since(startTime)
-	tps := float64(totalSent-prevTotalSent) / elapsed.Seconds()
-
+	produced := atomic.LoadInt64(producedCount)
+	sent := atomic.LoadInt64(sentCount)
+	tps := float64(sent-*prevSentCount) / elapsed.Seconds()
+	*prevSentCount = sent
 	var totalDuration time.Duration
 	var prevTime time.Time
 	for i, blockTimeStr := range blockTimes {
@@ -214,16 +175,16 @@ func printStats(startTime time.Time, totalProduced int64, totalSent int64, prevT
 		fmt.Printf("Unable to calculate stats, not enough data. Skipping...\n")
 	} else {
 		avgDuration := totalDuration.Milliseconds() / int64(len(blockTimes)-1)
-		fmt.Printf("High Level - Time Elapsed: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, totalProduced, totalSent, tps, avgDuration, blockHeights)
+		fmt.Printf("High Level - Time Elapsed: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, produced, sent, tps, avgDuration, blockHeights)
 	}
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors
 func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	messageType := messageTypes[r.Intn(len(messageTypes))]
+	rand.Seed(time.Now().UnixNano())
+	messageType := messageTypes[rand.Intn(len(messageTypes))]
 	for c.generatedAdminMessageForBlock && c.isAdminMessageMapping[messageType] {
-		messageType = messageTypes[r.Intn(len(messageTypes))]
+		messageType = messageTypes[rand.Intn(len(messageTypes))]
 	}
 
 	if c.isAdminMessageMapping[messageType] {
@@ -232,26 +193,26 @@ func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
 	return messageType
 }
 
-func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
+func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
 	var msgs []sdk.Msg
-	config := c.LoadTestConfig
-	msgPerTx := config.MsgsPerTx
+	messageTypes := strings.Split(config.MessageType, ",")
+	messageType := c.getRandomMessageType(messageTypes)
+
+	defer IncrTxMessageType(messageType)
+
 	signer := key
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	defer IncrTxMessageType(msgType)
-
-	defaultMessageTypeConfig := config.PerMessageConfigs["default"]
+	defaultMessageTypeConfig := c.LoadTestConfig.PerMessageConfigs["default"]
 	gas := defaultMessageTypeConfig.Gas
 	fee := defaultMessageTypeConfig.Fee
 
-	messageTypeConfig, ok := config.PerMessageConfigs[msgType]
+	messageTypeConfig, ok := c.LoadTestConfig.PerMessageConfigs[messageType]
 	if ok {
 		gas = messageTypeConfig.Gas
 		fee = messageTypeConfig.Fee
 	}
 
-	switch msgType {
+	switch messageType {
 	case Vortex:
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
@@ -285,7 +246,6 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	case Bank:
 		msgs = []sdk.Msg{}
 		for i := 0; i < int(msgPerTx); i++ {
-
 			msgs = append(msgs, &banktypes.MsgSend{
 				FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 				ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
@@ -312,7 +272,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	case CollectRewards:
 		adminKey := c.SignerClient.GetAdminKey()
 		delegatorAddr := sdk.AccAddress(adminKey.PubKey().Address())
-		operatorAddress := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
+		operatorAddress := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
 		randomValidatorAddr, err := sdk.ValAddressFromBech32(operatorAddress)
 		if err != nil {
 			panic(err.Error())
@@ -342,10 +302,9 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		}}
 	case Staking:
 		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
-		chosenValidator := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
+		chosenValidator := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
 		// Randomly pick someone to redelegate / unbond from
 		srcAddr := ""
-		c.mtx.RLock()
 		for k := range c.DelegationMap[delegatorAddr] {
 			if k == chosenValidator {
 				continue
@@ -353,12 +312,11 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			srcAddr = k
 			break
 		}
-		c.mtx.RUnlock()
 		msgs = []sdk.Msg{c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)}
 	case Tokenfactory:
 		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
 		// No denoms, let's mint
-		randNum := r.Float64()
+		randNum := rand.Float64()
 		denom, ok := c.TokenFactoryDenomOwner[denomCreatorAddr]
 		switch {
 		case !ok || randNum <= 0.33:
@@ -382,7 +340,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		}
 	case FailureBankMalformed:
 		var denom string
-		if r.Float64() < 0.5 {
+		if rand.Float64() < 0.5 {
 			denom = "unknown"
 		} else {
 			denom = "other"
@@ -427,7 +385,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		contract := config.ContractDistr.Sample()
 		orderPlacements := generateDexOrderPlacements(config, key, msgPerTx, price, quantity)
 		var amountUsei int64
-		if r.Float64() < 0.5 {
+		if rand.Float64() < 0.5 {
 			amountUsei = 10000 * price.Mul(quantity).Ceil().RoundInt64()
 		} else {
 			amountUsei = 0
@@ -444,7 +402,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		}}
 
 	default:
-		fmt.Printf("Unrecognized message type %s", config.MessageType)
+		fmt.Printf("Unrecognized message type %s\n", config.MessageType)
 	}
 
 	if strings.Contains(config.MessageType, "failure") {
@@ -473,9 +431,8 @@ func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
 func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx uint64, price sdk.Dec, quantity sdk.Dec) (orderPlacements []*dextypes.Order) {
 	orderType := sampleDexOrderType(config)
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	var direction dextypes.PositionDirection
-	if r.Float64() < 0.5 {
+	if rand.Float64() < 0.5 {
 		direction = dextypes.PositionDirection_LONG
 	} else {
 		direction = dextypes.PositionDirection_SHORT
@@ -499,8 +456,6 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx
 }
 
 func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
 	// Randomly unbond, redelegate or delegate
 	// However, if there are no delegations, do so first
 	var msg sdk.Msg
@@ -543,10 +498,9 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 	var msgs []sdk.Msg
 	contract := config.WasmMsgTypes.Vortex.ContractAddr
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	// Randomly select Position Direction
 	var direction dextypes.PositionDirection
-	if r.Float64() < 0.5 {
+	if rand.Float64() < 0.5 {
 		direction = dextypes.PositionDirection_LONG
 	} else {
 		direction = dextypes.PositionDirection_SHORT
@@ -670,5 +624,5 @@ func main() {
 
 	config := ReadConfig(*configFilePath)
 	fmt.Printf("Using config file: %s\n", *configFilePath)
-	run(&config)
+	run(config)
 }

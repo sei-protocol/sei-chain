@@ -17,16 +17,18 @@ const SynchronizationTimeoutInSeconds = 5
 type MemState struct {
 	storeKey sdk.StoreKey
 
-	// TODO: all of these need to be in the memstore
-	contractsToProcessMtx *sync.RWMutex
-	contractsToDepsMtx    *sync.Mutex
+	contractsToProcess      *datastructures.SyncSet[string]
+	contractsToDepsMtx      *sync.Mutex
+	contractsToDependencies *datastructures.TypedSyncMap[string, []string]
 }
 
 func NewMemState(storeKey sdk.StoreKey) *MemState {
+	contractsToProcess := datastructures.NewSyncSet([]string{})
 	return &MemState{
-		storeKey:              storeKey,
-		contractsToDepsMtx:    &sync.Mutex{},
-		contractsToProcessMtx: &sync.RWMutex{},
+		storeKey:                storeKey,
+		contractsToProcess:      &contractsToProcess,
+		contractsToDepsMtx:      &sync.Mutex{},
+		contractsToDependencies: datastructures.NewTypedSyncMap[string, []string](),
 	}
 }
 
@@ -89,80 +91,36 @@ func (s *MemState) GetDepositInfo(ctx sdk.Context, contractAddr types.ContractAd
 func (s *MemState) GetContractToDependencies(ctx sdk.Context, contractAddress string, loader func(sdk.Context, string) (types.ContractInfoV2, error)) []string {
 	s.contractsToDepsMtx.Lock()
 	defer s.contractsToDepsMtx.Unlock()
-
-	store := ctx.KVStore(s.storeKey)
-
-	// GET from memstate
-	bz := store.Get(types.MemDownstreamContractsKey(contractAddress))
-	if bz != nil {
-		var contracts types.DownsteamContracts
-		if err := contracts.Unmarshal(bz); err != nil {
-			panic(err)
-		}
-		return contracts.ContractAddrs
+	if deps, ok := s.contractsToDependencies.Load(contractAddress); ok {
+		return deps
 	}
 	loadedDownstreams := GetAllDownstreamContracts(ctx, contractAddress, loader)
-	// if we have to get all downstreams, save them to memstate
-	downstreamContracts := types.DownsteamContracts{
-		ContractAddrs: loadedDownstreams,
-	}
-	contractsBz, err := downstreamContracts.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	store.Set(types.MemDownstreamContractsKey(contractAddress), contractsBz)
+	s.contractsToDependencies.Store(contractAddress, loadedDownstreams)
 	return loadedDownstreams
 }
 
-func (s *MemState) ClearContractToDependencies(ctx sdk.Context) {
+func (s *MemState) ClearContractToDependencies() {
 	s.contractsToDepsMtx.Lock()
 	defer s.contractsToDepsMtx.Unlock()
-	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDownstreamContracts), func(_ []byte) bool { return true })
+
+	s.contractsToDependencies = datastructures.NewTypedSyncMap[string, []string]()
 }
 
 func (s *MemState) SetDownstreamsToProcess(ctx sdk.Context, contractAddress string, loader func(sdk.Context, string) (types.ContractInfoV2, error)) {
-	s.contractsToProcessMtx.Lock()
-	defer s.contractsToProcessMtx.Unlock()
-	contracts := s.GetContractToDependencies(ctx, contractAddress, loader)
-	store := ctx.KVStore(s.storeKey)
-	for _, contract := range contracts {
-		// Add each to memstate instead - simply set to 1 for some value indicating presence
-		store.Set(types.MemContractsToProcessKey(contract), []byte{1})
-	}
+	s.contractsToProcess.AddAll(s.GetContractToDependencies(ctx, contractAddress, loader))
 }
 
-func (s *MemState) ContractsToProcessContains(ctx sdk.Context, contractAddress string) bool {
-	s.contractsToProcessMtx.RLock()
-	defer s.contractsToProcessMtx.RUnlock()
-	store := ctx.KVStore(s.storeKey)
-	return store.Has(types.MemContractsToProcessKey(contractAddress))
-}
-
-func (s *MemState) GetContractToProcessOrderedSlice(ctx sdk.Context) []string {
-	s.contractsToProcessMtx.RLock()
-	defer s.contractsToProcessMtx.RUnlock()
-	orderedContracts := []string{}
-	store := ctx.KVStore(s.storeKey)
-	iter := sdk.KVStorePrefixIterator(store, types.KeyPrefix(types.MemContractsToProcess))
-	for ; iter.Valid(); iter.Next() {
-		// get key
-		key := iter.Key()
-		// because we know length prefix is 1 byte, and the rest of the key is ONLY the contract addr, this lets us get the contract address bytes
-		contractAddrBytes := key[len(types.KeyPrefix(types.MemContractsToProcess))+1:]
-		// parse contract address from key
-		contractAddr := sdk.AccAddress(contractAddrBytes).String()
-		orderedContracts = append(orderedContracts, contractAddr)
-	}
-	return orderedContracts
+func (s *MemState) GetContractToProcess() *datastructures.SyncSet[string] {
+	return s.contractsToProcess
 }
 
 func (s *MemState) Clear(ctx sdk.Context) {
-	s.contractsToProcessMtx.Lock()
-	defer s.contractsToProcessMtx.Unlock()
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemOrderKey), func(_ []byte) bool { return true })
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemCancelKey), func(_ []byte) bool { return true })
 	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemDepositKey), func(_ []byte) bool { return true })
-	DeepDelete(ctx.KVStore(s.storeKey), types.KeyPrefix(types.MemContractsToProcess), func(_ []byte) bool { return true })
+
+	newContractToDependencies := datastructures.NewSyncSet([]string{})
+	s.contractsToProcess = &newContractToDependencies
 }
 
 func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr types.ContractAddress, pair types.Pair) {
@@ -178,9 +136,10 @@ func (s *MemState) ClearCancellationForPair(ctx sdk.Context, contractAddr types.
 
 func (s *MemState) DeepCopy() *MemState {
 	return &MemState{
-		storeKey:              s.storeKey,
-		contractsToDepsMtx:    s.contractsToDepsMtx,    // passing by pointer
-		contractsToProcessMtx: s.contractsToProcessMtx, // passing by pointer
+		storeKey:                s.storeKey,
+		contractsToProcess:      s.contractsToProcess,
+		contractsToDepsMtx:      s.contractsToDepsMtx, // passing by pointer
+		contractsToDependencies: s.contractsToDependencies,
 	}
 }
 

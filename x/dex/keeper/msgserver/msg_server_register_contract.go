@@ -75,7 +75,7 @@ func (k msgServer) RegisterContract(goCtx context.Context, msg *types.MsgRegiste
 		sdk.NewAttribute(types.AttributeKeyContractAddress, msg.Contract.ContractAddr),
 	))
 
-	dexutils.GetMemState(ctx.Context()).ClearContractToDependencies(ctx)
+	dexutils.GetMemState(ctx.Context()).ClearContractToDependencies()
 	return &types.MsgRegisterContractResponse{}, nil
 }
 
