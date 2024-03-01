@@ -31,5 +31,8 @@ func TestSetConcurrencyWorkers(t *testing.T) {
 
 func TestOCCEnabled(t *testing.T) {
 	cfg := DefaultConfig()
-	require.Equal(t, true, cfg.OccEnabled)
+	require.False(t, cfg.OccEnabled)
+
+	cfg.BaseConfig.OccEnabled = true
+	require.True(t, cfg.OccEnabled)
 }

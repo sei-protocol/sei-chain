@@ -26,7 +26,7 @@ const (
 	DefaultConcurrencyWorkers = 20
 
 	// DefaultOccEanbled defines whether to use OCC for tx processing
-	DefaultOccEnabled = true
+	DefaultOccEnabled = false
 )
 
 // BaseConfig defines the server's basic configuration

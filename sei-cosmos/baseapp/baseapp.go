@@ -829,13 +829,13 @@ func (app *BaseApp) cacheTxContext(ctx sdk.Context, txBytes []byte) (sdk.Context
 // and execute successfully. An error is returned otherwise.
 func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, result *sdk.Result, anteEvents []abci.Event, priority int64, err error) {
 
-	// defer telemetry.MeasureThroughputSinceWithLabels(
-	// 	telemetry.TxCount,
-	// 	[]metrics.Label{
-	// 		telemetry.NewLabel("mode", modeKeyToString[mode]),
-	// 	},
-	// 	time.Now(),
-	// )
+	defer telemetry.MeasureThroughputSinceWithLabels(
+		telemetry.TxCount,
+		[]metrics.Label{
+			telemetry.NewLabel("mode", modeKeyToString[mode]),
+		},
+		time.Now(),
+	)
 
 	// Reset events after each checkTx or simulateTx or recheckTx
 	// DeliverTx is garbage collected after FinalizeBlocker
