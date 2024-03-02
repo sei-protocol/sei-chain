@@ -631,6 +631,52 @@ func TestMVSIteratorValidationEarlyStop(t *testing.T) {
 	require.Empty(t, conflicts)
 }
 
+func TestMVSIteratorValidationEarlyStopEarlierKeyRemoved(t *testing.T) {
+	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort))
+
+	parentKVStore.Set([]byte("key2"), []byte("value0"))
+	parentKVStore.Set([]byte("key3"), []byte("value3"))
+	parentKVStore.Set([]byte("key4"), []byte("value4"))
+	parentKVStore.Set([]byte("key5"), []byte("value5"))
+
+	writeset := make(multiversion.WriteSet)
+	writeset["key1"] = []byte("value1")
+	writeset["key2"] = []byte("value2")
+	writeset["key3"] = nil
+	mvs.SetWriteset(1, 2, writeset)
+
+	readset := make(multiversion.ReadSet)
+	readset["key1"] = [][]byte{[]byte("value1")}
+	readset["key2"] = [][]byte{[]byte("value2")}
+	readset["key3"] = [][]byte{nil}
+	readset["key4"] = [][]byte{[]byte("value4")}
+	mvs.SetReadset(5, readset)
+
+	i := 0
+	iter := vis.Iterator([]byte("key1"), []byte("key7"))
+	for ; iter.Valid(); iter.Next() {
+		i++
+		// break after iterating 3 items
+		if i == 3 {
+			break
+		}
+	}
+	iter.Close()
+	vis.WriteToMultiVersionStore()
+
+	// removal of key2 by an earlier tx - should cause invalidation for iterateset validation
+	writeset2 := make(multiversion.WriteSet)
+	writeset2["key2"] = nil
+	mvs.SetWriteset(2, 2, writeset2)
+
+	// should be valid
+	valid, conflicts := mvs.ValidateTransactionState(5)
+	require.False(t, valid)
+	require.Empty(t, conflicts)
+}
+
 // TODO: what about early stop with a new key added in the range? - especially if its the last key that we stopped at?
 func TestMVSIteratorValidationEarlyStopAtEndOfRange(t *testing.T) {
 	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
