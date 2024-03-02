@@ -32,7 +32,7 @@ type MultiVersionStore interface {
 }
 
 type WriteSet map[string][]byte
-type ReadSet map[string][]byte
+type ReadSet map[string][][]byte
 type Iterateset []iterationTracker
 
 var _ MultiVersionStore = (*Store)(nil)
@@ -341,7 +341,12 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 	}
 	readset := readSetAny.(ReadSet)
 	// iterate over readset and check if the value is the same as the latest value relateive to txIndex in the multiversion store
-	for key, value := range readset {
+	for key, valueArr := range readset {
+		if len(valueArr) != 1 {
+			valid = false
+			continue
+		}
+		value := valueArr[0]
 		// get the latest value from the multiversion store
 		latestValue := s.GetLatestBeforeIndex(index, []byte(key))
 		if latestValue == nil {

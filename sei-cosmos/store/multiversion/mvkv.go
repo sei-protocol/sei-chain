@@ -1,6 +1,7 @@
 package multiversion
 
 import (
+	"bytes"
 	"io"
 	"sort"
 
@@ -73,8 +74,8 @@ type VersionIndexedStore struct {
 	// mtx sync.Mutex
 	// used for tracking reads and writes for eventual validation + persistence into multi-version store
 	// TODO: does this need sync.Map?
-	readset    map[string][]byte // contains the key -> value mapping for all keys read from the store (not mvkv, underlying store)
-	writeset   map[string][]byte // contains the key -> value mapping for all keys written to the store
+	readset    map[string][][]byte // contains the key -> []value mapping for all keys read from the store (not mvkv, underlying store)
+	writeset   map[string][]byte   // contains the key -> value mapping for all keys written to the store
 	iterateset Iterateset
 	// TODO: need to add iterateset here as well
 
@@ -97,7 +98,7 @@ var _ IterateSetHandler = (*VersionIndexedStore)(nil)
 
 func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersionStore, transactionIndex, incarnation int, abortChannel chan scheduler.Abort) *VersionIndexedStore {
 	return &VersionIndexedStore{
-		readset:           make(map[string][]byte),
+		readset:           make(map[string][][]byte),
 		writeset:          make(map[string][]byte),
 		iterateset:        []iterationTracker{},
 		sortedStore:       dbm.NewMemDB(),
@@ -110,7 +111,7 @@ func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersion
 }
 
 // GetReadset returns the readset
-func (store *VersionIndexedStore) GetReadset() map[string][]byte {
+func (store *VersionIndexedStore) GetReadset() map[string][][]byte {
 	return store.readset
 }
 
@@ -140,7 +141,8 @@ func (store *VersionIndexedStore) Get(key []byte) []byte {
 	}
 	// read the readset to see if the value exists - and return if applicable
 	if readsetVal, ok := store.readset[strKey]; ok {
-		return readsetVal
+		// just return the first one, if there is more than one, we will fail the validation anyways
+		return readsetVal[0]
 	}
 
 	// if we didn't find it, then we want to check the multivalue store + add to readset if applicable
@@ -187,7 +189,12 @@ func (store *VersionIndexedStore) ValidateReadset() bool {
 	// iterate over readset keys and values
 	for _, strKey := range readsetKeys {
 		key := []byte(strKey)
-		value := store.readset[strKey]
+		valueArr := store.readset[strKey]
+		if len(valueArr) != 1 {
+			// if we have more than one value, we will fail the validation since we dedup when adding to readset
+			return false
+		}
+		value := valueArr[0]
 		mvsValue := store.multiVersionStore.GetLatestBeforeIndex(store.transactionIndex, key)
 		if mvsValue != nil {
 			if mvsValue.IsEstimate() {
@@ -354,12 +361,22 @@ func (store *VersionIndexedStore) WriteEstimatesToMultiVersionStore() {
 }
 
 func (store *VersionIndexedStore) UpdateReadSet(key []byte, value []byte) {
+	// TODO: make readset a list of byte slices, and store the value if it's a new value
 	// add to readset
 	keyStr := string(key)
 	// TODO: maybe only add if not already existing?
 	if _, ok := store.readset[keyStr]; !ok {
-		store.readset[keyStr] = value
+		// if the entry doesnt exist, make a new empty slice
+		store.readset[keyStr] = [][]byte{}
 	}
+	for _, readsetVal := range store.readset[keyStr] {
+		if bytes.Equal(value, readsetVal) {
+			// this means we have already added this value to our readset, so we continue
+			return
+		}
+	}
+	// if we get here, that means we have a new readset val, so we append it to the slice
+	store.readset[keyStr] = append(store.readset[keyStr], value)
 }
 
 // Write implements types.CacheWrap so this store can exist on the cache multi store

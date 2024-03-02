@@ -32,7 +32,7 @@ func TestVersionIndexedStoreGetters(t *testing.T) {
 	require.Equal(t, []byte("value1"), val2)
 	require.True(t, vis.Has([]byte("key1")))
 	// verify value now in readset
-	require.Equal(t, []byte("value1"), vis.GetReadset()["key1"])
+	require.Equal(t, [][]byte{[]byte("value1")}, vis.GetReadset()["key1"])
 
 	// read the same key that should now be served from the readset (can be verified by setting a different value for the key in the parent store)
 	parentKVStore.Set([]byte("key1"), []byte("value2")) // realistically shouldn't happen, modifying to verify readset access
@@ -388,4 +388,53 @@ func TestIterator(t *testing.T) {
 	abort := <-abortC2 // read the abort from the channel
 	require.Equal(t, 1, abort.DependentTxIdx)
 
+}
+
+func TestIteratorReadsetRace(t *testing.T) {
+	mem := dbadapter.Store{DB: dbm.NewMemDB()}
+	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	// initialize a new VersionIndexedStore
+	abortC := make(chan scheduler.Abort)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 2, abortC)
+
+	// set some initial values
+	parentKVStore.Set([]byte("key4"), []byte("value4"))
+	parentKVStore.Set([]byte("key5"), []byte("value5"))
+	parentKVStore.Set([]byte("deletedKey"), []byte("foo"))
+	mvs.SetWriteset(0, 1, map[string][]byte{
+		"key1":       []byte("value1"),
+		"key2":       []byte("value2"),
+		"deletedKey": nil,
+	})
+
+	// iterate over the keys - exclusive on key5
+	iter := vis.Iterator([]byte("000"), []byte("key5"))
+
+	// verify domain is superset
+	start, end := iter.Domain()
+	require.Equal(t, []byte("000"), start)
+	require.Equal(t, []byte("key5"), end)
+
+	// add new writeset for txIndex 1 - writes to key4
+	mvs.SetWriteset(1, 1, map[string][]byte{
+		"key4": []byte("value4NEW"),
+	})
+
+	// perform a read on key4 from VIS and assert it is the new value
+	val := vis.Get([]byte("key4"))
+	require.Equal(t, []byte("value4NEW"), val)
+
+	vals := []string{}
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		vals = append(vals, string(iter.Value()))
+	}
+	// we still read the OLD value because key4 wasn't known to be in the MVS thus wasnt served
+	require.Equal(t, []string{"value1", "value2", "value4"}, vals)
+	iter.Close()
+
+	// verify that key4 has two elements in the readset
+	readset := vis.GetReadset()
+	require.Len(t, readset["key4"], 2)
 }
