@@ -1,5 +1,6 @@
 const { execSync } = require('child_process');
 const { expect } = require("chai");
+const fs = require('fs');
 const path = require('path');
 
 describe("EVM Test", function () {
