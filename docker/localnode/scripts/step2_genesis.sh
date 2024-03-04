@@ -48,11 +48,11 @@ override_genesis '.app_state["gov"]["tally_params"]["expedited_threshold"]="0.9"
 # add genesis accounts for each node
 while read account; do
   echo "Adding: $account"
-  seid add-genesis-account "$account" 1000000000000000000000usei
+  seid add-genesis-account "$account" 1000000000000000000000usei,1000000000000000000000uusdc,1000000000000000000000uatom
 done <build/generated/genesis_accounts.txt
 
 # add funds to admin account
-printf "12345678\n" | seid add-genesis-account admin 1000000000000000000000usei
+printf "12345678\n" | seid add-genesis-account admin 1000000000000000000000usei,1000000000000000000000uusdc,1000000000000000000000uatom
 
 mkdir -p ~/exported_keys
 cp -r build/generated/gentx/* ~/.sei/config/gentx
