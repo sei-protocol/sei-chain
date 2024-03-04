@@ -5,10 +5,10 @@
       env: TX_HASH
     - cmd: cast receipt "$TX_HASH" -j |jq -r ."status"
       env: RESULT
-    - cmd: cd contracts && npm ci
-    - cmd: chown -R root:root contracts
-    - cmd: cd contracts && npx hardhat test --network seilocal test/EVMCompatabilityTester.js
-    - cmd: cd contracts && npx hardhat test --network seilocal test/EVMPrecompileTester.js
+    # Setup for Hardhat Integration Test
+    - cmd: bash contracts/test/deploy_atom_erc20.sh
+    - cmd: bash contracts/test/get_validator_address.sh
+    - cmd: bash contracts/test/send_gov_proposal.sh
   verifiers:
     - type: eval
       expr: RESULT == "0x1"

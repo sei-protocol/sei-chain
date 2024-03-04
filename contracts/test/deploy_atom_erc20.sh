@@ -9,17 +9,17 @@ associated_sei_account1=sei1m9qugvk4h66p6hunfajfg96ysc48zeq4m0d82c
 owner2=0x70997970C51812dc3A010C7d01b50e0d17dc79C8
 
 echo "Funding account $account with UATOM for testing..."
-seid tx bank send $(seid keys show admin -a) $associated_sei_account1 10000uatom --fees 20000usei -b block -y > /dev/null
+printf "12345678\n" | seid tx bank send $(printf "12345678\n" | seid keys show admin -a) $associated_sei_account1 10000uatom --fees 20000usei -b block -y
 
 echo "Fund owners with some SEI"
-seid tx evm send $owner1 1000000000000000000 --from admin
-seid tx evm send $owner2 1000000000000000000 --from admin
+printf "12345678\n" | seid tx evm send $owner1 1000000000000000000 --from admin
+printf "12345678\n" | seid tx evm send $owner2 1000000000000000000 --from admin
 
 echo "Deploying ERC20 pointer contract for UATOM..."
-deployment_output=$(seid tx evm deploy-erc20 uatom UATOM UATOM 6 --from admin --evm-rpc=$endpoint)
+deployment_output=$(printf "12345678\n" | seid tx evm deploy-erc20 uatom UATOM UATOM 6 --from admin --evm-rpc=$endpoint)
 
 erc20_deploy_addr=$(echo "$deployment_output" | grep 'Deployed to:' | awk '{print $3}')
-echo "ERC20_DEPLOY_ADDR=$erc20_deploy_addr"
+echo $erc20_deploy_addr > contracts/erc20_deploy_addr.txt
 
 # wait for deployment to finish on live chain
 sleep 3

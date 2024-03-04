@@ -11,9 +11,8 @@ describe("EVM Test", function () {
             let owner2;
             let signer;
             let signer2
-            const setupScriptPath = './test/deploy_atom_erc20.sh';
             before(async function() {
-                contractAddress = runSetupScript(setupScriptPath, 'ERC20_DEPLOY_ADDR');
+                contractAddress = readDeploymentOutput('erc20_deploy_addr.txt');
                 await sleep(1000);
     
                 // Create a signer
@@ -86,11 +85,10 @@ describe("EVM Test", function () {
         // TODO: Update when we add gov query precompiles
         describe("EVM Gov Precompile Tester", function () {
             let govProposal;
-            const setupScriptPath = './test/send_gov_proposal.sh';
             // TODO: Import this
             const GovPrecompileContract = '0x0000000000000000000000000000000000001006';
             before(async function() {
-                govProposal = runSetupScript(setupScriptPath, 'GOV_PROPOSAL_ID');
+                govProposal = readDeploymentOutput('gov_proposal_output.txt');
                 await sleep(1000);
     
                 // Create a proposal
@@ -143,10 +141,9 @@ describe("EVM Test", function () {
 
         // TODO: Update when we add staking query precompiles
         describe("EVM Staking Precompile Tester", function () {
-            const setupScriptPath = './test/get_validator_address.sh';
             const StakingPrecompileContract = '0x0000000000000000000000000000000000001005';
             before(async function() {
-                validatorAddr = runSetupScript(setupScriptPath, 'VALIDATOR_ADDR');
+                validatorAddr = readDeploymentOutput('validator_address.txt');
                 await sleep(1000);
                 const [signer, _] = await ethers.getSigners();
                 owner = await signer.getAddress();
@@ -176,23 +173,17 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function runSetupScript(setupScriptPath, variableName) {
-    let scriptOutput;
+function readDeploymentOutput(fileName) {
+    let fileContent;
     try {
-        const output = execSync('bash ' + setupScriptPath).toString();
-
-        // Parse the output to find the contract address
-        const regexPattern = new RegExp(variableName + '=(\\S+)');
-        const match = output.match(regexPattern);
-        scriptOutput = match ? match[1] : undefined;
-
-        if (scriptOutput === undefined) {
-            console.error("script output not found");
+        if (fs.existsSync(fileName)) {
+            fileContent = fs.readFileSync(fileName, 'utf8').trim();
+            console.log("Output from file:", fileContent);
         } else {
-            console.log("EVMPrecompileTester setup complete with output:", scriptOutput);
+            console.error("File not found:", fileName);
         }
     } catch (error) {
-        console.error(`Error executing bash script: ${error}`);
+        console.error(`Error reading file: ${error}`);
     }
-    return scriptOutput;
+    return fileContent;
 }
