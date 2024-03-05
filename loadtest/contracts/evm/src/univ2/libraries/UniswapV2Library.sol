@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.10;
 
-import "../interfaces/IUnifapV2Pair.sol";
+import "../interfaces/IUniswapV2Pair.sol";
 
-/// @title UnifapV2Library
+/// @title UniswapV2Library
 /// @author Uniswap Labs
-/// @notice Provides common functionality for UnifapV2 Contracts
-library UnifapV2Library {
+/// @notice Provides common functionality for UniswapV2 Contracts
+library UniswapV2Library {
     function sortPairs(address token0, address token1)
         internal
         pure
@@ -29,7 +29,7 @@ library UnifapV2Library {
         address tokenB
     ) internal view returns (uint112 reserveA, uint112 reserveB) {
         (address token0, address token1) = sortPairs(tokenA, tokenB);
-        (uint112 reserve0, uint112 reserve1, ) = IUnifapV2Pair(
+        (uint112 reserve0, uint112 reserve1, ) = IUniswapV2Pair(
             pairFor(factory, token0, token1)
         ).getReserves();
         (reserveA, reserveB) = tokenA == token0

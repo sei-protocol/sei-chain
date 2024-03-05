@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.10;
 
-import "./UnifapV2Pair.sol";
-import "./interfaces/IUnifapV2Pair.sol";
+import "./UniswapV2Pair.sol";
+import "./interfaces/IUniswapV2Pair.sol";
 
-/// @title UnifapV2Factory
+/// @title UniswapV2Factory
 /// @author Uniswap Labs
 /// @notice Creates pool pairs of tokens
-contract UnifapV2Factory {
+contract UniswapV2Factory {
     // ========= Custom Errors =========
 
     error IdenticalTokens();
@@ -57,7 +57,7 @@ contract UnifapV2Factory {
         if (token0 == address(0)) revert InvalidToken();
         if (pairs[token0][token1] != address(0)) revert DuplicatePair();
 
-        bytes memory bytecode = type(UnifapV2Pair).creationCode;
+        bytes memory bytecode = type(UniswapV2Pair).creationCode;
         bytes32 salt = keccak256(abi.encodePacked(token0, token1));
 
         // solhint-disable-next-line no-inline-assembly
@@ -65,7 +65,7 @@ contract UnifapV2Factory {
             pair := create2(0, add(bytecode, 32), mload(bytecode), salt)
         }
 
-        IUnifapV2Pair(pair).initialize(token0, token1);
+        IUniswapV2Pair(pair).initialize(token0, token1);
 
         pairs[token0][token1] = pair;
         pairs[token1][token0] = pair;

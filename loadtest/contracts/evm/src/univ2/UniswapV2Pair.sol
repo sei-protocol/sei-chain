@@ -9,10 +9,10 @@ import "./interfaces/IERC20.sol";
 import "./libraries/Math.sol";
 import "./libraries/UQ112x112.sol";
 
-/// @title UnifapV2Pair
+/// @title UniswapV2Pair
 /// @author Uniswap Labs
 /// @notice maintains a liquidity pool of a pair of tokens
-contract UnifapV2Pair is ERC20, ReentrancyGuard, Initializable {
+contract UniswapV2Pair is ERC20, ReentrancyGuard, Initializable {
     // ========= Custom Errors =========
 
     error InsufficientLiquidityMinted();
@@ -63,7 +63,7 @@ contract UnifapV2Pair is ERC20, ReentrancyGuard, Initializable {
 
     // ========= Constructor =========
 
-    constructor() ERC20("UnifapV2", "UNIV2", 18) {}
+    constructor() ERC20("UniswapV2", "UNIV2", 18) {}
 
     // ========= Initializer =========
 
