@@ -59,6 +59,7 @@ type BlockHeader struct {
 }
 
 func init() {
+	fmt.Println("Initializing...")
 	cdc := codec.NewLegacyAmino()
 	interfaceRegistry := types.NewInterfaceRegistry()
 	marshaler := codec.NewProtoCodec(interfaceRegistry)
@@ -85,6 +86,9 @@ func deployEvmContract(scriptPath string, config *Config) (common.Address, error
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
+
+	fmt.Println("out = ", out.String())
+
 	if err != nil {
 		return common.Address{}, err
 	}
@@ -106,12 +110,30 @@ func deployEvmContracts(config *Config) {
 	}
 }
 
+func deployUniswapContracts(config *Config) {
+	config.EVMAddresses = &EVMAddresses{}
+	if config.ContainsAnyMessageTypes(ERC20) {
+		fmt.Println("Deploying Uniswap contracts")
+		uniV2Router, err := deployEvmContract("loadtest/contracts/deploy_univ2.sh", config)
+		fmt.Println("UniV2Router: ", uniV2Router.String())
+
+		if err != nil {
+			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
+			panic(err)
+		}
+		config.EVMAddresses = &EVMAddresses{
+			UniV2Router: uniV2Router,
+		}
+	}
+}
+
 func run(config *Config) {
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(*config)
 
 	deployEvmContracts(config)
+	deployUniswapContracts(config)
 	startLoadtestWorkers(*config)
 }
 
@@ -665,8 +687,10 @@ func ReadConfig(path string) Config {
 }
 
 func main() {
+	fmt.Println("Starting loadtest...")
 	configFilePath := flag.String("config-file", GetDefaultConfigFilePath(), "Path to the config.json file to use for this run")
 	flag.Parse()
+	fmt.Println("config file path: ", *configFilePath)
 
 	config := ReadConfig(*configFilePath)
 	fmt.Printf("Using config file: %s\n", *configFilePath)

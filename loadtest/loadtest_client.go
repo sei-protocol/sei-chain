@@ -190,8 +190,10 @@ func (c *LoadTestClient) BuildTxs(
 			messageType := c.getRandomMessageType(messageTypes)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
+			fmt.Println("messageType: ", messageType)
 			switch messageType {
 			case EVM, ERC20:
+				fmt.Println("In EVM/ERC20")
 				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType)}
 			default:
 				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, producedCount)}
