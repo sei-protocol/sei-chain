@@ -185,6 +185,9 @@ func EncodeTmBlock(
 			}
 		}
 	}
+	if len(transactions) == 0 {
+		txHash = ethtypes.EmptyTxsHash
+	}
 	result := map[string]interface{}{
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,
