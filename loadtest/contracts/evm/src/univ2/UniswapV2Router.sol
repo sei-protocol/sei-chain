@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.10;
 
-import "./interfaces/IUnifapV2Factory.sol";
-import "./interfaces/IUnifapV2Pair.sol";
+import "./interfaces/IUniswapV2Factory.sol";
+import "./interfaces/IUniswapV2Pair.sol";
 import "./interfaces/IERC20.sol";
-import "./libraries/UnifapV2Library.sol";
+import "./libraries/UniswapV2Library.sol";
 
-contract UnifapV2Router {
+contract UniswapV2Router {
     // ========= Custom Errors =========
 
     error Expired();
@@ -16,12 +16,12 @@ contract UnifapV2Router {
 
     // ========= State Variables =========
 
-    IUnifapV2Factory public immutable factory;
+    IUniswapV2Factory public immutable factory;
 
     // ========= Constructor =========
 
     constructor(address _factory) {
-        factory = IUnifapV2Factory(_factory);
+        factory = IUniswapV2Factory(_factory);
     }
 
     // ========= Modifiers =========
@@ -74,7 +74,7 @@ contract UnifapV2Router {
         address pair = factory.pairs(tokenA, tokenB);
         _safeTransferFrom(tokenA, msg.sender, pair, amountA);
         _safeTransferFrom(tokenB, msg.sender, pair, amountB);
-        liquidity = IUnifapV2Pair(pair).mint(to);
+        liquidity = IUniswapV2Pair(pair).mint(to);
     }
 
     /// @notice Remove liquidity from token pool pair
@@ -96,8 +96,8 @@ contract UnifapV2Router {
     ) public check(deadline) returns (uint256 amountA, uint256 amountB) {
         address pair = factory.pairs(tokenA, tokenB);
         _safeTransferFrom(address(pair), msg.sender, address(pair), liquidity);
-        (uint256 amount0, uint256 amount1) = IUnifapV2Pair(pair).burn(to);
-        (address token0, ) = UnifapV2Library.sortPairs(tokenA, tokenB);
+        (uint256 amount0, uint256 amount1) = IUniswapV2Pair(pair).burn(to);
+        (address token0, ) = UniswapV2Library.sortPairs(tokenA, tokenB);
         (amountA, amountB) = token0 == tokenA
             ? (amount0, amount1)
             : (amount1, amount0);
@@ -121,7 +121,7 @@ contract UnifapV2Router {
             factory.createPair(tokenA, tokenB);
         }
 
-        (uint112 reserveA, uint112 reserveB) = UnifapV2Library.getReserves(
+        (uint112 reserveA, uint112 reserveB) = UniswapV2Library.getReserves(
             address(factory),
             tokenA,
             tokenB
@@ -129,12 +129,12 @@ contract UnifapV2Router {
         if (reserveA == 0 && reserveB == 0) {
             (amountA, amountB) = (amountADesired, amountBDesired);
         } else {
-            amountB = UnifapV2Library.quote(amountADesired, reserveA, reserveB);
+            amountB = UniswapV2Library.quote(amountADesired, reserveA, reserveB);
             if (amountB <= amountBDesired) {
                 if (amountB < amountBMin) revert InsufficientAmountB();
                 amountA = amountADesired;
             } else {
-                amountA = UnifapV2Library.quote(
+                amountA = UniswapV2Library.quote(
                     amountBDesired,
                     reserveB,
                     reserveA
