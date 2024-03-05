@@ -23,7 +23,7 @@ func (NoOpHandler) UpdateReadSet(key []byte, value []byte) {}
 
 // exposes a handler for adding items to iterateset, to be called upon iterator close
 type IterateSetHandler interface {
-	UpdateIterateSet(iterationTracker)
+	UpdateIterateSet(*iterationTracker)
 }
 
 type iterationTracker struct {
@@ -100,7 +100,7 @@ func NewVersionIndexedStore(parent types.KVStore, multiVersionStore MultiVersion
 	return &VersionIndexedStore{
 		readset:           make(map[string][][]byte),
 		writeset:          make(map[string][]byte),
-		iterateset:        []iterationTracker{},
+		iterateset:        []*iterationTracker{},
 		sortedStore:       dbm.NewMemDB(),
 		parent:            parent,
 		multiVersionStore: multiVersionStore,
@@ -265,7 +265,6 @@ func (v *VersionIndexedStore) ReverseIterator(start []byte, end []byte) dbm.Iter
 	return v.iterator(start, end, false)
 }
 
-// TODO: still needs iterateset tracking
 // Iterator implements types.KVStore.
 func (store *VersionIndexedStore) iterator(start []byte, end []byte, ascending bool) dbm.Iterator {
 	// TODO: remove?
@@ -301,7 +300,8 @@ func (store *VersionIndexedStore) iterator(start []byte, end []byte, ascending b
 	mergeIterator := NewMVSMergeIterator(parent, memIterator, ascending, store)
 
 	iterationTracker := NewIterationTracker(start, end, ascending, store.writeset)
-	trackedIterator := NewTrackedIterator(mergeIterator, iterationTracker, store, store)
+	store.UpdateIterateSet(&iterationTracker)
+	trackedIterator := NewTrackedIterator(mergeIterator, &iterationTracker)
 
 	// mergeIterator
 	return trackedIterator
@@ -394,7 +394,8 @@ func (store *VersionIndexedStore) ResetEvents() {
 	panic("not implemented")
 }
 
-func (store *VersionIndexedStore) UpdateIterateSet(iterationTracker iterationTracker) {
+func (store *VersionIndexedStore) UpdateIterateSet(iterationTracker *iterationTracker) {
+	// TODO: refactor such that the iterateset is added to the store at the time of iterator creation and updated continuously instead of at Close
 	// append to iterateset
 	store.iterateset = append(store.iterateset, iterationTracker)
 }

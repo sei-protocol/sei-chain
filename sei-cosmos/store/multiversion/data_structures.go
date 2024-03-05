@@ -8,8 +8,7 @@ import (
 )
 
 const (
-	// The approximate number of items and children per B-tree node. Tuned with benchmarks.
-	multiVersionBTreeDegree = 2 // should be equivalent to a binary search tree TODO: benchmark this
+	multiVersionBTreeDegree = 2
 )
 
 type MultiVersionValue interface {

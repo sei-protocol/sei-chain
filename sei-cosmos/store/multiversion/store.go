@@ -33,7 +33,7 @@ type MultiVersionStore interface {
 
 type WriteSet map[string][]byte
 type ReadSet map[string][][]byte
-type Iterateset []iterationTracker
+type Iterateset []*iterationTracker
 
 var _ MultiVersionStore = (*Store)(nil)
 
@@ -302,10 +302,10 @@ func (s *Store) validateIterator(index int, tracker iterationTracker) bool {
 
 			// if our iterator key was the early stop, then we can break
 			if bytes.Equal(key, iterationTracker.earlyStopKey) {
-				returnChan <- true
-				return
+				break
 			}
 		}
+		// return whether we found the exact number of expected keys
 		returnChan <- !((len(expectedKeys) - foundKeys) > 0)
 	}(tracker, sortedItems, validChannel, abortChannel)
 	select {
@@ -325,7 +325,8 @@ func (s *Store) checkIteratorAtIndex(index int) bool {
 	}
 	iterateset := iterateSetAny.(Iterateset)
 	for _, iterationTracker := range iterateset {
-		iteratorValid := s.validateIterator(index, iterationTracker)
+		// TODO: if the value of the key is nil maybe we need to exclude it? - actually it should
+		iteratorValid := s.validateIterator(index, *iterationTracker)
 		valid = valid && iteratorValid
 	}
 	return valid

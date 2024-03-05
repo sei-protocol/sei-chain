@@ -643,13 +643,11 @@ func TestMVSIteratorValidationEarlyStopEarlierKeyRemoved(t *testing.T) {
 
 	writeset := make(multiversion.WriteSet)
 	writeset["key1"] = []byte("value1")
-	writeset["key2"] = []byte("value2")
 	writeset["key3"] = nil
 	mvs.SetWriteset(1, 2, writeset)
 
 	readset := make(multiversion.ReadSet)
 	readset["key1"] = [][]byte{[]byte("value1")}
-	readset["key2"] = [][]byte{[]byte("value2")}
 	readset["key3"] = [][]byte{nil}
 	readset["key4"] = [][]byte{[]byte("value4")}
 	mvs.SetReadset(5, readset)
@@ -657,6 +655,7 @@ func TestMVSIteratorValidationEarlyStopEarlierKeyRemoved(t *testing.T) {
 	i := 0
 	iter := vis.Iterator([]byte("key1"), []byte("key7"))
 	for ; iter.Valid(); iter.Next() {
+		iter.Key()
 		i++
 		// break after iterating 3 items
 		if i == 3 {
@@ -671,7 +670,53 @@ func TestMVSIteratorValidationEarlyStopEarlierKeyRemoved(t *testing.T) {
 	writeset2["key2"] = nil
 	mvs.SetWriteset(2, 2, writeset2)
 
-	// should be valid
+	// should be invalid
+	valid, conflicts := mvs.ValidateTransactionState(5)
+	require.False(t, valid)
+	require.Empty(t, conflicts)
+}
+
+func TestMVSIteratorValidationEarlyStopEarlierKeyRemovedAndOtherReplaced(t *testing.T) {
+	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort))
+
+	parentKVStore.Set([]byte("key2"), []byte("value0"))
+	parentKVStore.Set([]byte("key3"), []byte("value3"))
+	parentKVStore.Set([]byte("key4"), []byte("value4"))
+	parentKVStore.Set([]byte("key5"), []byte("value5"))
+
+	writeset := make(multiversion.WriteSet)
+	writeset["key1"] = []byte("value1")
+	writeset["key3"] = nil
+	mvs.SetWriteset(1, 2, writeset)
+
+	readset := make(multiversion.ReadSet)
+	readset["key1"] = [][]byte{[]byte("value1")}
+	readset["key3"] = [][]byte{nil}
+	readset["key4"] = [][]byte{[]byte("value4")}
+	mvs.SetReadset(5, readset)
+
+	i := 0
+	iter := vis.Iterator([]byte("key1"), []byte("key7"))
+	for ; iter.Valid(); iter.Next() {
+		iter.Key()
+		i++
+		// break after iterating 3 items
+		if i == 3 {
+			break
+		}
+	}
+	iter.Close()
+	vis.WriteToMultiVersionStore()
+
+	// removal of key2 by an earlier tx - should cause invalidation for iterateset validation
+	writeset2 := make(multiversion.WriteSet)
+	writeset2["key2"] = nil
+	writeset2["key2a"] = []byte("value2a")
+	mvs.SetWriteset(2, 2, writeset2)
+
+	// should be invalid because key mismatch
 	valid, conflicts := mvs.ValidateTransactionState(5)
 	require.False(t, valid)
 	require.Empty(t, conflicts)
@@ -712,6 +757,69 @@ func TestMVSIteratorValidationEarlyStopAtEndOfRange(t *testing.T) {
 
 	// should be valid
 	valid, conflicts := mvs.ValidateTransactionState(5)
+	require.True(t, valid)
+	require.Empty(t, conflicts)
+}
+
+func TestMVSIteratorValidationWithKeyAddedForgetToClose(t *testing.T) {
+	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 5, 1, make(chan occ.Abort))
+
+	parentKVStore.Set([]byte("key2"), []byte("value0"))
+	parentKVStore.Set([]byte("key3"), []byte("value3"))
+	parentKVStore.Set([]byte("key4"), []byte("value4"))
+	parentKVStore.Set([]byte("key5"), []byte("value5"))
+
+	writeset := make(multiversion.WriteSet)
+	writeset["key1"] = []byte("value1")
+	writeset["key2"] = []byte("value2")
+	writeset["key3"] = nil
+	mvs.SetWriteset(1, 2, writeset)
+
+	iter := vis.Iterator([]byte("key1"), []byte("key7"))
+	for ; iter.Valid(); iter.Next() {
+		// read value
+		iter.Value()
+	}
+	// iterator is never closed
+	vis.WriteToMultiVersionStore()
+
+	// addition of key6
+	writeset2 := make(multiversion.WriteSet)
+	writeset2["key6"] = []byte("value6")
+	mvs.SetWriteset(2, 2, writeset2)
+
+	// should be invalid
+	valid, conflicts := mvs.ValidateTransactionState(5)
+	require.False(t, valid)
+	require.Empty(t, conflicts)
+}
+
+func TestMVSIteratorValidationEarlyStopIncludedInIterateset(t *testing.T) {
+	parentKVStore := dbadapter.Store{DB: dbm.NewMemDB()}
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 1, make(chan occ.Abort))
+
+	parentKVStore.Set([]byte("key1"), []byte("value1"))
+	parentKVStore.Set([]byte("key2"), []byte("value2"))
+	parentKVStore.Set([]byte("key3"), []byte("value3"))
+	parentKVStore.Set([]byte("key4"), []byte("value4"))
+
+	i := 0
+	iter := vis.Iterator([]byte("key1"), []byte("key5"))
+	for ; iter.Valid(); iter.Next() {
+		i++
+		// break after iterating 2 items
+		if i == 2 {
+			break
+		}
+	}
+	iter.Close()
+	vis.WriteToMultiVersionStore()
+
+	// should be valid
+	valid, conflicts := mvs.ValidateTransactionState(2)
 	require.True(t, valid)
 	require.Empty(t, conflicts)
 }
