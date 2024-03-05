@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
@@ -106,6 +107,30 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, []interface{}{}, resObj["uncles"])
 	require.Equal(t, "0x0", resObj["baseFeePerGas"])
 	require.Equal(t, "0x0", resObj["totalDifficulty"])
+}
+
+func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	block := &coretypes.ResultBlock{
+		BlockID: MockBlockID,
+		Block: &tmtypes.Block{
+			Header: mockBlockHeader(MockHeight),
+			Data:   tmtypes.Data{},
+			LastCommit: &tmtypes.Commit{
+				Height: MockHeight - 1,
+			},
+		},
+	}
+	blockRes := &coretypes.ResultBlockResults{
+		TxsResults: []*abci.ExecTxResult{},
+	}
+
+	// Call EncodeTmBlock with empty transactions
+	result, err := evmrpc.EncodeTmBlock(ctx, block, blockRes, k, Decoder, true)
+	require.Nil(t, err)
+
+	// Assert txHash is equal to ethtypes.EmptyTxsHash
+	require.Equal(t, ethtypes.EmptyTxsHash, result["transactionsRoot"])
 }
 
 func TestEncodeBankMsg(t *testing.T) {
