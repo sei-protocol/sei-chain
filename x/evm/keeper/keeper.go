@@ -1,6 +1,9 @@
 package keeper
 
 import (
+	"bytes"
+	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"math/big"
@@ -15,12 +18,18 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core"
+	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/ethclient"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	"github.com/sei-protocol/sei-chain/x/evm/replay"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -41,6 +50,28 @@ type Keeper struct {
 	nonceMx                      *sync.RWMutex
 	pendingNonces                map[string][]uint64
 	keyToNonce                   map[tmtypes.TxKey]*addressNoncePair
+
+	EthClient       *ethclient.Client
+	EthReplayConfig replay.Config
+	Trie            ethstate.Trie
+	DB              ethstate.Database
+	Root            common.Hash
+}
+
+type ReplayChainContext struct {
+	ethClient *ethclient.Client
+}
+
+func (ctx *ReplayChainContext) Engine() consensus.Engine {
+	return nil
+}
+
+func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethtypes.Header {
+	res, err := ctx.ethClient.BlockByNumber(context.Background(), big.NewInt(int64(number)))
+	if err != nil || res.Header_.Hash() != hash {
+		return nil
+	}
+	return res.Header_
 }
 
 type EvmTxDeferredInfo struct {
@@ -77,6 +108,44 @@ func NewKeeper(
 	return k
 }
 
+func (k *Keeper) PrepareAddr(ctx sdk.Context, addr common.Address) {
+	store := k.PrefixStore(ctx, types.ReplaySeenAddrPrefix)
+	bz := store.Get(addr[:])
+	if len(bz) > 0 {
+		return
+	}
+	a, err := k.Trie.GetAccount(addr)
+	if err != nil || a == nil {
+		return
+	}
+	store.Set(addr[:], a.Root[:])
+	if a.Balance != big.NewInt(0) {
+		usei, wei := state.SplitUseiWeiAmount(a.Balance)
+		err = k.BankKeeper().AddCoins(ctx, k.GetSeiAddressOrDefault(ctx, addr), sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
+		if err != nil {
+			panic(err)
+		}
+		err = k.BankKeeper().AddWei(ctx, k.GetSeiAddressOrDefault(ctx, addr), wei)
+		if err != nil {
+			panic(err)
+		}
+	}
+	k.SetNonce(ctx, addr, a.Nonce)
+	if !bytes.Equal(a.CodeHash, ethtypes.EmptyCodeHash.Bytes()) {
+		k.PrefixStore(ctx, types.CodeHashKeyPrefix).Set(addr[:], a.CodeHash)
+		code, err := k.DB.ContractCode(addr, common.BytesToHash(a.CodeHash))
+		if err != nil {
+			panic(err)
+		}
+		if len(code) > 0 {
+			k.PrefixStore(ctx, types.CodeKeyPrefix).Set(addr[:], code)
+			length := make([]byte, 8)
+			binary.BigEndian.PutUint64(length, uint64(len(code)))
+			k.PrefixStore(ctx, types.CodeSizeKeyPrefix).Set(addr[:], length)
+		}
+	}
+}
+
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
 	return k.accountKeeper
 }
@@ -102,26 +171,61 @@ func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
 }
 
 func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockContext, error) {
-	coinbase, err := k.GetFeeCollectorAddress(ctx)
-	if err != nil {
-		return nil, err
+	if !k.EthReplayConfig.Enabled {
+		coinbase, err := k.GetFeeCollectorAddress(ctx)
+		if err != nil {
+			return nil, err
+		}
+		r, err := ctx.BlockHeader().Time.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+		rh := common.BytesToHash(r)
+		return &vm.BlockContext{
+			CanTransfer: core.CanTransfer,
+			Transfer:    core.Transfer,
+			GetHash:     k.GetHashFn(ctx),
+			Coinbase:    coinbase,
+			GasLimit:    gp.Gas(),
+			BlockNumber: big.NewInt(ctx.BlockHeight()),
+			Time:        uint64(ctx.BlockHeader().Time.Unix()),
+			Difficulty:  big.NewInt(0),                               // only needed for PoW
+			BaseFee:     k.GetBaseFeePerGas(ctx).RoundInt().BigInt(), // feemarket not enabled
+			Random:      &rh,
+		}, nil
 	}
-	r, err := ctx.BlockHeader().Time.MarshalBinary()
+	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+int64(k.EthReplayConfig.EthDataEarliestBlock)))
 	if err != nil {
-		return nil, err
+		panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+int64(k.EthReplayConfig.EthDataEarliestBlock)))
 	}
-	rh := common.BytesToHash(r)
+	header := block.Header_
+	getHash := core.GetHashFn(header, &ReplayChainContext{ethClient: k.EthClient})
+	var (
+		baseFee     *big.Int
+		blobBaseFee *big.Int
+		random      *common.Hash
+	)
+	if header.BaseFee != nil {
+		baseFee = new(big.Int).Set(header.BaseFee)
+	}
+	if header.ExcessBlobGas != nil {
+		blobBaseFee = eip4844.CalcBlobFee(*header.ExcessBlobGas)
+	}
+	if header.Difficulty.Cmp(common.Big0) == 0 {
+		random = &header.MixDigest
+	}
 	return &vm.BlockContext{
 		CanTransfer: core.CanTransfer,
 		Transfer:    core.Transfer,
-		GetHash:     k.GetHashFn(ctx),
-		Coinbase:    coinbase,
-		GasLimit:    gp.Gas(),
-		BlockNumber: big.NewInt(ctx.BlockHeight()),
-		Time:        uint64(ctx.BlockHeader().Time.Unix()),
-		Difficulty:  big.NewInt(0),                               // only needed for PoW
-		BaseFee:     k.GetBaseFeePerGas(ctx).RoundInt().BigInt(), // feemarket not enabled
-		Random:      &rh,
+		GetHash:     getHash,
+		Coinbase:    header.Coinbase,
+		GasLimit:    header.GasLimit,
+		BlockNumber: new(big.Int).Set(header.Number),
+		Time:        header.Time,
+		Difficulty:  new(big.Int).Set(header.Difficulty),
+		BaseFee:     baseFee,
+		BlobBaseFee: blobBaseFee,
+		Random:      random,
 	}, nil
 }
 

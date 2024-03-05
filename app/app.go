@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"
@@ -119,6 +121,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -364,8 +367,10 @@ type App struct {
 
 	HardForkManager *upgrades.HardForkManager
 
-	encodingConfig appparams.EncodingConfig
-	evmRPCConfig   evmrpc.Config
+	encodingConfig  appparams.EncodingConfig
+	evmRPCConfig    evmrpc.Config
+	EthReplayConfig replay.Config
+	EthClient       *ethclient.Client
 }
 
 // New returns a reference to an initialized blockchain app
@@ -583,6 +588,19 @@ func New(
 	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
+	app.EthReplayConfig, err = replay.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading eth replay config due to %s", err))
+	}
+	app.EvmKeeper.EthReplayConfig = app.EthReplayConfig
+	if app.EthReplayConfig.Enabled {
+		rpcclient, err := ethrpc.Dial(app.EthReplayConfig.EthRPC)
+		if err != nil {
+			panic(fmt.Sprintf("error dialing %s due to %s", app.EthReplayConfig.EthRPC, err))
+		}
+		app.EthClient = ethclient.NewClient(rpcclient)
+		app.EvmKeeper.EthClient = app.EthClient
 	}
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
@@ -1479,7 +1497,7 @@ func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*ab
 }
 
 func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
-	return abci.ResponseFinalizeBlock{
+	res := abci.ResponseFinalizeBlock{
 		Events:    events,
 		TxResults: txResults,
 		ValidatorUpdates: utils.Map(endBlockResp.ValidatorUpdates, func(v abci.ValidatorUpdate) abci.ValidatorUpdate {
@@ -1488,25 +1506,9 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 				Power:  v.Power,
 			}
 		}),
-		ConsensusParamUpdates: &tmproto.ConsensusParams{
-			Block: &tmproto.BlockParams{
-				MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-				MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
-			},
-			Evidence: &tmproto.EvidenceParams{
-				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
-				MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
-				MaxBytes:        endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-			},
-			Validator: &tmproto.ValidatorParams{
-				PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
-			},
-			Version: &tmproto.VersionParams{
-				AppVersion: endBlockResp.ConsensusParamUpdates.Version.AppVersion,
-			},
-		},
 		AppHash: appHash,
 	}
+	return res
 }
 
 // LoadHeight loads a particular height

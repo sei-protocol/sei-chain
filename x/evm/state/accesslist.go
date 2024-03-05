@@ -16,11 +16,13 @@ type accessList struct {
 }
 
 func (s *DBImpl) AddressInAccessList(addr common.Address) bool {
+	s.k.PrepareAddr(s.ctx, addr)
 	_, ok := s.getAccessList().Addresses[addr]
 	return ok
 }
 
 func (s *DBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (addressOk bool, slotOk bool) {
+	s.k.PrepareAddr(s.ctx, addr)
 	al := s.getAccessList()
 	idx, ok := al.Addresses[addr]
 	if ok && idx != -1 {
@@ -31,6 +33,7 @@ func (s *DBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (addres
 }
 
 func (s *DBImpl) AddAddressToAccessList(addr common.Address) {
+	s.k.PrepareAddr(s.ctx, addr)
 	al := s.getAccessList()
 	defer s.saveAccessList(al)
 	if _, present := al.Addresses[addr]; present {
@@ -40,6 +43,7 @@ func (s *DBImpl) AddAddressToAccessList(addr common.Address) {
 }
 
 func (s *DBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
+	s.k.PrepareAddr(s.ctx, addr)
 	al := s.getAccessList()
 	defer s.saveAccessList(al)
 	idx, addrPresent := al.Addresses[addr]
@@ -58,6 +62,7 @@ func (s *DBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 }
 
 func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *common.Address, precompiles []common.Address, txAccesses ethtypes.AccessList) {
+	s.k.PrepareAddr(s.ctx, sender)
 	s.Snapshot()
 	s.AddAddressToAccessList(sender)
 	if dest != nil {

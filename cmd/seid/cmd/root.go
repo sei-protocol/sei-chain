@@ -38,6 +38,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/tools"
+	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -95,7 +96,13 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 
 			customAppTemplate, customAppConfig := initAppConfig()
 
-			return server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
+			err = server.InterceptConfigsPreRunHandler(cmd, customAppTemplate, customAppConfig)
+			serverCtx := server.GetServerContextFromCmd(cmd)
+			rc, _ := replay.ReadConfig(serverCtx.Viper)
+			fmt.Println(rc)
+			erc, _ := evmrpc.ReadConfig(serverCtx.Viper)
+			fmt.Println(erc)
+			return err
 		},
 	}
 
@@ -158,6 +165,7 @@ func initRootCmd(
 		queryCommand(),
 		txCommand(),
 		keys.Commands(app.DefaultNodeHome),
+		ReplayCmd(app.DefaultNodeHome),
 	)
 }
 
@@ -368,6 +376,8 @@ func initAppConfig() (string, interface{}) {
 		WASM WASMConfig `mapstructure:"wasm"`
 
 		EVM evmrpc.Config `mapstructure:"evm"`
+
+		ETHReplay replay.Config `mapstructure:"eth_replay"`
 	}
 
 	// Optionally allow the chain developer to overwrite the SDK's default
@@ -407,7 +417,8 @@ func initAppConfig() (string, interface{}) {
 			LruSize:       1,
 			QueryGasLimit: 300000,
 		},
-		EVM: evmrpc.DefaultConfig,
+		EVM:       evmrpc.DefaultConfig,
+		ETHReplay: replay.DefaultConfig,
 	}
 
 	customAppTemplate := serverconfig.DefaultConfigTemplate + `
@@ -475,6 +486,13 @@ checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 
 # controls whether to have txns go through one by one
 slow = {{ .EVM.Slow }}
+
+[eth_replay]
+enabled = {{ .ETHReplay.Enabled }}
+eth_rpc = "{{ .ETHReplay.EthRPC }}"
+eth_data_dir = "{{ .ETHReplay.EthDataDir }}"
+eth_data_earliest_block = {{ .ETHReplay.EthDataEarliestBlock }}
+num_blocks_to_replay = {{ .ETHReplay.NumBlocksToReplay }}
 `
 
 	return customAppTemplate, customAppConfig
