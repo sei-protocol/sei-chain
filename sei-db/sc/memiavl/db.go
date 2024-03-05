@@ -879,7 +879,7 @@ func isSnapshotName(name string) bool {
 // it's needed for upgrade module to check store upgrades,
 // it returns 0 if db doesn't exist or is empty.
 func GetLatestVersion(dir string) (int64, error) {
-	metadata, err := readMetadata(dir)
+	metadata, err := readMetadata(currentPath(dir))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil
