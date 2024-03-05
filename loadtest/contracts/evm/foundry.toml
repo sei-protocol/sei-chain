@@ -6,7 +6,7 @@
 # The Default Profile
 # Sets the concrete solc version to use
 # This overrides the `auto_detect_solc` value
-solc_version = '0.8.12'
+solc_version = '0.8.20'
 auto_detect_solc = false
 # Increase optimizer_runs
 optimizer = true
