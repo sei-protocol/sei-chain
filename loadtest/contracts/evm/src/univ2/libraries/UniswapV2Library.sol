@@ -2,6 +2,7 @@
 pragma solidity >=0.8.10;
 
 import "../interfaces/IUniswapV2Pair.sol";
+import "../interfaces/IUniswapV2Factory.sol";
 
 /// @title UniswapV2Library
 /// @author Uniswap Labs
@@ -29,9 +30,8 @@ library UniswapV2Library {
         address tokenB
     ) internal view returns (uint112 reserveA, uint112 reserveB) {
         (address token0, address token1) = sortPairs(tokenA, tokenB);
-        (uint112 reserve0, uint112 reserve1, ) = IUniswapV2Pair(
-            pairFor(factory, token0, token1)
-        ).getReserves();
+        IUniswapV2Pair pair = IUniswapV2Pair(IUniswapV2Factory(factory).pairs(token0, token1));
+        (uint112 reserve0, uint112 reserve1, ) = pair.getReserves();
         (reserveA, reserveB) = tokenA == token0
             ? (reserve0, reserve1)
             : (reserve1, reserve0);

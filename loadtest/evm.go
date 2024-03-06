@@ -77,6 +77,8 @@ func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transacti
 		return txClient.GenerateSendFundsTx()
 	case ERC20:
 		return txClient.GenerateERC20TransferTx()
+	case UNIV2:
+		return txClient.GenerateUniV2SwapTx()
 	default:
 		panic("invalid message type")
 	}
@@ -116,6 +118,11 @@ func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
 		panic(fmt.Sprintf("Failed to create ERC20 transfer: %v \n", err))
 	}
 	return tx
+}
+
+func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
+	// TODO
+	opts := txClient.getTransactOpts()
 }
 
 func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
