@@ -12,3 +12,4 @@ sudo apt-get install jq -y
 
 # Install OpenZeppelin contracts
 forge install OpenZeppelin/openzeppelin-contracts --no-commit &> /dev/null
+forge install limitbreakinc/creator-token-contracts --no-commit &> /dev/null
