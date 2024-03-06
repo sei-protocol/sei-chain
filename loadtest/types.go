@@ -31,6 +31,7 @@ const (
 	Limit                string = "limit"
 	Market               string = "market"
 	WasmMintNft          string = "wasm_mint_nft"
+	UNIV2                string = "univ2"
 	Vortex               string = "vortex"
 	WasmInstantiate      string = "wasm_instantiate"
 )

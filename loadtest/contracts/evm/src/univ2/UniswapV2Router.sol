@@ -121,17 +121,23 @@ contract UniswapV2Router {
             factory.createPair(tokenA, tokenB);
         }
 
+        // require(false, string(abi.encodePacked(factory)));
+
         (uint112 reserveA, uint112 reserveB) = UniswapV2Library.getReserves(
             address(factory),
             tokenA,
             tokenB
         );
+        // require(false, "after getReserves");
         if (reserveA == 0 && reserveB == 0) {
             (amountA, amountB) = (amountADesired, amountBDesired);
         } else {
             amountB = UniswapV2Library.quote(amountADesired, reserveA, reserveB);
             if (amountB <= amountBDesired) {
-                if (amountB < amountBMin) revert InsufficientAmountB();
+                if (amountB < amountBMin) {
+                    require(false, "InsufficientAmountB");
+                    revert InsufficientAmountB();
+                }
                 amountA = amountADesired;
             } else {
                 amountA = UniswapV2Library.quote(
@@ -141,7 +147,10 @@ contract UniswapV2Router {
                 );
                 assert(amountA <= amountADesired);
 
-                if (amountA < amountAMin) revert InsufficientAmountA();
+                if (amountA < amountAMin) {
+                    require(false, "InsufficientAmountA");
+                    revert InsufficientAmountA();
+                }
                 amountB = amountBDesired;
             }
         }
@@ -154,6 +163,9 @@ contract UniswapV2Router {
         uint256 amount
     ) internal returns (bool success) {
         success = IERC20(token).transferFrom(from, to, amount);
-        if (!success) revert SafeTransferFromFailed();
+        if (!success) {
+            require(false, "SafeTransferFromFailed");
+            revert SafeTransferFromFailed();
+        }
     }
 }
