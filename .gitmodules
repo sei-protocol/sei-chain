@@ -7,3 +7,6 @@
 [submodule "loadtest/contracts/evm/lib/openzeppelin-contracts"]
 	path = loadtest/contracts/evm/lib/openzeppelin-contracts
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "loadtest/contracts/evm/lib/creator-token-contracts"]
+	path = loadtest/contracts/evm/lib/creator-token-contracts
+	url = https://github.com/limitbreakinc/creator-token-contracts

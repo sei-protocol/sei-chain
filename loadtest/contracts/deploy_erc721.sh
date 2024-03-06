@@ -11,4 +11,5 @@ cd loadtest/contracts/evm || exit 1
 
 git submodule update --init --recursive
 
-/root/.foundry/bin/forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/ERC721.sol:MyNFT --json | jq -r '.deployedTo'
+
+/root/.foundry/bin/forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e lib/creator-token-contracts/contracts/examples/erc721c/ERC721CWithBasicRoyalties.sol:ERC721CWithBasicRoyalties --json | jq -r '.deployedTo'
