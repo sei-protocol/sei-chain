@@ -35,6 +35,8 @@ const (
 	statusValidated status = "validated"
 	// statusWaiting tasks are waiting for another tx to complete
 	statusWaiting status = "waiting"
+	// maximumIncarnation before we revert to sequential (for high conflict rates)
+	maximumIncarnation = 5
 )
 
 type deliverTxTask struct {
@@ -43,14 +45,22 @@ type deliverTxTask struct {
 
 	mx            sync.RWMutex
 	Status        status
-	Dependencies  []int
+	Dependencies  map[int]struct{}
 	Abort         *occ.Abort
 	Index         int
 	Incarnation   int
 	Request       types.RequestDeliverTx
 	Response      *types.ResponseDeliverTx
 	VersionStores map[sdk.StoreKey]*multiversion.VersionIndexedStore
-	ValidateCh    chan status
+}
+
+// AppendDependencies appends the given indexes to the task's dependencies
+func (dt *deliverTxTask) AppendDependencies(deps []int) {
+	dt.mx.Lock()
+	defer dt.mx.Unlock()
+	for _, taskIdx := range deps {
+		dt.Dependencies[taskIdx] = struct{}{}
+	}
 }
 
 func (dt *deliverTxTask) IsStatus(s status) bool {
@@ -70,13 +80,11 @@ func (dt *deliverTxTask) Reset() {
 	dt.Response = nil
 	dt.Abort = nil
 	dt.AbortCh = nil
-	dt.Dependencies = nil
 	dt.VersionStores = nil
 }
 
 func (dt *deliverTxTask) Increment() {
 	dt.Incarnation++
-	dt.ValidateCh = make(chan status, 1)
 }
 
 // Scheduler processes tasks concurrently
@@ -93,6 +101,8 @@ type scheduler struct {
 	executeCh          chan func()
 	validateCh         chan func()
 	metrics            *schedulerMetrics
+	synchronous        bool // true if maxIncarnation exceeds threshold
+	maxIncarnation     int  // current highest incarnation
 }
 
 // NewScheduler creates a new scheduler
@@ -129,10 +139,18 @@ func start(ctx context.Context, ch chan func(), workers int) {
 }
 
 func (s *scheduler) DoValidate(work func()) {
+	if s.synchronous {
+		work()
+		return
+	}
 	s.validateCh <- work
 }
 
 func (s *scheduler) DoExecute(work func()) {
+	if s.synchronous {
+		work()
+		return
+	}
 	s.executeCh <- work
 }
 
@@ -149,7 +167,7 @@ func (s *scheduler) findConflicts(task *deliverTxTask) (bool, []int) {
 			}
 		}
 		// any non-ok value makes valid false
-		valid = ok && valid
+		valid = valid && ok
 	}
 	sort.Ints(conflicts)
 	return valid, conflicts
@@ -159,10 +177,10 @@ func toTasks(reqs []*sdk.DeliverTxEntry) []*deliverTxTask {
 	res := make([]*deliverTxTask, 0, len(reqs))
 	for idx, r := range reqs {
 		res = append(res, &deliverTxTask{
-			Request:    r.Request,
-			Index:      idx,
-			Status:     statusPending,
-			ValidateCh: make(chan status, 1),
+			Request:      r.Request,
+			Index:        idx,
+			Dependencies: map[int]struct{}{},
+			Status:       statusPending,
 		})
 	}
 	return res
@@ -170,14 +188,9 @@ func toTasks(reqs []*sdk.DeliverTxEntry) []*deliverTxTask {
 
 func (s *scheduler) collectResponses(tasks []*deliverTxTask) []types.ResponseDeliverTx {
 	res := make([]types.ResponseDeliverTx, 0, len(tasks))
-	var maxIncarnation int
 	for _, t := range tasks {
-		if t.Incarnation > maxIncarnation {
-			maxIncarnation = t.Incarnation
-		}
 		res = append(res, *t.Response)
 	}
-	s.metrics.maxIncarnation = maxIncarnation
 	return res
 }
 
@@ -193,13 +206,23 @@ func (s *scheduler) tryInitMultiVersionStore(ctx sdk.Context) {
 	s.multiVersionStores = mvs
 }
 
-func indexesValidated(tasks []*deliverTxTask, idx []int) bool {
-	for _, i := range idx {
+func dependenciesValidated(tasks []*deliverTxTask, deps map[int]struct{}) bool {
+	for i := range deps {
 		if !tasks[i].IsStatus(statusValidated) {
 			return false
 		}
 	}
 	return true
+}
+
+func filterTasks(tasks []*deliverTxTask, filter func(*deliverTxTask) bool) []*deliverTxTask {
+	var res []*deliverTxTask
+	for _, t := range tasks {
+		if filter(t) {
+			res = append(res, t)
+		}
+	}
+	return res
 }
 
 func allValidated(tasks []*deliverTxTask) bool {
@@ -264,6 +287,16 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 
 	toExecute := tasks
 	for !allValidated(tasks) {
+		// if the max incarnation >= 5, we should revert to synchronous
+		if s.maxIncarnation >= maximumIncarnation {
+			// process synchronously
+			s.synchronous = true
+			// execute all non-validated tasks (no more "waiting" status)
+			toExecute = filterTasks(tasks, func(t *deliverTxTask) bool {
+				return !t.IsStatus(statusValidated)
+			})
+		}
+
 		var err error
 
 		// execute sets statuses of tasks to either executed or aborted
@@ -286,6 +319,7 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 	for _, mv := range s.multiVersionStores {
 		mv.WriteLatestToStore()
 	}
+	s.metrics.maxIncarnation = s.maxIncarnation
 	return s.collectResponses(tasks), nil
 }
 
@@ -302,13 +336,13 @@ func (s *scheduler) shouldRerun(task *deliverTxTask) bool {
 		// TODO: in a future async scheduler that no longer exhaustively validates in order, we may need to carefully handle the `valid=true` with conflicts case
 		if valid, conflicts := s.findConflicts(task); !valid {
 			s.invalidateTask(task)
+			task.AppendDependencies(conflicts)
 
 			// if the conflicts are now validated, then rerun this task
-			if indexesValidated(s.allTasks, conflicts) {
+			if dependenciesValidated(s.allTasks, task.Dependencies) {
 				return true
 			} else {
 				// otherwise, wait for completion
-				task.Dependencies = conflicts
 				task.SetStatus(statusWaiting)
 				return false
 			}
@@ -322,7 +356,7 @@ func (s *scheduler) shouldRerun(task *deliverTxTask) bool {
 
 	case statusWaiting:
 		// if conflicts are done, then this task is ready to run again
-		return indexesValidated(s.allTasks, task.Dependencies)
+		return dependenciesValidated(s.allTasks, task.Dependencies)
 	}
 	panic("unexpected status: " + task.Status)
 }
@@ -370,6 +404,10 @@ func (s *scheduler) validateAll(ctx sdk.Context, tasks []*deliverTxTask) ([]*del
 				defer mx.Unlock()
 				t.Reset()
 				t.Increment()
+				// update max incarnation for scheduler
+				if t.Incarnation > s.maxIncarnation {
+					s.maxIncarnation = t.Incarnation
+				}
 				res = append(res, t)
 			}
 		})
