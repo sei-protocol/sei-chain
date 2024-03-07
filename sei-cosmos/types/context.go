@@ -34,6 +34,7 @@ type Context struct {
 	voteInfo         []abci.VoteInfo
 	gasMeter         GasMeter
 	occEnabled       bool
+	blockGasMeter    GasMeter
 	checkTx          bool
 	recheckTx        bool // if recheckTx == true, then checkTx must also be true
 	minGasPrice      DecCoins
@@ -41,7 +42,7 @@ type Context struct {
 	eventManager     *EventManager
 	priority         int64                 // The tx priority, only relevant in CheckTx
 	pendingTxChecker abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
-	checkTxCallback  func(error)           // callback to make at the end of CheckTx. Input param is the error (nil-able) of `runMsgs`
+	checkTxCallback  func(Context, error)  // callback to make at the end of CheckTx. Input param is the error (nil-able) of `runMsgs`
 	expireTxHandler  func()                // callback that the mempool invokes when a tx is expired
 
 	txBlockingChannels   acltypes.MessageAccessOpsChannelMapping
@@ -144,7 +145,7 @@ func (c Context) PendingTxChecker() abci.PendingTxChecker {
 	return c.pendingTxChecker
 }
 
-func (c Context) CheckTxCallback() func(error) {
+func (c Context) CheckTxCallback() func(Context, error) {
 	return c.checkTxCallback
 }
 
@@ -401,7 +402,7 @@ func (c Context) WithPendingTxChecker(checker abci.PendingTxChecker) Context {
 	return c
 }
 
-func (c Context) WithCheckTxCallback(checkTxCallback func(error)) Context {
+func (c Context) WithCheckTxCallback(checkTxCallback func(Context, error)) Context {
 	c.checkTxCallback = checkTxCallback
 	return c
 }

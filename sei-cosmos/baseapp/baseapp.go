@@ -986,7 +986,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		result.Events = append(anteEvents, result.Events...)
 	}
 	if ctx.CheckTxCallback() != nil {
-		ctx.CheckTxCallback()(err)
+		ctx.CheckTxCallback()(ctx, err)
 	}
 	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, ctx, err
 }
