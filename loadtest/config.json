@@ -43,7 +43,7 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
-    "message_type": "bank,evm,erc20,univ2",
+    "message_type": "evm,univ2",
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {
