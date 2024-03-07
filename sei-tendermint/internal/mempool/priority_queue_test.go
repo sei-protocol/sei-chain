@@ -79,12 +79,11 @@ func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
 				{sender: "2", isEVM: false, priority: 9},
 				{sender: "4", isEVM: true, evmAddress: "0xabc", evmNonce: 0, priority: 9}, // Same EVM address as first, lower nonce
 				{sender: "5", isEVM: true, evmAddress: "0xdef", evmNonce: 1, priority: 7},
-				{sender: "5", isEVM: true, evmAddress: "0xdef", evmNonce: 1, priority: 7},
 				{sender: "3", isEVM: true, evmAddress: "0xdef", evmNonce: 0, priority: 8},
 				{sender: "6", isEVM: false, priority: 6},
 				{sender: "7", isEVM: true, evmAddress: "0xghi", evmNonce: 2, priority: 5},
 			},
-			expectedOutput: []int64{2, 4, 1, 3, 5, 5, 6, 7},
+			expectedOutput: []int64{2, 4, 1, 3, 5, 6, 7},
 		},
 		{
 			name: "PriorityWithEVMAndNonEVM",
@@ -370,4 +369,78 @@ func TestTxPriorityQueue_RemoveTx(t *testing.T) {
 		pq.RemoveTx(&WrappedTx{heapIndex: numTxs + 1}, false)
 	})
 	require.Equal(t, numTxs-2, pq.NumTxs())
+}
+
+func TestTxPriorityQueue_TryReplacement(t *testing.T) {
+	for _, test := range []struct {
+		tx               *WrappedTx
+		existing         []*WrappedTx
+		expectedReplaced bool
+		expectedDropped  bool
+		expectedQueue    []*WrappedTx
+		expectedHeap     []*WrappedTx
+	}{
+		{&WrappedTx{isEVM: false}, []*WrappedTx{}, false, false, []*WrappedTx{}, []*WrappedTx{}},
+		{&WrappedTx{isEVM: true, evmAddress: "addr1"}, []*WrappedTx{}, false, false, []*WrappedTx{}, []*WrappedTx{}},
+		{
+			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")}, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			}, false, false, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			}, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			},
+		},
+		{
+			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("abc")}, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			}, false, true, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			}, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			},
+		},
+		{
+			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 101, tx: []byte("abc")}, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			}, true, false, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 101, tx: []byte("abc")},
+			}, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 101, tx: []byte("abc")},
+			},
+		},
+		{
+			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")}, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+				{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 99, tx: []byte("ghi")},
+			}, true, false, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+				{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")},
+			}, []*WrappedTx{
+				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			},
+		},
+	} {
+		pq := NewTxPriorityQueue()
+		for _, e := range test.existing {
+			pq.PushTx(e)
+		}
+		replaced, dropped := pq.TryReplacement(test.tx)
+		if test.expectedReplaced {
+			require.NotNil(t, replaced)
+		} else {
+			require.Nil(t, replaced)
+		}
+		require.Equal(t, test.expectedDropped, dropped)
+		for i, q := range pq.evmQueue[test.tx.evmAddress] {
+			require.Equal(t, test.expectedQueue[i].tx.Key(), q.tx.Key())
+			require.Equal(t, test.expectedQueue[i].priority, q.priority)
+			require.Equal(t, test.expectedQueue[i].evmNonce, q.evmNonce)
+		}
+		for i, q := range pq.txs {
+			require.Equal(t, test.expectedHeap[i].tx.Key(), q.tx.Key())
+			require.Equal(t, test.expectedHeap[i].priority, q.priority)
+			require.Equal(t, test.expectedHeap[i].evmNonce, q.evmNonce)
+		}
+	}
 }

@@ -364,7 +364,7 @@ func (txmp *TxMempool) RemoveTxByKey(txKey types.TxKey) error {
 
 	// remove the committed transaction from the transaction store and indexes
 	if wtx := txmp.txStore.GetTxByHash(txKey); wtx != nil {
-		txmp.removeTx(wtx, false, true)
+		txmp.removeTx(wtx, false, true, true)
 		return nil
 	}
 
@@ -403,7 +403,7 @@ func (txmp *TxMempool) Flush() {
 	txmp.timestampIndex.Reset()
 
 	for _, wtx := range txmp.txStore.GetAllTxs() {
-		txmp.removeTx(wtx, false, false)
+		txmp.removeTx(wtx, false, false, true)
 	}
 
 	atomic.SwapInt64(&txmp.sizeBytes, 0)
@@ -515,7 +515,17 @@ func (txmp *TxMempool) Update(
 
 		// remove the committed transaction from the transaction store and indexes
 		if wtx := txmp.txStore.GetTxByHash(tx.Key()); wtx != nil {
-			txmp.removeTx(wtx, false, false)
+			txmp.removeTx(wtx, false, false, true)
+		}
+		if execTxResult[i].EvmTxInfo != nil {
+			// remove any tx that has the same nonce (because the committed tx
+			// may be from block proposal and is never in the local mempool)
+			if wtx, _ := txmp.priorityIndex.GetTxWithSameNonce(&WrappedTx{
+				evmAddress: execTxResult[i].EvmTxInfo.SenderAddress,
+				evmNonce:   execTxResult[i].EvmTxInfo.Nonce,
+			}); wtx != nil {
+				txmp.removeTx(wtx, false, false, true)
+			}
 		}
 	}
 
@@ -636,7 +646,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		// - The transaction, toEvict, can be removed while a concurrent
 		//   reCheckTx callback is being executed for the same transaction.
 		for _, toEvict := range evictTxs {
-			txmp.removeTx(toEvict, true, true)
+			txmp.removeTx(toEvict, true, true, true)
 			txmp.logger.Debug(
 				"evicted existing good transaction; mempool full",
 				"old_tx", fmt.Sprintf("%X", toEvict.tx.Hash()),
@@ -655,11 +665,19 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		txInfo.SenderID: {},
 	}
 
+	replaced, shouldDrop := txmp.priorityIndex.TryReplacement(wtx)
+	if shouldDrop {
+		return nil
+	}
+
 	txmp.metrics.TxSizeBytes.Observe(float64(wtx.Size()))
 	txmp.metrics.Size.Set(float64(txmp.SizeWithoutPending()))
 	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
 
-	if txmp.insertTx(wtx) {
+	if replaced != nil {
+		txmp.removeTx(replaced, true, false, false)
+	}
+	if txmp.insertTx(wtx, replaced == nil) {
 		txmp.logger.Debug(
 			"inserted good transaction",
 			"priority", wtx.priority,
@@ -747,7 +765,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 				panic("corrupted reCheckTx cursor")
 			}
 
-			txmp.removeTx(wtx, !txmp.config.KeepInvalidTxsInCache, true)
+			txmp.removeTx(wtx, !txmp.config.KeepInvalidTxsInCache, true, true)
 		}
 	}
 
@@ -853,13 +871,15 @@ func (txmp *TxMempool) canAddPendingTx(wtx *WrappedTx) error {
 	return nil
 }
 
-func (txmp *TxMempool) insertTx(wtx *WrappedTx) bool {
+func (txmp *TxMempool) insertTx(wtx *WrappedTx, updatePriorityIndex bool) bool {
 	if txmp.isInMempool(wtx.tx) {
 		return false
 	}
 
 	txmp.txStore.SetTx(wtx)
-	txmp.priorityIndex.PushTx(wtx)
+	if updatePriorityIndex {
+		txmp.priorityIndex.PushTx(wtx)
+	}
 	txmp.heightIndex.Insert(wtx)
 	txmp.timestampIndex.Insert(wtx)
 
@@ -873,13 +893,16 @@ func (txmp *TxMempool) insertTx(wtx *WrappedTx) bool {
 	return true
 }
 
-func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReenqueue bool) {
+func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReenqueue bool, updatePriorityIndex bool) {
 	if txmp.txStore.IsTxRemoved(wtx.hash) {
 		return
 	}
 
 	txmp.txStore.RemoveTx(wtx)
-	toBeReenqueued := txmp.priorityIndex.RemoveTx(wtx, shouldReenqueue)
+	toBeReenqueued := []*WrappedTx{}
+	if updatePriorityIndex {
+		toBeReenqueued = txmp.priorityIndex.RemoveTx(wtx, shouldReenqueue)
+	}
 	txmp.heightIndex.Remove(wtx)
 	txmp.timestampIndex.Remove(wtx)
 
@@ -894,7 +917,7 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 
 	if shouldReenqueue {
 		for _, reenqueue := range toBeReenqueued {
-			txmp.removeTx(reenqueue, removeFromCache, false)
+			txmp.removeTx(reenqueue, removeFromCache, false, true)
 		}
 		for _, reenqueue := range toBeReenqueued {
 			rtx := reenqueue.tx

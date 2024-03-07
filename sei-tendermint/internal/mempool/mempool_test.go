@@ -643,7 +643,7 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 
 	require.NoError(t, txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 5, 1)), nil, TxInfo{SenderID: peerID}))
 	require.Equal(t, 2, txmp.priorityIndex.NumTxs())
-	txmp.removeTx(tx, true, false)
+	txmp.removeTx(tx, true, false, true)
 	// should not reenqueue
 	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
 	time.Sleep(1 * time.Second) // pendingTxs should still be one even after sleeping for a sec

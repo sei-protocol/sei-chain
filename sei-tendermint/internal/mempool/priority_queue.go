@@ -12,8 +12,11 @@ var _ heap.Interface = (*TxPriorityQueue)(nil)
 
 // TxPriorityQueue defines a thread-safe priority queue for valid transactions.
 type TxPriorityQueue struct {
-	mtx      sync.RWMutex
-	txs      []*WrappedTx            // priority heap
+	mtx sync.RWMutex
+	txs []*WrappedTx // priority heap
+	// invariant 1: no duplicate nonce in the same queue
+	// invariant 2: no nonce gap in the same queue
+	// invariant 3: head of the queue must be in heap
 	evmQueue map[string][]*WrappedTx // sorted by nonce
 }
 
@@ -48,6 +51,51 @@ func NewTxPriorityQueue() *TxPriorityQueue {
 	heap.Init(pq)
 
 	return pq
+}
+
+func (pq *TxPriorityQueue) GetTxWithSameNonce(tx *WrappedTx) (*WrappedTx, int) {
+	pq.mtx.RLock()
+	defer pq.mtx.RUnlock()
+	return pq.getTxWithSameNonceUnsafe(tx)
+}
+
+func (pq *TxPriorityQueue) getTxWithSameNonceUnsafe(tx *WrappedTx) (*WrappedTx, int) {
+	queue, ok := pq.evmQueue[tx.evmAddress]
+	if !ok {
+		return nil, -1
+	}
+	idx := binarySearch(queue, tx)
+	if idx < len(queue) && queue[idx].evmNonce == tx.evmNonce {
+		return queue[idx], idx
+	}
+	return nil, -1
+}
+
+func (pq *TxPriorityQueue) TryReplacement(tx *WrappedTx) (replaced *WrappedTx, shouldDrop bool) {
+	if !tx.isEVM {
+		return nil, false
+	}
+	pq.mtx.Lock()
+	defer pq.mtx.Unlock()
+	queue, ok := pq.evmQueue[tx.evmAddress]
+	if ok && len(queue) > 0 {
+		existing, idx := pq.getTxWithSameNonceUnsafe(tx)
+		if existing != nil {
+			if tx.priority > existing.priority {
+				// should replace
+				// replace heap if applicable
+				if hi, ok := pq.findTxIndexUnsafe(existing); ok {
+					heap.Remove(pq, hi)
+					heap.Push(pq, tx) // need to be in the heap since it has the same nonce
+				}
+				pq.evmQueue[tx.evmAddress][idx] = tx // replace queue item in-place
+				return existing, false
+			}
+			// tx should be dropped since it's dominated by an existing tx
+			return nil, true
+		}
+	}
+	return nil, false
 }
 
 // GetEvictableTxs attempts to find and return a list of *WrappedTx than can be

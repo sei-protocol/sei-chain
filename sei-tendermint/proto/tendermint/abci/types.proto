@@ -309,6 +309,7 @@ message ResponseDeliverTx {
   repeated Event events     = 7
       [(gogoproto.nullable) = false, (gogoproto.jsontag) = "events,omitempty"];  // nondeterministic
   string codespace = 8;
+  EvmTxInfo evm_tx_info = 9;
 }
 
 message ResponseEndBlock {
@@ -459,6 +460,7 @@ message ExecTxResult {
   repeated Event events     = 7
       [(gogoproto.nullable) = false, (gogoproto.jsontag) = "events,omitempty"];  // nondeterministic
   string codespace = 8;
+  EvmTxInfo evm_tx_info = 9;
 }
 
 // TxResult contains results of executing the transaction.
@@ -563,6 +565,11 @@ message Evidence {
   // not store historical validators.
   // https://github.com/tendermint/tendermint/issues/4581
   int64 total_voting_power = 5;
+}
+
+message EvmTxInfo {
+  string senderAddress = 1;
+  uint64 nonce = 2;
 }
 
 //----------------------------------------
