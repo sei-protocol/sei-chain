@@ -129,6 +129,7 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 
 	dexmodule "github.com/sei-protocol/sei-chain/x/dex"
@@ -398,6 +399,13 @@ func New(
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
+	loggingConfig, err := logging.ReadConfig(appOpts)
+	if err != nil {
+		panic(err)
+	}
+	for _, feature := range strings.Split(loggingConfig.FeaturesEnabled, ",") {
+		logging.EnableFeature(feature)
+	}
 
 	keys := sdk.NewKVStoreKeys(
 		acltypes.StoreKey, authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
@@ -1396,11 +1404,15 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 
 	wg.Wait()
 
+	logging.Info(ctx, "finished prefilling estimates", OCCLoggingFeature)
+
 	if app.TracingEnabled {
 		span.End()
 	}
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
+
+	logging.Info(ctx, "finished delivering txs", OCCLoggingFeature)
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
 	for _, r := range batchResult.Results {

@@ -2,14 +2,17 @@ package state
 
 import (
 	"bytes"
+	"fmt"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func (s *DBImpl) CreateAccount(acc common.Address) {
+	logging.Info(s.ctx, fmt.Sprintf("Created account %s", acc.Hex()), LoggingFeature)
 	// clear any existing state but keep balance untouched
 	s.clearAccountState(acc)
 	s.MarkAccount(acc, AccountCreated)
@@ -53,6 +56,7 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 // clear account's state except the transient state (in Ethereum transient states are
 // still available even after self destruction in the same tx)
 func (s *DBImpl) SelfDestruct(acc common.Address) {
+	logging.Info(s.ctx, fmt.Sprintf("Self destructed %s", acc.Hex()), LoggingFeature)
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
@@ -90,18 +94,20 @@ func (s *DBImpl) Snapshot() int {
 	s.ctx = newCtx
 	s.tempStatesHist = append(s.tempStatesHist, s.tempStateCurrent)
 	s.tempStateCurrent = NewTemporaryState()
+	logging.Info(s.ctx, fmt.Sprintf("Took snapshot %d", len(s.snapshottedCtxs)-1), LoggingFeature)
 	return len(s.snapshottedCtxs) - 1
 }
 
 func (s *DBImpl) RevertToSnapshot(rev int) {
+	logging.Info(s.ctx, fmt.Sprintf("Reverted snapshot %d", rev), LoggingFeature)
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
 	s.tempStateCurrent = s.tempStatesHist[rev]
 	s.tempStatesHist = s.tempStatesHist[:rev]
-	s.Snapshot()
 }
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
+	logging.Info(s.ctx, fmt.Sprintf("Cleared account %s", acc.Hex()), LoggingFeature)
 	s.k.PurgePrefix(s.ctx, types.StateKey(acc))
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
 	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])

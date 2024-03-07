@@ -38,6 +38,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/tools"
+	"github.com/sei-protocol/sei-chain/utils/logging"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -370,6 +371,8 @@ func initAppConfig() (string, interface{}) {
 		WASM WASMConfig `mapstructure:"wasm"`
 
 		EVM evmrpc.Config `mapstructure:"evm"`
+
+		Logging logging.Config `mapstructure:"logging"`
 	}
 
 	// Optionally allow the chain developer to overwrite the SDK's default
@@ -409,7 +412,8 @@ func initAppConfig() (string, interface{}) {
 			LruSize:       1,
 			QueryGasLimit: 300000,
 		},
-		EVM: evmrpc.DefaultConfig,
+		EVM:     evmrpc.DefaultConfig,
+		Logging: logging.DefaultConfig,
 	}
 
 	customAppTemplate := serverconfig.DefaultConfigTemplate + `
@@ -477,6 +481,9 @@ checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 
 # controls whether to have txns go through one by one
 slow = {{ .EVM.Slow }}
+
+[logging]
+features_enabled = "{{ .Logging.FeaturesEnabled }}"
 `
 
 	return customAppTemplate, customAppConfig
