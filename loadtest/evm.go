@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc20"
+	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/univ2/univ2_router"
 )
 
 type EvmTxClient struct {
@@ -47,28 +48,34 @@ func NewEvmTxClient(
 		mtx:          sync.RWMutex{},
 		evmAddresses: evmAddresses,
 	}
-	privKeyHex := hex.EncodeToString(key.Bytes())
-	privateKey, err := crypto.HexToECDSA(privKeyHex)
-	if err != nil {
-		fmt.Printf("Failed to load private key: %v \n", err)
-	}
-	txClient.privateKey = privateKey
-
-	publicKey := privateKey.Public()
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		panic("Cannot assert type: publicKey is not of type *ecdsa.PublicKey \n")
-	}
-
 	// Set starting nonce
-	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+	fromAddress := GetEvmAddressFromKey(key)
 	nextNonce, err := ethClients[0].PendingNonceAt(context.Background(), fromAddress)
 	if err != nil {
 		panic(err)
 	}
 	txClient.nonce.Store(nextNonce)
 	txClient.accountAddress = fromAddress
+	fmt.Println("In NewEvmTxClient, accountAddress: ", txClient.accountAddress.String())
+	txClient.privateKey, err = crypto.GenerateKey()
+	if err != nil {
+		panic(err)
+	}
 	return txClient
+}
+
+func GetEvmAddressFromKey(key cryptotypes.PrivKey) common.Address {
+	privKeyHex := hex.EncodeToString(key.Bytes())
+	privateKey, err := crypto.HexToECDSA(privKeyHex)
+	if err != nil {
+		fmt.Printf("Failed to load private key: %v \n", err)
+	}
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		panic("Cannot assert type: publicKey is not of type *ecdsa.PublicKey \n")
+	}
+	return crypto.PubkeyToAddress(*publicKeyECDSA)
 }
 
 func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transaction {
@@ -121,11 +128,30 @@ func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
 }
 
 func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
-	// TODO
 	opts := txClient.getTransactOpts()
+	opts.GasLimit = uint64(300000)
+	univ2_pair, err := univ2_router.NewUniv2Router(txClient.evmAddresses.UniV2Router, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create UniV2Router contract: %v \n", err))
+	}
+	tx, err := univ2_pair.SwapExactTokensForTokens(
+		opts,
+		big.NewInt(100),
+		big.NewInt(0),
+		[]common.Address{txClient.evmAddresses.UniV2Token1, txClient.evmAddresses.UniV2Token2},
+		txClient.accountAddress,
+		big.NewInt(2009777555),
+	)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create UniV2 swap: %v \n", err))
+	}
+	return tx
 }
 
 func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
+	fmt.Println("txClient: ", txClient)
+	fmt.Println("txClient.privateKey: ", txClient.privateKey)
+	fmt.Println("txClient.chainId: ", txClient.chainId)
 	auth, err := bind.NewKeyedTransactorWithChainID(txClient.privateKey, txClient.chainId)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
@@ -164,6 +190,7 @@ func (txClient *EvmTxClient) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 		// We choose not to GetTxReceipt because we assume the EVM RPC would be running with broadcast mode = block
 		onSuccess()
 	}
+	fmt.Println("In SendEvmTx, sent EVM tx, tx.hash: ", signedTx.Hash().Hex())
 }
 
 // GetNextEthClient return the next available eth client randomly

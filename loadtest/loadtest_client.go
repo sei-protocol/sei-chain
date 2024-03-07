@@ -16,6 +16,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/sync/semaphore"
@@ -84,6 +85,14 @@ func (c *LoadTestClient) SetValidators() {
 		}
 		c.Validators = resp.Validators
 	}
+}
+
+func (c *LoadTestClient) GetAccounts() []common.Address {
+	addresses := make([]common.Address, 0)
+	for _, key := range c.AccountKeys {
+		addresses = append(addresses, GetEvmAddressFromKey(key))
+	}
+	return addresses
 }
 
 // BuildGrpcClients build a list of grpc clients
@@ -213,6 +222,9 @@ func (c *LoadTestClient) BuildTxs(
 }
 
 func (c *LoadTestClient) generateSignedEvmTx(keyIndex int, msgType string) *ethtypes.Transaction {
+	fmt.Println("evmTxClients: ", c.EvmTxClients)
+	fmt.Println("keyIndex: ", keyIndex)
+	fmt.Println("msgType: ", msgType)
 	return c.EvmTxClients[keyIndex].GetTxForMsgType(msgType)
 }
 
@@ -264,6 +276,7 @@ func (c *LoadTestClient) SendTxs(
 				}
 			} else if tx.EvmTx != nil {
 				// Send EVM Transactions
+				fmt.Println("In SendTxs, sending EVM tx")
 				c.EvmTxClients[keyIndex].SendEvmTx(tx.EvmTx, func() {
 					sentCount.Add(1)
 				})

@@ -168,4 +168,39 @@ contract UniswapV2Router {
             revert SafeTransferFromFailed();
         }
     }
+
+    // **** SWAP ****
+    // requires the initial amount to have already been sent to the first pair
+    function _swap(uint[] memory amounts, address[] memory path, address _to) internal virtual {
+        for (uint i; i < path.length - 1; i++) {
+            (address input, address output) = (path[i], path[i + 1]);
+            (address token0,) = UniswapV2Library.sortPairs(input, output);
+            uint amountOut = amounts[i + 1];
+            (uint amount0Out, uint amount1Out) = input == token0 ? (uint(0), amountOut) : (amountOut, uint(0));
+            // FIX THISSS
+            (address token1, address token2) = UniswapV2Library.sortPairs(output, path[i + 2]);
+            address pair = factory.pairs(token1, token2);
+            address to = i < path.length - 2 ? pair : _to;
+            (address t1, address t2) = UniswapV2Library.sortPairs(input, output);
+            IUniswapV2Pair(factory.pairs(t1, t2)).swap(
+                amount0Out, amount1Out, to
+            );
+        }
+    }
+    function swapExactTokensForTokens(
+        uint amountIn,
+        uint amountOutMin,
+        address[] calldata path,
+        address to,
+        uint deadline
+    ) external check(deadline) returns (uint[] memory amounts) {
+        amounts = UniswapV2Library.getAmountsOut(address(factory), amountIn, path);
+        require(amounts[amounts.length - 1] >= amountOutMin, 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT');
+        (address token0, address token1) = UniswapV2Library.sortPairs(path[0], path[1]);
+        address pair = factory.pairs(token0, token1);
+        _safeTransferFrom(
+            path[0], msg.sender, pair, amounts[0]
+        );
+        _swap(amounts, path, to);
+    }
 }

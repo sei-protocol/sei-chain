@@ -6,11 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/big"
 	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +35,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc20"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -87,13 +90,15 @@ func deployEvmContract(scriptPath string, config *Config) (common.Address, error
 	cmd.Stdout = &out
 	err := cmd.Run()
 
-	fmt.Println("out = ", out.String())
-
 	if err != nil {
 		return common.Address{}, err
 	}
 	return common.HexToAddress(out.String()), nil
 }
+
+// func deployUniV2Contract(scriptPath string, config *Config) (common.Address, error) {
+// 	return uniV2RouterAddress, nil
+// }
 
 func deployEvmContracts(config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
@@ -110,19 +115,62 @@ func deployEvmContracts(config *Config) {
 	}
 }
 
-func deployUniswapContracts(config *Config) {
+func deployUniswapContracts(client *LoadTestClient, config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
-	if config.ContainsAnyMessageTypes(ERC20) {
-		fmt.Println("Deploying Uniswap contracts")
-		uniV2Router, err := deployEvmContract("loadtest/contracts/deploy_univ2.sh", config)
-		fmt.Println("UniV2Router: ", uniV2Router.String())
-
+	if config.ContainsAnyMessageTypes(UNIV2) {
+		cmd := exec.Command("loadtest/contracts/deploy_univ2.sh", config.EVMRpcEndpoint())
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		err := cmd.Run()
 		if err != nil {
-			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
-			panic(err)
+			panic("deploy_univ2.sh failed with error: " + err.Error())
 		}
+		// use regex to extract the addresses from the output
+		UniV2RouterRe := regexp.MustCompile(`UniswapV2Router Address: "(\w+)"`)
+		match := UniV2RouterRe.FindStringSubmatch(out.String())
+		uniV2RouterAddress := common.HexToAddress(match[1])
+		UniV2Token1Re := regexp.MustCompile(`Token1 Address: "(\w+)"`)
+		match = UniV2Token1Re.FindStringSubmatch(out.String())
+		uniV2Token1Address := common.HexToAddress(match[1])
+		Univ2Token2Re := regexp.MustCompile(`Token2 Address: "(\w+)"`)
+		match = Univ2Token2Re.FindStringSubmatch(out.String())
+		uniV2Token2Address := common.HexToAddress(match[1])
+		UniV2PoolRe := regexp.MustCompile(`Pair Address: "(\w+)"`)
+		match = UniV2PoolRe.FindStringSubmatch(out.String())
+		uniV2PoolAddress := common.HexToAddress(match[1])
+		fmt.Println("Found UniV2Router Address: ", uniV2RouterAddress.String())
+		fmt.Println("Found UniV2Token1 Address: ", uniV2Token1Address.String())
+		fmt.Println("Found UniV2Token2 Address: ", uniV2Token2Address.String())
+		fmt.Println("Found UniV2Pool Address: ", uniV2PoolAddress.String())
+
+		// fund each account with some of token1
+		txClient := client.EvmTxClients[0]
+		token1, err := erc20.NewErc20(uniV2Token1Address, GetNextEthClient(txClient.ethClients))
+		if err != nil {
+			panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
+		}
+
+		// mint to each of these accounts
+		accounts := client.GetAccounts()
+		for i, txClient := range client.EvmTxClients {
+			_, err = token1.Mint(txClient.getTransactOpts(), accounts[i], big.NewInt(100000000000000000))
+			if err != nil {
+				panic(fmt.Sprintf("Failed to mint ERC20: %v \n", err))
+			}
+		}
+
+		// infinite approve router to spend token1
+		for _, txClient := range client.EvmTxClients {
+			_, err = token1.Approve(txClient.getTransactOpts(), uniV2RouterAddress, big.NewInt(100000000000000000))
+			if err != nil {
+				panic(fmt.Sprintf("Failed to approve ERC20: %v \n", err))
+			}
+		}
+
 		config.EVMAddresses = &EVMAddresses{
-			UniV2Router: uniV2Router,
+			UniV2Router: uniV2RouterAddress,
+			UniV2Token1: uniV2Token1Address,
+			UniV2Token2: uniV2Token2Address,
 		}
 	}
 }
@@ -132,17 +180,18 @@ func run(config *Config) {
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(*config)
 
+	client := NewLoadTestClient(*config)
+	client.SetValidators()
+	// accounts := client.GetAccounts()
 	deployEvmContracts(config)
-	deployUniswapContracts(config)
-	startLoadtestWorkers(*config)
+	deployUniswapContracts(client, config)
+	startLoadtestWorkers(client, *config)
 }
 
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
 // workers continue running. If config.Constant is false, then we will gather load test results in a file
-func startLoadtestWorkers(config Config) {
+func startLoadtestWorkers(client *LoadTestClient, config Config) {
 	fmt.Printf("Starting loadtest workers\n")
-	client := NewLoadTestClient(config)
-	client.SetValidators()
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
