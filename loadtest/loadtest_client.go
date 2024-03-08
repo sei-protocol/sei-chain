@@ -51,11 +51,11 @@ type LoadTestClient struct {
 func NewLoadTestClient(config Config) *LoadTestClient {
 	signerClient := NewSignerClient(config.NodeURI)
 	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts))
-	txClients, grpcConns := BuildGrpcClients(config)
+	txClients, grpcConns := BuildGrpcClients(&config)
 	var evmTxClients []*EvmTxClient
 	if config.EvmRpcEndpoints != "" {
 		if config.ContainsAnyMessageTypes(EVM, ERC20) {
-			evmTxClients = BuildEvmTxClients(config, keys)
+			evmTxClients = BuildEvmTxClients(&config, keys)
 		}
 	}
 
@@ -96,7 +96,7 @@ func (c *LoadTestClient) GetAccounts() []common.Address {
 }
 
 // BuildGrpcClients build a list of grpc clients
-func BuildGrpcClients(config Config) ([]typestx.ServiceClient, []*grpc.ClientConn) {
+func BuildGrpcClients(config *Config) ([]typestx.ServiceClient, []*grpc.ClientConn) {
 	grpcEndpoints := strings.Split(config.GrpcEndpoints, ",")
 	txClients := make([]typestx.ServiceClient, len(grpcEndpoints))
 	grpcConns := make([]*grpc.ClientConn, len(grpcEndpoints))
@@ -138,7 +138,7 @@ func BuildGrpcClients(config Config) ([]typestx.ServiceClient, []*grpc.ClientCon
 }
 
 // BuildEvmTxClients build a list of EvmTxClients with a list of go-ethereum client
-func BuildEvmTxClients(config Config, keys []cryptotypes.PrivKey) []*EvmTxClient {
+func BuildEvmTxClients(config *Config, keys []cryptotypes.PrivKey) []*EvmTxClient {
 	clients := make([]*EvmTxClient, len(keys))
 	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
 	if len(ethEndpoints) == 0 {

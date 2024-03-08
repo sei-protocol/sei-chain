@@ -58,6 +58,11 @@ library UniswapV2Library {
         }
     }
 
+    function pairFor(address factory, address tokenA, address tokenB) internal view returns (address) {
+        (address token1, address token2) = UniswapV2Library.sortPairs(tokenA, tokenB);
+        return IUniswapV2Factory(factory).pairs(token1, token2);
+    }
+
 
     // somehow doesn't work as expected--don't use
 

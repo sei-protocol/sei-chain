@@ -177,16 +177,14 @@ contract UniswapV2Router {
             (address token0,) = UniswapV2Library.sortPairs(input, output);
             uint amountOut = amounts[i + 1];
             (uint amount0Out, uint amount1Out) = input == token0 ? (uint(0), amountOut) : (amountOut, uint(0));
-            // FIX THISSS
-            (address token1, address token2) = UniswapV2Library.sortPairs(output, path[i + 2]);
-            address pair = factory.pairs(token1, token2);
-            address to = i < path.length - 2 ? pair : _to;
-            (address t1, address t2) = UniswapV2Library.sortPairs(input, output);
-            IUniswapV2Pair(factory.pairs(t1, t2)).swap(
+
+            address to = i < path.length - 2 ? UniswapV2Library.pairFor(address(factory), output, path[i + 2]) : _to;
+            IUniswapV2Pair(UniswapV2Library.pairFor(address(factory), input, output)).swap(
                 amount0Out, amount1Out, to
             );
         }
     }
+
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,

@@ -41,6 +41,9 @@ func NewEvmTxClient(
 	ethClients []*ethclient.Client,
 	evmAddresses *EVMAddresses,
 ) *EvmTxClient {
+	if evmAddresses == nil {
+		evmAddresses = &EVMAddresses{}
+	}
 	txClient := &EvmTxClient{
 		chainId:      chainId,
 		gasPrice:     gasPrice,
@@ -48,19 +51,27 @@ func NewEvmTxClient(
 		mtx:          sync.RWMutex{},
 		evmAddresses: evmAddresses,
 	}
+	privKeyHex := hex.EncodeToString(key.Bytes())
+	privateKey, err := crypto.HexToECDSA(privKeyHex)
+	if err != nil {
+		fmt.Printf("Failed to load private key: %v \n", err)
+	}
+	txClient.privateKey = privateKey
+
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		panic("Cannot assert type: publicKey is not of type *ecdsa.PublicKey \n")
+	}
+
 	// Set starting nonce
-	fromAddress := GetEvmAddressFromKey(key)
+	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 	nextNonce, err := ethClients[0].PendingNonceAt(context.Background(), fromAddress)
 	if err != nil {
 		panic(err)
 	}
 	txClient.nonce.Store(nextNonce)
 	txClient.accountAddress = fromAddress
-	fmt.Println("In NewEvmTxClient, accountAddress: ", txClient.accountAddress.String())
-	txClient.privateKey, err = crypto.GenerateKey()
-	if err != nil {
-		panic(err)
-	}
 	return txClient
 }
 
@@ -124,7 +135,7 @@ func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create ERC20 transfer: %v \n", err))
 	}
-	return tx
+	return txClient.sign(tx)
 }
 
 func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
@@ -145,13 +156,42 @@ func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create UniV2 swap: %v \n", err))
 	}
+	return txClient.sign(tx)
+}
+
+func (txClient *EvmTxClient) GenerateMintERC20Tx() *ethtypes.Transaction {
+	opts := txClient.getTransactOpts()
+	opts.GasLimit = uint64(100000)
+	tokenAddress := txClient.evmAddresses.UniV2Token1
+	token, err := erc20.NewErc20(tokenAddress, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
+	}
+	tx, err := token.Mint(opts, txClient.accountAddress, randomValue())
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 mint: %v \n", err))
+	}
+	fmt.Println("Generated mint tx: ", tx.Hash().Hex())
+	return txClient.sign(tx)
+}
+
+func (txClient *EvmTxClient) GenerateApproveRouterTx() *ethtypes.Transaction {
+	opts := txClient.getTransactOpts()
+	opts.GasLimit = uint64(100000)
+	fmt.Println("In GenerateApproveRouterTx, txClient.evmAddresses.ERC20: ", txClient.evmAddresses.ERC20)
+	token, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token1, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
+	}
+	tx, err := token.Approve(opts, txClient.evmAddresses.UniV2Router, randomValue())
+	if err != nil {
+		panic(fmt.Sprintf("Failed to approve router: %v \n", err))
+	}
+	fmt.Println("Generated approve router tx: ", tx.Hash().Hex())
 	return tx
 }
 
 func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
-	fmt.Println("txClient: ", txClient)
-	fmt.Println("txClient.privateKey: ", txClient.privateKey)
-	fmt.Println("txClient.chainId: ", txClient.chainId)
 	auth, err := bind.NewKeyedTransactorWithChainID(txClient.privateKey, txClient.chainId)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
