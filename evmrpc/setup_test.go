@@ -59,10 +59,13 @@ var Tx1 sdk.Tx
 var MultiTxBlockTx1 sdk.Tx
 var MultiTxBlockTx2 sdk.Tx
 var MultiTxBlockTx3 sdk.Tx
+var MultiTxBlockTx4 sdk.Tx
 var tx1 *ethtypes.Transaction
 var multiTxBlockTx1 *ethtypes.Transaction
 var multiTxBlockTx2 *ethtypes.Transaction
 var multiTxBlockTx3 *ethtypes.Transaction
+var multiTxBlockTx4 *ethtypes.Transaction
+
 var DebugTraceTx sdk.Tx
 var TxNonEvm sdk.Tx
 var UnconfirmedTx sdk.Tx
@@ -448,7 +451,7 @@ func init() {
 func generateTxData() {
 	chainId := big.NewInt(types.DefaultChainID.Int64())
 	to := common.HexToAddress("010203")
-	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3 client.TxBuilder
+	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3, txBuilder4 client.TxBuilder
 	txBuilder1, tx1 = buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     1,
 		GasFeeCap: big.NewInt(10),
@@ -485,6 +488,15 @@ func generateTxData() {
 		Data:      []byte("abc"),
 		ChainID:   chainId,
 	})
+	txBuilder4, multiTxBlockTx4 = buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     5,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   chainId,
+	})
 	debugTraceTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
 		GasFeeCap: big.NewInt(10),
@@ -498,6 +510,7 @@ func generateTxData() {
 	MultiTxBlockTx1 = txBuilder1_5.GetTx()
 	MultiTxBlockTx2 = txBuilder2.GetTx()
 	MultiTxBlockTx3 = txBuilder3.GetTx()
+	MultiTxBlockTx4 = txBuilder4.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	TxNonEvm = app.TestTx{}
 	if err := EVMKeeper.SetReceipt(Ctx, tx1.Hash(), &types.Receipt{
@@ -649,17 +662,38 @@ func setupLogs() {
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
 		}},
 	})
+	bloom4 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111115"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
+		},
+	}}}})
+	EVMKeeper.SetReceipt(Ctx, multiTxBlockTx4.Hash(), &types.Receipt{
+		BlockNumber:      MockHeight,
+		TransactionIndex: 0,
+		TxHashHex:        multiTxBlockTx4.Hash().Hex(),
+		LogsBloom:        bloom4[:],
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111115",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
+		}},
+	})
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash(DebugTraceHashHex), &types.Receipt{
 		BlockNumber:      DebugTraceMockHeight,
 		TransactionIndex: 0,
 		TxHashHex:        DebugTraceHashHex,
 	})
-	EVMKeeper.SetTxHashesOnHeight(Ctx, 2, []common.Hash{
+	EVMKeeper.SetTxHashesOnHeight(Ctx, MultiTxBlockHeight, []common.Hash{
 		multiTxBlockTx1.Hash(),
 		multiTxBlockTx2.Hash(),
 		multiTxBlockTx3.Hash(),
 	})
-	EVMKeeper.SetBlockBloom(Ctx, 2, []ethtypes.Bloom{bloom1, bloom2, bloom3})
+	EVMKeeper.SetTxHashesOnHeight(Ctx, MockHeight, []common.Hash{
+		multiTxBlockTx4.Hash(),
+	})
+	EVMKeeper.SetBlockBloom(Ctx, MultiTxBlockHeight, []ethtypes.Bloom{bloom1, bloom2, bloom3})
+	EVMKeeper.SetBlockBloom(Ctx, MockHeight, []ethtypes.Bloom{bloom4})
 }
 
 //nolint:deadcode

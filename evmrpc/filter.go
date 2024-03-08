@@ -279,15 +279,23 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		return f.GetLogsForBlock(ctx, block, crit, bloomIndexes), block.Block.Height, nil
 	}
 	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
-	begin, end := int64(0), latest
+	begin, end := latest, latest
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
 	}
 	if crit.ToBlock != nil {
 		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
+		// only if fromBlock is not specified, default it to end block
+		if crit.FromBlock == nil && begin > end {
+			begin = end
+		}
 	}
 	if lastToHeight > begin {
 		begin = lastToHeight
+	}
+	// begin should always be <= end block at this point
+	if begin > end {
+		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
 	blockHeights := f.FindBlockesByBloom(begin, end, bloomIndexes)
 	res := []*ethtypes.Log{}
