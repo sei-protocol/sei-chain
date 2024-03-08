@@ -55,10 +55,12 @@ func TestFilterNew(t *testing.T) {
 				filterCriteria["toBlock"] = tt.toBlock
 			}
 			resObj := sendRequestGood(t, "newFilter", filterCriteria)
+			_, errExists := resObj["error"]
+
 			if tt.wantErr {
-				_, ok := resObj["error"]
-				require.True(t, ok)
+				require.True(t, errExists)
 			} else {
+				require.False(t, errExists, "error should not exist")
 				got := resObj["result"].(float64)
 				// make sure next filter id is not equal to this one
 				resObj := sendRequestGood(t, "newFilter", filterCriteria)
@@ -126,6 +128,22 @@ func TestFilterGetLogs(t *testing.T) {
 			wantLen: 4,
 		},
 		{
+			name:    "filter by single topic with default range",
+			topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
+			wantErr: false,
+			check: func(t *testing.T, log map[string]interface{}) {
+				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", log["topics"].([]interface{})[0].(string))
+			},
+			wantLen: 1,
+		},
+		{
+			name:      "error with from block ahead of to block",
+			fromBlock: "0x3",
+			toBlock:   "0x2",
+			topics:    [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
+			wantErr:   true,
+		},
+		{
 			name:      "multiple addresses, multiple topics",
 			fromBlock: "0x2",
 			toBlock:   "0x2",
@@ -170,10 +188,8 @@ func TestFilterGetLogs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fmt.Println(tt.name)
 			filterCriteria := map[string]interface{}{
-				"fromBlock": tt.fromBlock,
-				"toBlock":   tt.toBlock,
-				"address":   tt.addrs,
-				"topics":    tt.topics,
+				"address": tt.addrs,
+				"topics":  tt.topics,
 			}
 			if tt.blockHash != nil {
 				filterCriteria["blockHash"] = tt.blockHash.Hex()
@@ -192,7 +208,7 @@ func TestFilterGetLogs(t *testing.T) {
 					logObj := log.(map[string]interface{})
 					tt.check(t, logObj)
 				}
-				require.Equal(t, len(got), tt.wantLen)
+				require.Equal(t, tt.wantLen, len(got))
 			}
 		})
 	}
@@ -230,7 +246,7 @@ func TestFilterGetFilterChanges(t *testing.T) {
 
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 4, len(logs))
+	require.Equal(t, 5, len(logs))
 	logObj := logs[0].(map[string]interface{})
 	require.Equal(t, "0x2", logObj["blockNumber"].(string))
 
