@@ -85,6 +85,8 @@ func TestSubscribeNewHeads(t *testing.T) {
 func TestSubscribeNewLogs(t *testing.T) {
 	t.Parallel()
 	data := map[string]interface{}{
+		"fromBlock": "0x0",
+		"toBlock":   "latest",
 		"address": []common.Address{
 			common.HexToAddress("0x1111111111111111111111111111111111111112"),
 			common.HexToAddress("0xc0ffee254729296a45a3885639AC7E10F9d54979"),
