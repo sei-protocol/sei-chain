@@ -246,7 +246,7 @@ func TestFilterGetFilterChanges(t *testing.T) {
 
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 4, len(logs))
+	require.Equal(t, 5, len(logs))
 	logObj := logs[0].(map[string]interface{})
 	require.Equal(t, "0x2", logObj["blockNumber"].(string))
 
