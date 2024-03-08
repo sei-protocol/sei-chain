@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math/big"
 	"math/rand"
 	"net/http"
 	"os"
@@ -35,7 +34,6 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc20"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -115,6 +113,7 @@ func deployEvmContracts(config *Config) {
 	}
 }
 
+// TODO: combine with deployEvmContracts
 func deployUniswapContracts(client *LoadTestClient, config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(UNIV2) {
@@ -143,35 +142,17 @@ func deployUniswapContracts(client *LoadTestClient, config *Config) {
 		fmt.Println("Found UniV2Token2 Address: ", uniV2Token2Address.String())
 		fmt.Println("Found UniV2Pool Address: ", uniV2PoolAddress.String())
 
-		// fund each account with some of token1
-		txClient := client.EvmTxClients[0]
-		token1, err := erc20.NewErc20(uniV2Token1Address, GetNextEthClient(txClient.ethClients))
-		if err != nil {
-			panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
-		}
-
-		// mint to each of these accounts
-		accounts := client.GetAccounts()
-		for i, txClient := range client.EvmTxClients {
-			_, err = token1.Mint(txClient.getTransactOpts(), accounts[i], big.NewInt(100000000000000000))
-			if err != nil {
-				panic(fmt.Sprintf("Failed to mint ERC20: %v \n", err))
-			}
-		}
-
-		// infinite approve router to spend token1
 		for _, txClient := range client.EvmTxClients {
-			_, err = token1.Approve(txClient.getTransactOpts(), uniV2RouterAddress, big.NewInt(100000000000000000))
-			if err != nil {
-				panic(fmt.Sprintf("Failed to approve ERC20: %v \n", err))
-			}
+			fmt.Println("txClient.evmAddresses: ", txClient.evmAddresses)
+			txClient.evmAddresses.UniV2Router = uniV2RouterAddress
+			txClient.evmAddresses.UniV2Token1 = uniV2Token1Address
+			txClient.evmAddresses.UniV2Token2 = uniV2Token2Address
+			tx := txClient.GenerateMintERC20Tx()
+			txClient.SendEvmTx(tx, func() { fmt.Println("Successfully minted an ERC20") })
+			tx = txClient.GenerateApproveRouterTx()
+			txClient.SendEvmTx(tx, func() { fmt.Println("Successfully approved router") })
 		}
 
-		config.EVMAddresses = &EVMAddresses{
-			UniV2Router: uniV2RouterAddress,
-			UniV2Token1: uniV2Token1Address,
-			UniV2Token2: uniV2Token2Address,
-		}
 	}
 }
 
@@ -180,6 +161,7 @@ func run(config *Config) {
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(*config)
 
+	fmt.Println("In run(): evmAddresses, ", config.EVMAddresses)
 	client := NewLoadTestClient(*config)
 	client.SetValidators()
 	// accounts := client.GetAccounts()
