@@ -85,8 +85,8 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				k.SetNonce(ctx, address1, 50)
 				// because pending:false, these won't matter
-				k.AddPendingNonce(key1, address1, 50)
-				k.AddPendingNonce(key2, address1, 51)
+				k.AddPendingNonce(key1, address1, 50, 0)
+				k.AddPendingNonce(key2, address1, 51, 0)
 			},
 			expectedNonce: 50,
 		},
@@ -96,8 +96,8 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			pending: true,
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				k.SetNonce(ctx, address1, 50)
-				k.AddPendingNonce(key1, address1, 50)
-				k.AddPendingNonce(key2, address1, 51)
+				k.AddPendingNonce(key1, address1, 50, 0)
+				k.AddPendingNonce(key2, address1, 51, 0)
 			},
 			expectedNonce: 52,
 		},
@@ -107,9 +107,9 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			pending: true,
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				k.SetNonce(ctx, address1, 50)
-				k.AddPendingNonce(key1, address1, 50)
+				k.AddPendingNonce(key1, address1, 50, 0)
 				// missing 51, so nonce = 51
-				k.AddPendingNonce(key2, address1, 52)
+				k.AddPendingNonce(key2, address1, 52, 0)
 			},
 			expectedNonce: 51,
 		},
@@ -119,8 +119,8 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			pending: true,
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				k.SetNonce(ctx, address1, 50)
-				k.AddPendingNonce(key1, address1, 50)
-				k.AddPendingNonce(key2, address1, 51)
+				k.AddPendingNonce(key1, address1, 50, 0)
+				k.AddPendingNonce(key2, address1, 51, 0)
 				k.SetNonce(ctx, address1, 52)
 				k.RemovePendingNonce(key1)
 				k.RemovePendingNonce(key2)
@@ -133,8 +133,8 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			pending: true,
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				k.SetNonce(ctx, address1, 50)
-				k.AddPendingNonce(key1, address1, 50)
-				k.AddPendingNonce(key2, address1, 51)
+				k.AddPendingNonce(key1, address1, 50, 0)
+				k.AddPendingNonce(key2, address1, 51, 0)
 				k.RemovePendingNonce(key1)
 			},
 			expectedNonce: 50,
@@ -146,8 +146,8 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
 				// next expected for latest is 50, but 51,52 were sent
 				k.SetNonce(ctx, address1, 50)
-				k.AddPendingNonce(key1, address1, 51)
-				k.AddPendingNonce(key2, address1, 52)
+				k.AddPendingNonce(key1, address1, 51, 0)
+				k.AddPendingNonce(key2, address1, 52, 0)
 			},
 			expectedNonce: 50,
 		},
@@ -166,7 +166,7 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 						key := tmtypes.TxKey(rand.NewRand().Bytes(32))
 						// call this just to exercise locks
 						k.CalculateNextNonce(ctx, address1, true)
-						k.AddPendingNonce(key, address1, uint64(nonce))
+						k.AddPendingNonce(key, address1, uint64(nonce), 0)
 					}(i)
 				}
 				wg.Wait()
@@ -210,4 +210,25 @@ func TestDeferredInfo(t *testing.T) {
 	k.ClearEVMTxDeferredInfo()
 	infoList = k.GetEVMTxDeferredInfo(ctx)
 	require.Empty(t, len(infoList))
+}
+
+func TestAddPendingNonce(t *testing.T) {
+	k, _ := keeper.MockEVMKeeper()
+	k.AddPendingNonce(tmtypes.TxKey{1}, common.HexToAddress("123"), 1, 1)
+	k.AddPendingNonce(tmtypes.TxKey{2}, common.HexToAddress("123"), 2, 1)
+	k.AddPendingNonce(tmtypes.TxKey{3}, common.HexToAddress("123"), 2, 2) // should replace the one above
+	pendingTxs := k.GetPendingTxs()[common.HexToAddress("123").Hex()]
+	require.Equal(t, 2, len(pendingTxs))
+	require.Equal(t, tmtypes.TxKey{1}, pendingTxs[0].Key)
+	require.Equal(t, uint64(1), pendingTxs[0].Nonce)
+	require.Equal(t, int64(1), pendingTxs[0].Priority)
+	require.Equal(t, tmtypes.TxKey{3}, pendingTxs[1].Key)
+	require.Equal(t, uint64(2), pendingTxs[1].Nonce)
+	require.Equal(t, int64(2), pendingTxs[1].Priority)
+	keyToNonce := k.GetKeysToNonces()
+	require.Equal(t, common.HexToAddress("123"), keyToNonce[tmtypes.TxKey{1}].Address)
+	require.Equal(t, uint64(1), keyToNonce[tmtypes.TxKey{1}].Nonce)
+	require.Equal(t, common.HexToAddress("123"), keyToNonce[tmtypes.TxKey{3}].Address)
+	require.Equal(t, uint64(2), keyToNonce[tmtypes.TxKey{3}].Nonce)
+	require.NotContains(t, keyToNonce, tmtypes.TxKey{2})
 }
