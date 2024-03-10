@@ -7,4 +7,6 @@ const (
 	AppName = "sei"
 
 	OptimisticProcessingTimeoutInSeconds = 5
+
+	OCCLoggingFeature = "occ-app"
 )

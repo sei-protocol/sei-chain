@@ -11,6 +11,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+const LoggingFeature = "evm-statedb"
+
 // Initialized for each transaction individually
 type DBImpl struct {
 	ctx             sdk.Context
