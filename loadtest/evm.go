@@ -72,6 +72,7 @@ func NewEvmTxClient(
 	}
 	txClient.nonce.Store(nextNonce)
 	txClient.accountAddress = fromAddress
+	fmt.Println("Created EVM client with address: ", fromAddress.String())
 	return txClient
 }
 
@@ -145,13 +146,22 @@ func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create UniV2Router contract: %v \n", err))
 	}
-	tx, err := univ2_pair.SwapExactTokensForTokens(
+	var tx *ethtypes.Transaction
+	var path []common.Address
+	if rand.Int63n(2) == 0 {
+		fmt.Println("first path")
+		path = []common.Address{txClient.evmAddresses.UniV2Token1, txClient.evmAddresses.UniV2Token2}
+	} else {
+		fmt.Println("second path")
+		path = []common.Address{txClient.evmAddresses.UniV2Token2, txClient.evmAddresses.UniV2Token1}
+	}
+	tx, err = univ2_pair.SwapExactTokensForTokens(
 		opts,
 		big.NewInt(100),
 		big.NewInt(0),
-		[]common.Address{txClient.evmAddresses.UniV2Token1, txClient.evmAddresses.UniV2Token2},
+		path,
 		txClient.accountAddress,
-		big.NewInt(2009777555),
+		big.NewInt(3009777555), // deadline that won't expire
 	)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create UniV2 swap: %v \n", err))
@@ -159,35 +169,68 @@ func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
 	return txClient.sign(tx)
 }
 
-func (txClient *EvmTxClient) GenerateMintERC20Tx() *ethtypes.Transaction {
+func (txClient *EvmTxClient) GenerateToken1MintERC20Tx() *ethtypes.Transaction {
 	opts := txClient.getTransactOpts()
 	opts.GasLimit = uint64(100000)
-	tokenAddress := txClient.evmAddresses.UniV2Token1
-	token, err := erc20.NewErc20(tokenAddress, GetNextEthClient(txClient.ethClients))
+	token1, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token1, GetNextEthClient(txClient.ethClients))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
 	}
-	tx, err := token.Mint(opts, txClient.accountAddress, randomValue())
+	bigNumber := big.NewInt(10).Exp(big.NewInt(10), big.NewInt(50), nil)
+	tx1, err := token1.Mint(opts, txClient.accountAddress, bigNumber)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create ERC20 mint: %v \n", err))
 	}
-	fmt.Println("Generated mint tx: ", tx.Hash().Hex())
-	return txClient.sign(tx)
+	fmt.Println("Generated token1 mint tx: ", tx1.Hash().Hex(), " for address: ", txClient.accountAddress.String())
+	return txClient.sign(tx1)
 }
 
-func (txClient *EvmTxClient) GenerateApproveRouterTx() *ethtypes.Transaction {
+func (txClient *EvmTxClient) GenerateToken2MintERC20Tx() *ethtypes.Transaction {
 	opts := txClient.getTransactOpts()
 	opts.GasLimit = uint64(100000)
-	fmt.Println("In GenerateApproveRouterTx, txClient.evmAddresses.ERC20: ", txClient.evmAddresses.ERC20)
-	token, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token1, GetNextEthClient(txClient.ethClients))
+	bigNumber := big.NewInt(10).Exp(big.NewInt(10), big.NewInt(50), nil)
+	token2, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token2, GetNextEthClient(txClient.ethClients))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
 	}
-	tx, err := token.Approve(opts, txClient.evmAddresses.UniV2Router, randomValue())
+	tx2, err := token2.Mint(opts, txClient.accountAddress, bigNumber)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 mint: %v \n", err))
+	}
+	fmt.Println("Generated token2 mint tx: ", tx2.Hash().Hex(), " for address: ", txClient.accountAddress.String())
+	return txClient.sign(tx2)
+}
+
+func (txClient *EvmTxClient) GenerateToken1ApproveRouterTx() *ethtypes.Transaction {
+	opts := txClient.getTransactOpts()
+	opts.GasLimit = uint64(100000)
+	bigNumber := big.NewInt(10).Exp(big.NewInt(10), big.NewInt(50), nil)
+	fmt.Println("In GenerateApproveRouterTx, txClient.evmAddresses.ERC20: ", txClient.evmAddresses.ERC20)
+	token1, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token1, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
+	}
+	tx, err := token1.Approve(opts, txClient.evmAddresses.UniV2Router, bigNumber)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to approve router: %v \n", err))
 	}
-	fmt.Println("Generated approve router tx: ", tx.Hash().Hex())
+	fmt.Println("Generated token1 approve router tx: ", tx.Hash().Hex())
+	return tx
+}
+
+func (txClient *EvmTxClient) GenerateToken2ApproveRouterTx() *ethtypes.Transaction {
+	opts := txClient.getTransactOpts()
+	opts.GasLimit = uint64(100000)
+	bigNumber := big.NewInt(10).Exp(big.NewInt(10), big.NewInt(50), nil)
+	token2, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token2, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
+	}
+	tx, err := token2.Approve(opts, txClient.evmAddresses.UniV2Router, bigNumber)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to approve router: %v \n", err))
+	}
+	fmt.Println("Generated token2 approve router tx: ", tx.Hash().Hex())
 	return tx
 }
 

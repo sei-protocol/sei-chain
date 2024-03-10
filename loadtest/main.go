@@ -147,10 +147,14 @@ func deployUniswapContracts(client *LoadTestClient, config *Config) {
 			txClient.evmAddresses.UniV2Router = uniV2RouterAddress
 			txClient.evmAddresses.UniV2Token1 = uniV2Token1Address
 			txClient.evmAddresses.UniV2Token2 = uniV2Token2Address
-			tx := txClient.GenerateMintERC20Tx()
-			txClient.SendEvmTx(tx, func() { fmt.Println("Successfully minted an ERC20") })
-			tx = txClient.GenerateApproveRouterTx()
-			txClient.SendEvmTx(tx, func() { fmt.Println("Successfully approved router") })
+			tx1 := txClient.GenerateToken1MintERC20Tx()
+			txClient.SendEvmTx(tx1, func() { fmt.Println("Successfully minted token1 ERC20") })
+			tx2 := txClient.GenerateToken2MintERC20Tx()
+			txClient.SendEvmTx(tx2, func() { fmt.Println("Successfully minted token2 ERC20") })
+			tx1 = txClient.GenerateToken1ApproveRouterTx()
+			txClient.SendEvmTx(tx1, func() { fmt.Println("Successfully approved router for token1") })
+			tx2 = txClient.GenerateToken2ApproveRouterTx()
+			txClient.SendEvmTx(tx2, func() { fmt.Println("Successfully approved router for token2") })
 		}
 
 	}
