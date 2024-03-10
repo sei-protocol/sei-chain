@@ -297,6 +297,16 @@ func (txClient *EvmTxClient) GetTxReceipt(txHash common.Hash) error {
 	return nil
 }
 
+// check receipt success
+// func (txClient *EvmTxClient) CheckTxSuccess(txHash common.Hash) bool {
+// 	receipt, err := GetNextEthClient(txClient.ethClients).TransactionReceipt(context.Background(), txHash)
+// 	if err != nil {
+// 		fmt.Println("Failed to get receipt: ", err)
+// 		return false
+// 	}
+// 	return receipt.Status == 1
+// }
+
 // ResetNonce need to be called when tx failed
 func (txClient *EvmTxClient) ResetNonce() error {
 	txClient.mtx.Lock()
