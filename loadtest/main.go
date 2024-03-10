@@ -121,6 +121,7 @@ func deployUniswapContracts(client *LoadTestClient, config *Config) {
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		err := cmd.Run()
+		fmt.Println("deploy_univ2.sh output: ", out.String())
 		if err != nil {
 			panic("deploy_univ2.sh failed with error: " + err.Error())
 		}
