@@ -199,13 +199,10 @@ func (c *LoadTestClient) BuildTxs(
 			messageType := c.getRandomMessageType(messageTypes)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
-			fmt.Println("messageType: ", messageType)
 			switch messageType {
 			case EVM, ERC20:
-				fmt.Println("In EVM/ERC20")
 				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType)}
 			case UNIV2:
-				fmt.Println("In UNIV2")
 				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType)}
 			default:
 				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, producedCount)}
@@ -222,9 +219,6 @@ func (c *LoadTestClient) BuildTxs(
 }
 
 func (c *LoadTestClient) generateSignedEvmTx(keyIndex int, msgType string) *ethtypes.Transaction {
-	fmt.Println("evmTxClients: ", c.EvmTxClients)
-	fmt.Println("keyIndex: ", keyIndex)
-	fmt.Println("msgType: ", msgType)
 	return c.EvmTxClients[keyIndex].GetTxForMsgType(msgType)
 }
 
@@ -276,7 +270,6 @@ func (c *LoadTestClient) SendTxs(
 				}
 			} else if tx.EvmTx != nil {
 				// Send EVM Transactions
-				fmt.Println("In SendTxs, sending EVM tx")
 				c.EvmTxClients[keyIndex].SendEvmTx(tx.EvmTx, func() {
 					sentCount.Add(1)
 				})
