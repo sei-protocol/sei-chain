@@ -10,7 +10,7 @@ echo "Deploying UniswapV2 contracts to $evm_endpoint"
 
 cd loadtest/contracts/evm || exit 1
 
-bigNumber=1000000000000000000000000000000
+bigNumber=100000000000000000000000000000000 # 10^32
 
 
 # deploy the uniswapV2 factory contract

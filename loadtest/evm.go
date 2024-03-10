@@ -72,7 +72,6 @@ func NewEvmTxClient(
 	}
 	txClient.nonce.Store(nextNonce)
 	txClient.accountAddress = fromAddress
-	fmt.Println("Created EVM client with address: ", fromAddress.String())
 	return txClient
 }
 
@@ -149,10 +148,8 @@ func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
 	var tx *ethtypes.Transaction
 	var path []common.Address
 	if rand.Int63n(2) == 0 {
-		fmt.Println("first path")
 		path = []common.Address{txClient.evmAddresses.UniV2Token1, txClient.evmAddresses.UniV2Token2}
 	} else {
-		fmt.Println("second path")
 		path = []common.Address{txClient.evmAddresses.UniV2Token2, txClient.evmAddresses.UniV2Token1}
 	}
 	tx, err = univ2_pair.SwapExactTokensForTokens(
@@ -181,7 +178,6 @@ func (txClient *EvmTxClient) GenerateToken1MintERC20Tx() *ethtypes.Transaction {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create ERC20 mint: %v \n", err))
 	}
-	fmt.Println("Generated token1 mint tx: ", tx1.Hash().Hex(), " for address: ", txClient.accountAddress.String())
 	return txClient.sign(tx1)
 }
 
@@ -197,7 +193,6 @@ func (txClient *EvmTxClient) GenerateToken2MintERC20Tx() *ethtypes.Transaction {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create ERC20 mint: %v \n", err))
 	}
-	fmt.Println("Generated token2 mint tx: ", tx2.Hash().Hex(), " for address: ", txClient.accountAddress.String())
 	return txClient.sign(tx2)
 }
 
@@ -205,7 +200,6 @@ func (txClient *EvmTxClient) GenerateToken1ApproveRouterTx() *ethtypes.Transacti
 	opts := txClient.getTransactOpts()
 	opts.GasLimit = uint64(100000)
 	bigNumber := big.NewInt(10).Exp(big.NewInt(10), big.NewInt(50), nil)
-	fmt.Println("In GenerateApproveRouterTx, txClient.evmAddresses.ERC20: ", txClient.evmAddresses.ERC20)
 	token1, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token1, GetNextEthClient(txClient.ethClients))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
@@ -273,7 +267,6 @@ func (txClient *EvmTxClient) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 		// We choose not to GetTxReceipt because we assume the EVM RPC would be running with broadcast mode = block
 		onSuccess()
 	}
-	fmt.Println("In SendEvmTx, sent EVM tx, tx.hash: ", signedTx.Hash().Hex())
 }
 
 // GetNextEthClient return the next available eth client randomly
@@ -298,14 +291,15 @@ func (txClient *EvmTxClient) GetTxReceipt(txHash common.Hash) error {
 }
 
 // check receipt success
-// func (txClient *EvmTxClient) CheckTxSuccess(txHash common.Hash) bool {
-// 	receipt, err := GetNextEthClient(txClient.ethClients).TransactionReceipt(context.Background(), txHash)
-// 	if err != nil {
-// 		fmt.Println("Failed to get receipt: ", err)
-// 		return false
-// 	}
-// 	return receipt.Status == 1
-// }
+func (txClient *EvmTxClient) EnsureTxSuccess(txHash common.Hash) {
+	receipt, err := GetNextEthClient(txClient.ethClients).TransactionReceipt(context.Background(), txHash)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get receipt for tx %v: %v \n", txHash.Hex(), err))
+	}
+	if receipt.Status != 1 {
+		panic(fmt.Sprintf("Tx %v failed with status %v \n", txHash.Hex(), receipt.Status))
+	}
+}
 
 // ResetNonce need to be called when tx failed
 func (txClient *EvmTxClient) ResetNonce() error {
