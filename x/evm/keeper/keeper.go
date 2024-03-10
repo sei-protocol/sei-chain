@@ -39,8 +39,8 @@ type Keeper struct {
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
 	nonceMx                      *sync.RWMutex
-	pendingNonces                map[string][]uint64
-	keyToNonce                   map[tmtypes.TxKey]*addressNoncePair
+	pendingTxs                   map[string][]*PendingTx
+	keyToNonce                   map[tmtypes.TxKey]*AddressNoncePair
 }
 
 type EvmTxDeferredInfo struct {
@@ -50,9 +50,15 @@ type EvmTxDeferredInfo struct {
 	Surplus sdk.Int
 }
 
-type addressNoncePair struct {
-	address common.Address
-	nonce   uint64
+type AddressNoncePair struct {
+	Address common.Address
+	Nonce   uint64
+}
+
+type PendingTx struct {
+	Key      tmtypes.TxKey
+	Nonce    uint64
+	Priority int64
 }
 
 func NewKeeper(
@@ -68,10 +74,10 @@ func NewKeeper(
 		bankKeeper:                   bankKeeper,
 		accountKeeper:                accountKeeper,
 		stakingKeeper:                stakingKeeper,
-		pendingNonces:                make(map[string][]uint64),
+		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
-		keyToNonce:                   make(map[tmtypes.TxKey]*addressNoncePair),
+		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
 		deferredInfo:                 &sync.Map{},
 	}
 	return k
@@ -201,40 +207,68 @@ func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, includ
 	}
 
 	// get the pending nonces (nil is fine)
-	pending := k.pendingNonces[addr.Hex()]
+	pending := k.pendingTxs[addr.Hex()]
 
 	// Check each nonce starting from latest until we find a gap
 	// That gap is the next nonce we should use.
 	for ; ; nextNonce++ {
 		// if it's not in pending, then it's the next nonce
-		if _, found := sort.Find(len(pending), func(i int) int { return uint64Cmp(nextNonce, pending[i]) }); !found {
+		if _, found := sort.Find(len(pending), func(i int) int { return uint64Cmp(nextNonce, pending[i].Nonce) }); !found {
 			return nextNonce
 		}
 	}
 }
 
 // AddPendingNonce adds a pending nonce to the keeper
-func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce uint64) {
+func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce uint64, priority int64) {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
 
 	addrStr := addr.Hex()
 	if existing, ok := k.keyToNonce[key]; ok {
-		if existing.nonce != nonce {
-			fmt.Printf("Seeing transactions with the same hash %X but different nonces (%d vs. %d), which should be impossible\n", key, nonce, existing.nonce)
+		if existing.Nonce != nonce {
+			fmt.Printf("Seeing transactions with the same hash %X but different nonces (%d vs. %d), which should be impossible\n", key, nonce, existing.Nonce)
 		}
-		if existing.address != addr {
-			fmt.Printf("Seeing transactions with the same hash %X but different addresses (%s vs. %s), which should be impossible\n", key, addr.Hex(), existing.address.Hex())
+		if existing.Address != addr {
+			fmt.Printf("Seeing transactions with the same hash %X but different addresses (%s vs. %s), which should be impossible\n", key, addr.Hex(), existing.Address.Hex())
 		}
 		// we want to no-op whether it's a genuine duplicate or not
 		return
 	}
-	k.keyToNonce[key] = &addressNoncePair{
-		address: addr,
-		nonce:   nonce,
+	for _, pendingTx := range k.pendingTxs[addrStr] {
+		if pendingTx.Nonce == nonce {
+			if priority > pendingTx.Priority {
+				// replace existing tx
+				delete(k.keyToNonce, pendingTx.Key)
+				pendingTx.Priority = priority
+				pendingTx.Key = key
+				k.keyToNonce[key] = &AddressNoncePair{
+					Address: addr,
+					Nonce:   nonce,
+				}
+			}
+			// we don't need to return error here if priority is lower.
+			// Tendermint will take care of rejecting the tx from mempool
+			return
+		}
 	}
-	k.pendingNonces[addrStr] = append(k.pendingNonces[addrStr], nonce)
-	slices.Sort(k.pendingNonces[addrStr])
+	k.keyToNonce[key] = &AddressNoncePair{
+		Address: addr,
+		Nonce:   nonce,
+	}
+	k.pendingTxs[addrStr] = append(k.pendingTxs[addrStr], &PendingTx{
+		Key:      key,
+		Nonce:    nonce,
+		Priority: priority,
+	})
+	slices.SortStableFunc(k.pendingTxs[addrStr], func(a, b *PendingTx) int {
+		if a.Nonce < b.Nonce {
+			return -1
+		} else if a.Nonce > b.Nonce {
+			return 1
+		}
+		return 0
+	})
 }
 
 // RemovePendingNonce removes a pending nonce from the keeper but leaves a hole
@@ -250,21 +284,31 @@ func (k *Keeper) RemovePendingNonce(key tmtypes.TxKey) {
 
 	delete(k.keyToNonce, key)
 
-	addr := tx.address.Hex()
-	pendings := k.pendingNonces[addr]
-	firstMatch, found := sort.Find(len(pendings), func(i int) int { return uint64Cmp(tx.nonce, pendings[i]) })
+	addr := tx.Address.Hex()
+	pendings := k.pendingTxs[addr]
+	firstMatch, found := sort.Find(len(pendings), func(i int) int { return uint64Cmp(tx.Nonce, pendings[i].Nonce) })
 	if !found {
 		fmt.Printf("Removing tx %X without a corresponding pending nonce, which should not happen\n", key)
 		return
 	}
-	k.pendingNonces[addr] = append(k.pendingNonces[addr][:firstMatch], k.pendingNonces[addr][firstMatch+1:]...)
-	if len(k.pendingNonces[addr]) == 0 {
-		delete(k.pendingNonces, addr)
+	k.pendingTxs[addr] = append(k.pendingTxs[addr][:firstMatch], k.pendingTxs[addr][firstMatch+1:]...)
+	if len(k.pendingTxs[addr]) == 0 {
+		delete(k.pendingTxs, addr)
 	}
 }
 
 func (k *Keeper) SetTxResults(txResults []*abci.ExecTxResult) {
 	k.txResults = txResults
+}
+
+// Test use only
+func (k *Keeper) GetPendingTxs() map[string][]*PendingTx {
+	return k.pendingTxs
+}
+
+// Test use only
+func (k *Keeper) GetKeysToNonces() map[tmtypes.TxKey]*AddressNoncePair {
+	return k.keyToNonce
 }
 
 func uint64Cmp(a, b uint64) int {
