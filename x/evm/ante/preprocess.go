@@ -59,6 +59,9 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	derived := msg.Derived
 	seiAddr := derived.SenderSeiAddr
 	evmAddr := derived.SenderEVMAddr
+	if p.evmKeeper.EthReplayConfig.Enabled {
+		p.evmKeeper.PrepareReplayedAddr(ctx, evmAddr)
+	}
 	pubkey := derived.PubKey
 	isAssociateTx := derived.IsAssociate
 	_, isAssociated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
