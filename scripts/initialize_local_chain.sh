@@ -68,8 +68,6 @@ END_DATE_5DAYS=$($PYTHON_CMD -c "from datetime import datetime, timedelta; print
 
 cat ~/.sei/config/genesis.json | jq --arg start_date "$START_DATE" --arg end_date "$END_DATE_3DAYS" '.app_state["mint"]["params"]["token_release_schedule"]=[{"start_date": $start_date, "end_date": $end_date, "token_release_amount": "999999999999"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq --arg start_date "$END_DATE_3DAYS" --arg end_date "$END_DATE_5DAYS" '.app_state["mint"]["params"]["token_release_schedule"] += [{"start_date": $start_date, "end_date": $end_date, "token_release_amount": "999999999999"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
-# shell: cat /root/.sei/config/genesis.json | jq '.app_state["auth"]["params"]["disable_seqno_check"]=true' > /root/.sei/config/tmp_genesis.json && mv /root/.sei/config/tmp_genesis.json /root/.sei/config/genesis.json;
-cat ~/.sei/config/genesis.json | jq '.app_state["auth"]["params"]["disable_seqno_check"]=true' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json;
 
 # set block time to 2s
 if [ ! -z "$1" ]; then
@@ -95,11 +93,11 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
   sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
-  sed -i '' 's/unsafe-propose-timeout-override =.*/unsafe-propose-timeout-override = "300ms"/g' $CONFIG_PATH
-  sed -i '' 's/unsafe-propose-timeout-delta-override =.*/unsafe-propose-timeout-delta-override = "300ms"/g' $CONFIG_PATH
-  sed -i '' 's/unsafe-vote-timeout-override =.*/unsafe-vote-timeout-override = "300ms"/g' $CONFIG_PATH
-  sed -i '' 's/unsafe-vote-timeout-delta-override =.*/unsafe-vote-timeout-delta-override = "300ms"/g' $CONFIG_PATH
-  sed -i '' 's/unsafe-commit-timeout-override =.*/unsafe-commit-timeout-override = "300ms"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-propose-timeout-override =.*/unsafe-propose-timeout-override = "2s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-propose-timeout-delta-override =.*/unsafe-propose-timeout-delta-override = "2s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-vote-timeout-override =.*/unsafe-vote-timeout-override = "2s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-vote-timeout-delta-override =.*/unsafe-vote-timeout-delta-override = "2s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-commit-timeout-override =.*/unsafe-commit-timeout-override = "2s"/g' $CONFIG_PATH
   # sed -i '' 's/slow = false/slow = true/g' $APP_PATH
 else
   printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"

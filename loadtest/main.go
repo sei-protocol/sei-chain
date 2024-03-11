@@ -94,10 +94,6 @@ func deployEvmContract(scriptPath string, config *Config) (common.Address, error
 	return common.HexToAddress(out.String()), nil
 }
 
-// func deployUniV2Contract(scriptPath string, config *Config) (common.Address, error) {
-// 	return uniV2RouterAddress, nil
-// }
-
 func deployEvmContracts(config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(ERC20) {
