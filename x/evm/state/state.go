@@ -10,16 +10,19 @@ import (
 )
 
 func (s *DBImpl) CreateAccount(acc common.Address) {
+	s.k.PrepareAddr(s.ctx, acc)
 	// clear any existing state but keep balance untouched
 	s.clearAccountState(acc)
 	s.MarkAccount(acc, AccountCreated)
 }
 
 func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
+	s.k.PrepareAddr(s.ctx, addr)
 	return s.getState(s.snapshottedCtxs[0], addr, hash)
 }
 
 func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
+	s.k.PrepareAddr(s.ctx, addr)
 	return s.getState(s.ctx, addr, hash)
 }
 
@@ -28,10 +31,12 @@ func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash
 }
 
 func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) {
+	s.k.PrepareAddr(s.ctx, addr)
 	s.k.SetState(s.ctx, addr, key, val)
 }
 
 func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.Hash {
+	s.k.PrepareAddr(s.ctx, addr)
 	val, found := s.getTransientState(addr, key)
 	if !found {
 		return common.Hash{}
@@ -40,6 +45,7 @@ func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.
 }
 
 func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
+	s.k.PrepareAddr(s.ctx, addr)
 	st, ok := s.tempStateCurrent.transientStates[addr.Hex()]
 	if !ok {
 		st = make(map[string]common.Hash)
@@ -53,6 +59,7 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 // clear account's state except the transient state (in Ethereum transient states are
 // still available even after self destruction in the same tx)
 func (s *DBImpl) SelfDestruct(acc common.Address) {
+	s.k.PrepareAddr(s.ctx, acc)
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
@@ -77,6 +84,7 @@ func (s *DBImpl) Selfdestruct6780(acc common.Address) {
 // the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
 // **CURRENT** block
 func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
+	s.k.PrepareAddr(s.ctx, acc)
 	val, found := s.getTransientAccount(acc)
 	if !found || val == nil {
 		return false
@@ -110,11 +118,13 @@ func (s *DBImpl) clearAccountState(acc common.Address) {
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
+	s.k.PrepareAddr(s.ctx, acc)
 	// val being nil means it's deleted
 	s.tempStateCurrent.transientAccounts[acc.Hex()] = status
 }
 
 func (s *DBImpl) Created(acc common.Address) bool {
+	s.k.PrepareAddr(s.ctx, acc)
 	val, found := s.getTransientAccount(acc)
 	if !found || val == nil {
 		return false
@@ -123,6 +133,7 @@ func (s *DBImpl) Created(acc common.Address) bool {
 }
 
 func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.Hash) {
+	s.k.PrepareAddr(s.ctx, addr)
 	s.clearAccountState(addr)
 	for key, val := range states {
 		s.SetState(addr, key, val)

@@ -38,6 +38,7 @@ var (
 	BlockBloomPrefix                           = []byte{0x0d}
 	TxHashesPrefix                             = []byte{0x0e}
 	WhitelistedCodeHashesForDelegateCallPrefix = []byte{0x0f}
+	ReplaySeenAddrPrefix                       = []byte{0x10}
 	//mem
 	TxHashPrefix  = []byte{0x10}
 	TxBloomPrefix = []byte{0x11}
