@@ -90,6 +90,7 @@ func GetEvmAddressFromKey(key cryptotypes.PrivKey) common.Address {
 }
 
 func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transaction {
+	fmt.Println("Getting tx for msg type: ", msgType)
 	switch msgType {
 	case EVM:
 		return txClient.GenerateSendFundsTx()
