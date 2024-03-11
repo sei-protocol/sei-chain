@@ -866,6 +866,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, txBytes []byte) (gInf
 		if r := recover(); r != nil {
 			acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
+			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
 			err, result = processRecovery(r, recoveryMW), nil
 			if mode != runTxModeDeliver {
 				ctx.MultiStore().ResetEvents()

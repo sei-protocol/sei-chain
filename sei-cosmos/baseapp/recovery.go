@@ -6,6 +6,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	scheduler "github.com/cosmos/cosmos-sdk/types/occ"
 )
 
 // RecoveryHandler handles recovery() object.
@@ -56,6 +57,25 @@ func newOutOfGasRecoveryMiddleware(gasWanted uint64, ctx sdk.Context, next recov
 			sdkerrors.ErrOutOfGas, fmt.Sprintf(
 				"out of gas in location: %v; gasWanted: %d, gasUsed: %d",
 				err.Descriptor, gasWanted, ctx.GasMeter().GasConsumed(),
+			),
+		)
+	}
+
+	return newRecoveryMiddleware(handler, next)
+}
+
+// newOCCAbortRecoveryMiddleware creates a standard OCC Abort recovery middleware for app.runTx method.
+func newOCCAbortRecoveryMiddleware(next recoveryMiddleware) recoveryMiddleware {
+	handler := func(recoveryObj interface{}) error {
+		abort, ok := recoveryObj.(scheduler.Abort)
+		if !ok {
+			return nil
+		}
+
+		return sdkerrors.Wrap(
+			sdkerrors.ErrOCCAbort, fmt.Sprintf(
+				"occ abort occurred with dependent index %d and error: %v",
+				abort.DependentTxIdx, abort.Err,
 			),
 		)
 	}

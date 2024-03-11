@@ -18,16 +18,16 @@ func NewTrackedIterator(iter types.Iterator, iterationTracker *iterationTracker)
 	}
 }
 
-// Close calls first updates the iterateset from the iterator, and then calls iterator.Close()
-func (ti *trackedIterator) Close() error {
-	// TODO: if there are more keys to the iterator, then we consider it early stopped?
-	if ti.Iterator.Valid() {
+func (ti *trackedIterator) Valid() bool {
+	valid := ti.Iterator.Valid()
+	// if no longer valid, remove the early stop key since we reached end of range
+	if !valid {
+		ti.iterateset.SetEarlyStopKey(nil)
+	} else {
 		key := ti.Iterator.Key()
-		// TODO: test whether reaching end of iteration range means valid is true or false
 		ti.iterateset.AddKey(key)
-		ti.iterateset.SetEarlyStopKey(key)
 	}
-	return ti.Iterator.Close()
+	return valid
 }
 
 // Key calls the iterator.Key() and adds the key to the iterateset, then returns the key from the iterator

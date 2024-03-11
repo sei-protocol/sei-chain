@@ -60,8 +60,10 @@ func NewIterationTracker(startKey, endKey []byte, ascending bool, writeset Write
 	}
 }
 
+// AddKey adds a key to the iterated keys map and sets the early stop key as the key since it's the latest key iterated
 func (item *iterationTracker) AddKey(key []byte) {
 	item.iteratedKeys[string(key)] = struct{}{}
+	item.SetEarlyStopKey(key)
 }
 
 func (item *iterationTracker) SetEarlyStopKey(key []byte) {
@@ -149,8 +151,9 @@ func (store *VersionIndexedStore) Get(key []byte) []byte {
 	mvsValue := store.multiVersionStore.GetLatestBeforeIndex(store.transactionIndex, key)
 	if mvsValue != nil {
 		if mvsValue.IsEstimate() {
-			store.abortChannel <- scheduler.NewEstimateAbort(mvsValue.Index())
-			return nil
+			abort := scheduler.NewEstimateAbort(mvsValue.Index())
+			store.abortChannel <- abort
+			panic(abort)
 		} else {
 			// This handles both detecting readset conflicts and updating readset if applicable
 			return store.parseValueAndUpdateReadset(strKey, mvsValue)

@@ -150,6 +150,9 @@ var (
 	// ErrAlreadyExists defines an error for which the tx failed checkTx because the node has already seen it before
 	ErrAlreadyExists = Register(RootCodespace, 42, "error tx already exists")
 
+	// ErrOCCAbort defines an error exncountered by a transaction when it encounters an OCC conflict resulting in an Abort
+	ErrOCCAbort = Register(RootCodespace, 43, "occ abort")
+
 	// ErrPanic is only set when we recover from a panic, so we know to
 	// redact potentially sensitive system info
 	ErrPanic = Register(UndefinedCodespace, 111222, "panic")
