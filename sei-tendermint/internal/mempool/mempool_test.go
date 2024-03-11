@@ -3,7 +3,6 @@ package mempool
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -707,24 +706,17 @@ func TestAppendCheckTxErr(t *testing.T) {
 	}
 	t.Cleanup(client.Wait)
 	txmp := setup(t, client, 500)
-	existingData := `[{"log":"existing error log"}]`
+	existingLogData := "existing error log"
+	newLogData := "sample error log"
 
 	// Append new error
-	result := txmp.AppendCheckTxErr(existingData, "sample error msg")
+	actualResult := txmp.AppendCheckTxErr(existingLogData, newLogData)
+	expectedResult := fmt.Sprintf("%s; %s", existingLogData, newLogData)
 
-	// Unmarshal the result
-	var data []map[string]interface{}
-	err := json.Unmarshal([]byte(result), &data)
-	require.NoError(t, err)
-	require.Equal(t, len(data), 2)
-	require.Equal(t, data[1]["log"], "sample error msg")
+	require.Equal(t, expectedResult, actualResult)
 
 	// Append new error to empty log
-	result = txmp.AppendCheckTxErr("", "sample error msg")
+	actualResult = txmp.AppendCheckTxErr("", newLogData)
 
-	// Unmarshal the result
-	err = json.Unmarshal([]byte(result), &data)
-	require.NoError(t, err)
-	require.Equal(t, len(data), 1)
-	require.Equal(t, data[0]["log"], "sample error msg")
+	require.Equal(t, newLogData, actualResult)
 }

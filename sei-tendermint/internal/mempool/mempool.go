@@ -3,9 +3,9 @@ package mempool
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -907,15 +907,14 @@ func (txmp *TxMempool) GetPeerFailedCheckTxCount(nodeID types.NodeID) uint64 {
 
 // AppendCheckTxErr wraps error message into an ABCIMessageLogs json string
 func (txmp *TxMempool) AppendCheckTxErr(existingLogs string, log string) string {
-	var logs []map[string]interface{}
-	json.Unmarshal([]byte(existingLogs), &logs)
+	var builder strings.Builder
 
-	// Append the new ABCIMessageLog to the slice
-	logs = append(logs, map[string]interface{}{
-		"log": log,
-	})
+	builder.WriteString(existingLogs)
+	// If there are already logs, append the new log with a separator
+	if builder.Len() > 0 {
+		builder.WriteString("; ")
+	}
+	builder.WriteString(log)
 
-	// Marshal the updated slice back into a JSON string
-	jsonData, _ := json.Marshal(logs)
-	return string(jsonData)
+	return builder.String()
 }
