@@ -3,6 +3,7 @@ package types
 import (
 	wasmvm "github.com/CosmWasm/wasmvm"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 )
 
 // DefaultMaxQueryStackSize maximum size of the stack of contract instances doing queries
@@ -238,4 +239,39 @@ type WasmerEngine interface {
 
 	// GetMetrics some internal metrics for monitoring purposes.
 	GetMetrics() (*wasmvmtypes.Metrics, error)
+}
+
+var _ wasmvm.KVStore = &StoreAdapter{}
+
+// StoreAdapter adapter to bridge SDK store impl to wasmvm
+type StoreAdapter struct {
+	parent storetypes.KVStore
+}
+
+// NewStoreAdapter constructor
+func NewStoreAdapter(s storetypes.KVStore) *StoreAdapter {
+	if s == nil {
+		panic("store must not be nil")
+	}
+	return &StoreAdapter{parent: s}
+}
+
+func (s StoreAdapter) Get(key []byte) []byte {
+	return s.parent.Get(key)
+}
+
+func (s StoreAdapter) Set(key, value []byte) {
+	s.parent.Set(key, value)
+}
+
+func (s StoreAdapter) Delete(key []byte) {
+	s.parent.Delete(key)
+}
+
+func (s StoreAdapter) Iterator(start, end []byte) wasmvmtypes.Iterator {
+	return s.parent.Iterator(start, end)
+}
+
+func (s StoreAdapter) ReverseIterator(start, end []byte) wasmvmtypes.Iterator {
+	return s.parent.ReverseIterator(start, end)
 }
