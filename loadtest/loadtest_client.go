@@ -54,7 +54,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	txClients, grpcConns := BuildGrpcClients(&config)
 	var evmTxClients []*EvmTxClient
 	if config.EvmRpcEndpoints != "" {
-		if config.ContainsAnyMessageTypes(EVM, ERC20) {
+		if config.ContainsAnyMessageTypes(EVM, ERC20, UNIV2) {
 			evmTxClients = BuildEvmTxClients(&config, keys)
 		}
 	}
