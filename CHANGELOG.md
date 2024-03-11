@@ -27,6 +27,13 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v3.8.0
+sei-db:
+* [#61](https://github.com/sei-protocol/sei-db/pull/61) LoadVersion should open DB with read only
+
+sei-wasmd:
+* [41](https://github.com/sei-protocol/sei-wasmd/pull/42) Bump wasmd version
+
 ## v3.7.0
 sei-chain:
 * [#1283](https://github.com/sei-protocol/sei-chain/pull/1283) Update synchronous execution to set tx indices properly
