@@ -18,17 +18,17 @@ feeCollector=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 # first anvil address, j
 wallet=0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
 
 echo "Deploying factory contract..."
-factoryAddress=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/univ2/UniswapV2Factory.sol:UniswapV2Factory --json --constructor-args $feeCollector | jq -r '.deployedTo')
+factoryAddress=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/univ2/UniswapV2Factory.sol:UniswapV2Factory --json --legacy --constructor-args $feeCollector | jq -r '.deployedTo')
 
 echo "Deploying router contract..."
-routerAddress=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/univ2/UniswapV2Router.sol:UniswapV2Router --json --constructor-args $factoryAddress $feeCollector | jq -r '.deployedTo')
+routerAddress=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/univ2/UniswapV2Router.sol:UniswapV2Router --json --legacy --constructor-args $factoryAddress $feeCollector | jq -r '.deployedTo')
 
 # create ERC20s
 echo "Deploying token1 contract..."
-token1Address=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/ERC20Token.sol:ERC20Token --json --constructor-args "Token1" "T1" | jq -r '.deployedTo')
+token1Address=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/ERC20Token.sol:ERC20Token --json --legacy --constructor-args "Token1" "T1" | jq -r '.deployedTo')
 
 echo "Deploying token2 contract..."
-token2Address=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/ERC20Token.sol:ERC20Token --json --constructor-args "Token2" "T2" | jq -r '.deployedTo')
+token2Address=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/ERC20Token.sol:ERC20Token --json --legacy --constructor-args "Token2" "T2" | jq -r '.deployedTo')
 
 echo "Minting tokens..."
 cast send -r "$evm_endpoint" $token1Address --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e "mint(address,uint256)" $wallet $bigNumber --legacy --json 1> /dev/null
