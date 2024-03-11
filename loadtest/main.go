@@ -152,13 +152,13 @@ func deployUniswapContracts(client *LoadTestClient, config *Config) {
 			approveTx2 := txClient.GenerateToken2ApproveRouterTx()
 			txClient.SendEvmTx(approveTx2, func() {})
 
-			go func() {
-				time.Sleep(1 * time.Second)
-				txClient.EnsureTxSuccess(tx1.Hash())
-				txClient.EnsureTxSuccess(tx2.Hash())
-				txClient.EnsureTxSuccess(approveTx1.Hash())
-				txClient.EnsureTxSuccess(approveTx2.Hash())
-			}()
+			// go func() {
+			// 	time.Sleep(1 * time.Second)
+			// 	txClient.EnsureTxSuccess(tx1.Hash())
+			// 	txClient.EnsureTxSuccess(tx2.Hash())
+			// 	txClient.EnsureTxSuccess(approveTx1.Hash())
+			// 	txClient.EnsureTxSuccess(approveTx2.Hash())
+			// }()
 		}
 
 	}
