@@ -113,6 +113,7 @@ func deployEvmContracts(config *Config) {
 func deployUniswapContracts(client *LoadTestClient, config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(UNIV2) {
+		fmt.Println("Deploying Uniswap contracts")
 		cmd := exec.Command("loadtest/contracts/deploy_univ2.sh", config.EVMRpcEndpoint())
 		var out bytes.Buffer
 		cmd.Stdout = &out
