@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math/big"
 	"math/rand"
 	"net/http"
 	"os"
@@ -121,55 +120,13 @@ func deployUniswapContracts(client *LoadTestClient, config *Config) {
 		if err != nil {
 			panic("deploy_univ2.sh failed with error: " + err.Error())
 		}
-		// use regex to extract the addresses from the output
-		UniV2RouterRe := regexp.MustCompile(`UniswapV2Router Address: "(\w+)"`)
-		match := UniV2RouterRe.FindStringSubmatch(out.String())
-		uniV2RouterAddress := common.HexToAddress(match[1])
-		UniV2Token1Re := regexp.MustCompile(`Token1 Address: "(\w+)"`)
-		match = UniV2Token1Re.FindStringSubmatch(out.String())
-		uniV2Token1Address := common.HexToAddress(match[1])
-		Univ2Token2Re := regexp.MustCompile(`Token2 Address: "(\w+)"`)
-		match = Univ2Token2Re.FindStringSubmatch(out.String())
-		uniV2Token2Address := common.HexToAddress(match[1])
-		UniV2PoolRe := regexp.MustCompile(`Pair Address: "(\w+)"`)
-		match = UniV2PoolRe.FindStringSubmatch(out.String())
-		uniV2PoolAddress := common.HexToAddress(match[1])
-		fmt.Println("Found UniV2Router Address: ", uniV2RouterAddress.String())
-		fmt.Println("Found UniV2Token1 Address: ", uniV2Token1Address.String())
-		fmt.Println("Found UniV2Token2 Address: ", uniV2Token2Address.String())
-		fmt.Println("Found UniV2Pool Address: ", uniV2PoolAddress.String())
-
-		var wg sync.WaitGroup
+		UniV2SwapperRe := regexp.MustCompile(`Swapper Address: "(\w+)"`)
+		match := UniV2SwapperRe.FindStringSubmatch(out.String())
+		uniV2SwapperAddress := common.HexToAddress(match[1])
+		fmt.Println("Found UniV2Swapper Address: ", uniV2SwapperAddress.String())
 		for _, txClient := range client.EvmTxClients {
-			localTxClient := txClient
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				localTxClient.evmAddresses.UniV2Router = uniV2RouterAddress
-				localTxClient.evmAddresses.UniV2Token1 = uniV2Token1Address
-				localTxClient.evmAddresses.UniV2Token2 = uniV2Token2Address
-				if localTxClient.BalanceOfToken1().Cmp(big.NewInt(0)) > 0 &&
-					localTxClient.BalanceOfToken2().Cmp(big.NewInt(0)) > 0 &&
-					localTxClient.ApprovalOfToken1().Cmp(big.NewInt(0)) > 0 &&
-					localTxClient.ApprovalOfToken2().Cmp(big.NewInt(0)) > 0 {
-					return
-				}
-				tx1 := localTxClient.GenerateToken1MintERC20Tx()
-				localTxClient.SendEvmTx(tx1, func() {})
-				tx2 := localTxClient.GenerateToken2MintERC20Tx()
-				localTxClient.SendEvmTx(tx2, func() {})
-				approveTx1 := localTxClient.GenerateToken1ApproveRouterTx()
-				localTxClient.SendEvmTx(approveTx1, func() {})
-				approveTx2 := localTxClient.GenerateToken2ApproveRouterTx()
-				localTxClient.SendEvmTx(approveTx2, func() {})
-
-				localTxClient.EnsureTxSuccess(tx1.Hash())
-				localTxClient.EnsureTxSuccess(tx2.Hash())
-				localTxClient.EnsureTxSuccess(approveTx1.Hash())
-				localTxClient.EnsureTxSuccess(approveTx2.Hash())
-			}()
+			txClient.evmAddresses.UniV2Swapper = uniV2SwapperAddress
 		}
-		wg.Wait()
 	}
 }
 

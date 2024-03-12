@@ -25,7 +25,6 @@ echo "Deploying router contract..."
 routerAddress=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/univ2/UniswapV2Router.sol:UniswapV2Router --json --legacy --constructor-args $factoryAddress $feeCollector | jq -r '.deployedTo')
 echo "routerAddress=$routerAddress"
 
-# create ERC20s
 echo "Deploying token1 contract..."
 token1Address=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/ERC20Token.sol:ERC20Token --json --legacy --constructor-args "Token1" "T1" | jq -r '.deployedTo')
 echo "token1Address=$token1Address"
@@ -33,6 +32,10 @@ echo "token1Address=$token1Address"
 echo "Deploying token2 contract..."
 token2Address=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/ERC20Token.sol:ERC20Token --json --legacy --constructor-args "Token2" "T2" | jq -r '.deployedTo')
 echo "token2Address=$token2Address"
+
+echo "Deploying UniV2Swapper contract..."
+uniV2SwapperAddress=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/UniV2Swapper.sol:UniV2Swapper --json --legacy --constructor-args $token1Address $token2Address $routerAddress | jq -r '.deployedTo')
+echo "uniV2SwapperAddress=$uniV2SwapperAddress"
 
 echo "Minting tokens..."
 cast send -r "$evm_endpoint" $token1Address --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e "mint(address,uint256)" $wallet $bigNumber --legacy --json
@@ -57,3 +60,4 @@ echo "UniswapV2Router Address: \"$routerAddress\""
 echo "Token1 Address: \"$token1Address\""
 echo "Token2 Address: \"$token2Address\""
 echo "Pair Address: \"$pairAddress\""
+echo "Swapper Address: \"$uniV2SwapperAddress\""

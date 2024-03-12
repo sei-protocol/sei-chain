@@ -37,11 +37,8 @@ const (
 )
 
 type EVMAddresses struct {
-	ERC20 common.Address
-	// UniV2 addresses
-	UniV2Router common.Address
-	UniV2Token1 common.Address
-	UniV2Token2 common.Address
+	ERC20        common.Address
+	UniV2Swapper common.Address
 }
 
 type Config struct {
