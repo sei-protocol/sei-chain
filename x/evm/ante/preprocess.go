@@ -59,9 +59,6 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	derived := msg.Derived
 	seiAddr := derived.SenderSeiAddr
 	evmAddr := derived.SenderEVMAddr
-	if p.evmKeeper.EthReplayConfig.Enabled {
-		p.evmKeeper.PrepareReplayedAddr(ctx, evmAddr)
-	}
 	pubkey := derived.PubKey
 	isAssociateTx := derived.IsAssociate
 	_, isAssociated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
@@ -85,6 +82,9 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		// not associatedTx and not already associated
 		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
 			return ctx, err
+		}
+		if p.evmKeeper.EthReplayConfig.Enabled {
+			p.evmKeeper.PrepareReplayedAddr(ctx, evmAddr)
 		}
 	}
 
