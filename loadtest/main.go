@@ -86,7 +86,6 @@ func deployEvmContract(scriptPath string, config *Config) (common.Address, error
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
-
 	if err != nil {
 		return common.Address{}, err
 	}

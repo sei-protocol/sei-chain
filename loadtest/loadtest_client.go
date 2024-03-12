@@ -16,7 +16,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/sync/semaphore"
@@ -85,14 +84,6 @@ func (c *LoadTestClient) SetValidators() {
 		}
 		c.Validators = resp.Validators
 	}
-}
-
-func (c *LoadTestClient) GetAccounts() []common.Address {
-	addresses := make([]common.Address, 0)
-	for _, key := range c.AccountKeys {
-		addresses = append(addresses, GetEvmAddressFromKey(key))
-	}
-	return addresses
 }
 
 // BuildGrpcClients build a list of grpc clients

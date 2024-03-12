@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 import "./univ2/UniswapV2Router.sol";
+import "./univ2/interfaces/IERC20.sol";
 
 pragma solidity ^0.8.0;
-
-interface IMintableERC20 {
-    function mint(address to, uint256 amount) external;
-    function approve(address spender, uint256 amount) external;
-}
 
 // UniV2Swapper facilitates swapping between two tokens on UniswapV2. It is used by our loadtest
 // to easily allow any of our evm tx clients to execute a swap on UniswapV2. Without it, we would
@@ -21,10 +17,10 @@ contract UniV2Swapper {
         t1 = t1_;
         t2 = t2_;
         uniV2Router = uniV2Router_;
-        IMintableERC20(t1).mint(address(this), BIG_NUMBER);
-        IMintableERC20(t2).mint(address(this), BIG_NUMBER);
-        IMintableERC20(t1).approve(uniV2Router, BIG_NUMBER);
-        IMintableERC20(t2).approve(uniV2Router, BIG_NUMBER);
+        IERC20(t1).mint(address(this), BIG_NUMBER);
+        IERC20(t2).mint(address(this), BIG_NUMBER);
+        IERC20(t1).approve(uniV2Router, BIG_NUMBER);
+        IERC20(t2).approve(uniV2Router, BIG_NUMBER);
     }
 
     function swap() public {
