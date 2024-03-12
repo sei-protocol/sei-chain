@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc721"
 
 	"math/big"
 	"math/rand"
@@ -21,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc20"
+	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc721"
 )
 
 type EvmTxClient struct {
