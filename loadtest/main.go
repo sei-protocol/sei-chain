@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/big"
 	"math/rand"
 	"net/http"
 	"os"
@@ -138,28 +139,37 @@ func deployUniswapContracts(client *LoadTestClient, config *Config) {
 		fmt.Println("Found UniV2Token2 Address: ", uniV2Token2Address.String())
 		fmt.Println("Found UniV2Pool Address: ", uniV2PoolAddress.String())
 
+		var wg sync.WaitGroup
 		for _, txClient := range client.EvmTxClients {
-			txClient.evmAddresses.UniV2Router = uniV2RouterAddress
-			txClient.evmAddresses.UniV2Token1 = uniV2Token1Address
-			txClient.evmAddresses.UniV2Token2 = uniV2Token2Address
-			tx1 := txClient.GenerateToken1MintERC20Tx()
-			txClient.SendEvmTx(tx1, func() {})
-			tx2 := txClient.GenerateToken2MintERC20Tx()
-			txClient.SendEvmTx(tx2, func() {})
-			approveTx1 := txClient.GenerateToken1ApproveRouterTx()
-			txClient.SendEvmTx(approveTx1, func() {})
-			approveTx2 := txClient.GenerateToken2ApproveRouterTx()
-			txClient.SendEvmTx(approveTx2, func() {})
+			localTxClient := txClient
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				localTxClient.evmAddresses.UniV2Router = uniV2RouterAddress
+				localTxClient.evmAddresses.UniV2Token1 = uniV2Token1Address
+				localTxClient.evmAddresses.UniV2Token2 = uniV2Token2Address
+				if localTxClient.BalanceOfToken1().Cmp(big.NewInt(0)) > 0 &&
+					localTxClient.BalanceOfToken2().Cmp(big.NewInt(0)) > 0 &&
+					localTxClient.ApprovalOfToken1().Cmp(big.NewInt(0)) > 0 &&
+					localTxClient.ApprovalOfToken2().Cmp(big.NewInt(0)) > 0 {
+					return
+				}
+				tx1 := localTxClient.GenerateToken1MintERC20Tx()
+				localTxClient.SendEvmTx(tx1, func() {})
+				tx2 := localTxClient.GenerateToken2MintERC20Tx()
+				localTxClient.SendEvmTx(tx2, func() {})
+				approveTx1 := localTxClient.GenerateToken1ApproveRouterTx()
+				localTxClient.SendEvmTx(approveTx1, func() {})
+				approveTx2 := localTxClient.GenerateToken2ApproveRouterTx()
+				localTxClient.SendEvmTx(approveTx2, func() {})
 
-			// go func() {
-			// 	time.Sleep(1 * time.Second)
-			// 	txClient.EnsureTxSuccess(tx1.Hash())
-			// 	txClient.EnsureTxSuccess(tx2.Hash())
-			// 	txClient.EnsureTxSuccess(approveTx1.Hash())
-			// 	txClient.EnsureTxSuccess(approveTx2.Hash())
-			// }()
+				localTxClient.EnsureTxSuccess(tx1.Hash())
+				localTxClient.EnsureTxSuccess(tx2.Hash())
+				localTxClient.EnsureTxSuccess(approveTx1.Hash())
+				localTxClient.EnsureTxSuccess(approveTx2.Hash())
+			}()
 		}
-
+		wg.Wait()
 	}
 }
 

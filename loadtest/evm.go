@@ -166,6 +166,58 @@ func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
 	return txClient.sign(tx)
 }
 
+func (txClient *EvmTxClient) BalanceOfToken1() *big.Int {
+	opts := txClient.getCallOpts()
+	token1, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token1, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
+	}
+	balance, err := token1.BalanceOf(opts, txClient.accountAddress)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get ERC20 balance: %v \n", err))
+	}
+	return balance
+}
+
+func (txClient *EvmTxClient) BalanceOfToken2() *big.Int {
+	opts := txClient.getCallOpts()
+	token2, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token2, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
+	}
+	balance, err := token2.BalanceOf(opts, txClient.accountAddress)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get ERC20 balance: %v \n", err))
+	}
+	return balance
+}
+
+func (txClient *EvmTxClient) ApprovalOfToken1() *big.Int {
+	opts := txClient.getCallOpts()
+	token1, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token1, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
+	}
+	approval, err := token1.Allowance(opts, txClient.accountAddress, txClient.evmAddresses.UniV2Router)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get ERC20 allowance: %v \n", err))
+	}
+	return approval
+}
+
+func (txClient *EvmTxClient) ApprovalOfToken2() *big.Int {
+	opts := txClient.getCallOpts()
+	token2, err := erc20.NewErc20(txClient.evmAddresses.UniV2Token2, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
+	}
+	approval, err := token2.Allowance(opts, txClient.accountAddress, txClient.evmAddresses.UniV2Router)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get ERC20 allowance: %v \n", err))
+	}
+	return approval
+}
+
 func (txClient *EvmTxClient) GenerateToken1MintERC20Tx() *ethtypes.Transaction {
 	opts := txClient.getTransactOpts()
 	opts.GasLimit = uint64(100000)
@@ -224,6 +276,13 @@ func (txClient *EvmTxClient) GenerateToken2ApproveRouterTx() *ethtypes.Transacti
 		panic(fmt.Sprintf("Failed to approve router: %v \n", err))
 	}
 	return tx
+}
+
+func (txClient *EvmTxClient) getCallOpts() *bind.CallOpts {
+	return &bind.CallOpts{
+		Pending: false,
+		Context: context.Background(),
+	}
 }
 
 func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {

@@ -10,10 +10,10 @@ echo "Deploying UniswapV2 contracts to $evm_endpoint"
 
 cd loadtest/contracts/evm || exit 1
 
+echo "Installing forge libaries..."
+forge install
+
 bigNumber=100000000000000000000000000000000 # 10^32
-
-
-# deploy the uniswapV2 factory contract
 feeCollector=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 # first anvil address, just need a random address for fees
 wallet=0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
 
