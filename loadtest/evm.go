@@ -149,7 +149,6 @@ func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create univ2 swap: %v \n", err))
 	}
-	fmt.Println("Generated univ2 swap tx with hash: ", tx.Hash().Hex())
 	return txClient.sign(tx)
 }
 
