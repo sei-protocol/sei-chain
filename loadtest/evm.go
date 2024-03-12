@@ -76,20 +76,6 @@ func NewEvmTxClient(
 	return txClient
 }
 
-func GetEvmAddressFromKey(key cryptotypes.PrivKey) common.Address {
-	privKeyHex := hex.EncodeToString(key.Bytes())
-	privateKey, err := crypto.HexToECDSA(privKeyHex)
-	if err != nil {
-		fmt.Printf("Failed to load private key: %v \n", err)
-	}
-	publicKey := privateKey.Public()
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		panic("Cannot assert type: publicKey is not of type *ecdsa.PublicKey \n")
-	}
-	return crypto.PubkeyToAddress(*publicKeyECDSA)
-}
-
 func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transaction {
 	switch msgType {
 	case EVM:
