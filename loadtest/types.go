@@ -19,6 +19,7 @@ const (
 	Bank                 string = "bank"
 	EVM                  string = "evm"
 	ERC20                string = "erc20"
+	ERC721               string = "erc721"
 	CollectRewards       string = "collect_rewards"
 	DistributeRewards    string = "distribute_rewards"
 	FailureBankMalformed string = "failure_bank_malformed"
@@ -43,7 +44,8 @@ type WasmIteratorWriteMsg struct {
 }
 
 type EVMAddresses struct {
-	ERC20 common.Address
+	ERC20  common.Address
+	ERC721 common.Address
 }
 
 type Config struct {
