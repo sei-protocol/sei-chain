@@ -24,14 +24,14 @@ func Replay(a *App) {
 	}
 	_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
 		Time:          time.Now(),
-		ChainId:       "sei-chain",
+		ChainId:       gendoc.ChainID,
 		AppStateBytes: gendoc.AppState,
 	})
 	if err != nil {
 		panic(err)
 	}
 	for h := int64(1); h <= int64(a.EvmKeeper.EthReplayConfig.NumBlocksToReplay); h++ {
-		fmt.Printf("Replaying block height %d\n", h+int64(a.EvmKeeper.EthReplayConfig.EthDataEarliestBlock))
+		a.Logger().Info(fmt.Sprintf("Replaying block height %d", h+int64(a.EvmKeeper.EthReplayConfig.EthDataEarliestBlock)))
 		b, err := a.EvmKeeper.EthClient.BlockByNumber(context.Background(), big.NewInt(h+int64(a.EvmKeeper.EthReplayConfig.EthDataEarliestBlock)))
 		if err != nil {
 			panic(err)
@@ -48,11 +48,13 @@ func Replay(a *App) {
 		if err != nil {
 			panic(err)
 		}
-		for i, tx := range b.Txs {
+		ctx := a.GetContextForDeliverTx([]byte{})
+		for _, tx := range b.Txs {
+			a.Logger().Info(fmt.Sprintf("Verifying tx %s", tx.Hash().Hex()))
 			if tx.To() != nil {
-				fmt.Printf("Verifying balance of tx %d\n", i)
-				a.EvmKeeper.VerifyBalance(a.GetContextForDeliverTx([]byte{}), *tx.To())
+				a.EvmKeeper.VerifyBalance(ctx, *tx.To())
 			}
+			a.EvmKeeper.VerifyTxResult(ctx, tx.Hash())
 		}
 		_, err = a.Commit(context.Background())
 		if err != nil {
