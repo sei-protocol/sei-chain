@@ -3,6 +3,7 @@ package ante
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -12,6 +13,7 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -304,4 +306,44 @@ func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersi
 	default:
 		return derived.London
 	}
+}
+
+type EVMAddressDecorator struct {
+	evmKeeper     *evmkeeper.Keeper
+	accountKeeper *accountkeeper.AccountKeeper
+}
+
+func NewEVMAddressDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accountkeeper.AccountKeeper) *EVMAddressDecorator {
+	return &EVMAddressDecorator{evmKeeper: evmKeeper, accountKeeper: accountKeeper}
+}
+
+//nolint:revive
+func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+	sigTx, ok := tx.(authsigning.SigVerifiableTx)
+	if !ok {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid tx type")
+	}
+	signers := sigTx.GetSigners()
+	for _, signer := range signers {
+		if _, associated := p.evmKeeper.GetEVMAddress(ctx, signer); associated {
+			continue
+		}
+		acc := p.accountKeeper.GetAccount(ctx, signer)
+		if acc.GetPubKey() == nil {
+			ctx.Logger().Error(fmt.Sprintf("missing pubkey for %s", signer.String()))
+			continue
+		}
+		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes(), btcec.S256())
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("failed to parse pubkey for %s", err))
+			continue
+		}
+		evmAddr, err := pubkeyToEVMAddress(pk.SerializeUncompressed())
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("failed to get EVM address from pubkey due to %s", err))
+			continue
+		}
+		p.evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
+	}
+	return next(ctx, tx, simulate)
 }

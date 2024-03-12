@@ -106,6 +106,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		sdk.CustomDepWrappedAnteDecorator(ante.NewSigGasConsumeDecorator(options.AccountKeeper, sigGasConsumer), depdecorators.SignerDepDecorator{ReadOnly: true}),
 		sdk.CustomDepWrappedAnteDecorator(sequentialVerifyDecorator, depdecorators.SignerDepDecorator{ReadOnly: true}),
 		sdk.CustomDepWrappedAnteDecorator(ante.NewIncrementSequenceDecorator(options.AccountKeeper), depdecorators.SignerDepDecorator{ReadOnly: false}),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMAddressDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper())),
 		sdk.DefaultWrappedAnteDecorator(ibcante.NewAnteDecorator(options.IBCKeeper)),
 		sdk.DefaultWrappedAnteDecorator(dex.NewTickSizeMultipleDecorator(*options.DexKeeper)),
 		dex.NewCheckDexGasDecorator(*options.DexKeeper, options.CheckTxMemState),
