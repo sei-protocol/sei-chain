@@ -3,8 +3,10 @@ package ante_test
 import (
 	"testing"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -37,11 +39,15 @@ func (m *mockAnteState) evmAnteDepGenerator(txDeps []sdkacltypes.AccessOperation
 }
 
 type mockTx struct {
-	msgs []sdk.Msg
+	msgs    []sdk.Msg
+	signers []sdk.AccAddress
 }
 
-func (tx mockTx) GetMsgs() []sdk.Msg   { return tx.msgs }
-func (tx mockTx) ValidateBasic() error { return nil }
+func (tx mockTx) GetMsgs() []sdk.Msg                              { return tx.msgs }
+func (tx mockTx) ValidateBasic() error                            { return nil }
+func (tx mockTx) GetSigners() []sdk.AccAddress                    { return tx.signers }
+func (tx mockTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
+func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
 
 func TestRouter(t *testing.T) {
 	bankMsg := &banktypes.MsgSend{}
