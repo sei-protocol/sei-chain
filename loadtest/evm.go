@@ -148,10 +148,8 @@ func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
 	var tx *ethtypes.Transaction
 	var path []common.Address
 	if rand.Int63n(2) == 0 {
-		// fmt.Println("In UniV2GenerateSwapTx: token1 -> token2")
 		path = []common.Address{txClient.evmAddresses.UniV2Token1, txClient.evmAddresses.UniV2Token2}
 	} else {
-		// fmt.Println("In UniV2GenerateSwapTx: token2 -> token1")
 		path = []common.Address{txClient.evmAddresses.UniV2Token2, txClient.evmAddresses.UniV2Token1}
 	}
 	tx, err = univ2_pair.SwapExactTokensForTokens(
@@ -165,7 +163,6 @@ func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create UniV2 swap: %v \n", err))
 	}
-	// fmt.Println("In UniV2GenerateSwapTx swap tx: ", tx.Hash().Hex())
 	return txClient.sign(tx)
 }
 

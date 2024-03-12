@@ -724,7 +724,6 @@ func ReadConfig(path string) Config {
 func main() {
 	configFilePath := flag.String("config-file", GetDefaultConfigFilePath(), "Path to the config.json file to use for this run")
 	flag.Parse()
-	fmt.Println("config file path: ", *configFilePath)
 
 	config := ReadConfig(*configFilePath)
 	fmt.Printf("Using config file: %s\n", *configFilePath)
