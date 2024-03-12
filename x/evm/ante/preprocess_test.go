@@ -10,6 +10,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -153,4 +155,21 @@ func TestAnteDeps(t *testing.T) {
 	})
 	require.Nil(t, err)
 	require.Equal(t, 12, len(deps))
+}
+
+func TestEVMAddressDecorator(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	sender, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	recipient, _ := testkeeper.MockAddressPair()
+	handler := ante.NewEVMAddressDecorator(k, k.AccountKeeper())
+	msg := banktypes.NewMsgSend(sender, recipient, sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))
+	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, privKey.PubKey(), 1, 1))
+	ctx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	associatedEvmAddr, associated := k.GetEVMAddress(ctx, sender)
+	require.True(t, associated)
+	require.Equal(t, evmAddr, associatedEvmAddr)
 }
