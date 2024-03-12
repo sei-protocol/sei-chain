@@ -7,8 +7,8 @@ evm_endpoint=$1
 
 cd loadtest/contracts/evm || exit 1
 
-./setup.sh
+./setup.sh > /dev/null
 
-git submodule update --init --recursive
+git submodule update --init --recursive > /dev/null
 
 /root/.foundry/bin/forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/NoopToken.sol:NoopToken --json --constructor-args "NoopToken" "NT" | jq -r '.deployedTo'
