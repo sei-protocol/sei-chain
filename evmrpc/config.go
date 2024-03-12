@@ -53,6 +53,22 @@ type Config struct {
 	// Timeout for EVM call in simulation
 	SimulationEVMTimeout time.Duration `mapstructure:"simulation_evm_timeout"`
 
+	// The EVM tracer to use when doing node synchronization, applies to
+	// all block produced but traces only EVM transactions.
+	//
+	// Refer to <TBC> for registered tracers
+	//
+	// PR_REVIEW_NOTE: It his an acceptable way of documenting the available tracers?
+	// PR_REVIEW_NOTE: This section renders as `[evm]` in config but is named EVMRPC on top,
+	//                 is live tracing of block synchronization should be here? Maybe "higher"
+	//                 in the config hierarchy? We might think also about a way that later, we could
+	//                 different trace active for Cosmos related function and EVM related function.
+	LiveEVMTracer string `mapstructure:"live_evm_tracer"`
+
+	// PR_REVIEW_NOTE: This is a hackish workaround because I didn't how to get it in `app/app.go#New`,
+	//                 this will not be part of the final PR.
+	LiveEVMTracerChainID int `mapstructure:"live_evm_tracer_chain_id"`
+
 	// list of CORS allowed origins, separated by comma
 	CORSOrigins string `mapstructure:"cors_origins"`
 
@@ -108,6 +124,9 @@ const (
 	flagMaxTxPoolTxs         = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout       = "evm.checktx_timeout"
 	flagSlow                 = "evm.slow"
+	flagLiveEVMTracer        = "evm.live_evm_tracer"
+	// PR_REVIEW_NOTE: This is going to go away, temporary hack
+	flagLiveEVMTracerChainID = "evm.live_evm_tracer_chain_id"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -193,5 +212,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagLiveEVMTracer); v != nil {
+		if cfg.LiveEVMTracer, err = cast.ToStringE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagLiveEVMTracerChainID); v != nil {
+		if cfg.LiveEVMTracerChainID, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+
 	return cfg, nil
 }
