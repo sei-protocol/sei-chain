@@ -60,7 +60,6 @@ type BlockHeader struct {
 }
 
 func init() {
-	fmt.Println("Initializing...")
 	cdc := codec.NewLegacyAmino()
 	interfaceRegistry := types.NewInterfaceRegistry()
 	marshaler := codec.NewProtoCodec(interfaceRegistry)
@@ -109,7 +108,6 @@ func deployEvmContracts(config *Config) {
 	}
 }
 
-// TODO: combine with deployEvmContracts
 func deployUniswapContracts(client *LoadTestClient, config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(UNIV2) {
@@ -118,7 +116,6 @@ func deployUniswapContracts(client *LoadTestClient, config *Config) {
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		err := cmd.Run()
-		fmt.Println("deploy_univ2.sh output: ", out.String())
 		if err != nil {
 			panic("deploy_univ2.sh failed with error: " + err.Error())
 		}
@@ -725,7 +722,6 @@ func ReadConfig(path string) Config {
 }
 
 func main() {
-	fmt.Println("Starting loadtest...")
 	configFilePath := flag.String("config-file", GetDefaultConfigFilePath(), "Path to the config.json file to use for this run")
 	flag.Parse()
 	fmt.Println("config file path: ", *configFilePath)

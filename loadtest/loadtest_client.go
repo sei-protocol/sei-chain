@@ -51,14 +51,11 @@ type LoadTestClient struct {
 func NewLoadTestClient(config Config) *LoadTestClient {
 	signerClient := NewSignerClient(config.NodeURI)
 	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts))
-	fmt.Println("In NewLoadTestClient: Building GRPC clients")
 	txClients, grpcConns := BuildGrpcClients(&config)
 	var evmTxClients []*EvmTxClient
 	if config.EvmRpcEndpoints != "" {
 		if config.ContainsAnyMessageTypes(EVM, ERC20, UNIV2) {
-			fmt.Println("In NewLoadTestClient: Building EVM clients")
 			evmTxClients = BuildEvmTxClients(&config, keys)
-			fmt.Println("In NewLoadTestClient: Done building EVM clients")
 		}
 	}
 

@@ -90,7 +90,6 @@ func GetEvmAddressFromKey(key cryptotypes.PrivKey) common.Address {
 }
 
 func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transaction {
-	fmt.Println("Getting tx for msg type: ", msgType)
 	switch msgType {
 	case EVM:
 		return txClient.GenerateSendFundsTx()
@@ -212,7 +211,6 @@ func (txClient *EvmTxClient) GenerateToken1ApproveRouterTx() *ethtypes.Transacti
 	if err != nil {
 		panic(fmt.Sprintf("Failed to approve router: %v \n", err))
 	}
-	fmt.Println("Generated token1 approve router tx: ", tx.Hash().Hex())
 	return tx
 }
 
@@ -228,7 +226,6 @@ func (txClient *EvmTxClient) GenerateToken2ApproveRouterTx() *ethtypes.Transacti
 	if err != nil {
 		panic(fmt.Sprintf("Failed to approve router: %v \n", err))
 	}
-	fmt.Println("Generated token2 approve router tx: ", tx.Hash().Hex())
 	return tx
 }
 
