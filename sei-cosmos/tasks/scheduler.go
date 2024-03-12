@@ -517,6 +517,10 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 			task.Abort = &abort
 			task.AppendDependencies([]int{abort.DependentTxIdx})
 		}
+		// write from version store to multiversion stores
+		for _, v := range task.VersionStores {
+			v.WriteEstimatesToMultiVersionStore()
+		}
 		return
 	}
 
