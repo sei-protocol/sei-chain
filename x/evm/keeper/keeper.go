@@ -349,6 +349,7 @@ func (k *Keeper) GetKeysToNonces() map[tmtypes.TxKey]*AddressNoncePair {
 
 // Only usd in ETH replay
 func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
+	fmt.Println("In PrepareReplayedAddr, EthReplayConfig.Enabled is", k.EthReplayConfig.Enabled)
 	if !k.EthReplayConfig.Enabled {
 		return
 	}
