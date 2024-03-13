@@ -24,11 +24,13 @@ func (k *Keeper) VerifyBalance(ctx sdk.Context, addr common.Address) {
 }
 
 func (k *Keeper) VerifyTxResult(ctx sdk.Context, hash common.Hash) {
+	fmt.Println("In VerifyTxResult for hash", hash.Hex())
 	localReceipt, err := k.GetReceipt(ctx, hash)
 	if err != nil {
 		// it's okay if remote also doesn't have receipt
 		_, err = k.EthClient.TransactionReceipt(ctx.Context(), hash)
 		if err == ethereum.NotFound {
+			fmt.Println("In VerifyTxResult, got not found for", hash.Hex())
 			return
 		}
 		panic(fmt.Sprintf("missing local receipt for %s", hash.Hex()))
@@ -61,4 +63,5 @@ func (k *Keeper) VerifyTxResult(ctx sdk.Context, hash common.Hash) {
 			}
 		}
 	}
+	fmt.Println("In VerifyTxResult, success for hash", hash.Hex())
 }
