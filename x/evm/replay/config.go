@@ -17,7 +17,7 @@ var DefaultConfig = Config{
 	Enabled:              false,
 	EthRPC:               "http://44.234.105.54:18545",
 	EthDataDir:           "/root/.ethereum/chaindata",
-	EthDataEarliestBlock: 1,
+	EthDataEarliestBlock: 0,
 	NumBlocksToReplay:    10,
 }
 
