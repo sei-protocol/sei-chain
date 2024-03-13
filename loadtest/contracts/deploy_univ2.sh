@@ -17,6 +17,12 @@ bigNumber=100000000000000000000000000000000 # 10^32
 feeCollector=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 # first anvil address, just need a random address for fees
 wallet=0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
 
+walletBalance=$(cast balance $wallet --rpc-url "$evm_endpoint")
+if [[ $walletBalance == 0 ]]; then
+    echo "Please fund the wallet $wallet to continue."
+    exit 1
+fi
+
 echo "Deploying factory contract..."
 factoryAddress=$(forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/univ2/UniswapV2Factory.sol:UniswapV2Factory --json --legacy --constructor-args $feeCollector | jq -r '.deployedTo')
 echo "factoryAddress=$factoryAddress"
