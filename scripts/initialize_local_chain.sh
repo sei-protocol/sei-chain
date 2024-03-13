@@ -90,6 +90,10 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   sed -i 's/timeout_commit =.*/timeout_commit = "2000ms"/g' $CONFIG_PATH
   sed -i 's/skip_timeout_commit =.*/skip_timeout_commit = false/g' $CONFIG_PATH
   # sed -i 's/slow = false/slow = true/g' $APP_PATH
+  # set enabled to true, eth_data_earliest_block = 19380498
+  sed -i 's/enabled = false/enabled = true/g' $APP_PATH
+  # set eth_data_earliest_block = 19380498
+  sed -i 's/eth_data_earliest_block = 0/eth_data_earliest_block = 19380498/g' $APP_PATH
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
   sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
