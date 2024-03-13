@@ -68,6 +68,7 @@ var upgradesList = []string{
 	"v3.5.0",
 	"v3.6.1",
 	"v3.7.0",
+	"v3.8.0",
 	"v4.0.0-evm-devnet",
 	"v4.0.1-evm-devnet",
 	"v4.0.3-evm-devnet",
