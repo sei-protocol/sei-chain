@@ -54,13 +54,14 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		return
 	}
 
+	fmt.Printf("Processing tx %s\n", tx.Hash().Hex())
 	defer func() {
 		if pe := recover(); pe != nil {
 			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
 			panic(pe)
 		}
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Got EVM state transition error (not VM error): %s", err))
+			ctx.Logger().Error(fmt.Sprintf("Got EVM state transition error (not VM error): %s for tx %s", err, tx.Hash().Hex()))
 			return
 		}
 		receipt, err := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -58,6 +59,9 @@ func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	usei := s.k.BankKeeper().GetBalance(s.ctx, s.getSeiAddress(evmAddr), s.k.GetBaseDenom(s.ctx)).Amount
 	wei := s.k.BankKeeper().GetWeiBalance(s.ctx, s.getSeiAddress(evmAddr))
+	if s.ctx.TxIndex() == 4{
+		fmt.Printf("got balance for %s: %s\n", evmAddr.String(), usei.Mul(sdk.NewIntFromBigInt(UseiToSweiMultiplier)).Add(wei).BigInt().String())
+	}
 	return usei.Mul(sdk.NewIntFromBigInt(UseiToSweiMultiplier)).Add(wei).BigInt()
 }
 

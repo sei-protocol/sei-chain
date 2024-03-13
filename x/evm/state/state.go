@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"bytes"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -17,11 +18,19 @@ func (s *DBImpl) CreateAccount(acc common.Address) {
 }
 
 func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
-	return s.getState(s.snapshottedCtxs[0], addr, hash)
+	val := s.getState(s.snapshottedCtxs[0], addr, hash)
+	if s.ctx.TxIndex() == -1{
+		fmt.Printf("Got committed at %s: %s\n", hash.Hex(), val.Hex())
+	}
+	return val
 }
 
 func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
-	return s.getState(s.ctx, addr, hash)
+	val := s.getState(s.ctx, addr, hash)
+	if s.ctx.TxIndex() == -1{
+		 fmt.Printf("Got state at %s: %s\n", hash.Hex(), val.Hex())
+        }
+        return val
 }
 
 func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
@@ -89,6 +98,9 @@ func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
 }
 
 func (s *DBImpl) Snapshot() int {
+	if s.ctx.TxIndex() == -1{
+		fmt.Println("snapshot")
+	}
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore())
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
@@ -98,6 +110,9 @@ func (s *DBImpl) Snapshot() int {
 }
 
 func (s *DBImpl) RevertToSnapshot(rev int) {
+	if s.ctx.TxIndex() == -1{
+		fmt.Printf("rollback to %d\n", rev)
+}
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
 	s.tempStateCurrent = s.tempStatesHist[rev]
