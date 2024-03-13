@@ -40,6 +40,7 @@ type HTTPConfig struct {
 	Modules            []string
 	CorsAllowedOrigins []string
 	Vhosts             []string
+	DenyList           []string
 	prefix             string // path prefix on which to mount http handler
 	RPCEndpointConfig
 }
@@ -296,6 +297,9 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	h.log.Info("Registering apis for evm rpc")
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
+	}
+	for _, method := range config.DenyList {
+		srv.RegisterDenyList(method)
 	}
 	h.HTTPConfig = config
 	h.httpHandler.Store(&rpcHandler{
