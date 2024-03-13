@@ -114,6 +114,7 @@ func deployEvmContracts(config *Config) {
 	}
 }
 
+//nolint:gosec
 func deployUniswapContracts(client *LoadTestClient, config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(UNIV2) {
