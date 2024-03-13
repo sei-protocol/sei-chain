@@ -51,11 +51,11 @@ type LoadTestClient struct {
 func NewLoadTestClient(config Config) *LoadTestClient {
 	signerClient := NewSignerClient(config.NodeURI)
 	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts))
-	txClients, grpcConns := BuildGrpcClients(config)
+	txClients, grpcConns := BuildGrpcClients(&config)
 	var evmTxClients []*EvmTxClient
 	if config.EvmRpcEndpoints != "" {
-		if config.ContainsAnyMessageTypes(EVM, ERC20, ERC721) {
-			evmTxClients = BuildEvmTxClients(config, keys)
+		if config.ContainsAnyMessageTypes(EVM, ERC20, ERC721, UNIV2) {
+			evmTxClients = BuildEvmTxClients(&config, keys)
 		}
 	}
 
@@ -88,7 +88,7 @@ func (c *LoadTestClient) SetValidators() {
 }
 
 // BuildGrpcClients build a list of grpc clients
-func BuildGrpcClients(config Config) ([]typestx.ServiceClient, []*grpc.ClientConn) {
+func BuildGrpcClients(config *Config) ([]typestx.ServiceClient, []*grpc.ClientConn) {
 	grpcEndpoints := strings.Split(config.GrpcEndpoints, ",")
 	txClients := make([]typestx.ServiceClient, len(grpcEndpoints))
 	grpcConns := make([]*grpc.ClientConn, len(grpcEndpoints))
@@ -130,7 +130,7 @@ func BuildGrpcClients(config Config) ([]typestx.ServiceClient, []*grpc.ClientCon
 }
 
 // BuildEvmTxClients build a list of EvmTxClients with a list of go-ethereum client
-func BuildEvmTxClients(config Config, keys []cryptotypes.PrivKey) []*EvmTxClient {
+func BuildEvmTxClients(config *Config, keys []cryptotypes.PrivKey) []*EvmTxClient {
 	clients := make([]*EvmTxClient, len(keys))
 	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
 	if len(ethEndpoints) == 0 {
@@ -191,7 +191,7 @@ func (c *LoadTestClient) BuildTxs(
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
 			switch messageType {
-			case EVM, ERC20, ERC721:
+			case EVM, ERC20, ERC721, UNIV2:
 				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType)}
 			default:
 				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, producedCount)}
