@@ -70,6 +70,9 @@ type Config struct {
 
 	// controls whether to have txns go through one by one
 	Slow bool `mapstructure:"slow"`
+
+	// Deny list defines list of methods that EVM RPC should fail fast
+	DenyList []string `mapstructure:"deny_list"`
 }
 
 var DefaultConfig = Config{
@@ -89,6 +92,7 @@ var DefaultConfig = Config{
 	CheckTxTimeout:       5 * time.Second,
 	MaxTxPoolTxs:         1000,
 	Slow:                 false,
+	DenyList:             make([]string, 0),
 }
 
 const (
@@ -108,6 +112,7 @@ const (
 	flagMaxTxPoolTxs         = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout       = "evm.checktx_timeout"
 	flagSlow                 = "evm.slow"
+	flagDenyList             = "evm.deny_list"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -190,6 +195,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagSlow); v != nil {
 		if cfg.Slow, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagDenyList); v != nil {
+		if cfg.DenyList, err = cast.ToStringSliceE(v); err != nil {
 			return cfg, err
 		}
 	}
