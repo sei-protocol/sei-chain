@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -28,6 +29,7 @@ func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 }
 
 func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (interface{}, error) {
+	fmt.Println("JEREMYDEBUG: In evmrpc/tracers.go TraceTransaction")
 	startTime := time.Now()
 	defer recordMetrics("debug_traceTransaction", startTime, true)
 	return api.tracersAPI.TraceTransaction(ctx, hash, config)
