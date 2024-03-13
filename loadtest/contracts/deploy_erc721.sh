@@ -5,6 +5,15 @@
 
 evm_endpoint=$1
 
+# first fund account if necessary
+THRESHOLD=100000000000000000000 # 100 Eth
+ACCOUNT="0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52"
+BALANCE=$(cast balance $ACCOUNT --rpc-url "$evm_endpoint")
+if (( $(echo "$BALANCE < $THRESHOLD" | bc -l) )); then
+  printf "12345678\n" | ~/go/bin/seid tx evm send $ACCOUNT 100000000000000000000 --from admin --evm-rpc "$evm_endpoint"
+  sleep 3
+fi
+
 cd loadtest/contracts/evm || exit 1
 
 ./setup.sh > /dev/null
