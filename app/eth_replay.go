@@ -51,6 +51,7 @@ func Replay(a *App) {
 		ctx := a.GetContextForDeliverTx([]byte{})
 		for i, tx := range b.Txs {
 			a.Logger().Info(fmt.Sprintf("Verifying %d contract", i))
+			a.Logger().Info(fmt.Sprintf("Verifying tx %s", tx.Hash().Hex()))
 			if tx.To() != nil {
 				a.EvmKeeper.VerifyBalance(ctx, *tx.To())
 			}
