@@ -43,7 +43,7 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
-    "message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
+    "message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate,evm,univ2",
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {

@@ -7,3 +7,6 @@
 [submodule "loadtest/contracts/evm/lib/openzeppelin-contracts"]
 	path = loadtest/contracts/evm/lib/openzeppelin-contracts
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "loadtest/contracts/evm/lib/solmate"]
+	path = loadtest/contracts/evm/lib/solmate
+	url = https://github.com/transmissions11/solmate
