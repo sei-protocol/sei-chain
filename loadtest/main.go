@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -113,21 +114,45 @@ func deployEvmContracts(config *Config) {
 	}
 }
 
+//nolint:gosec
+func deployUniswapContracts(client *LoadTestClient, config *Config) {
+	config.EVMAddresses = &EVMAddresses{}
+	if config.ContainsAnyMessageTypes(UNIV2) {
+		fmt.Println("Deploying Uniswap contracts")
+		cmd := exec.Command("loadtest/contracts/deploy_univ2.sh", config.EVMRpcEndpoint())
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		err := cmd.Run()
+		fmt.Println("script output: ", out.String())
+		if err != nil {
+			panic("deploy_univ2.sh failed with error: " + err.Error())
+		}
+		UniV2SwapperRe := regexp.MustCompile(`Swapper Address: "(\w+)"`)
+		match := UniV2SwapperRe.FindStringSubmatch(out.String())
+		uniV2SwapperAddress := common.HexToAddress(match[1])
+		fmt.Println("Found UniV2Swapper Address: ", uniV2SwapperAddress.String())
+		for _, txClient := range client.EvmTxClients {
+			txClient.evmAddresses.UniV2Swapper = uniV2SwapperAddress
+		}
+	}
+}
+
 func run(config *Config) {
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(*config)
 
+	client := NewLoadTestClient(*config)
+	client.SetValidators()
 	deployEvmContracts(config)
-	startLoadtestWorkers(*config)
+	deployUniswapContracts(client, config)
+	startLoadtestWorkers(client, *config)
 }
 
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
 // workers continue running. If config.Constant is false, then we will gather load test results in a file
-func startLoadtestWorkers(config Config) {
+func startLoadtestWorkers(client *LoadTestClient, config Config) {
 	fmt.Printf("Starting loadtest workers\n")
-	client := NewLoadTestClient(config)
-	client.SetValidators()
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
