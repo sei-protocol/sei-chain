@@ -614,3 +614,28 @@ func (s *testService) Greet() string {
 func (s *testService) Sleep() {
 	time.Sleep(1500 * time.Millisecond)
 }
+
+func TestHttpDenyList(t *testing.T) {
+	const (
+		expectRes = `{"jsonrpc":"2.0","id":null,"error":{"code":-32601,"message":"the method test_sleep does not exist/is not available"}}`
+	)
+	// Set-up server
+	timeouts := rpc.DefaultHTTPTimeouts
+	timeouts.WriteTimeout = time.Second
+	srv := createAndStartServer(t, &evmrpc.HTTPConfig{
+		DenyList: []string{"test_sleep"},
+		Modules:  []string{"test"}}, false, &evmrpc.WsConfig{}, &timeouts)
+	url := fmt.Sprintf("http://%v", srv.ListenAddr())
+	// Send normal request
+	t.Run("message", func(t *testing.T) {
+		resp := rpcRequest(t, url, "test_sleep")
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != expectRes {
+			t.Errorf("wrong response. have %s, want %s", string(body), expectRes)
+		}
+	})
+}

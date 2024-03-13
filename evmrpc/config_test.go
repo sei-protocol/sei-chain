@@ -25,6 +25,7 @@ type opts struct {
 	checkTxTimeout       interface{}
 	maxTxPoolTxs         interface{}
 	slow                 interface{}
+	denyList             interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -76,6 +77,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.slow" {
 		return o.slow
 	}
+	if k == "evm.deny_list" {
+		return o.denyList
+	}
 	panic("unknown key")
 }
 
@@ -97,6 +101,7 @@ func TestReadConfig(t *testing.T) {
 		time.Duration(5),
 		1000,
 		false,
+		make([]string, 0),
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)
@@ -162,6 +167,10 @@ func TestReadConfig(t *testing.T) {
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.slow = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+	badOpts = goodOpts
+	badOpts.denyList = map[string]interface{}{}
 	_, err = evmrpc.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 }
