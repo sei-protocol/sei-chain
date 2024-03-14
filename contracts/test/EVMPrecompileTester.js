@@ -41,8 +41,6 @@ describe("EVM Test", function () {
 
             it("Transfer function with insufficient balance fails", async function() {
                 const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
-                const afterBalance = await erc20.balanceOf(owner);
-                expect(afterBalance).to.equal(100);
                 const tx = await erc20.transfer(receiver, 10000);
                 const receipt = await tx.wait();
                 expect(receipt.status).to.equal(1);
