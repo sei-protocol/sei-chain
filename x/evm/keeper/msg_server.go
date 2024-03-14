@@ -128,6 +128,7 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(server.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
+	// TODO: need to pass in a tracer here!
 	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	stateDB.SetEVM(evmInstance)
 	st := core.NewStateTransition(evmInstance, msg, &gp)

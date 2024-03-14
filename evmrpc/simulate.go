@@ -167,6 +167,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 }
 
 func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
+	fmt.Println("JEREMYDEBUG: In evmrpc/simulate.go GetTransaction")
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	receipt, err := b.keeper.GetReceipt(sdkCtx, txHash)
 	if err != nil {
