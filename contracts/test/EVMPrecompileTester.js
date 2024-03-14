@@ -31,13 +31,7 @@ describe("EVM Test", function () {
             it("Transfer function with no balance fails", async function() {
                 const receiver = '0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52';
                 const erc20AsOwner2 = erc20.connect(signer2);
-                const beforeBalance = await erc20.balanceOf(owner2);
-                expect(beforeBalance).to.equal(0);
-                try {
-                    await expect(erc20AsOwner2.transfer(receiver, 1)).to.be.reverted;
-                } catch(error) {
-                    console.log("error ", error, error.message)
-                }
+                await expect(erc20AsOwner2.transfer(receiver, 1)).to.be.reverted;
             });
     
             it("Transfer function", async function() {
