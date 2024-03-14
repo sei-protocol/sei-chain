@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/types/address"
 
 	wasmvm "github.com/CosmWasm/wasmvm"
@@ -610,6 +611,11 @@ func (k Keeper) getLastContractHistoryEntry(ctx sdk.Context, contractAddr sdk.Ac
 // QuerySmart queries the smart contract itself.
 func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error) {
 	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "query-smart")
+	telemetry.IncrCounterWithLabels(
+		[]string{"wasm", "contract", "query-smart", "invocation"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("contract_address", contractAddr.String())},
+	)
 
 	// checks and increase query stack size
 	ctx, err := checkAndIncreaseQueryStackSize(ctx, k.maxQueryStackSize)
@@ -634,6 +640,12 @@ func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []b
 	if qErr != nil {
 		return nil, sdkerrors.Wrap(types.ErrQueryFailed, qErr.Error())
 	}
+
+	telemetry.SetGaugeWithLabels(
+		[]string{"wasm", "contract", "query-smart", "gas-used"},
+		float32(gasUsed),
+		[]metrics.Label{telemetry.NewLabel("contract_address", contractAddr.String())},
+	)
 	return queryResult, nil
 }
 
