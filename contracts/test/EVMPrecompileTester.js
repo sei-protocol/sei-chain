@@ -3,12 +3,7 @@ const { expect } = require("chai");
 const fs = require('fs');
 const path = require('path');
 
-const {
-    BN,           // Big Number support
-    constants,    // Common constants, like the zero address and largest integers
-    expectEvent,  // Assertions for emitted events
-    expectRevert, // Assertions for transactions that should fail
-  } = require('@openzeppelin/test-helpers');
+const { expectRevert } = require('@openzeppelin/test-helpers');
 
 describe("EVM Test", function () {
     describe("EVM Precompile Tester", function () {
@@ -48,14 +43,14 @@ describe("EVM Test", function () {
 
             it("Transfer function with insufficient balance fails", async function() {
                 const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
-                await expectRevert.unspecified(erc20.transfer(receiver, 10000));
+                await expectRevert(erc20.transfer(receiver, 10000), "SeiTokensERC20: transfer failed");
             });
 
             it("No Approve and TransferFrom fails", async function() {
                 const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
                 const erc20AsOwner2 = erc20.connect(signer2);
 
-                await expect(erc20AsOwner2.transferFrom(owner, receiver, 100)).to.be.reverted;
+                await expectRevert(erc20AsOwner2.transferFrom(owner, receiver, 100), "ERC20InsufficientAllowance");
             });
 
             it("Approve and TransferFrom functions", async function() {
