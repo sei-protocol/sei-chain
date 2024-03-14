@@ -364,9 +364,11 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 				if value != nil {
 					// conflict
 					// TODO: would we want to return early?
+					conflictSet[latestValue.Index()] = struct{}{}
 					valid = false
 				}
 			} else if !bytes.Equal(latestValue.Value(), value) {
+				conflictSet[latestValue.Index()] = struct{}{}
 				valid = false
 			}
 		}

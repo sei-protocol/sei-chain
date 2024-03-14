@@ -36,8 +36,8 @@ const (
 	statusValidated status = "validated"
 	// statusWaiting tasks are waiting for another tx to complete
 	statusWaiting status = "waiting"
-	// maximumIncarnation before we revert to sequential (for high conflict rates)
-	maximumIncarnation = 5
+	// maximumIterations before we revert to sequential (for high conflict rates)
+	maximumIterations = 10
 )
 
 type deliverTxTask struct {
@@ -261,6 +261,7 @@ func (s *scheduler) emitMetrics() {
 }
 
 func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]types.ResponseDeliverTx, error) {
+	var iterations int
 	// initialize mutli-version stores if they haven't been initialized yet
 	s.tryInitMultiVersionStore(ctx)
 	// prefill estimates
@@ -289,34 +290,32 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 	toExecute := tasks
 	for !allValidated(tasks) {
 		// if the max incarnation >= 5, we should revert to synchronous
-		if s.maxIncarnation >= maximumIncarnation {
+		if iterations >= maximumIterations {
 			// process synchronously
 			s.synchronous = true
-			// execute all non-validated tasks (no more "waiting" status)
-			toExecute = filterTasks(tasks, func(t *deliverTxTask) bool {
-				return !t.IsStatus(statusValidated)
-			})
+			startIdx, anyLeft := s.findFirstNonValidated()
+			if !anyLeft {
+				break
+			}
+			toExecute = tasks[startIdx:]
 		}
 
-		var err error
-
 		// execute sets statuses of tasks to either executed or aborted
-		if len(toExecute) > 0 {
-			err = s.executeAll(ctx, toExecute)
-			if err != nil {
-				return nil, err
-			}
+		if err := s.executeAll(ctx, toExecute); err != nil {
+			return nil, err
 		}
 
 		// validate returns any that should be re-executed
 		// note this processes ALL tasks, not just those recently executed
-		toExecute, err = s.validateAll(ctx, tasks)
+		toExecute, err := s.validateAll(ctx, tasks)
 		if err != nil {
 			return nil, err
 		}
 		// these are retries which apply to metrics
 		s.metrics.retries += len(toExecute)
+		iterations++
 	}
+
 	for _, mv := range s.multiVersionStores {
 		mv.WriteLatestToStore()
 	}
@@ -420,7 +419,11 @@ func (s *scheduler) validateAll(ctx sdk.Context, tasks []*deliverTxTask) ([]*del
 
 // ExecuteAll executes all tasks concurrently
 func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
+	if len(tasks) == 0 {
+		return nil
+	}
 	ctx, span := s.traceSpan(ctx, "SchedulerExecuteAll", nil)
+	span.SetAttributes(attribute.Bool("synchronous", s.synchronous))
 	defer span.End()
 
 	// validationWg waits for all validations to complete
@@ -499,6 +502,17 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 	defer dSpan.End()
 	task.Ctx = dCtx
 
+	// in the synchronous case, we only want to re-execute tasks that need re-executing
+	// if already validated, then this does another validation
+	if s.synchronous && task.IsStatus(statusValidated) {
+		s.shouldRerun(task)
+		if task.IsStatus(statusValidated) {
+			return
+		}
+		task.Reset()
+		task.Increment()
+	}
+
 	s.prepareTask(task)
 
 	resp := s.deliverTx(task.Ctx, task.Request)
@@ -513,7 +527,7 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 		abort, ok := <-task.AbortCh
 		if ok {
 			// if there is an abort item that means we need to wait on the dependent tx
-			task.SetStatus(statusWaiting)
+			task.SetStatus(statusAborted)
 			task.Abort = &abort
 			task.AppendDependencies([]int{abort.DependentTxIdx})
 		}

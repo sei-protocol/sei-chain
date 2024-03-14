@@ -207,20 +207,20 @@ func TestMultiVersionStoreValidateState(t *testing.T) {
 		"key3": []byte("value6"),
 	})
 
-	// expect failure with empty conflicts
+	// expect failure with conflict of tx 2
 	valid, conflicts = mvs.ValidateTransactionState(5)
 	require.False(t, valid)
-	require.Empty(t, conflicts)
+	require.Equal(t, []int{2}, conflicts)
 
 	// add a conflict due to deletion
 	mvs.SetWriteset(3, 1, map[string][]byte{
 		"key1": nil,
 	})
 
-	// expect failure with empty conflicts
+	// expect failure with conflict of tx 2 and 3
 	valid, conflicts = mvs.ValidateTransactionState(5)
 	require.False(t, valid)
-	require.Empty(t, conflicts)
+	require.Equal(t, []int{2, 3}, conflicts)
 
 	// add a conflict due to estimate
 	mvs.SetEstimatedWriteset(4, 1, map[string][]byte{
@@ -230,7 +230,7 @@ func TestMultiVersionStoreValidateState(t *testing.T) {
 	// expect index 4 to be returned
 	valid, conflicts = mvs.ValidateTransactionState(5)
 	require.False(t, valid)
-	require.Equal(t, []int{4}, conflicts)
+	require.Equal(t, []int{2, 3, 4}, conflicts)
 }
 
 func TestMultiVersionStoreParentValidationMismatch(t *testing.T) {
@@ -436,10 +436,10 @@ func TestMVSIteratorValidationWithKeySwitch(t *testing.T) {
 	writeset2["key3"] = []byte("valueX")
 	mvs.SetWriteset(2, 2, writeset2)
 
-	// should be invalid
+	// should be invalid with conflict of 2
 	valid, conflicts := mvs.ValidateTransactionState(5)
 	require.False(t, valid)
-	require.Empty(t, conflicts)
+	require.Equal(t, []int{2}, conflicts)
 }
 
 func TestMVSIteratorValidationWithKeyAdded(t *testing.T) {
