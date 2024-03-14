@@ -25,7 +25,7 @@ func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
 }
 
 func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
-	s.k.PrepareReplayedAddr(s.ctx, addr)
+	s.k.PrepareReplayedAddr(ctx, addr)
 	return s.k.GetState(ctx, addr, hash)
 }
 

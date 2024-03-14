@@ -389,6 +389,17 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 	}
 }
 
+func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
+	if !k.EthReplayConfig.Enabled {
+		return nil
+	}
+	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+int64(k.EthReplayConfig.EthDataEarliestBlock)))
+	if err != nil {
+		panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+int64(k.EthReplayConfig.EthDataEarliestBlock)))
+	}
+	return block.Header_.BaseFee
+}
+
 func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
 	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+int64(k.EthReplayConfig.EthDataEarliestBlock)))
 	if err != nil {
