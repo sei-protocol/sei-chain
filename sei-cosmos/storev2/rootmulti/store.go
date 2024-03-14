@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"cosmossdk.io/errors"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
@@ -17,6 +18,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/storev2/commitment"
 	"github.com/cosmos/cosmos-sdk/storev2/state"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	protoio "github.com/gogo/protobuf/io"
 	commonerrors "github.com/sei-protocol/sei-db/common/errors"
@@ -93,6 +95,8 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	if !bumpVersion {
 		panic("Commit should always bump version in root multistore")
 	}
+	commitStartTime := time.Now()
+	defer telemetry.MeasureSince(commitStartTime, "storeV2", "sc", "commit", "latency")
 	if err := rs.flush(); err != nil {
 		panic(err)
 	}
@@ -130,6 +134,7 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 func (rs *Store) StateStoreCommit() {
 	for pendingChangeSet := range rs.pendingChanges {
 		version := pendingChangeSet.Version
+		telemetry.SetGauge(float32(version), "storeV2", "ss", "version")
 		for _, cs := range pendingChangeSet.Changesets {
 			if err := rs.ssStore.ApplyChangeset(version, cs); err != nil {
 				panic(err)
