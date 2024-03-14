@@ -42,7 +42,7 @@ describe("EVM Test", function () {
             it("Transfer function with insufficient balance fails", async function() {
                 const receiver = '0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52';
                 const erc20AsOwner2 = erc20.connect(signer2);
-                await expect(erc20AsOwner2.transfer(receiver, 2)).to.be.reverted;
+                await expect(erc20AsOwner2.transfer(receiver, 2)).to.be.revertedWithCustomError(erc20AsOwner2, "NativeSeiTokensERC20: transfer failed");
             });
 
             it("No Approve and TransferFrom fails", async function() {
