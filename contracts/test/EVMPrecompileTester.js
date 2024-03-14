@@ -27,12 +27,6 @@ describe("EVM Test", function () {
                 // Get a contract instance
                 erc20 = new ethers.Contract(contractAddress, contractABI, signer);
             });
-
-            it("Transfer function with no balance fails", async function() {
-                const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
-                const erc20AsOwner2 = erc20.connect(signer2);
-                await expect(erc20AsOwner2.transfer(receiver, 1)).to.be.reverted;
-            });
     
             it("Transfer function", async function() {
                 const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
@@ -43,6 +37,12 @@ describe("EVM Test", function () {
                 const afterBalance = await erc20.balanceOf(owner);
                 const diff = beforeBalance - afterBalance;
                 expect(diff).to.equal(1);
+            });
+
+            it("Transfer function with insufficient balance fails", async function() {
+                const receiver = '0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52';
+                const erc20AsOwner2 = erc20.connect(signer2);
+                await expect(erc20AsOwner2.transfer(receiver, 2)).to.be.reverted;
             });
 
             it("No Approve and TransferFrom fails", async function() {
