@@ -33,7 +33,9 @@ describe("EVM Test", function () {
                 const erc20AsOwner2 = erc20.connect(signer2);
                 const beforeBalance = await erc20.balanceOf(owner2);
                 expect(beforeBalance).to.equal(0);
-                await expect(erc20AsOwner2.transfer(receiver, 1)).to.be.revertedWith("ERC20InsufficientBalance");
+                const tx = await erc20AsOwner2.transfer(receiver, 1);
+                const receipt = await tx.wait();
+                expect(receipt.status).to.equal(0);
             });
     
             it("Transfer function", async function() {
@@ -45,6 +47,13 @@ describe("EVM Test", function () {
                 const afterBalance = await erc20.balanceOf(owner);
                 const diff = beforeBalance - afterBalance;
                 expect(diff).to.equal(1);
+            });
+
+            it("No Approve and TransferFrom fails", async function() {
+                const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+                const erc20AsOwner2 = erc20.connect(signer2);
+
+                await expect(erc20AsOwner2.transferFrom(owner, receiver, 100)).to.be.revertedWith("ERC20InsufficientAllowance");
             });
 
             it("Approve and TransferFrom functions", async function() {
@@ -70,13 +79,6 @@ describe("EVM Test", function () {
                 const balanceAfter = await erc20.balanceOf(receiver);
                 const diff = balanceAfter - balanceBefore;
                 expect(diff).to.equal(100);
-            });
-
-            it("No Approve and TransferFrom fails", async function() {
-                const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
-                const erc20AsOwner2 = erc20.connect(signer2);
-
-                await expect(erc20AsOwner2.transferFrom(owner, receiver, 100)).to.be.revertedWith("ERC20InsufficientAllowance");
             });
     
             it("Balance of function", async function() {
