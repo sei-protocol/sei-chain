@@ -17,6 +17,7 @@ import (
 	"github.com/tendermint/tendermint/internal/state/indexer/sink/kv"
 	"github.com/tendermint/tendermint/internal/state/indexer/sink/psql"
 	"github.com/tendermint/tendermint/internal/store"
+	"github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/os"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -52,6 +53,8 @@ either or both arguments.
 	tendermint reindex-event --start-height 2 --end-height 10
 	`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := cmd.Flags().GetString(cli.HomeFlag)
+			conf.RootDir = home
 			bs, ss, err := loadStateAndBlockStore(conf)
 			if err != nil {
 				return fmt.Errorf("%s: %w", reindexFailed, err)
