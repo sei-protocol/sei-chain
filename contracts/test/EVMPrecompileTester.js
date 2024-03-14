@@ -29,7 +29,7 @@ describe("EVM Test", function () {
             });
 
             it("Transfer function with no balance fails", async function() {
-                const receiver = '0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52';
+                const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
                 const erc20AsOwner2 = erc20.connect(signer2);
                 await expect(erc20AsOwner2.transfer(receiver, 1)).to.be.reverted;
             });
