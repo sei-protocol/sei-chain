@@ -3,6 +3,13 @@ const { expect } = require("chai");
 const fs = require('fs');
 const path = require('path');
 
+const {
+    BN,           // Big Number support
+    constants,    // Common constants, like the zero address and largest integers
+    expectEvent,  // Assertions for emitted events
+    expectRevert, // Assertions for transactions that should fail
+  } = require('@openzeppelin/test-helpers');
+
 describe("EVM Test", function () {
     describe("EVM Precompile Tester", function () {
         describe("EVM Bank Precompile Tester", function () {
@@ -41,9 +48,7 @@ describe("EVM Test", function () {
 
             it("Transfer function with insufficient balance fails", async function() {
                 const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
-                const tx = await erc20.transfer(receiver, 10000);
-                const receipt = await tx.wait();
-                expect(receipt.status).to.equal(1);
+                await expectRevert.unspecified(erc20.transfer(receiver, 10000));
             });
 
             it("No Approve and TransferFrom fails", async function() {
