@@ -21,13 +21,11 @@ describe("EVM Test", function () {
                 owner = await signer.getAddress();
                 owner2 = await signer2.getAddress();
     
-                // TODO: create a contract object
-                // contractArtifact.abi
-                const contractABI = [{"type":"constructor","inputs":[{"name":"denom_","type":"string","internalType":"string"},{"name":"name_","type":"string","internalType":"string"},{"name":"symbol_","type":"string","internalType":"string"},{"name":"decimals_","type":"uint8","internalType":"uint8"}],"stateMutability":"nonpayable"},{"type":"function","name":"BankPrecompile","inputs":[],"outputs":[{"name":"","type":"address","internalType":"contract IBank"}],"stateMutability":"view"},{"type":"function","name":"allowance","inputs":[{"name":"owner","type":"address","internalType":"address"},{"name":"spender","type":"address","internalType":"address"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},{"type":"function","name":"approve","inputs":[{"name":"spender","type":"address","internalType":"address"},{"name":"value","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"stateMutability":"nonpayable"},{"type":"function","name":"balanceOf","inputs":[{"name":"account","type":"address","internalType":"address"}],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},{"type":"function","name":"ddecimals","inputs":[],"outputs":[{"name":"","type":"uint8","internalType":"uint8"}],"stateMutability":"view"},{"type":"function","name":"decimals","inputs":[],"outputs":[{"name":"","type":"uint8","internalType":"uint8"}],"stateMutability":"view"},{"type":"function","name":"denom","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"name","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"nname","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"ssymbol","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"symbol","inputs":[],"outputs":[{"name":"","type":"string","internalType":"string"}],"stateMutability":"view"},{"type":"function","name":"totalSupply","inputs":[],"outputs":[{"name":"","type":"uint256","internalType":"uint256"}],"stateMutability":"view"},{"type":"function","name":"transfer","inputs":[{"name":"to","type":"address","internalType":"address"},{"name":"value","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"stateMutability":"nonpayable"},{"type":"function","name":"transferFrom","inputs":[{"name":"from","type":"address","internalType":"address"},{"name":"to","type":"address","internalType":"address"},{"name":"value","type":"uint256","internalType":"uint256"}],"outputs":[{"name":"","type":"bool","internalType":"bool"}],"stateMutability":"nonpayable"},{"type":"event","name":"Approval","inputs":[{"name":"owner","type":"address","indexed":true,"internalType":"address"},{"name":"spender","type":"address","indexed":true,"internalType":"address"},{"name":"value","type":"uint256","indexed":false,"internalType":"uint256"}],"anonymous":false},{"type":"event","name":"Transfer","inputs":[{"name":"from","type":"address","indexed":true,"internalType":"address"},{"name":"to","type":"address","indexed":true,"internalType":"address"},{"name":"value","type":"uint256","indexed":false,"internalType":"uint256"}],"anonymous":false},{"type":"error","name":"ERC20InsufficientAllowance","inputs":[{"name":"spender","type":"address","internalType":"address"},{"name":"allowance","type":"uint256","internalType":"uint256"},{"name":"needed","type":"uint256","internalType":"uint256"}]},{"type":"error","name":"ERC20InsufficientBalance","inputs":[{"name":"sender","type":"address","internalType":"address"},{"name":"balance","type":"uint256","internalType":"uint256"},{"name":"needed","type":"uint256","internalType":"uint256"}]},{"type":"error","name":"ERC20InvalidApprover","inputs":[{"name":"approver","type":"address","internalType":"address"}]},{"type":"error","name":"ERC20InvalidReceiver","inputs":[{"name":"receiver","type":"address","internalType":"address"}]},{"type":"error","name":"ERC20InvalidSender","inputs":[{"name":"sender","type":"address","internalType":"address"}]},{"type":"error","name":"ERC20InvalidSpender","inputs":[{"name":"spender","type":"address","internalType":"address"}]}];
+                const contractABIPath = path.join(__dirname, '../../precompiles/common/erc20_abi.json');
+                const contractABI = require(contractABIPath);
     
                 // Get a contract instance
                 erc20 = new ethers.Contract(contractAddress, contractABI, signer);
-                console.log("end of before");
             });
     
             it("Transfer function", async function() {
@@ -39,6 +37,14 @@ describe("EVM Test", function () {
                 const afterBalance = await erc20.balanceOf(owner);
                 const diff = beforeBalance - afterBalance;
                 expect(diff).to.equal(1);
+            });
+
+            it("Transfer function with no balance fails", async function() {
+                const receiver = '0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52';
+                const erc20AsOwner2 = erc20.connect(signer2);
+                const beforeBalance = await erc20.balanceOf(owner2);
+                expect(beforeBalance).to.equal(0);
+                await expect(erc20AsOwner2.transfer(receiver, 1)).to.be.revertedWith("ERC20InsufficientBalance");
             });
     
             it("Approve and TransferFrom functions", async function() {
@@ -64,6 +70,13 @@ describe("EVM Test", function () {
                 const balanceAfter = await erc20.balanceOf(receiver);
                 const diff = balanceAfter - balanceBefore;
                 expect(diff).to.equal(100);
+            });
+
+            it("No Approve and TransferFrom fails", async function() {
+                const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+                const erc20AsOwner2 = erc20.connect(signer2);
+
+                await expect(erc20AsOwner2.transferFrom(owner, receiver, 100)).to.be.revertedWith("ERC20InsufficientAllowance");
             });
     
             it("Balance of function", async function() {
@@ -96,12 +109,10 @@ describe("EVM Test", function () {
                 const [signer, _] = await ethers.getSigners();
                 owner = await signer.getAddress();
     
-                // contractArtifact.abi
                 const contractABIPath = path.join(__dirname, '../../precompiles/gov/abi.json');
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
                 gov = new ethers.Contract(GovPrecompileContract, contractABI, signer);
-                console.log("end of before");
             });
     
             it("Gov deposit", async function () {
@@ -124,12 +135,10 @@ describe("EVM Test", function () {
                 owner = await signer.getAddress();
                 owner2 = await signer2.getAddress();
 
-                // contractArtifact.abi
                 const contractABIPath = path.join(__dirname, '../../precompiles/distribution/abi.json');
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
                 distribution = new ethers.Contract(DistributionPrecompileContract, contractABI, signer);
-                console.log("end of before");
             });
 
             it("Distribution set withdraw address", async function () {
@@ -149,12 +158,10 @@ describe("EVM Test", function () {
                 const [signer, _] = await ethers.getSigners();
                 owner = await signer.getAddress();
 
-                // contractArtifact.abi
                 const contractABIPath = path.join(__dirname, '../../precompiles/staking/abi.json');
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
                 staking = new ethers.Contract(StakingPrecompileContract, contractABI, signer);
-                console.log("end of before");
             });
 
             it("Staking delegate", async function () {
@@ -179,7 +186,6 @@ function readDeploymentOutput(fileName) {
     try {
         if (fs.existsSync(fileName)) {
             fileContent = fs.readFileSync(fileName, 'utf8').trim();
-            console.log("Output from file:", fileContent);
         } else {
             console.error("File not found:", fileName);
         }
