@@ -27,6 +27,14 @@ describe("EVM Test", function () {
                 // Get a contract instance
                 erc20 = new ethers.Contract(contractAddress, contractABI, signer);
             });
+
+            it("Transfer function with no balance fails", async function() {
+                const receiver = '0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52';
+                const erc20AsOwner2 = erc20.connect(signer2);
+                const beforeBalance = await erc20.balanceOf(owner2);
+                expect(beforeBalance).to.equal(0);
+                await expect(erc20AsOwner2.transfer(receiver, 1)).to.be.revertedWith("ERC20InsufficientBalance");
+            });
     
             it("Transfer function", async function() {
                 const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
@@ -39,14 +47,6 @@ describe("EVM Test", function () {
                 expect(diff).to.equal(1);
             });
 
-            it("Transfer function with no balance fails", async function() {
-                const receiver = '0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52';
-                const erc20AsOwner2 = erc20.connect(signer2);
-                const beforeBalance = await erc20.balanceOf(owner2);
-                expect(beforeBalance).to.equal(0);
-                await expect(erc20AsOwner2.transfer(receiver, 1)).to.be.revertedWith("ERC20InsufficientBalance");
-            });
-    
             it("Approve and TransferFrom functions", async function() {
                 const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
                 // lets have owner approve the transfer and have owner2 do the transferring
