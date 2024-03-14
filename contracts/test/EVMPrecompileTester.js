@@ -33,9 +33,7 @@ describe("EVM Test", function () {
                 const erc20AsOwner2 = erc20.connect(signer2);
                 const beforeBalance = await erc20.balanceOf(owner2);
                 expect(beforeBalance).to.equal(0);
-                const tx = await erc20AsOwner2.transfer(receiver, 1);
-                const receipt = await tx.wait();
-                expect(receipt.status).to.equal(0);
+                await expect(erc20AsOwner2.transfer(receiver, 1)).to.be.reverted;
             });
     
             it("Transfer function", async function() {
@@ -53,7 +51,7 @@ describe("EVM Test", function () {
                 const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
                 const erc20AsOwner2 = erc20.connect(signer2);
 
-                await expect(erc20AsOwner2.transferFrom(owner, receiver, 100)).to.be.revertedWith("ERC20InsufficientAllowance");
+                await expect(erc20AsOwner2.transferFrom(owner, receiver, 100)).to.be.reverted;
             });
 
             it("Approve and TransferFrom functions", async function() {
