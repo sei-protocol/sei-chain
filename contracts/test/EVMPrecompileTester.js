@@ -43,7 +43,7 @@ describe("EVM Test", function () {
 
             it("Transfer function with insufficient balance fails", async function() {
                 const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
-                await expectRevert.unspecified(erc20.transfer(receiver, 10000), "SeiTokensERC20: transfer failed");
+                await expectRevert.unspecified(erc20.transfer(receiver, 10000));
             });
 
             it("No Approve and TransferFrom fails", async function() {
