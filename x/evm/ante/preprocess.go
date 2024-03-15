@@ -137,7 +137,6 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 		V, R, S := atx.GetRawSignatureValues()
 		V = new(big.Int).Add(V, big.NewInt(27))
 		evmAddr, seiAddr, pubkey, err := getAddresses(V, R, S, common.Hash{}) // associate tx should sign over an empty hash
-		fmt.Printf("DEBUG - evmAddr %+v seiAddr %+v seiPubkey %+v\n\n", evmAddr, seiAddr.String(), pubkey)
 		if err != nil {
 			return err
 		}
