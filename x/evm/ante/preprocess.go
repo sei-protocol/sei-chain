@@ -251,7 +251,6 @@ func getAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.
 }
 
 // first half of go-ethereum/core/types/transaction_signing.go:recoverPlain
-// Add in prefix Ethereum Signed Message
 func recoverPubkey(sighash common.Hash, R, S, Vb *big.Int, homestead bool) ([]byte, error) {
 	if Vb.BitLen() > 8 {
 		return []byte{}, ethtypes.ErrInvalidSig
@@ -266,13 +265,8 @@ func recoverPubkey(sighash common.Hash, R, S, Vb *big.Int, homestead bool) ([]by
 	copy(sig[32-len(r):32], r)
 	copy(sig[64-len(s):64], s)
 	sig[64] = V
-
-	// Geth-specific: prepend the message with the Ethereum signed message prefix
-	prefix := []byte(fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(sighash)))
-	prefixedSigHash := crypto.Keccak256Hash(append(prefix, sighash[:]...))
-
 	// recover the public key from the signature
-	return crypto.Ecrecover(prefixedSigHash[:], sig)
+	return crypto.Ecrecover(sighash[:], sig)
 }
 
 // second half of go-ethereum/core/types/transaction_signing.go:recoverPlain
