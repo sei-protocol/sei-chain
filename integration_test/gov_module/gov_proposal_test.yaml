@@ -102,6 +102,6 @@
   verifiers:
     # Check if the total supply is reduced or not to verify token burns
     - type: eval
-      expr: TOTAL_SUPPLY_BEFORE_BURN == 5000000000000000000000
+      expr: TOTAL_SUPPLY_BEFORE_BURN == 5000000000333333333333
     - type: eval
       expr: TOTAL_SUPPLY_AFTER_BURN == 5000000000333313333333
