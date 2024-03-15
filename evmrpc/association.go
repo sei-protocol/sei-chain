@@ -53,9 +53,10 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 	}
 
 	associateTx := ethtx.AssociateTx{
-		V: vBytes,
-		R: rBytes,
-		S: sBytes,
+		V:             vBytes,
+		R:             rBytes,
+		S:             sBytes,
+		CustomMessage: req.CustomMessage,
 	}
 
 	msg, err := types.NewMsgEVMTransaction(&associateTx)
