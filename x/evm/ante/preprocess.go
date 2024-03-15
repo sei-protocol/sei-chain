@@ -108,6 +108,12 @@ func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk
 			return err
 		}
 	}
+	castAddrWei := p.evmKeeper.BankKeeper().GetWeiBalance(ctx, castAddr)
+	if !castAddrWei.IsZero() {
+		if err := p.evmKeeper.BankKeeper().SendCoinsAndWei(ctx, castAddr, seiAddr, sdk.ZeroInt(), castAddrWei); err != nil {
+			return err
+		}
+	}
 	p.evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
 	return nil
 }
