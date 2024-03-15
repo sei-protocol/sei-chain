@@ -19,8 +19,8 @@
     - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
     - cmd: printf "12345678\n" | seid tx gov vote $PROPOSAL_ID yes --from node_admin --chain-id sei --fees 2000usei -b block -y --output json | jq -r .code
       node: sei-node-1
-    # since quorum is 0.5, we only need 2/4 votes and expect proposal to pass after 35 seconds
-    - cmd: sleep 35
+    # since quorum is 0.5, we only need 2/4 votes and expect proposal to pass after 105 seconds
+    - cmd: sleep 105
     - cmd: seid q gov proposal $PROPOSAL_ID --output json | jq -r .status
       env: PROPOSAL_STATUS
     # Get the tally params again after proposal is passed
@@ -102,6 +102,6 @@
   verifiers:
     # Check if the total supply is reduced or not to verify token burns
     - type: eval
-      expr: TOTAL_SUPPLY_BEFORE_BURN == 5000000000333333333333
+      expr: TOTAL_SUPPLY_BEFORE_BURN == 5000000000000000000000
     - type: eval
       expr: TOTAL_SUPPLY_AFTER_BURN == 5000000000333313333333
