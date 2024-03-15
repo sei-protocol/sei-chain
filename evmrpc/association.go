@@ -17,6 +17,8 @@ import (
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
+const EthSignedMessage = "\x19Ethereum Signed Message:\n"
+
 type AssociationAPI struct {
 	tmClient    rpcclient.Client
 	keeper      *keeper.Keeper
@@ -40,14 +42,20 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 	defer recordMetrics("sei_associate", startTime, returnErr == nil)
 	rBytes, err := decodeHexString(req.R)
 	if err != nil {
+		panic(err)
 		return err
 	}
 	sBytes, err := decodeHexString(req.S)
 	if err != nil {
+		panic(err)
 		return err
 	}
-	vBytes, err := decodeHexString(req.V)
+
+	// Handle prefix for the v part
+	vString := strings.TrimPrefix(req.V, EthSignedMessage)
+	vBytes, err := decodeHexString(vString)
 	if err != nil {
+		panic(err)
 		return err
 	}
 
@@ -59,14 +67,17 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 
 	msg, err := types.NewMsgEVMTransaction(&associateTx)
 	if err != nil {
+		panic(err)
 		return err
 	}
 	txBuilder := t.sendAPI.txConfig.NewTxBuilder()
 	if err = txBuilder.SetMsgs(msg); err != nil {
+		panic(err)
 		return err
 	}
 	txbz, encodeErr := t.sendAPI.txConfig.TxEncoder()(txBuilder.GetTx())
 	if encodeErr != nil {
+		panic(err)
 		return encodeErr
 	}
 
@@ -109,5 +120,6 @@ func decodeHexString(hexString string) ([]byte, error) {
 	if len(trimmed)%2 != 0 {
 		trimmed = "0" + trimmed
 	}
+	fmt.Printf("decodeHexString - len %+v\n", len(trimmed))
 	return hex.DecodeString(trimmed)
 }

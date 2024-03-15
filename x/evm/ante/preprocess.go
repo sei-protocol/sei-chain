@@ -3,6 +3,7 @@ package ante
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -65,16 +66,20 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	if isAssociateTx && isAssociated {
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
 	} else if isAssociateTx {
+		fmt.Printf("DEBUG - AnteHandle isAssociateTx\n")
 		// check if the account has enough balance (without charging)
 		baseDenom := p.evmKeeper.GetBaseDenom(ctx)
 		seiBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, baseDenom).Amount
 		castBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), baseDenom).Amount
 		if new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt()).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
+			fmt.Printf("DEBUG - AnteHandle isAssociateTx account needs 1 sei, seiBalance %+v castBalance %v\n", seiBalance, castBalance)
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
 		}
 		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
+			fmt.Printf("DEBUG - AnteHandle isAssociateTx err %+v\n", err)
 			return ctx, err
 		}
+		fmt.Printf("DEBUG - AnteHandle isAssociateTx short circuit \n")
 		return ctx.WithPriority(antedecorators.EVMAssociatePriority), nil // short-circuit without calling next
 	} else if isAssociated {
 		// noop; for readability
@@ -89,6 +94,7 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 }
 
 func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address, pubkey cryptotypes.PubKey) error {
+	fmt.Printf("DEBUG - AnteHandle associateAddresses start\n")
 	p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
 	if !p.accountKeeper.HasAccount(ctx, seiAddr) {
 		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, seiAddr))
@@ -107,11 +113,13 @@ func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk
 		}
 	}
 	p.evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
+	fmt.Printf("DEBUG - AnteHandle associateAddresses no err\n")
 	return nil
 }
 
 // stateless
 func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) error {
+	fmt.Printf("DEBUG - Preprocess\n")
 	if msgEVMTransaction.Derived != nil {
 		if msgEVMTransaction.Derived.PubKey == nil {
 			// this means the message has `Derived` set from the outside, in which case we should reject
@@ -126,12 +134,16 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	}
 
 	if atx, ok := txData.(*ethtx.AssociateTx); ok {
+		fmt.Printf("DEBUG - Preprocess AssociateTx\n")
 		V, R, S := atx.GetRawSignatureValues()
+		fmt.Printf("DEBUG - Preprocess AssociateTx GetRawSignatureValues\n")
 		V = new(big.Int).Add(V, big.NewInt(27))
 		evmAddr, seiAddr, pubkey, err := getAddresses(V, R, S, common.Hash{}) // associate tx should sign over an empty hash
 		if err != nil {
+			fmt.Printf("DEBUG - Preprocess AssociateTx GetRawSignatureValues err getAddresses %+v\n", err)
 			return err
 		}
+		fmt.Printf("DEBUG - Preprocess AssociateTx GetRawSignatureValues evmAddr %+v seiAddr %+v pubkey %+v\n", evmAddr, seiAddr.String(), pubkey)
 		msgEVMTransaction.Derived = &derived.Derived{
 			SenderEVMAddr: evmAddr,
 			SenderSeiAddr: seiAddr,
@@ -241,6 +253,7 @@ func getAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.
 }
 
 // first half of go-ethereum/core/types/transaction_signing.go:recoverPlain
+// Add in prefix Ethereum Signed Message
 func recoverPubkey(sighash common.Hash, R, S, Vb *big.Int, homestead bool) ([]byte, error) {
 	if Vb.BitLen() > 8 {
 		return []byte{}, ethtypes.ErrInvalidSig
@@ -255,8 +268,13 @@ func recoverPubkey(sighash common.Hash, R, S, Vb *big.Int, homestead bool) ([]by
 	copy(sig[32-len(r):32], r)
 	copy(sig[64-len(s):64], s)
 	sig[64] = V
+
+	// Geth-specific: prepend the message with the Ethereum signed message prefix
+	prefix := []byte(fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(sighash)))
+	prefixedSigHash := crypto.Keccak256Hash(append(prefix, sighash[:]...))
+
 	// recover the public key from the signature
-	return crypto.Ecrecover(sighash[:], sig)
+	return crypto.Ecrecover(prefixedSigHash[:], sig)
 }
 
 // second half of go-ethereum/core/types/transaction_signing.go:recoverPlain

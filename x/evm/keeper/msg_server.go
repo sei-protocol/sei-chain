@@ -31,6 +31,7 @@ var _ types.MsgServer = msgServer{}
 
 func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
 	if msg.IsAssociateTx() {
+		fmt.Printf("DEBUG - EVMTransaction IsAssociateTx empty response\n")
 		// no-op in msg server for associate tx; all the work have been done in ante handler
 		return &types.MsgEVMTransactionResponse{}, nil
 	}
