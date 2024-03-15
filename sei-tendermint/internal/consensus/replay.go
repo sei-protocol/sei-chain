@@ -395,7 +395,11 @@ func (h *Handshaker) ReplayBlocks(
 			return h.replayBlocks(ctx, state, appClient, appBlockHeight, storeBlockHeight, false)
 
 		} else if appBlockHeight == storeBlockHeight {
-			// We're good!
+			// We're good! But we need to reindex events
+			err := h.replayEvents(appBlockHeight)
+			if err != nil {
+				return nil, err
+			}
 			if err := checkAppHashEqualsOneFromState(appHash, state); err != nil {
 				return nil, err
 			}
@@ -548,6 +552,22 @@ func (h *Handshaker) replayBlock(
 	h.nBlocks++
 
 	return state, nil
+}
+
+// replayEvents will be called during restart to avoid tx missing to be indexed
+func (h *Handshaker) replayEvents(height int64) error {
+	block := h.store.LoadBlock(height)
+	meta := h.store.LoadBlockMeta(height)
+	res, err := h.stateStore.LoadFinalizeBlockResponses(height)
+	if err != nil {
+		return err
+	}
+	validatorUpdates, err := types.PB2TM.ValidatorUpdates(res.ValidatorUpdates)
+	if err != nil {
+		return err
+	}
+	sm.FireEvents(h.logger, h.eventBus, block, meta.BlockID, res, validatorUpdates)
+	return nil
 }
 
 func checkAppHashEqualsOneFromBlock(appHash []byte, block *types.Block) error {
