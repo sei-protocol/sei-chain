@@ -27,7 +27,7 @@ func TestAssocation(t *testing.T) {
 		"r":              fmt.Sprintf("0x%v", new(big.Int).SetBytes(signature[:32]).Text(16)),
 		"s":              fmt.Sprintf("0x%v", new(big.Int).SetBytes(signature[32:64]).Text(16)),
 		"v":              fmt.Sprintf("0x%v", new(big.Int).SetBytes([]byte{signature[64]}).Text(16)),
-		"custom_message": "\x19Ethereum Signed Message:\n32",
+		"custom_message": "\x19Ethereum Signed Message:\n0",
 	}
 
 	body := sendRequestGoodWithNamespace(t, "sei", "associate", txArgs)
