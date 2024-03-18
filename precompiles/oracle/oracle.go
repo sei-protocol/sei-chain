@@ -3,7 +3,6 @@ package oracle
 import (
 	"bytes"
 	"embed"
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -31,6 +30,19 @@ var _ vm.PrecompiledContract = &Precompile{}
 //go:embed abi.json
 var f embed.FS
 
+func GetABI() abi.ABI {
+	abiBz, err := f.ReadFile("abi.json")
+	if err != nil {
+		panic(err)
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	if err != nil {
+		panic(err)
+	}
+	return newAbi
+}
+
 type Precompile struct {
 	pcommon.Precompile
 	evmKeeper    pcommon.EVMKeeper
@@ -41,16 +53,8 @@ type Precompile struct {
 	GetOracleTwapsId   []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, oracleKeeper pcommon.OracleKeeper) (*Precompile, error) {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		return nil, fmt.Errorf("error loading the staking ABI %s", err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		return nil, err
-	}
+func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+	newAbi := GetABI()
 
 	p := &Precompile{
 		Precompile: pcommon.Precompile{ABI: newAbi},
