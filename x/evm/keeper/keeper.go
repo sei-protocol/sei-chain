@@ -393,17 +393,49 @@ func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 	if !k.EthReplayConfig.Enabled {
 		return nil
 	}
-	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+int64(k.EthReplayConfig.EthDataEarliestBlock)))
+	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
 	if err != nil {
-		panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+int64(k.EthReplayConfig.EthDataEarliestBlock)))
+		panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
 	}
 	return block.Header_.BaseFee
 }
 
+func (k *Keeper) GetReplayedHeight(ctx sdk.Context) int64 {
+	return k.getInt64State(ctx, types.ReplayedHeight)
+}
+
+func (k *Keeper) SetReplayedHeight(ctx sdk.Context) {
+	k.setInt64State(ctx, types.ReplayedHeight, ctx.BlockHeight())
+}
+
+func (k *Keeper) GetReplayInitialHeight(ctx sdk.Context) int64 {
+	return k.getInt64State(ctx, types.ReplayInitialHeight)
+}
+
+func (k *Keeper) SetReplayInitialHeight(ctx sdk.Context, h int64) {
+	k.setInt64State(ctx, types.ReplayInitialHeight, h)
+}
+
+func (k *Keeper) setInt64State(ctx sdk.Context, key []byte, val int64) {
+	store := ctx.KVStore(k.storeKey)
+	bz := make([]byte, 8)
+	binary.BigEndian.PutUint64(bz, uint64(val))
+	store.Set(key, bz)
+}
+
+func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
+	store := ctx.KVStore(k.storeKey)
+	bz := store.Get(key)
+	if bz == nil {
+		return 0
+	}
+	return int64(binary.BigEndian.Uint64(bz))
+}
+
 func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
-	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+int64(k.EthReplayConfig.EthDataEarliestBlock)))
+	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
 	if err != nil {
-		panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+int64(k.EthReplayConfig.EthDataEarliestBlock)))
+		panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
 	}
 	header := block.Header_
 	getHash := core.GetHashFn(header, &ReplayChainContext{ethClient: k.EthClient})

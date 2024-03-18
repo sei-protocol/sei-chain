@@ -18,21 +18,37 @@ import (
 )
 
 func Replay(a *App) {
-	gendoc, err := tmtypes.GenesisDocFromFile(filepath.Join(DefaultNodeHome, "config/genesis.json"))
-	if err != nil {
-		panic(err)
+	h := a.EvmKeeper.GetReplayedHeight(a.GetCheckCtx()) + 1
+	initHeight := a.EvmKeeper.GetReplayInitialHeight(a.GetCheckCtx())
+	if h == 1 {
+		gendoc, err := tmtypes.GenesisDocFromFile(filepath.Join(DefaultNodeHome, "config/genesis.json"))
+		if err != nil {
+			panic(err)
+		}
+		_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
+			Time:          time.Now(),
+			ChainId:       gendoc.ChainID,
+			AppStateBytes: gendoc.AppState,
+		})
+		if err != nil {
+			panic(err)
+		}
+		initHeight = a.EvmKeeper.GetReplayInitialHeight(a.GetContextForDeliverTx([]byte{}))
+	} else {
+		a.EvmKeeper.OpenEthDatabase()
 	}
-	_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
-		Time:          time.Now(),
-		ChainId:       gendoc.ChainID,
-		AppStateBytes: gendoc.AppState,
-	})
-	if err != nil {
-		panic(err)
-	}
-	for h := int64(1); h <= int64(a.EvmKeeper.EthReplayConfig.NumBlocksToReplay); h++ {
-		a.Logger().Info(fmt.Sprintf("Replaying block height %d", h+int64(a.EvmKeeper.EthReplayConfig.EthDataEarliestBlock)))
-		b, err := a.EvmKeeper.EthClient.BlockByNumber(context.Background(), big.NewInt(h+int64(a.EvmKeeper.EthReplayConfig.EthDataEarliestBlock)))
+	for {
+		latestBlock, err := a.EvmKeeper.EthClient.BlockNumber(context.Background())
+		if err != nil {
+			panic(err)
+		}
+		if latestBlock < uint64(h+initHeight) {
+			a.Logger().Info(fmt.Sprintf("Latest block is %d. Sleeping for a minute", latestBlock))
+			time.Sleep(1 * time.Minute)
+			continue
+		}
+		a.Logger().Info(fmt.Sprintf("Replaying block height %d", h+initHeight))
+		b, err := a.EvmKeeper.EthClient.BlockByNumber(context.Background(), big.NewInt(h+initHeight))
 		if err != nil {
 			panic(err)
 		}
@@ -60,6 +76,7 @@ func Replay(a *App) {
 		if err != nil {
 			panic(err)
 		}
+		h++
 	}
 }
 

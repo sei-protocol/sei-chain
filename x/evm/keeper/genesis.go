@@ -32,21 +32,16 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 	}
 
 	if k.EthReplayConfig.Enabled && !ethReplayInitialied {
-		header, db, trie := k.openEthDatabase()
-		k.Root = header.Root
-		k.DB = db
-		k.Trie = trie
+		header := k.OpenEthDatabase()
 		params := k.GetParams(ctx)
 		params.ChainId = sdk.OneInt()
 		k.SetParams(ctx, params)
-		if k.EthReplayConfig.EthDataEarliestBlock == 0 {
-			k.EthReplayConfig.EthDataEarliestBlock = uint64(header.Number.Int64())
-		}
+		k.SetReplayInitialHeight(ctx, header.Number.Int64())
 		ethReplayInitialied = true
 	}
 }
 
-func (k *Keeper) openEthDatabase() (*ethtypes.Header, state.Database, state.Trie) {
+func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 	db, err := rawdb.Open(rawdb.OpenOptions{
 		Type:              "pebble",
 		Directory:         k.EthReplayConfig.EthDataDir,
@@ -81,5 +76,8 @@ func (k *Keeper) openEthDatabase() (*ethtypes.Header, state.Database, state.Trie
 	if err != nil {
 		panic(err)
 	}
-	return header, sdb, tr
+	k.Root = header.Root
+	k.DB = sdb
+	k.Trie = tr
+	return header
 }

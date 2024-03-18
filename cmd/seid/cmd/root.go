@@ -487,8 +487,6 @@ slow = {{ .EVM.Slow }}
 enabled = {{ .ETHReplay.Enabled }}
 eth_rpc = "{{ .ETHReplay.EthRPC }}"
 eth_data_dir = "{{ .ETHReplay.EthDataDir }}"
-eth_data_earliest_block = {{ .ETHReplay.EthDataEarliestBlock }}
-num_blocks_to_replay = {{ .ETHReplay.NumBlocksToReplay }}
 `
 
 	return customAppTemplate, customAppConfig

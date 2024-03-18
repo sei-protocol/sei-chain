@@ -177,11 +177,12 @@ func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	var coinbase sdk.AccAddress
 	if am.keeper.EthReplayConfig.Enabled {
-		block, err := am.keeper.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+int64(am.keeper.EthReplayConfig.EthDataEarliestBlock)))
+		block, err := am.keeper.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+am.keeper.GetReplayInitialHeight(ctx)))
 		if err != nil {
-			panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+int64(am.keeper.EthReplayConfig.EthDataEarliestBlock)))
+			panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+am.keeper.GetReplayInitialHeight(ctx)))
 		}
 		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, block.Header_.Coinbase)
+		am.keeper.SetReplayedHeight(ctx)
 	} else {
 		coinbase = am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 	}

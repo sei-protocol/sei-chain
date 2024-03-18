@@ -171,7 +171,6 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	} else {
 		txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
 	}
-
 	evmAddr, seiAddr, seiPubkey, err := getAddresses(V, R, S, txHash)
 	if err != nil {
 		return err
