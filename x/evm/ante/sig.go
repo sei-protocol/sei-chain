@@ -25,10 +25,6 @@ func NewEVMSigVerifyDecorator(evmKeeper *evmkeeper.Keeper, latestCtxGetter func(
 func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	ethTx, _ := types.MustGetEVMTransactionMessage(tx).AsTransaction()
 
-	if !ethTx.Protected() {
-		return ctx, sdkerrors.ErrNoSignatures
-	}
-
 	evmAddr := types.MustGetEVMTransactionMessage(tx).Derived.SenderEVMAddr
 
 	nextNonce := svd.evmKeeper.GetNonce(ctx, evmAddr)
