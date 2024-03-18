@@ -2,7 +2,6 @@ package ante_test
 
 import (
 	"encoding/hex"
-	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -68,32 +67,29 @@ func TestPreprocessAnteHandler(t *testing.T) {
 func TestPreprocessAnteHandlerUnprotected(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
-	privKey := testkeeper.MockPrivateKey()
-	testPrivHex := hex.EncodeToString(privKey.Bytes())
-	key, _ := crypto.HexToECDSA(testPrivHex)
-	to := new(common.Address)
-	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
-	txData := ethtypes.LegacyTx{
-		Nonce:    1,
-		GasPrice: big.NewInt(10),
-		Gas:      1000,
-		To:       to,
-		Value:    big.NewInt(1000),
-		Data:     []byte("abc"),
+	gasPrice := sdk.NewInt(73141930316)
+	amt := sdk.NewInt(270000000000000000)
+	v, _ := hex.DecodeString("1c")
+	s, _ := hex.DecodeString("16842c738042c72834d256b8aaf4e8cf14beb03c9e2e98bc29bedf29ef7d1ccf")
+	r, _ := hex.DecodeString("f7ab1c21ab782e07bc680f3a42972e38d6b42ee9a4cce76ac4c182fe54b08ae7")
+	txData := ethtx.LegacyTx{
+		Nonce:    62908,
+		GasPrice: &gasPrice,
+		GasLimit: 93638,
+		To:       "0xbb19ce0c0ad13cca2a75f73f163edc8bdae7fb70",
+		Amount:   &amt,
+		Data:     []byte{},
+		V:        v,
+		S:        s,
+		R:        r,
 	}
-	signer := ethtypes.NewEIP155Signer(nil)
-	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	msg, err := types.NewMsgEVMTransaction(&txData)
 	require.Nil(t, err)
-	fmt.Println(tx.Hash().Hex())
-	typedTx, err := ethtx.NewLegacyTx(tx)
-	require.Nil(t, err)
-	msg, err := types.NewMsgEVMTransaction(typedTx)
-	require.Nil(t, err)
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), sdk.AccAddress(msg.Derived.SenderSeiAddr))
+	require.Equal(t, "0xc39BDF685F289B1F261EE9b0b1B2Bf9eae4C1980", msg.Derived.SenderEVMAddr.Hex())
 }
 
 func TestPreprocessAssociateTx(t *testing.T) {
