@@ -1,6 +1,9 @@
 package keeper
 
 import (
+	"bytes"
+	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"math/big"
@@ -15,12 +18,18 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core"
+	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/ethclient"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	"github.com/sei-protocol/sei-chain/x/evm/replay"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -41,6 +50,13 @@ type Keeper struct {
 	nonceMx                      *sync.RWMutex
 	pendingTxs                   map[string][]*PendingTx
 	keyToNonce                   map[tmtypes.TxKey]*AddressNoncePair
+
+	// only used during ETH replay. Not used in chain critical path
+	EthClient       *ethclient.Client
+	EthReplayConfig replay.Config
+	Trie            ethstate.Trie
+	DB              ethstate.Database
+	Root            common.Hash
 }
 
 type EvmTxDeferredInfo struct {
@@ -59,6 +75,23 @@ type PendingTx struct {
 	Key      tmtypes.TxKey
 	Nonce    uint64
 	Priority int64
+}
+
+// only used during ETH replay
+type ReplayChainContext struct {
+	ethClient *ethclient.Client
+}
+
+func (ctx *ReplayChainContext) Engine() consensus.Engine {
+	return nil
+}
+
+func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethtypes.Header {
+	res, err := ctx.ethClient.BlockByNumber(context.Background(), big.NewInt(int64(number)))
+	if err != nil || res.Header_.Hash() != hash {
+		return nil
+	}
+	return res.Header_
 }
 
 func NewKeeper(
@@ -108,6 +141,9 @@ func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
 }
 
 func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockContext, error) {
+	if k.EthReplayConfig.Enabled {
+		return k.getReplayBlockCtx(ctx)
+	}
 	coinbase, err := k.GetFeeCollectorAddress(ctx)
 	if err != nil {
 		return nil, err
@@ -309,6 +345,127 @@ func (k *Keeper) GetPendingTxs() map[string][]*PendingTx {
 // Test use only
 func (k *Keeper) GetKeysToNonces() map[tmtypes.TxKey]*AddressNoncePair {
 	return k.keyToNonce
+}
+
+// Only usd in ETH replay
+func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
+	if !k.EthReplayConfig.Enabled {
+		return
+	}
+	store := k.PrefixStore(ctx, types.ReplaySeenAddrPrefix)
+	bz := store.Get(addr[:])
+	if len(bz) > 0 {
+		return
+	}
+	a, err := k.Trie.GetAccount(addr)
+	if err != nil || a == nil {
+		return
+	}
+	store.Set(addr[:], a.Root[:])
+	if a.Balance != big.NewInt(0) {
+		usei, wei := state.SplitUseiWeiAmount(a.Balance)
+		err = k.BankKeeper().AddCoins(ctx, k.GetSeiAddressOrDefault(ctx, addr), sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
+		if err != nil {
+			panic(err)
+		}
+		err = k.BankKeeper().AddWei(ctx, k.GetSeiAddressOrDefault(ctx, addr), wei)
+		if err != nil {
+			panic(err)
+		}
+	}
+	k.SetNonce(ctx, addr, a.Nonce)
+	if !bytes.Equal(a.CodeHash, ethtypes.EmptyCodeHash.Bytes()) {
+		k.PrefixStore(ctx, types.CodeHashKeyPrefix).Set(addr[:], a.CodeHash)
+		code, err := k.DB.ContractCode(addr, common.BytesToHash(a.CodeHash))
+		if err != nil {
+			panic(err)
+		}
+		if len(code) > 0 {
+			k.PrefixStore(ctx, types.CodeKeyPrefix).Set(addr[:], code)
+			length := make([]byte, 8)
+			binary.BigEndian.PutUint64(length, uint64(len(code)))
+			k.PrefixStore(ctx, types.CodeSizeKeyPrefix).Set(addr[:], length)
+		}
+	}
+}
+
+func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
+	if !k.EthReplayConfig.Enabled {
+		return nil
+	}
+	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
+	if err != nil {
+		panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
+	}
+	return block.Header_.BaseFee
+}
+
+func (k *Keeper) GetReplayedHeight(ctx sdk.Context) int64 {
+	return k.getInt64State(ctx, types.ReplayedHeight)
+}
+
+func (k *Keeper) SetReplayedHeight(ctx sdk.Context) {
+	k.setInt64State(ctx, types.ReplayedHeight, ctx.BlockHeight())
+}
+
+func (k *Keeper) GetReplayInitialHeight(ctx sdk.Context) int64 {
+	return k.getInt64State(ctx, types.ReplayInitialHeight)
+}
+
+func (k *Keeper) SetReplayInitialHeight(ctx sdk.Context, h int64) {
+	k.setInt64State(ctx, types.ReplayInitialHeight, h)
+}
+
+func (k *Keeper) setInt64State(ctx sdk.Context, key []byte, val int64) {
+	store := ctx.KVStore(k.storeKey)
+	bz := make([]byte, 8)
+	binary.BigEndian.PutUint64(bz, uint64(val))
+	store.Set(key, bz)
+}
+
+func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
+	store := ctx.KVStore(k.storeKey)
+	bz := store.Get(key)
+	if bz == nil {
+		return 0
+	}
+	return int64(binary.BigEndian.Uint64(bz))
+}
+
+func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
+	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
+	if err != nil {
+		panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
+	}
+	header := block.Header_
+	getHash := core.GetHashFn(header, &ReplayChainContext{ethClient: k.EthClient})
+	var (
+		baseFee     *big.Int
+		blobBaseFee *big.Int
+		random      *common.Hash
+	)
+	if header.BaseFee != nil {
+		baseFee = new(big.Int).Set(header.BaseFee)
+	}
+	if header.ExcessBlobGas != nil {
+		blobBaseFee = eip4844.CalcBlobFee(*header.ExcessBlobGas)
+	}
+	if header.Difficulty.Cmp(common.Big0) == 0 {
+		random = &header.MixDigest
+	}
+	return &vm.BlockContext{
+		CanTransfer: core.CanTransfer,
+		Transfer:    core.Transfer,
+		GetHash:     getHash,
+		Coinbase:    header.Coinbase,
+		GasLimit:    header.GasLimit,
+		BlockNumber: new(big.Int).Set(header.Number),
+		Time:        header.Time,
+		Difficulty:  new(big.Int).Set(header.Difficulty),
+		BaseFee:     baseFee,
+		BlobBaseFee: blobBaseFee,
+		Random:      random,
+	}, nil
 }
 
 func uint64Cmp(a, b uint64) int {
