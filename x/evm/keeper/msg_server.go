@@ -117,7 +117,7 @@ func (k *Keeper) getGasPool(ctx sdk.Context) (sdk.Context, core.GasPool) {
 func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction) (*core.Message, error) {
 	cfg := types.DefaultChainConfig().EthereumConfig(server.ChainID(ctx))
 	signer := ethtypes.MakeSigner(cfg, big.NewInt(ctx.BlockHeight()), uint64(ctx.BlockTime().Unix()))
-	return core.TransactionToMessage(tx, signer, nil)
+	return core.TransactionToMessage(tx, signer, server.GetBaseFee(ctx))
 }
 
 func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {

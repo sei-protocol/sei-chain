@@ -3,6 +3,7 @@ package evm
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	// this line is used by starport scaffolding # 1
 
@@ -174,6 +175,17 @@ func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
 // EndBlock executes all ABCI EndBlock logic respective to the evm module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+	var coinbase sdk.AccAddress
+	if am.keeper.EthReplayConfig.Enabled {
+		block, err := am.keeper.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+am.keeper.GetReplayInitialHeight(ctx)))
+		if err != nil {
+			panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+am.keeper.GetReplayInitialHeight(ctx)))
+		}
+		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, block.Header_.Coinbase)
+		am.keeper.SetReplayedHeight(ctx)
+	} else {
+		coinbase = am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
+	}
 	evmTxDeferredInfoList := am.keeper.GetEVMTxDeferredInfo(ctx)
 	denom := am.keeper.GetBaseDenom(ctx)
 	surplus := sdk.NewInt(0)
@@ -183,7 +195,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		balance := am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom)
 		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
 		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
-			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), balance.Amount, weiBalance); err != nil {
+			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance.Amount, weiBalance); err != nil {
 				panic(err)
 			}
 		}

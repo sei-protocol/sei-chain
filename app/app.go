@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"
@@ -120,6 +122,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -586,6 +589,18 @@ func New(
 	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
+	ethReplayConfig, err := replay.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading eth replay config due to %s", err))
+	}
+	app.EvmKeeper.EthReplayConfig = ethReplayConfig
+	if ethReplayConfig.Enabled {
+		rpcclient, err := ethrpc.Dial(ethReplayConfig.EthRPC)
+		if err != nil {
+			panic(fmt.Sprintf("error dialing %s due to %s", ethReplayConfig.EthRPC, err))
+		}
+		app.EvmKeeper.EthClient = ethclient.NewClient(rpcclient)
 	}
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
@@ -1551,6 +1566,9 @@ func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*ab
 }
 
 func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
+	if app.EvmKeeper.EthReplayConfig.Enabled {
+		return abci.ResponseFinalizeBlock{}
+	}
 	return abci.ResponseFinalizeBlock{
 		Events:    events,
 		TxResults: txResults,

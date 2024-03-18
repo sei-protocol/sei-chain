@@ -85,6 +85,9 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
 			return ctx, err
 		}
+		if p.evmKeeper.EthReplayConfig.Enabled {
+			p.evmKeeper.PrepareReplayedAddr(ctx, evmAddr)
+		}
 	}
 
 	return next(ctx, tx, simulate)
@@ -168,7 +171,6 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	} else {
 		txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
 	}
-
 	evmAddr, seiAddr, seiPubkey, err := getAddresses(V, R, S, txHash)
 	if err != nil {
 		return err
