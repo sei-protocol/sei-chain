@@ -9,6 +9,18 @@ import (
 func (k *Keeper) GetState(ctx sdk.Context, addr common.Address, hash common.Hash) common.Hash {
 	val := k.PrefixStore(ctx, types.StateKey(addr)).Get(hash[:])
 	if val == nil {
+		if k.EthReplayConfig.Enabled {
+			// try to get from eth DB
+			tr, err := k.DB.OpenStorageTrie(k.Root, addr, common.BytesToHash(k.PrefixStore(ctx, types.ReplaySeenAddrPrefix).Get(addr[:])), k.Trie)
+			if err != nil {
+				panic(err)
+			}
+			val, err := tr.GetStorage(addr, hash.Bytes())
+			if err != nil {
+				return common.Hash{}
+			}
+			return common.BytesToHash(val)
+		}
 		return common.Hash{}
 	}
 	return common.BytesToHash(val)
