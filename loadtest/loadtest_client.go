@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"github.com/armon/go-metrics"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
@@ -182,6 +183,7 @@ func (c *LoadTestClient) BuildTxs(
 		case <-done:
 			return
 		default:
+			metrics.IncrCounterWithLabels([]string{"sei", "producer"}, float32(1), []metrics.Label{})
 			if !rateLimiter.Allow() {
 				continue
 			}
@@ -243,6 +245,7 @@ func (c *LoadTestClient) SendTxs(
 		case <-done:
 			return
 		case tx, ok := <-txQueue:
+			metrics.IncrCounterWithLabels([]string{"sei", "consumer"}, float32(1), []metrics.Label{})
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				return

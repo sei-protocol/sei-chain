@@ -34,6 +34,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -230,6 +231,7 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 func printStats(startTime time.Time, totalProduced int64, totalSent int64, prevTotalSent int64, blockHeights []int, blockTimes []string) {
 	elapsed := time.Since(startTime)
 	tps := float64(totalSent-prevTotalSent) / elapsed.Seconds()
+	defer metrics.SetThroughputMetric("tps", float32(tps))
 
 	var totalDuration time.Duration
 	var prevTime time.Time
@@ -271,7 +273,6 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	signer := key
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	defer IncrTxMessageType(msgType)
 
 	defaultMessageTypeConfig := config.PerMessageConfigs["default"]
 	gas := defaultMessageTypeConfig.Gas
