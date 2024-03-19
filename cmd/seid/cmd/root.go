@@ -484,7 +484,7 @@ checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 slow = {{ .EVM.Slow }}
 
 [eth_replay]
-enabled = {{ .ETHReplay.Enabled }}
+eth_replay_enabled = {{ .ETHReplay.Enabled }}
 eth_rpc = "{{ .ETHReplay.EthRPC }}"
 eth_data_dir = "{{ .ETHReplay.EthDataDir }}"
 `
