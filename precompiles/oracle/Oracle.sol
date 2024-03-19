@@ -8,13 +8,13 @@ IOracle constant ORACLE_CONTRACT = IOracle(ORACLE_PRECOMPILE_ADDRESS);
 interface IOracle {
     // Queries
     function getExchangeRates() external view returns (DenomOracleExchangeRatePair[] memory);
-    function getOracleTwaps(uint64 lookbackSeconds) external view returns (OracleTwap[] memory);
+    function getOracleTwaps(uint64 lookback_seconds) external view returns (OracleTwap[] memory);
 
     // Structs
     struct OracleExchangeRate {
-        string exchange_rate;
-        string last_update;
-        int64 last_update_timestamp;
+        string exchangeRate;
+        string lastUpdate;
+        int64 lastUpdateTimestamp;
     }
 
     struct DenomOracleExchangeRatePair {

@@ -3,7 +3,6 @@ package oracle
 import (
 	"bytes"
 	"embed"
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -56,14 +55,20 @@ type Precompile struct {
 
 // Define types which deviate slightly from cosmos types (ExchangeRate string vs sdk.Dec)
 type OracleExchangeRate struct {
-	ExchangeRate        string `json:"exchange_rate"`
-	LastUpdate          string `json:"last_update"`
-	LastUpdateTimestamp int64  `json:"last_update_timestamp"`
+	ExchangeRate        string `json:"exchangeRate"`
+	LastUpdate          string `json:"lastUpdate"`
+	LastUpdateTimestamp int64  `json:"lastUpdateTimestamp"`
 }
 
 type DenomOracleExchangeRatePair struct {
 	Denom                 string             `json:"denom"`
-	OracleExchangeRateVal OracleExchangeRate `json:"oracle_exchange_rate_val"`
+	OracleExchangeRateVal OracleExchangeRate `json:"oracle"`
+}
+
+type OracleTwap struct {
+	Denom           string `json:"denom"`
+	Twap            string `json:"twap"`
+	LookbackSeconds int64  `json:"lookbackSeconds"`
 }
 
 func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
@@ -128,7 +133,6 @@ func (p Precompile) getExchangeRates(ctx sdk.Context, method *abi.Method, args [
 		exchangeRates = append(exchangeRates, DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRateVal: OracleExchangeRate{ExchangeRate: rate.ExchangeRate.String(), LastUpdate: rate.LastUpdate.String(), LastUpdateTimestamp: rate.LastUpdateTimestamp}})
 		return false
 	})
-	fmt.Printf("inner exchangeRates %+v\n", exchangeRates)
 
 	return method.Outputs.Pack(exchangeRates)
 }
@@ -141,7 +145,12 @@ func (p Precompile) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []i
 	if err != nil {
 		return nil, err
 	}
-	return method.Outputs.Pack(twaps)
+	// Convert twap to string
+	var oracleTwaps []OracleTwap
+	for _, twap := range twaps {
+		oracleTwaps = append(oracleTwaps, OracleTwap{Denom: twap.Denom, Twap: twap.Twap.String(), LookbackSeconds: twap.LookbackSeconds})
+	}
+	return method.Outputs.Pack(oracleTwaps)
 }
 
 func (Precompile) IsTransaction(string) bool {
