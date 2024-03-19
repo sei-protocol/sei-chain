@@ -7,12 +7,13 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-func NewAssociateTx(tx *ethtypes.Transaction) (*AssociateTx, error) {
+func NewAssociateTx(tx *ethtypes.Transaction, customMessage string) (*AssociateTx, error) {
 	v, r, s := tx.RawSignatureValues()
 	txData := &AssociateTx{
-		V: v.Bytes(),
-		R: r.Bytes(),
-		S: s.Bytes(),
+		V:             v.Bytes(),
+		R:             r.Bytes(),
+		S:             s.Bytes(),
+		CustomMessage: customMessage,
 	}
 	return txData, nil
 }
