@@ -65,10 +65,11 @@ func TestStaking(t *testing.T) {
 	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))))
-	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, evmAddr[:], amt))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
@@ -77,7 +78,7 @@ func TestStaking(t *testing.T) {
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
 
-	d, found := testApp.StakingKeeper.GetDelegation(ctx, evmAddr[:], val)
+	d, found := testApp.StakingKeeper.GetDelegation(ctx, seiAddr, val)
 	require.True(t, found)
 	require.Equal(t, int64(100), d.Shares.RoundInt().Int64())
 
@@ -104,7 +105,7 @@ func TestStaking(t *testing.T) {
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
 
-	d, found = testApp.StakingKeeper.GetDelegation(ctx, evmAddr[:], val)
+	d, found = testApp.StakingKeeper.GetDelegation(ctx, seiAddr, val)
 	require.True(t, found)
 	require.Equal(t, int64(50), d.Shares.RoundInt().Int64())
 
@@ -131,7 +132,7 @@ func TestStaking(t *testing.T) {
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
 
-	d, found = testApp.StakingKeeper.GetDelegation(ctx, evmAddr[:], val)
+	d, found = testApp.StakingKeeper.GetDelegation(ctx, seiAddr, val)
 	require.True(t, found)
 	require.Equal(t, int64(20), d.Shares.RoundInt().Int64())
 }

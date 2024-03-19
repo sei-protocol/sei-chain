@@ -67,10 +67,11 @@ func TestWithdraw(t *testing.T) {
 	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))))
-	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, evmAddr[:], amt))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
@@ -79,7 +80,7 @@ func TestWithdraw(t *testing.T) {
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
 
-	d, found := testApp.StakingKeeper.GetDelegation(ctx, evmAddr[:], val)
+	d, found := testApp.StakingKeeper.GetDelegation(ctx, seiAddr, val)
 	require.True(t, found)
 	require.Equal(t, int64(100), d.Shares.RoundInt().Int64())
 
@@ -109,7 +110,7 @@ func TestWithdraw(t *testing.T) {
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
-	require.Equal(t, withdrawSeiAddr.String(), testApp.DistrKeeper.GetDelegatorWithdrawAddr(ctx, evmAddr[:]).String())
+	require.Equal(t, withdrawSeiAddr.String(), testApp.DistrKeeper.GetDelegatorWithdrawAddr(ctx, seiAddr).String())
 
 	// withdraw
 	args, err = abi.Pack("withdrawDelegationRewards", val.String())
@@ -135,7 +136,7 @@ func TestWithdraw(t *testing.T) {
 	require.Empty(t, res.VmError)
 
 	// reinitialized
-	d, found = testApp.StakingKeeper.GetDelegation(ctx, evmAddr[:], val)
+	d, found = testApp.StakingKeeper.GetDelegation(ctx, seiAddr, val)
 	require.True(t, found)
 }
 

@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -23,6 +24,7 @@ func TestCode(t *testing.T) {
 	require.Equal(t, crypto.Keccak256Hash(code), k.GetCodeHash(ctx, addr))
 	require.Equal(t, code, k.GetCode(ctx, addr))
 	require.Equal(t, 5, k.GetCodeSize(ctx, addr))
+	require.Equal(t, sdk.AccAddress(addr[:]), k.AccountKeeper().GetAccount(ctx, k.GetSeiAddressOrDefault(ctx, addr)).GetAddress())
 }
 
 func TestNilCode(t *testing.T) {
