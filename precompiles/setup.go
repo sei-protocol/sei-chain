@@ -1,6 +1,7 @@
 package precompiles
 
 import (
+	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"sync"
 
 	ecommon "github.com/ethereum/go-ethereum/common"
@@ -26,6 +27,7 @@ func InitializePrecompiles(
 	stakingKeeper common.StakingKeeper,
 	govKeeper common.GovKeeper,
 	distrKeeper common.DistributionKeeper,
+	transferKeeper common.TransferKeeper,
 ) error {
 	SetupMtx.Lock()
 	defer SetupMtx.Unlock()
@@ -67,6 +69,11 @@ func InitializePrecompiles(
 		return err
 	}
 	addPrecompileToVM(distrp, distrp.Address())
+	ibcp, err := ibc.NewPrecompile(transferKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(ibcp, ibcp.Address())
 	Initialized = true
 	return nil
 }
