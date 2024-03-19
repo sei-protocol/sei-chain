@@ -200,8 +200,3 @@ func (k BaseKeeper) DenomMetadata(c context.Context, req *types.QueryDenomMetada
 		Metadata: metadata,
 	}, nil
 }
-
-// TokenFactoryDenomMetadata implements Query/TokenFactoryDenomMetadata gRPC method.
-func (k BaseKeeper) TokenFactoryDenomMetadata(c context.Context, req *types.QueryTokenFactoryDenomMetadataRequest) (*types.QueryDenomMetadataResponse, error) {
-	return k.DenomMetadata(c, &types.QueryDenomMetadataRequest{Denom: req.Denom})
-}
