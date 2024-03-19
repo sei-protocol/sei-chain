@@ -10,6 +10,9 @@ func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, e
 	store := ctx.KVStore(k.storeKey)
 	store.Set(types.EVMAddressToSeiAddressKey(evmAddress), seiAddress)
 	store.Set(types.SeiAddressToEVMAddressKey(seiAddress), evmAddress[:])
+	if !k.accountKeeper.HasAccount(ctx, seiAddress) {
+		k.accountKeeper.SetAccount(ctx, k.accountKeeper.NewAccountWithAddress(ctx, seiAddress))
+	}
 }
 
 func (k *Keeper) DeleteAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
