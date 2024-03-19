@@ -12,14 +12,14 @@ interface IOracle {
 
     // Structs
     struct OracleExchangeRate {
-        string exchangeRate;
-        string lastUpdate;
-        int64 lastUpdateTimestamp;
+        string exchange_rate;
+        string last_update;
+        int64 last_update_timestamp;
     }
 
     struct DenomOracleExchangeRatePair {
         string denom;
-        OracleExchangeRate oracleExchangeRate;
+        OracleExchangeRate oracleExchangeRateVal;
     }
 
     struct OracleTwap {

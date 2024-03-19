@@ -3,6 +3,7 @@ package oracle
 import (
 	"bytes"
 	"embed"
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -53,13 +54,26 @@ type Precompile struct {
 	GetOracleTwapsId   []byte
 }
 
+// Define types which deviate slightly from cosmos types (ExchangeRate string vs sdk.Dec)
+type OracleExchangeRate struct {
+	ExchangeRate        string `json:"exchange_rate"`
+	LastUpdate          string `json:"last_update"`
+	LastUpdateTimestamp int64  `json:"last_update_timestamp"`
+}
+
+type DenomOracleExchangeRatePair struct {
+	Denom                 string             `json:"denom"`
+	OracleExchangeRateVal OracleExchangeRate `json:"oracle_exchange_rate_val"`
+}
+
 func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
-		Precompile: pcommon.Precompile{ABI: newAbi},
-		evmKeeper:  evmKeeper,
-		address:    common.HexToAddress(OracleAddress),
+		Precompile:   pcommon.Precompile{ABI: newAbi},
+		evmKeeper:    evmKeeper,
+		address:      common.HexToAddress(OracleAddress),
+		oracleKeeper: oracleKeeper,
 	}
 
 	for name, m := range newAbi.Methods {
@@ -99,6 +113,7 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte, value *big.
 
 	switch method.Name {
 	case GetExchangeRatesMethod:
+		p.getExchangeRates(ctx, method, args, value)
 		return p.getExchangeRates(ctx, method, args, value)
 	case GetOracleTwapsMethod:
 		return p.getOracleTwaps(ctx, method, args, value)
@@ -108,11 +123,13 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte, value *big.
 
 func (p Precompile) getExchangeRates(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	pcommon.AssertNonPayable(value)
-	exchangeRates := []types.DenomOracleExchangeRatePair{}
+	exchangeRates := []DenomOracleExchangeRatePair{}
 	p.oracleKeeper.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
-		exchangeRates = append(exchangeRates, types.DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRate: rate})
+		exchangeRates = append(exchangeRates, DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRateVal: OracleExchangeRate{ExchangeRate: rate.ExchangeRate.String(), LastUpdate: rate.LastUpdate.String(), LastUpdateTimestamp: rate.LastUpdateTimestamp}})
 		return false
 	})
+	fmt.Printf("inner exchangeRates %+v\n", exchangeRates)
+
 	return method.Outputs.Pack(exchangeRates)
 }
 
