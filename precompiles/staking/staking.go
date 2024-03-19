@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"errors"
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -118,7 +119,13 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 
 func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 1)
-	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+	// if delegator is associated, then it must have Account set already
+	// if delegator is not associated, then it can't delegate anyway (since
+	// there is no good way to merge delegations if it becomes associated)
+	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !associated {
+		return nil, fmt.Errorf("delegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+	}
 	validatorBech32 := args[0].(string)
 	if value == nil || value.Sign() == 0 {
 		return nil, errors.New("set `value` field to non-zero to send delegate fund")
@@ -141,7 +148,10 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
 	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 3)
-	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !associated {
+		return nil, fmt.Errorf("redelegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+	}
 	srcValidatorBech32 := args[0].(string)
 	dstValidatorBech32 := args[1].(string)
 	amount := args[2].(*big.Int)
@@ -160,7 +170,10 @@ func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller commo
 func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
 	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 2)
-	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !associated {
+		return nil, fmt.Errorf("undelegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+	}
 	validatorBech32 := args[0].(string)
 	amount := args[1].(*big.Int)
 	_, err := p.stakingKeeper.Undelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgUndelegate{

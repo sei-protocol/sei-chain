@@ -85,6 +85,9 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
 			return ctx, err
 		}
+		if p.evmKeeper.EthReplayConfig.Enabled {
+			p.evmKeeper.PrepareReplayedAddr(ctx, evmAddr)
+		}
 	}
 
 	return next(ctx, tx, simulate)
@@ -92,9 +95,6 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 
 func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address, pubkey cryptotypes.PubKey) error {
 	p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
-	if !p.accountKeeper.HasAccount(ctx, seiAddr) {
-		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, seiAddr))
-	}
 	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
 		if err := acc.SetPubKey(pubkey); err != nil {
 			return err
@@ -153,10 +153,7 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	}
 
 	ethTx := ethtypes.NewTx(txData.AsEthereumData())
-	var chainID *big.Int
-	if ethTx.Protected() {
-		chainID = ethTx.ChainId()
-	}
+	chainID := ethTx.ChainId()
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	version := GetVersion(ctx, ethCfg)
@@ -165,11 +162,15 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 		return ethtypes.ErrInvalidChainId
 	}
 
+	var txHash common.Hash
 	V, R, S := ethTx.RawSignatureValues()
 	if ethTx.Protected() {
 		V = AdjustV(V, ethTx.Type(), ethCfg.ChainID)
+		txHash = signer.Hash(ethTx)
+	} else {
+		txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
 	}
-	evmAddr, seiAddr, seiPubkey, err := getAddresses(V, R, S, signer.Hash(ethTx))
+	evmAddr, seiAddr, seiPubkey, err := getAddresses(V, R, S, txHash)
 	if err != nil {
 		return err
 	}
