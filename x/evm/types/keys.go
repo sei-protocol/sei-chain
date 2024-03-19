@@ -41,6 +41,10 @@ var (
 	//mem
 	TxHashPrefix  = []byte{0x10}
 	TxBloomPrefix = []byte{0x11}
+
+	ReplaySeenAddrPrefix = []byte{0x12}
+	ReplayedHeight       = []byte{0x13}
+	ReplayInitialHeight  = []byte{0x14}
 )
 
 func EVMAddressToSeiAddressKey(evmAddress common.Address) []byte {
