@@ -21,6 +21,7 @@ func TestSetGetAddressMapping(t *testing.T) {
 	foundSei, ok = k.GetSeiAddress(ctx, evmAddr)
 	require.True(t, ok)
 	require.Equal(t, seiAddr, foundSei)
+	require.Equal(t, seiAddr, k.AccountKeeper().GetAccount(ctx, seiAddr).GetAddress())
 }
 
 func TestDeleteAddressMapping(t *testing.T) {
