@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -66,6 +67,7 @@ func initTestCtx(injectStores bool) sdk.Context {
 	}
 	store := cachemulti.NewStore(db, stores, keys, nil, nil, nil)
 	ctx = ctx.WithMultiStore(&store)
+	ctx = ctx.WithLogger(log.NewNopLogger())
 	return ctx
 }
 

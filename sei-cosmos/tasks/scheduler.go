@@ -306,7 +306,8 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 
 		// validate returns any that should be re-executed
 		// note this processes ALL tasks, not just those recently executed
-		toExecute, err := s.validateAll(ctx, tasks)
+		var err error
+		toExecute, err = s.validateAll(ctx, tasks)
 		if err != nil {
 			return nil, err
 		}
@@ -319,6 +320,9 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 		mv.WriteLatestToStore()
 	}
 	s.metrics.maxIncarnation = s.maxIncarnation
+
+	ctx.Logger().Info("occ scheduler", "height", ctx.BlockHeight(), "txs", len(tasks), "maxIncarnation", s.maxIncarnation, "iterations", iterations, "sync", s.synchronous, "workers", s.workers)
+
 	return s.collectResponses(tasks), nil
 }
 
