@@ -5,6 +5,10 @@
       env: TX_HASH
     - cmd: cast receipt "$TX_HASH" -j |jq -r ."status"
       env: RESULT
+    # Setup for Hardhat Integration Test
+    - cmd: bash contracts/test/deploy_atom_erc20.sh
+    - cmd: bash contracts/test/get_validator_address.sh
+    - cmd: bash contracts/test/send_gov_proposal.sh
   verifiers:
     - type: eval
       expr: RESULT == "0x1"
