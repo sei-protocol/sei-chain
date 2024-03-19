@@ -30,9 +30,10 @@ func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 }
 
 type AssociateRequest struct {
-	R string `json:"r"`
-	S string `json:"s"`
-	V string `json:"v"`
+	R             string `json:"r"`
+	S             string `json:"s"`
+	V             string `json:"v"`
+	CustomMessage string `json:"custom_message"`
 }
 
 func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (returnErr error) {
@@ -52,9 +53,10 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 	}
 
 	associateTx := ethtx.AssociateTx{
-		V: vBytes,
-		R: rBytes,
-		S: sBytes,
+		V:             vBytes,
+		R:             rBytes,
+		S:             sBytes,
+		CustomMessage: req.CustomMessage,
 	}
 
 	msg, err := types.NewMsgEVMTransaction(&associateTx)

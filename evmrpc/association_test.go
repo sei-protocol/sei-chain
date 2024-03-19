@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 )
@@ -17,17 +16,18 @@ func TestAssocation(t *testing.T) {
 		log.Fatalf("Failed to generate private key: %v", err)
 	}
 
-	// Sign an empty payload
-	emptyHash := common.Hash{}
-	signature, err := crypto.Sign(emptyHash[:], privateKey)
+	// Sign empty payload prepended with Ethereum Signed Message
+	customMessageHash := crypto.Keccak256Hash([]byte("\x19Ethereum Signed Message:\n0"))
+	signature, err := crypto.Sign(customMessageHash[:], privateKey)
 	if err != nil {
 		log.Fatalf("Failed to sign payload: %v", err)
 	}
 
 	txArgs := map[string]interface{}{
-		"r": fmt.Sprintf("0x%v", new(big.Int).SetBytes(signature[:32]).Text(16)),
-		"s": fmt.Sprintf("0x%v", new(big.Int).SetBytes(signature[32:64]).Text(16)),
-		"v": fmt.Sprintf("0x%v", new(big.Int).SetBytes([]byte{signature[64]}).Text(16)),
+		"r":              fmt.Sprintf("0x%v", new(big.Int).SetBytes(signature[:32]).Text(16)),
+		"s":              fmt.Sprintf("0x%v", new(big.Int).SetBytes(signature[32:64]).Text(16)),
+		"v":              fmt.Sprintf("0x%v", new(big.Int).SetBytes([]byte{signature[64]}).Text(16)),
+		"custom_message": "\x19Ethereum Signed Message:\n0",
 	}
 
 	body := sendRequestGoodWithNamespace(t, "sei", "associate", txArgs)
