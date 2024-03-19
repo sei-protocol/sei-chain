@@ -7,14 +7,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	ethcommon "github.com/ethereum/go-ethereum/common"
+	ethhexutil "github.com/ethereum/go-ethereum/common/hexutil"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
+
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"
@@ -124,6 +129,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
+	evmtracers "github.com/sei-protocol/sei-chain/x/evm/tracers"
+	"github.com/sei-protocol/sei-chain/x/evm/tracing"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -373,6 +380,7 @@ type App struct {
 
 	encodingConfig appparams.EncodingConfig
 	evmRPCConfig   evmrpc.Config
+	evmTracer      *tracing.Hooks
 }
 
 // New returns a reference to an initialized blockchain app
@@ -607,6 +615,20 @@ func New(
 			panic(fmt.Sprintf("error dialing %s due to %s", ethReplayConfig.EthRPC, err))
 		}
 		app.EvmKeeper.EthClient = ethclient.NewClient(rpcclient)
+	}
+
+	if app.evmRPCConfig.LiveEVMTracer != "" {
+		// PR_REVIEW_NOTE: So I moved this code from `ProcessBlock` and there, I had access to `ctx` so the code was actually looking
+		//                 like `evmtypes.DefaultChainConfig().EthereumConfig(app.EvmKeeper.ChainID(ctx))`. But here, I don't have access to `ctx`
+		//                 Is there another mean to get the EVM chainID from here? I need it to call `OnSeiBlockchainInit` on the logger,
+		//                 so another solution would be to call this one later when EVM chainID is known. Last resort, we have a sync.Once
+		//                 that we can use to call it only once.
+		chainConfig := evmtypes.DefaultChainConfig().EthereumConfig(big.NewInt(int64(app.evmRPCConfig.LiveEVMTracerChainID)))
+		evmTracer, err := evmtracers.NewBlockchainTracer(evmtracers.GlobalLiveTracerRegistry, app.evmRPCConfig.LiveEVMTracer, chainConfig)
+		if err != nil {
+			panic(fmt.Sprintf("error creating EVM tracer due to %s", err))
+		}
+		app.evmTracer = evmTracer
 	}
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
@@ -1401,12 +1423,23 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 		wg.Add(1)
 		go func(txIndex int, tx []byte) {
 			defer wg.Done()
+
+			var txTracer sdk.TxTracer
+			if app.evmTracer != nil {
+				txTracer = app.evmTracer
+				if app.evmTracer.GetTxTracer != nil {
+					txTracer = app.evmTracer.GetTxTracer(absoluteTxIndices[txIndex])
+				}
+			}
+
 			deliverTxEntry := &sdk.DeliverTxEntry{
 				Request:       abci.RequestDeliverTx{Tx: tx},
 				SdkTx:         typedTxs[txIndex],
 				Checksum:      sha256.Sum256(tx),
 				AbsoluteIndex: absoluteTxIndices[txIndex],
+				TxTracer:      txTracer,
 			}
+
 			// get prefill estimate
 			estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, typedTxs[txIndex])
 			// if no error, then we assign the mapped writesets for prefill estimate
@@ -1466,12 +1499,17 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
 }
 
-func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
+
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
 
-	events := []abci.Event{}
+	if app.evmTracer != nil {
+		ctx = evmtracers.SetCtxBlockchainTracer(ctx, app.evmTracer)
+	}
+
+	events = []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{
 		Hash: req.GetHash(),
 		ByzantineValidators: utils.Map(req.GetByzantineValidators(), func(mis abci.Misbehavior) abci.Evidence {
@@ -1496,9 +1534,16 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 
-	txResults := make([]*abci.ExecTxResult, len(txs))
+	txResults = make([]*abci.ExecTxResult, len(txs))
 	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
 
+	if app.evmTracer != nil {
+		header := ctx.BlockHeader()
+		app.evmTracer.OnSeiBlockStart(req.GetHash(), uint64(header.Size()), TmBlockHeaderToEVM(ctx, header, &app.EvmKeeper))
+		defer func() {
+			app.evmTracer.OnSeiBlockEnd(err)
+		}()
+	}
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
 
 	// run the prioritized txs
@@ -1524,7 +1569,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
 
-	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
+	endBlockResp = app.EndBlock(ctx, abci.RequestEndBlock{
 		Height: req.GetHeight(),
 	})
 
@@ -1834,4 +1879,39 @@ func (app *App) decorateContextWithDexMemState(base context.Context) context.Con
 func init() {
 	// override max wasm size to 2MB
 	wasmtypes.MaxWasmSize = 2 * 1024 * 1024
+}
+
+func TmBlockHeaderToEVM(
+	ctx sdk.Context,
+	block tmproto.Header,
+	k *evmkeeper.Keeper,
+) (header *ethtypes.Header) {
+	number := big.NewInt(block.Height)
+	lastHash := ethcommon.BytesToHash(block.LastBlockId.Hash)
+	appHash := ethcommon.BytesToHash(block.AppHash)
+	txHash := ethcommon.BytesToHash(block.DataHash)
+	resultHash := ethcommon.BytesToHash(block.LastResultsHash)
+	miner := ethcommon.BytesToAddress(block.ProposerAddress)
+	gasLimit, gasWanted := uint64(0), uint64(0)
+
+	header = &ethtypes.Header{
+		Number:      number,
+		ParentHash:  lastHash,
+		Nonce:       ethtypes.BlockNonce{},   // inapplicable to Sei
+		MixDigest:   ethcommon.Hash{},        // inapplicable to Sei
+		UncleHash:   ethtypes.EmptyUncleHash, // inapplicable to Sei
+		Bloom:       k.GetBlockBloom(ctx, block.Height),
+		Root:        appHash,
+		Coinbase:    miner,
+		Difficulty:  big.NewInt(0),      // inapplicable to Sei
+		Extra:       ethhexutil.Bytes{}, // inapplicable to Sei
+		GasLimit:    gasLimit,
+		GasUsed:     gasWanted,
+		Time:        uint64(block.Time.Unix()),
+		TxHash:      txHash,
+		ReceiptHash: resultHash,
+		BaseFee:     k.GetBaseFeePerGas(ctx).RoundInt().BigInt(),
+	}
+
+	return
 }

@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -26,6 +27,8 @@ type opts struct {
 	maxTxPoolTxs         interface{}
 	slow                 interface{}
 	denyList             interface{}
+	liveEVMTracer        interface{}
+	liveEVMTracerChainID interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -80,7 +83,13 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.deny_list" {
 		return o.denyList
 	}
-	panic("unknown key")
+	if k == "evm.live_evm_tracer" {
+		return o.liveEVMTracer
+	}
+	if k == "evm.live_evm_tracer_chain_id" {
+		return o.liveEVMTracerChainID
+	}
+	panic(fmt.Errorf("unknown key: %s", k))
 }
 
 func TestReadConfig(t *testing.T) {
@@ -102,6 +111,8 @@ func TestReadConfig(t *testing.T) {
 		1000,
 		false,
 		make([]string, 0),
+		"",
+		0,
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)

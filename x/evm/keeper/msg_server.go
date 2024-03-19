@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	evmtracers "github.com/sei-protocol/sei-chain/x/evm/tracers"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -56,6 +57,18 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx, gp := server.getGasPool(ctx)
 	emsg := server.getEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
 
+	evmInstance, err := server.getEVM(ctx, emsg, stateDB, gp)
+	if err != nil {
+		ctx.Logger().Error(fmt.Sprintf("EVM message server error: getting EVM failed due to %s", err))
+		return
+	}
+
+	logger := evmtracers.GetCtxBlockchainTracer(ctx)
+	if logger != nil && logger.OnTxStart != nil {
+		logger.OnTxStart(evmInstance.GetVMContext(), tx, emsg.From)
+	}
+
+	var transitionRes *core.ExecutionResult
 	defer func() {
 		if pe := recover(); pe != nil {
 			// there is not supposed to be any panic
@@ -65,6 +78,21 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 			panic(pe)
 		}
+
+		if logger != nil && logger.OnTxEnd != nil {
+			var receipt *ethtypes.Receipt
+			if err == nil {
+				receipt = server.getEthReceipt(ctx, tx, emsg, serverRes, stateDB)
+			}
+
+			var txErr error
+			if transitionRes != nil {
+				txErr = transitionRes.Err
+			}
+
+			logger.OnTxEnd(receipt, txErr)
+		}
+
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("Got EVM state transition error (not VM error): %s", err))
 
@@ -77,6 +105,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
+
 		receipt, err := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
@@ -121,7 +150,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		originalGasMeter.ConsumeGas(adjustedGasUsed.RoundInt().Uint64(), "evm transaction")
 	}()
 
-	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)
+	st := core.NewStateTransition(evmInstance, emsg, &gp)
+	transitionRes, applyErr := st.TransitionDb()
+
 	serverRes = &types.MsgEVMTransactionResponse{
 		Hash: tx.Hash().Hex(),
 	}
@@ -140,8 +171,8 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 	} else {
 		// if applyErr is nil then res must be non-nil
-		if res.Err != nil {
-			serverRes.VmError = res.Err.Error()
+		if transitionRes.Err != nil {
+			serverRes.VmError = transitionRes.Err.Error()
 
 			telemetry.IncrCounterWithLabels(
 				[]string{types.ModuleName, "errors", "vm_execution"},
@@ -151,8 +182,8 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 				},
 			)
 		}
-		serverRes.GasUsed = res.UsedGas
-		serverRes.ReturnData = res.ReturnData
+		serverRes.GasUsed = transitionRes.UsedGas
+		serverRes.ReturnData = transitionRes.ReturnData
 	}
 
 	return
@@ -186,18 +217,22 @@ func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction,
 	return msg
 }
 
-func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
+func (server msgServer) getEVM(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*vm.EVM, error) {
 	blockCtx, err := server.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(server.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
+
+	hooks := evmtracers.GetCtxEthTracingHooks(ctx)
+	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{
+		Tracer: hooks,
+	})
 	stateDB.SetEVM(evmInstance)
-	st := core.NewStateTransition(evmInstance, msg, &gp)
-	res, err := st.TransitionDb()
-	return res, err
+	stateDB.SetLogger(hooks)
+
+	return evmInstance, nil
 }
 
 func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, stateDB *state.DBImpl) (*types.Receipt, error) {
@@ -248,4 +283,34 @@ func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.
 		return nil, err
 	}
 	return &types.MsgSendResponse{}, nil
+}
+
+func (server msgServer) getEthReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, stateDB *state.DBImpl) *ethtypes.Receipt {
+	ethLogs := stateDB.GetAllLogs()
+	receipt := &ethtypes.Receipt{
+		Type:              tx.Type(),
+		CumulativeGasUsed: uint64(0),
+		Logs:              ethLogs,
+		TxHash:            tx.Hash(),
+		GasUsed:           response.GasUsed,
+		EffectiveGasPrice: tx.GasPrice(),
+		TransactionIndex:  uint(ctx.TxIndex()),
+	}
+	receipt.Bloom = ethtypes.CreateBloom(ethtypes.Receipts{receipt})
+
+	if msg.To == nil {
+		receipt.ContractAddress = crypto.CreateAddress(msg.From, msg.Nonce)
+	} else {
+		if len(msg.Data) > 0 {
+			receipt.ContractAddress = *msg.To
+		}
+	}
+
+	if response.VmError == "" {
+		receipt.Status = ethtypes.ReceiptStatusSuccessful
+	} else {
+		receipt.Status = ethtypes.ReceiptStatusFailed
+	}
+
+	return receipt
 }

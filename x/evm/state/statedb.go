@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -29,6 +30,8 @@ type DBImpl struct {
 
 	k          EVMKeeper
 	simulation bool
+
+	logger *tracing.Hooks
 }
 
 func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
@@ -42,6 +45,10 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	}
 	s.Snapshot() // take an initial snapshot for GetCommitted
 	return s
+}
+
+func (s *DBImpl) SetLogger(logger *tracing.Hooks) {
+	s.logger = logger
 }
 
 func (s *DBImpl) SetEVM(evm *vm.EVM) {
@@ -105,6 +112,7 @@ func (s *DBImpl) Copy() vm.StateDB {
 		coinbaseAddress:  s.coinbaseAddress,
 		simulation:       s.simulation,
 		err:              s.err,
+		logger:           s.logger,
 	}
 }
 

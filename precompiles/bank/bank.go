@@ -10,9 +10,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/tracers"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -206,8 +208,37 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, err
 	}
 
+	if hooks := tracers.GetCtxEthTracingHooks(ctx); hooks != nil && hooks.OnBalanceChange != nil && !wei.IsZero() {
+		// Precompile address got wei removed from it
+		newBalance := p.bankKeeper.GetWeiBalance(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address)).BigInt()
+		oldBalance := new(big.Int).Add(newBalance, wei.BigInt())
+
+		hooks.OnBalanceChange(p.address, oldBalance, newBalance, tracing.BalanceChangeTransfer)
+
+		// Sender received wei from the precompile address
+		newBalance = p.bankKeeper.GetWeiBalance(ctx, senderSeiAddr).BigInt()
+		oldBalance = new(big.Int).Sub(newBalance, wei.BigInt())
+
+		hooks.OnBalanceChange(caller, oldBalance, newBalance, tracing.BalanceChangeTransfer)
+	}
+
 	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, usei, wei); err != nil {
 		return nil, err
+	}
+
+	if hooks := tracers.GetCtxEthTracingHooks(ctx); hooks != nil && hooks.OnBalanceChange != nil && !wei.IsZero() {
+		// Sender address got wei removed from it
+		newBalance := p.bankKeeper.GetWeiBalance(ctx, senderSeiAddr).BigInt()
+		oldBalance := new(big.Int).Add(newBalance, wei.BigInt())
+
+		hooks.OnBalanceChange(caller, oldBalance, newBalance, tracing.BalanceChangeTransfer)
+
+		// Receiver received wei from the sender address
+		evmReceiverAddr := p.evmKeeper.GetEVMAddressFromBech32OrDefault(ctx, receiverAddr)
+		newBalance = p.bankKeeper.GetWeiBalance(ctx, receiverSeiAddr).BigInt()
+		oldBalance = new(big.Int).Sub(newBalance, wei.BigInt())
+
+		hooks.OnBalanceChange(evmReceiverAddr, oldBalance, newBalance, tracing.BalanceChangeTransfer)
 	}
 
 	return method.Outputs.Pack(true)
