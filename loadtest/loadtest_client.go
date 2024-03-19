@@ -12,13 +12,13 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/armon/go-metrics"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/types"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -183,13 +183,13 @@ func (c *LoadTestClient) BuildTxs(
 		case <-done:
 			return
 		default:
-			metrics.IncrCounterWithLabels([]string{"sei", "producer"}, float32(1), []metrics.Label{})
 			if !rateLimiter.Allow() {
 				continue
 			}
 			// Generate a message type first
 			messageTypes := strings.Split(config.MessageType, ",")
 			messageType := c.getRandomMessageType(messageTypes)
+			defer metrics.IncrProducerEventCount(messageType)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
 			switch messageType {
@@ -245,7 +245,7 @@ func (c *LoadTestClient) SendTxs(
 		case <-done:
 			return
 		case tx, ok := <-txQueue:
-			metrics.IncrCounterWithLabels([]string{"sei", "consumer"}, float32(1), []metrics.Label{})
+			defer metrics.IncrConsumerEventCount()
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				return

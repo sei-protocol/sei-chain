@@ -262,3 +262,29 @@ func MeasureRpcRequestLatency(endpoint string, startTime time.Time) {
 		[]metrics.Label{telemetry.NewLabel("endpoint", endpoint)},
 	)
 }
+
+// IncrProducerEventCount increments the counter for events produced.
+// This metric counts the number of events produced by the system.
+// Metric Name:
+//
+//	sei_loadtest_produce_count
+func IncrProducerEventCount() {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "loadtest", "produce", "count"},
+		1,
+		[]metrics.Label{},
+	)
+}
+
+// IncrConsumerEventCount increments the counter for events consumed.
+// This metric counts the number of events consumed by the system.
+// Metric Name:
+//
+//	sei_loadtest_consume_count
+func IncrConsumerEventCount() {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "loadtest", "consume", "count"},
+		1,
+		[]metrics.Label{},
+	)
+}
