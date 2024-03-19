@@ -6,7 +6,7 @@ import (
 )
 
 type Config struct {
-	Enabled    bool   `mapstructure:"enabled"`
+	Enabled    bool   `mapstructure:"eth_replay_enabled"`
 	EthRPC     string `mapstructure:"eth_rpc"`
 	EthDataDir string `mapstructure:"eth_data_dir"`
 }
@@ -18,7 +18,7 @@ var DefaultConfig = Config{
 }
 
 const (
-	flagEnabled    = "eth_replay.enabled"
+	flagEnabled    = "eth_replay.eth_replay_enabled"
 	flagEthRPC     = "eth_replay.eth_rpc"
 	flagEthDataDir = "eth_replay.eth_data_dir"
 )
