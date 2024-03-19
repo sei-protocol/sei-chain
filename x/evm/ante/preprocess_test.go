@@ -2,6 +2,7 @@ package ante_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -98,12 +99,16 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
-	emptyHash := common.Hash{}
-	sig, err := crypto.Sign(emptyHash[:], key)
+
+	emptyData := make([]byte, 32)
+	prefixedMessage := fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(emptyData)) + string(emptyData)
+	hash := crypto.Keccak256Hash([]byte(prefixedMessage))
+	sig, err := crypto.Sign(hash.Bytes(), key)
 	require.Nil(t, err)
 	R, S, _, _ := ethtx.DecodeSignature(sig)
 	V := big.NewInt(int64(sig[64]))
-	txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes()}
+
+	txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes(), CustomMessage: prefixedMessage}
 	msg, err := types.NewMsgEVMTransaction(&txData)
 	require.Nil(t, err)
 	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {

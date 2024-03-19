@@ -22,6 +22,7 @@ message AccessTuple {
     bytes v = 1;
     bytes r = 2;
     bytes s = 3;
+    string custom_message = 4;
   }
 
 message LegacyTx {
