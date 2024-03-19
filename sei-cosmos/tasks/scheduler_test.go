@@ -21,7 +21,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/occ"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 )
@@ -50,8 +49,7 @@ func abortRecoveryFunc(response *types.ResponseDeliverTx) {
 		if !ok {
 			panic(r)
 		}
-		response.Code = sdkerrors.ErrOCCAbort.ABCICode()
-		response.Codespace = sdkerrors.ErrOCCAbort.Codespace()
+		// empty code and codespace
 		response.Info = "occ abort"
 	}
 }

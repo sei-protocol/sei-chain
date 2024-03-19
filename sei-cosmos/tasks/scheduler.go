@@ -11,7 +11,6 @@ import (
 	store "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/occ"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/tendermint/tendermint/abci/types"
@@ -516,21 +515,14 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 	s.prepareTask(task)
 
 	resp := s.deliverTx(task.Ctx, task.Request)
-
-	// if an abort occurred, we want to handle that at this level
-	if resp.Codespace == errors.ErrOCCAbort.Codespace() && resp.Code == errors.ErrOCCAbort.ABCICode() {
-		// close the abort channel
-		close(task.AbortCh)
-
+	// close the abort channel
+	close(task.AbortCh)
+	abort, ok := <-task.AbortCh
+	if ok {
+		// if there is an abort item that means we need to wait on the dependent tx
 		task.SetStatus(statusAborted)
-		// read the first abort from the channel
-		abort, ok := <-task.AbortCh
-		if ok {
-			// if there is an abort item that means we need to wait on the dependent tx
-			task.SetStatus(statusAborted)
-			task.Abort = &abort
-			task.AppendDependencies([]int{abort.DependentTxIdx})
-		}
+		task.Abort = &abort
+		task.AppendDependencies([]int{abort.DependentTxIdx})
 		// write from version store to multiversion stores
 		for _, v := range task.VersionStores {
 			v.WriteEstimatesToMultiVersionStore()
