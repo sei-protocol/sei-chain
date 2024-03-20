@@ -181,7 +181,9 @@ describe("EVM Test", function () {
                 const twapsContent = readDeploymentOutput('oracle_twaps.json');
 
                 exchangeRatesJSON = JSON.parse(exchangeRatesContent);
+                console.log("exchangeRatesJSON ", exchangeRatesJSON)
                 twapsJSON = JSON.parse(twapsContent);
+                console.log("twapsJSON ", twapsJSON)
 
                 const [signer, _] = await ethers.getSigners();
                 owner = await signer.getAddress();
