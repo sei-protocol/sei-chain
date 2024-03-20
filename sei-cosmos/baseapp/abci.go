@@ -12,8 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/tasks"
-
 	"github.com/armon/go-metrics"
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -23,6 +21,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
+	"github.com/cosmos/cosmos-sdk/tasks"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -252,19 +251,23 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 
 // DeliverTxBatch executes multiple txs
 func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (res sdk.DeliverTxBatchResponse) {
-	scheduler := tasks.NewScheduler(app.concurrencyWorkers, app.TracingInfo, app.DeliverTx)
-	// This will basically no-op the actual prefill if the metadata for the txs is empty
+	responses := make([]*sdk.DeliverTxResult, 0, len(req.TxEntries))
 
-	// process all txs, this will also initializes the MVS if prefill estimates was disabled
-	txRes, err := scheduler.ProcessAll(ctx, req.TxEntries)
-	if err != nil {
-		// TODO: handle error
+	if len(req.TxEntries) == 0 {
+		return sdk.DeliverTxBatchResponse{Results: responses}
 	}
 
-	responses := make([]*sdk.DeliverTxResult, 0, len(req.TxEntries))
+	// avoid overhead for empty batches
+	scheduler := tasks.NewScheduler(app.concurrencyWorkers, app.TracingInfo, app.DeliverTx)
+	txRes, err := scheduler.ProcessAll(ctx, req.TxEntries)
+	if err != nil {
+		ctx.Logger().Error("error while processing scheduler", "err", err)
+		panic(err)
+	}
 	for _, tx := range txRes {
 		responses = append(responses, &sdk.DeliverTxResult{Response: tx})
 	}
+
 	return sdk.DeliverTxBatchResponse{Results: responses}
 }
 

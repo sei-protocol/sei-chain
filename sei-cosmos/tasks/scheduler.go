@@ -287,7 +287,7 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 
 	// default to number of tasks if workers is negative or 0 by this point
 	workers := s.workers
-	if s.workers < 1 {
+	if s.workers < 1 || len(tasks) < s.workers {
 		workers = len(tasks)
 	}
 

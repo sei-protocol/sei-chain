@@ -144,3 +144,41 @@ func TestDeliverTxBatch(t *testing.T) {
 		app.Commit(context.Background())
 	}
 }
+
+func TestDeliverTxBatchEmpty(t *testing.T) {
+	// test increments in the ante
+	anteKey := []byte("ante-key")
+
+	anteOpt := func(bapp *BaseApp) {
+		bapp.SetAnteHandler(anteHandler(capKey1, anteKey))
+	}
+
+	// test increments in the handler
+	routerOpt := func(bapp *BaseApp) {
+		r := sdk.NewRoute(routeMsgCounter, handlerKVStore(capKey1))
+		bapp.Router().AddRoute(r)
+	}
+
+	app := setupBaseApp(t, anteOpt, routerOpt)
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
+
+	// Create same codec used in txDecoder
+	codec := codec.NewLegacyAmino()
+	registerTestCodec(codec)
+
+	nBlocks := 3
+	for blockN := 0; blockN < nBlocks; blockN++ {
+		header := tmproto.Header{Height: int64(blockN) + 1}
+		app.setDeliverState(header)
+		app.BeginBlock(app.deliverState.ctx, abci.RequestBeginBlock{Header: header})
+
+		var requests []*sdk.DeliverTxEntry
+		responses := app.DeliverTxBatch(app.deliverState.ctx, sdk.DeliverTxBatchRequest{TxEntries: requests})
+		require.Len(t, responses.Results, 0)
+
+		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
+		require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
+		app.SetDeliverStateToCommit()
+		app.Commit(context.Background())
+	}
+}
