@@ -173,7 +173,7 @@ func (c *LoadTestClient) BuildTxs(
 	wg *sync.WaitGroup,
 	done <-chan struct{},
 	rateLimiter *rate.Limiter,
-	producedCount *atomic.Int64,
+	producedCountPerMsgType map[string]*int64,
 ) {
 	wg.Add(1)
 	defer wg.Done()
@@ -189,19 +189,20 @@ func (c *LoadTestClient) BuildTxs(
 			// Generate a message type first
 			messageTypes := strings.Split(config.MessageType, ",")
 			messageType := c.getRandomMessageType(messageTypes)
-			defer metrics.IncrProducerEventCount()
+			defer metrics.IncrProducerEventCount(messageType)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
 			switch messageType {
 			case EVM, ERC20, ERC721, UNIV2:
-				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType)}
+				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType), MsgType: messageType}
 			default:
-				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, producedCount)}
+				msgTypeCount := atomic.LoadInt64(producedCountPerMsgType[messageType])
+				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, msgTypeCount), MsgType: messageType}
 			}
 
 			select {
 			case txQueue <- signedTx:
-				producedCount.Add(1)
+				atomic.AddInt64(producedCountPerMsgType[messageType], 1)
 			case <-done:
 				return
 			}
@@ -213,7 +214,7 @@ func (c *LoadTestClient) generateSignedEvmTx(keyIndex int, msgType string) *etht
 	return c.EvmTxClients[keyIndex].GetTxForMsgType(msgType)
 }
 
-func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, producedCount *atomic.Int64) []byte {
+func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, msgTypeCount int64) []byte {
 	key := c.AccountKeys[keyIndex]
 	msgs, _, _, gas, fee := c.generateMessage(key, msgType)
 	txBuilder := TestConfig.TxConfig.NewTxBuilder()
@@ -223,7 +224,7 @@ func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, p
 		types.NewCoin("usei", types.NewInt(fee)),
 	})
 	// Use random seqno to get around txs that might already be seen in mempool
-	c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(producedCount.Load()))
+	c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(msgTypeCount))
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
 	return txBytes
 }
@@ -232,7 +233,7 @@ func (c *LoadTestClient) SendTxs(
 	txQueue chan SignedTx,
 	keyIndex int,
 	done <-chan struct{},
-	sentCount *atomic.Int64,
+	sentCountPerMsgType map[string]*int64,
 	semaphore *semaphore.Weighted,
 	wg *sync.WaitGroup,
 ) {
@@ -245,7 +246,7 @@ func (c *LoadTestClient) SendTxs(
 		case <-done:
 			return
 		case tx, ok := <-txQueue:
-			defer metrics.IncrConsumerEventCount()
+			defer metrics.IncrConsumerEventCount(tx.MsgType)
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				return
@@ -258,12 +259,12 @@ func (c *LoadTestClient) SendTxs(
 			if tx.TxBytes != nil && len(tx.TxBytes) > 0 {
 				// Send Cosmos Transactions
 				if SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c) {
-					sentCount.Add(1)
+					atomic.AddInt64(producedCountPerMsgType[tx.MsgType], 1)
 				}
 			} else if tx.EvmTx != nil {
 				// Send EVM Transactions
 				c.EvmTxClients[keyIndex].SendEvmTx(tx.EvmTx, func() {
-					sentCount.Add(1)
+					atomic.AddInt64(producedCountPerMsgType[tx.MsgType], 1)
 				})
 			}
 			// Release the semaphore

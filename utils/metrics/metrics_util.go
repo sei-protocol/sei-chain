@@ -164,7 +164,7 @@ func SetThroughputMetric(metricName string, value float32) {
 	)
 }
 
-// Measures number of times a denom's price is updated
+// Measures throughput per message type
 // Metric Name:
 //
 //	sei_oracle_price_update_count
@@ -173,6 +173,18 @@ func IncrPriceUpdateDenom(denom string) {
 		[]string{"sei", "oracle", "price", "update"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("denom", denom)},
+	)
+}
+
+// Measures throughput per message type
+// Metric Name:
+//
+//	sei_throughput_<metric_name>
+func SetThroughputMetricByType(metricName string, value float32, msgType string) {
+	telemetry.SetGaugeWithLabels(
+		[]string{"sei", "throughput", metricName},
+		value,
+		[]metrics.Label{telemetry.NewLabel("type", msgType)},
 	)
 }
 
@@ -268,11 +280,11 @@ func MeasureRpcRequestLatency(endpoint string, startTime time.Time) {
 // Metric Name:
 //
 //	sei_loadtest_produce_count
-func IncrProducerEventCount() {
+func IncrProducerEventCount(msgType string) {
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "loadtest", "produce", "count"},
 		1,
-		[]metrics.Label{},
+		[]metrics.Label{telemetry.NewLabel("type", msgType)},
 	)
 }
 
@@ -281,10 +293,10 @@ func IncrProducerEventCount() {
 // Metric Name:
 //
 //	sei_loadtest_consume_count
-func IncrConsumerEventCount() {
+func IncrConsumerEventCount(msgType string) {
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "loadtest", "consume", "count"},
 		1,
-		[]metrics.Label{},
+		[]metrics.Label{telemetry.NewLabel("type", msgType)},
 	)
 }

@@ -46,10 +46,10 @@ const (
 )
 
 var (
-	FromMili      = sdk.NewDec(1000000)
-	producedCount = atomic.Int64{}
-	sentCount     = atomic.Int64{}
-	prevSentCount = atomic.Int64{}
+	FromMili                  = sdk.NewDec(1000000)
+	producedCountPerMsgType   = make(map[string]*int64)
+	sentCountPerMsgType       = make(map[string]*int64)
+	prevSentCounterPerMsgType = make(map[string]*int64)
 )
 
 type BlockData struct {
@@ -177,8 +177,8 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
 	var wg sync.WaitGroup
 	for i := 0; i < len(keys); i++ {
-		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCount)
-		go client.SendTxs(txQueues[i], i, done, &sentCount, consumerSemaphore, &wg)
+		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, producedCountPerMsgType)
+		go client.SendTxs(txQueues[i], i, done, sentCountPerMsgType, consumerSemaphore, &wg)
 	}
 
 	// Statistics reporting goroutine
@@ -199,14 +199,15 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 					blockTimes = append(blockTimes, blockTime)
 				}
 
-				totalProduced := producedCount.Load()
-				totalSent := sentCount.Load()
-				prevTotalSent := prevSentCount.Load()
-				printStats(start, totalProduced, totalSent, prevTotalSent, blockHeights, blockTimes)
+				printStats(start, producedCountPerMsgType, sentCountPerMsgType, prevSentCounterPerMsgType, blockHeights, blockTimes)
 				startHeight = currHeight
 				blockHeights, blockTimes = nil, nil
 				start = time.Now()
-				prevSentCount.Store(totalSent)
+
+				for msgType, _ := range sentCountPerMsgType {
+					count := atomic.LoadInt64(sentCountPerMsgType[msgType])
+					atomic.StoreInt64(prevSentCounterPerMsgType[msgType], count)
+				}
 			case <-done:
 				ticker.Stop()
 				return
@@ -228,10 +229,21 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 	}
 }
 
-func printStats(startTime time.Time, totalProduced int64, totalSent int64, prevTotalSent int64, blockHeights []int, blockTimes []string) {
+func printStats(
+	startTime time.Time,
+	producedCountPerMsgType map[string]*int64,
+	sentCountPerMsgType map[string]*int64,
+	prevSentPerCounterPerMsgType map[string]*int64,
+	blockHeights []int,
+	blockTimes []string,
+) {
 	elapsed := time.Since(startTime)
-	tps := float64(totalSent-prevTotalSent) / elapsed.Seconds()
-	defer metrics.SetThroughputMetric("tps", float32(tps))
+	for msgType, _ := range sentCountPerMsgType {
+		sentCount := atomic.LoadInt64(sentCountPerMsgType[msgType])
+		prevTotalSent := atomic.LoadInt64(prevSentPerCounterPerMsgType[msgType])
+		tps := float64(sentCount-prevTotalSent) / elapsed.Seconds()
+		defer metrics.SetThroughputMetricByType("tps", float32(tps), msgType)
+	}
 
 	var totalDuration time.Duration
 	var prevTime time.Time
