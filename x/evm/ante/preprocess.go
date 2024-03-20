@@ -136,7 +136,9 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	if atx, ok := txData.(*ethtx.AssociateTx); ok {
 		V, R, S := atx.GetRawSignatureValues()
 		V = new(big.Int).Add(V, big.NewInt(27))
-		evmAddr, seiAddr, pubkey, err := getAddresses(V, R, S, common.Hash{}) // associate tx should sign over an empty hash
+		// Hash custom message passed in
+		customMessageHash := crypto.Keccak256Hash([]byte(atx.CustomMessage))
+		evmAddr, seiAddr, pubkey, err := getAddresses(V, R, S, customMessageHash)
 		if err != nil {
 			return err
 		}

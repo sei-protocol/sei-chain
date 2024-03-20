@@ -7,6 +7,10 @@ RUN tar -xvf go1.21.4.linux-amd64.tar.gz
 RUN mv go /usr/local/
 RUN curl -L https://foundry.paradigm.xyz | bash
 RUN /root/.foundry/bin/foundryup
+RUN curl -sL https://deb.nodesource.com/setup_16.x | bash
+RUN apt-get install -y nodejs
+RUN mkdir -p /root/.config && \
+    chmod -R 777 /root/.config
 SHELL ["/bin/bash", "-c"]
 
 
