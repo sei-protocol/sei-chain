@@ -35,17 +35,11 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 	}
 
 	if k.BlockTest != nil {
-		fmt.Println("In k.BlockTest != nil")
-		header, db, trie := k.openEthDatabase2() // TODO: replace with your own openEthDatabase function
-		k.Root = header.Root
-		k.DB = db
-		k.Trie = trie
+		header := k.OpenEthDatabase2()
 		params := k.GetParams(ctx)
 		params.ChainId = sdk.OneInt()
 		k.SetParams(ctx, params)
-		if k.EthReplayConfig.EthDataEarliestBlock == 0 {
-			k.EthReplayConfig.EthDataEarliestBlock = uint64(header.Number.Int64())
-		}
+		k.SetReplayInitialHeight(ctx, header.Number.Int64())
 		ethReplayInitialied = true
 		if !k.EthReplayConfig.Enabled {
 			fmt.Println("EthReplayConfig has been automatically enabled")
@@ -105,13 +99,13 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 	return header
 }
 
-func (k *Keeper) openEthDatabase2() (*ethtypes.Header) {
+func (k *Keeper) OpenEthDatabase2() (*ethtypes.Header) {
+	fmt.Println("In openEthDatabase2")
 	network := "Shanghai" // pull this in from the test
 	config, ok := ethtests.Forks[network]
 	if !ok {
 		panic("fork not found")
 	}
-	fmt.Println("In openEthDatabase2")
 	var (
 		db    = rawdb.NewMemoryDatabase()
 		tconf = &trie.Config{
@@ -119,7 +113,7 @@ func (k *Keeper) openEthDatabase2() (*ethtypes.Header) {
 			IsVerkle:  false,
 		}
 	)
-	scheme := rawdb.HashScheme // TODO: not sure if this is right
+	scheme := rawdb.HashScheme
 	if scheme == rawdb.PathScheme {
 		tconf.PathDB = pathdb.Defaults
 	} else {

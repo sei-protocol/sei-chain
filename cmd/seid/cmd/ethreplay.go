@@ -85,20 +85,7 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 				baseapp.SetInterBlockCache(cache),
 			)
 			if blockTestFileName != "" {
-				// tm := new(TestMatcher)
-
-				// // need to injest the test case using TestMatcher
-
-				// runTest := func(name string, bt *ethtest.BlockTest) {
-				// 	fmt.Println("In runTest, bt = ", bt)
-				// 	if runtime.GOARCH == "386" && runtime.GOOS == "windows" && rand.Int63()%2 == 0 {
-				// 		return
-				// 	}
-				// 	// app.ReplayBlockTest(a, bt)
-				// }
-				// tm.walk2(blockTestDir, runTest)
-
-				// bt := testInjester(blockTestFileName)
+				// bt := testInjester(blockTestFileName) <- TODO
 				bt := emptyBlockTest
 				app.ReplayBlockTest(a, bt)
 				return nil

@@ -52,15 +52,13 @@ type Keeper struct {
 	pendingTxs                   map[string][]*PendingTx
 	keyToNonce                   map[tmtypes.TxKey]*AddressNoncePair
 
-	// only used during ETH replay. Not used in chain critical path
+	// only used during ETH replay/Block tests. Not used in chain critical path
 	EthClient       *ethclient.Client
 	EthReplayConfig replay.Config
 	Trie            ethstate.Trie
 	DB              ethstate.Database
 	Root            common.Hash
-
-	// Block test
-	BlockTest *tests.BlockTest
+	BlockTest       *tests.BlockTest
 }
 
 type EvmTxDeferredInfo struct {
