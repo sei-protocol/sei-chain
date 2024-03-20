@@ -182,9 +182,9 @@ func IncrPriceUpdateDenom(denom string) {
 //	sei_throughput_<metric_name>
 func SetThroughputMetricByType(metricName string, value float32, msgType string) {
 	telemetry.SetGaugeWithLabels(
-		[]string{"sei", "throughput", metricName},
+		[]string{"sei", "loadtest", "tps", metricName},
 		value,
-		[]metrics.Label{telemetry.NewLabel("type", msgType)},
+		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
 	)
 }
 
@@ -284,7 +284,7 @@ func IncrProducerEventCount(msgType string) {
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "loadtest", "produce", "count"},
 		1,
-		[]metrics.Label{telemetry.NewLabel("type", msgType)},
+		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
 	)
 }
 
@@ -297,6 +297,6 @@ func IncrConsumerEventCount(msgType string) {
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "loadtest", "consume", "count"},
 		1,
-		[]metrics.Label{telemetry.NewLabel("type", msgType)},
+		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
 	)
 }
