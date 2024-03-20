@@ -180,10 +180,8 @@ describe("EVM Test", function () {
                 const exchangeRatesContent = readDeploymentOutput('oracle_exchange_rates.json');
                 const twapsContent = readDeploymentOutput('oracle_twaps.json');
 
-                exchangeRatesJSON = JSON.parse(exchangeRatesContent);
-                console.log("exchangeRatesJSON ", exchangeRatesJSON)
-                twapsJSON = JSON.parse(twapsContent);
-                console.log("twapsJSON ", twapsJSON)
+                exchangeRatesJSON = JSON.parse(exchangeRatesContent).denom_oracle_exchange_rate_pairs;
+                twapsJSON = JSON.parse(twapsContent).oracle_twaps;
 
                 const [signer, _] = await ethers.getSigners();
                 owner = await signer.getAddress();
@@ -196,12 +194,22 @@ describe("EVM Test", function () {
 
             it("Oracle Exchange Rates", async function () {
                 const exchangeRates = await oracle.getExchangeRates();
-                console.log(exchangeRates);
+                const exchangeRatesLen = exchangeRatesJSON.length;
+                expect(exchangeRates.length).to.equal(exchangeRatesLen);
+
+                for (let i = 0; i < exchangeRatesLen; i++) {
+                    expect(exchangeRatesJSON[i].denom).to.equal(exchangeRates[i].denom);
+                }
             });
 
             it("Oracle Twaps", async function () {
                 const twaps = await oracle.getOracleTwaps(3600);
-                console.log(twaps);
+                const twapsLen = twapsJSON.length
+                expect(twaps.length).to.equal(twapsLen);
+
+                for (let i = 0; i < twapsLen; i++) {
+                    expect(twapsJSON[i].denom).to.equal(twaps[i].denom);
+                }
             });
         });
     });
