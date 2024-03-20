@@ -164,7 +164,7 @@ func SetThroughputMetric(metricName string, value float32) {
 	)
 }
 
-// Measures throughput per message type
+// Measures number of times a denom's price is updated
 // Metric Name:
 //
 //	sei_oracle_price_update_count
