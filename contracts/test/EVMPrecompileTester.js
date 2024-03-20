@@ -173,6 +173,35 @@ describe("EVM Test", function () {
                 // TODO: Add staking query precompile here
             });
         });
+
+        describe("EVM Oracle Precompile Tester", function () {
+            const OraclePrecompileContract = '0x0000000000000000000000000000000000001008';
+            before(async function() {
+                const exchangeRatesContent = readDeploymentOutput('oracle_exchange_rates.json');
+                const twapsContent = readDeploymentOutput('oracle_twaps.json');
+
+                exchangeRatesJSON = JSON.parse(exchangeRatesContent);
+                twapsJSON = JSON.parse(twapsContent);
+
+                const [signer, _] = await ethers.getSigners();
+                owner = await signer.getAddress();
+
+                const contractABIPath = path.join(__dirname, '../../precompiles/oracle/abi.json');
+                const contractABI = require(contractABIPath);
+                // Get a contract instance
+                oracle = new ethers.Contract(OraclePrecompileContract, contractABI, signer);
+            });
+
+            it("Oracle Exchange Rates", async function () {
+                const exchangeRates = await oracle.getExchangeRates();
+                console.log(exchangeRates);
+            });
+
+            it("Oracle Twaps", async function () {
+                const twaps = await oracle.getOracleTwaps(3600);
+                console.log(twaps);
+            });
+        });
     });
 });
 
