@@ -238,10 +238,21 @@ func printStats(
 	blockTimes []string,
 ) {
 	elapsed := time.Since(startTime)
+
+	totalSent := int64(0)
+	totalProduced := int64(0)
+	for msg_type, _ := range sentCountPerMsgType {
+		totalSent += atomic.LoadInt64(sentCountPerMsgType[msg_type])
+	}
+	for msg_type, _ := range producedCountPerMsgType {
+		totalProduced += atomic.LoadInt64(producedCountPerMsgType[msg_type])
+	}
+
+	var tps float64
 	for msgType, _ := range sentCountPerMsgType {
 		sentCount := atomic.LoadInt64(sentCountPerMsgType[msgType])
 		prevTotalSent := atomic.LoadInt64(prevSentPerCounterPerMsgType[msgType])
-		tps := float64(sentCount-prevTotalSent) / elapsed.Seconds()
+		tps = float64(sentCount-prevTotalSent) / elapsed.Seconds()
 		defer metrics.SetThroughputMetricByType("tps", float32(tps), msgType)
 	}
 
