@@ -118,7 +118,6 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte, value *big.
 
 	switch method.Name {
 	case GetExchangeRatesMethod:
-		p.getExchangeRates(ctx, method, args, value)
 		return p.getExchangeRates(ctx, method, args, value)
 	case GetOracleTwapsMethod:
 		return p.getOracleTwaps(ctx, method, args, value)
@@ -146,7 +145,7 @@ func (p Precompile) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []i
 		return nil, err
 	}
 	// Convert twap to string
-	var oracleTwaps []OracleTwap
+	oracleTwaps := make([]OracleTwap, 0, len(twaps))
 	for _, twap := range twaps {
 		oracleTwaps = append(oracleTwaps, OracleTwap{Denom: twap.Denom, Twap: twap.Twap.String(), LookbackSeconds: twap.LookbackSeconds})
 	}
