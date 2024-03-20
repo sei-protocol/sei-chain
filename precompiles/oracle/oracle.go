@@ -62,7 +62,7 @@ type OracleExchangeRate struct {
 
 type DenomOracleExchangeRatePair struct {
 	Denom                 string             `json:"denom"`
-	OracleExchangeRateVal OracleExchangeRate `json:"oracle"`
+	OracleExchangeRateVal OracleExchangeRate `json:"oracleExchangeRateVal"`
 }
 
 type OracleTwap struct {
