@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -32,6 +33,8 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 		Short: "replay EVM transactions",
 		Long:  "replay EVM transactions",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			blockTestFileName, _ := cmd.Flags().GetString("block-test")
+			fmt.Println("blockTestFileName: ", blockTestFileName)
 
 			serverCtx := server.GetServerContextFromCmd(cmd)
 			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
@@ -81,13 +84,34 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 				baseapp.SetMinRetainBlocks(cast.ToUint64(serverCtx.Viper.Get(server.FlagMinRetainBlocks))),
 				baseapp.SetInterBlockCache(cache),
 			)
+			if blockTestFileName != "" {
+				// tm := new(TestMatcher)
+
+				// // need to injest the test case using TestMatcher
+
+				// runTest := func(name string, bt *ethtest.BlockTest) {
+				// 	fmt.Println("In runTest, bt = ", bt)
+				// 	if runtime.GOARCH == "386" && runtime.GOOS == "windows" && rand.Int63()%2 == 0 {
+				// 		return
+				// 	}
+				// 	// app.ReplayBlockTest(a, bt)
+				// }
+				// tm.walk2(blockTestDir, runTest)
+
+				// bt := testInjester(blockTestFileName)
+				bt := emptyBlockTest
+				app.ReplayBlockTest(a, bt)
+				return nil
+			}
 			app.Replay(a)
 			return nil
+
 		},
 	}
 
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The database home directory")
 	cmd.Flags().String(flags.FlagChainID, "sei-chain", "chain ID")
+	cmd.Flags().String("block-test", "", "path to a block test json file")
 
 	return cmd
 }

@@ -25,6 +25,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/tests"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -57,6 +58,9 @@ type Keeper struct {
 	Trie            ethstate.Trie
 	DB              ethstate.Database
 	Root            common.Hash
+
+	// Block test
+	BlockTest *tests.BlockTest
 }
 
 type EvmTxDeferredInfo struct {
@@ -347,7 +351,7 @@ func (k *Keeper) GetKeysToNonces() map[tmtypes.TxKey]*AddressNoncePair {
 	return k.keyToNonce
 }
 
-// Only usd in ETH replay
+// Only used in ETH replay
 func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 	if !k.EthReplayConfig.Enabled {
 		return
