@@ -18,7 +18,7 @@ const (
 )
 
 const (
-	IBCAddress = "0x0000000000000000000000000000000000001008"
+	IBCAddress = "0x0000000000000000000000000000000000001009"
 )
 
 var _ vm.PrecompiledContract = &Precompile{}
