@@ -50,13 +50,14 @@ type Precompile struct {
 	TransferID []byte
 }
 
-func NewPrecompile(transferKeeper pcommon.TransferKeeper) (*Precompile, error) {
+func NewPrecompile(transferKeeper pcommon.TransferKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
 		Precompile:     pcommon.Precompile{ABI: newAbi},
 		address:        common.HexToAddress(IBCAddress),
 		transferKeeper: transferKeeper,
+		evmKeeper:      evmKeeper,
 	}
 
 	for name, m := range newAbi.Methods {
@@ -96,14 +97,38 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 }
 func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 4)
-	denom := args[2].(string)
+	pcommon.AssertArgsLength(args, 6)
+
+	senderAddress, err := p.accAddressFromArg(ctx, args[0])
+	if err != nil {
+		return nil, err
+	}
+
+	receiverAddress, err := p.accAddressFromArg(ctx, args[1])
+	if err != nil {
+		return nil, err
+	}
+
+	port, ok := args[2].(string)
+	if !ok {
+		return nil, errors.New("port is not a string")
+	}
+
+	channelID, ok := args[3].(string)
+	if !ok {
+		return nil, errors.New("channelID is not a string")
+	}
+
+	denom := args[4].(string)
 	if denom == "" {
 		return nil, errors.New("invalid denom")
 	}
-	amount := args[3].(*big.Int)
-	channelID := args[0].(string)
-	port := args[1].(string)
+
+	amount, ok := args[5].(*big.Int)
+	if !ok {
+		return nil, errors.New("amount is not a big.Int")
+	}
+
 	if amount.Cmp(big.NewInt(0)) == 0 {
 		// short circuit
 		return method.Outputs.Pack(true)
@@ -111,22 +136,15 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 
 	coin := sdk.Coin{
 		Denom:  denom,
-		Amount: sdk.Int{},
+		Amount: sdk.NewIntFromBigInt(amount),
 	}
 
-	senderAddress, err := p.accAddressFromArg(ctx, args[0])
-	if err != nil {
-		return nil, err
+	height := clienttypes.Height{
+		RevisionNumber: 1,
+		RevisionHeight: 3,
 	}
 
-	receiverAddress, ok := args[1].(string)
-	if !ok {
-		return nil, errors.New("receiverAddress is not a string")
-	}
-
-	height := clienttypes.Height{}
-
-	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderAddress, receiverAddress, height, 0)
+	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderAddress, receiverAddress.String(), height, 0)
 
 	if err != nil {
 		return nil, err

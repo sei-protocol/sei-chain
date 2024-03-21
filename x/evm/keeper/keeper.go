@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	"math"
 	"math/big"
 	"slices"
@@ -14,6 +15,9 @@ import (
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	ibctransferkeeper "github.com/cosmos/ibc-go/v3/modules/apps/transfer/keeper"
+	channelkeeper "github.com/cosmos/ibc-go/v3/modules/core/04-channel/keeper"
+	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -32,9 +36,12 @@ type Keeper struct {
 	deferredInfo *sync.Map
 	txResults    []*abci.ExecTxResult
 
-	bankKeeper    bankkeeper.Keeper
-	accountKeeper *authkeeper.AccountKeeper
-	stakingKeeper *stakingkeeper.Keeper
+	bankKeeper       bankkeeper.Keeper
+	accountKeeper    *authkeeper.AccountKeeper
+	stakingKeeper    *stakingkeeper.Keeper
+	transferKeeper   ibctransferkeeper.Keeper
+	ibcKeeper        *ibckeeper.Keeper
+	capabilityKeeper capabilitykeeper.ScopedKeeper
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
@@ -57,7 +64,8 @@ type addressNoncePair struct {
 
 func NewKeeper(
 	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, paramstore paramtypes.Subspace,
-	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper) *Keeper {
+	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
+	transferKeeper ibctransferkeeper.Keeper, ibcKeeper *ibckeeper.Keeper, capabilityKeeper capabilitykeeper.ScopedKeeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -73,6 +81,9 @@ func NewKeeper(
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*addressNoncePair),
 		deferredInfo:                 &sync.Map{},
+		transferKeeper:               transferKeeper,
+		ibcKeeper:                    ibcKeeper,
+		capabilityKeeper:             capabilityKeeper,
 	}
 	return k
 }
@@ -83,6 +94,18 @@ func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
 
 func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 	return k.bankKeeper
+}
+
+func (k *Keeper) TransferKeeper() ibctransferkeeper.Keeper {
+	return k.transferKeeper
+}
+
+func (k *Keeper) ChannelKeeper() channelkeeper.Keeper {
+	return k.ibcKeeper.ChannelKeeper
+}
+
+func (k *Keeper) ScopedCapabilityKeeper() capabilitykeeper.ScopedKeeper {
+	return k.capabilityKeeper
 }
 
 func (k *Keeper) GetStoreKey() sdk.StoreKey {

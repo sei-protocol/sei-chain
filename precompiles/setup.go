@@ -69,7 +69,7 @@ func InitializePrecompiles(
 		return err
 	}
 	addPrecompileToVM(distrp, distrp.Address())
-	ibcp, err := ibc.NewPrecompile(transferKeeper)
+	ibcp, err := ibc.NewPrecompile(transferKeeper, evmKeeper)
 	if err != nil {
 		return err
 	}
