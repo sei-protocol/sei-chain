@@ -91,12 +91,11 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 
 	switch method.Name {
 	case TransferMethod:
-		return p.transfer(ctx, method, args, value)
+		return p.transfer(ctx, method, args)
 	}
 	return
 }
-func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
+func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 6)
 
 	senderAddress, err := p.accAddressFromArg(ctx, args[0])
@@ -139,10 +138,7 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		Amount: sdk.NewIntFromBigInt(amount),
 	}
 
-	height := clienttypes.Height{
-		RevisionNumber: 1,
-		RevisionHeight: 3,
-	}
+	height := clienttypes.Height{}
 
 	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderAddress, receiverAddress.String(), height, 0)
 
