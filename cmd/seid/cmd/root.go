@@ -39,6 +39,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
+	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -160,6 +161,7 @@ func initRootCmd(
 		txCommand(),
 		keys.Commands(app.DefaultNodeHome),
 		ReplayCmd(app.DefaultNodeHome),
+		BlocktestCmd(app.DefaultNodeHome),
 	)
 }
 
@@ -374,6 +376,8 @@ func initAppConfig() (string, interface{}) {
 		EVM evmrpc.Config `mapstructure:"evm"`
 
 		ETHReplay replay.Config `mapstructure:"eth_replay"`
+
+		ETHBlockTest blocktest.Config `mapstructure:"block_test"`
 	}
 
 	// Optionally allow the chain developer to overwrite the SDK's default
@@ -487,6 +491,10 @@ slow = {{ .EVM.Slow }}
 eth_replay_enabled = {{ .ETHReplay.Enabled }}
 eth_rpc = "{{ .ETHReplay.EthRPC }}"
 eth_data_dir = "{{ .ETHReplay.EthDataDir }}"
+
+[block_test]
+eth_blocktest_enabled = {{ .BlockTest.Enabled }}
+eth_blocktest_test_data_path = "{{ .BlockTest.TestDataPath }}"
 `
 
 	return customAppTemplate, customAppConfig

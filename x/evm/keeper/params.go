@@ -36,7 +36,7 @@ func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 }
 
 func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
-	if k.EthReplayConfig.Enabled {
+	if k.EthReplayConfig.Enabled || k.EthBlockTestConfig.Enabled {
 		// replay is for eth mainnet so always return 1
 		return big.NewInt(1)
 	}

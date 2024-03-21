@@ -84,14 +84,6 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 				baseapp.SetMinRetainBlocks(cast.ToUint64(serverCtx.Viper.Get(server.FlagMinRetainBlocks))),
 				baseapp.SetInterBlockCache(cache),
 			)
-			if blockTestFileName != "" {
-				fmt.Println("Will injest block test, with file: ", blockTestFileName)
-				bt := testIngester(blockTestFileName)
-				fmt.Println("In EthReplayCmd, bt = ", bt)
-				// bt := emptyBlockTest
-				app.ReplayBlockTest(a, bt)
-				return nil
-			}
 			app.Replay(a)
 			return nil
 

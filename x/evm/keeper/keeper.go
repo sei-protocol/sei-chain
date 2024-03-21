@@ -29,6 +29,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -52,13 +53,18 @@ type Keeper struct {
 	pendingTxs                   map[string][]*PendingTx
 	keyToNonce                   map[tmtypes.TxKey]*AddressNoncePair
 
-	// only used during ETH replay/Block tests. Not used in chain critical path
+	// only used during ETH replay. Not used in chain critical path.
 	EthClient       *ethclient.Client
 	EthReplayConfig replay.Config
-	Trie            ethstate.Trie
-	DB              ethstate.Database
-	Root            common.Hash
-	BlockTest       *tests.BlockTest
+
+	// only used during blocktest. Not used in chain critical path.
+	EthBlockTestConfig blocktest.Config
+	BlockTest          *tests.BlockTest
+
+	// used for both ETH replay and block tests. Not used in chain critical path.
+	Trie ethstate.Trie
+	DB   ethstate.Database
+	Root common.Hash
 }
 
 type EvmTxDeferredInfo struct {
@@ -143,6 +149,9 @@ func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
 }
 
 func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockContext, error) {
+	if k.EthBlockTestConfig.Enabled {
+		return k.getBlockTestBlockCtx(ctx)
+	}
 	if k.EthReplayConfig.Enabled {
 		return k.getReplayBlockCtx(ctx)
 	}
@@ -351,10 +360,16 @@ func (k *Keeper) GetKeysToNonces() map[tmtypes.TxKey]*AddressNoncePair {
 
 // Only used in ETH replay
 func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
-	if !k.EthReplayConfig.Enabled {
+	if !k.EthReplayConfig.Enabled && !k.EthBlockTestConfig.Enabled {
 		return
 	}
-	store := k.PrefixStore(ctx, types.ReplaySeenAddrPrefix)
+	var store sdk.KVStore
+	if k.EthReplayConfig.Enabled {
+		store = k.PrefixStore(ctx, types.ReplaySeenAddrPrefix)
+	}
+	if k.EthBlockTestConfig.Enabled {
+		store = k.PrefixStore(ctx, types.BlockTestSeenAddrPrefix)
+	}
 	bz := store.Get(addr[:])
 	if len(bz) > 0 {
 		return
@@ -392,14 +407,18 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 }
 
 func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
-	if !k.EthReplayConfig.Enabled {
-		return nil
+	if k.EthReplayConfig.Enabled {
+		block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
+		if err != nil {
+			panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
+		}
+		return block.Header_.BaseFee
 	}
-	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
-	if err != nil {
-		panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
+	if k.EthBlockTestConfig.Enabled {
+		block := k.BlockTest.Json.Blocks[ctx.BlockHeight()]
+		return block.BlockHeader.BaseFeePerGas
 	}
-	return block.Header_.BaseFee
+	return nil
 }
 
 func (k *Keeper) GetReplayedHeight(ctx sdk.Context) int64 {
@@ -418,6 +437,22 @@ func (k *Keeper) SetReplayInitialHeight(ctx sdk.Context, h int64) {
 	k.setInt64State(ctx, types.ReplayInitialHeight, h)
 }
 
+func (k *Keeper) GetBlockTestHeight(ctx sdk.Context) int64 {
+	return k.getInt64State(ctx, types.BlockTestHeight)
+}
+
+func (k *Keeper) SetBlockTestHeight(ctx sdk.Context, h int64) {
+	k.setInt64State(ctx, types.BlockTestHeight, h)
+}
+
+func (k *Keeper) GetBlockTestInitialHeight(ctx sdk.Context) int64 {
+	return k.getInt64State(ctx, types.BlockTestInitialHeight)
+}
+
+func (k *Keeper) SetBlockTestInitialHeight(ctx sdk.Context, h int64) {
+	k.setInt64State(ctx, types.BlockTestInitialHeight, h)
+}
+
 func (k *Keeper) setInt64State(ctx sdk.Context, key []byte, val int64) {
 	store := ctx.KVStore(k.storeKey)
 	bz := make([]byte, 8)
@@ -432,6 +467,56 @@ func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
 		return 0
 	}
 	return int64(binary.BigEndian.Uint64(bz))
+}
+
+func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
+	btBlock := k.BlockTest.Json.Blocks[ctx.BlockHeight()]
+	btHeader := btBlock.BlockHeader
+	header := &ethtypes.Header{
+		ParentHash:  btHeader.ParentHash,
+		UncleHash:   btHeader.UncleHash,
+		Coinbase:    btHeader.Coinbase,
+		Root:        btHeader.StateRoot,
+		TxHash:      btHeader.TransactionsTrie,
+		ReceiptHash: btHeader.ReceiptTrie,
+		Bloom:       btHeader.Bloom,
+		Difficulty:  btHeader.Difficulty,
+		Number:      new(big.Int).Set(btHeader.Number),
+		GasLimit:    btHeader.GasLimit,
+		GasUsed:     btHeader.GasUsed,
+		Time:        btHeader.Timestamp,
+		Extra:       btHeader.ExtraData,
+		MixDigest:   btHeader.MixHash,
+		Nonce:       btHeader.Nonce,
+	}
+	getHash := core.GetHashFn(header, &ReplayChainContext{ethClient: k.EthClient})
+	var (
+		baseFee     *big.Int
+		blobBaseFee *big.Int
+		random      *common.Hash
+	)
+	if header.BaseFee != nil {
+		baseFee = new(big.Int).Set(header.BaseFee)
+	}
+	if header.ExcessBlobGas != nil {
+		blobBaseFee = eip4844.CalcBlobFee(*header.ExcessBlobGas)
+	}
+	if header.Difficulty.Cmp(common.Big0) == 0 {
+		random = &header.MixDigest
+	}
+	return &vm.BlockContext{
+		CanTransfer: core.CanTransfer,
+		Transfer:    core.Transfer,
+		GetHash:     getHash,
+		Coinbase:    header.Coinbase,
+		GasLimit:    header.GasLimit,
+		BlockNumber: new(big.Int).Set(header.Number),
+		Time:        header.Time,
+		Difficulty:  new(big.Int).Set(header.Difficulty),
+		BaseFee:     baseFee,
+		BlobBaseFee: blobBaseFee,
+		Random:      random,
+	}, nil
 }
 
 func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {

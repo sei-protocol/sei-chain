@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/ethereum/go-ethereum/trie"
@@ -21,6 +22,7 @@ import (
 )
 
 var ethReplayInitialied = false
+var ethBlockTestInitialied = false
 
 func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName, authtypes.Minter, authtypes.Burner)
@@ -35,17 +37,18 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 		k.SetAddressMapping(ctx, sdk.MustAccAddressFromBech32(addr.SeiAddress), common.HexToAddress(addr.EthAddress))
 	}
 
-	if k.BlockTest != nil {
-		header := k.OpenEthDatabase2()
+	// TODO: remove later
+	if !k.EthBlockTestConfig.Enabled {
+		panic("ETH Block Test should currently be enabled")
+	}
+
+	if k.EthBlockTestConfig.Enabled && !ethBlockTestInitialied {
+		header := k.OpenEthDatabaseForBlockTest(ctx)
 		params := k.GetParams(ctx)
 		params.ChainId = sdk.OneInt()
 		k.SetParams(ctx, params)
-		k.SetReplayInitialHeight(ctx, header.Number.Int64())
-		ethReplayInitialied = true
-		if !k.EthReplayConfig.Enabled {
-			fmt.Println("EthReplayConfig has been automatically enabled")
-			k.EthReplayConfig.Enabled = true
-		}
+		k.SetBlockTestInitialHeight(ctx, header.Number.Int64())
+		ethBlockTestInitialied = true
 		return
 	}
 
@@ -100,10 +103,9 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 	return header
 }
 
-func (k *Keeper) OpenEthDatabase2() *ethtypes.Header {
-	fmt.Println("In openEthDatabase2")
-	network := "Shanghai" // pull this in from the test
-	config, ok := ethtests.Forks[network]
+func (k *Keeper) OpenEthDatabaseForBlockTest(ctx sdk.Context) *ethtypes.Header {
+	fmt.Println("In openEthDatabaseForBlockTest")
+	shanghaiConfig, ok := ethtests.Forks["Shanghai"]
 	if !ok {
 		panic("fork not found")
 	}
@@ -121,7 +123,7 @@ func (k *Keeper) OpenEthDatabase2() *ethtypes.Header {
 		tconf.HashDB = hashdb.Defaults
 	}
 	// Commit genesis state
-	gspec := extractGenesis(k.BlockTest, config)
+	gspec := extractGenesis(k.BlockTest, shanghaiConfig)
 	triedb := trie.NewDatabase(db, tconf)
 	gblock, err := gspec.Commit(db, triedb)
 	if err != nil {
@@ -131,6 +133,22 @@ func (k *Keeper) OpenEthDatabase2() *ethtypes.Header {
 	tr, err := sdb.OpenTrie(gblock.Header_.Root)
 	if err != nil {
 		panic(err)
+	}
+
+	// Set the prestate in the trie
+	fmt.Println("*************************************************************************")
+	fmt.Println("**** In openEthDatabaseForBlockTest, setting prestate in the trie... ****")
+	fmt.Println("*************************************************************************")
+	for addr, genesisAccount := range k.BlockTest.Json.Pre {
+		tr.UpdateAccount(addr, &ethtypes.StateAccount{
+			Nonce:   genesisAccount.Nonce,
+			Balance: genesisAccount.Balance,
+		})
+		codeHash := crypto.Keccak256Hash(genesisAccount.Code)
+		tr.UpdateContractCode(addr, codeHash, genesisAccount.Code)
+		for key, value := range genesisAccount.Storage {
+			tr.UpdateStorage(addr, key[:], value[:])
+		}
 	}
 	k.Root = gblock.Header_.Root
 	k.DB = sdb

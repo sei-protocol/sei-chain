@@ -80,35 +80,39 @@ func Replay(a *App) {
 		h++
 	}
 }
-func ReplayBlockTest(a *App, bt *ethtests.BlockTest) {
+
+func BlockTest(a *App, bt *ethtests.BlockTest) {
 	fmt.Println("In ReplayBlockTest")
 	h := a.EvmKeeper.GetReplayedHeight(a.GetCheckCtx()) + 1
-	// initHeight := a.EvmKeeper.GetReplayInitialHeight(a.GetCheckCtx())
 	fmt.Println("In ReplayBlockTest, h = ", h)
 	a.EvmKeeper.BlockTest = bt
-	if h == 1 {
-		a.EvmKeeper.BlockTest = bt
-		gendoc, err := tmtypes.GenesisDocFromFile(filepath.Join(DefaultNodeHome, "config/genesis.json"))
-		if err != nil {
-			fmt.Println("Panic in ReplayBlockTest1, err = ", err)
-			panic(err)
-		}
-		fmt.Println("In ReplayBlockTest, calling a.InitChain")
-		_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
-			Time:          time.Now(),
-			ChainId:       gendoc.ChainID,
-			AppStateBytes: gendoc.AppState,
-		})
-		if err != nil {
-			fmt.Println("Panic in ReplayBlockTest2, err = ", err)
-			panic(err)
-		}
-		// initHeight = a.EvmKeeper.GetReplayInitialHeight(a.GetContextForDeliverTx([]byte{}))
-	} else {
-		a.EvmKeeper.OpenEthDatabase2()
-	}
+	a.EvmKeeper.EthBlockTestConfig.Enabled = true
+	// if h == 1 {
+	// 	a.EvmKeeper.BlockTest = bt
+	// 	gendoc, err := tmtypes.GenesisDocFromFile(filepath.Join(DefaultNodeHome, "config/genesis.json"))
+	// 	if err != nil {
+	// 		fmt.Println("Panic in ReplayBlockTest1, err = ", err)
+	// 		panic(err)
+	// 	}
+	// 	fmt.Println("In ReplayBlockTest, calling a.InitChain")
+	// 	_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
+	// 		Time:          time.Now(),
+	// 		ChainId:       gendoc.ChainID,
+	// 		AppStateBytes: gendoc.AppState,
+	// 	})
+	// 	if err != nil {
+	// 		fmt.Println("Panic in ReplayBlockTest2, err = ", err)
+	// 		panic(err)
+	// 	}
+	// 	// initHeight = a.EvmKeeper.GetReplayInitialHeight(a.GetContextForDeliverTx([]byte{}))
+	// } else {
+	// }
+	a.EvmKeeper.OpenEthDatabaseForBlockTest(a.GetCheckCtx())
 
-	fmt.Println("In ReplayBlockTest, iterating over blocks, len(bt.Json.Blocks) = ", len(bt.Json.Blocks))
+	fmt.Println("****************************************************************************************************")
+	fmt.Println("In app/BlockTest, iterating over blocks, len(bt.Json.Blocks) = ", len(bt.Json.Blocks))
+	fmt.Println("****************************************************************************************************")
+
 	for i, btBlock := range bt.Json.Blocks {
 		fmt.Printf("btBlock %d: %+v\n", i, btBlock)
 		h := int64(i + 2)
