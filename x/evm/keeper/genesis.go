@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"encoding/json"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -99,7 +100,7 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 	return header
 }
 
-func (k *Keeper) OpenEthDatabase2() (*ethtypes.Header) {
+func (k *Keeper) OpenEthDatabase2() *ethtypes.Header {
 	fmt.Println("In openEthDatabase2")
 	network := "Shanghai" // pull this in from the test
 	config, ok := ethtests.Forks[network]
@@ -138,6 +139,8 @@ func (k *Keeper) OpenEthDatabase2() (*ethtypes.Header) {
 }
 
 func extractGenesis(t *ethtests.BlockTest, config *params.ChainConfig) *core.Genesis {
+	b, _ := json.Marshal(t)
+	fmt.Printf("In extractGenesis, %s\n", string(b))
 	return &core.Genesis{
 		Config:        config,
 		Nonce:         t.Json.Genesis.Nonce.Uint64(),

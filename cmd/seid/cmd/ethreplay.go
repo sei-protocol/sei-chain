@@ -85,8 +85,10 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 				baseapp.SetInterBlockCache(cache),
 			)
 			if blockTestFileName != "" {
-				// bt := testInjester(blockTestFileName) <- TODO
-				bt := emptyBlockTest
+				fmt.Println("Will injest block test, with file: ", blockTestFileName)
+				bt := testIngester(blockTestFileName)
+				fmt.Println("In EthReplayCmd, bt = ", bt)
+				// bt := emptyBlockTest
 				app.ReplayBlockTest(a, bt)
 				return nil
 			}

@@ -82,29 +82,43 @@ func Replay(a *App) {
 }
 func ReplayBlockTest(a *App, bt *ethtests.BlockTest) {
 	fmt.Println("In ReplayBlockTest")
+	h := a.EvmKeeper.GetReplayedHeight(a.GetCheckCtx()) + 1
+	// initHeight := a.EvmKeeper.GetReplayInitialHeight(a.GetCheckCtx())
+	fmt.Println("In ReplayBlockTest, h = ", h)
 	a.EvmKeeper.BlockTest = bt
-	gendoc, err := tmtypes.GenesisDocFromFile(filepath.Join(DefaultNodeHome, "config/genesis.json"))
-	if err != nil {
-		panic(err)
-	}
-	_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
-		Time:          time.Now(),
-		ChainId:       gendoc.ChainID,
-		AppStateBytes: gendoc.AppState,
-	})
-	if err != nil {
-		panic(err)
+	if h == 1 {
+		a.EvmKeeper.BlockTest = bt
+		gendoc, err := tmtypes.GenesisDocFromFile(filepath.Join(DefaultNodeHome, "config/genesis.json"))
+		if err != nil {
+			fmt.Println("Panic in ReplayBlockTest1, err = ", err)
+			panic(err)
+		}
+		fmt.Println("In ReplayBlockTest, calling a.InitChain")
+		_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
+			Time:          time.Now(),
+			ChainId:       gendoc.ChainID,
+			AppStateBytes: gendoc.AppState,
+		})
+		if err != nil {
+			fmt.Println("Panic in ReplayBlockTest2, err = ", err)
+			panic(err)
+		}
+		// initHeight = a.EvmKeeper.GetReplayInitialHeight(a.GetContextForDeliverTx([]byte{}))
+	} else {
+		a.EvmKeeper.OpenEthDatabase2()
 	}
 
 	fmt.Println("In ReplayBlockTest, iterating over blocks, len(bt.Json.Blocks) = ", len(bt.Json.Blocks))
 	for i, btBlock := range bt.Json.Blocks {
-		h := int64(i + 1)
+		fmt.Printf("btBlock %d: %+v\n", i, btBlock)
+		h := int64(i + 2)
 		b, err := btBlock.Decode()
 		if err != nil {
 			panic(err)
 		}
 		hash := make([]byte, 8)
 		binary.BigEndian.PutUint64(hash, uint64(h))
+		fmt.Printf("In ReplayBlockTest, calling a.FinalizeBlock, h = %+v\n", h)
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
@@ -115,19 +129,18 @@ func ReplayBlockTest(a *App, bt *ethtests.BlockTest) {
 		if err != nil {
 			panic(err)
 		}
-		ctx := a.GetContextForDeliverTx([]byte{})
-		for _, tx := range b.Txs {
-			a.Logger().Info(fmt.Sprintf("Verifying tx %s", tx.Hash().Hex()))
-			if tx.To() != nil {
-				a.EvmKeeper.VerifyBalance(ctx, *tx.To())
-			}
-			a.EvmKeeper.VerifyTxResult(ctx, tx.Hash())
-		}
 		_, err = a.Commit(context.Background())
 		if err != nil {
 			panic(err)
 		}
-		h++
+	}
+
+	// Check post-state after all blocks are run
+	// ctx := a.GetCheckCtx() // TODO: not sure if this is right
+	ctx := a.GetContextForDeliverTx([]byte{})
+	for addr, accountData := range bt.Json.Post {
+		// need to check these
+		a.EvmKeeper.VerifyAccount(ctx, addr, accountData)
 	}
 }
 

@@ -176,7 +176,14 @@ func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	var coinbase sdk.AccAddress
-	if am.keeper.EthReplayConfig.Enabled {
+	if am.keeper.BlockTest != nil { // TODO: have better way of checking if we are in block test mode
+		fmt.Println("In EndBlock: ctx.BlockHeight()", ctx.BlockHeight())
+		// TODO: find by height in block test!!!
+		block := am.keeper.BlockTest.Json.Blocks[0]
+		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, block.BlockHeader.Coinbase)
+		fmt.Println("In Endblock: coinbase = ", coinbase.String())
+		am.keeper.SetReplayedHeight(ctx) // TODO: not sure if this is needed for block tests
+	} else if am.keeper.EthReplayConfig.Enabled {
 		block, err := am.keeper.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+am.keeper.GetReplayInitialHeight(ctx)))
 		if err != nil {
 			panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+am.keeper.GetReplayInitialHeight(ctx)))
