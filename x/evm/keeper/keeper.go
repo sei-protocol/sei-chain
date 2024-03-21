@@ -2,12 +2,13 @@ package keeper
 
 import (
 	"fmt"
-	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	"math"
 	"math/big"
 	"slices"
 	"sort"
 	"sync"
+
+	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
