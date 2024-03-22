@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/types"
 )
@@ -303,4 +304,61 @@ func TestPendingTxsPopTxsBad(t *testing.T) {
 	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{1, 0}) })
 	// duplicate
 	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{2, 2}) })
+}
+
+func TestPendingTxs_InsertCondition(t *testing.T) {
+	mempoolCfg := config.TestMempoolConfig()
+
+	// First test exceeding number of txs
+	mempoolCfg.PendingSize = 2
+
+	pendingTxs := NewPendingTxs(mempoolCfg)
+
+	// Transaction setup
+	tx1 := &WrappedTx{
+		tx:       types.Tx("tx1_data"),
+		priority: 1,
+	}
+	tx1Size := tx1.Size()
+
+	tx2 := &WrappedTx{
+		tx:       types.Tx("tx2_data"),
+		priority: 2,
+	}
+	tx2Size := tx2.Size()
+
+	err := pendingTxs.Insert(tx1, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.Nil(t, err)
+
+	err = pendingTxs.Insert(tx2, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.Nil(t, err)
+
+	// Should fail due to pending store size limit
+	tx3 := &WrappedTx{
+		tx:       types.Tx("tx3_data_exceeding_pending_size"),
+		priority: 3,
+	}
+
+	err = pendingTxs.Insert(tx3, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.NotNil(t, err)
+
+	// Second test exceeding byte size condition
+	mempoolCfg.PendingSize = 5
+	pendingTxs = NewPendingTxs(mempoolCfg)
+	mempoolCfg.MaxPendingTxsBytes = int64(tx1Size + tx2Size)
+
+	err = pendingTxs.Insert(tx1, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.Nil(t, err)
+
+	err = pendingTxs.Insert(tx2, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.Nil(t, err)
+
+	// Should fail due to exceeding max pending transaction bytes
+	tx3 = &WrappedTx{
+		tx:       types.Tx("tx3_small_but_exceeds_byte_limit"),
+		priority: 3,
+	}
+
+	err = pendingTxs.Insert(tx3, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.NotNil(t, err)
 }

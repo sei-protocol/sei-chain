@@ -377,7 +377,7 @@ func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, t
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
-	if len(p.txs) >= p.config.PendingSize && uint64(tx.Size())+p.sizeBytes > uint64(p.config.MaxPendingTxsBytes) {
+	if len(p.txs) >= p.config.PendingSize || uint64(tx.Size())+p.sizeBytes > uint64(p.config.MaxPendingTxsBytes) {
 		return errors.New("pending store is full")
 	}
 
