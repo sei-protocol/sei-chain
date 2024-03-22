@@ -253,6 +253,7 @@ func (c *LoadTestClient) SendTxs(
 		case <-done:
 			return
 		case tx, ok := <-txQueue:
+			atomic.AddInt64(sentCountPerMsgType[tx.MsgType], 1)
 			defer metrics.IncrConsumerEventCount(tx.MsgType)
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
