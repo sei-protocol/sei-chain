@@ -177,8 +177,8 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
 	var wg sync.WaitGroup
 	for i := 0; i < len(keys); i++ {
-		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCountPerMsgType)
-		go client.SendTxs(txQueues[i], i, done, &sentCountPerMsgType, consumerSemaphore, &wg)
+		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, producedCountPerMsgType)
+		go client.SendTxs(txQueues[i], i, done, sentCountPerMsgType, consumerSemaphore, &wg)
 	}
 
 	// Statistics reporting goroutine
