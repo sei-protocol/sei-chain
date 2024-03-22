@@ -79,18 +79,20 @@ func TestPrecompile_Run(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantBz  []byte
-		wantErr bool
+		name             string
+		fields           fields
+		args             args
+		wantBz           []byte
+		wantRemainingGas uint64
+		wantErr          bool
 	}{
 		{
-			name:    "successful transfer: with amount > 0 between EVM addresses",
-			fields:  fields{transferKeeper: &MockTransferKeeper{}},
-			args:    commonArgs,
-			wantBz:  packedTrue,
-			wantErr: false,
+			name:             "successful transfer: with amount > 0 between EVM addresses",
+			fields:           fields{transferKeeper: &MockTransferKeeper{}},
+			args:             commonArgs,
+			wantBz:           packedTrue,
+			wantRemainingGas: 991911,
+			wantErr:          false,
 		},
 		{
 			name:    "failed transfer: internal error",
@@ -118,13 +120,16 @@ func TestPrecompile_Run(t *testing.T) {
 				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
 				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp)
 			require.Nil(t, err)
-			gotBz, _, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value)
+			gotBz, g, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(gotBz, tt.wantBz) {
 				t.Errorf("Run() gotBz = %v, want %v", gotBz, tt.wantBz)
+			}
+			if !reflect.DeepEqual(g, tt.wantRemainingGas) {
+				t.Errorf("Run() gotRemainingGas = %v, want %v", g, tt.wantRemainingGas)
 			}
 		})
 	}
