@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	metrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/cosmos/cosmos-sdk/types/rest"
 )
@@ -71,13 +70,4 @@ func (s *MetricsServer) healthzHandler(w http.ResponseWriter, _ *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-// loadtest_client_sei_msg_type
-func IncrTxMessageType(msgType string) {
-	metrics.IncrCounterWithLabels(
-		[]string{"sei", "msg", "type"},
-		float32(1),
-		[]metrics.Label{telemetry.NewLabel("type", msgType)},
-	)
 }
