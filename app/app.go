@@ -1289,7 +1289,7 @@ func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioriti
 	return prioritizedTxs, otherTxs, prioritizedIndices, otherIndices
 }
 
-// ExecuteTxsConcurrently calls the appropriate function for processing transacitons
+// ExecuteTxsConcurrently calls the appropriate function for processing transactions
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
 	// TODO after OCC release, remove this check and call ProcessTXsWithOCC directly
 	if ctx.IsOCCEnabled() {
