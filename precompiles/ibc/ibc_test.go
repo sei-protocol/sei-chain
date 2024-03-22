@@ -1,6 +1,7 @@
 package ibc_test
 
 import (
+	"errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -23,13 +24,20 @@ func (tk *MockTransferKeeper) SendTransfer(ctx sdk.Context, sourcePort, sourceCh
 	return nil
 }
 
+type MockFailedTransferTransferKeeper struct{}
+
+func (tk *MockFailedTransferTransferKeeper) SendTransfer(ctx sdk.Context, sourcePort, sourceChannel string, token sdk.Coin,
+	sender sdk.AccAddress, receiver string, timeoutHeight clienttypes.Height, timeoutTimestamp uint64) error {
+	return errors.New("failed to send transfer")
+}
+
 func TestPrecompile_Run(t *testing.T) {
 	senderSeiAddress, senderEvmAddress := testkeeper.MockAddressPair()
 	_, receiverEvmAddress := testkeeper.MockAddressPair()
 
 	pre, _ := ibc.NewPrecompile(nil, nil)
 	testTransfer, _ := pre.ABI.MethodById(pre.TransferID)
-	encodedTrue, _ := testTransfer.Outputs.Pack(true)
+	packedTrue, _ := testTransfer.Outputs.Pack(true)
 
 	type fields struct {
 		transferKeeper pcommon.TransferKeeper
@@ -52,6 +60,22 @@ func TestPrecompile_Run(t *testing.T) {
 		value       *big.Int
 	}
 
+	commonArgs := args{
+		caller: senderEvmAddress,
+		input: &input{
+			receiverEvmAddr:  receiverEvmAddress,
+			sourcePort:       "sourcePort",
+			sourceChannel:    "sourceChannel",
+			denom:            "denom",
+			amount:           big.NewInt(100),
+			revisionNumber:   1,
+			revisionHeight:   1,
+			timeoutTimestamp: 1,
+		},
+		suppliedGas: uint64(1000000),
+		value:       nil,
+	}
+
 	tests := []struct {
 		name    string
 		fields  fields
@@ -60,25 +84,18 @@ func TestPrecompile_Run(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:   "successful transfer: with amount > 0 between EVM addresses",
-			fields: fields{transferKeeper: &MockTransferKeeper{}},
-			args: args{
-				caller: senderEvmAddress,
-				input: &input{
-					receiverEvmAddr:  receiverEvmAddress,
-					sourcePort:       "sourcePort",
-					sourceChannel:    "sourceChannel",
-					denom:            "denom",
-					amount:           big.NewInt(100),
-					revisionNumber:   1,
-					revisionHeight:   1,
-					timeoutTimestamp: 1,
-				},
-				suppliedGas: uint64(1000000),
-				value:       nil,
-			},
-			wantBz:  encodedTrue,
+			name:    "successful transfer: with amount > 0 between EVM addresses",
+			fields:  fields{transferKeeper: &MockTransferKeeper{}},
+			args:    commonArgs,
+			wantBz:  packedTrue,
 			wantErr: false,
+		},
+		{
+			name:    "failed transfer: internal error",
+			fields:  fields{transferKeeper: &MockFailedTransferTransferKeeper{}},
+			args:    commonArgs,
+			wantBz:  nil,
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
