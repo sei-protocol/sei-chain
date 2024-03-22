@@ -204,7 +204,7 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 				blockHeights, blockTimes = nil, nil
 				start = time.Now()
 
-				for msgType, _ := range sentCountPerMsgType {
+				for msgType := range sentCountPerMsgType {
 					count := atomic.LoadInt64(sentCountPerMsgType[msgType])
 					atomic.StoreInt64(prevSentCounterPerMsgType[msgType], count)
 				}
@@ -242,16 +242,16 @@ func printStats(
 	totalSent := int64(0)
 	totalProduced := int64(0)
 	//nolint:gosec
-	for msg_type, _ := range sentCountPerMsgType {
+	for msg_type := range sentCountPerMsgType {
 		totalSent += atomic.LoadInt64(sentCountPerMsgType[msg_type])
 	}
 	//nolint:gosec
-	for msg_type, _ := range producedCountPerMsgType {
+	for msg_type := range producedCountPerMsgType {
 		totalProduced += atomic.LoadInt64(producedCountPerMsgType[msg_type])
 	}
 
 	var tps float64
-	for msgType, _ := range sentCountPerMsgType {
+	for msgType := range sentCountPerMsgType {
 		sentCount := atomic.LoadInt64(sentCountPerMsgType[msgType])
 		prevTotalSent := atomic.LoadInt64(prevSentPerCounterPerMsgType[msgType])
 		//nolint:gosec
