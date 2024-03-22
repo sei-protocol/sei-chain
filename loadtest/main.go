@@ -47,9 +47,9 @@ const (
 
 var (
 	FromMili                  = sdk.NewDec(1000000)
-	producedCountPerMsgType   sync.Map
-	sentCountPerMsgType       sync.Map
-	prevSentCounterPerMsgType sync.Map
+	producedCountPerMsgType   = make(map[string]*int64)
+	sentCountPerMsgType       = make(map[string]*int64)
+	prevSentCounterPerMsgType = make(map[string]*int64)
 )
 
 type BlockData struct {
