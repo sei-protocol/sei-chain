@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -107,7 +109,26 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	// 	// initHeight = a.EvmKeeper.GetReplayInitialHeight(a.GetContextForDeliverTx([]byte{}))
 	// } else {
 	// }
-	a.EvmKeeper.OpenEthDatabaseForBlockTest(a.GetCheckCtx())
+
+	// a.EvmKeeper.OpenEthDatabaseForBlockTest(a.GetCheckCtx())
+
+	for addr, genesisAccount := range a.EvmKeeper.BlockTest.Json.Pre {
+		usei, wei := state.SplitUseiWeiAmount(genesisAccount.Balance)
+		seiAddr := a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), addr)
+		err := a.EvmKeeper.BankKeeper().AddCoins(a.GetCheckCtx(), seiAddr, sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
+		if err != nil {
+			panic(err)
+		}
+		err = a.EvmKeeper.BankKeeper().AddWei(a.GetCheckCtx(), a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), addr), wei)
+		if err != nil {
+			panic(err)
+		}
+		a.EvmKeeper.SetNonce(a.GetCheckCtx(), addr, genesisAccount.Nonce)
+		a.EvmKeeper.SetCode(a.GetCheckCtx(), addr, genesisAccount.Code)
+		for key, value := range genesisAccount.Storage {
+			a.EvmKeeper.SetState(a.GetCheckCtx(), addr, key, value)
+		}
+	}
 
 	fmt.Println("****************************************************************************************************")
 	fmt.Println("In app/BlockTest, iterating over blocks, len(bt.Json.Blocks) = ", len(bt.Json.Blocks))
@@ -115,7 +136,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 
 	for i, btBlock := range bt.Json.Blocks {
 		fmt.Printf("btBlock %d: %+v\n", i, btBlock)
-		h := int64(i + 2)
+		h := int64(i + 1)
 		b, err := btBlock.Decode()
 		if err != nil {
 			panic(err)
