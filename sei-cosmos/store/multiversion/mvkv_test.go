@@ -474,3 +474,50 @@ func TestRemoveLastEntry(t *testing.T) {
 	require.False(t, valid)
 	require.Empty(t, conflicts)
 }
+
+func TestVersionIndexedStoreGetAllKeyStrsInRange(t *testing.T) {
+	mem := dbadapter.Store{DB: dbm.NewMemDB()}
+	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	// initialize a new VersionIndexedStore
+	vis := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 1, 2, make(chan scheduler.Abort, 1))
+
+	parentKVStore.Set([]byte("key1"), []byte("value1")) // unchanged
+	parentKVStore.Set([]byte("key2"), []byte("value2")) // updated by index 0 incar 1
+	parentKVStore.Set([]byte("key3"), []byte("value3")) // deleted by index 0 incar 1
+	parentKVStore.Set([]byte("key4"), []byte("value4")) // deleted by index 2
+	parentKVStore.Set([]byte("key5"), []byte("value5")) // updated by vis
+	parentKVStore.Set([]byte("key6"), []byte("value6")) // deleted by vis
+	mvs.SetWriteset(0, 1, map[string][]byte{
+		"key2": []byte("value8"),
+		"key3": nil,
+	})
+	mvs.SetWriteset(2, 1, map[string][]byte{
+		"key4": nil,
+	})
+	vis.Set([]byte("key5"), []byte("value7"))
+	vis.Delete([]byte("key6"))
+	require.Equal(t, []string{"key1", "key2", "key4", "key5"}, vis.GetAllKeyStrsInRange(nil, nil))
+}
+
+func TestVersionIndexedStoreGetAllKeyStrsInRangeError(t *testing.T) {
+	mem := dbadapter.Store{DB: dbm.NewMemDB()}
+	parentKVStore := cachekv.NewStore(mem, types.NewKVStoreKey("mock"), 1000)
+	mvs := multiversion.NewMultiVersionStore(parentKVStore)
+	// initialize a new VersionIndexedStore
+	vis2 := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 2, 1, make(chan scheduler.Abort, 1))
+	vis3 := multiversion.NewVersionIndexedStore(parentKVStore, mvs, 3, 1, make(chan scheduler.Abort, 1))
+
+	parentKVStore.Set([]byte("key1"), []byte("value1"))
+	parentKVStore.Set([]byte("key2"), []byte("value2"))
+
+	mvs.SetWriteset(1, 1, map[string][]byte{
+		"key1": []byte("value3"),
+	})
+	vis2.Set([]byte("key3"), []byte("value4"))
+	vis3.DeleteAll(nil, nil)
+	vis2.WriteToMultiVersionStore()
+	vis3.WriteToMultiVersionStore()
+	valid, _ := mvs.ValidateTransactionState(3)
+	require.False(t, valid)
+}

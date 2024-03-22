@@ -102,6 +102,18 @@ func (s Store) DeleteAll(start, end []byte) error {
 	return s.parent.DeleteAll(newstart, newend)
 }
 
+func (s Store) GetAllKeyStrsInRange(start, end []byte) []string {
+	newstart := cloneAppend(s.prefix, start)
+
+	var newend []byte
+	if end == nil {
+		newend = cpIncr(s.prefix)
+	} else {
+		newend = cloneAppend(s.prefix, end)
+	}
+	return s.parent.GetAllKeyStrsInRange(newstart, newend)
+}
+
 // Implements KVStore
 // Check https://github.com/tendermint/tendermint/blob/master/libs/db/prefix_db.go#L106
 func (s Store) Iterator(start, end []byte) types.Iterator {

@@ -147,3 +147,12 @@ func (st *Store) DeleteAll(start, end []byte) error {
 	}
 	return nil
 }
+
+func (st *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
+	iter := st.Iterator(start, end)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		res = append(res, string(iter.Key()))
+	}
+	return
+}

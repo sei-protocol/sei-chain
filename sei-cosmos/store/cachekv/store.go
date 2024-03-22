@@ -374,16 +374,28 @@ func (store *Store) GetParent() types.KVStore {
 }
 
 func (store *Store) DeleteAll(start, end []byte) error {
-	store.dirtyItems(start, end)
-	// memdb iterator
-	cachedIter, err := store.sortedCache.Iterator(start, end)
-	if err != nil {
-		return err
-	}
-	defer cachedIter.Close()
-	for ; cachedIter.Valid(); cachedIter.Next() {
-		// `Delete` would not touch sortedCache so it's okay to perform inside iterator
-		store.Delete(cachedIter.Key())
+	for _, k := range store.GetAllKeyStrsInRange(start, end) {
+		store.Delete([]byte(k))
 	}
 	return nil
+}
+
+func (store *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
+	keyStrs := map[string]struct{}{}
+	for _, pk := range store.parent.GetAllKeyStrsInRange(start, end) {
+		keyStrs[pk] = struct{}{}
+	}
+	store.cache.Range(func(key, value any) bool {
+		cv := value.(*types.CValue)
+		if cv.Value() == nil {
+			delete(keyStrs, key.(string))
+		} else {
+			keyStrs[key.(string)] = struct{}{}
+		}
+		return true
+	})
+	for k := range keyStrs {
+		res = append(res, k)
+	}
+	return res
 }

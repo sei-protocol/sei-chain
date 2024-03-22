@@ -165,3 +165,7 @@ func (s *Store) onWrite(delete bool, key, value []byte) {
 func (s *Store) DeleteAll(start, end []byte) error {
 	return s.parent.DeleteAll(start, end)
 }
+
+func (s *Store) GetAllKeyStrsInRange(start, end []byte) []string {
+	return s.parent.GetAllKeyStrsInRange(start, end)
+}

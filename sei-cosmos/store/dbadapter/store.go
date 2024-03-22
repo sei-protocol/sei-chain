@@ -112,5 +112,14 @@ func (dsa Store) DeleteAll(start, end []byte) error {
 	return nil
 }
 
+func (dsa Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
+	iter := dsa.Iterator(start, end)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		res = append(res, string(iter.Key()))
+	}
+	return
+}
+
 // dbm.DB implements KVStore so we can CacheKVStore it.
 var _ types.KVStore = Store{}

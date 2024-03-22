@@ -67,14 +67,17 @@ func TestCacheKVStore(t *testing.T) {
 	require.NotNil(t, st.GetParent())
 
 	// DeleteAll deletes all entries in cache but not affect mem
-	st = cachekv.NewStore(mem, types.NewKVStoreKey("CacheKvTest"), types.DefaultCacheSizeLimit)
 	mem.Set(keyFmt(1), valFmt(1))
+	mem.Set(keyFmt(3), valFmt(4))
+	st = cachekv.NewStore(mem, types.NewKVStoreKey("CacheKvTest"), types.DefaultCacheSizeLimit)
 	st.Set(keyFmt(1), valFmt(2))
 	st.Set(keyFmt(2), valFmt(3))
 	require.Nil(t, st.DeleteAll(nil, nil))
 	require.Nil(t, st.Get(keyFmt(1)))
 	require.Nil(t, st.Get(keyFmt(2)))
+	require.Nil(t, st.Get(keyFmt(3)))
 	require.Equal(t, valFmt(1), mem.Get(keyFmt(1)))
+	require.Equal(t, valFmt(4), mem.Get(keyFmt(3)))
 }
 
 func TestCacheKVStoreNoNilSet(t *testing.T) {

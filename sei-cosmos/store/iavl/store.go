@@ -436,6 +436,15 @@ func (st *Store) DeleteAll(start, end []byte) error {
 	return nil
 }
 
+func (st *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
+	iter := st.Iterator(start, end)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		res = append(res, string(iter.Key()))
+	}
+	return
+}
+
 // Takes a MutableTree, a key, and a flag for creating existence or absence proof and returns the
 // appropriate merkle.Proof. Since this must be called after querying for the value, this function should never error
 // Thus, it will panic on error rather than returning it

@@ -134,6 +134,10 @@ func (gs *Store) DeleteAll(start, end []byte) error {
 	return gs.parent.DeleteAll(start, end)
 }
 
+func (gs *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
+	return gs.parent.GetAllKeyStrsInRange(start, end)
+}
+
 type gasIterator struct {
 	gasMeter  types.GasMeter
 	gasConfig types.GasConfig
