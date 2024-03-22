@@ -47,9 +47,9 @@ const (
 
 var (
 	FromMili                  = sdk.NewDec(1000000)
-	producedCountPerMsgType   = make(map[string]*int64)
-	sentCountPerMsgType       = make(map[string]*int64)
-	prevSentCounterPerMsgType = make(map[string]*int64)
+	producedCountPerMsgType   sync.Map
+	sentCountPerMsgType       sync.Map
+	prevSentCounterPerMsgType sync.Map
 )
 
 type BlockData struct {
@@ -177,8 +177,8 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
 	var wg sync.WaitGroup
 	for i := 0; i < len(keys); i++ {
-		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, producedCountPerMsgType)
-		go client.SendTxs(txQueues[i], i, done, sentCountPerMsgType, consumerSemaphore, &wg)
+		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCountPerMsgType)
+		go client.SendTxs(txQueues[i], i, done, &sentCountPerMsgType, consumerSemaphore, &wg)
 	}
 
 	// Statistics reporting goroutine
@@ -241,9 +241,11 @@ func printStats(
 
 	totalSent := int64(0)
 	totalProduced := int64(0)
+	//nolint:gosec
 	for msg_type, _ := range sentCountPerMsgType {
 		totalSent += atomic.LoadInt64(sentCountPerMsgType[msg_type])
 	}
+	//nolint:gosec
 	for msg_type, _ := range producedCountPerMsgType {
 		totalProduced += atomic.LoadInt64(producedCountPerMsgType[msg_type])
 	}
@@ -252,6 +254,7 @@ func printStats(
 	for msgType, _ := range sentCountPerMsgType {
 		sentCount := atomic.LoadInt64(sentCountPerMsgType[msgType])
 		prevTotalSent := atomic.LoadInt64(prevSentPerCounterPerMsgType[msgType])
+		//nolint:gosec
 		tps = float64(sentCount-prevTotalSent) / elapsed.Seconds()
 		defer metrics.SetThroughputMetricByType("tps", float32(tps), msgType)
 	}
