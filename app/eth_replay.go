@@ -109,19 +109,19 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 
 	for addr, genesisAccount := range a.EvmKeeper.BlockTest.Json.Pre {
 		usei, wei := state.SplitUseiWeiAmount(genesisAccount.Balance)
-		seiAddr := a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), addr)
-		err := a.EvmKeeper.BankKeeper().AddCoins(a.GetCheckCtx(), seiAddr, sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
+		seiAddr := a.EvmKeeper.GetSeiAddressOrDefault(a.GetContextForDeliverTx([]byte{}), addr)
+		err := a.EvmKeeper.BankKeeper().AddCoins(a.GetContextForDeliverTx([]byte{}), seiAddr, sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
 		if err != nil {
 			panic(err)
 		}
-		err = a.EvmKeeper.BankKeeper().AddWei(a.GetCheckCtx(), a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), addr), wei)
+		err = a.EvmKeeper.BankKeeper().AddWei(a.GetContextForDeliverTx([]byte{}), a.EvmKeeper.GetSeiAddressOrDefault(a.GetContextForDeliverTx([]byte{}), addr), wei)
 		if err != nil {
 			panic(err)
 		}
-		a.EvmKeeper.SetNonce(a.GetCheckCtx(), addr, genesisAccount.Nonce)
-		a.EvmKeeper.SetCode(a.GetCheckCtx(), addr, genesisAccount.Code)
+		a.EvmKeeper.SetNonce(a.GetContextForDeliverTx([]byte{}), addr, genesisAccount.Nonce)
+		a.EvmKeeper.SetCode(a.GetContextForDeliverTx([]byte{}), addr, genesisAccount.Code)
 		for key, value := range genesisAccount.Storage {
-			a.EvmKeeper.SetState(a.GetCheckCtx(), addr, key, value)
+			a.EvmKeeper.SetState(a.GetContextForDeliverTx([]byte{}), addr, key, value)
 		}
 	}
 
