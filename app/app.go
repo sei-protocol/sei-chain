@@ -1569,7 +1569,7 @@ func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*ab
 }
 
 func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
-	if app.EvmKeeper.EthReplayConfig.Enabled {
+	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return abci.ResponseFinalizeBlock{}
 	}
 	fmt.Println("In getFinalizeBlockResponse, endBlockResp.ConsensusParamUpdates = ", endBlockResp.ConsensusParamUpdates)

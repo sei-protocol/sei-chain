@@ -89,27 +89,22 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	fmt.Println("In ReplayBlockTest, h = ", h)
 	a.EvmKeeper.BlockTest = bt
 	a.EvmKeeper.EthBlockTestConfig.Enabled = true
-	// if h == 1 {
-	// 	a.EvmKeeper.BlockTest = bt
-	// 	gendoc, err := tmtypes.GenesisDocFromFile(filepath.Join(DefaultNodeHome, "config/genesis.json"))
-	// 	if err != nil {
-	// 		fmt.Println("Panic in ReplayBlockTest1, err = ", err)
-	// 		panic(err)
-	// 	}
-	// 	fmt.Println("In ReplayBlockTest, calling a.InitChain")
-	// 	_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
-	// 		Time:          time.Now(),
-	// 		ChainId:       gendoc.ChainID,
-	// 		AppStateBytes: gendoc.AppState,
-	// 	})
-	// 	if err != nil {
-	// 		fmt.Println("Panic in ReplayBlockTest2, err = ", err)
-	// 		panic(err)
-	// 	}
-	// 	// initHeight = a.EvmKeeper.GetReplayInitialHeight(a.GetContextForDeliverTx([]byte{}))
-	// } else {
-	// }
 
+	gendoc, err := tmtypes.GenesisDocFromFile(filepath.Join(DefaultNodeHome, "config/genesis.json"))
+	if err != nil {
+		fmt.Println("Panic in ReplayBlockTest1, err = ", err)
+		panic(err)
+	}
+	fmt.Println("In ReplayBlockTest, calling a.InitChain")
+	_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
+		Time:          time.Now(),
+		ChainId:       gendoc.ChainID,
+		AppStateBytes: gendoc.AppState,
+	})
+	if err != nil {
+		fmt.Println("Panic in ReplayBlockTest2, err = ", err)
+		panic(err)
+	}
 	// a.EvmKeeper.OpenEthDatabaseForBlockTest(a.GetCheckCtx())
 
 	for addr, genesisAccount := range a.EvmKeeper.BlockTest.Json.Pre {
@@ -161,8 +156,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	}
 
 	// Check post-state after all blocks are run
-	// ctx := a.GetCheckCtx() // TODO: not sure if this is right
-	ctx := a.GetContextForDeliverTx([]byte{})
+	ctx := a.GetCheckCtx() // TODO: not sure if this is right
 	for addr, accountData := range bt.Json.Post {
 		// need to check these
 		a.EvmKeeper.VerifyAccount(ctx, addr, accountData)
