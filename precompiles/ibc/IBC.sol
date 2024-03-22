@@ -10,11 +10,13 @@ IBC constant IBC_CONTRACT = IBC(
 interface IBC {
     // Transactions
     function transfer(
-        address fromAddress,
         address toAddress,
         string memory port,
         string memory channel,
         string memory denom,
-        uint256 amount
+        uint256 amount,
+        uint64 revisionNumber,
+        uint64 revisionHeight,
+        uint64 timeoutTimestamp
     ) external returns (bool success);
 }

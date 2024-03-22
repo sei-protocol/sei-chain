@@ -36,12 +36,15 @@ func TestPrecompile_Run(t *testing.T) {
 	}
 
 	type input struct {
-		senderEvmAddr   common.Address
-		receiverEvmAddr common.Address
-		sourcePort      string
-		sourceChannel   string
-		denom           string
-		amount          *big.Int
+		senderEvmAddr    common.Address
+		receiverEvmAddr  common.Address
+		sourcePort       string
+		sourceChannel    string
+		denom            string
+		amount           *big.Int
+		revisionNumber   uint64
+		revisionHeight   uint64
+		timeoutTimestamp uint64
 	}
 	type args struct {
 		caller common.Address
@@ -62,12 +65,15 @@ func TestPrecompile_Run(t *testing.T) {
 			args: args{
 				caller: senderEvmAddress,
 				input: &input{
-					senderEvmAddr:   senderEvmAddress,
-					receiverEvmAddr: receiverEvmAddress,
-					sourcePort:      "sourcePort",
-					sourceChannel:   "sourceChannel",
-					denom:           "denom",
-					amount:          big.NewInt(100),
+					senderEvmAddr:    senderEvmAddress,
+					receiverEvmAddr:  receiverEvmAddress,
+					sourcePort:       "sourcePort",
+					sourceChannel:    "sourceChannel",
+					denom:            "denom",
+					amount:           big.NewInt(100),
+					revisionNumber:   1,
+					revisionHeight:   1,
+					timeoutTimestamp: 1,
 				},
 				value: nil,
 			},
@@ -88,8 +94,9 @@ func TestPrecompile_Run(t *testing.T) {
 			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, k)
 			transfer, err := p.ABI.MethodById(p.TransferID)
 			require.Nil(t, err)
-			inputs, err := transfer.Inputs.Pack(tt.args.input.senderEvmAddr, tt.args.input.receiverEvmAddr,
-				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount)
+			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverEvmAddr,
+				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
+				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp)
 			require.Nil(t, err)
 			gotBz, err := p.Run(&evm, tt.args.caller, append(p.TransferID, inputs...), tt.args.value)
 			if (err != nil) != tt.wantErr {

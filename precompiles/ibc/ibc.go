@@ -92,39 +92,35 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 
 	switch method.Name {
 	case TransferMethod:
-		return p.transfer(ctx, method, args)
+		return p.transfer(ctx, method, args, caller)
 	}
 	return
 }
-func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interface{}) ([]byte, error) {
-	pcommon.AssertArgsLength(args, 6)
+func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 8)
+	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
 
-	senderAddress, err := p.accAddressFromArg(ctx, args[0])
+	receiverAddress, err := p.accAddressFromArg(ctx, args[0])
 	if err != nil {
 		return nil, err
 	}
 
-	receiverAddress, err := p.accAddressFromArg(ctx, args[1])
-	if err != nil {
-		return nil, err
-	}
-
-	port, ok := args[2].(string)
+	port, ok := args[1].(string)
 	if !ok {
 		return nil, errors.New("port is not a string")
 	}
 
-	channelID, ok := args[3].(string)
+	channelID, ok := args[2].(string)
 	if !ok {
 		return nil, errors.New("channelID is not a string")
 	}
 
-	denom := args[4].(string)
+	denom := args[3].(string)
 	if denom == "" {
 		return nil, errors.New("invalid denom")
 	}
 
-	amount, ok := args[5].(*big.Int)
+	amount, ok := args[4].(*big.Int)
 	if !ok {
 		return nil, errors.New("amount is not a big.Int")
 	}
@@ -139,13 +135,27 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		Amount: sdk.NewIntFromBigInt(amount),
 	}
 
-	ctx.BlockHeight()
-	height := clienttypes.Height{
-		RevisionNumber: 1,
-		RevisionHeight: uint64(ctx.BlockHeight() + 1),
+	revisionNumber, ok := args[5].(uint64)
+	if !ok {
+		return nil, errors.New("revisionNumber is not a uint64")
 	}
 
-	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderAddress, receiverAddress.String(), height, 0)
+	revisionHeight, ok := args[6].(uint64)
+	if !ok {
+		return nil, errors.New("revisionHeight is not a uint64")
+	}
+
+	height := clienttypes.Height{
+		RevisionNumber: revisionNumber,
+		RevisionHeight: revisionHeight,
+	}
+
+	timeoutTimestamp, ok := args[7].(uint64)
+	if !ok {
+		return nil, errors.New("timeoutTimestamp is not a uint64")
+	}
+
+	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderSeiAddr, receiverAddress.String(), height, timeoutTimestamp)
 
 	if err != nil {
 		return nil, err
