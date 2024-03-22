@@ -141,6 +141,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		fmt.Printf("In ReplayBlockTest, calling a.FinalizeBlock, h = %+v\n", h)
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
+			ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
 			Height:            h,
 			Hash:              hash,
@@ -160,6 +161,9 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	for addr, accountData := range bt.Json.Post {
 		// need to check these
 		a.EvmKeeper.VerifyAccount(ctx, addr, accountData)
+		fmt.Println("*************************************************")
+		fmt.Println("Successfully verified account: ", addr)
+		fmt.Println("*************************************************")
 	}
 }
 
