@@ -139,7 +139,11 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		Amount: sdk.NewIntFromBigInt(amount),
 	}
 
-	height := clienttypes.Height{}
+	ctx.BlockHeight()
+	height := clienttypes.Height{
+		RevisionNumber: 1,
+		RevisionHeight: uint64(ctx.BlockHeight() + 1),
+	}
 
 	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderAddress, receiverAddress.String(), height, 0)
 

@@ -2,64 +2,103 @@ package ibc_test
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 	"math/big"
+	"reflect"
 	"testing"
 )
 
-func TestRun(t *testing.T) {
+type MockTransferKeeper struct{}
+
+func (tk *MockTransferKeeper) SendTransfer(ctx sdk.Context, sourcePort, sourceChannel string, token sdk.Coin,
+	sender sdk.AccAddress, receiver string, timeoutHeight clienttypes.Height, timeoutTimestamp uint64) error {
+	// Implement your mock logic here
+	return nil
+}
+
+func TestPrecompile_Run(t *testing.T) {
+	_, senderEvmAddress := testkeeper.MockAddressPair()
+	_, receiverEvmAddress := testkeeper.MockAddressPair()
+
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
-
-	// Setup sender addresses and environment
-	privKey := testkeeper.MockPrivateKey()
-	senderAddr, senderEVMAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
-	k.ScopedCapabilityKeeper().NewCapability(ctx, "capabilities/ports/port/channels/sourceChannel")
-	k.ChannelKeeper().SetChannel(ctx, "port", "sourceChannel", channeltypes.Channel{
-		State:    0,
-		Ordering: 0,
-		Counterparty: channeltypes.Counterparty{
-			PortId:    "destinationPort",
-			ChannelId: "destinationChannel",
-		},
-		ConnectionHops: nil,
-		Version:        "",
-	})
-	k.ChannelKeeper().SetNextSequenceSend(ctx, "port", "sourceChannel", 1)
-
-	err := k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))))
-	require.Nil(t, err)
-	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))))
-	require.Nil(t, err)
-
-	// Setup receiving addresses
-	_, evmAddr := testkeeper.MockAddressPair()
-
-	p, err := ibc.NewPrecompile(k.TransferKeeper(), k)
-
-	require.Nil(t, err)
 	stateDb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
 		StateDB:   stateDb,
-		TxContext: vm.TxContext{Origin: senderEVMAddr},
+		TxContext: vm.TxContext{Origin: senderEvmAddress},
+	}
+	p, _ := ibc.NewPrecompile(&MockTransferKeeper{}, k)
+
+	transfer, _ := p.ABI.MethodById(p.TransferID)
+	encodedTrue, _ := transfer.Outputs.Pack(true)
+
+	type fields struct {
+		evm            *vm.EVM
+		transferKeeper pcommon.TransferKeeper
 	}
 
-	// Precompile transfer test
-	send, err := p.ABI.MethodById(p.TransferID)
-	require.Nil(t, err)
-	args, err := send.Inputs.Pack(senderEVMAddr, evmAddr, "port", "sourceChannel", "usei", big.NewInt(25))
-	require.Nil(t, err)
-	_, err = p.Run(&evm, senderEVMAddr, append(p.TransferID, args...), nil)
-	// TODO: Fix uncomment when all dependencies are resolved
-	//require.Nil(t, err)
+	type input struct {
+		senderEvmAddr   common.Address
+		receiverEvmAddr common.Address
+		sourcePort      string
+		sourceChannel   string
+		denom           string
+		amount          *big.Int
+	}
+	type args struct {
+		caller common.Address
+		input  *input
+		value  *big.Int
+	}
 
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		wantBz  []byte
+		wantErr bool
+	}{
+		{
+			name:   "successful transfer: with amount > 0 between EVM addresses",
+			fields: fields{evm: &evm, transferKeeper: &MockTransferKeeper{}},
+			args: args{
+				caller: senderEvmAddress,
+				input: &input{
+					senderEvmAddr:   senderEvmAddress,
+					receiverEvmAddr: receiverEvmAddress,
+					sourcePort:      "sourcePort",
+					sourceChannel:   "sourceChannel",
+					denom:           "denom",
+					amount:          big.NewInt(100),
+				},
+				value: nil,
+			},
+			wantBz:  encodedTrue,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inputs, err := transfer.Inputs.Pack(tt.args.input.senderEvmAddr, tt.args.input.receiverEvmAddr,
+				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount)
+			require.Nil(t, err)
+			gotBz, err := p.Run(&evm, tt.args.caller, append(p.TransferID, inputs...), tt.args.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(gotBz, tt.wantBz) {
+				t.Errorf("Run() gotBz = %v, want %v", gotBz, tt.wantBz)
+			}
+		})
+	}
 }
