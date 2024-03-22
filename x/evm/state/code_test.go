@@ -3,7 +3,7 @@ package state_test
 import (
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -15,7 +15,7 @@ func TestCode(t *testing.T) {
 	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 
-	require.Equal(t, common.Hash{}, statedb.GetCodeHash(addr))
+	require.Equal(t, ethtypes.EmptyCodeHash, statedb.GetCodeHash(addr))
 	require.Nil(t, statedb.GetCode(addr))
 	require.Equal(t, 0, statedb.GetCodeSize(addr))
 
