@@ -20,7 +20,6 @@ type MockTransferKeeper struct{}
 
 func (tk *MockTransferKeeper) SendTransfer(ctx sdk.Context, sourcePort, sourceChannel string, token sdk.Coin,
 	sender sdk.AccAddress, receiver string, timeoutHeight clienttypes.Height, timeoutTimestamp uint64) error {
-	// Implement your mock logic here
 	return nil
 }
 
@@ -28,21 +27,11 @@ func TestPrecompile_Run(t *testing.T) {
 	_, senderEvmAddress := testkeeper.MockAddressPair()
 	_, receiverEvmAddress := testkeeper.MockAddressPair()
 
-	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
-	k := &testApp.EvmKeeper
-	stateDb := state.NewDBImpl(ctx, k, true)
-	evm := vm.EVM{
-		StateDB:   stateDb,
-		TxContext: vm.TxContext{Origin: senderEvmAddress},
-	}
-	p, _ := ibc.NewPrecompile(&MockTransferKeeper{}, k)
-
-	transfer, _ := p.ABI.MethodById(p.TransferID)
-	encodedTrue, _ := transfer.Outputs.Pack(true)
+	pre, _ := ibc.NewPrecompile(nil, nil)
+	testTransfer, _ := pre.ABI.MethodById(pre.TransferID)
+	encodedTrue, _ := testTransfer.Outputs.Pack(true)
 
 	type fields struct {
-		evm            *vm.EVM
 		transferKeeper pcommon.TransferKeeper
 	}
 
@@ -69,7 +58,7 @@ func TestPrecompile_Run(t *testing.T) {
 	}{
 		{
 			name:   "successful transfer: with amount > 0 between EVM addresses",
-			fields: fields{evm: &evm, transferKeeper: &MockTransferKeeper{}},
+			fields: fields{transferKeeper: &MockTransferKeeper{}},
 			args: args{
 				caller: senderEvmAddress,
 				input: &input{
@@ -88,6 +77,17 @@ func TestPrecompile_Run(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB:   stateDb,
+				TxContext: vm.TxContext{Origin: senderEvmAddress},
+			}
+			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, k)
+			transfer, err := p.ABI.MethodById(p.TransferID)
+			require.Nil(t, err)
 			inputs, err := transfer.Inputs.Pack(tt.args.input.senderEvmAddr, tt.args.input.receiverEvmAddr,
 				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount)
 			require.Nil(t, err)
