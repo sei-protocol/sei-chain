@@ -189,7 +189,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		return
 	}
 	ret, rerr = method.Outputs.Pack(addr.String(), data)
-	remainingGas = p.getRemainingGas(ctx)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
@@ -238,7 +238,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		return
 	}
 	ret, rerr = method.Outputs.Pack(res)
-	remainingGas = p.getRemainingGas(ctx)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
@@ -268,14 +268,8 @@ func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{
 		return
 	}
 	ret, rerr = method.Outputs.Pack(res)
-	remainingGas = p.getRemainingGas(ctx)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
-}
-
-func (p Precompile) getRemainingGas(ctx sdk.Context) uint64 {
-	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
-	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
-	return new(big.Int).Mul(new(big.Int).SetUint64(seiGasRemaining), gasMultipler.RoundInt().BigInt()).Uint64()
 }
 
 func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address, callingContract common.Address) error {

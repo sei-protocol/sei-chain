@@ -24,7 +24,7 @@ func (tk *MockTransferKeeper) SendTransfer(ctx sdk.Context, sourcePort, sourceCh
 }
 
 func TestPrecompile_Run(t *testing.T) {
-	_, senderEvmAddress := testkeeper.MockAddressPair()
+	senderSeiAddress, senderEvmAddress := testkeeper.MockAddressPair()
 	_, receiverEvmAddress := testkeeper.MockAddressPair()
 
 	pre, _ := ibc.NewPrecompile(nil, nil)
@@ -36,7 +36,6 @@ func TestPrecompile_Run(t *testing.T) {
 	}
 
 	type input struct {
-		senderEvmAddr    common.Address
 		receiverEvmAddr  common.Address
 		sourcePort       string
 		sourceChannel    string
@@ -47,9 +46,10 @@ func TestPrecompile_Run(t *testing.T) {
 		timeoutTimestamp uint64
 	}
 	type args struct {
-		caller common.Address
-		input  *input
-		value  *big.Int
+		caller      common.Address
+		input       *input
+		suppliedGas uint64
+		value       *big.Int
 	}
 
 	tests := []struct {
@@ -65,7 +65,6 @@ func TestPrecompile_Run(t *testing.T) {
 			args: args{
 				caller: senderEvmAddress,
 				input: &input{
-					senderEvmAddr:    senderEvmAddress,
 					receiverEvmAddr:  receiverEvmAddress,
 					sourcePort:       "sourcePort",
 					sourceChannel:    "sourceChannel",
@@ -75,7 +74,8 @@ func TestPrecompile_Run(t *testing.T) {
 					revisionHeight:   1,
 					timeoutTimestamp: 1,
 				},
-				value: nil,
+				suppliedGas: uint64(1000000),
+				value:       nil,
 			},
 			wantBz:  encodedTrue,
 			wantErr: false,
@@ -86,6 +86,7 @@ func TestPrecompile_Run(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
 			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, senderSeiAddress, senderEvmAddress)
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
 				StateDB:   stateDb,
@@ -98,7 +99,7 @@ func TestPrecompile_Run(t *testing.T) {
 				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
 				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp)
 			require.Nil(t, err)
-			gotBz, err := p.Run(&evm, tt.args.caller, append(p.TransferID, inputs...), tt.args.value)
+			gotBz, _, err := p.RunAndCalculateGas(&evm, tt.args.caller, common.Address{}, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return

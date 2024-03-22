@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"embed"
 	"errors"
+	"fmt"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -84,11 +86,18 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	return p.Precompile.RequiredGas(input, p.IsTransaction(method.Name))
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value *big.Int) (bz []byte, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int) (ret []byte, remainingGas uint64, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+
+	gasMultiplier := p.evmKeeper.GetPriorityNormalizer(ctx)
+	gasLimitBigInt := new(big.Int).Mul(new(big.Int).SetUint64(suppliedGas), gasMultiplier.RoundInt().BigInt())
+	if gasLimitBigInt.Cmp(wasmd.MaxUint64BigInt) > 0 {
+		gasLimitBigInt = wasmd.MaxUint64BigInt
+	}
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(gasLimitBigInt.Uint64()))
 
 	switch method.Name {
 	case TransferMethod:
@@ -96,38 +105,62 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 	}
 	return
 }
-func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) ([]byte, error) {
+
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value *big.Int) (bz []byte, err error) {
+	panic("static gas Run is not implemented for dynamic gas precompile")
+}
+
+func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
 	pcommon.AssertArgsLength(args, 8)
 	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !ok {
+		rerr = errors.New("caller is not a valid SEI address")
+		return
+	}
 
 	receiverAddress, err := p.accAddressFromArg(ctx, args[0])
 	if err != nil {
-		return nil, err
+		rerr = err
+		return
 	}
 
 	port, ok := args[1].(string)
 	if !ok {
-		return nil, errors.New("port is not a string")
+		rerr = errors.New("port is not a string")
+		return
 	}
 
 	channelID, ok := args[2].(string)
 	if !ok {
-		return nil, errors.New("channelID is not a string")
+		rerr = errors.New("channelID is not a string")
+		return
 	}
 
 	denom := args[3].(string)
 	if denom == "" {
-		return nil, errors.New("invalid denom")
+		rerr = errors.New("invalid denom")
+		return
 	}
 
 	amount, ok := args[4].(*big.Int)
 	if !ok {
-		return nil, errors.New("amount is not a big.Int")
+		rerr = errors.New("amount is not a big.Int")
+		return
 	}
 
 	if amount.Cmp(big.NewInt(0)) == 0 {
 		// short circuit
-		return method.Outputs.Pack(true)
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		ret, rerr = method.Outputs.Pack(true)
+		return
 	}
 
 	coin := sdk.Coin{
@@ -137,12 +170,14 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 
 	revisionNumber, ok := args[5].(uint64)
 	if !ok {
-		return nil, errors.New("revisionNumber is not a uint64")
+		rerr = errors.New("revisionNumber is not a uint64")
+		return
 	}
 
 	revisionHeight, ok := args[6].(uint64)
 	if !ok {
-		return nil, errors.New("revisionHeight is not a uint64")
+		rerr = errors.New("revisionHeight is not a uint64")
+		return
 	}
 
 	height := clienttypes.Height{
@@ -152,15 +187,19 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 
 	timeoutTimestamp, ok := args[7].(uint64)
 	if !ok {
-		return nil, errors.New("timeoutTimestamp is not a uint64")
+		rerr = errors.New("timeoutTimestamp is not a uint64")
+		return
 	}
 
 	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderSeiAddr, receiverAddress.String(), height, timeoutTimestamp)
 
 	if err != nil {
-		return nil, err
+		rerr = err
+		return
 	}
-	return method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	ret, rerr = method.Outputs.Pack(true)
+	return
 }
 
 func (Precompile) IsTransaction(method string) bool {

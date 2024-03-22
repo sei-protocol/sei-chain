@@ -83,3 +83,9 @@ func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer 
 	}
 	return usei, wei, nil
 }
+
+func GetRemainingGas(ctx sdk.Context, evmKeeper EVMKeeper) uint64 {
+	gasMultipler := evmKeeper.GetPriorityNormalizer(ctx)
+	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
+	return new(big.Int).Mul(new(big.Int).SetUint64(seiGasRemaining), gasMultipler.RoundInt().BigInt()).Uint64()
+}
