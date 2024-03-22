@@ -1,9 +1,11 @@
 package state
 
 import (
+	"bytes"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
 // Exist reports whether the given account exists in state.
@@ -11,7 +13,8 @@ import (
 func (s *DBImpl) Exist(addr common.Address) bool {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 	// check if the address exists as a contract
-	if s.GetCodeHash(addr).Cmp(common.Hash{}) != 0 {
+	codeHash := s.GetCodeHash(addr)
+	if codeHash.Cmp(ethtypes.EmptyCodeHash) != 0 && s.GetCodeHash(addr).Cmp(common.Hash{}) != 0 {
 		return true
 	}
 
@@ -28,5 +31,5 @@ func (s *DBImpl) Exist(addr common.Address) bool {
 // is defined according to EIP161 (balance = nonce = code = 0).
 func (s *DBImpl) Empty(addr common.Address) bool {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
-	return s.GetBalance(addr).Cmp(big.NewInt(0)) == 0 && s.GetNonce(addr) == 0 && s.GetCodeHash(addr).Cmp(common.Hash{}) == 0
+	return s.GetBalance(addr).Cmp(big.NewInt(0)) == 0 && s.GetNonce(addr) == 0 && bytes.Equal(s.GetCodeHash(addr).Bytes(), ethtypes.EmptyCodeHash.Bytes())
 }
