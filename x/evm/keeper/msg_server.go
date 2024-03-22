@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"runtime/debug"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -59,6 +60,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 	defer func() {
 		if pe := recover(); pe != nil {
+			debug.PrintStack()
 			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
 			panic(pe)
 		}

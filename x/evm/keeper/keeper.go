@@ -360,7 +360,7 @@ func (k *Keeper) GetKeysToNonces() map[tmtypes.TxKey]*AddressNoncePair {
 
 // Only used in ETH replay
 func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
-	if !k.EthReplayConfig.Enabled && !k.EthBlockTestConfig.Enabled {
+	if !k.EthReplayConfig.Enabled {
 		return
 	}
 	var store sdk.KVStore
@@ -491,6 +491,7 @@ func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error)
 		Extra:       btHeader.ExtraData,
 		MixDigest:   btHeader.MixHash,
 		Nonce:       btHeader.Nonce,
+		BaseFee:     btHeader.BaseFeePerGas,
 	}
 	getHash := core.GetHashFn(header, &ReplayChainContext{ethClient: k.EthClient})
 	var (
