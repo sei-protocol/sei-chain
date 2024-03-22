@@ -214,4 +214,5 @@ type WasmInstantiateType struct {
 type SignedTx struct {
 	TxBytes []byte
 	EvmTx   *ethtypes.Transaction
+	MsgType string
 }
