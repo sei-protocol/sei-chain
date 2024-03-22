@@ -113,7 +113,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	if err != nil {
 		return nil, 0, err
 	}
-	if err := p.validateCaller(ctx, caller, callingContract); err != nil {
+	if err = pcommon.ValidateCaller(ctx, p.evmKeeper, caller, callingContract); err != nil {
 		return nil, 0, err
 	}
 	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
@@ -270,16 +270,4 @@ func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{
 	ret, rerr = method.Outputs.Pack(res)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
-}
-
-func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address, callingContract common.Address) error {
-	if caller == callingContract {
-		// not a delegate call
-		return nil
-	}
-	codeHash := p.evmKeeper.GetCodeHash(ctx, callingContract)
-	if p.evmKeeper.IsCodeHashWhitelistedForDelegateCall(ctx, codeHash) {
-		return nil
-	}
-	return fmt.Errorf("calling contract %s with code hash %s is not whitelisted for delegate calls", callingContract.Hex(), codeHash.Hex())
 }

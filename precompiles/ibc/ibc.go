@@ -91,6 +91,9 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	if err != nil {
 		return nil, 0, err
 	}
+	if err = pcommon.ValidateCaller(ctx, p.evmKeeper, caller, callingContract); err != nil {
+		return nil, 0, err
+	}
 
 	gasMultiplier := p.evmKeeper.GetPriorityNormalizer(ctx)
 	gasLimitBigInt := new(big.Int).Mul(new(big.Int).SetUint64(suppliedGas), gasMultiplier.RoundInt().BigInt())

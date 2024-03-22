@@ -54,14 +54,16 @@ func TestPrecompile_Run(t *testing.T) {
 		timeoutTimestamp uint64
 	}
 	type args struct {
-		caller      common.Address
-		input       *input
-		suppliedGas uint64
-		value       *big.Int
+		caller          common.Address
+		callingContract common.Address
+		input           *input
+		suppliedGas     uint64
+		value           *big.Int
 	}
 
 	commonArgs := args{
-		caller: senderEvmAddress,
+		caller:          senderEvmAddress,
+		callingContract: senderEvmAddress,
 		input: &input{
 			receiverEvmAddr:  receiverEvmAddress,
 			sourcePort:       "sourcePort",
@@ -116,7 +118,7 @@ func TestPrecompile_Run(t *testing.T) {
 				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
 				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp)
 			require.Nil(t, err)
-			gotBz, _, err := p.RunAndCalculateGas(&evm, tt.args.caller, common.Address{}, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value)
+			gotBz, _, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return

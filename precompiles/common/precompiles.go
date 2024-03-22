@@ -3,6 +3,7 @@ package common
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
 	"math/big"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -88,4 +89,16 @@ func GetRemainingGas(ctx sdk.Context, evmKeeper EVMKeeper) uint64 {
 	gasMultipler := evmKeeper.GetPriorityNormalizer(ctx)
 	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
 	return new(big.Int).Mul(new(big.Int).SetUint64(seiGasRemaining), gasMultipler.RoundInt().BigInt()).Uint64()
+}
+
+func ValidateCaller(ctx sdk.Context, evmKeeper EVMKeeper, caller common.Address, callingContract common.Address) error {
+	if caller == callingContract {
+		// not a delegate call
+		return nil
+	}
+	codeHash := evmKeeper.GetCodeHash(ctx, callingContract)
+	if evmKeeper.IsCodeHashWhitelistedForDelegateCall(ctx, codeHash) {
+		return nil
+	}
+	return fmt.Errorf("calling contract %s with code hash %s is not whitelisted for delegate calls", callingContract.Hex(), codeHash.Hex())
 }
