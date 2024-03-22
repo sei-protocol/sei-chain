@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"fmt"
 	"strconv"
 	"time"
 
@@ -282,7 +281,6 @@ func MeasureRpcRequestLatency(endpoint string, startTime time.Time) {
 //
 //	sei_loadtest_produce_count
 func IncrProducerEventCount(msgType string) {
-	fmt.Println("In IncrProducerEventCount, incrementing counter for msgType: ", msgType)
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "loadtest", "produce", "count"},
 		1,
@@ -296,7 +294,6 @@ func IncrProducerEventCount(msgType string) {
 //
 //	sei_loadtest_consume_count
 func IncrConsumerEventCount(msgType string) {
-	fmt.Println("In IncrConsumerEventCount, incrementing counter for msgType: ", msgType)
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "loadtest", "consume", "count"},
 		1,
