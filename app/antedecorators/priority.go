@@ -10,6 +10,8 @@ import (
 const (
 	OraclePriority       = math.MaxInt64 - 100
 	EVMAssociatePriority = math.MaxInt64 - 101
+	// This is the max priority a non oracle or associate tx can take
+	MaxPriority = math.MaxInt64 - 102
 )
 
 type PriorityDecorator struct{}

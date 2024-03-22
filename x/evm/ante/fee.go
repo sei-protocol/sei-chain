@@ -1,12 +1,12 @@
 package ante
 
 import (
-	"math"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -85,8 +85,8 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
 	gp := txData.EffectiveGasPrice(big.NewInt(0))
 	priority := new(big.Int).Quo(gp, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
-	if priority.Cmp(big.NewInt(math.MaxInt64)) > 0 {
-		priority = big.NewInt(math.MaxInt64)
+	if priority.Cmp(big.NewInt(antedecorators.MaxPriority)) > 0 {
+		priority = big.NewInt(antedecorators.MaxPriority)
 	}
 	return priority
 }
