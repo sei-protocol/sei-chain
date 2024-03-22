@@ -66,23 +66,23 @@ func (k *Keeper) VerifyTxResult(ctx sdk.Context, hash common.Hash) {
 
 func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData core.GenesisAccount) {
 	code := accountData.Code
-	// storage := accountData.Storage // TODO <- verify the storage
+	for key, expectedState := range accountData.Storage {
+		actualState := k.GetState(ctx, addr, key)
+		if !bytes.Equal(actualState.Bytes(), expectedState.Bytes()) {
+			panic(fmt.Sprintf("storage mismatch for address %s: expected %X, got %X", addr.Hex(), expectedState, actualState))
+		}
+	}
 	balance := accountData.Balance
 	nonce := accountData.Nonce
-	// Verify the code
 	if !bytes.Equal(code, k.GetCode(ctx, addr)) {
 		panic(fmt.Sprintf("code mismatch for address %s", addr))
 	}
-
-	// Verify the balance
 	useiBalance := k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr), "usei").Amount
 	weiBalance := k.bankKeeper.GetWeiBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr))
 	totalSeiBalance := useiBalance.Mul(sdk.NewInt(1_000_000_000_000)).Add(weiBalance).BigInt()
 	if balance.Cmp(totalSeiBalance) != 0 {
 		panic(fmt.Sprintf("balance mismatch for address %s: expected %s, got %s", addr.Hex(), balance, totalSeiBalance))
 	}
-
-	// Verify the nonce
 	if nonce != k.GetNonce(ctx, addr) {
 		panic(fmt.Sprintf("nonce mismatch for address %s: expected %d, got %d", addr.Hex(), nonce, k.GetNonce(ctx, addr)))
 	}
