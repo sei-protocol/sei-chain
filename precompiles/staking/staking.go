@@ -143,7 +143,7 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	validatorBech32 := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
 	amount := args[1].(*big.Int)
-	_, err := p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgDelegate{
+	res, err := p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgDelegate{
 		DelegatorAddress: delegator.String(),
 		ValidatorAddress: validatorBech32,
 		Amount:           sdk.NewCoin(p.evmKeeper.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amount)),
@@ -151,7 +151,7 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 	if err != nil {
 		return nil, err
 	}
-	return method.Outputs.Pack(true)
+	return method.Outputs.Pack(res.Shares)
 }
 
 func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
@@ -177,7 +177,7 @@ func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller commo
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	validatorBech32 := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
 	amount := args[1].(*big.Int)
-	_, err := p.stakingKeeper.Undelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgUndelegate{
+	res, err := p.stakingKeeper.Undelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgUndelegate{
 		DelegatorAddress: delegator.String(),
 		ValidatorAddress: validatorBech32,
 		Amount:           sdk.NewCoin(p.evmKeeper.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amount)),
@@ -185,12 +185,7 @@ func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller commo
 	if err != nil {
 		return nil, err
 	}
-	unbonds, err := p.stakingKeeper.UnbondingDelegation(sdk.WrapSDKContext(ctx), delegator.String(), validatorBech32)
-	if err != nil {
-		return nil, err
-	}
-	entry := unbonds.Unbond.Entries[len(unbonds.Unbond.Entries)-1]
-	return method.Outputs.Pack(entry.UnbondingId)
+	return method.Outputs.Pack(res.UnbondingId)
 }
 
 func (p Precompile) getDelegation(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {

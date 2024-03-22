@@ -26,13 +26,14 @@ struct StakingPool {
 }
 
 interface IStaking {
-    // Transactions
-    function delegate(address validator, uint256 amount) external returns (bool success);
+    // Messages
+    function delegate(address validator, uint256 amount) external returns (uint256 shares);
 
     function redelegate(address src, address dst, uint256 amount) external returns (bool success);
 
     function undelegate(address validator, uint256 amount) external returns (uint256 unbondingID);
 
+    // Queries
     function getDelegation(address delegator, address validator) external view returns (uint256 shares);
 
     function getStakingPool(address validator) external view returns (StakingPool memory);
