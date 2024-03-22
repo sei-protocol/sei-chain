@@ -196,7 +196,7 @@ func (c *LoadTestClient) BuildTxs(
 			// Generate a message type first
 			messageTypes := strings.Split(config.MessageType, ",")
 			messageType := c.getRandomMessageType(messageTypes)
-			defer metrics.IncrProducerEventCount(messageType)
+			metrics.IncrProducerEventCount(messageType)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
 			switch messageType {
@@ -254,7 +254,7 @@ func (c *LoadTestClient) SendTxs(
 			return
 		case tx, ok := <-txQueue:
 			atomic.AddInt64(sentCountPerMsgType[tx.MsgType], 1)
-			defer metrics.IncrConsumerEventCount(tx.MsgType)
+			metrics.IncrConsumerEventCount(tx.MsgType)
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				return
