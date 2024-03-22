@@ -6,8 +6,11 @@ import (
 	"math"
 	"math/big"
 
+	"github.com/armon/go-metrics"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -48,30 +51,53 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	stateDB := state.NewDBImpl(ctx, &server, false)
 	tx, _ := msg.AsTransaction()
 	ctx, gp := server.getGasPool(ctx)
-	emsg, err := server.getEVMMessage(ctx, tx)
-	if err != nil {
-		ctx.Logger().Error(fmt.Sprintf("EVM message server error: getting EVM message failed due to %s", err))
-		return
-	}
+	emsg := server.getEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
 
 	defer func() {
 		if pe := recover(); pe != nil {
 			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
+			telemetry.IncrCounter(1, types.ModuleName, "panics")
+
 			panic(pe)
 		}
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("Got EVM state transition error (not VM error): %s", err))
+
+			telemetry.IncrCounterWithLabels(
+				[]string{types.ModuleName, "errors", "state_transition"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("type", err.Error()),
+				},
+			)
 			return
 		}
 		receipt, err := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
+
+			telemetry.IncrCounterWithLabels(
+				[]string{types.ModuleName, "errors", "write_receipt"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("type", err.Error()),
+				},
+			)
 			return
 		}
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
 			err = ferr
 			ctx.Logger().Error(fmt.Sprintf("failed to finalize EVM stateDB: %s", err))
+
+			telemetry.IncrCounterWithLabels(
+				[]string{types.ModuleName, "errors", "stateDB_finalize"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("type", err.Error()),
+				},
+			)
+
 			return
 		}
 		bloom := ethtypes.Bloom{}
@@ -98,10 +124,27 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		// This should not happen, as anything that could cause applyErr is supposed to
 		// be checked in CheckTx first
 		err = applyErr
+
+		telemetry.IncrCounterWithLabels(
+			[]string{types.ModuleName, "errors", "apply_message"},
+			1,
+			[]metrics.Label{
+				telemetry.NewLabel("type", err.Error()),
+			},
+		)
+
 	} else {
 		// if applyErr is nil then res must be non-nil
 		if res.Err != nil {
 			serverRes.VmError = res.Err.Error()
+
+			telemetry.IncrCounterWithLabels(
+				[]string{types.ModuleName, "errors", "vm_execution"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("type", serverRes.VmError),
+				},
+			)
 		}
 		serverRes.GasUsed = res.UsedGas
 		serverRes.ReturnData = res.ReturnData
@@ -114,10 +157,28 @@ func (k *Keeper) getGasPool(ctx sdk.Context) (sdk.Context, core.GasPool) {
 	return ctx, math.MaxUint64
 }
 
-func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction) (*core.Message, error) {
-	cfg := types.DefaultChainConfig().EthereumConfig(server.ChainID(ctx))
-	signer := ethtypes.MakeSigner(cfg, big.NewInt(ctx.BlockHeight()), uint64(ctx.BlockTime().Unix()))
-	return core.TransactionToMessage(tx, signer, server.GetBaseFee(ctx))
+func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) *core.Message {
+	msg := &core.Message{
+		Nonce:             tx.Nonce(),
+		GasLimit:          tx.Gas(),
+		GasPrice:          new(big.Int).Set(tx.GasPrice()),
+		GasFeeCap:         new(big.Int).Set(tx.GasFeeCap()),
+		GasTipCap:         new(big.Int).Set(tx.GasTipCap()),
+		To:                tx.To(),
+		Value:             tx.Value(),
+		Data:              tx.Data(),
+		AccessList:        tx.AccessList(),
+		SkipAccountChecks: false,
+		BlobHashes:        tx.BlobHashes(),
+		BlobGasFeeCap:     tx.BlobGasFeeCap(),
+		From:              sender,
+	}
+	// If baseFee provided, set gasPrice to effectiveGasPrice.
+	baseFee := server.GetBaseFee(ctx)
+	if baseFee != nil {
+		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
+	}
+	return msg
 }
 
 func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
