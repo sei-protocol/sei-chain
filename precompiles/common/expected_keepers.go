@@ -44,6 +44,7 @@ type StakingKeeper interface {
 	Undelegate(goCtx context.Context, msg *stakingtypes.MsgUndelegate) (*stakingtypes.MsgUndelegateResponse, error)
 	Delegation(goCtx context.Context, delegatorAddr, validatorAddr string) (stakingtypes.QueryDelegationResponse, error)
 	Validator(goCtx context.Context, validatorAddr string) (stakingtypes.QueryValidatorResponse, error)
+	UnbondingDelegation(goCtx context.Context, delegatorAddr, validatorAddr string) (stakingtypes.QueryUnbondingDelegationResponse, error)
 }
 
 type GovKeeper interface {

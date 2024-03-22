@@ -14,11 +14,12 @@ import (
 )
 
 const (
-	DelegateMethod   = "delegate"
-	RedelegateMethod = "redelegate"
-	UndelegateMethod = "undelegate"
-	DelegationQuery  = "getDelegation"
-	StakingPoolQuery = "getStakingPool"
+	DelegateMethod           = "delegate"
+	RedelegateMethod         = "redelegate"
+	UndelegateMethod         = "undelegate"
+	DelegationQuery          = "getDelegation"
+	StakingPoolQuery         = "getStakingPool"
+	UnbondingDelegationQuery = "getUnbondingDelegation"
 )
 
 const (
@@ -51,11 +52,12 @@ type Precompile struct {
 	evmKeeper     pcommon.EVMKeeper
 	address       common.Address
 
-	DelegateID    []byte
-	RedelegateID  []byte
-	UndelegateID  []byte
-	DelegationID  []byte
-	StakingPoolID []byte
+	DelegateID            []byte
+	RedelegateID          []byte
+	UndelegateID          []byte
+	DelegationID          []byte
+	StakingPoolID         []byte
+	UnbondingDelegationID []byte
 }
 
 func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
@@ -80,6 +82,8 @@ func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKee
 			p.DelegationID = m.ID
 		case StakingPoolQuery:
 			p.StakingPoolID = m.ID
+		case UnbondingDelegationQuery:
+			p.UnbondingDelegationID = m.ID
 		}
 
 	}
@@ -101,6 +105,8 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 		return 5000
 	} else if bytes.Equal(methodID, p.StakingPoolID) {
 		return 5000
+	} else if bytes.Equal(methodID, p.UnbondingDelegationID) {
+		return 10000
 	}
 	panic("unknown method")
 }
@@ -126,6 +132,8 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 		return p.getDelegation(ctx, method, caller, args)
 	case StakingPoolQuery:
 		return p.getStakingPool(ctx, method, caller, args)
+	case UnbondingDelegationQuery:
+		return p.getUnbondingDelegation(ctx, method, caller, args)
 	}
 	return
 }
@@ -133,7 +141,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte) (bz []
 func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 2)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
-	validatorBech32 := args[0].(string)
+	validatorBech32 := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
 	amount := args[1].(*big.Int)
 	_, err := p.stakingKeeper.Delegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgDelegate{
 		DelegatorAddress: delegator.String(),
@@ -149,8 +157,8 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 3)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
-	srcValidatorBech32 := args[0].(string)
-	dstValidatorBech32 := args[1].(string)
+	srcValidatorBech32 := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
+	dstValidatorBech32 := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[1].(common.Address)).String()
 	amount := args[2].(*big.Int)
 	_, err := p.stakingKeeper.BeginRedelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgBeginRedelegate{
 		DelegatorAddress:    delegator.String(),
@@ -167,7 +175,7 @@ func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller commo
 func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 2)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
-	validatorBech32 := args[0].(string)
+	validatorBech32 := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
 	amount := args[1].(*big.Int)
 	_, err := p.stakingKeeper.Undelegate(sdk.WrapSDKContext(ctx), &stakingtypes.MsgUndelegate{
 		DelegatorAddress: delegator.String(),
@@ -177,13 +185,18 @@ func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller commo
 	if err != nil {
 		return nil, err
 	}
-	return method.Outputs.Pack(true)
+	unbonds, err := p.stakingKeeper.UnbondingDelegation(sdk.WrapSDKContext(ctx), delegator.String(), validatorBech32)
+	if err != nil {
+		return nil, err
+	}
+	entry := unbonds.Unbond.Entries[len(unbonds.Unbond.Entries)-1]
+	return method.Outputs.Pack(entry.UnbondingId)
 }
 
 func (p Precompile) getDelegation(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 2)
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
-	validatorBech32 := args[0].(string)
+	validatorBech32 := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
 	delegation, err := p.stakingKeeper.Delegation(sdk.WrapSDKContext(ctx), delegator.String(), validatorBech32)
 	if err != nil {
 		return nil, err
@@ -193,10 +206,31 @@ func (p Precompile) getDelegation(ctx sdk.Context, method *abi.Method, caller co
 
 func (p Precompile) getStakingPool(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
 	pcommon.AssertArgsLength(args, 1)
-	validatorBech32 := args[0].(string)
+	validatorBech32 := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
 	validator, err := p.stakingKeeper.Validator(sdk.WrapSDKContext(ctx), validatorBech32)
 	if err != nil {
 		return nil, err
 	}
-	return method.Outputs.Pack(validator.Validator.Tokens, validator.Validator.DelegatorShares)
+	return method.Outputs.Pack(struct {
+		TotalShares *big.Int
+		TotalTokens *big.Int
+		Status      stakingtypes.BondStatus
+		Jailed      bool
+	}{
+		validator.Validator.DelegatorShares.BigInt(),
+		validator.Validator.Tokens.BigInt(),
+		validator.Validator.Status,
+		validator.Validator.Jailed,
+	})
+}
+
+func (p Precompile) getUnbondingDelegation(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) ([]byte, error) {
+	pcommon.AssertArgsLength(args, 2)
+	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+	validatorBech32 := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
+	unbonding, err := p.stakingKeeper.UnbondingDelegation(sdk.WrapSDKContext(ctx), delegator.String(), validatorBech32)
+	if err != nil {
+		return nil, err
+	}
+	return method.Outputs.Pack(unbonding)
 }
