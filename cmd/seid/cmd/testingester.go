@@ -10,7 +10,7 @@ import (
 	ethtests "github.com/ethereum/go-ethereum/tests"
 )
 
-func testIngester(testFilePath string) *ethtests.BlockTest {
+func testIngester(testFilePath string, testName string) *ethtests.BlockTest {
 	// Read the entire file content
 	file, err := os.Open(testFilePath)
 	if err != nil {
@@ -24,7 +24,7 @@ func testIngester(testFilePath string) *ethtests.BlockTest {
 	}
 	for name, bt := range tests {
 		btP := &bt
-		if name == "SimpleTx_Shanghai" {
+		if name == testName {
 			if len(btP.Json.Blocks) > 0 {
 				if btP.Json.Blocks[0].BlockHeader.Number.Cmp(big.NewInt(1)) == 0 {
 					for _, block := range btP.Json.Blocks {
@@ -36,6 +36,5 @@ func testIngester(testFilePath string) *ethtests.BlockTest {
 			return btP
 		}
 	}
-	fmt.Println("Returning empty block test")
-	return emptyBlockTest
+	panic(fmt.Sprintf("Unable to find test name %v at test file path %v", testName, testFilePath))
 }

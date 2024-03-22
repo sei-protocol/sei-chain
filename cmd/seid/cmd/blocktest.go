@@ -30,7 +30,14 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 		Short: "run EF blocktest",
 		Long:  "run EF blocktest",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			blockTestFileName, _ := cmd.Flags().GetString("block-test")
+			blockTestFileName, err := cmd.Flags().GetString("block-test")
+			if err != nil {
+				panic(fmt.Sprintf("Error with retrieving block test path: %v", err.Error()))
+			}
+			testName, err := cmd.Flags().GetString("test-name")
+			if err != nil {
+				panic(fmt.Sprintf("Error with retrieving test name: %v", err.Error()))
+			}
 
 			serverCtx := server.GetServerContextFromCmd(cmd)
 			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
@@ -81,7 +88,7 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 				baseapp.SetInterBlockCache(cache),
 			)
 			fmt.Println("Will injest block test, with file: ", blockTestFileName)
-			bt := testIngester(blockTestFileName)
+			bt := testIngester(blockTestFileName, testName)
 			fmt.Println("In EthReplayCmd, bt = ", bt)
 			app.BlockTest(a, bt)
 			return nil
@@ -91,6 +98,7 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The database home directory")
 	cmd.Flags().String(flags.FlagChainID, "sei-chain", "chain ID")
 	cmd.Flags().String("block-test", "", "path to a block test json file")
+	cmd.Flags().String("test-name", "", "individual test name")
 
 	return cmd
 }
