@@ -30,6 +30,9 @@ func NewMsgServerImpl(keeper *Keeper) types.MsgServer {
 var _ types.MsgServer = msgServer{}
 
 func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
+	fmt.Println("*****************************************")
+	fmt.Println("In evm Keeper, EVMTransaction()")
+	fmt.Println("*****************************************")
 	if msg.IsAssociateTx() {
 		// no-op in msg server for associate tx; all the work have been done in ante handler
 		return &types.MsgEVMTransactionResponse{}, nil
@@ -121,6 +124,9 @@ func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction)
 }
 
 func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
+	fmt.Println("*****************************************************************")
+	fmt.Println("In evm keeper, applyEVMMessage, will attempt to transition DB")
+	fmt.Println("*****************************************************************")
 	blockCtx, err := server.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
@@ -130,7 +136,10 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	stateDB.SetEVM(evmInstance)
 	st := core.NewStateTransition(evmInstance, msg, &gp)
-	return st.TransitionDb()
+	fmt.Println("In applyEvmMessage, trying to transitionDB")
+	res, err := st.TransitionDb()
+	fmt.Println("In applyEvmMessage, done with transitionDB")
+	return res, err
 }
 
 func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, stateDB *state.DBImpl) (*types.Receipt, error) {

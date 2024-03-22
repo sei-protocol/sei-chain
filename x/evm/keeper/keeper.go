@@ -407,6 +407,9 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 }
 
 func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
+	fmt.Println("******************************************************************")
+	fmt.Println("In EvmKeeper, GasBaseFee, ctx.BlockHeight() = ", ctx.BlockHeight())
+	fmt.Println("******************************************************************")
 	if k.EthReplayConfig.Enabled {
 		block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
 		if err != nil {
@@ -415,7 +418,7 @@ func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 		return block.Header_.BaseFee
 	}
 	if k.EthBlockTestConfig.Enabled {
-		block := k.BlockTest.Json.Blocks[ctx.BlockHeight()]
+		block := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
 		return block.BlockHeader.BaseFeePerGas
 	}
 	return nil
@@ -470,7 +473,7 @@ func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
 }
 
 func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
-	btBlock := k.BlockTest.Json.Blocks[ctx.BlockHeight()]
+	btBlock := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
 	btHeader := btBlock.BlockHeader
 	header := &ethtypes.Header{
 		ParentHash:  btHeader.ParentHash,
