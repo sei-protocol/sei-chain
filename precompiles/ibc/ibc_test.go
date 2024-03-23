@@ -85,6 +85,7 @@ func TestPrecompile_Run(t *testing.T) {
 		wantBz           []byte
 		wantRemainingGas uint64
 		wantErr          bool
+		wantErrMsg       string
 	}{
 		{
 			name:             "successful transfer: with amount > 0 between EVM addresses",
@@ -95,11 +96,89 @@ func TestPrecompile_Run(t *testing.T) {
 			wantErr:          false,
 		},
 		{
-			name:    "failed transfer: internal error",
-			fields:  fields{transferKeeper: &MockFailedTransferTransferKeeper{}},
-			args:    commonArgs,
-			wantBz:  nil,
-			wantErr: true,
+			name:       "failed transfer: internal error",
+			fields:     fields{transferKeeper: &MockFailedTransferTransferKeeper{}},
+			args:       commonArgs,
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "failed to send transfer",
+		},
+		{
+			name:       "failed transfer: caller not whitelisted",
+			fields:     fields{transferKeeper: &MockTransferKeeper{}},
+			args:       args{caller: senderEvmAddress, callingContract: common.Address{}, input: commonArgs.input, suppliedGas: 1000000, value: nil},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "calling contract 0x0000000000000000000000000000000000000000 with code hash 0x0000000000000000000000000000000000000000000000000000000000000000 is not whitelisted for delegate calls",
+		},
+		{
+			name:   "failed transfer: empty sourcePort",
+			fields: fields{transferKeeper: &MockTransferKeeper{}},
+			args: args{
+				caller:          senderEvmAddress,
+				callingContract: senderEvmAddress,
+				input: &input{
+					receiverEvmAddr:  receiverEvmAddress,
+					sourcePort:       "", // empty sourcePort
+					sourceChannel:    "sourceChannel",
+					denom:            "denom",
+					amount:           big.NewInt(100),
+					revisionNumber:   1,
+					revisionHeight:   1,
+					timeoutTimestamp: 1,
+				},
+				suppliedGas: uint64(1000000),
+				value:       nil,
+			},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "port cannot be empty",
+		},
+		{
+			name:   "failed transfer: empty sourceChannel",
+			fields: fields{transferKeeper: &MockTransferKeeper{}},
+			args: args{
+				caller:          senderEvmAddress,
+				callingContract: senderEvmAddress,
+				input: &input{
+					receiverEvmAddr:  receiverEvmAddress,
+					sourcePort:       "port",
+					sourceChannel:    "",
+					denom:            "denom",
+					amount:           big.NewInt(100),
+					revisionNumber:   1,
+					revisionHeight:   1,
+					timeoutTimestamp: 1,
+				},
+				suppliedGas: uint64(1000000),
+				value:       nil,
+			},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "channelID cannot be empty",
+		},
+		{
+			name:   "failed transfer: invalid denom",
+			fields: fields{transferKeeper: &MockTransferKeeper{}},
+			args: args{
+				caller:          senderEvmAddress,
+				callingContract: senderEvmAddress,
+				input: &input{
+					receiverEvmAddr:  receiverEvmAddress,
+					sourcePort:       "port",
+					sourceChannel:    "sourceChannel",
+					denom:            "",
+					amount:           big.NewInt(100),
+					revisionNumber:   1,
+					revisionHeight:   1,
+					timeoutTimestamp: 1,
+				},
+				suppliedGas: uint64(1000000),
+				value:       nil,
+			},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "invalid denom",
 		},
 	}
 	for _, tt := range tests {
@@ -120,16 +199,20 @@ func TestPrecompile_Run(t *testing.T) {
 				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
 				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp)
 			require.Nil(t, err)
-			gotBz, g, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value)
+			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
+			if err != nil {
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			}
+
 			if !reflect.DeepEqual(gotBz, tt.wantBz) {
 				t.Errorf("Run() gotBz = %v, want %v", gotBz, tt.wantBz)
 			}
-			if !reflect.DeepEqual(g, tt.wantRemainingGas) {
-				t.Errorf("Run() gotRemainingGas = %v, want %v", g, tt.wantRemainingGas)
+			if !reflect.DeepEqual(gotRemainingGas, tt.wantRemainingGas) {
+				t.Errorf("Run() gotRemainingGas = %v, want %v", gotRemainingGas, tt.wantRemainingGas)
 			}
 		})
 	}

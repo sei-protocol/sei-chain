@@ -140,10 +140,18 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		rerr = errors.New("port is not a string")
 		return
 	}
+	if port == "" {
+		rerr = errors.New("port cannot be empty")
+		return
+	}
 
 	channelID, ok := args[2].(string)
 	if !ok {
 		rerr = errors.New("channelID is not a string")
+		return
+	}
+	if channelID == "" {
+		rerr = errors.New("channelID cannot be empty")
 		return
 	}
 
