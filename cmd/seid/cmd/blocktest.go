@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
@@ -15,6 +17,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
+	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/tendermint/tendermint/libs/log"
 
@@ -101,4 +104,32 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 	cmd.Flags().String("test-name", "", "individual test name")
 
 	return cmd
+}
+
+func testIngester(testFilePath string, testName string) *ethtests.BlockTest {
+	file, err := os.Open(testFilePath)
+	if err != nil {
+		panic(err)
+	}
+	var tests map[string]ethtests.BlockTest
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(&tests)
+	if err != nil {
+		panic(err)
+	}
+	for name, bt := range tests {
+		btP := &bt
+		if name == testName {
+			// eth starts at block number 0 while cosmos starts at block number 1
+			incrementAllBlockNumbers(btP.Json.Blocks)
+			return btP
+		}
+	}
+	panic(fmt.Sprintf("Unable to find test name %v at test file path %v", testName, testFilePath))
+}
+
+func incrementAllBlockNumbers(blocks []ethtests.BtBlock) {
+	for _, block := range blocks {
+		block.BlockHeader.Number = block.BlockHeader.Number.Add(block.BlockHeader.Number, big.NewInt(1))
+	}
 }
