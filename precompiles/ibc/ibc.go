@@ -5,8 +5,9 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"math/big"
+
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
