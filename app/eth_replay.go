@@ -84,28 +84,21 @@ func Replay(a *App) {
 }
 
 func BlockTest(a *App, bt *ethtests.BlockTest) {
-	fmt.Println("In ReplayBlockTest")
-	h := a.EvmKeeper.GetReplayedHeight(a.GetCheckCtx()) + 1
-	fmt.Println("In ReplayBlockTest, h = ", h)
 	a.EvmKeeper.BlockTest = bt
 	a.EvmKeeper.EthBlockTestConfig.Enabled = true
 
 	gendoc, err := tmtypes.GenesisDocFromFile(filepath.Join(DefaultNodeHome, "config/genesis.json"))
 	if err != nil {
-		fmt.Println("Panic in ReplayBlockTest1, err = ", err)
 		panic(err)
 	}
-	fmt.Println("In ReplayBlockTest, calling a.InitChain")
 	_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
 		Time:          time.Now(),
 		ChainId:       gendoc.ChainID,
 		AppStateBytes: gendoc.AppState,
 	})
 	if err != nil {
-		fmt.Println("Panic in ReplayBlockTest2, err = ", err)
 		panic(err)
 	}
-	// a.EvmKeeper.OpenEthDatabaseForBlockTest(a.GetCheckCtx())
 
 	for addr, genesisAccount := range a.EvmKeeper.BlockTest.Json.Pre {
 		usei, wei := state.SplitUseiWeiAmount(genesisAccount.Balance)
@@ -125,12 +118,11 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		}
 	}
 
-	fmt.Println("****************************************************************************************************")
-	fmt.Println("In app/BlockTest, iterating over blocks, len(bt.Json.Blocks) = ", len(bt.Json.Blocks))
-	fmt.Println("****************************************************************************************************")
+	if len(bt.Json.Blocks) == 0 {
+		panic("no blocks found")
+	}
 
 	for i, btBlock := range bt.Json.Blocks {
-		fmt.Printf("btBlock %d: %+v\n", i, btBlock)
 		h := int64(i + 1)
 		b, err := btBlock.Decode()
 		if err != nil {
@@ -138,7 +130,6 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		}
 		hash := make([]byte, 8)
 		binary.BigEndian.PutUint64(hash, uint64(h))
-		fmt.Printf("In ReplayBlockTest, calling a.FinalizeBlock, h = %+v\n", h)
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
 			ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
@@ -161,9 +152,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	for addr, accountData := range bt.Json.Post {
 		// need to check these
 		a.EvmKeeper.VerifyAccount(ctx, addr, accountData)
-		fmt.Println("*************************************************")
 		fmt.Println("Successfully verified account: ", addr)
-		fmt.Println("*************************************************")
 	}
 }
 

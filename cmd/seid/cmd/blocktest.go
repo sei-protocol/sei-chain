@@ -41,6 +41,9 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 			if err != nil {
 				panic(fmt.Sprintf("Error with retrieving test name: %v", err.Error()))
 			}
+			if blockTestFileName == "" || testName == "" {
+				panic("block test file name or test name not set")
+			}
 
 			serverCtx := server.GetServerContextFromCmd(cmd)
 			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
@@ -90,9 +93,7 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 				baseapp.SetMinRetainBlocks(cast.ToUint64(serverCtx.Viper.Get(server.FlagMinRetainBlocks))),
 				baseapp.SetInterBlockCache(cache),
 			)
-			fmt.Println("Will injest block test, with file: ", blockTestFileName)
 			bt := testIngester(blockTestFileName, testName)
-			fmt.Println("In EthReplayCmd, bt = ", bt)
 			app.BlockTest(a, bt)
 			return nil
 		},
