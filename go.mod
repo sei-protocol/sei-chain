@@ -8,7 +8,7 @@ require (
 	github.com/CosmWasm/wasmvm v1.0.1
 	github.com/armon/go-metrics v0.4.1
 	github.com/btcsuite/btcd v0.22.1
-	github.com/cosmos/cosmos-sdk v0.47.10
+	github.com/cosmos/cosmos-sdk v0.45.10
 	github.com/cosmos/go-bip39 v1.0.0
 	github.com/cosmos/iavl v0.21.0-alpha.1.0.20230904092046-df3db2d96583
 	github.com/cosmos/ibc-go/v3 v3.0.0

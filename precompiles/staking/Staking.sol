@@ -11,7 +11,7 @@ enum BondStatus {
     Bonded
 }
 
-struct UnbondingDelegation {
+struct UnbondingDelegationEntry {
     uint256 initialAmount;
     uint256 amount;
     uint256 creationHeight;
@@ -38,8 +38,13 @@ interface IStaking {
 
     function getStakingPool(address validator) external view returns (StakingPool memory);
 
-    function getUnbondingDelegation(address validator, uint256 unbondingID)
+    function getUnbondingDelegationByUnbondingID(address delegator, address validator)
         external
         view
-        returns (UnbondingDelegation memory);
+        returns (UnbondingDelegationEntry[] memory);
+
+    function getUnbondingDelegationByUnbondingID(address delegator, address validator, uint256 unbondingID)
+        external
+        view
+        returns (UnbondingDelegationEntry memory);
 }
