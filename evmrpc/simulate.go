@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -321,7 +322,7 @@ func (b *Backend) CurrentHeader() *ethtypes.Header {
 }
 
 func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
-	return big.NewInt(0), nil
+	return utils.Big0, nil
 }
 
 func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
