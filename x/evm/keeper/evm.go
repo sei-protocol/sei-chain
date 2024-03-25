@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -101,7 +102,7 @@ func (k *Keeper) callEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Addres
 	if evmGasRemaining.Cmp(MaxUint64BigInt) > 0 {
 		evmGasRemaining = MaxUint64BigInt
 	}
-	value := big.NewInt(0)
+	value := utils.Big0
 	if val != nil {
 		value = val.BigInt()
 	}

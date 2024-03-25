@@ -188,7 +188,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	}
 	evmTxDeferredInfoList := am.keeper.GetEVMTxDeferredInfo(ctx)
 	denom := am.keeper.GetBaseDenom(ctx)
-	surplus := sdk.NewInt(0)
+	surplus := utils.Sdk0
 	for _, deferredInfo := range evmTxDeferredInfoList {
 		idx := deferredInfo.TxIndx
 		coinbaseAddress := state.GetCoinbaseAddress(idx)

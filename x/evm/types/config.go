@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/utils"
 )
 
 /*
@@ -19,22 +20,22 @@ config for backward compatibility with the official EVM lib.
 func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 	return &params.ChainConfig{
 		ChainID:             chainID,
-		HomesteadBlock:      big.NewInt(0),
-		DAOForkBlock:        big.NewInt(0),
+		HomesteadBlock:      utils.Big0,
+		DAOForkBlock:        utils.Big0,
 		DAOForkSupport:      false, // fork of Sei is supported outside EVM
-		EIP150Block:         big.NewInt(0),
-		EIP155Block:         big.NewInt(0),
-		EIP158Block:         big.NewInt(0),
-		ByzantiumBlock:      big.NewInt(0),
-		ConstantinopleBlock: big.NewInt(0),
-		PetersburgBlock:     big.NewInt(0),
-		IstanbulBlock:       big.NewInt(0),
-		MuirGlacierBlock:    big.NewInt(0),
-		BerlinBlock:         big.NewInt(0),
-		LondonBlock:         big.NewInt(0),
-		ArrowGlacierBlock:   big.NewInt(0),
-		GrayGlacierBlock:    big.NewInt(0),
-		MergeNetsplitBlock:  big.NewInt(0),
+		EIP150Block:         utils.Big0,
+		EIP155Block:         utils.Big0,
+		EIP158Block:         utils.Big0,
+		ByzantiumBlock:      utils.Big0,
+		ConstantinopleBlock: utils.Big0,
+		PetersburgBlock:     utils.Big0,
+		IstanbulBlock:       utils.Big0,
+		MuirGlacierBlock:    utils.Big0,
+		BerlinBlock:         utils.Big0,
+		LondonBlock:         utils.Big0,
+		ArrowGlacierBlock:   utils.Big0,
+		GrayGlacierBlock:    utils.Big0,
+		MergeNetsplitBlock:  utils.Big0,
 		ShanghaiTime:        getUpgradeTimestamp(0),
 		CancunTime:          getUpgradeTimestamp(cc.CancunTime),
 		PragueTime:          getUpgradeTimestamp(cc.PragueTime),
