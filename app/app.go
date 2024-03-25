@@ -121,6 +121,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
+	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -595,6 +596,11 @@ func New(
 		panic(fmt.Sprintf("error reading eth replay config due to %s", err))
 	}
 	app.EvmKeeper.EthReplayConfig = ethReplayConfig
+	ethBlockTestConfig, err := blocktest.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading eth block test config due to %s", err))
+	}
+	app.EvmKeeper.EthBlockTestConfig = ethBlockTestConfig
 	if ethReplayConfig.Enabled {
 		rpcclient, err := ethrpc.Dial(ethReplayConfig.EthRPC)
 		if err != nil {

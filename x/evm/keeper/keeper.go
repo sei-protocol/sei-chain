@@ -363,13 +363,7 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 	if !k.EthReplayConfig.Enabled {
 		return
 	}
-	var store sdk.KVStore
-	if k.EthReplayConfig.Enabled {
-		store = k.PrefixStore(ctx, types.ReplaySeenAddrPrefix)
-	}
-	if k.EthBlockTestConfig.Enabled {
-		store = k.PrefixStore(ctx, types.BlockTestSeenAddrPrefix)
-	}
+	store := k.PrefixStore(ctx, types.ReplaySeenAddrPrefix)
 	bz := store.Get(addr[:])
 	if len(bz) > 0 {
 		return
@@ -435,22 +429,6 @@ func (k *Keeper) GetReplayInitialHeight(ctx sdk.Context) int64 {
 
 func (k *Keeper) SetReplayInitialHeight(ctx sdk.Context, h int64) {
 	k.setInt64State(ctx, types.ReplayInitialHeight, h)
-}
-
-func (k *Keeper) GetBlockTestHeight(ctx sdk.Context) int64 {
-	return k.getInt64State(ctx, types.BlockTestHeight)
-}
-
-func (k *Keeper) SetBlockTestHeight(ctx sdk.Context, h int64) {
-	k.setInt64State(ctx, types.BlockTestHeight, h)
-}
-
-func (k *Keeper) GetBlockTestInitialHeight(ctx sdk.Context) int64 {
-	return k.getInt64State(ctx, types.BlockTestInitialHeight)
-}
-
-func (k *Keeper) SetBlockTestInitialHeight(ctx sdk.Context, h int64) {
-	k.setInt64State(ctx, types.BlockTestInitialHeight, h)
 }
 
 func (k *Keeper) setInt64State(ctx sdk.Context, key []byte, val int64) {

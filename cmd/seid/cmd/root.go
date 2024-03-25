@@ -417,8 +417,9 @@ func initAppConfig() (string, interface{}) {
 			LruSize:       1,
 			QueryGasLimit: 300000,
 		},
-		EVM:       evmrpc.DefaultConfig,
-		ETHReplay: replay.DefaultConfig,
+		EVM:          evmrpc.DefaultConfig,
+		ETHReplay:    replay.DefaultConfig,
+		ETHBlockTest: blocktest.DefaultConfig,
 	}
 
 	customAppTemplate := serverconfig.DefaultConfigTemplate + `
@@ -491,6 +492,10 @@ slow = {{ .EVM.Slow }}
 eth_replay_enabled = {{ .ETHReplay.Enabled }}
 eth_rpc = "{{ .ETHReplay.EthRPC }}"
 eth_data_dir = "{{ .ETHReplay.EthDataDir }}"
+
+[eth_blocktest]
+eth_blocktest_enabled = {{ .ETHBlockTest.Enabled }}
+eth_blocktest_test_data_path = "{{ .ETHBlockTest.TestDataPath }}"
 `
 
 	return customAppTemplate, customAppConfig

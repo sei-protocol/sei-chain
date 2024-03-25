@@ -36,15 +36,6 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 		k.SetAddressMapping(ctx, sdk.MustAccAddressFromBech32(addr.SeiAddress), common.HexToAddress(addr.EthAddress))
 	}
 
-	if k.EthBlockTestConfig.Enabled && !ethBlockTestInitialied {
-		header := k.OpenEthDatabaseForBlockTest(ctx)
-		params := k.GetParams(ctx)
-		k.SetParams(ctx, params)
-		k.SetBlockTestInitialHeight(ctx, header.Number.Int64())
-		ethBlockTestInitialied = true
-		return
-	}
-
 	if k.EthReplayConfig.Enabled && !ethReplayInitialied {
 		header := k.OpenEthDatabase()
 		params := k.GetParams(ctx)
