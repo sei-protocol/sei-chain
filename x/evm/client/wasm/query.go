@@ -433,3 +433,20 @@ func (h *EVMQueryHandler) HandleERC721Uri(ctx sdk.Context, caller string, contra
 	response := bindings.ERC721UriResponse{Uri: typed[0].(string)}
 	return json.Marshal(response)
 }
+
+func (h *EVMQueryHandler) HandleGetEvmAddress(ctx sdk.Context, seiAddr string) ([]byte, error) {
+	addr, err := sdk.AccAddressFromBech32(seiAddr)
+	if err != nil {
+		return nil, err
+	}
+	evmAddr, associated := h.k.GetEVMAddress(ctx, addr)
+	response := bindings.GetEvmAddressResponse{EvmAddress: evmAddr.Hex(), Associated: associated}
+	return json.Marshal(response)
+}
+
+func (h *EVMQueryHandler) HandleGetSeiAddress(ctx sdk.Context, evmAddr string) ([]byte, error) {
+	addr := common.HexToAddress(evmAddr)
+	seiAddr, associated := h.k.GetSeiAddress(ctx, addr)
+	response := bindings.GetSeiAddressResponse{SeiAddress: seiAddr.String(), Associated: associated}
+	return json.Marshal(response)
+}
