@@ -21,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -135,7 +136,7 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 
 	if atx, ok := txData.(*ethtx.AssociateTx); ok {
 		V, R, S := atx.GetRawSignatureValues()
-		V = new(big.Int).Add(V, big.NewInt(27))
+		V = new(big.Int).Add(V, utils.Big27)
 		// Hash custom message passed in
 		customMessageHash := crypto.Keccak256Hash([]byte(atx.CustomMessage))
 		evmAddr, seiAddr, pubkey, err := getAddresses(V, R, S, customMessageHash)
@@ -298,12 +299,12 @@ func isTxTypeAllowed(version derived.SignerVersion, txType uint8) bool {
 func AdjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
 	// Non-legacy TX always needs to be bumped by 27
 	if txType != ethtypes.LegacyTxType {
-		return new(big.Int).Add(V, big.NewInt(27))
+		return new(big.Int).Add(V, utils.Big27)
 	}
 
 	// legacy TX needs to be adjusted based on chainID
-	V = new(big.Int).Sub(V, new(big.Int).Mul(chainID, big.NewInt(2)))
-	return V.Sub(V, big.NewInt(8))
+	V = new(big.Int).Sub(V, new(big.Int).Mul(chainID, utils.Big2))
+	return V.Sub(V, utils.Big8)
 }
 
 func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersion {
