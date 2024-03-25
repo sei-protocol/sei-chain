@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -158,7 +159,7 @@ func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}
 		return nil, errors.New("invalid denom")
 	}
 	amount := args[3].(*big.Int)
-	if amount.Cmp(big.NewInt(0)) == 0 {
+	if amount.Cmp(utils.Big0) == 0 {
 		// short circuit
 		return method.Outputs.Pack(true)
 	}

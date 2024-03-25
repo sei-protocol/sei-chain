@@ -2,10 +2,10 @@ package state
 
 import (
 	"bytes"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/sei-protocol/sei-chain/utils"
 )
 
 // Exist reports whether the given account exists in state.
@@ -31,5 +31,5 @@ func (s *DBImpl) Exist(addr common.Address) bool {
 // is defined according to EIP161 (balance = nonce = code = 0).
 func (s *DBImpl) Empty(addr common.Address) bool {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
-	return s.GetBalance(addr).Cmp(big.NewInt(0)) == 0 && s.GetNonce(addr) == 0 && bytes.Equal(s.GetCodeHash(addr).Bytes(), ethtypes.EmptyCodeHash.Bytes())
+	return s.GetBalance(addr).Cmp(utils.Big0) == 0 && s.GetNonce(addr) == 0 && bytes.Equal(s.GetCodeHash(addr).Bytes(), ethtypes.EmptyCodeHash.Bytes())
 }
