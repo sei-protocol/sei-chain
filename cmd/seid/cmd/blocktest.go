@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"os"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
@@ -21,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/tendermint/tendermint/libs/log"
 
-	"net/http"
 	//nolint:gosec,G108
 	_ "net/http/pprof"
 )
@@ -49,14 +47,6 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
 				return err
 			}
-			go func() {
-				serverCtx.Logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
-				err := http.ListenAndServe(":6060", nil)
-				if err != nil {
-					serverCtx.Logger.Error("Error from profiling server", "error", err)
-				}
-			}()
-
 			home := serverCtx.Viper.GetString(flags.FlagHome)
 			db, err := openDB(home)
 			if err != nil {
@@ -121,16 +111,8 @@ func testIngester(testFilePath string, testName string) *ethtests.BlockTest {
 	for name, bt := range tests {
 		btP := &bt
 		if name == testName {
-			// eth starts at block number 0 while cosmos starts at block number 1
-			incrementAllBlockNumbers(btP.Json.Blocks)
 			return btP
 		}
 	}
 	panic(fmt.Sprintf("Unable to find test name %v at test file path %v", testName, testFilePath))
-}
-
-func incrementAllBlockNumbers(blocks []ethtests.BtBlock) {
-	for _, block := range blocks {
-		block.BlockHeader.Number = block.BlockHeader.Number.Add(block.BlockHeader.Number, big.NewInt(1))
-	}
 }

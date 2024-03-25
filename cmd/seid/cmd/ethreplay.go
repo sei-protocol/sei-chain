@@ -83,7 +83,6 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 			)
 			app.Replay(a)
 			return nil
-
 		},
 	}
 

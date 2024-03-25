@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/tests"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -177,10 +178,17 @@ func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	var coinbase sdk.AccAddress
 	if am.keeper.EthBlockTestConfig.Enabled {
-		fmt.Println("In EndBlock: ctx.BlockHeight()", ctx.BlockHeight())
-		block := am.keeper.BlockTest.Json.Blocks[0] // TODO: find by height in block test!!!
+		blocks := am.keeper.BlockTest.Json.Blocks
+		var block *tests.BtBlock
+		for _, b := range blocks {
+			if b.BlockHeader.Number.Uint64() == uint64(ctx.BlockHeight()) {
+				block = &b
+			}
+		}
+		if block == nil {
+			panic(fmt.Sprintf("block not found at height %d", ctx.BlockHeight()))
+		}
 		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, block.BlockHeader.Coinbase)
-		am.keeper.SetReplayedHeight(ctx) // TODO: not sure if this is needed for block tests
 	} else if am.keeper.EthReplayConfig.Enabled {
 		block, err := am.keeper.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+am.keeper.GetReplayInitialHeight(ctx)))
 		if err != nil {

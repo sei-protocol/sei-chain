@@ -42,12 +42,12 @@ var (
 	TxHashPrefix  = []byte{0x10}
 	TxBloomPrefix = []byte{0x11}
 
-	ReplaySeenAddrPrefix = []byte{0x12}
-	ReplayedHeight       = []byte{0x13}
-	ReplayInitialHeight  = []byte{0x14}
+	ReplaySeenAddrPrefix    = []byte{0x12}
+	ReplayedHeight          = []byte{0x13}
+	ReplayInitialHeight     = []byte{0x14}
 	BlockTestSeenAddrPrefix = []byte{0x15}
-	BlockTestHeight 	= []byte{0x16}
-	BlockTestInitialHeight = []byte{0x17}
+	BlockTestHeight         = []byte{0x16}
+	BlockTestInitialHeight  = []byte{0x17}
 )
 
 func EVMAddressToSeiAddressKey(evmAddress common.Address) []byte {

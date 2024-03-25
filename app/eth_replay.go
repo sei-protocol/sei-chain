@@ -148,7 +148,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	}
 
 	// Check post-state after all blocks are run
-	ctx := a.GetCheckCtx() // TODO: not sure if this is right
+	ctx := a.GetCheckCtx()
 	for addr, accountData := range bt.Json.Post {
 		a.EvmKeeper.VerifyAccount(ctx, addr, accountData)
 		fmt.Println("Successfully verified account: ", addr)

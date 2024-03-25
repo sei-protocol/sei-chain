@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"encoding/json"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -40,7 +39,6 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 	if k.EthBlockTestConfig.Enabled && !ethBlockTestInitialied {
 		header := k.OpenEthDatabaseForBlockTest(ctx)
 		params := k.GetParams(ctx)
-		params.ChainId = sdk.OneInt()
 		k.SetParams(ctx, params)
 		k.SetBlockTestInitialHeight(ctx, header.Number.Int64())
 		ethBlockTestInitialied = true
@@ -99,7 +97,7 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 }
 
 func (k *Keeper) OpenEthDatabaseForBlockTest(ctx sdk.Context) *ethtypes.Header {
-	shanghaiConfig, ok := ethtests.Forks["Shanghai"]
+	shanghaiConfig, ok := ethtests.Forks["Cancun"]
 	if !ok {
 		panic("fork not found")
 	}
@@ -147,8 +145,6 @@ func (k *Keeper) OpenEthDatabaseForBlockTest(ctx sdk.Context) *ethtypes.Header {
 }
 
 func extractGenesis(t *ethtests.BlockTest, config *params.ChainConfig) *core.Genesis {
-	b, _ := json.Marshal(t)
-	fmt.Printf("In extractGenesis, %s\n", string(b))
 	return &core.Genesis{
 		Config:        config,
 		Nonce:         t.Json.Genesis.Nonce.Uint64(),
