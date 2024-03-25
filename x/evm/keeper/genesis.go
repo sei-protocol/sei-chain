@@ -119,14 +119,23 @@ func (k *Keeper) OpenEthDatabaseForBlockTest(ctx sdk.Context) *ethtypes.Header {
 	}
 
 	for addr, genesisAccount := range k.BlockTest.Json.Pre {
-		tr.UpdateAccount(addr, &ethtypes.StateAccount{
+		err := tr.UpdateAccount(addr, &ethtypes.StateAccount{
 			Nonce:   genesisAccount.Nonce,
 			Balance: genesisAccount.Balance,
 		})
+		if err != nil {
+			panic(err)
+		}
 		codeHash := crypto.Keccak256Hash(genesisAccount.Code)
-		tr.UpdateContractCode(addr, codeHash, genesisAccount.Code)
+		err = tr.UpdateContractCode(addr, codeHash, genesisAccount.Code)
+		if err != nil {
+			panic(err)
+		}
 		for key, value := range genesisAccount.Storage {
-			tr.UpdateStorage(addr, key[:], value[:])
+			err = tr.UpdateStorage(addr, key[:], value[:])
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 	k.Root = gblock.Header_.Root
