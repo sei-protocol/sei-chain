@@ -165,6 +165,6 @@ func NewTemporaryState() *TemporaryState {
 		transientStates:       make(map[string]map[string]common.Hash),
 		transientAccounts:     make(map[string][]byte),
 		transientModuleStates: make(map[string][]byte),
-		surplus:               sdk.NewInt(0),
+		surplus:               utils.Sdk0,
 	}
 }

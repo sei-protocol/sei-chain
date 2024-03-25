@@ -4,6 +4,7 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -38,7 +39,7 @@ func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 	if k.EthReplayConfig.Enabled {
 		// replay is for eth mainnet so always return 1
-		return big.NewInt(1)
+		return utils.Big1
 	}
 	return k.GetParams(ctx).ChainId.BigInt()
 }

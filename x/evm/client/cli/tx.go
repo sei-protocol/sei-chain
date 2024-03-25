@@ -31,6 +31,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
@@ -277,7 +278,7 @@ func CmdDeployErc20() *cobra.Command {
 				return err
 			}
 			txData.Nonce = nonce
-			txData.Value = big.NewInt(0)
+			txData.Value = utils.Big0
 			txData.Data = contractData
 
 			resp, err := sendTx(txData, rpc, key)
@@ -363,7 +364,7 @@ func CmdDeployErcCw20() *cobra.Command {
 				return err
 			}
 			txData.Nonce = nonce
-			txData.Value = big.NewInt(0)
+			txData.Value = utils.Big0
 			txData.Data = contractData
 
 			resp, err := sendTx(txData, rpc, key)
@@ -449,7 +450,7 @@ func CmdDeployErcCw721() *cobra.Command {
 				return err
 			}
 			txData.Nonce = nonce
-			txData.Value = big.NewInt(0)
+			txData.Value = utils.Big0
 			txData.Data = contractData
 
 			resp, err := sendTx(txData, rpc, key)
@@ -519,7 +520,7 @@ func CmdCallContract() *cobra.Command {
 				return err
 			}
 			txData.Nonce = nonce
-			txData.Value = big.NewInt(0)
+			txData.Value = utils.Big0
 			txData.Data = payload
 			txData.To = &contract
 
@@ -588,7 +589,7 @@ func CmdERC20Send() *cobra.Command {
 				return err
 			}
 			txData.Nonce = nonce
-			txData.Value = big.NewInt(0)
+			txData.Value = utils.Big0
 			txData.Data = payload
 			txData.To = &contract
 
@@ -652,7 +653,7 @@ func CmdDelegate() *cobra.Command {
 				return err
 			}
 			txData.Nonce = nonce
-			txData.Value = big.NewInt(0)
+			txData.Value = utils.Big0
 			txData.Data = payload
 			to := common.HexToAddress(staking.StakingAddress)
 			txData.To = &to
@@ -781,7 +782,7 @@ func getTxData(cmd *cobra.Command) (*ethtypes.DynamicFeeTx, error) {
 
 func sendTx(txData *ethtypes.DynamicFeeTx, rpcUrl string, key *ecdsa.PrivateKey) (common.Hash, error) {
 	ethCfg := types.DefaultChainConfig().EthereumConfig(txData.ChainID)
-	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), 1)
+	signer := ethtypes.MakeSigner(ethCfg, utils.Big1, 1)
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(txData), signer, key)
 	if err != nil {
 		return common.Hash{}, err

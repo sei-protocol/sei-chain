@@ -58,7 +58,7 @@ func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	usei := s.k.BankKeeper().GetBalance(s.ctx, s.getSeiAddress(evmAddr), s.k.GetBaseDenom(s.ctx)).Amount
 	wei := s.k.BankKeeper().GetWeiBalance(s.ctx, s.getSeiAddress(evmAddr))
-	return usei.Mul(sdk.NewIntFromBigInt(UseiToSweiMultiplier)).Add(wei).BigInt()
+	return usei.Mul(SdkUseiToSweiMultiplier).Add(wei).BigInt()
 }
 
 // should only be called during simulation
