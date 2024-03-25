@@ -37,11 +37,6 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 		k.SetAddressMapping(ctx, sdk.MustAccAddressFromBech32(addr.SeiAddress), common.HexToAddress(addr.EthAddress))
 	}
 
-	// TODO: remove later
-	if !k.EthBlockTestConfig.Enabled {
-		panic("ETH Block Test should currently be enabled")
-	}
-
 	if k.EthBlockTestConfig.Enabled && !ethBlockTestInitialied {
 		header := k.OpenEthDatabaseForBlockTest(ctx)
 		params := k.GetParams(ctx)
@@ -104,7 +99,6 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 }
 
 func (k *Keeper) OpenEthDatabaseForBlockTest(ctx sdk.Context) *ethtypes.Header {
-	fmt.Println("In openEthDatabaseForBlockTest")
 	shanghaiConfig, ok := ethtests.Forks["Shanghai"]
 	if !ok {
 		panic("fork not found")
@@ -135,10 +129,6 @@ func (k *Keeper) OpenEthDatabaseForBlockTest(ctx sdk.Context) *ethtypes.Header {
 		panic(err)
 	}
 
-	// Set the prestate in the trie
-	fmt.Println("*************************************************************************")
-	fmt.Println("**** In openEthDatabaseForBlockTest, setting prestate in the trie... ****")
-	fmt.Println("*************************************************************************")
 	for addr, genesisAccount := range k.BlockTest.Json.Pre {
 		tr.UpdateAccount(addr, &ethtypes.StateAccount{
 			Nonce:   genesisAccount.Nonce,

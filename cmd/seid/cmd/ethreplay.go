@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -33,8 +32,6 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 		Short: "replay EVM transactions",
 		Long:  "replay EVM transactions",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			blockTestFileName, _ := cmd.Flags().GetString("block-test")
-			fmt.Println("blockTestFileName: ", blockTestFileName)
 
 			serverCtx := server.GetServerContextFromCmd(cmd)
 			if err := serverCtx.Viper.BindPFlags(cmd.Flags()); err != nil {
@@ -92,7 +89,6 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The database home directory")
 	cmd.Flags().String(flags.FlagChainID, "sei-chain", "chain ID")
-	cmd.Flags().String("block-test", "", "path to a block test json file")
 
 	return cmd
 }

@@ -407,9 +407,6 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 }
 
 func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
-	fmt.Println("******************************************************************")
-	fmt.Println("In EvmKeeper, GasBaseFee, ctx.BlockHeight() = ", ctx.BlockHeight())
-	fmt.Println("******************************************************************")
 	if k.EthReplayConfig.Enabled {
 		block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
 		if err != nil {

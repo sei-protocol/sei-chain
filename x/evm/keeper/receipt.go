@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"errors"
-	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -26,9 +25,6 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 }
 
 func (k *Keeper) SetReceipt(ctx sdk.Context, txHash common.Hash, receipt *types.Receipt) error {
-	fmt.Println("*********************************************************************************")
-	fmt.Println("In EvmKeeper, SetReceipt, txHash = ", txHash, " receipt = ", receipt)
-	fmt.Println("*********************************************************************************")
 	store := ctx.KVStore(k.storeKey)
 	bz, err := receipt.Marshal()
 	if err != nil {

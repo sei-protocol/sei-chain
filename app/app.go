@@ -1101,18 +1101,12 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	ctx.Logger().Info("optimistic processing ineligible")
 	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
 
-	printJson("In FinalizedBlocker, reqTxs = ", req.Txs)
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
 	app.SetDeliverStateToCommit()
 	appHash := app.WriteStateToCommitAndGetWorkingHash()
-	printJson("In FinalizeBlocker: endBlockResp = ", endBlockResp)
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
-}
-func printJson(msg string, i interface{}) {
-	b, _ := json.Marshal(i)
-	fmt.Println(msg, string(b))
 }
 
 func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) *abci.ExecTxResult {
@@ -1572,9 +1566,6 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return abci.ResponseFinalizeBlock{}
 	}
-	fmt.Println("In getFinalizeBlockResponse, endBlockResp.ConsensusParamUpdates = ", endBlockResp.ConsensusParamUpdates)
-	fmt.Println("In getFinalizeBlockResponse, endBlockResp.ConsensusParamUpdates.Evidence = ", endBlockResp.ConsensusParamUpdates.Evidence)
-	fmt.Println("In getFinalizeBlockResponse, endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks = ", endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks)
 	return abci.ResponseFinalizeBlock{
 		Events:    events,
 		TxResults: txResults,
