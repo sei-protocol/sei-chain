@@ -178,7 +178,7 @@ fi
 SYNC_BLOCK_HASH=$(curl -s "$PRIMARY_ENDPOINT/block?height=$SYNC_BLOCK_HEIGHT" | jq -r ".block_id.hash")
 
 # Step 5: Get persistent peers
-SELF=$(cat $SEID_HOME/config/node_key.json |jq -r .id)
+SELF=$(seid tendermint show-node-id)
 PEERS=$(curl "$PRIMARY_ENDPOINT"/net_info |jq -r '.peers[] | .url' |sed -e 's#mconn://##' |grep -v "$SELF")
 PERSISTENT_PEERS=$(paste -s -d ',' PEERS)
 
