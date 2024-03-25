@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -77,7 +78,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 }
 
 func (c *LoadTestClient) SetValidators() {
-	if strings.Contains(c.LoadTestConfig.MessageType, "staking") {
+	if slices.Contains(c.LoadTestConfig.MessageTypes, "staking") {
 		resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
 		if err != nil {
 			panic(err)
@@ -186,8 +187,7 @@ func (c *LoadTestClient) BuildTxs(
 				continue
 			}
 			// Generate a message type first
-			messageTypes := strings.Split(config.MessageType, ",")
-			messageType := c.getRandomMessageType(messageTypes)
+			messageType := c.getRandomMessageType(config.MessageTypes)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
 			switch messageType {
