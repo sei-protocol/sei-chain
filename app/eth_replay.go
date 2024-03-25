@@ -11,6 +11,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
 	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -51,6 +52,13 @@ func Replay(a *App) {
 			continue
 		}
 		a.Logger().Info(fmt.Sprintf("Replaying block height %d", h+initHeight))
+		if h+initHeight >= 19426587 && evmtypes.DefaultChainConfig().CancunTime < 0 {
+			a.Logger().Error("Reaching Cancun upgrade height. Turn on Cancun by setting CancunTime in x/evm/types/config.go:DefaultChainConfig() to 0")
+			break
+		} else if h+initHeight < 19426587 && evmtypes.DefaultChainConfig().CancunTime >= 0 {
+			a.Logger().Error("Haven't reached Cancun upgrade height. Turn off Cancun by setting CancunTime in x/evm/types/config.go:DefaultChainConfig() to -1")
+			break
+		}
 		b, err := a.EvmKeeper.EthClient.BlockByNumber(context.Background(), big.NewInt(h+initHeight))
 		if err != nil {
 			panic(err)
@@ -68,6 +76,13 @@ func Replay(a *App) {
 			panic(err)
 		}
 		ctx := a.GetContextForDeliverTx([]byte{})
+		s := state.NewDBImpl(ctx, &a.EvmKeeper, false)
+		for _, w := range b.Withdrawals() {
+			amount := new(big.Int).SetUint64(w.Amount)
+			amount = amount.Mul(amount, big.NewInt(params.GWei))
+			s.AddBalance(w.Address, amount)
+		}
+		_, _ = s.Finalize()
 		for _, tx := range b.Txs {
 			a.Logger().Info(fmt.Sprintf("Verifying tx %s", tx.Hash().Hex()))
 			if tx.To() != nil {

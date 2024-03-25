@@ -176,6 +176,18 @@ func IncrPriceUpdateDenom(denom string) {
 	)
 }
 
+// Measures throughput per message type
+// Metric Name:
+//
+//	sei_throughput_<metric_name>
+func SetThroughputMetricByType(metricName string, value float32, msgType string) {
+	telemetry.SetGaugeWithLabels(
+		[]string{"sei", "loadtest", "tps", metricName},
+		value,
+		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
+	)
+}
+
 // Measures the number of times the total block gas wanted in the proposal exceeds the max
 // Metric Name:
 //
@@ -260,5 +272,31 @@ func MeasureRpcRequestLatency(endpoint string, startTime time.Time) {
 		[]string{"sei", "rpc", "request", "latency_ms"},
 		startTime.UTC(),
 		[]metrics.Label{telemetry.NewLabel("endpoint", endpoint)},
+	)
+}
+
+// IncrProducerEventCount increments the counter for events produced.
+// This metric counts the number of events produced by the system.
+// Metric Name:
+//
+//	sei_loadtest_produce_count
+func IncrProducerEventCount(msgType string) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "loadtest", "produce", "count"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
+	)
+}
+
+// IncrConsumerEventCount increments the counter for events consumed.
+// This metric counts the number of events consumed by the system.
+// Metric Name:
+//
+//	sei_loadtest_consume_count
+func IncrConsumerEventCount(msgType string) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "loadtest", "consume", "count"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
 	)
 }
