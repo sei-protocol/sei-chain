@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	proto "github.com/gogo/protobuf/proto"
+	"github.com/sei-protocol/sei-chain/utils"
 )
 
 var (
@@ -74,17 +75,17 @@ func rawSignatureValues(vBz, rBz, sBz []byte) (v, r, s *big.Int) {
 	if len(vBz) > 0 {
 		v = new(big.Int).SetBytes(vBz)
 	} else {
-		v = big.NewInt(0)
+		v = utils.Big0
 	}
 	if len(rBz) > 0 {
 		r = new(big.Int).SetBytes(rBz)
 	} else {
-		r = big.NewInt(0)
+		r = utils.Big0
 	}
 	if len(sBz) > 0 {
 		s = new(big.Int).SetBytes(sBz)
 	} else {
-		s = big.NewInt(0)
+		s = utils.Big0
 	}
 	return v, r, s
 }

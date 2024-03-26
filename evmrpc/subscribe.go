@@ -12,6 +12,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/utils"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -196,8 +197,8 @@ func encodeTmHeader(
 		gasWanted += txRes.GasUsed
 	}
 	result := map[string]interface{}{
-		"difficulty":            (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
-		"extraData":             hexutil.Bytes{},               // inapplicable to Sei
+		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
+		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
 		"gasLimit":              hexutil.Uint64(gasLimit),
 		"gasUsed":               hexutil.Uint64(gasWanted),
 		"logsBloom":             ethtypes.Bloom{}, // inapplicable to Sei

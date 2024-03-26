@@ -20,6 +20,8 @@ type SeiEVMQuery struct {
 	ERC721IsApprovedForAll      *ERC721IsApprovedForAllRequest      `json:"erc721_is_approved_for_all,omitempty"`
 	ERC721NameSymbol            *ERC721NameSymbolRequest            `json:"erc721_name_symbol,omitempty"`
 	ERC721Uri                   *ERC721UriRequest                   `json:"erc721_uri,omitempty"`
+	GetEvmAddress               *GetEvmAddressRequest               `json:"get_evm_address,omitempty"`
+	GetSeiAddress               *GetSeiAddressRequest               `json:"get_sei_address,omitempty"`
 }
 
 type StaticCallRequest struct {
@@ -106,6 +108,14 @@ type ERC721UriRequest struct {
 	TokenID         string `json:"token_id"`
 }
 
+type GetEvmAddressRequest struct {
+	SeiAddress string `json:"sei_address"`
+}
+
+type GetSeiAddressRequest struct {
+	EvmAddress string `json:"evm_address"`
+}
+
 type ERCPayloadResponse struct {
 	EncodedPayload string `json:"encoded_payload"`
 }
@@ -144,4 +154,14 @@ type ERC721NameSymbolResponse struct {
 
 type ERC721UriResponse struct {
 	Uri string `json:"uri"`
+}
+
+type GetEvmAddressResponse struct {
+	EvmAddress string `json:"evm_address"`
+	Associated bool   `json:"associated"`
+}
+
+type GetSeiAddressResponse struct {
+	SeiAddress string `json:"sei_address"`
+	Associated bool   `json:"associated"`
 }
