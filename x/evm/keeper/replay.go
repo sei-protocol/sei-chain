@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 )
 
 func (k *Keeper) VerifyBalance(ctx sdk.Context, addr common.Address) {
@@ -60,5 +61,29 @@ func (k *Keeper) VerifyTxResult(ctx sdk.Context, hash common.Hash) {
 				panic(fmt.Sprintf("%d-th log %d-th topic is %s on local but %s on remote", i, j, topic, rtopic.Hex()))
 			}
 		}
+	}
+}
+
+func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData core.GenesisAccount) {
+	code := accountData.Code
+	for key, expectedState := range accountData.Storage {
+		actualState := k.GetState(ctx, addr, key)
+		if !bytes.Equal(actualState.Bytes(), expectedState.Bytes()) {
+			panic(fmt.Sprintf("storage mismatch for address %s: expected %X, got %X", addr.Hex(), expectedState, actualState))
+		}
+	}
+	balance := accountData.Balance
+	nonce := accountData.Nonce
+	if !bytes.Equal(code, k.GetCode(ctx, addr)) {
+		panic(fmt.Sprintf("code mismatch for address %s", addr))
+	}
+	useiBalance := k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr), "usei").Amount
+	weiBalance := k.bankKeeper.GetWeiBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr))
+	totalSeiBalance := useiBalance.Mul(sdk.NewInt(1_000_000_000_000)).Add(weiBalance).BigInt()
+	if balance.Cmp(totalSeiBalance) != 0 {
+		panic(fmt.Sprintf("balance mismatch for address %s: expected %s, got %s", addr.Hex(), balance, totalSeiBalance))
+	}
+	if nonce != k.GetNonce(ctx, addr) {
+		panic(fmt.Sprintf("nonce mismatch for address %s: expected %d, got %d", addr.Hex(), nonce, k.GetNonce(ctx, addr)))
 	}
 }
