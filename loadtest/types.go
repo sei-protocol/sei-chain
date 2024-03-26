@@ -35,7 +35,14 @@ const (
 	UNIV2                string = "univ2"
 	Vortex               string = "vortex"
 	WasmInstantiate      string = "wasm_instantiate"
+	WasmOccIteratorWrite string = "wasm_occ_iterator_write"
+	WasmOccIteratorRange string = "wasm_occ_iterator_range"
+	WasmOccParallelWrite string = "wasm_occ_parallel_write"
 )
+
+type WasmIteratorWriteMsg struct {
+	Values [][]uint64 `json:"values"`
+}
 
 type EVMAddresses struct {
 	ERC20        common.Address
@@ -52,7 +59,7 @@ type Config struct {
 	TargetTps          uint64                `json:"target_tps"`
 	MaxAccounts        uint64                `json:"max_accounts"`
 	MsgsPerTx          uint64                `json:"msgs_per_tx"`
-	MessageType        string                `json:"message_type"`
+	MessageTypes       []string              `json:"message_types"`
 	PriceDistr         NumericDistribution   `json:"price_distribution"`
 	QuantityDistr      NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr       MsgTypeDistribution   `json:"message_type_distribution"`
@@ -61,6 +68,7 @@ type Config struct {
 	PerMessageConfigs  MessageConfigs        `json:"message_configs"`
 	MetricsPort        uint64                `json:"metrics_port"`
 	TLS                bool                  `json:"tls"`
+	SeiTesterAddress   string                `json:"sei_tester_address"`
 
 	// These are dynamically set at startup
 	EVMAddresses *EVMAddresses
@@ -72,9 +80,8 @@ func (c *Config) EVMRpcEndpoint() string {
 }
 
 func (c *Config) ContainsAnyMessageTypes(types ...string) bool {
-	mTypes := strings.Split(c.MessageType, ",")
 	for _, t := range types {
-		for _, mt := range mTypes {
+		for _, mt := range c.MessageTypes {
 			if mt == t {
 				return true
 			}

@@ -43,7 +43,19 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
-    "message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate,evm,univ2",
+    "message_types": [
+      "bank",
+      "dex",
+      "staking",
+      "failure_dex_malformed",
+      "failure_dex_invalid",
+      "collect_rewards",
+      "distribute_rewards",
+      "wasm_instantiate",
+      "wasm_occ_iterator_write",
+      "wasm_occ_iterator_range",
+      "wasm_occ_parallel_write"
+    ],
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {
@@ -59,6 +71,7 @@
         "payload": "{}"
       }
     },
+    "sei_tester_address": "",
     "contract_distribution": [
       {
         "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
