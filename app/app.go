@@ -1331,6 +1331,9 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTx
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
 	for _, r := range batchResult.Results {
+		metrics.IncrTxProcessTypeCounter(metrics.OCC_CONCURRENT)
+		metrics.IncrGasCounter("gas_used", r.Response.GasUsed)
+		metrics.IncrGasCounter("gas_wanted", r.Response.GasWanted)
 		execResults = append(execResults, &abci.ExecTxResult{
 			Code:      r.Response.Code,
 			Data:      r.Response.Data,
