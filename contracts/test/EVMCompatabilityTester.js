@@ -704,7 +704,7 @@ describe("EVM Test", function () {
               fromBlock: blockStart,
               toBlock: blockEnd,
             };
-          
+
             const logs = await ethers.provider.getLogs(filter);
             expect(logs).to.be.an('array');
             expect(logs.length).to.equal(numTxs);
@@ -716,7 +716,7 @@ describe("EVM Test", function () {
               toBlock: blockEnd,
               topics: [ethers.id("DummyEvent(string,bool,address,uint256,bytes)")]
             };
-          
+
             const logs = await ethers.provider.getLogs(filter);
             expect(logs).to.be.an('array');
             expect(logs.length).to.equal(numTxs);
@@ -729,7 +729,7 @@ describe("EVM Test", function () {
               toBlock: blockEnd,
               topics: [ethers.id("DummyEvent(string,bool,address,uint256,bytes)")]
             };
-          
+
             const logs = await ethers.provider.getLogs(filter);
             const blockHash = logs[0].blockHash;
 
@@ -757,9 +757,9 @@ describe("EVM Test", function () {
                 paddedOwnerAddr,
               ]
             };
-          
+
             const logs = await ethers.provider.getLogs(filter1);
-          
+
             expect(logs).to.be.an('array');
             expect(logs.length).to.equal(numTxs);
 
@@ -775,7 +775,7 @@ describe("EVM Test", function () {
             };
 
             const logs2 = await ethers.provider.getLogs(filter1);
-          
+
             expect(logs2).to.be.an('array');
             expect(logs2.length).to.equal(numTxs);
           });
@@ -791,7 +791,7 @@ describe("EVM Test", function () {
                 "0x0000000000000000000000000000000000000000000000000000000000000003",
               ]
             };
-          
+
             const logs1 = await ethers.provider.getLogs(filter1);
             expect(logs1).to.be.an('array');
             expect(logs1.length).to.equal(1);
@@ -838,7 +838,7 @@ describe("EVM Test", function () {
                 ethers.id("nonexistent event string"),
               ]
             };
-          
+
             const logs = await ethers.provider.getLogs(filter);
             expect(logs).to.be.an('array');
             expect(logs.length).to.equal(0);
@@ -944,7 +944,7 @@ describe("EVM Test", function () {
           value: usei,
         });
         await txResponse.wait();  // Wait for the transaction to be mined
-      
+
         // Check that the contract received the ETH
         const contractBalance = await ethers.provider.getBalance(evmAddr);
         expect(contractBalance - initialBalance).to.equal(usei);
