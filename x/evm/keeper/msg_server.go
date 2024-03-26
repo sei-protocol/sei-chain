@@ -191,7 +191,8 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	stateDB.SetEVM(evmInstance)
 	st := core.NewStateTransition(evmInstance, msg, &gp)
-	return st.TransitionDb()
+	res, err := st.TransitionDb()
+	return res, err
 }
 
 func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, stateDB *state.DBImpl) (*types.Receipt, error) {
