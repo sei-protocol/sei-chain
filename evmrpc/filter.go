@@ -314,9 +314,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 func (f *LogFetcher) GetLogsForBlock(ctx context.Context, block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
 	possibleLogs := f.FindLogsByBloom(block.Block.Height, filters)
 	matchedLogs := utils.Filter(possibleLogs, func(l *ethtypes.Log) bool { return f.IsLogExactMatch(l, crit) })
-	for i, l := range matchedLogs {
+	for _, l := range matchedLogs {
 		l.BlockHash = common.Hash(block.BlockID.Hash)
-		l.Index = uint(i)
 	}
 	return matchedLogs
 }
