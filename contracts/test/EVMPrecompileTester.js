@@ -173,6 +173,50 @@ describe("EVM Test", function () {
                 // TODO: Add staking query precompile here
             });
         });
+
+        describe("EVM Oracle Precompile Tester", function () {
+            const OraclePrecompileContract = '0x0000000000000000000000000000000000001008';
+            before(async function() {
+                const exchangeRatesContent = readDeploymentOutput('oracle_exchange_rates.json');
+                const twapsContent = readDeploymentOutput('oracle_twaps.json');
+
+                exchangeRatesJSON = JSON.parse(exchangeRatesContent).denom_oracle_exchange_rate_pairs;
+                twapsJSON = JSON.parse(twapsContent).oracle_twaps;
+
+                const [signer, _] = await ethers.getSigners();
+                owner = await signer.getAddress();
+
+                const contractABIPath = path.join(__dirname, '../../precompiles/oracle/abi.json');
+                const contractABI = require(contractABIPath);
+                // Get a contract instance
+                oracle = new ethers.Contract(OraclePrecompileContract, contractABI, signer);
+            });
+
+            it("Oracle Exchange Rates", async function () {
+                const exchangeRates = await oracle.getExchangeRates();
+                const exchangeRatesLen = exchangeRatesJSON.length;
+                expect(exchangeRates.length).to.equal(exchangeRatesLen);
+
+                for (let i = 0; i < exchangeRatesLen; i++) {
+                    expect(exchangeRates[i].denom).to.equal(exchangeRatesJSON[i].denom);
+                    expect(exchangeRates[i].oracleExchangeRateVal.exchangeRate).to.be.a('string').and.to.not.be.empty;
+                    expect(exchangeRates[i].oracleExchangeRateVal.exchangeRate).to.be.a('string').and.to.not.be.empty;
+                    expect(exchangeRates[i].oracleExchangeRateVal.lastUpdateTimestamp).to.exist.and.to.be.gt(0);
+                }
+            });
+
+            it("Oracle Twaps", async function () {
+                const twaps = await oracle.getOracleTwaps(3600);
+                const twapsLen = twapsJSON.length
+                expect(twaps.length).to.equal(twapsLen);
+
+                for (let i = 0; i < twapsLen; i++) {
+                    expect(twaps[i].denom).to.equal(twapsJSON[i].denom);
+                    expect(twaps[i].twap).to.be.a('string').and.to.not.be.empty;
+                    expect(twaps[i].lookbackSeconds).to.exist.and.to.be.gt(0);
+                }
+            });
+        });
     });
 });
 

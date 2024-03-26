@@ -663,6 +663,7 @@ func New(
 			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
 			app.GovKeeper,
 			app.DistrKeeper,
+			app.OracleKeeper,
 		); err != nil {
 			panic(err)
 		}
