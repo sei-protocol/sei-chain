@@ -61,7 +61,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	}
 
 	// Fill message type maps with empty values
-	for _, messageType := range strings.Split(config.MessageType, ",") {
+	for _, messageType := range config.MessageTypes {
 		producedCountPerMsgType[messageType] = new(int64)
 		sentCountPerMsgType[messageType] = new(int64)
 		prevSentCounterPerMsgType[messageType] = new(int64)
