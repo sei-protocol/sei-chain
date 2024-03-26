@@ -5,8 +5,9 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"math/big"
+
+	"github.com/cosmos/cosmos-sdk/types/bech32"
 
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 
