@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
+	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -93,6 +95,78 @@ func Replay(a *App) {
 			panic(err)
 		}
 		h++
+	}
+}
+
+func BlockTest(a *App, bt *ethtests.BlockTest) {
+	a.EvmKeeper.BlockTest = bt
+	a.EvmKeeper.EthBlockTestConfig.Enabled = true
+
+	gendoc, err := tmtypes.GenesisDocFromFile(filepath.Join(DefaultNodeHome, "config/genesis.json"))
+	if err != nil {
+		panic(err)
+	}
+	_, err = a.InitChain(context.Background(), &abci.RequestInitChain{
+		Time:          time.Now(),
+		ChainId:       gendoc.ChainID,
+		AppStateBytes: gendoc.AppState,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	for addr, genesisAccount := range a.EvmKeeper.BlockTest.Json.Pre {
+		usei, wei := state.SplitUseiWeiAmount(genesisAccount.Balance)
+		seiAddr := a.EvmKeeper.GetSeiAddressOrDefault(a.GetContextForDeliverTx([]byte{}), addr)
+		err := a.EvmKeeper.BankKeeper().AddCoins(a.GetContextForDeliverTx([]byte{}), seiAddr, sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
+		if err != nil {
+			panic(err)
+		}
+		err = a.EvmKeeper.BankKeeper().AddWei(a.GetContextForDeliverTx([]byte{}), a.EvmKeeper.GetSeiAddressOrDefault(a.GetContextForDeliverTx([]byte{}), addr), wei)
+		if err != nil {
+			panic(err)
+		}
+		a.EvmKeeper.SetNonce(a.GetContextForDeliverTx([]byte{}), addr, genesisAccount.Nonce)
+		a.EvmKeeper.SetCode(a.GetContextForDeliverTx([]byte{}), addr, genesisAccount.Code)
+		for key, value := range genesisAccount.Storage {
+			a.EvmKeeper.SetState(a.GetContextForDeliverTx([]byte{}), addr, key, value)
+		}
+	}
+
+	if len(bt.Json.Blocks) == 0 {
+		panic("no blocks found")
+	}
+
+	for i, btBlock := range bt.Json.Blocks {
+		h := int64(i + 1)
+		b, err := btBlock.Decode()
+		if err != nil {
+			panic(err)
+		}
+		hash := make([]byte, 8)
+		binary.BigEndian.PutUint64(hash, uint64(h))
+		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
+			ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
+			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
+			Height:            h,
+			Hash:              hash,
+			Time:              time.Now(),
+		})
+		if err != nil {
+			panic(err)
+		}
+		_, err = a.Commit(context.Background())
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	// Check post-state after all blocks are run
+	ctx := a.GetCheckCtx()
+	for addr, accountData := range bt.Json.Post {
+		a.EvmKeeper.VerifyAccount(ctx, addr, accountData)
+		fmt.Println("Successfully verified account: ", addr)
 	}
 }
 
