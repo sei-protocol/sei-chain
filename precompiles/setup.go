@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
+	"github.com/sei-protocol/sei-chain/precompiles/oracle"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 )
@@ -26,6 +27,7 @@ func InitializePrecompiles(
 	stakingKeeper common.StakingKeeper,
 	govKeeper common.GovKeeper,
 	distrKeeper common.DistributionKeeper,
+	oracleKeeper common.OracleKeeper,
 ) error {
 	SetupMtx.Lock()
 	defer SetupMtx.Unlock()
@@ -67,6 +69,11 @@ func InitializePrecompiles(
 		return err
 	}
 	addPrecompileToVM(distrp, distrp.Address())
+	oraclep, err := oracle.NewPrecompile(oracleKeeper, evmKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(oraclep, oraclep.Address())
 	Initialized = true
 	return nil
 }
