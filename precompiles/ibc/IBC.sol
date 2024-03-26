@@ -10,7 +10,7 @@ IBC constant IBC_CONTRACT = IBC(
 interface IBC {
     // Transactions
     function transfer(
-        address toAddress,
+        string toAddress,
         string memory port,
         string memory channel,
         string memory denom,

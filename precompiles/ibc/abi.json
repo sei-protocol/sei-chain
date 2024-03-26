@@ -2,9 +2,9 @@
   {
     "inputs": [
       {
-        "internalType": "address",
+        "internalType": "string",
         "name": "toAddress",
-        "type": "address"
+        "type": "string"
       },
       {
         "internalType": "string",

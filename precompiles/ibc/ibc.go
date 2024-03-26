@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"math/big"
 
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
@@ -130,7 +131,17 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		return
 	}
 
-	receiverAddress, err := p.accAddressFromArg(ctx, args[0])
+	receiverAddressString, ok := args[0].(string)
+	if !ok {
+		rerr = errors.New("receiverAddress is not a string")
+		return
+	}
+	_, bz, err := bech32.DecodeAndConvert(receiverAddressString)
+	if err != nil {
+		rerr = err
+		return
+	}
+	err = sdk.VerifyAddressFormat(bz)
 	if err != nil {
 		rerr = err
 		return
@@ -203,7 +214,7 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		return
 	}
 
-	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderSeiAddr, receiverAddress.String(), height, timeoutTimestamp)
+	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderSeiAddr, receiverAddressString, height, timeoutTimestamp)
 
 	if err != nil {
 		rerr = err

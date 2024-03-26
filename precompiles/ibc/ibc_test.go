@@ -33,7 +33,7 @@ func (tk *MockFailedTransferTransferKeeper) SendTransfer(ctx sdk.Context, source
 
 func TestPrecompile_Run(t *testing.T) {
 	senderSeiAddress, senderEvmAddress := testkeeper.MockAddressPair()
-	_, receiverEvmAddress := testkeeper.MockAddressPair()
+	receiverAddress := "cosmos1yykwxjzr2tv4mhx5tsf8090sdg96f2ax8fydk2"
 
 	pre, _ := ibc.NewPrecompile(nil, nil)
 	testTransfer, _ := pre.ABI.MethodById(pre.TransferID)
@@ -44,7 +44,7 @@ func TestPrecompile_Run(t *testing.T) {
 	}
 
 	type input struct {
-		receiverEvmAddr  common.Address
+		receiverAddr     string
 		sourcePort       string
 		sourceChannel    string
 		denom            string
@@ -65,9 +65,9 @@ func TestPrecompile_Run(t *testing.T) {
 		caller:          senderEvmAddress,
 		callingContract: senderEvmAddress,
 		input: &input{
-			receiverEvmAddr:  receiverEvmAddress,
-			sourcePort:       "sourcePort",
-			sourceChannel:    "sourceChannel",
+			receiverAddr:     receiverAddress,
+			sourcePort:       "transfer",
+			sourceChannel:    "channel-0",
 			denom:            "denom",
 			amount:           big.NewInt(100),
 			revisionNumber:   1,
@@ -92,7 +92,7 @@ func TestPrecompile_Run(t *testing.T) {
 			fields:           fields{transferKeeper: &MockTransferKeeper{}},
 			args:             commonArgs,
 			wantBz:           packedTrue,
-			wantRemainingGas: 991911,
+			wantRemainingGas: 992974,
 			wantErr:          false,
 		},
 		{
@@ -118,9 +118,9 @@ func TestPrecompile_Run(t *testing.T) {
 				caller:          senderEvmAddress,
 				callingContract: senderEvmAddress,
 				input: &input{
-					receiverEvmAddr:  receiverEvmAddress,
+					receiverAddr:     receiverAddress,
 					sourcePort:       "", // empty sourcePort
-					sourceChannel:    "sourceChannel",
+					sourceChannel:    "channel-0",
 					denom:            "denom",
 					amount:           big.NewInt(100),
 					revisionNumber:   1,
@@ -141,8 +141,8 @@ func TestPrecompile_Run(t *testing.T) {
 				caller:          senderEvmAddress,
 				callingContract: senderEvmAddress,
 				input: &input{
-					receiverEvmAddr:  receiverEvmAddress,
-					sourcePort:       "port",
+					receiverAddr:     receiverAddress,
+					sourcePort:       "transfer",
 					sourceChannel:    "",
 					denom:            "denom",
 					amount:           big.NewInt(100),
@@ -164,9 +164,9 @@ func TestPrecompile_Run(t *testing.T) {
 				caller:          senderEvmAddress,
 				callingContract: senderEvmAddress,
 				input: &input{
-					receiverEvmAddr:  receiverEvmAddress,
-					sourcePort:       "port",
-					sourceChannel:    "sourceChannel",
+					receiverAddr:     receiverAddress,
+					sourcePort:       "transfer",
+					sourceChannel:    "channel-0",
 					denom:            "",
 					amount:           big.NewInt(100),
 					revisionNumber:   1,
@@ -179,6 +179,29 @@ func TestPrecompile_Run(t *testing.T) {
 			wantBz:     nil,
 			wantErr:    true,
 			wantErrMsg: "invalid denom",
+		},
+		{
+			name:   "failed transfer: invalid receiver address",
+			fields: fields{transferKeeper: &MockTransferKeeper{}},
+			args: args{
+				caller:          senderEvmAddress,
+				callingContract: senderEvmAddress,
+				input: &input{
+					receiverAddr:     "invalid",
+					sourcePort:       "transfer",
+					sourceChannel:    "channel-0",
+					denom:            "",
+					amount:           big.NewInt(100),
+					revisionNumber:   1,
+					revisionHeight:   1,
+					timeoutTimestamp: 1,
+				},
+				suppliedGas: uint64(1000000),
+				value:       nil,
+			},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "decoding bech32 failed: invalid bech32 string length 7",
 		},
 	}
 	for _, tt := range tests {
@@ -195,7 +218,7 @@ func TestPrecompile_Run(t *testing.T) {
 			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, k)
 			transfer, err := p.ABI.MethodById(p.TransferID)
 			require.Nil(t, err)
-			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverEvmAddr,
+			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverAddr,
 				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
 				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp)
 			require.Nil(t, err)
