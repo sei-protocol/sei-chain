@@ -28,6 +28,9 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 ## v3.8.0
+sei-tendermint:
+* [209](https://github.com/sei-protocol/sei-tendermint/pull/209) Use write-lock in (*TxPriorityQueue).ReapMax funcs
+
 sei-db:
 * [#61](https://github.com/sei-protocol/sei-db/pull/61) LoadVersion should open DB with read only
 

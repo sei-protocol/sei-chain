@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -60,7 +61,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	}
 
 	// Fill message type maps with empty values
-	for _, messageType := range strings.Split(config.MessageType, ",") {
+	for _, messageType := range config.MessageTypes {
 		producedCountPerMsgType[messageType] = new(int64)
 		sentCountPerMsgType[messageType] = new(int64)
 		prevSentCounterPerMsgType[messageType] = new(int64)
@@ -85,7 +86,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 }
 
 func (c *LoadTestClient) SetValidators() {
-	if strings.Contains(c.LoadTestConfig.MessageType, "staking") {
+	if slices.Contains(c.LoadTestConfig.MessageTypes, "staking") {
 		resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
 		if err != nil {
 			panic(err)
@@ -194,8 +195,7 @@ func (c *LoadTestClient) BuildTxs(
 				continue
 			}
 			// Generate a message type first
-			messageTypes := strings.Split(config.MessageType, ",")
-			messageType := c.getRandomMessageType(messageTypes)
+			messageType := c.getRandomMessageType(config.MessageTypes)
 			metrics.IncrProducerEventCount(messageType)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
