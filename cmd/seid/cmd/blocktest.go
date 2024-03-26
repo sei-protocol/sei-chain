@@ -108,11 +108,11 @@ func testIngester(testFilePath string, testName string) *ethtests.BlockTest {
 	if err != nil {
 		panic(err)
 	}
-	for name, bt := range tests {
-		btP := &bt
-		if name == testName {
-			return btP
-		}
+
+	res, ok := tests[testName]
+	if !ok {
+		panic(fmt.Sprintf("Unable to find test name %v at test file path %v", testName, testFilePath))
 	}
-	panic(fmt.Sprintf("Unable to find test name %v at test file path %v", testName, testFilePath))
+
+	return &res
 }
