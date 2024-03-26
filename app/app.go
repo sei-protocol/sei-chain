@@ -1370,6 +1370,10 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	startTime := time.Now()
+	defer func() {
+		fmt.Printf("[Debug] ProcessBlock for height %d took %s\n", req.GetHeight(), time.Since(startTime))
+	}()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
