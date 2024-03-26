@@ -245,6 +245,12 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.ERC721Uri != nil:
 		c := parsedQuery.ERC721Uri
 		return qp.evmHandler.HandleERC721Uri(ctx, c.Caller, c.ContractAddress, c.TokenID)
+	case parsedQuery.GetEvmAddress != nil:
+		c := parsedQuery.GetEvmAddress
+		return qp.evmHandler.HandleGetEvmAddress(ctx, c.SeiAddress)
+	case parsedQuery.GetSeiAddress != nil:
+		c := parsedQuery.GetSeiAddress
+		return qp.evmHandler.HandleGetSeiAddress(ctx, c.EvmAddress)
 	default:
 		return nil, errors.New("unknown EVM query")
 	}
