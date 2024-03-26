@@ -6,13 +6,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/params"
-	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/ethereum/go-ethereum/trie/triedb/hashdb"
 	"github.com/ethereum/go-ethereum/trie/triedb/pathdb"
@@ -85,80 +81,4 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 	k.DB = sdb
 	k.Trie = tr
 	return header
-}
-
-func (k *Keeper) OpenEthDatabaseForBlockTest(ctx sdk.Context) *ethtypes.Header {
-	shanghaiConfig, ok := ethtests.Forks["Cancun"]
-	if !ok {
-		panic("fork not found")
-	}
-	var (
-		db    = rawdb.NewMemoryDatabase()
-		tconf = &trie.Config{
-			Preimages: true,
-			IsVerkle:  false,
-		}
-	)
-	scheme := rawdb.HashScheme
-	if scheme == rawdb.PathScheme {
-		tconf.PathDB = pathdb.Defaults
-	} else {
-		tconf.HashDB = hashdb.Defaults
-	}
-	// Commit genesis state
-	gspec := extractGenesis(k.BlockTest, shanghaiConfig)
-	triedb := trie.NewDatabase(db, tconf)
-	gblock, err := gspec.Commit(db, triedb)
-	if err != nil {
-		panic(err)
-	}
-	sdb := state.NewDatabaseWithNodeDB(db, triedb)
-	tr, err := sdb.OpenTrie(gblock.Header_.Root)
-	if err != nil {
-		panic(err)
-	}
-
-	for addr, genesisAccount := range k.BlockTest.Json.Pre {
-		err := tr.UpdateAccount(addr, &ethtypes.StateAccount{
-			Nonce:   genesisAccount.Nonce,
-			Balance: genesisAccount.Balance,
-		})
-		if err != nil {
-			panic(err)
-		}
-		codeHash := crypto.Keccak256Hash(genesisAccount.Code)
-		err = tr.UpdateContractCode(addr, codeHash, genesisAccount.Code)
-		if err != nil {
-			panic(err)
-		}
-		for key, value := range genesisAccount.Storage {
-			err = tr.UpdateStorage(addr, key[:], value[:])
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
-	k.Root = gblock.Header_.Root
-	k.DB = sdb
-	k.Trie = tr
-	return gblock.Header_
-}
-
-func extractGenesis(t *ethtests.BlockTest, config *params.ChainConfig) *core.Genesis {
-	return &core.Genesis{
-		Config:        config,
-		Nonce:         t.Json.Genesis.Nonce.Uint64(),
-		Timestamp:     t.Json.Genesis.Timestamp,
-		ParentHash:    t.Json.Genesis.ParentHash,
-		ExtraData:     t.Json.Genesis.ExtraData,
-		GasLimit:      t.Json.Genesis.GasLimit,
-		GasUsed:       t.Json.Genesis.GasUsed,
-		Difficulty:    t.Json.Genesis.Difficulty,
-		Mixhash:       t.Json.Genesis.MixHash,
-		Coinbase:      t.Json.Genesis.Coinbase,
-		Alloc:         t.Json.Pre,
-		BaseFee:       t.Json.Genesis.BaseFeePerGas,
-		BlobGasUsed:   t.Json.Genesis.BlobGasUsed,
-		ExcessBlobGas: t.Json.Genesis.ExcessBlobGas,
-	}
 }
