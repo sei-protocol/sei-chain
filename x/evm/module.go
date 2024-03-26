@@ -179,13 +179,15 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	var coinbase sdk.AccAddress
 	if am.keeper.EthBlockTestConfig.Enabled {
 		blocks := am.keeper.BlockTest.Json.Blocks
-		var block *tests.BtBlock
+		var block tests.BtBlock
+		var found bool
 		for _, b := range blocks {
 			if b.BlockHeader.Number.Uint64() == uint64(ctx.BlockHeight()) {
-				block = &b
+				block = b
+				found = true
 			}
 		}
-		if block == nil {
+		if !found {
 			panic(fmt.Sprintf("block not found at height %d", ctx.BlockHeight()))
 		}
 		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, block.BlockHeader.Coinbase)
