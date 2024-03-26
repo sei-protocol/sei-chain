@@ -195,8 +195,7 @@ func (c *LoadTestClient) BuildTxs(
 				continue
 			}
 			// Generate a message type first
-			messageTypes := strings.Split(config.MessageType, ",")
-			messageType := c.getRandomMessageType(messageTypes)
+			messageType := c.getRandomMessageType(config.MessageTypes)
 			metrics.IncrProducerEventCount(messageType)
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
