@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 func (k *Keeper) VerifyBalance(ctx sdk.Context, addr common.Address) {
@@ -65,6 +66,10 @@ func (k *Keeper) VerifyTxResult(ctx sdk.Context, hash common.Hash) {
 }
 
 func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData core.GenesisAccount) {
+	// Not checking compliance with EIP-4788 for now
+	if addr == params.BeaconRootsStorageAddress {
+		return
+	}
 	code := accountData.Code
 	for key, expectedState := range accountData.Storage {
 		actualState := k.GetState(ctx, addr, key)
