@@ -127,6 +127,7 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte, value *big.
 
 func (p Precompile) getExchangeRates(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	pcommon.AssertNonPayable(value)
+	pcommon.AssertArgsLength(args, 0)
 	exchangeRates := []DenomOracleExchangeRatePair{}
 	p.oracleKeeper.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
 		exchangeRates = append(exchangeRates, DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRateVal: OracleExchangeRate{ExchangeRate: rate.ExchangeRate.String(), LastUpdate: rate.LastUpdate.String(), LastUpdateTimestamp: rate.LastUpdateTimestamp}})

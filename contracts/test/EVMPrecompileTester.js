@@ -198,7 +198,10 @@ describe("EVM Test", function () {
                 expect(exchangeRates.length).to.equal(exchangeRatesLen);
 
                 for (let i = 0; i < exchangeRatesLen; i++) {
-                    expect(exchangeRatesJSON[i].denom).to.equal(exchangeRates[i].denom);
+                    expect(exchangeRates[i].denom).to.equal(exchangeRatesJSON[i].denom);
+                    expect(exchangeRates[i].oracleExchangeRateVal.exchangeRate).to.be.a('string').and.to.not.be.empty;
+                    expect(exchangeRates[i].oracleExchangeRateVal.exchangeRate).to.be.a('string').and.to.not.be.empty;
+                    expect(exchangeRates[i].oracleExchangeRateVal.lastUpdateTimestamp).to.exist.and.to.be.gt(0);
                 }
             });
 
@@ -208,7 +211,9 @@ describe("EVM Test", function () {
                 expect(twaps.length).to.equal(twapsLen);
 
                 for (let i = 0; i < twapsLen; i++) {
-                    expect(twapsJSON[i].denom).to.equal(twaps[i].denom);
+                    expect(twaps[i].denom).to.equal(twapsJSON[i].denom);
+                    expect(twaps[i].twap).to.be.a('string').and.to.not.be.empty;
+                    expect(twaps[i].lookbackSeconds).to.exist.and.to.be.gt(0);
                 }
             });
         });
