@@ -8,6 +8,7 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum/common"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
 type BankKeeper interface {
@@ -29,6 +30,11 @@ type EVMKeeper interface {
 	IsCodeHashWhitelistedForBankSend(ctx sdk.Context, h common.Hash) bool
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
+}
+
+type OracleKeeper interface {
+	IterateBaseExchangeRates(ctx sdk.Context, handler func(denom string, exchangeRate oracletypes.OracleExchangeRate) (stop bool))
+	CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (oracletypes.OracleTwaps, error)
 }
 
 type WasmdKeeper interface {
