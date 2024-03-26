@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/BurntSushi/toml v1.3.2
 	github.com/CosmWasm/wasmd v0.27.0
-	github.com/CosmWasm/wasmvm v1.5.1
+	github.com/CosmWasm/wasmvm v1.5.2
 	github.com/armon/go-metrics v0.4.1
 	github.com/btcsuite/btcd v0.22.1
 	github.com/cosmos/cosmos-sdk v0.45.10
@@ -344,9 +344,9 @@ require (
 )
 
 replace (
-	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.0.8
+	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.1.0
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.78-seiv2
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.2.79-seiv2
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.9
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.0
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-12
