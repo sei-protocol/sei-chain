@@ -180,9 +180,9 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	if am.keeper.EthBlockTestConfig.Enabled {
 		blocks := am.keeper.BlockTest.Json.Blocks
 		var block *tests.BtBlock
-		for _, b := range blocks {
+		for i, b := range blocks {
 			if b.BlockHeader.Number.Uint64() == uint64(ctx.BlockHeight()) {
-				block = &b
+				block = &blocks[i]
 			}
 		}
 		if block == nil {
