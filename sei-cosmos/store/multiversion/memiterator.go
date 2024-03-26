@@ -56,6 +56,9 @@ type validationIterator struct {
 	writeset     WriteSet
 	index        int
 	abortChannel chan occtypes.Abort
+
+	// this ensure that we serve consistent values throughout the lifecycle of the validationIterator - this should prevent race conditions causing an iterator to become invalid while being used
+	readCache map[string][]byte
 }
 
 func (store *Store) newMVSValidationIterator(
@@ -88,6 +91,7 @@ func (store *Store) newMVSValidationIterator(
 		index:        index,
 		abortChannel: abortChannel,
 		writeset:     writeset,
+		readCache:    make(map[string][]byte),
 	}
 }
 
@@ -97,6 +101,10 @@ func (vi *validationIterator) Value() []byte {
 
 	// try fetch from writeset - return if exists
 	if val, ok := vi.writeset[string(key)]; ok {
+		return val
+	}
+	// serve value from readcache (means it has previously been accessed by this iterator so we want consistent behavior here)
+	if val, ok := vi.readCache[string(key)]; ok {
 		return val
 	}
 
@@ -110,7 +118,9 @@ func (vi *validationIterator) Value() []byte {
 
 	// if we have a deleted value, return nil
 	if val.IsDeleted() {
+		vi.readCache[string(key)] = nil
 		return nil
 	}
+	vi.readCache[string(key)] = val.Value()
 	return val.Value()
 }
