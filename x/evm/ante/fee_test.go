@@ -21,7 +21,6 @@ import (
 
 func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
-	ctx = ctx.WithIsCheckTx(true)
 	handler := ante.NewEVMFeeCheckDecorator(k)
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
