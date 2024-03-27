@@ -15,8 +15,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
+	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	ibctransferkeeper "github.com/cosmos/ibc-go/v3/modules/apps/transfer/keeper"
+	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
@@ -44,9 +47,12 @@ type Keeper struct {
 	deferredInfo *sync.Map
 	txResults    []*abci.ExecTxResult
 
-	bankKeeper    bankkeeper.Keeper
-	accountKeeper *authkeeper.AccountKeeper
-	stakingKeeper *stakingkeeper.Keeper
+	bankKeeper       bankkeeper.Keeper
+	accountKeeper    *authkeeper.AccountKeeper
+	stakingKeeper    *stakingkeeper.Keeper
+	transferKeeper   ibctransferkeeper.Keeper
+	ibcKeeper        *ibckeeper.Keeper
+	capabilityKeeper capabilitykeeper.ScopedKeeper
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
@@ -106,7 +112,8 @@ func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethty
 
 func NewKeeper(
 	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, paramstore paramtypes.Subspace,
-	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper) *Keeper {
+	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
+	transferKeeper ibctransferkeeper.Keeper, ibcKeeper *ibckeeper.Keeper, capabilityKeeper capabilitykeeper.ScopedKeeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -117,6 +124,9 @@ func NewKeeper(
 		bankKeeper:                   bankKeeper,
 		accountKeeper:                accountKeeper,
 		stakingKeeper:                stakingKeeper,
+		transferKeeper:               transferKeeper,
+		ibcKeeper:                    ibcKeeper,
+		capabilityKeeper:             capabilityKeeper,
 		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
@@ -136,6 +146,14 @@ func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 
 func (k *Keeper) GetStoreKey() sdk.StoreKey {
 	return k.storeKey
+}
+
+func (k *Keeper) TransferKeeper() ibctransferkeeper.Keeper {
+	return k.transferKeeper
+}
+
+func (k *Keeper) ScopedCapabilityKeeper() capabilitykeeper.ScopedKeeper {
+	return k.capabilityKeeper
 }
 
 func (k *Keeper) PrefixStore(ctx sdk.Context, pref []byte) sdk.KVStore {
