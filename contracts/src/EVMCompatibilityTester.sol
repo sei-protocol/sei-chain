@@ -33,6 +33,7 @@ contract EVMCompatibilityTester {
     bool public boolVar;
     uint256 public uint256Var;
     string public stringVar;
+    uint256 public lastTimestamp;
 
     // State variable to store the details
     MsgDetails public lastMsgDetails;
@@ -123,6 +124,9 @@ contract EVMCompatibilityTester {
         return (blockHash, coinbase, prevrandao, gaslimit, number, timestamp);
     }
 
+    function setTimestamp() public {
+        lastTimestamp = block.timestamp;
+    }
 
     function revertIfFalse(bool value) public {
         boolVar = value;
