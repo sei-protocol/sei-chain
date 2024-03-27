@@ -666,6 +666,7 @@ func New(
 			app.GovKeeper,
 			app.DistrKeeper,
 			app.OracleKeeper,
+			app.TransferKeeper,
 		); err != nil {
 			panic(err)
 		}
