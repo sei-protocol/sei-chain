@@ -1714,7 +1714,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 		}
 		ctx, err := app.CreateQueryContext(i, false)
 		if err != nil {
-			app.Logger().Error("failed to create query context for EVM; using latest context instead")
+			app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
 			return app.GetCheckCtx()
 		}
 		return ctx
