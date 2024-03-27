@@ -8,7 +8,7 @@ block_tests_dir=$1
 declare -a skip_list=(
     "shanghaiExample" # failing
     "blockWithAllTransactionTypes" # failing
-    "DelegateCallSpam" # takes super long
+    "DelegateCallSpam" # passes, but takes super long
     "blockhashTests" # failing
     "blockhashNonConstArg" # failing
 )
@@ -37,6 +37,6 @@ for test_file in $block_tests; do
     echo "test name: ${test_name}_Cancun"
     echo -e "\n*********************************************************\n"
     rm -r ~/.sei || true
-    ./scripts/initialize_local_chain_no_run.sh 2>&1 | tee /dev/null
+    ./scripts/initialize_local_chain_no_run.sh
     seid blocktest --block-test $test_file --test-name "${test_name}_Cancun"
 done
