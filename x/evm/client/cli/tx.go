@@ -64,6 +64,7 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdDeployErcCw721())
 	cmd.AddCommand(CmdERC20Send())
 	cmd.AddCommand(CmdDelegate())
+	cmd.AddCommand(NativeSendTxCmd())
 
 	return cmd
 }
@@ -100,7 +101,7 @@ func CmdAssociateAddress() *cobra.Command {
 				privHex = hex.EncodeToString(priv.Bytes())
 			}
 
-			emptyHash := common.Hash{}
+			emptyHash := crypto.Keccak256Hash([]byte{})
 			key, err := crypto.HexToECDSA(privHex)
 			if err != nil {
 				return err
