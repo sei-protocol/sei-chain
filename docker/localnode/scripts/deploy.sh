@@ -11,7 +11,7 @@ export BUILD_PATH=/sei-protocol/sei-chain/build
 export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
 echo "export GOPATH=$HOME/go" >> /root/.bashrc
 echo "GOBIN=$GOPATH/bin" >> /root/.bashrc
-echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH" >> /root/.bashrc
+echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH:/root/.foundry/bin" >> /root/.bashrc
 /bin/bash -c "source /root/.bashrc"
 mkdir -p $GOBIN
 # Step 0: Build on node 0

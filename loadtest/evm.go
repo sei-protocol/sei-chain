@@ -20,6 +20,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc20"
+	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc721"
+	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/univ2_swapper"
 )
 
 type EvmTxClient struct {
@@ -40,6 +42,9 @@ func NewEvmTxClient(
 	ethClients []*ethclient.Client,
 	evmAddresses *EVMAddresses,
 ) *EvmTxClient {
+	if evmAddresses == nil {
+		evmAddresses = &EVMAddresses{}
+	}
 	txClient := &EvmTxClient{
 		chainId:      chainId,
 		gasPrice:     gasPrice,
@@ -77,6 +82,10 @@ func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transacti
 		return txClient.GenerateSendFundsTx()
 	case ERC20:
 		return txClient.GenerateERC20TransferTx()
+	case ERC721:
+		return txClient.GenerateERC721Mint()
+	case UNIV2:
+		return txClient.GenerateUniV2SwapTx()
 	default:
 		panic("invalid message type")
 	}
@@ -112,6 +121,36 @@ func (txClient *EvmTxClient) GenerateERC20TransferTx() *ethtypes.Transaction {
 		panic(fmt.Sprintf("Failed to create ERC20 contract: %v \n", err))
 	}
 	tx, err := token.Transfer(opts, txClient.accountAddress, randomValue())
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC20 transfer: %v \n", err))
+	}
+	return txClient.sign(tx)
+}
+
+func (txClient *EvmTxClient) GenerateUniV2SwapTx() *ethtypes.Transaction {
+	opts := txClient.getTransactOpts()
+	opts.GasLimit = uint64(200000)
+	univ2Swapper, err := univ2_swapper.NewUniv2Swapper(txClient.evmAddresses.UniV2Swapper, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create univ2 swapper contract: %v \n", err))
+	}
+	tx, err := univ2Swapper.Swap(opts)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create univ2 swap: %v \n", err))
+	}
+	return txClient.sign(tx)
+}
+
+func (txClient *EvmTxClient) GenerateERC721Mint() *ethtypes.Transaction {
+	opts := txClient.getTransactOpts()
+	// override gas limit for an ERC20 transfer
+	opts.GasLimit = uint64(100000)
+	tokenAddress := txClient.evmAddresses.ERC721
+	token, err := erc721.NewErc721(tokenAddress, GetNextEthClient(txClient.ethClients))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create ERC721 contract: %v \n", err))
+	}
+	tx, err := token.Mint(opts, txClient.accountAddress, randomValue())
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create ERC20 transfer: %v \n", err))
 	}
@@ -178,6 +217,17 @@ func (txClient *EvmTxClient) GetTxReceipt(txHash common.Hash) error {
 		return err
 	}
 	return nil
+}
+
+// check receipt success
+func (txClient *EvmTxClient) EnsureTxSuccess(txHash common.Hash) {
+	receipt, err := GetNextEthClient(txClient.ethClients).TransactionReceipt(context.Background(), txHash)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get receipt for tx %v: %v \n", txHash.Hex(), err))
+	}
+	if receipt.Status != 1 {
+		panic(fmt.Sprintf("Tx %v failed with status %v \n", txHash.Hex(), receipt.Status))
+	}
 }
 
 // ResetNonce need to be called when tx failed

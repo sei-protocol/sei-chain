@@ -2,14 +2,19 @@ package cmd
 
 import (
 	"bufio"
+	"crypto/ecdsa"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	"github.com/cosmos/cosmos-sdk/server"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -18,6 +23,8 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+	"github.com/sei-protocol/sei-chain/x/evm"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -35,6 +42,7 @@ func AddGenesisAccountCmd(defaultNodeHome string) *cobra.Command {
 the account address or key name and a list of initial coins. If a key name is given,
 the address will be looked up in the local Keybase. The list of initial tokens must
 contain valid denominations. Accounts may optionally be supplied with vesting parameters.
+The association between the sei address and the eth address will also be created here if using keyring-backend test.
 `,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,23 +55,31 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 
 			config.SetRoot(clientCtx.HomeDir)
 
+			inBuf := bufio.NewReader(cmd.InOrStdin())
+			keyringBackend, _ := cmd.Flags().GetString(flags.FlagKeyringBackend)
+
+			kb, err := keyring.New(sdk.KeyringServiceName(), keyringBackend, clientCtx.HomeDir, inBuf)
+			if err != nil {
+				return err
+			}
+
 			addr, err := sdk.AccAddressFromBech32(args[0])
 			if err != nil {
-				inBuf := bufio.NewReader(cmd.InOrStdin())
-				keyringBackend, _ := cmd.Flags().GetString(flags.FlagKeyringBackend)
-
-				// attempt to lookup address from Keybase if no address was provided
-				kb, err := keyring.New(sdk.KeyringServiceName(), keyringBackend, clientCtx.HomeDir, inBuf)
-				if err != nil {
-					return err
-				}
-
+				// this args[0] is for the key name so "admin"
 				info, err := kb.Key(args[0])
 				if err != nil {
 					return fmt.Errorf("failed to get address from Keybase: %w", err)
 				}
 
 				addr = info.GetAddress()
+			}
+			var ethAddr common.Address
+			if keyringBackend == keyring.BackendTest {
+				pk, err := getPrivateKeyOfAddr(kb, addr)
+				if err != nil {
+					return err
+				}
+				ethAddr = crypto.PubkeyToAddress(pk.PublicKey)
 			}
 
 			coins, err := sdk.ParseCoinsNormalized(args[1])
@@ -117,6 +133,20 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal genesis state: %w", err)
 			}
+			if keyringBackend == keyring.BackendTest {
+				// associate the eth address with the sei address through the genesis file
+				evmGenState := evm.GetGenesisStateFromAppState(depCdc, appState)
+				seiEthAddrAssociation := evmtypes.AddressAssociation{
+					SeiAddress: addr.String(),
+					EthAddress: ethAddr.Hex(),
+				}
+				evmGenState.AddressAssociations = append(evmGenState.AddressAssociations, &seiEthAddrAssociation)
+				evmGenStateBz, err := cdc.MarshalJSON(evmGenState)
+				if err != nil {
+					return fmt.Errorf("failed to marshal evm genesis state: %w", err)
+				}
+				appState[evmtypes.ModuleName] = evmGenStateBz
+			}
 
 			authGenState := authtypes.GetGenesisStateFromAppState(cdc, appState)
 
@@ -164,6 +194,7 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 			}
 
 			genDoc.AppState = appStateJSON
+
 			return genutil.ExportGenesisFile(genDoc, genFile)
 		},
 	}
@@ -176,4 +207,32 @@ contain valid denominations. Accounts may optionally be supplied with vesting pa
 	flags.AddQueryFlagsToCmd(cmd)
 
 	return cmd
+}
+
+func getPrivateKeyOfAddr(kb keyring.Keyring, addr sdk.Address) (*ecdsa.PrivateKey, error) {
+	keys, err := kb.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range keys {
+		localInfo, ok := key.(keyring.LocalInfo)
+		if !ok {
+			// will only show local key
+			return nil, errors.New("not local key")
+		}
+		if localInfo.GetAddress().Equals(addr) {
+			priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
+			if err != nil {
+				return nil, err
+			}
+			privHex := hex.EncodeToString(priv.Bytes())
+			// Need to use private key to convert to sei address here
+			privKey, err := crypto.HexToECDSA(privHex)
+			if err != nil {
+				return nil, err
+			}
+			return privKey, nil
+		}
+	}
+	return nil, errors.New("not found")
 }

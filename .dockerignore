@@ -1,2 +1,4 @@
 build/
-.git/
+# The .git folder must be transferred to Docker context since the Makefile
+# uses git commands to get the current commit hash and tag for versioning.
+# .git/

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -44,10 +46,10 @@ const (
 )
 
 var (
-	FromMili      = sdk.NewDec(1000000)
-	producedCount = atomic.Int64{}
-	sentCount     = atomic.Int64{}
-	prevSentCount = atomic.Int64{}
+	FromMili                  = sdk.NewDec(1000000)
+	producedCountPerMsgType   = make(map[string]*int64)
+	sentCountPerMsgType       = make(map[string]*int64)
+	prevSentCounterPerMsgType = make(map[string]*int64)
 )
 
 type BlockData struct {
@@ -100,8 +102,38 @@ func deployEvmContracts(config *Config) {
 			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
 			panic(err)
 		}
-		config.EVMAddresses = &EVMAddresses{
-			ERC20: erc20,
+		config.EVMAddresses.ERC20 = erc20
+	}
+	if config.ContainsAnyMessageTypes(ERC721) {
+		fmt.Println("Deploying ERC721 contract")
+		erc721, err := deployEvmContract("loadtest/contracts/deploy_erc721.sh", config)
+		if err != nil {
+			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
+			panic(err)
+		}
+		config.EVMAddresses.ERC721 = erc721
+	}
+}
+
+//nolint:gosec
+func deployUniswapContracts(client *LoadTestClient, config *Config) {
+	config.EVMAddresses = &EVMAddresses{}
+	if config.ContainsAnyMessageTypes(UNIV2) {
+		fmt.Println("Deploying Uniswap contracts")
+		cmd := exec.Command("loadtest/contracts/deploy_univ2.sh", config.EVMRpcEndpoint())
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		err := cmd.Run()
+		fmt.Println("script output: ", out.String())
+		if err != nil {
+			panic("deploy_univ2.sh failed with error: " + err.Error())
+		}
+		UniV2SwapperRe := regexp.MustCompile(`Swapper Address: "(\w+)"`)
+		match := UniV2SwapperRe.FindStringSubmatch(out.String())
+		uniV2SwapperAddress := common.HexToAddress(match[1])
+		fmt.Println("Found UniV2Swapper Address: ", uniV2SwapperAddress.String())
+		for _, txClient := range client.EvmTxClients {
+			txClient.evmAddresses.UniV2Swapper = uniV2SwapperAddress
 		}
 	}
 }
@@ -111,16 +143,17 @@ func run(config *Config) {
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(*config)
 
+	client := NewLoadTestClient(*config)
+	client.SetValidators()
 	deployEvmContracts(config)
-	startLoadtestWorkers(*config)
+	deployUniswapContracts(client, config)
+	startLoadtestWorkers(client, *config)
 }
 
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
 // workers continue running. If config.Constant is false, then we will gather load test results in a file
-func startLoadtestWorkers(config Config) {
+func startLoadtestWorkers(client *LoadTestClient, config Config) {
 	fmt.Printf("Starting loadtest workers\n")
-	client := NewLoadTestClient(config)
-	client.SetValidators()
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
@@ -144,8 +177,8 @@ func startLoadtestWorkers(config Config) {
 	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
 	var wg sync.WaitGroup
 	for i := 0; i < len(keys); i++ {
-		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, &producedCount)
-		go client.SendTxs(txQueues[i], i, done, &sentCount, consumerSemaphore, &wg)
+		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, producedCountPerMsgType)
+		go client.SendTxs(txQueues[i], i, done, sentCountPerMsgType, consumerSemaphore, &wg)
 	}
 
 	// Statistics reporting goroutine
@@ -166,14 +199,15 @@ func startLoadtestWorkers(config Config) {
 					blockTimes = append(blockTimes, blockTime)
 				}
 
-				totalProduced := producedCount.Load()
-				totalSent := sentCount.Load()
-				prevTotalSent := prevSentCount.Load()
-				printStats(start, totalProduced, totalSent, prevTotalSent, blockHeights, blockTimes)
+				printStats(start, producedCountPerMsgType, sentCountPerMsgType, prevSentCounterPerMsgType, blockHeights, blockTimes)
 				startHeight = currHeight
 				blockHeights, blockTimes = nil, nil
 				start = time.Now()
-				prevSentCount.Store(totalSent)
+
+				for msgType := range sentCountPerMsgType {
+					count := atomic.LoadInt64(sentCountPerMsgType[msgType])
+					atomic.StoreInt64(prevSentCounterPerMsgType[msgType], count)
+				}
 			case <-done:
 				ticker.Stop()
 				return
@@ -195,9 +229,35 @@ func startLoadtestWorkers(config Config) {
 	}
 }
 
-func printStats(startTime time.Time, totalProduced int64, totalSent int64, prevTotalSent int64, blockHeights []int, blockTimes []string) {
+func printStats(
+	startTime time.Time,
+	producedCountPerMsgType map[string]*int64,
+	sentCountPerMsgType map[string]*int64,
+	prevSentPerCounterPerMsgType map[string]*int64,
+	blockHeights []int,
+	blockTimes []string,
+) {
 	elapsed := time.Since(startTime)
-	tps := float64(totalSent-prevTotalSent) / elapsed.Seconds()
+
+	totalSent := int64(0)
+	totalProduced := int64(0)
+	//nolint:gosec
+	for msg_type := range sentCountPerMsgType {
+		totalSent += atomic.LoadInt64(sentCountPerMsgType[msg_type])
+	}
+	//nolint:gosec
+	for msg_type := range producedCountPerMsgType {
+		totalProduced += atomic.LoadInt64(producedCountPerMsgType[msg_type])
+	}
+
+	var tps float64
+	for msgType := range sentCountPerMsgType {
+		sentCount := atomic.LoadInt64(sentCountPerMsgType[msgType])
+		prevTotalSent := atomic.LoadInt64(prevSentPerCounterPerMsgType[msgType])
+		//nolint:gosec
+		tps = float64(sentCount-prevTotalSent) / elapsed.Seconds()
+		defer metrics.SetThroughputMetricByType("tps", float32(tps), msgType)
+	}
 
 	var totalDuration time.Duration
 	var prevTime time.Time
@@ -239,7 +299,6 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	signer := key
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	defer IncrTxMessageType(msgType)
 
 	defaultMessageTypeConfig := config.PerMessageConfigs["default"]
 	gas := defaultMessageTypeConfig.Gas

@@ -17,6 +17,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/dex"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
+	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
@@ -32,8 +34,10 @@ type HandlerOptions struct {
 	OracleKeeper        *oraclekeeper.Keeper
 	DexKeeper           *dexkeeper.Keeper
 	AccessControlKeeper *aclkeeper.Keeper
+	EVMKeeper           *evmkeeper.Keeper
 	TXCounterStoreKey   sdk.StoreKey
 	CheckTxMemState     *dexcache.MemState
+	LatestCtxGetter     func() sdk.Context
 
 	TracingInfo *tracing.Info
 }
@@ -66,6 +70,12 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	if options.CheckTxMemState == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "checktx memstate is required for ante builder")
 	}
+	if options.EVMKeeper == nil {
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "evm keeper is required for ante builder")
+	}
+	if options.LatestCtxGetter == nil {
+		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "latest context getter is required for ante builder")
+	}
 
 	sigGasConsumer := options.SigGasConsumer
 	if sigGasConsumer == nil {
@@ -93,6 +103,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		sdk.CustomDepWrappedAnteDecorator(ante.NewSigGasConsumeDecorator(options.AccountKeeper, sigGasConsumer), depdecorators.SignerDepDecorator{ReadOnly: true}),
 		sdk.CustomDepWrappedAnteDecorator(sequentialVerifyDecorator, depdecorators.SignerDepDecorator{ReadOnly: true}),
 		sdk.CustomDepWrappedAnteDecorator(ante.NewIncrementSequenceDecorator(options.AccountKeeper), depdecorators.SignerDepDecorator{ReadOnly: false}),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMAddressDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper())),
 		sdk.DefaultWrappedAnteDecorator(ibcante.NewAnteDecorator(options.IBCKeeper)),
 		sdk.DefaultWrappedAnteDecorator(dex.NewTickSizeMultipleDecorator(*options.DexKeeper)),
 		dex.NewCheckDexGasDecorator(*options.DexKeeper, options.CheckTxMemState),
@@ -101,5 +112,16 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 
 	anteHandler, anteDepGenerator := sdk.ChainAnteDecorators(anteDecorators...)
 
-	return anteHandler, anteDepGenerator, nil
+	evmAnteDecorators := []sdk.AnteFullDecorator{
+		evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewBasicDecorator()),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMFeeCheckDecorator(options.EVMKeeper)),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMSigVerifyDecorator(options.EVMKeeper, options.LatestCtxGetter)),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewGasLimitDecorator(options.EVMKeeper)),
+	}
+	evmAnteHandler, evmAnteDepGenerator := sdk.ChainAnteDecorators(evmAnteDecorators...)
+
+	router := evmante.NewEVMRouterDecorator(anteHandler, evmAnteHandler, anteDepGenerator, evmAnteDepGenerator)
+
+	return router.AnteHandle, router.AnteDeps, nil
 }

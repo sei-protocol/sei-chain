@@ -1,0 +1,157 @@
+syntax = "proto3";
+package seiprotocol.seichain.eth;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types/ethtx";
+
+// Source: https://github.com/evmos/evmos/blob/main/proto/ethermint/evm/v1/tx.proto
+
+message AccessTuple {
+    option (gogoproto.goproto_getters) = false;
+
+    string address = 1;
+    repeated string storage_keys = 2 [
+        (gogoproto.jsontag) = "storageKeys"
+    ];
+  }
+
+  message AssociateTx {
+    option (gogoproto.goproto_getters) = false;
+    // signature values
+    bytes v = 1;
+    bytes r = 2;
+    bytes s = 3;
+    string custom_message = 4;
+  }
+
+message LegacyTx {
+    option (gogoproto.goproto_getters) = false;
+
+    uint64 nonce = 1;
+    string gas_price = 2 [
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
+    ];
+    uint64 gas_limit = 3;
+    string to = 4;
+    string value = 5 [
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+        (gogoproto.customname) = "Amount"
+    ];
+    bytes data = 6;
+    // signature values
+    bytes v = 7;
+    bytes r = 8;
+    bytes s = 9;
+}
+
+message AccessListTx {
+    option (gogoproto.goproto_getters) = false;
+
+string chain_id = 1 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customname) = "ChainID",
+    (gogoproto.jsontag) = "chainID"
+];
+uint64 nonce = 2;
+string gas_price = 3 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
+];
+uint64 gas_limit = 4;
+string to = 5;
+string value = 6 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customname) = "Amount"
+];
+bytes data = 7;
+repeated AccessTuple accesses = 8 [
+    (gogoproto.castrepeated) = "AccessList",
+    (gogoproto.jsontag) = "accessList",
+    (gogoproto.nullable) = false
+];
+// signature values
+bytes v = 9;
+bytes r = 10;
+bytes s = 11;
+}
+
+message DynamicFeeTx {
+    option (gogoproto.goproto_getters) = false;
+
+string chain_id = 1 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customname) = "ChainID",
+    (gogoproto.jsontag) = "chainID"
+];
+uint64 nonce = 2;
+string gas_tip_cap = 3 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
+];
+string gas_fee_cap = 4 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
+];
+uint64 gas_limit = 5;
+string to = 6;
+string value = 7 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customname) = "Amount"
+];
+bytes data = 8;
+repeated AccessTuple accesses = 9 [
+    (gogoproto.castrepeated) = "AccessList",
+    (gogoproto.jsontag) = "accessList",
+    (gogoproto.nullable) = false
+];
+// signature values
+bytes v = 10;
+bytes r = 11;
+bytes s = 12;
+}
+
+message BlobTx {
+    option (gogoproto.goproto_getters) = false;
+
+string chain_id = 1 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customname) = "ChainID",
+    (gogoproto.jsontag) = "chainID"
+];
+uint64 nonce = 2;
+string gas_tip_cap = 3 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
+];
+string gas_fee_cap = 4 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
+];
+uint64 gas_limit = 5;
+string to = 6;
+string value = 7 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.customname) = "Amount"
+];
+bytes data = 8;
+repeated AccessTuple accesses = 9 [
+    (gogoproto.castrepeated) = "AccessList",
+    (gogoproto.jsontag) = "accessList",
+    (gogoproto.nullable) = false
+];
+string blob_fee_cap = 10 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
+];
+repeated bytes blob_hashes = 11;
+BlobTxSidecar sidecar = 12;
+// signature values
+bytes v = 13;
+bytes r = 14;
+bytes s = 15;
+}
+
+message BlobTxSidecar {
+    repeated bytes blobs = 1;
+    repeated bytes commitments = 2;
+    repeated bytes proofs = 3;
+}
+
+message ExtensionOptionsEthereumTx {
+option (gogoproto.goproto_getters) = false;
+}

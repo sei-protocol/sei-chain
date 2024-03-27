@@ -46,3 +46,14 @@ type CancelOrders struct {
 	Cancellations []*types.Cancellation `json:"cancellations"`
 	ContractAddr  string                `json:"contract_address"`
 }
+
+type CallEVM struct {
+	Value *sdk.Int `json:"value"`
+	To    string   `json:"to"`
+	Data  string   `json:"data"` // base64
+}
+
+type DelegateCallEVM struct {
+	To   string `json:"to"`
+	Data string `json:"data"` // base64
+}

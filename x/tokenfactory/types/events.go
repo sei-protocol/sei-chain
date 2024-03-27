@@ -4,9 +4,10 @@ package types
 // event types
 // nolint
 const (
-	AttributeAmount              = "amount"
-	AttributeCreator             = "creator"
-	AttributeSubdenom            = "subdenom"
+	AttributeAmount   = "amount"
+	AttributeCreator  = "creator"
+	AttributeSubdenom = "subdenom"
+	//nolint:gosec
 	AttributeNewTokenDenom       = "new_token_denom"
 	AttributeMintToAddress       = "mint_to_address"
 	AttributeBurnFromAddress     = "burn_from_address"

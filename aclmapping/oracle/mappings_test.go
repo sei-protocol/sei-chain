@@ -129,7 +129,7 @@ func TestMsgVoteDependencyGenerator(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 	oracleVote := oracletypes.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1usei",
@@ -147,7 +147,7 @@ func TestMsgVoteDependencyGeneratorInvalidMsgType(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	_, err := oracleacl.MsgVoteDependencyGenerator(testWrapper.App.AccessControlKeeper, testWrapper.Ctx, &banktypes.MsgSend{})
 	require.Error(t, err)
 }

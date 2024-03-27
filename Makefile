@@ -98,6 +98,8 @@ build-price-feeder:
 clean:
 	rm -rf ./build
 
+build-loadtest:
+	go build -o build/loadtest ./loadtest/
 
 
 ###############################################################################

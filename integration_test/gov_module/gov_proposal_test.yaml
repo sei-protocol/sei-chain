@@ -75,7 +75,7 @@
 - name: Test making a proposal which got rejected should burn tokens
   inputs:
     # Get the current tally params
-    - cmd: seid q bank total --output json | jq -r .supply[0].amount
+    - cmd: seid q bank total --denom usei --output json | jq -r .amount
       env: TOTAL_SUPPLY_BEFORE_BURN
     # Make a new expedited proposal
     - cmd: printf "12345678\n" | seid tx gov submit-proposal param-change ./integration_test/gov_module/proposal/expedited_proposal.json
@@ -97,7 +97,7 @@
     - cmd: seid q gov params --output json | jq -r .tally_params.expedited_quorum
       env: NEW_PARAM
     # Get the current tally params
-    - cmd: seid q bank total --output json | jq -r .supply[0].amount
+    - cmd: seid q bank total --denom usei --output json | jq -r .amount
       env: TOTAL_SUPPLY_AFTER_BURN
   verifiers:
     # Check if the total supply is reduced or not to verify token burns

@@ -19,6 +19,7 @@ const (
 	Bank                 string = "bank"
 	EVM                  string = "evm"
 	ERC20                string = "erc20"
+	ERC721               string = "erc721"
 	CollectRewards       string = "collect_rewards"
 	DistributeRewards    string = "distribute_rewards"
 	FailureBankMalformed string = "failure_bank_malformed"
@@ -31,6 +32,7 @@ const (
 	Limit                string = "limit"
 	Market               string = "market"
 	WasmMintNft          string = "wasm_mint_nft"
+	UNIV2                string = "univ2"
 	Vortex               string = "vortex"
 	WasmInstantiate      string = "wasm_instantiate"
 	WasmOccIteratorWrite string = "wasm_occ_iterator_write"
@@ -43,7 +45,9 @@ type WasmIteratorWriteMsg struct {
 }
 
 type EVMAddresses struct {
-	ERC20 common.Address
+	ERC20        common.Address
+	ERC721       common.Address
+	UniV2Swapper common.Address
 }
 
 type Config struct {
@@ -210,4 +214,5 @@ type WasmInstantiateType struct {
 type SignedTx struct {
 	TxBytes []byte
 	EvmTx   *ethtypes.Transaction
+	MsgType string
 }

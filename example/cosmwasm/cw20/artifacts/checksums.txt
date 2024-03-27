@@ -1,0 +1,1 @@
+a25d78d7acd2ee47cc39c224e162fe79b53e6bbe6ed2a56e8c0a86593ebe6102  cwerc20.wasm

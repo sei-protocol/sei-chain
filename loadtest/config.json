@@ -54,7 +54,9 @@
       "wasm_instantiate",
       "wasm_occ_iterator_write",
       "wasm_occ_iterator_range",
-      "wasm_occ_parallel_write"
+      "wasm_occ_parallel_write",
+      "evm",
+      "univ2"
     ],
     "run_oracle": false,
     "metrics_port": 9695,
