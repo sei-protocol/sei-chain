@@ -285,6 +285,9 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		if err != nil {
 			return nil, vm.BlockContext{}, nil, nil, err
 		}
+		// set block context time as of the block time (block time is the time of the CURRENT block)
+		blockContext.Time = block.Time()
+
 		if idx == txIndex {
 			return msg, *blockContext, statedb, emptyRelease, nil
 		}
@@ -307,10 +310,12 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 	return statedb, emptyRelease, nil
 }
 
-func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, _ *vm.BlockContext) *vm.EVM {
+func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
 	txContext := core.NewEVMTxContext(msg)
-	context, _ := b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
-	evm := vm.NewEVM(*context, txContext, stateDB, b.ChainConfig(), *vmConfig)
+	if blockCtx == nil {
+		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
+	}
+	evm := vm.NewEVM(*blockCtx, txContext, stateDB, b.ChainConfig(), *vmConfig)
 	if dbImpl, ok := stateDB.(*state.DBImpl); ok {
 		dbImpl.SetEVM(evm)
 	}
@@ -360,8 +365,10 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	}
 	number := blockNumber.Int64()
 	block, err := blockByNumber(context.Background(), b.tmClient, &number)
+	//TODO: what should happen if an err occurs here?
 	if err == nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
+		header.Time = uint64(block.Block.Header.Time.Unix())
 	}
 	return header
 }
