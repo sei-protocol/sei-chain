@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
+	ibctransferkeeper "github.com/cosmos/ibc-go/v3/modules/apps/transfer/keeper"
+	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"math"
 	"math/big"
 	"slices"
@@ -44,9 +47,12 @@ type Keeper struct {
 	deferredInfo *sync.Map
 	txResults    []*abci.ExecTxResult
 
-	bankKeeper    bankkeeper.Keeper
-	accountKeeper *authkeeper.AccountKeeper
-	stakingKeeper *stakingkeeper.Keeper
+	bankKeeper       bankkeeper.Keeper
+	accountKeeper    *authkeeper.AccountKeeper
+	stakingKeeper    *stakingkeeper.Keeper
+	transferKeeper   ibctransferkeeper.Keeper
+	ibcKeeper        *ibckeeper.Keeper
+	capabilityKeeper capabilitykeeper.ScopedKeeper
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
@@ -105,17 +111,23 @@ func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethty
 
 func NewKeeper(
 	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, paramstore paramtypes.Subspace,
-	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper) *Keeper {
+	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
+	transferKeeper ibctransferkeeper.Keeper, ibcKeeper *ibckeeper.Keeper,
+	capabilityKeeper capabilitykeeper.ScopedKeeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
 	k := &Keeper{
-		storeKey:                     storeKey,
-		memStoreKey:                  memStoreKey,
-		Paramstore:                   paramstore,
-		bankKeeper:                   bankKeeper,
-		accountKeeper:                accountKeeper,
-		stakingKeeper:                stakingKeeper,
+		storeKey:         storeKey,
+		memStoreKey:      memStoreKey,
+		Paramstore:       paramstore,
+		bankKeeper:       bankKeeper,
+		accountKeeper:    accountKeeper,
+		stakingKeeper:    stakingKeeper,
+		transferKeeper:   transferKeeper,
+		ibcKeeper:        ibcKeeper,
+		capabilityKeeper: capabilityKeeper,
+
 		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
