@@ -63,6 +63,7 @@ func Replay(a *App) {
 		if err != nil {
 			panic(err)
 		}
+		a.EvmKeeper.ReplayBlock = b
 		hash := make([]byte, 8)
 		binary.BigEndian.PutUint64(hash, uint64(h))
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
