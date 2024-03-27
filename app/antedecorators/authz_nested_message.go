@@ -40,12 +40,12 @@ func (ad AuthzNestedMessageDecorator) CheckAuthzContainsEvm(ctx sdk.Context, aut
 		return false, err
 	}
 	for _, msg := range msgs {
-		// check if message type is authz exec OR registerWasmDependency
+		// check if message type is authz exec or evm
 		switch m := msg.(type) {
 		case *evmtypes.MsgEVMTransaction:
 			return true, nil
 		case *authz.MsgExec:
-			// find nested to check for wasm registration
+			// find nested to check for evm
 			valid, err := ad.CheckAuthzContainsEvm(ctx, m)
 
 			if err != nil {
