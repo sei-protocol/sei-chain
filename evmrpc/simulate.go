@@ -282,10 +282,10 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
 		txContext := core.NewEVMTxContext(msg)
 		blockContext, err := b.keeper.GetVMBlockContext(b.ctxProvider(prevBlockHeight), core.GasPool(b.RPCGasCap()))
-		// set block context time as of the block time (block time is the time of the CURRENT block)
 		if err != nil {
 			return nil, vm.BlockContext{}, nil, nil, err
 		}
+		// set block context time as of the block time (block time is the time of the CURRENT block)
 		blockContext.Time = block.Time()
 
 		if idx == txIndex {
