@@ -1,8 +1,9 @@
 package precompiles
 
 import (
-	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"sync"
+
+	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 
 	ecommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
