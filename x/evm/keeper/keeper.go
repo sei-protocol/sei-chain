@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
-	ibctransferkeeper "github.com/cosmos/ibc-go/v3/modules/apps/transfer/keeper"
-	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"math"
 	"math/big"
 	"slices"
 	"sort"
 	"sync"
+
+	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
+	ibctransferkeeper "github.com/cosmos/ibc-go/v3/modules/apps/transfer/keeper"
+	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
