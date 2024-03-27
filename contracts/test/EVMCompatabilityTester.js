@@ -167,10 +167,27 @@ describe("EVM Test", function () {
 
 
     describe("Block Properties", function () {
-      it("Should get and print the block properties", async function () {
-        await delay()
-        const blockProperties = await evmTester.getBlockProperties();
-        debug(blockProperties)
+      it("Should have consistent block properties for a block", async function () {
+        const currentBlockNumber = await ethers.provider.getBlockNumber();
+        const iface = new ethers.Interface(["function getBlockProperties() view returns (bytes32 blockHash, address coinbase, uint256 prevrandao, uint256 gaslimit, uint256 number, uint256 timestamp)"]);
+        const addr = await evmTester.getAddress()
+        const tx = {
+          to: addr,
+          data: iface.encodeFunctionData("getBlockProperties", []),
+          blockTag: currentBlockNumber-2
+        };
+        const result = await ethers.provider.call(tx);
+
+        // wait for block to change
+        while(true){
+          const bn = await ethers.provider.getBlockNumber();
+          if(bn !== currentBlockNumber){
+                break
+          }
+          await sleep(100)
+        }
+        const result2 = await ethers.provider.call(tx);
+        expect(result).to.equal(result2)
       });
     });
 
@@ -291,7 +308,7 @@ describe("EVM Test", function () {
     })
 
     describe("Historical query test", function() {
-      it.only("Should be able to get historical block data", async function() {
+      it("Should be able to get historical block data", async function() {
         const feeData = await ethers.provider.getFeeData();
         const gasPrice = Number(feeData.gasPrice);
         const zero = ethers.parseUnits('0', 'ether')
