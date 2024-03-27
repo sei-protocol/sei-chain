@@ -291,7 +291,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 				ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
 				Amount: sdk.NewCoins(sdk.Coin{
 					Denom:  "usei",
-					Amount: sdk.NewInt(1),
+					Amount: sdk.NewInt(rand.Int63n(99999999)),
 				}),
 			})
 		}
