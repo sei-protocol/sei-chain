@@ -17,7 +17,6 @@ import (
 )
 
 var ethReplayInitialied = false
-var ethBlockTestInitialied = false
 
 func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName, authtypes.Minter, authtypes.Burner)

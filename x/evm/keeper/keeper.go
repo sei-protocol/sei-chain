@@ -148,14 +148,6 @@ func (k *Keeper) GetStoreKey() sdk.StoreKey {
 	return k.storeKey
 }
 
-func (k *Keeper) TransferKeeper() ibctransferkeeper.Keeper {
-	return k.transferKeeper
-}
-
-func (k *Keeper) ScopedCapabilityKeeper() capabilitykeeper.ScopedKeeper {
-	return k.capabilityKeeper
-}
-
 func (k *Keeper) PrefixStore(ctx sdk.Context, pref []byte) sdk.KVStore {
 	store := ctx.KVStore(k.GetStoreKey())
 	return prefix.NewStore(store, pref)
