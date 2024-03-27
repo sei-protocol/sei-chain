@@ -234,6 +234,41 @@ describe("EVM Test", function () {
         expect(await evmTester.uint256Var()).to.equal(12345);
       });
 
+      it("Should trace a call with timestamp", async function () {
+        await delay()
+        const txResponse = await evmTester.setTimestamp();
+        const receipt = await txResponse.wait();  // Wait for the transaction to be mined
+
+        // get the timestamp that was saved off during setTimestamp()
+        const lastTimestamp = await evmTester.lastTimestamp();
+
+        // perform two trace calls with a small delay in between
+        const trace1 = await hre.network.provider.request({
+          method: "debug_traceTransaction",
+          params: [receipt.hash],
+        });
+        await sleep(500)
+        const trace2 = await hre.network.provider.request({
+          method: "debug_traceTransaction",
+          params: [receipt.hash],
+        });
+
+        // expect consistency in the trace calls (timestamp should be fixed to block)
+        expect(JSON.stringify(trace1)).to.equal(JSON.stringify(trace2))
+
+        // expect timestamp in the actual trace to match the timestamp seen at the time of invocation
+        let found = false
+        for(let log of trace1.structLogs) {
+          if(log.op === "SSTORE" && log.stack.length >= 3) {
+            const ts = log.stack[2]
+            expect(ts).to.equal(lastTimestamp)
+            found = true
+            break;
+          }
+        }
+        expect(found).to.be.true;
+      });
+
 
       it("Should set the string correctly and emit an event", async function () {
         // Call setBoolVar
