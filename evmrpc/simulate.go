@@ -356,7 +356,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		Number:     blockNumber,
 		BaseFee:    b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
 		GasLimit:   b.config.GasCap,
-		Time:       uint64(time.Now().Unix()),
+		Time:       uint64(b.ctxProvider(blockNumber.Int64()).BlockTime().Unix()),
 	}
 	number := blockNumber.Int64()
 	block, err := blockByNumber(context.Background(), b.tmClient, &number)
