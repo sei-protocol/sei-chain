@@ -9,6 +9,8 @@ import (
 	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core"
@@ -229,4 +231,18 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 	receipt.From = origMsg.Derived.SenderEVMAddr.Hex()
 
 	return receipt, server.SetReceipt(ctx, tx.Hash(), receipt)
+}
+
+func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	recipient := server.GetSeiAddressOrDefault(ctx, common.HexToAddress(msg.ToAddress))
+	_, err := bankkeeper.NewMsgServerImpl(server.BankKeeper()).Send(goCtx, &banktypes.MsgSend{
+		FromAddress: msg.FromAddress,
+		ToAddress:   recipient.String(),
+		Amount:      msg.Amount,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &types.MsgSendResponse{}, nil
 }

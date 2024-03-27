@@ -439,3 +439,20 @@ func TestEVMBlockEnv(t *testing.T) {
 	require.NotNil(t, receipt)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), receipt.Status)
 }
+
+func TestSend(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	seiFrom, evmFrom := testkeeper.MockAddressPair()
+	seiTo, evmTo := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, seiFrom, evmFrom)
+	k.SetAddressMapping(ctx, seiTo, evmTo)
+	k.BankKeeper().AddCoins(ctx, seiFrom, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))), true)
+	_, err := keeper.NewMsgServerImpl(k).Send(sdk.WrapSDKContext(ctx), &types.MsgSend{
+		FromAddress: seiFrom.String(),
+		ToAddress:   evmTo.Hex(),
+		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(500000))),
+	})
+	require.Nil(t, err)
+	require.Equal(t, sdk.NewInt(500000), k.BankKeeper().GetBalance(ctx, seiFrom, "usei").Amount)
+	require.Equal(t, sdk.NewInt(500000), k.BankKeeper().GetBalance(ctx, seiTo, "usei").Amount)
+}

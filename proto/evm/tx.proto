@@ -3,11 +3,13 @@ package seiprotocol.seichain.evm;
 
 import "google/protobuf/any.proto";
 import "gogoproto/gogo.proto";
+import "cosmos/base/v1beta1/coin.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
 service Msg {
   rpc EVMTransaction(MsgEVMTransaction) returns (MsgEVMTransactionResponse);
+  rpc Send(MsgSend) returns (MsgSendResponse);
 }
 
 message MsgEVMTransaction {
@@ -42,3 +44,12 @@ message MsgInternalEVMDelegateCall {
 }
 
 message MsgInternalEVMDelegateCallResponse {}
+
+message MsgSend {
+  string   from_address                    = 1;
+  string   to_address                      = 2;
+  repeated cosmos.base.v1beta1.Coin amount = 3
+      [(gogoproto.nullable) = false, (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"];
+}
+
+message MsgSendResponse {}

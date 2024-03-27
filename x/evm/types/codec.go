@@ -34,6 +34,7 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 	registry.RegisterImplementations(
 		(*sdk.Msg)(nil),
 		&MsgEVMTransaction{},
+		&MsgSend{},
 	)
 	registry.RegisterInterface(
 		"seiprotocol.seichain.evm.TxData",
