@@ -63,9 +63,10 @@ type Keeper struct {
 	BlockTest          *tests.BlockTest
 
 	// used for both ETH replay and block tests. Not used in chain critical path.
-	Trie ethstate.Trie
-	DB   ethstate.Database
-	Root common.Hash
+	Trie        ethstate.Trie
+	DB          ethstate.Database
+	Root        common.Hash
+	ReplayBlock *ethtypes.Block
 }
 
 type EvmTxDeferredInfo struct {
@@ -403,11 +404,7 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 
 func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 	if k.EthReplayConfig.Enabled {
-		block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
-		if err != nil {
-			panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
-		}
-		return block.Header_.BaseFee
+		return k.ReplayBlock.Header_.BaseFee
 	}
 	if k.EthBlockTestConfig.Enabled {
 		block := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
@@ -500,11 +497,7 @@ func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error)
 }
 
 func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
-	block, err := k.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
-	if err != nil {
-		panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+k.GetReplayInitialHeight(ctx)))
-	}
-	header := block.Header_
+	header := k.ReplayBlock.Header_
 	getHash := core.GetHashFn(header, &ReplayChainContext{ethClient: k.EthClient})
 	var (
 		baseFee     *big.Int
