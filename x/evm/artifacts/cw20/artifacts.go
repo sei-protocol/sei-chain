@@ -7,6 +7,8 @@ import (
 	"fmt"
 )
 
+const CurrentVersion uint16 = 1
+
 //go:embed CW20ERC20Pointer.abi
 //go:embed CW20ERC20Pointer.bin
 //go:embed legacy.bin
