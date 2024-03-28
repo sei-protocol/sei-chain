@@ -149,9 +149,6 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		}
 		hash := make([]byte, 8)
 		binary.BigEndian.PutUint64(hash, uint64(h))
-		fmt.Println("****************************************************")
-		fmt.Println("Calling finalize block for block height: ", h)
-		fmt.Println("****************************************************")
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
 			ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
