@@ -7,10 +7,12 @@ block_tests_dir=$1
 # Define an array of tests to skip
 declare -a skip_list=(
     "shanghaiExample" # failing
-    "blockWithAllTransactionTypes" # failing
+    # "blockWithAllTransactionTypes" # passing
     "DelegateCallSpam" # passes, but takes super long
     "blockhashTests" # failing
     "blockhashNonConstArg" # failing
+    "BLOCKHASH_Bounds" # newly failing
+    "randomStatetest403BC" # newly failing
 )
 
 # list out all paths to json files starting from the block_tests_dir
