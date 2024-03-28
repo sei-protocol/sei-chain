@@ -31,6 +31,12 @@ type EVMKeeper interface {
 	IsCodeHashWhitelistedForBankSend(ctx sdk.Context, h common.Hash) bool
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
+	SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error
+	GetERC20NativePointer(ctx sdk.Context, token string) (addr common.Address, version uint16, exists bool)
+	SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error
+	GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool)
+	SetERC721CW721Pointer(ctx sdk.Context, cw721Address string, addr common.Address) error
+	GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool)
 }
 
 type OracleKeeper interface {
