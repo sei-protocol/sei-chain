@@ -1473,6 +1473,9 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	fmt.Println("****************************")
+	fmt.Println("In ProcessBlock")
+	fmt.Println("****************************")
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
