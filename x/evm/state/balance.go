@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -32,6 +33,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 }
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
+	fmt.Println("In DBImpl, AddBalance, evmAddr = ", evmAddr, " amt = ", amt)
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	if amt.Sign() == 0 {
 		return
@@ -63,6 +65,7 @@ func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
 
 // should only be called during simulation
 func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int) {
+	fmt.Println("In DBImpl, SetBalance, evmAddr = ", evmAddr, " amt = ", amt)
 	if !s.simulation {
 		panic("should never call SetBalance in a non-simulation setting")
 	}

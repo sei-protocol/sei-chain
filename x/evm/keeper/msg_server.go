@@ -196,6 +196,7 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	stateDB.SetEVM(evmInstance)
 	st := core.NewStateTransition(evmInstance, msg, &gp)
+	fmt.Println("In applyEVMMessage, trying to transitionDb")
 	res, err := st.TransitionDb()
 	return res, err
 }
