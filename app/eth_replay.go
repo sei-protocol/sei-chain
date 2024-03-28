@@ -10,6 +10,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	ethtests "github.com/ethereum/go-ethereum/tests"
@@ -81,7 +82,7 @@ func Replay(a *App) {
 		for _, w := range b.Withdrawals() {
 			amount := new(big.Int).SetUint64(w.Amount)
 			amount = amount.Mul(amount, big.NewInt(params.GWei))
-			s.AddBalance(w.Address, amount)
+			s.AddBalance(w.Address, amount, tracing.BalanceIncreaseWithdrawal)
 		}
 		_, _ = s.Finalize()
 		for _, tx := range b.Txs {
