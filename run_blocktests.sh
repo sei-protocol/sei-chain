@@ -39,6 +39,6 @@ for test_file in $block_tests; do
     echo "test name: ${test_name}_Cancun"
     echo -e "\n*********************************************************\n"
     rm -r ~/.sei || true
-    ./scripts/initialize_local_chain_no_run.sh
+    NO_RUN=1 ./scripts/initialize_local_chain.sh
     seid blocktest --block-test $test_file --test-name "${test_name}_Cancun"
 done
