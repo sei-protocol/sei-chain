@@ -132,6 +132,9 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		for key, value := range genesisAccount.Storage {
 			a.EvmKeeper.SetState(a.GetContextForDeliverTx([]byte{}), addr, key, value)
 		}
+		params := a.EvmKeeper.GetParams(a.GetContextForDeliverTx([]byte{}))
+		params.MinimumFeePerGas = sdk.NewDecFromInt(sdk.NewInt(0))
+		a.EvmKeeper.SetParams(a.GetContextForDeliverTx([]byte{}), params)
 	}
 
 	if len(bt.Json.Blocks) == 0 {
