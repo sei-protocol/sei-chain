@@ -9,7 +9,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 
-	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
+	"github.com/sei-protocol/sei-chain/utils"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
@@ -100,8 +100,8 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 
 	gasMultiplier := p.evmKeeper.GetPriorityNormalizer(ctx)
 	gasLimitBigInt := new(big.Int).Mul(new(big.Int).SetUint64(suppliedGas), gasMultiplier.RoundInt().BigInt())
-	if gasLimitBigInt.Cmp(wasmd.MaxUint64BigInt) > 0 {
-		gasLimitBigInt = wasmd.MaxUint64BigInt
+	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
+		gasLimitBigInt = utils.BigMaxU64
 	}
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(gasLimitBigInt.Uint64()))
 
