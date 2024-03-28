@@ -187,9 +187,6 @@ func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction,
 }
 
 func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
-	fmt.Println("*****************************************************************")
-	fmt.Println("In evm keeper, applyEVMMessage, will attempt to transition DB")
-	fmt.Println("*****************************************************************")
 	blockCtx, err := server.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
