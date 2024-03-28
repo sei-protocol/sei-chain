@@ -7,6 +7,8 @@ import (
 	"fmt"
 )
 
+const CurrentVersion uint16 = 1
+
 //go:embed NativeSeiTokensERC20.abi
 //go:embed NativeSeiTokensERC20.bin
 var f embed.FS

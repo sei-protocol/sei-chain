@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -14,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
@@ -30,8 +30,6 @@ var _ vm.PrecompiledContract = &Precompile{}
 //
 //go:embed abi.json
 var f embed.FS
-
-var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 
 type Precompile struct {
 	pcommon.Precompile
@@ -118,8 +116,8 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	}
 	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
 	gasLimitBigInt := new(big.Int).Mul(new(big.Int).SetUint64(suppliedGas), gasMultipler.RoundInt().BigInt())
-	if gasLimitBigInt.Cmp(MaxUint64BigInt) > 0 {
-		gasLimitBigInt = MaxUint64BigInt
+	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
+		gasLimitBigInt = utils.BigMaxU64
 	}
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(gasLimitBigInt.Uint64()))
 

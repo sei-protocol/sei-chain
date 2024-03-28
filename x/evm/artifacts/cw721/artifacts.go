@@ -7,6 +7,8 @@ import (
 	"fmt"
 )
 
+const CurrentVersion uint16 = 1
+
 //go:embed CW721ERC721Pointer.abi
 //go:embed CW721ERC721Pointer.bin
 //go:embed legacy.bin
