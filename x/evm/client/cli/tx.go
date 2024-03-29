@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 
-	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -239,17 +238,11 @@ func CmdDeployErc20() *cobra.Command {
 			}
 
 			bytecode := native.GetBin()
-			abi := native.GetABI()
-			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
-			if err != nil {
-				fmt.Println("failed at parsing abi")
-				return err
-			}
 			constructorArguments := []interface{}{
 				denom, name, symbol, uint8(decimal),
 			}
 
-			packedArgs, err := parsedABI.Pack("", constructorArguments...)
+			packedArgs, err := native.GetParsedABI().Pack("", constructorArguments...)
 			if err != nil {
 				return err
 			}
@@ -325,17 +318,11 @@ func CmdDeployErcCw20() *cobra.Command {
 			}
 
 			bytecode := cw20.GetBin()
-			abi := cw20.GetABI()
-			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
-			if err != nil {
-				fmt.Println("failed at parsing abi")
-				return err
-			}
 			constructorArguments := []interface{}{
 				args[0], args[1], args[2],
 			}
 
-			packedArgs, err := parsedABI.Pack("", constructorArguments...)
+			packedArgs, err := cw20.GetParsedABI().Pack("", constructorArguments...)
 			if err != nil {
 				return err
 			}
@@ -411,17 +398,11 @@ func CmdDeployErcCw721() *cobra.Command {
 			}
 
 			bytecode := cw721.GetBin()
-			abi := cw721.GetABI()
-			parsedABI, err := ethabi.JSON(strings.NewReader(string(abi)))
-			if err != nil {
-				fmt.Println("failed at parsing abi")
-				return err
-			}
 			constructorArguments := []interface{}{
 				args[0], args[1], args[2],
 			}
 
-			packedArgs, err := parsedABI.Pack("", constructorArguments...)
+			packedArgs, err := cw721.GetParsedABI().Pack("", constructorArguments...)
 			if err != nil {
 				return err
 			}
