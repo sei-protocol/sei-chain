@@ -2,7 +2,32 @@
 
 set -e
 
-block_tests_dir=$1
+# mode options are list, run, or all
+mode=$1
+block_tests_path=$2
+
+echo $mode
+echo $block_tests_path
+
+if [ $mode == "run" ]; then
+    # check if block_tests_dir_or_file is set
+    if [ -z "$block_tests_path" ]; then
+        echo "Please provide a block tests file to run"
+        exit 1
+    fi
+    # run blocktests on the single test
+    test_file=$block_tests_path
+    test_name=$(basename "$test_file" .json)
+
+    echo -e "\n*********************************************************\n"
+    echo "Running single block test: $test_file"
+    echo "test name: ${test_name}_Cancun"
+    echo -e "\n*********************************************************\n"
+    rm -r ~/.sei || true
+    NO_RUN=1 ./scripts/initialize_local_chain.sh
+    seid blocktest --block-test $test_file --test-name "${test_name}_Cancun"
+    exit
+fi
 
 # Define an array of tests to skip
 declare -a skip_list=(
@@ -14,7 +39,9 @@ declare -a skip_list=(
 )
 
 # list out all paths to json files starting from the block_tests_dir
-block_tests=$(find "$block_tests_dir" -name "*.json")
+block_tests=$(find "$block_tests_path" -name "*.json")
+
+test_files=""
 
 # for each json file, run the block test
 for test_file in $block_tests; do
@@ -32,11 +59,26 @@ for test_file in $block_tests; do
         continue
     fi
 
-    echo -e "\n*********************************************************\n"
-    echo "Running block test: $test_file"
-    echo "test name: ${test_name}_Cancun"
-    echo -e "\n*********************************************************\n"
-    rm -r ~/.sei || true
-    NO_RUN=1 ./scripts/initialize_local_chain.sh
-    seid blocktest --block-test $test_file --test-name "${test_name}_Cancun"
+    if [ $mode == "list" ]; then
+        # append to test_files if non-empty, otherwise set to test_files
+        if [ -z "$test_files" ]; then
+            test_files="$test_file"
+        else
+            test_files="$test_files,$test_file"
+        fi
+        continue
+    elif [ $mode == "all" ]; then
+        echo -e "\n*********************************************************\n"
+        echo "Running block test: $test_file"
+        echo "test name: ${test_name}_Cancun"
+        echo -e "\n*********************************************************\n"
+        rm -r ~/.sei || true
+        NO_RUN=1 ./scripts/initialize_local_chain.sh
+        seid blocktest --block-test $test_file --test-name "${test_name}_Cancun"
+    fi
 done
+
+if [ $mode == "list" ]; then
+    echo "Writing blocktests list to blocktests_list.txt"
+    echo "$test_files" > blocktests_list.txt
+fi

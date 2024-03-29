@@ -13,18 +13,39 @@ defaults:
   shell: bash
 
 jobs:
-  build:
+  split-blocktests:
+    name: "Split ETH Blocktests"
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
+      - name: Clone ETH Blocktests
+        run: git clone https://github.com/ethereum/tests.git ethtests
+      - name: List ETH Blocktests
+        run: ./run_blocktests.sh list ../ethtests/BlockchainTests/ValidBlocks/
+      - name: Set the matrix output
+        id: set-matrix
+        run: echo "::set-output name=matrix::$(<blocktests_list.txt)"
 
-    - name: Set up Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: 1.21
+  eth-blocktests:
+    name: "Run ETH Blocktests"
+    needs: split-blocktests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test-file: ${{fromJson(needs.split-blocktests.outputs.matrix)}}
+    steps:
+      - uses: actions/checkout@v2
 
-    - name: Clone ETH Blocktests
-      run: git clone https://github.com/ethereum/tests.git ethtests
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.21
 
-    - name: Valid Block Tests
-      run: ./run_blocktests.sh ./ethtests/BlockchainTests/ValidBlocks/
+      - name: Clone ETH Blocktests
+        run: git clone https://github.com/ethereum/tests.git ethtests
+
+      - name: "Run ETH Blocktest ${{ matrix.test-file }}"
+        run: ./run_blocktests.sh run ${{ matrix.test-file }}
