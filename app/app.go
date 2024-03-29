@@ -1426,12 +1426,12 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, midBlockEvents...)
 	fmt.Printf("[Debug] MidBlock of ProcessBlock took %s\n", time.Since(midBlockStart))
 
-	endBlockStart := time.Now()
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}
 
+	endBlockStart := time.Now()
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
