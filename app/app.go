@@ -1331,6 +1331,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTx
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
 
+	appendStart := time.Now()
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
 	for _, r := range batchResult.Results {
 		execResults = append(execResults, &abci.ExecTxResult{
@@ -1344,6 +1345,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTx
 			Codespace: r.Response.Codespace,
 		})
 	}
+	fmt.Printf("[Debug] OCC append %d result took %s \n", len(txs), time.Since(appendStart))
 
 	return execResults, ctx
 }
@@ -1426,10 +1428,12 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, midBlockEvents...)
 	fmt.Printf("[Debug] MidBlock of ProcessBlock took %s\n", time.Since(midBlockStart))
 
+	executeStart := time.Now()
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}
+	fmt.Printf("[Debug] ExecuteTxsConcurrently of ProcessBlock took %s\n", time.Since(executeStart))
 
 	endBlockStart := time.Now()
 	// Finalize all Bank Module Transfers here so that events are included
