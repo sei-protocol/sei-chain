@@ -26,7 +26,7 @@ jobs:
         run: ./run_blocktests.sh list ./ethtests/BlockchainTests/ValidBlocks/
       - name: Set the matrix output
         id: set-matrix
-        run: echo 'matrix="$(cat blocktests_list.txt)"' >> $GITHUB_OUTPUT
+        run: echo "matrix=$(cat blocktests_list.txt)" >> $GITHUB_OUTPUT
 
   eth-blocktests:
     name: "Run ETH Blocktests"
