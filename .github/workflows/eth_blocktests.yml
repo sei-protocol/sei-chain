@@ -27,6 +27,8 @@ jobs:
       - name: Set the matrix output
         id: set-matrix
         run: echo "matrix=$(cat blocktests_list.txt)" >> $GITHUB_OUTPUT
+      - name: Echo matrix
+        run: echo ${{ steps.set-matrix.outputs.matrix }}
 
   eth-blocktests:
     name: "Run ETH Blocktests"
