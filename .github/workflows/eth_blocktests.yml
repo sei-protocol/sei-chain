@@ -24,7 +24,7 @@ jobs:
         go-version: 1.21
 
     - name: Clone ETH Blocktests
-      run: git clone https://github.com/ethereum/tests.git
+      run: git clone https://github.com/ethereum/tests.git ethtests
 
     - name: Valid Block Tests
-      run: ./run_blocktests.sh ./tests/BlockchainTests/ValidBlocks/
+      run: ./run_blocktests.sh ./ethtests/BlockchainTests/ValidBlocks/
