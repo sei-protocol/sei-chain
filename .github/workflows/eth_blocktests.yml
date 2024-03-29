@@ -23,7 +23,7 @@ jobs:
       - name: Clone ETH Blocktests
         run: git clone https://github.com/ethereum/tests.git ethtests
       - name: List ETH Blocktests
-        run: ./run_blocktests.sh list ../ethtests/BlockchainTests/ValidBlocks/
+        run: ./run_blocktests.sh list ./ethtests/BlockchainTests/ValidBlocks/
       - name: Set the matrix output
         id: set-matrix
         run: echo "::set-output name=matrix::$(<blocktests_list.txt)"
