@@ -1301,6 +1301,7 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.E
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
+	startTime := time.Now()
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
 	var span trace.Span
 	if app.TracingEnabled {
@@ -1322,6 +1323,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTx
 		}(txIndex, tx)
 	}
 	wg.Wait()
+	fmt.Printf("[Debug] OCC GenerateEstimatedWritesets for %d txs took %s \n", len(txs), time.Since(startTime))
 
 	if app.TracingEnabled {
 		span.End()
@@ -1374,6 +1376,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	defer func() {
 		fmt.Printf("[Debug] ProcessBlock for height %d took %s\n", req.GetHeight(), time.Since(startTime))
 	}()
+
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
