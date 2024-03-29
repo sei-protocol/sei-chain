@@ -395,6 +395,45 @@ func TestProcessAll(t *testing.T) {
 			},
 			expectedErr: nil,
 		},
+		{
+			name:      "Test tx Reset properly before re-execution via tracer",
+			workers:   10,
+			runs:      1,
+			addStores: true,
+			requests:  addTxTracerToTxEntries(requestList(250)),
+			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
+				defer abortRecoveryFunc(&res)
+				wait := rand.Intn(10)
+				time.Sleep(time.Duration(wait) * time.Millisecond)
+				// all txs read and write to the same key to maximize conflicts
+				kv := ctx.MultiStore().GetKVStore(testStoreKey)
+				val := string(kv.Get(itemKey))
+				time.Sleep(time.Duration(wait) * time.Millisecond)
+				// write to the store with this tx's index
+				newVal := val + fmt.Sprintf("%d", ctx.TxIndex())
+				kv.Set(itemKey, []byte(newVal))
+
+				if v, ok := ctx.Context().Value("test_tracer").(*testTxTracer); ok {
+					v.OnTxExecute()
+				}
+
+				// return what was read from the store (final attempt should be index-1)
+				return types.ResponseDeliverTx{
+					Info: newVal,
+				}
+			},
+			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
+				expected := ""
+				for idx, response := range res {
+					expected = expected + fmt.Sprintf("%d", idx)
+					require.Equal(t, expected, response.Info)
+				}
+				// confirm last write made it to the parent store
+				latest := ctx.MultiStore().GetKVStore(testStoreKey).Get(itemKey)
+				require.Equal(t, expected, string(latest))
+			},
+			expectedErr: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -427,4 +466,43 @@ func TestProcessAll(t *testing.T) {
 			}
 		})
 	}
+}
+
+func addTxTracerToTxEntries(txEntries []*sdk.DeliverTxEntry) []*sdk.DeliverTxEntry {
+	for _, txEntry := range txEntries {
+		txEntry.TxTracer = newTestTxTracer(txEntry.AbsoluteIndex)
+	}
+
+	return txEntries
+}
+
+var _ sdk.TxTracer = &testTxTracer{}
+
+func newTestTxTracer(txIndex int) *testTxTracer {
+	return &testTxTracer{txIndex: txIndex, canExecute: true}
+}
+
+type testTxTracer struct {
+	txIndex    int
+	canExecute bool
+}
+
+func (t *testTxTracer) Commit() {
+	t.canExecute = false
+}
+
+func (t *testTxTracer) InjectInContext(ctx sdk.Context) sdk.Context {
+	return ctx.WithContext(context.WithValue(ctx.Context(), "test_tracer", t))
+}
+
+func (t *testTxTracer) Reset() {
+	t.canExecute = true
+}
+
+func (t *testTxTracer) OnTxExecute() {
+	if !t.canExecute {
+		panic(fmt.Errorf("task #%d was asked to execute but the tracer is not in the correct state, most probably due to missing Reset call or over execution", t.txIndex))
+	}
+
+	t.canExecute = false
 }
