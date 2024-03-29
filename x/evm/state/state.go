@@ -6,6 +6,7 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -31,6 +32,11 @@ func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash
 
 func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
+
+	if s.logger != nil && s.logger.OnStorageChange != nil {
+		s.logger.OnStorageChange(addr, key, s.GetState(addr, key), val)
+	}
+
 	s.k.SetState(s.ctx, addr, key, val)
 }
 
@@ -62,7 +68,7 @@ func (s *DBImpl) SelfDestruct(acc common.Address) {
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
 	}
 
-	s.SubBalance(acc, s.GetBalance(acc))
+	s.SubBalance(acc, s.GetBalance(acc), tracing.BalanceDecreaseSelfdestruct)
 
 	// clear account state
 	s.clearAccountState(acc)
