@@ -467,12 +467,13 @@ func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error)
 		BaseFee:     btHeader.BaseFeePerGas,
 	}
 	getHash := func(height uint64) common.Hash {
+		height = height + 1
 		for i := 0; i < len(k.BlockTest.Json.Blocks); i++ {
 			if k.BlockTest.Json.Blocks[i].BlockHeader.Number.Uint64() == height {
 				return k.BlockTest.Json.Blocks[i].BlockHeader.Hash
 			}
 		}
-		return common.Hash{}
+		panic(fmt.Sprintf("block hash not found for height %d", height))
 	}
 	var (
 		baseFee     *big.Int

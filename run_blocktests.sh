@@ -6,8 +6,8 @@ block_tests_dir=$1
 
 # Define an array of tests to skip
 declare -a skip_list=(
-    "shanghaiExample" # failing
-    # "blockWithAllTransactionTypes" # passing
+    # "shanghaiExample" # passing now
+    # "blockWithAllTransactionTypes" # passing now
     "DelegateCallSpam" # passes, but takes super long
     "blockhashTests" # failing
     "blockhashNonConstArg" # failing
