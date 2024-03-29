@@ -62,9 +62,9 @@ for test_file in $block_tests; do
     if [ $mode == "list" ]; then
         # append to test_files if non-empty, otherwise set to test_files
         if [ -z "$test_files" ]; then
-            test_files="$test_file"
+            test_files="\"$test_file\""
         else
-            test_files="$test_files,$test_file"
+            test_files="$test_files,\"$test_file\""
         fi
         continue
     elif [ $mode == "all" ]; then
