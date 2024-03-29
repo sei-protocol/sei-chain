@@ -506,14 +506,21 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 	task.Ctx = dCtx
 
 	// in the synchronous case, we only want to re-execute tasks that need re-executing
-	// if already validated, then this does another validation
-	if s.synchronous && task.IsStatus(statusValidated) {
-		s.shouldRerun(task)
+	if s.synchronous {
+		// if already validated, then this does another validation
 		if task.IsStatus(statusValidated) {
-			return
+			s.shouldRerun(task)
+			if task.IsStatus(statusValidated) {
+				return
+			}
 		}
-		task.Reset()
-		task.Increment()
+
+		// waiting transactions may not yet have been reset
+		// this ensures a task has been reset and incremented
+		if !task.IsStatus(statusPending) {
+			task.Reset()
+			task.Increment()
+		}
 	}
 
 	s.prepareTask(task)
