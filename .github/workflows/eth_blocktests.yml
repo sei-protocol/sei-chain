@@ -1,0 +1,30 @@
+name: ETH Blocktests
+
+on:
+  push:
+    branches:
+      - seiv2
+  pull_request:
+    branches:
+      - seiv2
+
+defaults:
+ run:
+  shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.21
+
+    - name: Clone ETH Blocktests
+      run: git clone https://github.com/ethereum/tests.git
+
+    - name: Valid Block Tests
+      run: ./run_blocktests.sh ./tests/BlockchainTests/ValidBlocks/
