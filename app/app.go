@@ -1301,6 +1301,7 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.E
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
+	startTime := time.Now()
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
 	var span trace.Span
 	if app.TracingEnabled {
@@ -1322,6 +1323,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTx
 		}(txIndex, tx)
 	}
 	wg.Wait()
+	fmt.Printf("[Debug] OCC GenerateEstimatedWritesets for %d txs took %s \n", len(txs), time.Since(startTime))
 
 	if app.TracingEnabled {
 		span.End()
@@ -1329,6 +1331,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTx
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
 
+	appendStart := time.Now()
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
 	for _, r := range batchResult.Results {
 		metrics.IncrTxProcessTypeCounter(metrics.OCC_CONCURRENT)
@@ -1345,6 +1348,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTx
 			Codespace: r.Response.Codespace,
 		})
 	}
+	fmt.Printf("[Debug] OCC append %d result took %s \n", len(txs), time.Since(appendStart))
 
 	return execResults, ctx
 }
@@ -1373,6 +1377,12 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*ab
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	startTime := time.Now()
+	defer func() {
+		fmt.Printf("[Debug] ProcessBlock for height %d took %s\n", req.GetHeight(), time.Since(startTime))
+	}()
+
+	beginBlockStart := time.Now()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
@@ -1401,7 +1411,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
+	fmt.Printf("[Debug] BeginBlock of ProcessBlock took %s\n", time.Since(beginBlockStart))
 
+	midBlockStart := time.Now()
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	prioritizedTxs, otherTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs)
 
@@ -1417,12 +1429,16 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
+	fmt.Printf("[Debug] MidBlock of ProcessBlock took %s\n", time.Since(midBlockStart))
 
+	executeStart := time.Now()
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}
+	fmt.Printf("[Debug] ExecuteTxsConcurrently of ProcessBlock took %s\n", time.Since(executeStart))
 
+	endBlockStart := time.Now()
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
@@ -1432,6 +1448,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	})
 
 	events = append(events, endBlockResp.Events...)
+	fmt.Printf("[Debug] EndBlock of ProcessBlock took %s\n", time.Since(endBlockStart))
 	return events, txResults, endBlockResp, nil
 }
 
