@@ -10,8 +10,11 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
+	"github.com/sei-protocol/sei-chain/precompiles/ibc"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
 	"github.com/sei-protocol/sei-chain/precompiles/oracle"
+	"github.com/sei-protocol/sei-chain/precompiles/pointer"
+	"github.com/sei-protocol/sei-chain/precompiles/pointerview"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 )
@@ -28,6 +31,7 @@ func InitializePrecompiles(
 	govKeeper common.GovKeeper,
 	distrKeeper common.DistributionKeeper,
 	oracleKeeper common.OracleKeeper,
+	transferKeeper common.TransferKeeper,
 ) error {
 	SetupMtx.Lock()
 	defer SetupMtx.Unlock()
@@ -74,6 +78,21 @@ func InitializePrecompiles(
 		return err
 	}
 	addPrecompileToVM(oraclep, oraclep.Address())
+	ibcp, err := ibc.NewPrecompile(transferKeeper, evmKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(ibcp, ibcp.Address())
+	pointerp, err := pointer.NewPrecompile(evmKeeper, bankKeeper, wasmdViewKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(pointerp, pointerp.Address())
+	pointerviewp, err := pointerview.NewPrecompile(evmKeeper)
+	if err != nil {
+		return err
+	}
+	addPrecompileToVM(pointerviewp, pointerviewp.Address())
 	Initialized = true
 	return nil
 }

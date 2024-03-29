@@ -7,6 +7,7 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	"github.com/ethereum/go-ethereum/common"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -30,6 +31,12 @@ type EVMKeeper interface {
 	IsCodeHashWhitelistedForBankSend(ctx sdk.Context, h common.Hash) bool
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
+	SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error
+	GetERC20NativePointer(ctx sdk.Context, token string) (addr common.Address, version uint16, exists bool)
+	SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error
+	GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool)
+	SetERC721CW721Pointer(ctx sdk.Context, cw721Address string, addr common.Address) error
+	GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool)
 }
 
 type OracleKeeper interface {
@@ -60,4 +67,17 @@ type GovKeeper interface {
 type DistributionKeeper interface {
 	SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error
 	WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error)
+}
+
+type TransferKeeper interface {
+	SendTransfer(
+		ctx sdk.Context,
+		sourcePort,
+		sourceChannel string,
+		token sdk.Coin,
+		sender sdk.AccAddress,
+		receiver string,
+		timeoutHeight clienttypes.Height,
+		timeoutTimestamp uint64,
+	) error
 }

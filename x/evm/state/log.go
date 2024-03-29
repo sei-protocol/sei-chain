@@ -12,6 +12,10 @@ type Logs struct {
 func (s *DBImpl) AddLog(l *ethtypes.Log) {
 	l.Index = uint(len(s.GetAllLogs()))
 	s.tempStateCurrent.logs = append(s.tempStateCurrent.logs, l)
+
+	if s.logger != nil && s.logger.OnLog != nil {
+		s.logger.OnLog(l)
+	}
 }
 
 func (s *DBImpl) GetAllLogs() []*ethtypes.Log {

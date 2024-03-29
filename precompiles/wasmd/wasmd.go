@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -14,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
@@ -30,8 +30,6 @@ var _ vm.PrecompiledContract = &Precompile{}
 //
 //go:embed abi.json
 var f embed.FS
-
-var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 
 type Precompile struct {
 	pcommon.Precompile
@@ -113,13 +111,13 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	if err != nil {
 		return nil, 0, err
 	}
-	if err := p.validateCaller(ctx, caller, callingContract); err != nil {
+	if err := pcommon.ValidateCaller(ctx, p.evmKeeper, caller, callingContract); err != nil {
 		return nil, 0, err
 	}
 	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
 	gasLimitBigInt := new(big.Int).Mul(new(big.Int).SetUint64(suppliedGas), gasMultipler.RoundInt().BigInt())
-	if gasLimitBigInt.Cmp(MaxUint64BigInt) > 0 {
-		gasLimitBigInt = MaxUint64BigInt
+	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
+		gasLimitBigInt = utils.BigMaxU64
 	}
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(gasLimitBigInt.Uint64()))
 
@@ -189,7 +187,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		return
 	}
 	ret, rerr = method.Outputs.Pack(addr.String(), data)
-	remainingGas = p.getRemainingGas(ctx)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
@@ -238,7 +236,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		return
 	}
 	ret, rerr = method.Outputs.Pack(res)
-	remainingGas = p.getRemainingGas(ctx)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
@@ -268,24 +266,6 @@ func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{
 		return
 	}
 	ret, rerr = method.Outputs.Pack(res)
-	remainingGas = p.getRemainingGas(ctx)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
-}
-
-func (p Precompile) getRemainingGas(ctx sdk.Context) uint64 {
-	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
-	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
-	return new(big.Int).Mul(new(big.Int).SetUint64(seiGasRemaining), gasMultipler.RoundInt().BigInt()).Uint64()
-}
-
-func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address, callingContract common.Address) error {
-	if caller == callingContract {
-		// not a delegate call
-		return nil
-	}
-	codeHash := p.evmKeeper.GetCodeHash(ctx, callingContract)
-	if p.evmKeeper.IsCodeHashWhitelistedForDelegateCall(ctx, codeHash) {
-		return nil
-	}
-	return fmt.Errorf("calling contract %s with code hash %s is not whitelisted for delegate calls", callingContract.Hex(), codeHash.Hex())
 }

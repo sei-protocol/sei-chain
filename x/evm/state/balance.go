@@ -1,21 +1,21 @@
 package state
 
 import (
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
+func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	if amt.Sign() == 0 {
 		return
 	}
 	if amt.Sign() < 0 {
-		s.AddBalance(evmAddr, new(big.Int).Neg(amt))
+		s.AddBalance(evmAddr, new(big.Int).Neg(amt), reason)
 		return
 	}
 
@@ -29,17 +29,25 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int) {
 	if s.err != nil {
 		return
 	}
+
+	if s.logger != nil && s.logger.OnBalanceChange != nil {
+		// We could modify AddWei instead so it returns us the old/new balance directly.
+		newBalance := s.GetBalance(evmAddr)
+		oldBalance := new(big.Int).Add(newBalance, amt)
+
+		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
+	}
+
 	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Add(sdk.NewIntFromBigInt(amt))
 }
 
-func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
-	fmt.Println("In DBImpl, AddBalance, evmAddr = ", evmAddr, " amt = ", amt)
+func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	if amt.Sign() == 0 {
 		return
 	}
 	if amt.Sign() < 0 {
-		s.SubBalance(evmAddr, new(big.Int).Neg(amt))
+		s.SubBalance(evmAddr, new(big.Int).Neg(amt), reason)
 		return
 	}
 
@@ -53,6 +61,15 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int) {
 	if s.err != nil {
 		return
 	}
+
+	if s.logger != nil && s.logger.OnBalanceChange != nil {
+		// We could modify AddWei instead so it returns us the old/new balance directly.
+		newBalance := s.GetBalance(evmAddr)
+		oldBalance := new(big.Int).Sub(newBalance, amt)
+
+		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
+	}
+
 	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Sub(sdk.NewIntFromBigInt(amt))
 }
 
@@ -64,8 +81,7 @@ func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
 }
 
 // should only be called during simulation
-func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int) {
-	fmt.Println("In DBImpl, SetBalance, evmAddr = ", evmAddr, " amt = ", amt)
+func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
 	if !s.simulation {
 		panic("should never call SetBalance in a non-simulation setting")
 	}

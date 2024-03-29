@@ -5,13 +5,19 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/accounts/abi"
 )
+
+const CurrentVersion uint16 = 1
 
 //go:embed NativeSeiTokensERC20.abi
 //go:embed NativeSeiTokensERC20.bin
 var f embed.FS
 
 var cachedBin []byte
+var cachedABI *abi.ABI
 
 func GetABI() []byte {
 	bz, err := f.ReadFile("NativeSeiTokensERC20.abi")
@@ -19,6 +25,18 @@ func GetABI() []byte {
 		panic("failed to read NativeSeiTokensERC20 contract ABI")
 	}
 	return bz
+}
+
+func GetParsedABI() *abi.ABI {
+	if cachedABI != nil {
+		return cachedABI
+	}
+	parsedABI, err := abi.JSON(strings.NewReader(string(GetABI())))
+	if err != nil {
+		panic(err)
+	}
+	cachedABI = &parsedABI
+	return cachedABI
 }
 
 func GetBin() []byte {
