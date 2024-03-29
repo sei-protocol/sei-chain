@@ -5,7 +5,12 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/accounts/abi"
 )
+
+const CurrentVersion uint16 = 1
 
 //go:embed CW20ERC20Pointer.abi
 //go:embed CW20ERC20Pointer.bin
@@ -14,6 +19,7 @@ var f embed.FS
 
 var cachedBin []byte
 var cachedLegacyBin []byte
+var cachedABI *abi.ABI
 
 func GetABI() []byte {
 	bz, err := f.ReadFile("CW20ERC20Pointer.abi")
@@ -21,6 +27,18 @@ func GetABI() []byte {
 		panic("failed to read CW20ERC20 contract ABI")
 	}
 	return bz
+}
+
+func GetParsedABI() *abi.ABI {
+	if cachedABI != nil {
+		return cachedABI
+	}
+	parsedABI, err := abi.JSON(strings.NewReader(string(GetABI())))
+	if err != nil {
+		panic(err)
+	}
+	cachedABI = &parsedABI
+	return cachedABI
 }
 
 func GetBin() []byte {
