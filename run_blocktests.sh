@@ -15,26 +15,6 @@ fi
 echo $mode
 echo $block_tests_path
 
-if [ $mode == "run" ]; then
-    # check if block_tests_dir_or_file is set
-    if [ -z "$block_tests_path" ]; then
-        echo "Please provide a block tests file to run"
-        exit 1
-    fi
-    # run blocktests on the single test
-    test_file=$block_tests_path
-    test_name=$(basename "$test_file" .json)
-
-    echo -e "\n*********************************************************\n"
-    echo "Running single block test: $test_file"
-    echo "test name: ${test_name}_Cancun"
-    echo -e "\n*********************************************************\n"
-    rm -r ~/.sei || true
-    NO_RUN=1 ./scripts/initialize_local_chain.sh
-    seid blocktest --block-test $test_file --test-name "${test_name}_Cancun"
-    exit
-fi
-
 # Define an array of tests to skip
 declare -a skip_list=(
     "DelegateCallSpam" # passes, but takes super long
