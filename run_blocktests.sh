@@ -48,10 +48,11 @@ for test_file in $block_tests; do
     fi
 
     if [ $((i % runner_total)) -ne $runner_index ]; then
+        i=$($i + 1)
         continue
     fi
 
-    i=$i + 1
+    i=$($i + 1)
 
     echo -e "\n*********************************************************\n"
     echo "Running block test: $test_file"
