@@ -147,6 +147,8 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	for i, btBlock := range bt.Json.Blocks {
 		h := int64(i + 1)
 		b, err := btBlock.Decode()
+		fmt.Printf("In BlockTest, decoded block = %+v\n", b)
+		fmt.Printf("In BlockTest tx hash decoded = %+v\n", b.Transactions()[0].Hash())
 		if err != nil {
 			panic(err)
 		}

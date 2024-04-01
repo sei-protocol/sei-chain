@@ -17,6 +17,7 @@ echo $block_tests_path
 
 # Define an array of tests to skip
 declare -a skip_list=(
+    # valid block tests
     "DelegateCallSpam" # passes, but takes super long
     "blockhashTests" # failing
     "blockhashNonConstArg" # failing
