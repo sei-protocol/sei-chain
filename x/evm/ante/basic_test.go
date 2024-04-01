@@ -53,5 +53,5 @@ func TestBasicDecorator(t *testing.T) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "blob transactions (type=0x03) are not currently supported")
+	require.Error(t, err, sdkerrors.ErrUnsupportedTxType)
 }
