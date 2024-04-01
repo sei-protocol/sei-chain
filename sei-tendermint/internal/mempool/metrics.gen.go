@@ -64,6 +64,18 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "recheck_times",
 			Help:      "Number of times transactions are rechecked in the mempool.",
 		}, labels).With(labelsAndValues...),
+		RemovedTxs: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "removed_txs",
+			Help:      "Number of removed tx from mempool",
+		}, labels).With(labelsAndValues...),
+		InsertedTxs: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "inserted_txs",
+			Help:      "Number of txs inserted to mempool",
+		}, labels).With(labelsAndValues...),
 	}
 }
 
@@ -77,5 +89,7 @@ func NopMetrics() *Metrics {
 		EvictedTxs:   discard.NewCounter(),
 		ExpiredTxs:   discard.NewCounter(),
 		RecheckTimes: discard.NewCounter(),
+		RemovedTxs:   discard.NewCounter(),
+		InsertedTxs:  discard.NewCounter(),
 	}
 }

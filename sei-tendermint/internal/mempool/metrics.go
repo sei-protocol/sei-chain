@@ -49,4 +49,10 @@ type Metrics struct {
 
 	// Number of times transactions are rechecked in the mempool.
 	RecheckTimes metrics.Counter
+
+	// Number of removed tx from mempool
+	RemovedTxs metrics.Counter
+
+	// Number of txs inserted to mempool
+	InsertedTxs metrics.Counter
 }

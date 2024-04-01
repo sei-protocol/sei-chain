@@ -889,6 +889,7 @@ func (txmp *TxMempool) insertTx(wtx *WrappedTx, updatePriorityIndex bool) bool {
 	gossipEl := txmp.gossipIndex.PushBack(wtx)
 	wtx.gossipEl = gossipEl
 
+	txmp.metrics.InsertedTxs.Add(1)
 	atomic.AddInt64(&txmp.sizeBytes, int64(wtx.Size()))
 	return true
 }
@@ -911,6 +912,7 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 	txmp.gossipIndex.Remove(wtx.gossipEl)
 	wtx.gossipEl.DetachPrev()
 
+	txmp.metrics.RemovedTxs.Add(1)
 	atomic.AddInt64(&txmp.sizeBytes, int64(-wtx.Size()))
 
 	wtx.removeHandler(removeFromCache)
