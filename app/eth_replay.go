@@ -10,6 +10,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -133,18 +134,23 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		for key, value := range genesisAccount.Storage {
 			a.EvmKeeper.SetState(a.GetContextForDeliverTx([]byte{}), addr, key, value)
 		}
+		params := a.EvmKeeper.GetParams(a.GetContextForDeliverTx([]byte{}))
+		params.MinimumFeePerGas = sdk.NewDecFromInt(sdk.NewInt(0))
+		a.EvmKeeper.SetParams(a.GetContextForDeliverTx([]byte{}), params)
 	}
 
 	if len(bt.Json.Blocks) == 0 {
 		panic("no blocks found")
 	}
 
+	ethblocks := make([]*ethtypes.Block, 0)
 	for i, btBlock := range bt.Json.Blocks {
 		h := int64(i + 1)
 		b, err := btBlock.Decode()
 		if err != nil {
 			panic(err)
 		}
+		ethblocks = append(ethblocks, b)
 		hash := make([]byte, 8)
 		binary.BigEndian.PutUint64(hash, uint64(h))
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
@@ -167,6 +173,15 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	// Check post-state after all blocks are run
 	ctx := a.GetCheckCtx()
 	for addr, accountData := range bt.Json.Post {
+		if IsWithdrawalAddress(addr, ethblocks) {
+			fmt.Println("Skipping withdrawal address: ", addr)
+			continue
+		}
+		// Not checking compliance with EIP-4788
+		if addr == params.BeaconRootsStorageAddress {
+			fmt.Println("Skipping beacon roots storage address: ", addr)
+			continue
+		}
 		a.EvmKeeper.VerifyAccount(ctx, addr, accountData)
 		fmt.Println("Successfully verified account: ", addr)
 	}
@@ -201,4 +216,15 @@ func encodeTx(tx *ethtypes.Transaction, txConfig client.TxConfig) []byte {
 		panic(encodeErr)
 	}
 	return txbz
+}
+
+func IsWithdrawalAddress(addr common.Address, blocks []*ethtypes.Block) bool {
+	for _, block := range blocks {
+		for _, w := range block.Withdrawals() {
+			if w.Address == addr {
+				return true
+			}
+		}
+	}
+	return false
 }
