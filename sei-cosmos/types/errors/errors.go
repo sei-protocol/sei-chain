@@ -153,6 +153,9 @@ var (
 	// ErrOCCAbort defines an error exncountered by a transaction when it encounters an OCC conflict resulting in an Abort
 	ErrOCCAbort = Register(RootCodespace, 43, "occ abort")
 
+	// ErrUnsupportedTxType defines an error for an unsupported transaction type (e.g., EIP-4844 transactions)
+	ErrUnsupportedTxType = Register(RootCodespace, 44, "unsupported transaction type")
+
 	// ErrPanic is only set when we recover from a panic, so we know to
 	// redact potentially sensitive system info
 	ErrPanic = Register(UndefinedCodespace, 111222, "panic")
