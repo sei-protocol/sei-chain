@@ -344,7 +344,7 @@ func (m *QueryDenomMetadataRequest) GetDenom() string {
 	return ""
 }
 
-// QueryDenomMetadataResponse is the response type for the Query/DenomMetadata RPC
+// QueryDenomMetadataResponse is the response type for the Query/DenomMetadata gRPC
 // method.
 type QueryDenomMetadataResponse struct {
 	// metadata describes and provides all the client information for the requested token.

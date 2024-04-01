@@ -64,6 +64,9 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdERC20Send())
 	cmd.AddCommand(CmdDelegate())
 	cmd.AddCommand(NativeSendTxCmd())
+	cmd.AddCommand(NewAddERCNativePointerProposalTxCmd())
+	cmd.AddCommand(NewAddERCCW20PointerProposalTxCmd())
+	cmd.AddCommand(NewAddERCCW721PointerProposalTxCmd())
 
 	return cmd
 }
