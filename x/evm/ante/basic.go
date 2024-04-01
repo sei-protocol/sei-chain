@@ -46,7 +46,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	}
 
 	if etx.Type() == ethtypes.BlobTxType {
-		return ctx, fmt.Errorf("blob transactions (type=0x03) are not currently supported")
+		return ctx, sdkerrors.ErrUnsupportedTxType
 	}
 
 	//TODO: support blobs (leaving this commented out)
