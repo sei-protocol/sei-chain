@@ -62,7 +62,7 @@ func EVMTransferNonConflicting(tCtx *utils.TestContext, count int) []*utils.Test
 	var msgs []*utils.TestMessage
 	for i := 0; i < count; i++ {
 		testAcct := utils.NewSigner()
-		msgs = append(msgs, evmTransfer(testAcct, testAcct.EvmAddress))
+		msgs = append(msgs, evmTransfer(testAcct, testAcct.EvmAddress, "EVMTransferNonConflicting"))
 	}
 	return msgs
 }
@@ -72,14 +72,14 @@ func EVMTransferConflicting(tCtx *utils.TestContext, count int) []*utils.TestMes
 	var msgs []*utils.TestMessage
 	for i := 0; i < count; i++ {
 		testAcct := utils.NewSigner()
-		msgs = append(msgs, evmTransfer(testAcct, tCtx.TestAccounts[0].EvmAddress))
+		msgs = append(msgs, evmTransfer(testAcct, tCtx.TestAccounts[0].EvmAddress, "EVMTransferConflicting"))
 	}
 	return msgs
 }
 
 // EVMTransferNonConflicting generates a list of EVM transfer messages that do not conflict with each other
 // each message will have a brand new address
-func evmTransfer(testAcct utils.TestAcct, to common.Address) *utils.TestMessage {
+func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *utils.TestMessage {
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		GasFeeCap: new(big.Int).SetUint64(1000000000000),
 		GasTipCap: new(big.Int).SetUint64(1000000000000),
@@ -106,9 +106,9 @@ func evmTransfer(testAcct utils.TestAcct, to common.Address) *utils.TestMessage 
 
 	return &utils.TestMessage{
 		Msg:       msg,
-		Type:      "EVMTransferNonConflicting",
 		IsEVM:     true,
 		EVMSigner: testAcct,
+		Type:      scenario,
 	}
 }
 
