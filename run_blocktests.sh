@@ -55,10 +55,6 @@ i=0
 # for each json file, run the block test
 for test_path in $block_tests; do
     test_name=$(basename "$test_path" .json)
-    # test_path=$(echo "$test_path")
-    echo "test file: $test_path"
-    echo "test dir: $test_path"
-
     match_found=false
 
     # Iterate through the test_path_run_list to check for a match
@@ -73,6 +69,9 @@ for test_path in $block_tests; do
     if [ "$match_found" = false ]; then
         continue
     fi
+
+    echo "test file: $test_path"
+    echo "test dir: $test_path"
 
     # Check if the test name is in the skip list
     if printf '%s\n' "${test_name_skip_list[@]}" | grep -qx "$test_name"; then
