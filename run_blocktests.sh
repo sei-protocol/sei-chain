@@ -15,8 +15,21 @@ fi
 echo $mode
 echo $block_tests_path
 
+# Define an array of test directories to run
+declare -a test_path_run_list=(
+    # run all valid block tests
+    "ValidBlocks/"
+
+    # run only certain invalid block tests
+    "InvalidBlocks/bcBlockGasLimitTest/"
+    "InvalidBlocks/bcEIP1559/"
+    "InvalidBlocks/bcEIP3675/"
+    "InvalidBlocks/bcInvalidHeaderTest/"
+    "InvalidBlocks/bcStateTests/"
+)
+
 # Define an array of tests to skip
-declare -a skip_list=(
+declare -a test_name_skip_list=(
     # valid block tests
     "DelegateCallSpam" # passes, but takes super long
     "blockhashTests" # failing
@@ -37,18 +50,37 @@ test_files=""
 i=0
 
 # for each json file, run the block test
-for test_file in $block_tests; do
-    test_name=$(basename "$test_file" .json)
+for test_path in $block_tests; do
+    test_name=$(basename "$test_path" .json)
+    # test_path=$(echo "$test_path")
+    echo "test file: $test_path"
+    echo "test dir: $test_path"
+
+    match_found=false
+
+    # Iterate through the test_path_run_list to check for a match
+    for run_path in "${test_path_run_list[@]}"; do
+        if [[ "$test_path" == *"$run_path"* ]]; then
+            match_found=true
+            break
+        fi
+    done
+
+    # Skip the test if no match is found
+    if [ "$match_found" = false ]; then
+        echo "Skipping test not in run list: $test_path"
+        continue
+    fi
 
     # Check if the test name is in the skip list
-    if printf '%s\n' "${skip_list[@]}" | grep -qx "$test_name"; then
-        echo "Skipping test: $test_file"
+    if printf '%s\n' "${test_name_skip_list[@]}" | grep -qx "$test_name"; then
+        echo "Skipping test in skip list: $test_path"
         continue
     fi
 
     # Check if "${test_name}_Cancun" is not in the test file
-    if ! grep -q "${test_name}_Cancun" "$test_file"; then
-        echo "Skipping test due to missing Cancun tag: $test_file"
+    if ! grep -q "${test_name}_Cancun" "$test_path"; then
+        echo "Skipping test due to missing Cancun tag: $test_path"
         continue
     fi
 
@@ -60,10 +92,10 @@ for test_file in $block_tests; do
     i=$((i+1))
 
     echo -e "\n*********************************************************\n"
-    echo "Running block test: $test_file"
+    echo "Running block test: $test_path"
     echo "test name: ${test_name}_Cancun"
     echo -e "\n*********************************************************\n"
     rm -r ~/.sei || true
     NO_RUN=1 ./scripts/initialize_local_chain.sh
-    seid blocktest --block-test $test_file --test-name "${test_name}_Cancun"
+    seid blocktest --block-test $test_path --test-name "${test_name}_Cancun"
 done
