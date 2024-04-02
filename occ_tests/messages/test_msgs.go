@@ -2,12 +2,15 @@ package messages
 
 import (
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	"math/big"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
-
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 )
 
@@ -52,15 +55,60 @@ func WasmInstantiate(tCtx *utils.TestContext, count int) []*utils.TestMessage {
 	return msgs
 }
 
-func EVMTransfer(tCtx *utils.TestContext, count int) []sdk.Msg {
-	var msgs []sdk.Msg
+// EVMTransferNonConflicting generates a list of EVM transfer messages that do not conflict with each other
+// each message will have a brand new address
+func EVMTransferNonConflicting(tCtx *utils.TestContext, count int) []*utils.TestMessage {
+	var msgs []*utils.TestMessage
 	for i := 0; i < count; i++ {
-		// generate new evm account
-		// fund the account
-		// generate transfer 0 funds to himself
-		// build message and append to result
+		testAcct := utils.NewSigner()
+		msgs = append(msgs, evmTransfer(testAcct, testAcct.EvmAddress))
 	}
 	return msgs
+}
+
+// EVMTransferConflicting generates a list of EVM transfer messages to the same address
+func EVMTransferConflicting(tCtx *utils.TestContext, count int) []*utils.TestMessage {
+	var msgs []*utils.TestMessage
+	for i := 0; i < count; i++ {
+		testAcct := utils.NewSigner()
+		msgs = append(msgs, evmTransfer(testAcct, tCtx.TestAccounts[0].EvmAddress))
+	}
+	return msgs
+}
+
+// EVMTransferNonConflicting generates a list of EVM transfer messages that do not conflict with each other
+// each message will have a brand new address
+func evmTransfer(testAcct utils.TestAcct, to common.Address) *utils.TestMessage {
+	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		GasFeeCap: new(big.Int).SetUint64(1000000000000),
+		GasTipCap: new(big.Int).SetUint64(1000000000000),
+		Gas:       21000,
+		ChainID:   big.NewInt(1),
+		To:        &to,
+		Value:     big.NewInt(1),
+		Nonce:     0,
+	}), testAcct.EvmSigner, testAcct.EvmPrivateKey)
+
+	if err != nil {
+		panic(err)
+	}
+
+	txData, err := ethtx.NewTxDataFromTx(signedTx)
+	if err != nil {
+		panic(err)
+	}
+
+	msg, err := types.NewMsgEVMTransaction(txData)
+	if err != nil {
+		panic(err)
+	}
+
+	return &utils.TestMessage{
+		Msg:       msg,
+		Type:      "EVMTransferNonConflicting",
+		IsEVM:     true,
+		EVMSigner: testAcct,
+	}
 }
 
 func BankTransfer(tCtx *utils.TestContext, count int) []*utils.TestMessage {

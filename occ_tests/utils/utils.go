@@ -2,6 +2,14 @@ package utils
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"encoding/hex"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	utils2 "github.com/sei-protocol/sei-chain/utils"
+	types2 "github.com/sei-protocol/sei-chain/x/evm/types"
+	"math/big"
 	"math/rand"
 	"os"
 	"testing"
@@ -39,8 +47,10 @@ var ignoredStoreKeys = map[string]struct{}{
 }
 
 type TestMessage struct {
-	Msg  sdk.Msg
-	Type string
+	Msg       sdk.Msg
+	Type      string
+	EVMSigner TestAcct
+	IsEVM     bool
 }
 
 type TestContext struct {
@@ -57,6 +67,9 @@ type TestAcct struct {
 	AccountAddress   sdk.AccAddress
 	PrivateKey       cryptotypes.PrivKey
 	PublicKey        cryptotypes.PubKey
+	EvmAddress       common.Address
+	EvmSigner        ethtypes.Signer
+	EvmPrivateKey    *ecdsa.PrivateKey
 }
 
 func NewTestAccounts(count int) []TestAcct {
@@ -71,11 +84,20 @@ func NewSigner() TestAcct {
 	priv1, pubKey, acct := testdata.KeyTestPubAddr()
 	val := addressToValAddress(acct)
 
+	pvKeyHex := hex.EncodeToString(priv1.Bytes())
+	key, _ := crypto.HexToECDSA(pvKeyHex)
+	ethCfg := types2.DefaultChainConfig().EthereumConfig(big.NewInt(1))
+	signer := ethtypes.MakeSigner(ethCfg, utils2.Big1, 1)
+	address := crypto.PubkeyToAddress(key.PublicKey)
+
 	return TestAcct{
 		ValidatorAddress: val,
 		AccountAddress:   acct,
 		PrivateKey:       priv1,
 		PublicKey:        pubKey,
+		EvmAddress:       address,
+		EvmSigner:        signer,
+		EvmPrivateKey:    key,
 	}
 }
 
@@ -162,6 +184,25 @@ func toTxBytes(testCtx *TestContext, msgs []*TestMessage) [][]byte {
 				},
 			},
 		})
+
+		if tm.IsEVM {
+			amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
+
+			// fund account so it has funds
+			if err := testCtx.TestApp.BankKeeper.MintCoins(testCtx.Ctx, minttypes.ModuleName, amounts); err != nil {
+				panic(err)
+			}
+			if err := testCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(testCtx.Ctx, minttypes.ModuleName, tm.EVMSigner.AccountAddress, amounts); err != nil {
+				panic(err)
+			}
+
+			b, err := tc.TxEncoder()(tBuilder.GetTx())
+			if err != nil {
+				panic(err)
+			}
+			txs = append(txs, b)
+			continue
+		}
 
 		err = tBuilder.SetSignatures(signing.SignatureV2{
 			PubKey: priv.PubKey(),

@@ -136,6 +136,24 @@ func TestParallelTransactions(t *testing.T) {
 			},
 		},
 		{
+			name: "Test evm transfers non-conflicting",
+			runs: runs,
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				return utils.JoinMsgs(
+					messages.EVMTransferNonConflicting(tCtx, 10),
+				)
+			},
+		},
+		{
+			name: "Test evm transfers conflicting",
+			runs: runs,
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				return utils.JoinMsgs(
+					messages.EVMTransferConflicting(tCtx, 10),
+				)
+			},
+		},
+		{
 			name:    "Test combinations",
 			runs:    runs,
 			shuffle: true,
@@ -144,6 +162,8 @@ func TestParallelTransactions(t *testing.T) {
 					messages.WasmInstantiate(tCtx, 10),
 					messages.BankTransfer(tCtx, 10),
 					messages.GovernanceSubmitProposal(tCtx, 10),
+					messages.EVMTransferConflicting(tCtx, 10),
+					messages.EVMTransferNonConflicting(tCtx, 10),
 				)
 			},
 		},
@@ -178,8 +198,8 @@ func TestParallelTransactions(t *testing.T) {
 			require.NoError(t, pErr, tt.name)
 			require.Len(t, pResults, len(txs))
 
-			assertEqualEvents(t, sEvts, pEvts, tt.name)
 			assertExecTxResultCode(t, sResults, pResults, 0, tt.name)
+			assertEqualEvents(t, sEvts, pEvts, tt.name)
 			assertEqualExecTxResults(t, sResults, pResults, tt.name)
 			assertEqualState(t, sCtx.Ctx, pCtx.Ctx, tt.name)
 		}
