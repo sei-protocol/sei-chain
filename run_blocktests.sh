@@ -38,8 +38,8 @@ declare -a test_name_skip_list=(
     "logRevert" # failing after increment height
 
     # invalid block tests - state tests
-    "RefundOverflow" # skip bc gasUsed is not applicable
-    "withdrawalsAmountBounds" # error: rlp: input string too long for uint64, decoding into (types.Block)(types.extblock).Withdrawals[0].Amount
+    # "RefundOverflow" # skip bc gasUsed is not applicable
+    # "withdrawalsAmountBounds" # error: rlp: input string too long for uint64, decoding into (types.Block)(types.extblock).Withdrawals[0].Amount
 )
 
 # list out all paths to json files starting from the block_tests_dir
@@ -86,6 +86,8 @@ for test_path in $block_tests; do
 
     if [ $((i % runner_total)) -ne $runner_index ]; then
         i=$((i+1))
+        runner_id=$((i % runner_total))
+        echo "Skipping test not in runner index: $test_path, runner index: $runner_id"
         continue
     fi
 
