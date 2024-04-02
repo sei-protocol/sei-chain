@@ -34,38 +34,53 @@ const instantiateMsg = `{"whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5k
 		"maintenance":"0.06"
 	}}`
 
-func WasmInstantiate(tCtx *utils.TestContext, count int) []sdk.Msg {
-	var msgs []sdk.Msg
+func WasmInstantiate(tCtx *utils.TestContext, count int) []*utils.TestMessage {
+	var msgs []*utils.TestMessage
 	for i := 0; i < count; i++ {
-		msgs = append(msgs, &wasm.MsgInstantiateContract{
-			Sender: tCtx.TestAccounts[0].AccountAddress.String(),
-			Admin:  tCtx.TestAccounts[1].AccountAddress.String(),
-			CodeID: tCtx.CodeID,
-			Label:  fmt.Sprintf("test-%d", i),
-			Msg:    []byte(instantiateMsg),
-			Funds:  utils.Funds(100000),
+		msgs = append(msgs, &utils.TestMessage{
+			Msg: &wasm.MsgInstantiateContract{
+				Sender: tCtx.TestAccounts[0].AccountAddress.String(),
+				Admin:  tCtx.TestAccounts[1].AccountAddress.String(),
+				CodeID: tCtx.CodeID,
+				Label:  fmt.Sprintf("test-%d", i),
+				Msg:    []byte(instantiateMsg),
+				Funds:  utils.Funds(100000),
+			},
+			Type: "WasmInstantitate",
 		})
 	}
 	return msgs
 }
 
-func BankTransfer(tCtx *utils.TestContext, count int) []sdk.Msg {
+func EVMTransfer(tCtx *utils.TestContext, count int) []sdk.Msg {
 	var msgs []sdk.Msg
 	for i := 0; i < count; i++ {
-		msgs = append(msgs, banktypes.NewMsgSend(tCtx.TestAccounts[0].AccountAddress, tCtx.TestAccounts[1].AccountAddress, utils.Funds(int64(i+1))))
+		// generate new evm account
+		// fund the account
+		// generate transfer 0 funds to himself
+		// build message and append to result
 	}
 	return msgs
 }
 
-func GovernanceSubmitProposal(tCtx *utils.TestContext, count int) []sdk.Msg {
-	var msgs []sdk.Msg
+func BankTransfer(tCtx *utils.TestContext, count int) []*utils.TestMessage {
+	var msgs []*utils.TestMessage
+	for i := 0; i < count; i++ {
+		msg := banktypes.NewMsgSend(tCtx.TestAccounts[0].AccountAddress, tCtx.TestAccounts[1].AccountAddress, utils.Funds(int64(i+1)))
+		msgs = append(msgs, &utils.TestMessage{Msg: msg, Type: "BankTransfer"})
+	}
+	return msgs
+}
+
+func GovernanceSubmitProposal(tCtx *utils.TestContext, count int) []*utils.TestMessage {
+	var msgs []*utils.TestMessage
 	for i := 0; i < count; i++ {
 		content := govtypes.NewTextProposal(fmt.Sprintf("Proposal %d", i), "test", true)
 		mp, err := govtypes.NewMsgSubmitProposalWithExpedite(content, utils.Funds(10000), tCtx.TestAccounts[0].AccountAddress, true)
 		if err != nil {
 			panic(err)
 		}
-		msgs = append(msgs, mp)
+		msgs = append(msgs, &utils.TestMessage{Msg: mp, Type: "GovernanceSubmitProposal"})
 	}
 	return msgs
 }

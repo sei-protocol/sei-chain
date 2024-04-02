@@ -106,12 +106,12 @@ func TestParallelTransactions(t *testing.T) {
 		runs    int
 		shuffle bool
 		before  func(tCtx *utils.TestContext)
-		txs     func(tCtx *utils.TestContext) []sdk.Msg
+		txs     func(tCtx *utils.TestContext) []*utils.TestMessage
 	}{
 		{
 			name: "Test wasm instantiations",
 			runs: runs,
-			txs: func(tCtx *utils.TestContext) []sdk.Msg {
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
 				return utils.JoinMsgs(
 					messages.WasmInstantiate(tCtx, 10),
 				)
@@ -120,7 +120,7 @@ func TestParallelTransactions(t *testing.T) {
 		{
 			name: "Test bank transfer",
 			runs: runs,
-			txs: func(tCtx *utils.TestContext) []sdk.Msg {
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
 				return utils.JoinMsgs(
 					messages.BankTransfer(tCtx, 2),
 				)
@@ -129,7 +129,7 @@ func TestParallelTransactions(t *testing.T) {
 		{
 			name: "Test governance proposal",
 			runs: runs,
-			txs: func(tCtx *utils.TestContext) []sdk.Msg {
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
 				return utils.JoinMsgs(
 					messages.GovernanceSubmitProposal(tCtx, 10),
 				)
@@ -139,7 +139,7 @@ func TestParallelTransactions(t *testing.T) {
 			name:    "Test combinations",
 			runs:    runs,
 			shuffle: true,
-			txs: func(tCtx *utils.TestContext) []sdk.Msg {
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
 				return utils.JoinMsgs(
 					messages.WasmInstantiate(tCtx, 10),
 					messages.BankTransfer(tCtx, 10),

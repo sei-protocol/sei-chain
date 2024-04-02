@@ -38,6 +38,11 @@ var ignoredStoreKeys = map[string]struct{}{
 	"deferredcache":  {},
 }
 
+type TestMessage struct {
+	Msg  sdk.Msg
+	Type string
+}
+
 type TestContext struct {
 	Ctx            sdk.Context
 	CodeID         uint64
@@ -130,14 +135,15 @@ func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, wor
 	}
 }
 
-func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {
+func toTxBytes(testCtx *TestContext, msgs []*TestMessage) [][]byte {
 	txs := make([][]byte, 0, len(msgs))
 	tc := app.MakeEncodingConfig().TxConfig
 
 	priv := testCtx.TestAccounts[0].PrivateKey
 	acct := testCtx.TestApp.AccountKeeper.GetAccount(testCtx.Ctx, testCtx.TestAccounts[0].AccountAddress)
 
-	for _, m := range msgs {
+	for _, tm := range msgs {
+		m := tm.Msg
 		a, err := codectypes.NewAnyWithValue(m)
 		if err != nil {
 			panic(err)
@@ -202,16 +208,16 @@ func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {
 }
 
 // RunWithOCC runs the given messages with OCC enabled, number of workers is configured via context
-func RunWithOCC(testCtx *TestContext, msgs []sdk.Msg) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func RunWithOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	return runTxs(testCtx, msgs, true)
 }
 
 // RunWithoutOCC runs the given messages without OCC enabled
-func RunWithoutOCC(testCtx *TestContext, msgs []sdk.Msg) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func RunWithoutOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	return runTxs(testCtx, msgs, false)
 }
 
-func runTxs(testCtx *TestContext, msgs []sdk.Msg, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	app.EnableOCC = occ
 	txs := toTxBytes(testCtx, msgs)
 	req := &types.RequestFinalizeBlock{
@@ -222,16 +228,16 @@ func runTxs(testCtx *TestContext, msgs []sdk.Msg, occ bool) ([]types.Event, []*t
 	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit)
 }
 
-func JoinMsgs(msgsList ...[]sdk.Msg) []sdk.Msg {
-	var result []sdk.Msg
-	for _, msgs := range msgsList {
-		result = append(result, msgs...)
+func JoinMsgs(msgsList ...[]*TestMessage) []*TestMessage {
+	var result []*TestMessage
+	for _, testMsg := range msgsList {
+		result = append(result, testMsg...)
 	}
 	return result
 }
 
-func Shuffle(msgs []sdk.Msg) []sdk.Msg {
-	result := make([]sdk.Msg, 0, len(msgs))
+func Shuffle(msgs []*TestMessage) []*TestMessage {
+	result := make([]*TestMessage, 0, len(msgs))
 	for _, i := range rand.Perm(len(msgs)) {
 		result = append(result, msgs[i])
 	}
