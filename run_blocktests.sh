@@ -71,7 +71,6 @@ for test_path in $block_tests; do
 
     # Skip the test if no match is found
     if [ "$match_found" = false ]; then
-        echo "Skipping test not in run list: $test_path"
         continue
     fi
 
