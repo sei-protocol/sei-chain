@@ -13,6 +13,11 @@ func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, e
 	if !k.accountKeeper.HasAccount(ctx, seiAddress) {
 		k.accountKeeper.SetAccount(ctx, k.accountKeeper.NewAccountWithAddress(ctx, seiAddress))
 	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypeAddressAssociated,
+		sdk.NewAttribute(types.AttributeKeySeiAddress, seiAddress.String()),
+		sdk.NewAttribute(types.AttributeKeyEvmAddress, evmAddress.Hex()),
+	))
 }
 
 func (k *Keeper) DeleteAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
