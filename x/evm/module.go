@@ -3,12 +3,15 @@ package evm
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 
 	// this line is used by starport scaffolding # 1
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/tests"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -166,11 +169,27 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 func (AppModule) ConsensusVersion() uint64 { return 4 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
-func (am AppModule) BeginBlock(sdk.Context, abci.RequestBeginBlock) {
+func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	// clear tx responses from last block
 	am.keeper.SetTxResults([]*abci.ExecTxResult{})
 	// clear the TxDeferredInfo
 	am.keeper.ClearEVMTxDeferredInfo()
+	// mock beacon root if replaying
+	if am.keeper.EthReplayConfig.Enabled {
+		if beaconRoot := am.keeper.ReplayBlock.BeaconRoot(); beaconRoot != nil {
+			blockCtx, err := am.keeper.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
+			if err != nil {
+				panic(err)
+			}
+			statedb := state.NewDBImpl(ctx, am.keeper, false)
+			vmenv := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{})
+			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
+			_, err = statedb.Finalize()
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 }
 
 // EndBlock executes all ABCI EndBlock logic respective to the evm module. It
