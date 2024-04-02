@@ -43,7 +43,10 @@ declare -a test_name_skip_list=(
 )
 
 # list out all paths to json files starting from the block_tests_dir
-block_tests=$(find "$block_tests_path" -name "*.json")
+block_tests=$(find "$block_tests_path" -name "*.json" | sort)
+
+# sort the block tests
+# block_tests=$(echo "$block_tests" | sort)
 
 test_files=""
 
