@@ -637,7 +637,8 @@ func New(
 		AddRoute(dexmoduletypes.RouterKey, dexmodule.NewProposalHandler(app.DexKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
-		AddRoute(acltypes.ModuleName, aclmodule.NewProposalHandler(app.AccessControlKeeper))
+		AddRoute(acltypes.ModuleName, aclmodule.NewProposalHandler(app.AccessControlKeeper)).
+		AddRoute(evmtypes.RouterKey, evm.NewProposalHandler(app.EvmKeeper))
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.WasmKeeper, enabledProposals))
 	}
