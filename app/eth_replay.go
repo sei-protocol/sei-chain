@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"math/big"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -147,8 +149,8 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 	for i, btBlock := range bt.Json.Blocks {
 		h := int64(i + 1)
 		b, err := btBlock.Decode()
-		fmt.Printf("In BlockTest, decoded block = %+v\n", b)
-		fmt.Printf("In BlockTest tx hash decoded = %+v\n", b.Transactions()[0].Hash())
+		// fmt.Printf("In BlockTest, decoded block = %+v\n", b)
+		// fmt.Printf("In BlockTest tx hash decoded = %+v\n", b.Transactions()[0].Hash())
 		if err != nil {
 			panic(err)
 		}
@@ -203,6 +205,9 @@ func encodeTx(tx *ethtypes.Transaction, txConfig client.TxConfig) []byte {
 		txData, err = ethtx.NewBlobTx(tx)
 	}
 	if err != nil {
+		if strings.Contains(err.Error(), ethcore.ErrTipAboveFeeCap.Error()) {
+			return nil
+		}
 		panic(err)
 	}
 	msg, err := evmtypes.NewMsgEVMTransaction(txData)

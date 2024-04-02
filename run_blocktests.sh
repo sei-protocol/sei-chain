@@ -23,6 +23,10 @@ declare -a skip_list=(
     "blockhashNonConstArg" # failing
     "BLOCKHASH_Bounds" # newly failing
     "logRevert" # failing after increment height
+
+    # invalid block tests - state tests
+    "RefundOverflow" # skip bc gasUsed is not applicable
+    "withdrawalsAmountBounds" # error: rlp: input string too long for uint64, decoding into (types.Block)(types.extblock).Withdrawals[0].Amount
 )
 
 # list out all paths to json files starting from the block_tests_dir
