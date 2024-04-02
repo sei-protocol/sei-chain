@@ -52,6 +52,7 @@ async function sendTx(sender, txn, responses) {
   responses.push({nonce: txn.nonce, response: txResponse})
 }
 
+
 describe("EVM Test", function () {
 
   describe("EVMCompatibilityTester", function () {
@@ -233,6 +234,29 @@ describe("EVM Test", function () {
         // Verify that addr is set correctly
         expect(await evmTester.uint256Var()).to.equal(12345);
       });
+
+      // this uses a newer version of ethers to attempt a blob transaction (different signer wallet)
+      it("should return an error for blobs", async function(){
+        const key = "0x57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e"
+        const signer = new ethers.Wallet(key, ethers.provider);
+        const blobData = "BLOB";
+        const blobDataBytes = ethers.toUtf8Bytes(blobData);
+        const blobHash = ethers.keccak256(blobDataBytes);
+
+        const tx = {
+          type: 3,
+          to: owner.address,
+          value: ethers.parseEther("0.1"),
+          data: '0x',
+          maxFeePerGas: ethers.parseUnits('100', 'gwei'),
+          maxPriorityFeePerGas: ethers.parseUnits('1', 'gwei'),
+          gasLimit: 100000,
+          maxFeePerBlobGas: ethers.parseUnits('10', 'gwei'),
+          blobVersionedHashes: [blobHash],
+        }
+
+        await expect(signer.sendTransaction(tx)).to.be.rejectedWith("unsupported transaction type");
+      })
 
       it("Should trace a call with timestamp", async function () {
         await delay()
