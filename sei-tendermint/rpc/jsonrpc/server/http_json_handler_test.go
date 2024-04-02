@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -218,6 +219,67 @@ func TestRPCNotificationInBatch(t *testing.T) {
 		for _, response := range responses {
 			assert.NotEqual(t, response, new(rpctypes.RPCResponse), "#%d: not expecting a blank RPCResponse", i)
 		}
+	}
+}
+
+func TestRPCBatchLimit(t *testing.T) {
+	mux := testMux()
+	tests := []struct {
+		payload string
+		success bool
+	}{
+		{
+			`[
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]}
+			 ]`,
+			true,
+		},
+		{
+			`[
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]},
+				{"jsonrpc": "2.0","method":"c","id":"abc","params":["a","10"]}
+			 ]`,
+			false,
+		},
+	}
+	for i, tt := range tests {
+		req, _ := http.NewRequest("POST", "http://localhost/", strings.NewReader(tt.payload))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		res := rec.Result()
+		// Always expecting back a JSONRPCResponse
+		assert.True(t, statusOK(res.StatusCode), "#%d: should always return 2XX", i)
+		blob, err := io.ReadAll(res.Body)
+
+		fmt.Printf("responses: %s\n", blob)
+		if err != nil {
+			t.Errorf("#%d: err reading body: %v", i, err)
+			continue
+		}
+		res.Body.Close()
+
+		var responses []rpctypes.RPCResponse
+		err = json.Unmarshal(blob, &responses)
+		if err != nil {
+			if tt.success {
+				t.Errorf("#%d: expected successful parsing of an RPCResponse\nblob: %s", i, blob)
+				continue
+			} else {
+				fmt.Printf("blob: %s, %d\n", responses, len(responses))
+				assert.Contains(t, string(blob), "Batch size limit exceeded.")
+			}
+		}
+
 	}
 }
 
