@@ -16,6 +16,8 @@ import (
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -455,4 +457,47 @@ func TestSend(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, sdk.NewInt(500000), k.BankKeeper().GetBalance(ctx, seiFrom, "usei").Amount)
 	require.Equal(t, sdk.NewInt(500000), k.BankKeeper().GetBalance(ctx, seiTo, "usei").Amount)
+}
+
+func TestRegisterPointer(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	sender, _ := testkeeper.MockAddressPair()
+	_, pointee := testkeeper.MockAddressPair()
+	res, err := keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.Nil(t, err)
+	pointer, version, exists := k.GetCW20ERC20Pointer(ctx, pointee)
+	require.True(t, exists)
+	require.Equal(t, erc20.CurrentVersion, version)
+	require.Equal(t, pointer.String(), res.PointerAddress)
+
+	// already exists
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.NotNil(t, err)
+
+	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC721,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.Nil(t, err)
+	pointer, version, exists = k.GetCW721ERC721Pointer(ctx, pointee)
+	require.True(t, exists)
+	require.Equal(t, erc721.CurrentVersion, version)
+	require.Equal(t, pointer.String(), res.PointerAddress)
+
+	// already exists
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC721,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.NotNil(t, err)
 }
