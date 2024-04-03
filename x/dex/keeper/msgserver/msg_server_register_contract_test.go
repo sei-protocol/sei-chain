@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	TestContractA = "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m"
+	TestContractA = "sei1hrpna9v7vs3stzyd4z3xf00676kf78zpe2u5ksvljswn2vnjp3yslucc3n"
 	TestContractB = "sei1nc5tatafv6eyq7llkr2gv50ff9e22mnf70qgjlv737ktmt4eswrqms7u8a"
 	TestContractC = "sei1xr3rq8yvd7qplsw5yx90ftsr2zdhg4e9z60h5duusgxpv72hud3shh3qfl"
 	TestContractD = "sei1up07dctjqud4fns75cnpejr4frmjtddzsmwgcktlyxd4zekhwecqghxqcp"
