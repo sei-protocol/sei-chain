@@ -47,12 +47,15 @@ var (
 	ReplayInitialHeight  = []byte{0x14}
 
 	PointerRegistryPrefix = []byte{0x15}
+	PointerCWCodePrefix   = []byte{0x16}
 )
 
 var (
 	PointerERC20NativePrefix = []byte{0x0}
 	PointerERC20CW20Prefix   = []byte{0x1}
 	PointerERC721CW721Prefix = []byte{0x2}
+	PointerCW20ERC20Prefix   = []byte{0x3}
+	PointerCW721ERC721Prefix = []byte{0x4}
 )
 
 func EVMAddressToSeiAddressKey(evmAddress common.Address) []byte {
@@ -101,5 +104,19 @@ func PointerERC721CW721Key(cw721Address string) []byte {
 	return append(
 		append(PointerRegistryPrefix, PointerERC721CW721Prefix...),
 		[]byte(cw721Address)...,
+	)
+}
+
+func PointerCW20ERC20Key(erc20Addr common.Address) []byte {
+	return append(
+		append(PointerRegistryPrefix, PointerCW20ERC20Prefix...),
+		erc20Addr[:]...,
+	)
+}
+
+func PointerCW721ERC721Key(erc721Addr common.Address) []byte {
+	return append(
+		append(PointerRegistryPrefix, PointerCW721ERC721Prefix...),
+		erc721Addr[:]...,
 	)
 }

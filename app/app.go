@@ -588,7 +588,7 @@ func New(
 
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
 		app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper,
-		app.TransferKeeper)
+		app.TransferKeeper, wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper))
 	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
@@ -806,8 +806,8 @@ func New(
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
-		evmtypes.ModuleName,
 		wasm.ModuleName,
+		evmtypes.ModuleName,
 		acltypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/initGenesis
 	)
