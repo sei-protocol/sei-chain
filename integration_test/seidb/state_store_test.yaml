@@ -39,19 +39,19 @@
   verifiers:
     # Verify number of wasm codes at each height
     - type: eval
-      expr: BEGINNING_LIST_CODE_LENGTH == 0
+      expr: BEGINNING_LIST_CODE_LENGTH == 2
     - type: eval
-      expr: FIRST_SET_LIST_CODE_LENGTH == 10
+      expr: FIRST_SET_LIST_CODE_LENGTH == 12
     - type: eval
-      expr: FIRST_SET_LIST_CODE_LENGTH_REVERSE == 10
+      expr: FIRST_SET_LIST_CODE_LENGTH_REVERSE == 12
     - type: eval
-      expr: SECOND_SET_LIST_CODE_LENGTH == 20
+      expr: SECOND_SET_LIST_CODE_LENGTH == 22
     - type: eval
-      expr: SECOND_SET_LIST_CODE_LENGTH_REVERSE == 20
+      expr: SECOND_SET_LIST_CODE_LENGTH_REVERSE == 22
     - type: eval
-      expr: THIRD_SET_LIST_CODE_LENGTH == 30
+      expr: THIRD_SET_LIST_CODE_LENGTH == 32
     - type: eval
-      expr: THIRD_SET_LIST_CODE_LENGTH_REVERSE == 30
+      expr: THIRD_SET_LIST_CODE_LENGTH_REVERSE == 32
 
 - name: Test state store historical data checking specific wasm codes
   inputs:
@@ -59,19 +59,19 @@
     - cmd: tail -1 integration_test/contracts/wasm_first_set_block_height.txt
       env: FIRST_SET_BLOCK_HEIGHT
     # Get code id from first contract returned at first set height in forward order (0)
-    - cmd: seid q wasm list-code --count-total --limit 400 --height $FIRST_SET_BLOCK_HEIGHT --output json | jq -r ".code_infos[0].code_id"
+    - cmd: seid q wasm list-code --count-total --limit 400 --height $FIRST_SET_BLOCK_HEIGHT --output json | jq -r ".code_infos[3].code_id"
       env: FIRST_ID_FIRST_SET
     # Get creator from first contract returned at first set height in forward order
-    - cmd: seid q wasm list-code --count-total --limit 400 --height $FIRST_SET_BLOCK_HEIGHT --output json | jq -r ".code_infos[0].creator"
+    - cmd: seid q wasm list-code --count-total --limit 400 --height $FIRST_SET_BLOCK_HEIGHT --output json | jq -r ".code_infos[3].creator"
       env: FIRST_CREATOR_FIRST_SET
     # Get height from second set
     - cmd: tail -1 integration_test/contracts/wasm_second_set_block_height.txt
       env: SECOND_SET_BLOCK_HEIGHT
     # Get code id from first contract returned at second set height in reverse order (200)
-    - cmd: seid q wasm list-code --reverse --count-total --limit 400 --height $SECOND_SET_BLOCK_HEIGHT --output json | jq -r ".code_infos[0].code_id"
+    - cmd: seid q wasm list-code --reverse --count-total --limit 400 --height $SECOND_SET_BLOCK_HEIGHT --output json | jq -r ".code_infos[3].code_id"
       env: SECOND_ID_FIRST_SET
     # Get creator from second contract returned at second set height in reverse order
-    - cmd: seid q wasm list-code --reverse --count-total --limit 400 --height $SECOND_SET_BLOCK_HEIGHT --output json | jq -r ".code_infos[0].creator"
+    - cmd: seid q wasm list-code --reverse --count-total --limit 400 --height $SECOND_SET_BLOCK_HEIGHT --output json | jq -r ".code_infos[3].creator"
       env: FIRST_CREATOR_SECOND_SET
     # Get creator id
     - cmd: tail -1 integration_test/contracts/wasm_creator_id.txt
@@ -85,9 +85,9 @@
     # Verify correct code ids
     # NOTE: Since chain is continually running / stateful, may have remove
     - type: eval
-      expr: FIRST_ID_FIRST_SET == 1
+      expr: FIRST_ID_FIRST_SET == 4
     - type: eval
-      expr: SECOND_ID_FIRST_SET == 20
+      expr: SECOND_ID_FIRST_SET == 19
 
 - name: Test state store iteration through tokenfactory denoms
   inputs:
