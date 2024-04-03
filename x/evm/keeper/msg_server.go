@@ -2,12 +2,15 @@ package keeper
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
 	"runtime/debug"
 
 	"github.com/armon/go-metrics"
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
@@ -19,6 +22,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
+	artifactsutils "github.com/sei-protocol/sei-chain/x/evm/artifacts/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -248,4 +254,56 @@ func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.
 		return nil, err
 	}
 	return &types.MsgSendResponse{}, nil
+}
+
+func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgRegisterPointer) (*types.MsgRegisterPointerResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	var existingPointer sdk.AccAddress
+	var existingVersion uint16
+	var currentVersion uint16
+	var exists bool
+	switch msg.PointerType {
+	case types.PointerType_ERC20:
+		currentVersion = erc20.CurrentVersion
+		existingPointer, existingVersion, exists = server.GetCW20ERC20Pointer(ctx, common.HexToAddress(msg.ErcAddress))
+	case types.PointerType_ERC721:
+		currentVersion = erc721.CurrentVersion
+		existingPointer, existingVersion, exists = server.GetCW721ERC721Pointer(ctx, common.HexToAddress(msg.ErcAddress))
+	default:
+		panic("unknown pointer type")
+	}
+	if exists && existingVersion >= currentVersion {
+		return nil, fmt.Errorf("pointer %s already registered at version %d", existingPointer.String(), existingVersion)
+	}
+	store := server.PrefixStore(ctx, types.PointerCWCodePrefix)
+	payload := map[string]interface{}{}
+	switch msg.PointerType {
+	case types.PointerType_ERC20:
+		store = prefix.NewStore(store, types.PointerCW20ERC20Prefix)
+		payload["erc20_address"] = msg.ErcAddress
+	case types.PointerType_ERC721:
+		store = prefix.NewStore(store, types.PointerCW721ERC721Prefix)
+		payload["erc721_address"] = msg.ErcAddress
+	default:
+		panic("unknown pointer type")
+	}
+	codeID := binary.BigEndian.Uint64(store.Get(artifactsutils.GetVersionBz(currentVersion)))
+	bz, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	moduleAcct := server.accountKeeper.GetModuleAddress(types.ModuleName)
+	pointerAddr, _, err := server.wasmKeeper.Instantiate(ctx, codeID, moduleAcct, moduleAcct, bz, fmt.Sprintf("Pointer of %s", msg.ErcAddress), sdk.NewCoins())
+	if err != nil {
+		return nil, err
+	}
+	switch msg.PointerType {
+	case types.PointerType_ERC20:
+		err = server.SetCW20ERC20Pointer(ctx, common.HexToAddress(msg.ErcAddress), pointerAddr.String())
+	case types.PointerType_ERC721:
+		err = server.SetCW721ERC721Pointer(ctx, common.HexToAddress(msg.ErcAddress), pointerAddr.String())
+	default:
+		panic("unknown pointer type")
+	}
+	return &types.MsgRegisterPointerResponse{PointerAddress: pointerAddr.String()}, err
 }

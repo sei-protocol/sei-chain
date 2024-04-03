@@ -3,6 +3,7 @@ package keeper
 import (
 	"encoding/hex"
 	"sync"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -51,7 +52,7 @@ func MockEVMKeeperWithPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
 
 func MockEVMKeeper() (*evmkeeper.Keeper, sdk.Context) {
 	testApp := app.Setup(false, false)
-	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8).WithBlockTime(time.Now())
 	k := testApp.EvmKeeper
 	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
 
