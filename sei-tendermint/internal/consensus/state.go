@@ -2184,7 +2184,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 
 	// Execute and commit the block, update and save the state, and update the mempool.
 	// NOTE The block.AppHash won't reflect these txs until the next block.
-
+	startTime := time.Now()
 	stateCopy, err := cs.blockExec.ApplyBlock(spanCtx,
 		stateCopy,
 		types.BlockID{
@@ -2194,6 +2194,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		block,
 		cs.tracer,
 	)
+	cs.metrics.ApplyBlockLatency.Observe(float64(time.Since(startTime).Milliseconds()))
 	if err != nil {
 		logger.Error("failed to apply block", "err", err)
 		return

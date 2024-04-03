@@ -270,6 +270,14 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "complete_proposal_time",
 			Help:      "CompleteProposalTime measures how long it takes between receiving a proposal and finishing processing all of its parts. Note that this means it also includes network latency from block parts gossip",
 		}, labels).With(labelsAndValues...),
+		ApplyBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "apply_block_latency",
+			Help:      "ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step",
+
+			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+		}, append(labels, "apply_block_ms")).With(labelsAndValues...),
 	}
 }
 
@@ -315,5 +323,6 @@ func NopMetrics() *Metrics {
 		PrevoteLatency:                discard.NewHistogram(),
 		ConsensusTime:                 discard.NewHistogram(),
 		CompleteProposalTime:          discard.NewHistogram(),
+		ApplyBlockLatency:             discard.NewHistogram(),
 	}
 }

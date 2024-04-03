@@ -170,6 +170,9 @@ type Metrics struct {
 	// processing all of its parts. Note that this means it also includes network latency from
 	// block parts gossip
 	CompleteProposalTime metrics.Histogram
+
+	// ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step
+	ApplyBlockLatency metrics.Histogram `metrics_labels:"apply_block_ms"  metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
 }
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.

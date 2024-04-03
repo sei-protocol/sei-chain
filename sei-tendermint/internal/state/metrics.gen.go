@@ -52,16 +52,61 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "update_mempool_time",
 			Help:      "UpdateMempoolTime meaures how long it takes to update mempool after commiting, including reCheckTx",
 		}, labels).With(labelsAndValues...),
+		FinalizeBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "finalize_block_latency",
+			Help:      "FinalizeBlockLatency measures how long it takes to run abci FinalizeBlock",
+
+			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+		}, append(labels, "finalize_blocks_ms")).With(labelsAndValues...),
+		SaveBlockResponseLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "save_block_response_latency",
+			Help:      "SaveBlockResponseLatency measures how long it takes to run save the FinalizeBlockRes",
+
+			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+		}, append(labels, "save_block_response_ms")).With(labelsAndValues...),
+		SaveBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "save_block_latency",
+			Help:      "SaveBlockLatency measure how long it takes to save the block",
+
+			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+		}, append(labels, "save_block_ms")).With(labelsAndValues...),
+		PruneBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "prune_block_latency",
+			Help:      "PruneBlockLatency measures how long it takes to prune block from blockstore",
+
+			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+		}, append(labels, "prune_block_ms")).With(labelsAndValues...),
+		FireEventsLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "fire_events_latency",
+			Help:      "FireEventsLatency measures how long it takes to fire events for indexing",
+
+			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+		}, append(labels, "prune_block_ms")).With(labelsAndValues...),
 	}
 }
 
 func NopMetrics() *Metrics {
 	return &Metrics{
-		BlockProcessingTime:    discard.NewHistogram(),
-		ConsensusParamUpdates:  discard.NewCounter(),
-		ValidatorSetUpdates:    discard.NewCounter(),
-		FlushAppConnectionTime: discard.NewHistogram(),
-		ApplicationCommitTime:  discard.NewHistogram(),
-		UpdateMempoolTime:      discard.NewHistogram(),
+		BlockProcessingTime:      discard.NewHistogram(),
+		ConsensusParamUpdates:    discard.NewCounter(),
+		ValidatorSetUpdates:      discard.NewCounter(),
+		FlushAppConnectionTime:   discard.NewHistogram(),
+		ApplicationCommitTime:    discard.NewHistogram(),
+		UpdateMempoolTime:        discard.NewHistogram(),
+		FinalizeBlockLatency:     discard.NewHistogram(),
+		SaveBlockResponseLatency: discard.NewHistogram(),
+		SaveBlockLatency:         discard.NewHistogram(),
+		PruneBlockLatency:        discard.NewHistogram(),
+		FireEventsLatency:        discard.NewHistogram(),
 	}
 }
