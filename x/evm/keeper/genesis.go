@@ -3,6 +3,7 @@ package keeper
 import (
 	"fmt"
 
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -13,6 +14,9 @@ import (
 	"github.com/ethereum/go-ethereum/trie/triedb/hashdb"
 	"github.com/ethereum/go-ethereum/trie/triedb/pathdb"
 
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
+	artifactsutils "github.com/sei-protocol/sei-chain/x/evm/artifacts/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -30,6 +34,24 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 	for _, addr := range genState.AddressAssociations {
 		k.SetAddressMapping(ctx, sdk.MustAccAddressFromBech32(addr.SeiAddress), common.HexToAddress(addr.EthAddress))
 	}
+
+	erc20CodeID, err := k.wasmKeeper.Create(ctx, k.accountKeeper.GetModuleAddress(types.ModuleName), erc20.GetBin(), nil)
+	if err != nil {
+		panic(err)
+	}
+	prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW20ERC20Prefix).Set(
+		artifactsutils.GetVersionBz(erc20.CurrentVersion),
+		artifactsutils.GetCodeIDBz(erc20CodeID),
+	)
+
+	erc721CodeID, err := k.wasmKeeper.Create(ctx, k.accountKeeper.GetModuleAddress(types.ModuleName), erc721.GetBin(), nil)
+	if err != nil {
+		panic(err)
+	}
+	prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW721ERC721Prefix).Set(
+		artifactsutils.GetVersionBz(erc721.CurrentVersion),
+		artifactsutils.GetCodeIDBz(erc721CodeID),
+	)
 
 	if k.EthReplayConfig.Enabled && !ethReplayInitialied {
 		header := k.OpenEthDatabase()
