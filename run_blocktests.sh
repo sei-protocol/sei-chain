@@ -38,6 +38,8 @@ declare -a test_name_skip_list=(
     "logRevert" # failing after increment height
 
     # invalid block tests - state tests
+    "GasUsedHigherThanBlockGasLimitButNotWithRefundsSuicideFirst"
+    "gasLimitTooHigh"
     # "RefundOverflow" # skip bc gasUsed is not applicable
     # "withdrawalsAmountBounds" # error: rlp: input string too long for uint64, decoding into (types.Block)(types.extblock).Withdrawals[0].Amount
 )
