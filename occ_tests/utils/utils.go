@@ -2,6 +2,9 @@ package utils
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"encoding/hex"
+	"math/big"
 	"math/rand"
 	"os"
 	"testing"
@@ -20,14 +23,19 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/app"
+	utils2 "github.com/sei-protocol/sei-chain/utils"
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	types2 "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -36,6 +44,13 @@ var ignoredStoreKeys = map[string]struct{}{
 	"mem_capability": {},
 	"epoch":          {},
 	"deferredcache":  {},
+}
+
+type TestMessage struct {
+	Msg       sdk.Msg
+	Type      string
+	EVMSigner TestAcct
+	IsEVM     bool
 }
 
 type TestContext struct {
@@ -52,6 +67,9 @@ type TestAcct struct {
 	AccountAddress   sdk.AccAddress
 	PrivateKey       cryptotypes.PrivKey
 	PublicKey        cryptotypes.PubKey
+	EvmAddress       common.Address
+	EvmSigner        ethtypes.Signer
+	EvmPrivateKey    *ecdsa.PrivateKey
 }
 
 func NewTestAccounts(count int) []TestAcct {
@@ -66,11 +84,20 @@ func NewSigner() TestAcct {
 	priv1, pubKey, acct := testdata.KeyTestPubAddr()
 	val := addressToValAddress(acct)
 
+	pvKeyHex := hex.EncodeToString(priv1.Bytes())
+	key, _ := crypto.HexToECDSA(pvKeyHex)
+	ethCfg := types2.DefaultChainConfig().EthereumConfig(big.NewInt(1))
+	signer := ethtypes.MakeSigner(ethCfg, utils2.Big1, 1)
+	address := crypto.PubkeyToAddress(key.PublicKey)
+
 	return TestAcct{
 		ValidatorAddress: val,
 		AccountAddress:   acct,
 		PrivateKey:       priv1,
 		PublicKey:        pubKey,
+		EvmAddress:       address,
+		EvmSigner:        signer,
+		EvmPrivateKey:    key,
 	}
 }
 
@@ -130,14 +157,15 @@ func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, wor
 	}
 }
 
-func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {
+func toTxBytes(testCtx *TestContext, msgs []*TestMessage) [][]byte {
 	txs := make([][]byte, 0, len(msgs))
 	tc := app.MakeEncodingConfig().TxConfig
 
 	priv := testCtx.TestAccounts[0].PrivateKey
 	acct := testCtx.TestApp.AccountKeeper.GetAccount(testCtx.Ctx, testCtx.TestAccounts[0].AccountAddress)
 
-	for _, m := range msgs {
+	for _, tm := range msgs {
+		m := tm.Msg
 		a, err := codectypes.NewAnyWithValue(m)
 		if err != nil {
 			panic(err)
@@ -156,6 +184,25 @@ func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {
 				},
 			},
 		})
+
+		if tm.IsEVM {
+			amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
+
+			// fund account so it has funds
+			if err := testCtx.TestApp.BankKeeper.MintCoins(testCtx.Ctx, minttypes.ModuleName, amounts); err != nil {
+				panic(err)
+			}
+			if err := testCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(testCtx.Ctx, minttypes.ModuleName, tm.EVMSigner.AccountAddress, amounts); err != nil {
+				panic(err)
+			}
+
+			b, err := tc.TxEncoder()(tBuilder.GetTx())
+			if err != nil {
+				panic(err)
+			}
+			txs = append(txs, b)
+			continue
+		}
 
 		err = tBuilder.SetSignatures(signing.SignatureV2{
 			PubKey: priv.PubKey(),
@@ -202,16 +249,16 @@ func toTxBytes(testCtx *TestContext, msgs []sdk.Msg) [][]byte {
 }
 
 // RunWithOCC runs the given messages with OCC enabled, number of workers is configured via context
-func RunWithOCC(testCtx *TestContext, msgs []sdk.Msg) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func RunWithOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	return runTxs(testCtx, msgs, true)
 }
 
 // RunWithoutOCC runs the given messages without OCC enabled
-func RunWithoutOCC(testCtx *TestContext, msgs []sdk.Msg) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func RunWithoutOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	return runTxs(testCtx, msgs, false)
 }
 
-func runTxs(testCtx *TestContext, msgs []sdk.Msg, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	app.EnableOCC = occ
 	txs := toTxBytes(testCtx, msgs)
 	req := &types.RequestFinalizeBlock{
@@ -222,16 +269,16 @@ func runTxs(testCtx *TestContext, msgs []sdk.Msg, occ bool) ([]types.Event, []*t
 	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit)
 }
 
-func JoinMsgs(msgsList ...[]sdk.Msg) []sdk.Msg {
-	var result []sdk.Msg
-	for _, msgs := range msgsList {
-		result = append(result, msgs...)
+func JoinMsgs(msgsList ...[]*TestMessage) []*TestMessage {
+	var result []*TestMessage
+	for _, testMsg := range msgsList {
+		result = append(result, testMsg...)
 	}
 	return result
 }
 
-func Shuffle(msgs []sdk.Msg) []sdk.Msg {
-	result := make([]sdk.Msg, 0, len(msgs))
+func Shuffle(msgs []*TestMessage) []*TestMessage {
+	result := make([]*TestMessage, 0, len(msgs))
 	for _, i := range rand.Perm(len(msgs)) {
 		result = append(result, msgs[i])
 	}

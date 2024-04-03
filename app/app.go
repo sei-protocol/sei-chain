@@ -1443,6 +1443,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 			GasUsed:   r.Response.GasUsed,
 			Events:    r.Response.Events,
 			Codespace: r.Response.Codespace,
+			EvmTxInfo: r.Response.EvmTxInfo,
 		})
 	}
 
