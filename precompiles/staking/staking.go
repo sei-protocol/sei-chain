@@ -84,7 +84,10 @@ func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKee
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID := input[:4]
+	methodID, err := pcommon.ExtractMethodID(input)
+	if err != nil {
+		return 0
+	}
 
 	if bytes.Equal(methodID, p.DelegateID) {
 		return 50000
@@ -93,7 +96,9 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	} else if bytes.Equal(methodID, p.UndelegateID) {
 		return 50000
 	}
-	panic("unknown method")
+
+	// This should never happen since this is going to fail during Run
+	return 0
 }
 
 func (p Precompile) Address() common.Address {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -80,7 +81,10 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID := input[:4]
+	methodID, err := pcommon.ExtractMethodID(input)
+	if err != nil {
+		return 0
+	}
 
 	method, err := p.ABI.MethodById(methodID)
 	if err != nil {
@@ -167,6 +171,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	label := args[3].(string)
 	coins := sdk.NewCoins()
 	coinsBz := args[4].([]byte)
+
 	if err := json.Unmarshal(coinsBz, &coins); err != nil {
 		rerr = err
 		return
@@ -175,6 +180,22 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		rerr = errors.New("deposit of usei must be done through the `value` field")
 		return
 	}
+
+	// Run basic validation, can also just expose validateLabel and validate validateWasmCode in sei-wasmd
+	msgInstantiate := wasmtypes.MsgInstantiateContract{
+		Sender: creatorAddr.String(),
+		CodeID: codeID,
+		Label:  label,
+		Funds:  coins,
+		Msg:    msg,
+		Admin:  adminAddrStr,
+	}
+
+	if err := msgInstantiate.ValidateBasic(); err != nil {
+		rerr = err
+		return
+	}
+
 	if value != nil {
 		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, value, p.bankKeeper)
 		if err != nil {
@@ -228,6 +249,19 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		rerr = errors.New("deposit of usei must be done through the `value` field")
 		return
 	}
+	// Run basic validation, can also just expose validateLabel and validate validateWasmCode in sei-wasmd
+	msgExecute := wasmtypes.MsgExecuteContract{
+		Sender:   senderAddr.String(),
+		Contract: contractAddr.String(),
+		Msg:      msg,
+		Funds:    coins,
+	}
+
+	if err := msgExecute.ValidateBasic(); err != nil {
+		rerr = err
+		return
+	}
+
 	if value != nil {
 		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, value, p.bankKeeper)
 		if err != nil {
@@ -273,6 +307,13 @@ func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{
 		return
 	}
 	req := args[1].([]byte)
+
+	rawContractMessage := wasmtypes.RawContractMessage(req)
+	if err := rawContractMessage.ValidateBasic(); err != nil {
+		rerr = err
+		return
+	}
+
 	res, err := p.wasmdViewKeeper.QuerySmart(ctx, contractAddr, req)
 	if err != nil {
 		rerr = err
