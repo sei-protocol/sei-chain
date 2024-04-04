@@ -99,7 +99,10 @@ func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID := input[:4]
+	methodID, err := pcommon.ExtractMethodID(input)
+	if err != nil {
+		return 0
+	}
 
 	method, err := p.ABI.MethodById(methodID)
 	if err != nil {
@@ -127,7 +130,6 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 		}
 		return p.send(ctx, method, args, value)
 	case SendNativeMethod:
-		// TODO: Add validation on caller separate from validation above
 		return p.sendNative(ctx, method, args, caller, value)
 	case BalanceMethod:
 		return p.balance(ctx, method, args, value)
@@ -255,7 +257,7 @@ func (p Precompile) symbol(ctx sdk.Context, method *abi.Method, args []interface
 
 func (p Precompile) decimals(_ sdk.Context, method *abi.Method, _ []interface{}, value *big.Int) ([]byte, error) {
 	pcommon.AssertNonPayable(value)
-	// all native tokens are integer-based
+	// all native tokens are integer-based, returns decimals for microdenom (usei)
 	return method.Outputs.Pack(uint8(0))
 }
 

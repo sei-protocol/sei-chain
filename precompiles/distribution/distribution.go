@@ -76,7 +76,10 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID := input[:4]
+	methodID, err := pcommon.ExtractMethodID(input)
+	if err != nil {
+		return 0
+	}
 
 	if bytes.Equal(methodID, p.SetWithdrawAddrID) {
 		return 30000
