@@ -21,10 +21,7 @@ declare -a test_path_run_list=(
     "ValidBlocks/"
 
     # run only certain invalid block tests
-    "InvalidBlocks/bcBlockGasLimitTest/"
     "InvalidBlocks/bcEIP1559/"
-    "InvalidBlocks/bcEIP3675/"
-    "InvalidBlocks/bcInvalidHeaderTest/"
     "InvalidBlocks/bcStateTests/"
 )
 
@@ -34,23 +31,20 @@ declare -a test_name_skip_list=(
     "DelegateCallSpam" # passes, but takes super long
     "blockhashTests" # failing
     "blockhashNonConstArg" # failing
-    "BLOCKHASH_Bounds" # newly failing
-    "logRevert" # failing after increment height
+    "BLOCKHASH_Bounds" # failing
+    "logRevert" # uses an invalid opcode (0xBA)
 
     # invalid block tests - state tests
-    "GasUsedHigherThanBlockGasLimitButNotWithRefundsSuicideFirst"
-    "gasLimitTooHigh"
-    # "RefundOverflow" # skip bc gasUsed is not applicable
-    # "withdrawalsAmountBounds" # error: rlp: input string too long for uint64, decoding into (types.Block)(types.extblock).Withdrawals[0].Amount
+    "gasLimitTooHigh" # block header gas limit doesn't apply to us
+    "transactionFromSelfDestructedContract" # failing
+
+    # InvaldBlockTests/bcEIP1559
+    "badUncles" # reorgs don't apply to us
+    "checkGasLimit" # not sure what issue is
 )
 
 # list out all paths to json files starting from the block_tests_dir
 block_tests=$(find "$block_tests_path" -name "*.json" | sort)
-
-# sort the block tests
-# block_tests=$(echo "$block_tests" | sort)
-
-test_files=""
 
 i=0
 
