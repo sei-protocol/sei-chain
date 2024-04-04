@@ -86,7 +86,9 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	} else if bytes.Equal(methodID, p.WithdrawDelegationRewardsID) {
 		return 50000
 	}
-	panic("unknown method")
+
+	// This should never happen since this is going to fail during Run
+	return 0
 }
 
 func (p Precompile) Address() common.Address {
