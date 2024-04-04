@@ -113,7 +113,9 @@ func (p Precompile) Run(*vm.EVM, common.Address, []byte, *big.Int) ([]byte, erro
 }
 
 func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
 	token := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC20NativePointer(ctx, token)
 	if exists && existingVersion >= native.CurrentVersion {
@@ -161,7 +163,9 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 }
 
 func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
 	cwAddr := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC20CW20Pointer(ctx, cwAddr)
 	if exists && existingVersion >= cw20.CurrentVersion {
@@ -202,7 +206,9 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 }
 
 func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
 	cwAddr := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC721CW721Pointer(ctx, cwAddr)
 	if exists && existingVersion >= cw721.CurrentVersion {

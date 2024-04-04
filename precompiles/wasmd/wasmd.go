@@ -149,7 +149,10 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 			return
 		}
 	}()
-	pcommon.AssertArgsLength(args, 5)
+	if err := pcommon.ValidateArgsLength(args, 5); err != nil {
+		rerr = err
+		return
+	}
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
 	codeID := args[0].(uint64)
@@ -221,7 +224,10 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 			return
 		}
 	}()
-	pcommon.AssertArgsLength(args, 3)
+	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
+		rerr = err
+		return
+	}
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
 	contractAddrStr := args[0].(string)
@@ -283,8 +289,15 @@ func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{
 			return
 		}
 	}()
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 2)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		rerr = err
+		return
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		rerr = err
+		return
+	}
 
 	contractAddrStr := args[0].(string)
 	// addresses will be sent in Sei format

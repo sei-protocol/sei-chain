@@ -54,16 +54,20 @@ func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method
 	return ctxer.Ctx(), method, args, nil
 }
 
-func AssertArgsLength(args []interface{}, length int) {
+func ValidateArgsLength(args []interface{}, length int) error {
 	if len(args) != length {
-		panic(fmt.Sprintf("expected %d arguments but got %d", length, len(args)))
+		return fmt.Errorf("expected %d arguments but got %d", length, len(args))
 	}
+
+	return nil
 }
 
-func AssertNonPayable(value *big.Int) {
+func ValidateNonPayable(value *big.Int) error {
 	if value != nil && value.Sign() != 0 {
-		panic("sending funds to a non-payable function")
+		return errors.New("sending funds to a non-payable function")
 	}
+
+	return nil
 }
 
 func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper) (sdk.Coin, error) {
