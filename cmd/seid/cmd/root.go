@@ -292,6 +292,7 @@ func newApp(
 		baseapp.SetSnapshotInterval(cast.ToUint64(appOpts.Get(server.FlagStateSyncSnapshotInterval))),
 		baseapp.SetSnapshotKeepRecent(cast.ToUint32(appOpts.Get(server.FlagStateSyncSnapshotKeepRecent))),
 		baseapp.SetSnapshotDirectory(cast.ToString(appOpts.Get(server.FlagStateSyncSnapshotDir))),
+		baseapp.SetOccEnabled(cast.ToBool(appOpts.Get(baseapp.FlagOccEnabled))),
 	)
 }
 
@@ -348,6 +349,7 @@ func getPrimeNums(lo int, hi int) []int {
 
 // initAppConfig helps to override default appConfig template and configs.
 // return "", nil if no custom configuration is required for the application.
+// nolint: staticcheck
 func initAppConfig() (string, interface{}) {
 	// The following code snippet is just for reference.
 
@@ -381,7 +383,7 @@ func initAppConfig() (string, interface{}) {
 	//   own app.toml to override, or use this default value.
 	//
 	// In simapp, we set the min gas prices to 0.
-	srvCfg.MinGasPrices = "0.1usei"
+	srvCfg.MinGasPrices = "0.02usei"
 	srvCfg.API.Enable = true
 
 	// Pruning configs

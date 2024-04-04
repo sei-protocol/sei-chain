@@ -3,6 +3,7 @@ package wasmbinding
 import (
 	"encoding/json"
 
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -20,7 +21,7 @@ type SeiWasmMessage struct {
 	SetMetadata  json.RawMessage `json:"set_metadata,omitempty"`
 }
 
-func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage) ([]sdk.Msg, error) {
+func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage, _ wasmvmtypes.MessageInfo, _ wasmtypes.CodeInfo) ([]sdk.Msg, error) {
 	var parsedMessage SeiWasmMessage
 	if err := json.Unmarshal(msg, &parsedMessage); err != nil {
 		return []sdk.Msg{}, sdkerrors.Wrap(err, "Error parsing Sei Wasm Message")

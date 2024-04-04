@@ -26,3 +26,24 @@ func TestAllResourcesInTree(t *testing.T) {
 	}
 
 }
+
+func TestAllResourcesInStoreKeyMap(t *testing.T) {
+	resourceToStoreKeyMap := aclutils.ResourceTypeToStoreKeyMap
+	resourceTree := sdkacltypes.ResourceTree
+
+	storeKeyAllResourceTypes := make(map[sdkacltypes.ResourceType]bool)
+	for resourceType := range resourceToStoreKeyMap {
+		storeKeyAllResourceTypes[resourceType] = true
+	}
+
+	for resourceType := range resourceTree {
+		// omit ANY, KV, and MEM
+		if resourceType == sdkacltypes.ResourceType_ANY || resourceType == sdkacltypes.ResourceType_KV || resourceType == sdkacltypes.ResourceType_Mem {
+			continue
+		}
+		if _, ok := storeKeyAllResourceTypes[resourceType]; !ok {
+			panic(fmt.Sprintf("Missing resourceType=%s in the storekey to resource type prefix mapping", resourceType))
+		}
+	}
+
+}
