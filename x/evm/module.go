@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"math/big"
 
 	// this line is used by starport scaffolding # 1
 
@@ -213,11 +212,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		}
 		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, block.BlockHeader.Coinbase)
 	} else if am.keeper.EthReplayConfig.Enabled {
-		block, err := am.keeper.EthClient.BlockByNumber(ctx.Context(), big.NewInt(ctx.BlockHeight()+am.keeper.GetReplayInitialHeight(ctx)))
-		if err != nil {
-			panic(fmt.Sprintf("error getting block at height %d", ctx.BlockHeight()+am.keeper.GetReplayInitialHeight(ctx)))
-		}
-		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, block.Header_.Coinbase)
+		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, am.keeper.ReplayBlock.Header_.Coinbase)
 		am.keeper.SetReplayedHeight(ctx)
 	} else {
 		coinbase = am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
