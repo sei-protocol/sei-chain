@@ -33,6 +33,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
+	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -57,6 +58,8 @@ type Keeper struct {
 	nonceMx                      *sync.RWMutex
 	pendingTxs                   map[string][]*PendingTx
 	keyToNonce                   map[tmtypes.TxKey]*AddressNoncePair
+
+	QueryConfig *querier.Config
 
 	// only used during ETH replay. Not used in chain critical path.
 	EthClient       *ethclient.Client
