@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func (k *Keeper) VerifyBalance(ctx sdk.Context, addr common.Address) {
@@ -85,5 +86,21 @@ func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData
 	}
 	if nonce != k.GetNonce(ctx, addr) {
 		panic(fmt.Sprintf("nonce mismatch for address %s: expected %d, got %d", addr.Hex(), nonce, k.GetNonce(ctx, addr)))
+	}
+}
+
+func (k *Keeper) VerifyState(ctx sdk.Context, addr common.Address) {
+	store := k.PrefixStore(ctx, types.StateKey(addr))
+	iter := store.Iterator(nil, nil)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		key := common.BytesToHash(iter.Key())
+		ethVal, err := k.EthClient.StorageAt(ctx.Context(), addr, key, k.ReplayBlock.Number())
+		if err != nil {
+			panic(err)
+		}
+		if !bytes.Equal(iter.Value(), ethVal) {
+			panic(fmt.Sprintf("state mismatch for address %s hash %s: expected %X but got %X", addr.Hex(), key.Hex(), ethVal, iter.Value()))
+		}
 	}
 }

@@ -90,6 +90,7 @@ func Replay(a *App) {
 			a.Logger().Info(fmt.Sprintf("Verifying tx %s", tx.Hash().Hex()))
 			if tx.To() != nil {
 				a.EvmKeeper.VerifyBalance(ctx, *tx.To())
+				a.EvmKeeper.VerifyState(ctx, *tx.To())
 			}
 			a.EvmKeeper.VerifyTxResult(ctx, tx.Hash())
 		}
