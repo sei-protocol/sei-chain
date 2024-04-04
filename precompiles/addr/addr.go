@@ -113,7 +113,10 @@ func (p Precompile) getSeiAddr(ctx sdk.Context, method *abi.Method, args []inter
 func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	pcommon.AssertNonPayable(value)
 	pcommon.AssertArgsLength(args, 1)
-	evmAddr := p.evmKeeper.GetEVMAddressFromBech32OrDefault(ctx, args[0].(string))
+	evmAddr, err := p.evmKeeper.GetEVMAddressFromBech32OrDefault(ctx, args[0].(string))
+	if err != nil {
+		return nil, err
+	}
 	return method.Outputs.Pack(evmAddr)
 }
 
