@@ -98,21 +98,27 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte, _ *big.Int)
 }
 
 func (p Precompile) GetNative(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 	token := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC20NativePointer(ctx, token)
 	return method.Outputs.Pack(existingAddr, existingVersion, exists)
 }
 
 func (p Precompile) GetCW20(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 	addr := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC20CW20Pointer(ctx, addr)
 	return method.Outputs.Pack(existingAddr, existingVersion, exists)
 }
 
 func (p Precompile) GetCW721(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 	addr := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC721CW721Pointer(ctx, addr)
 	return method.Outputs.Pack(existingAddr, existingVersion, exists)
