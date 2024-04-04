@@ -36,7 +36,10 @@ func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method
 	if !ok {
 		return sdk.Context{}, nil, nil, errors.New("cannot get context from EVM")
 	}
-	methodID := input[:4]
+	methodID, err := ExtractMethodID(input)
+	if err != nil {
+		return sdk.Context{}, nil, nil, err
+	}
 	method, err := p.ABI.MethodById(methodID)
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
@@ -101,4 +104,12 @@ func ValidateCaller(ctx sdk.Context, evmKeeper EVMKeeper, caller common.Address,
 		return nil
 	}
 	return fmt.Errorf("calling contract %s with code hash %s is not whitelisted for delegate calls", callingContract.Hex(), codeHash.Hex())
+}
+
+func ExtractMethodID(input []byte) ([]byte, error) {
+	// Check if the input has at least the length needed for methodID
+	if len(input) < 4 {
+		return nil, errors.New("input too short to extract method ID")
+	}
+	return input[:4], nil
 }
