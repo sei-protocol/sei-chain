@@ -78,7 +78,10 @@ func NewPrecompile(transferKeeper pcommon.TransferKeeper, evmKeeper pcommon.EVMK
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID := input[:4]
+	methodID, err := pcommon.ExtractMethodID(input)
+	if err != nil {
+		return 0
+	}
 
 	method, err := p.ABI.MethodById(methodID)
 	if err != nil {
@@ -125,7 +128,11 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 			return
 		}
 	}()
-	pcommon.AssertArgsLength(args, 8)
+
+	if err := pcommon.ValidateArgsLength(args, 8); err != nil {
+		rerr = err
+		return
+	}
 	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !ok {
 		rerr = errors.New("caller is not a valid SEI address")

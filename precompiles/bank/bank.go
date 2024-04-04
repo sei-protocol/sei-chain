@@ -99,7 +99,10 @@ func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID := input[:4]
+	methodID, err := pcommon.ExtractMethodID(input)
+	if err != nil {
+		return 0
+	}
 
 	method, err := p.ABI.MethodById(methodID)
 	if err != nil {
@@ -127,7 +130,6 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 		}
 		return p.send(ctx, method, args, value)
 	case SendNativeMethod:
-		// TODO: Add validation on caller separate from validation above
 		return p.sendNative(ctx, method, args, caller, value)
 	case BalanceMethod:
 		return p.balance(ctx, method, args, value)
@@ -152,8 +154,13 @@ func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address) error
 }
 
 func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 4)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
+		return nil, err
+	}
 	denom := args[2].(string)
 	if denom == "" {
 		return nil, errors.New("invalid denom")
@@ -181,7 +188,9 @@ func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}
 }
 
 func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address, value *big.Int) ([]byte, error) {
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 	if value == nil || value.Sign() == 0 {
 		return nil, errors.New("set `value` field to non-zero to send")
 	}
@@ -214,8 +223,13 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 }
 
 func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 2)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, err
+	}
 
 	addr, err := p.accAddressFromArg(ctx, args[0])
 	if err != nil {
@@ -230,8 +244,13 @@ func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interfac
 }
 
 func (p Precompile) name(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 
 	denom := args[0].(string)
 	metadata, found := p.bankKeeper.GetDenomMetaData(ctx, denom)
@@ -242,8 +261,13 @@ func (p Precompile) name(ctx sdk.Context, method *abi.Method, args []interface{}
 }
 
 func (p Precompile) symbol(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 
 	denom := args[0].(string)
 	metadata, found := p.bankKeeper.GetDenomMetaData(ctx, denom)
@@ -254,14 +278,22 @@ func (p Precompile) symbol(ctx sdk.Context, method *abi.Method, args []interface
 }
 
 func (p Precompile) decimals(_ sdk.Context, method *abi.Method, _ []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	// all native tokens are integer-based
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	// all native tokens are integer-based, returns decimals for microdenom (usei)
 	return method.Outputs.Pack(uint8(0))
 }
 
 func (p Precompile) totalSupply(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 
 	denom := args[0].(string)
 	coin := p.bankKeeper.GetSupply(ctx, denom)

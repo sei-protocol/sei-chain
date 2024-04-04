@@ -84,7 +84,10 @@ func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKee
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID := input[:4]
+	methodID, err := pcommon.ExtractMethodID(input)
+	if err != nil {
+		return 0
+	}
 
 	if bytes.Equal(methodID, p.DelegateID) {
 		return 50000
@@ -93,7 +96,9 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	} else if bytes.Equal(methodID, p.UndelegateID) {
 		return 50000
 	}
-	panic("unknown method")
+
+	// This should never happen since this is going to fail during Run
+	return 0
 }
 
 func (p Precompile) Address() common.Address {
@@ -118,7 +123,9 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 }
 
 func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 	// if delegator is associated, then it must have Account set already
 	// if delegator is not associated, then it can't delegate anyway (since
 	// there is no good way to merge delegations if it becomes associated)
@@ -146,8 +153,13 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 }
 
 func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 3)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
+		return nil, err
+	}
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
 		return nil, fmt.Errorf("redelegator %s is not associated/doesn't have an Account set yet", caller.Hex())
@@ -168,8 +180,13 @@ func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller commo
 }
 
 func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 2)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, err
+	}
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
 		return nil, fmt.Errorf("undelegator %s is not associated/doesn't have an Account set yet", caller.Hex())

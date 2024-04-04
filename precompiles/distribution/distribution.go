@@ -76,14 +76,19 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID := input[:4]
+	methodID, err := pcommon.ExtractMethodID(input)
+	if err != nil {
+		return 0
+	}
 
 	if bytes.Equal(methodID, p.SetWithdrawAddrID) {
 		return 30000
 	} else if bytes.Equal(methodID, p.WithdrawDelegationRewardsID) {
 		return 50000
 	}
-	panic("unknown method")
+
+	// This should never happen since this is going to fail during Run
+	return 0
 }
 
 func (p Precompile) Address() common.Address {
@@ -106,8 +111,13 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 }
 
 func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	withdrawAddr, err := p.accAddressFromArg(ctx, args[0])
 	if err != nil {
@@ -121,8 +131,13 @@ func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, call
 }
 
 func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	validator, err := sdk.ValAddressFromBech32(args[0].(string))
 	if err != nil {

@@ -8,14 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAssertArgsLength(t *testing.T) {
-	require.NotPanics(t, func() { common.AssertArgsLength(nil, 0) })
-	require.NotPanics(t, func() { common.AssertArgsLength([]interface{}{1, ""}, 2) })
-	require.Panics(t, func() { common.AssertArgsLength([]interface{}{""}, 2) })
+func TestValidateArgsLength(t *testing.T) {
+	err := common.ValidateArgsLength(nil, 0)
+	require.Nil(t, err)
+	err = common.ValidateArgsLength([]interface{}{1, ""}, 2)
+	require.Nil(t, err)
+	err = common.ValidateArgsLength([]interface{}{""}, 2)
+	require.NotNil(t, err)
 }
 
-func TestAssertNonPayable(t *testing.T) {
-	require.NotPanics(t, func() { common.AssertNonPayable(nil) })
-	require.NotPanics(t, func() { common.AssertNonPayable(big.NewInt(0)) })
-	require.Panics(t, func() { common.AssertNonPayable(big.NewInt(1)) })
+func TestValidteNonPayable(t *testing.T) {
+	err := common.ValidateNonPayable(nil)
+	require.Nil(t, err)
+	err = common.ValidateNonPayable(big.NewInt(0))
+	require.Nil(t, err)
+	err = common.ValidateNonPayable(big.NewInt(1))
+	require.NotNil(t, err)
 }
