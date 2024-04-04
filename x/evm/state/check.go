@@ -23,6 +23,11 @@ func (s *DBImpl) Exist(addr common.Address) bool {
 		return true
 	}
 
+	// check if account has a balance
+	if s.GetBalance(addr).Cmp(utils.Big0) > 0 {
+		return true
+	}
+
 	// go-ethereum impl considers just-deleted accounts as "exist" as well
 	return s.HasSelfDestructed(addr)
 }

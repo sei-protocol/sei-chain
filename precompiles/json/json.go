@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	gjson "encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -73,6 +74,9 @@ func NewPrecompile() (*Precompile, error) {
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
+	if len(input) < 4 {
+		return 0
+	}
 	return uint64(GasCostPerByte * (len(input) - 4))
 }
 
@@ -101,6 +105,11 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte, value *big.
 		if err != nil {
 			return nil, err
 		}
+
+		if uint_.BitLen() > 256 {
+			return nil, errors.New("value does not fit in 32 bytes")
+		}
+
 		uint_.FillBytes(byteArr)
 		return byteArr, nil
 	}

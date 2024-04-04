@@ -22,10 +22,15 @@ func TestExist(t *testing.T) {
 	statedb.SetCode(addr2, []byte{3})
 	require.True(t, statedb.Exist(addr2))
 
-	// destructed
+	// has balance
 	_, addr3 := testkeeper.MockAddressPair()
-	statedb.SelfDestruct(addr3)
+	statedb.AddBalance(addr3, big.NewInt(1000000000000))
 	require.True(t, statedb.Exist(addr3))
+
+	// destructed
+	_, addr4 := testkeeper.MockAddressPair()
+	statedb.SelfDestruct(addr4)
+	require.True(t, statedb.Exist(addr4))
 }
 
 func TestEmpty(t *testing.T) {
