@@ -33,7 +33,6 @@ declare -a test_name_skip_list=(
     "blockhashNonConstArg" # failing
     "BLOCKHASH_Bounds" # failing
     "logRevert" # uses an invalid opcode (0xBA)
-    "blockWithAllTransactionTypes" # we are not supporting blobs
 
     # invalid block tests - state tests
     "gasLimitTooHigh" # block header gas limit doesn't apply to us
