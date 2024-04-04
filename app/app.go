@@ -123,6 +123,7 @@ import (
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/spf13/cast"
@@ -593,6 +594,11 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
 	}
+	evmQueryConfig, err := querier.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading evm query config due to %s", err))
+	}
+	app.EvmKeeper.QueryConfig = &evmQueryConfig
 	ethReplayConfig, err := replay.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading eth replay config due to %s", err))
