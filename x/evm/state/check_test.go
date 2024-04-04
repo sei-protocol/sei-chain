@@ -24,7 +24,7 @@ func TestExist(t *testing.T) {
 
 	// has balance
 	_, addr3 := testkeeper.MockAddressPair()
-	statedb.AddBalance(addr3, big.NewInt(1000000000000))
+	statedb.AddBalance(addr3, big.NewInt(1000000000000), tracing.BalanceChangeUnspecified)
 	require.True(t, statedb.Exist(addr3))
 
 	// destructed
