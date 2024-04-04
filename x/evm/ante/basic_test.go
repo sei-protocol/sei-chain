@@ -20,8 +20,7 @@ func TestBasicDecorator(t *testing.T) {
 	ctx, err := a.AnteHandle(ctx, &mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
-	require.Nil(t, err) // is not checktx
-	ctx = ctx.WithIsCheckTx(true)
+	require.NotNil(t, err) // expect out of gas err
 	dataTooLarge := make([]byte, params.MaxInitCodeSize+1)
 	for i := 0; i <= params.MaxInitCodeSize; i++ {
 		dataTooLarge[i] = 1
