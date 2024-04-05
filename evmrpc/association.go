@@ -98,7 +98,11 @@ func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Addr
 func (t *AssociationAPI) GetEVMAddress(_ context.Context, seiAddress string) (result string, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("sei_getEVMAddress", startTime, returnErr == nil)
-	ethAddress, found := t.keeper.GetEVMAddress(t.ctxProvider(LatestCtxHeight), sdk.MustAccAddressFromBech32(seiAddress))
+	seiAddr, err := sdk.AccAddressFromBech32(seiAddress)
+	if err != nil {
+		return "", err
+	}
+	ethAddress, found := t.keeper.GetEVMAddress(t.ctxProvider(LatestCtxHeight), seiAddr)
 	if !found {
 		return "", fmt.Errorf("failed to find EVM address for %s", seiAddress)
 	}
