@@ -316,6 +316,118 @@ func (m *QueryStaticCallResponse) GetData() []byte {
 	return nil
 }
 
+type QueryPointerRequest struct {
+	PointerType PointerType `protobuf:"varint,1,opt,name=pointer_type,json=pointerType,proto3,enum=seiprotocol.seichain.evm.PointerType" json:"pointer_type,omitempty"`
+	Pointee     string      `protobuf:"bytes,2,opt,name=pointee,proto3" json:"pointee,omitempty"`
+}
+
+func (m *QueryPointerRequest) Reset()         { *m = QueryPointerRequest{} }
+func (m *QueryPointerRequest) String() string { return proto.CompactTextString(m) }
+func (*QueryPointerRequest) ProtoMessage()    {}
+func (*QueryPointerRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_11c0d37eed5339f7, []int{6}
+}
+func (m *QueryPointerRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *QueryPointerRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_QueryPointerRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *QueryPointerRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryPointerRequest.Merge(m, src)
+}
+func (m *QueryPointerRequest) XXX_Size() int {
+	return m.Size()
+}
+func (m *QueryPointerRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryPointerRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_QueryPointerRequest proto.InternalMessageInfo
+
+func (m *QueryPointerRequest) GetPointerType() PointerType {
+	if m != nil {
+		return m.PointerType
+	}
+	return PointerType_ERC20
+}
+
+func (m *QueryPointerRequest) GetPointee() string {
+	if m != nil {
+		return m.Pointee
+	}
+	return ""
+}
+
+type QueryPointerResponse struct {
+	Pointer string `protobuf:"bytes,1,opt,name=pointer,proto3" json:"pointer,omitempty"`
+	Version uint32 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	Exists  bool   `protobuf:"varint,3,opt,name=exists,proto3" json:"exists,omitempty"`
+}
+
+func (m *QueryPointerResponse) Reset()         { *m = QueryPointerResponse{} }
+func (m *QueryPointerResponse) String() string { return proto.CompactTextString(m) }
+func (*QueryPointerResponse) ProtoMessage()    {}
+func (*QueryPointerResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_11c0d37eed5339f7, []int{7}
+}
+func (m *QueryPointerResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *QueryPointerResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_QueryPointerResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *QueryPointerResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryPointerResponse.Merge(m, src)
+}
+func (m *QueryPointerResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *QueryPointerResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryPointerResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_QueryPointerResponse proto.InternalMessageInfo
+
+func (m *QueryPointerResponse) GetPointer() string {
+	if m != nil {
+		return m.Pointer
+	}
+	return ""
+}
+
+func (m *QueryPointerResponse) GetVersion() uint32 {
+	if m != nil {
+		return m.Version
+	}
+	return 0
+}
+
+func (m *QueryPointerResponse) GetExists() bool {
+	if m != nil {
+		return m.Exists
+	}
+	return false
+}
+
 func init() {
 	proto.RegisterType((*QuerySeiAddressByEVMAddressRequest)(nil), "seiprotocol.seichain.evm.QuerySeiAddressByEVMAddressRequest")
 	proto.RegisterType((*QuerySeiAddressByEVMAddressResponse)(nil), "seiprotocol.seichain.evm.QuerySeiAddressByEVMAddressResponse")
@@ -323,39 +435,49 @@ func init() {
 	proto.RegisterType((*QueryEVMAddressBySeiAddressResponse)(nil), "seiprotocol.seichain.evm.QueryEVMAddressBySeiAddressResponse")
 	proto.RegisterType((*QueryStaticCallRequest)(nil), "seiprotocol.seichain.evm.QueryStaticCallRequest")
 	proto.RegisterType((*QueryStaticCallResponse)(nil), "seiprotocol.seichain.evm.QueryStaticCallResponse")
+	proto.RegisterType((*QueryPointerRequest)(nil), "seiprotocol.seichain.evm.QueryPointerRequest")
+	proto.RegisterType((*QueryPointerResponse)(nil), "seiprotocol.seichain.evm.QueryPointerResponse")
 }
 
 func init() { proto.RegisterFile("evm/query.proto", fileDescriptor_11c0d37eed5339f7) }
 
 var fileDescriptor_11c0d37eed5339f7 = []byte{
-	// 427 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x92, 0xcb, 0x6a, 0xdb, 0x40,
-	0x14, 0x86, 0x3d, 0xc2, 0x2d, 0xf5, 0xb4, 0xb4, 0x30, 0x0b, 0xd7, 0x98, 0xa2, 0x1a, 0x15, 0x8a,
-	0x37, 0x92, 0x7a, 0xd9, 0xba, 0x8b, 0xba, 0x98, 0xae, 0xba, 0xa8, 0x02, 0x59, 0x64, 0x63, 0xc6,
-	0xd2, 0x89, 0x3d, 0x20, 0x69, 0x64, 0xcf, 0x58, 0xc4, 0xdb, 0x3c, 0x41, 0x20, 0x4f, 0x90, 0xe7,
-	0xc8, 0x3a, 0x90, 0xa5, 0x21, 0x9b, 0x2c, 0x83, 0x9d, 0x07, 0x09, 0x1a, 0xf9, 0x22, 0x7c, 0x91,
-	0xe2, 0xec, 0x0e, 0x33, 0xf3, 0x7f, 0xf3, 0x9f, 0x73, 0x7e, 0xfc, 0x01, 0xe2, 0xc0, 0x1e, 0x8e,
-	0x61, 0x34, 0xb1, 0xa2, 0x11, 0x97, 0x9c, 0xd4, 0x04, 0x30, 0x55, 0xb9, 0xdc, 0xb7, 0x04, 0x30,
-	0x77, 0x40, 0x59, 0x68, 0x41, 0x1c, 0xd4, 0x3f, 0xf5, 0x39, 0xef, 0xfb, 0x60, 0xd3, 0x88, 0xd9,
-	0x34, 0x0c, 0xb9, 0xa4, 0x92, 0xf1, 0x50, 0xa4, 0x3a, 0xa3, 0x83, 0x8d, 0xff, 0x09, 0xe6, 0x08,
-	0xd8, 0x6f, 0xcf, 0x1b, 0x81, 0x10, 0xed, 0x49, 0xe7, 0xf8, 0xdf, 0xa2, 0x76, 0x60, 0x38, 0x06,
-	0x21, 0xc9, 0x67, 0xfc, 0x16, 0xe2, 0xa0, 0x4b, 0xd3, 0xd3, 0x1a, 0x6a, 0xa0, 0x66, 0xc5, 0xc1,
-	0x10, 0x07, 0x8b, 0x77, 0xc6, 0x29, 0xfe, 0x92, 0x8b, 0x11, 0x11, 0x0f, 0x05, 0x24, 0x1c, 0x01,
-	0x6c, 0x93, 0x23, 0x56, 0x22, 0xa2, 0x63, 0x4c, 0x85, 0xe0, 0x2e, 0xa3, 0x12, 0xbc, 0x9a, 0xd6,
-	0x40, 0xcd, 0x37, 0x4e, 0xe6, 0x64, 0x65, 0x77, 0xcd, 0x6e, 0x67, 0xfe, 0xcc, 0xd8, 0xcd, 0xfd,
-	0x66, 0x65, 0x77, 0x1f, 0x66, 0x6d, 0x37, 0xb7, 0xed, 0x42, 0xbb, 0x2d, 0x5c, 0x4d, 0xc7, 0x92,
-	0x0c, 0xdd, 0xfd, 0x43, 0x7d, 0x7f, 0x69, 0x91, 0xe0, 0xb2, 0x47, 0x25, 0x55, 0xcc, 0x77, 0x8e,
-	0xaa, 0xc9, 0x7b, 0xac, 0x49, 0xae, 0x28, 0x15, 0x47, 0x93, 0xdc, 0x30, 0xf1, 0xc7, 0x2d, 0xf5,
-	0xc2, 0xd9, 0x0e, 0xf9, 0x8f, 0xeb, 0x32, 0x7e, 0xa5, 0xde, 0x93, 0x1b, 0x84, 0xab, 0xbb, 0x37,
-	0x41, 0x5a, 0xd6, 0xbe, 0xa0, 0x58, 0xc5, 0x39, 0xa8, 0xff, 0x7a, 0xa1, 0x3a, 0x75, 0x6d, 0x58,
-	0xe7, 0x77, 0x8f, 0x97, 0x5a, 0x93, 0x7c, 0xb5, 0x05, 0x30, 0x73, 0xc9, 0xb1, 0x97, 0x1c, 0x3b,
-	0x09, 0x75, 0x66, 0x71, 0xaa, 0x8f, 0xdd, 0x2b, 0x2a, 0xec, 0x23, 0x37, 0x20, 0x85, 0x7d, 0xe4,
-	0xe7, 0xe2, 0x59, 0x7d, 0x64, 0x82, 0x43, 0xae, 0x10, 0xc6, 0xeb, 0x25, 0x92, 0x6f, 0x45, 0x53,
-	0xdc, 0x4c, 0x4b, 0xfd, 0xfb, 0x01, 0x8a, 0x43, 0x66, 0xad, 0x64, 0x5d, 0x97, 0xfa, 0x7e, 0xfb,
-	0xef, 0xed, 0x4c, 0x47, 0xd3, 0x99, 0x8e, 0x1e, 0x66, 0x3a, 0xba, 0x98, 0xeb, 0xa5, 0xe9, 0x5c,
-	0x2f, 0xdd, 0xcf, 0xf5, 0xd2, 0x89, 0xd9, 0x67, 0x72, 0x30, 0xee, 0x59, 0x2e, 0x0f, 0xb6, 0x58,
-	0x66, 0x0a, 0x3b, 0x53, 0x38, 0x39, 0x89, 0x40, 0xf4, 0x5e, 0xab, 0xfb, 0x9f, 0x4f, 0x01, 0x00,
-	0x00, 0xff, 0xff, 0xa3, 0xfc, 0x90, 0x59, 0xa3, 0x04, 0x00, 0x00,
+	// 547 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x53, 0xcd, 0x6e, 0xd3, 0x4c,
+	0x14, 0x8d, 0xf3, 0x7d, 0x6d, 0xe9, 0x6d, 0x29, 0xd2, 0x80, 0x42, 0x14, 0x21, 0x53, 0x99, 0x1f,
+	0x45, 0x48, 0xb6, 0xa1, 0x6c, 0xcb, 0x82, 0xa0, 0x0a, 0x36, 0x48, 0x60, 0x10, 0x0b, 0x36, 0xd1,
+	0xc4, 0xb9, 0xa4, 0x23, 0xc5, 0x1e, 0xd7, 0x33, 0xb1, 0xea, 0x2d, 0x4f, 0x80, 0x04, 0x2f, 0xc0,
+	0xc3, 0x20, 0xb1, 0xac, 0x60, 0xc3, 0x12, 0x25, 0x3c, 0x08, 0xf2, 0x78, 0x9c, 0xb8, 0x6d, 0x62,
+	0xb7, 0xec, 0xe6, 0x8e, 0xe7, 0x9c, 0x7b, 0xce, 0xf5, 0xb9, 0x70, 0x0d, 0x93, 0xc0, 0x3d, 0x9a,
+	0x60, 0x9c, 0x3a, 0x51, 0xcc, 0x25, 0x27, 0x6d, 0x81, 0x4c, 0x9d, 0x7c, 0x3e, 0x76, 0x04, 0x32,
+	0xff, 0x90, 0xb2, 0xd0, 0xc1, 0x24, 0xe8, 0xdc, 0x1a, 0x71, 0x3e, 0x1a, 0xa3, 0x4b, 0x23, 0xe6,
+	0xd2, 0x30, 0xe4, 0x92, 0x4a, 0xc6, 0x43, 0x91, 0xe3, 0x3a, 0x8a, 0x08, 0xc3, 0x49, 0xa0, 0x2f,
+	0xac, 0x03, 0xb0, 0x5e, 0x67, 0xbc, 0x6f, 0x90, 0x3d, 0x1d, 0x0e, 0x63, 0x14, 0xa2, 0x97, 0x1e,
+	0xbc, 0x7b, 0xa9, 0xcf, 0x1e, 0x1e, 0x4d, 0x50, 0x48, 0x72, 0x1b, 0xb6, 0x30, 0x09, 0xfa, 0x34,
+	0xbf, 0x6d, 0x1b, 0xbb, 0x46, 0x77, 0xd3, 0x03, 0x4c, 0x02, 0xfd, 0xce, 0xfa, 0x00, 0x77, 0x2a,
+	0x69, 0x44, 0xc4, 0x43, 0x81, 0x19, 0x8f, 0x40, 0x76, 0x96, 0x47, 0xcc, 0x41, 0xc4, 0x04, 0xa0,
+	0x42, 0x70, 0x9f, 0x51, 0x89, 0xc3, 0x76, 0x73, 0xd7, 0xe8, 0x5e, 0xf1, 0x4a, 0x37, 0x73, 0xb9,
+	0x0b, 0xee, 0x5e, 0xa9, 0x67, 0x49, 0x6e, 0x65, 0x9b, 0xb9, 0xdc, 0x55, 0x34, 0x0b, 0xb9, 0x95,
+	0xb6, 0x6b, 0xe5, 0xee, 0x43, 0x2b, 0x1f, 0x4b, 0xf6, 0x17, 0xfc, 0x67, 0x74, 0x3c, 0x2e, 0x24,
+	0x12, 0xf8, 0x7f, 0x48, 0x25, 0x55, 0x9c, 0xdb, 0x9e, 0x3a, 0x93, 0x1d, 0x68, 0x4a, 0xae, 0x58,
+	0x36, 0xbd, 0xa6, 0xe4, 0x96, 0x0d, 0x37, 0xcf, 0xa1, 0xb5, 0xb2, 0x25, 0x70, 0x2b, 0x85, 0xeb,
+	0xea, 0xf9, 0x2b, 0xce, 0x42, 0x89, 0x71, 0xd1, 0xe9, 0x05, 0x6c, 0x47, 0xf9, 0x4d, 0x5f, 0xa6,
+	0x11, 0x2a, 0xc8, 0xce, 0xde, 0x3d, 0x67, 0x55, 0x82, 0x1c, 0x8d, 0x7f, 0x9b, 0x46, 0xe8, 0x6d,
+	0x45, 0x8b, 0x82, 0xb4, 0x61, 0x23, 0x2f, 0x51, 0x8b, 0x2c, 0x4a, 0x6b, 0x00, 0x37, 0x4e, 0xb7,
+	0xd6, 0x32, 0xe7, 0x88, 0x58, 0x0f, 0xaf, 0x28, 0xb3, 0x2f, 0x09, 0xc6, 0x82, 0xf1, 0x50, 0x71,
+	0x5d, 0xf5, 0x8a, 0x92, 0xb4, 0x60, 0x1d, 0x8f, 0x99, 0x90, 0xa2, 0xfd, 0x9f, 0x9a, 0xa7, 0xae,
+	0xf6, 0x7e, 0xac, 0xc1, 0x9a, 0x6a, 0x42, 0xbe, 0x19, 0xd0, 0x5a, 0x1e, 0x34, 0xb2, 0xbf, 0xda,
+	0x56, 0x7d, 0xcc, 0x3b, 0x4f, 0xfe, 0x11, 0x9d, 0xbb, 0xb5, 0x9c, 0x8f, 0x3f, 0xff, 0x7c, 0x6e,
+	0x76, 0xc9, 0x7d, 0x57, 0x20, 0xb3, 0x0b, 0x1e, 0xb7, 0xe0, 0x71, 0xb3, 0xdd, 0x2b, 0xe5, 0x52,
+	0xf9, 0x58, 0x9e, 0xc0, 0x5a, 0x1f, 0x95, 0xf9, 0xaf, 0xf5, 0x51, 0x1d, 0xfb, 0x0b, 0xf9, 0x28,
+	0xed, 0x05, 0xf9, 0x6a, 0x00, 0x2c, 0x32, 0x4a, 0x1e, 0xd6, 0x4d, 0xf1, 0xec, 0x32, 0x74, 0x1e,
+	0x5d, 0x02, 0x71, 0x99, 0x59, 0x2b, 0x58, 0xdf, 0xcf, 0x44, 0x7d, 0x31, 0x60, 0x43, 0xa7, 0x93,
+	0xd8, 0x35, 0xed, 0x4e, 0x2f, 0x50, 0xc7, 0xb9, 0xe8, 0x73, 0x2d, 0xed, 0x81, 0x92, 0x76, 0x97,
+	0x58, 0x15, 0xd2, 0xf4, 0x1a, 0xf4, 0x9e, 0x7f, 0x9f, 0x9a, 0xc6, 0xc9, 0xd4, 0x34, 0x7e, 0x4f,
+	0x4d, 0xe3, 0xd3, 0xcc, 0x6c, 0x9c, 0xcc, 0xcc, 0xc6, 0xaf, 0x99, 0xd9, 0x78, 0x6f, 0x8f, 0x98,
+	0x3c, 0x9c, 0x0c, 0x1c, 0x9f, 0x07, 0xe7, 0x78, 0xec, 0x9c, 0xe8, 0x58, 0x51, 0x65, 0x4b, 0x2d,
+	0x06, 0xeb, 0xea, 0xfb, 0xe3, 0xbf, 0x01, 0x00, 0x00, 0xff, 0xff, 0x7d, 0xec, 0x65, 0x60, 0x2a,
+	0x06, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -373,6 +495,7 @@ type QueryClient interface {
 	SeiAddressByEVMAddress(ctx context.Context, in *QuerySeiAddressByEVMAddressRequest, opts ...grpc.CallOption) (*QuerySeiAddressByEVMAddressResponse, error)
 	EVMAddressBySeiAddress(ctx context.Context, in *QueryEVMAddressBySeiAddressRequest, opts ...grpc.CallOption) (*QueryEVMAddressBySeiAddressResponse, error)
 	StaticCall(ctx context.Context, in *QueryStaticCallRequest, opts ...grpc.CallOption) (*QueryStaticCallResponse, error)
+	Pointer(ctx context.Context, in *QueryPointerRequest, opts ...grpc.CallOption) (*QueryPointerResponse, error)
 }
 
 type queryClient struct {
@@ -410,11 +533,21 @@ func (c *queryClient) StaticCall(ctx context.Context, in *QueryStaticCallRequest
 	return out, nil
 }
 
+func (c *queryClient) Pointer(ctx context.Context, in *QueryPointerRequest, opts ...grpc.CallOption) (*QueryPointerResponse, error) {
+	out := new(QueryPointerResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Query/Pointer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // QueryServer is the server API for Query service.
 type QueryServer interface {
 	SeiAddressByEVMAddress(context.Context, *QuerySeiAddressByEVMAddressRequest) (*QuerySeiAddressByEVMAddressResponse, error)
 	EVMAddressBySeiAddress(context.Context, *QueryEVMAddressBySeiAddressRequest) (*QueryEVMAddressBySeiAddressResponse, error)
 	StaticCall(context.Context, *QueryStaticCallRequest) (*QueryStaticCallResponse, error)
+	Pointer(context.Context, *QueryPointerRequest) (*QueryPointerResponse, error)
 }
 
 // UnimplementedQueryServer can be embedded to have forward compatible implementations.
@@ -429,6 +562,9 @@ func (*UnimplementedQueryServer) EVMAddressBySeiAddress(ctx context.Context, req
 }
 func (*UnimplementedQueryServer) StaticCall(ctx context.Context, req *QueryStaticCallRequest) (*QueryStaticCallResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StaticCall not implemented")
+}
+func (*UnimplementedQueryServer) Pointer(ctx context.Context, req *QueryPointerRequest) (*QueryPointerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Pointer not implemented")
 }
 
 func RegisterQueryServer(s grpc1.Server, srv QueryServer) {
@@ -489,6 +625,24 @@ func _Query_StaticCall_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Query_Pointer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryPointerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QueryServer).Pointer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/seiprotocol.seichain.evm.Query/Pointer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QueryServer).Pointer(ctx, req.(*QueryPointerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _Query_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "seiprotocol.seichain.evm.Query",
 	HandlerType: (*QueryServer)(nil),
@@ -504,6 +658,10 @@ var _Query_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StaticCall",
 			Handler:    _Query_StaticCall_Handler,
+		},
+		{
+			MethodName: "Pointer",
+			Handler:    _Query_Pointer_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -717,6 +875,86 @@ func (m *QueryStaticCallResponse) MarshalToSizedBuffer(dAtA []byte) (int, error)
 	return len(dAtA) - i, nil
 }
 
+func (m *QueryPointerRequest) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *QueryPointerRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *QueryPointerRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Pointee) > 0 {
+		i -= len(m.Pointee)
+		copy(dAtA[i:], m.Pointee)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Pointee)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.PointerType != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.PointerType))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *QueryPointerResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *QueryPointerResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *QueryPointerResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Exists {
+		i--
+		if m.Exists {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.Version != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.Version))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Pointer) > 0 {
+		i -= len(m.Pointer)
+		copy(dAtA[i:], m.Pointer)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Pointer)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintQuery(dAtA []byte, offset int, v uint64) int {
 	offset -= sovQuery(v)
 	base := offset
@@ -812,6 +1050,41 @@ func (m *QueryStaticCallResponse) Size() (n int) {
 	l = len(m.Data)
 	if l > 0 {
 		n += 1 + l + sovQuery(uint64(l))
+	}
+	return n
+}
+
+func (m *QueryPointerRequest) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.PointerType != 0 {
+		n += 1 + sovQuery(uint64(m.PointerType))
+	}
+	l = len(m.Pointee)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	return n
+}
+
+func (m *QueryPointerResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Pointer)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.Version != 0 {
+		n += 1 + sovQuery(uint64(m.Version))
+	}
+	if m.Exists {
+		n += 2
 	}
 	return n
 }
@@ -1369,6 +1642,228 @@ func (m *QueryStaticCallResponse) Unmarshal(dAtA []byte) error {
 				m.Data = []byte{}
 			}
 			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *QueryPointerRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: QueryPointerRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: QueryPointerRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PointerType", wireType)
+			}
+			m.PointerType = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PointerType |= PointerType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pointee", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Pointee = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *QueryPointerResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: QueryPointerResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: QueryPointerResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pointer", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Pointer = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Version", wireType)
+			}
+			m.Version = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Version |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Exists", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Exists = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipQuery(dAtA[iNdEx:])
