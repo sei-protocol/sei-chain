@@ -23,7 +23,11 @@ func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEV
 		addr := common.HexToAddress(req.To)
 		to = &addr
 	}
-	ret, err := k.CallEVM(ctx, sdk.MustAccAddressFromBech32(req.Sender), to, req.Value, req.Data)
+	senderAddr, err := sdk.AccAddressFromBech32(req.Sender)
+	if err != nil {
+		return nil, err
+	}
+	ret, err := k.CallEVM(ctx, senderAddr, to, req.Value, req.Data)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +44,11 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 		to = &addr
 	}
 	zeroInt := sdk.ZeroInt()
-	ret, err := k.CallEVM(ctx, sdk.MustAccAddressFromBech32(req.Sender), to, &zeroInt, req.Data)
+	senderAddr, err := sdk.AccAddressFromBech32(req.Sender)
+	if err != nil {
+		return nil, err
+	}
+	ret, err := k.CallEVM(ctx, senderAddr, to, &zeroInt, req.Data)
 	if err != nil {
 		return nil, err
 	}

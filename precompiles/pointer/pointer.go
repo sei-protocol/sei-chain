@@ -171,7 +171,11 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 	if exists && existingVersion >= cw20.CurrentVersion {
 		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw20.CurrentVersion)
 	}
-	res, err := p.wasmdKeeper.QuerySmart(ctx, sdk.MustAccAddressFromBech32(cwAddr), []byte("{\"token_info\":{}}"))
+	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
+	if err != nil {
+		return nil, 0, err
+	}
+	res, err := p.wasmdKeeper.QuerySmart(ctx, cwAddress, []byte("{\"token_info\":{}}"))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -214,7 +218,11 @@ func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller comm
 	if exists && existingVersion >= cw721.CurrentVersion {
 		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw721.CurrentVersion)
 	}
-	res, err := p.wasmdKeeper.QuerySmart(ctx, sdk.MustAccAddressFromBech32(cwAddr), []byte("{\"contract_info\":{}}"))
+	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
+	if err != nil {
+		return nil, 0, err
+	}
+	res, err := p.wasmdKeeper.QuerySmart(ctx, cwAddress, []byte("{\"contract_info\":{}}"))
 	if err != nil {
 		return nil, 0, err
 	}
