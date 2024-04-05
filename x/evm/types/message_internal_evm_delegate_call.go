@@ -19,7 +19,11 @@ func NewMessageInternalEVMDelegateCall(from sdk.AccAddress, to string, codeHash 
 }
 
 func (msg *MsgInternalEVMDelegateCall) GetSigners() []sdk.AccAddress {
-	return []sdk.AccAddress{sdk.MustAccAddressFromBech32(msg.FromContract)}
+	contractAddr, err := sdk.AccAddressFromBech32(msg.FromContract)
+	if err != nil {
+		return []sdk.AccAddress{}
+	}
+	return []sdk.AccAddress{contractAddr}
 }
 
 func (msg *MsgInternalEVMDelegateCall) ValidateBasic() error {
