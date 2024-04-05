@@ -11,6 +11,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -178,6 +179,7 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 	_1_1gwei := big.NewInt(1100000000000)
 	_2gwei := big.NewInt(200000000000)
 	maxInt := big.NewInt(math.MaxInt64)
+	maxPriority := big.NewInt(antedecorators.MaxPriority)
 
 	scenarios := []struct {
 		name             string
@@ -236,7 +238,7 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 				GasTipCap: new(big.Int).Add(maxInt, big.NewInt(1)),
 				Value:     big.NewInt(1000000000),
 			},
-			expectedPriority: maxInt,
+			expectedPriority: maxPriority,
 		},
 		{
 			name: "LegacyTx has priority with gas price",

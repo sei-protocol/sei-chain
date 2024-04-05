@@ -70,6 +70,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	return next(ctx, tx, simulate)
 }
 
+//nolint:deadcode
 func validateBlobSidecar(hashes []common.Hash, sidecar *ethtypes.BlobTxSidecar) error {
 	if len(sidecar.Blobs) != len(hashes) {
 		return fmt.Errorf("invalid number of %d blobs compared to %d blob hashes", len(sidecar.Blobs), len(hashes))

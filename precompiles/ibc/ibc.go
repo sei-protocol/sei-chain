@@ -128,7 +128,11 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 			return
 		}
 	}()
-	pcommon.AssertArgsLength(args, 8)
+
+	if err := pcommon.ValidateArgsLength(args, 8); err != nil {
+		rerr = err
+		return
+	}
 	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !ok {
 		rerr = errors.New("caller is not a valid SEI address")

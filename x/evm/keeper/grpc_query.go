@@ -58,10 +58,56 @@ func (q Querier) StaticCall(c context.Context, req *types.QueryStaticCallRequest
 	if req.To == "" {
 		return nil, errors.New("cannot use static call to create contracts")
 	}
+	if ctx.GasMeter().Limit() == 0 {
+		ctx = ctx.WithGasMeter(sdk.NewGasMeter(q.QueryConfig.GasLimit))
+	}
 	to := common.HexToAddress(req.To)
 	res, err := q.Keeper.StaticCallEVM(ctx, q.Keeper.AccountKeeper().GetModuleAddress(types.ModuleName), &to, req.Data)
 	if err != nil {
 		return nil, err
 	}
 	return &types.QueryStaticCallResponse{Data: res}, nil
+}
+
+func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*types.QueryPointerResponse, error) {
+	ctx := sdk.UnwrapSDKContext(c)
+	switch req.PointerType {
+	case types.PointerType_NATIVE:
+		p, v, e := q.Keeper.GetERC20NativePointer(ctx, req.Pointee)
+		return &types.QueryPointerResponse{
+			Pointer: p.Hex(),
+			Version: uint32(v),
+			Exists:  e,
+		}, nil
+	case types.PointerType_CW20:
+		p, v, e := q.Keeper.GetERC20CW20Pointer(ctx, req.Pointee)
+		return &types.QueryPointerResponse{
+			Pointer: p.Hex(),
+			Version: uint32(v),
+			Exists:  e,
+		}, nil
+	case types.PointerType_CW721:
+		p, v, e := q.Keeper.GetERC721CW721Pointer(ctx, req.Pointee)
+		return &types.QueryPointerResponse{
+			Pointer: p.Hex(),
+			Version: uint32(v),
+			Exists:  e,
+		}, nil
+	case types.PointerType_ERC20:
+		p, v, e := q.Keeper.GetCW20ERC20Pointer(ctx, common.HexToAddress(req.Pointee))
+		return &types.QueryPointerResponse{
+			Pointer: p.String(),
+			Version: uint32(v),
+			Exists:  e,
+		}, nil
+	case types.PointerType_ERC721:
+		p, v, e := q.Keeper.GetCW721ERC721Pointer(ctx, common.HexToAddress(req.Pointee))
+		return &types.QueryPointerResponse{
+			Pointer: p.String(),
+			Version: uint32(v),
+			Exists:  e,
+		}, nil
+	default:
+		return nil, errors.ErrUnsupported
+	}
 }
