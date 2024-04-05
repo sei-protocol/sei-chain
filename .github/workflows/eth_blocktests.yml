@@ -50,4 +50,4 @@ jobs:
         run: git clone https://github.com/ethereum/tests.git ethtests
 
       - name: "Run ETH Blocktest"
-        run: ./run_blocktests.sh ./ethtests/BlockchainTests/ValidBlocks/ ${{ matrix.runner-index }} ${{ env.TOTAL_RUNNERS }}
+        run: ./run_blocktests.sh ./ethtests/BlockchainTests/ ${{ matrix.runner-index }} ${{ env.TOTAL_RUNNERS }}
