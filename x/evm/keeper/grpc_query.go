@@ -41,7 +41,11 @@ func (q Querier) EVMAddressBySeiAddress(c context.Context, req *types.QueryEVMAd
 	if req.SeiAddress == "" {
 		return nil, sdkerrors.ErrInvalidRequest
 	}
-	addr, found := q.Keeper.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(req.SeiAddress))
+	seiAddr, err := sdk.AccAddressFromBech32(req.SeiAddress)
+	if err != nil {
+		return nil, err
+	}
+	addr, found := q.Keeper.GetEVMAddress(ctx, seiAddr)
 	if !found {
 		return &types.QueryEVMAddressBySeiAddressResponse{Associated: false}, nil
 	}

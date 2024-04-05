@@ -124,7 +124,11 @@ func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []inter
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
-	evmAddr := p.evmKeeper.GetEVMAddressFromBech32OrDefault(ctx, args[0].(string))
+
+	evmAddr, err := p.evmKeeper.GetEVMAddressFromBech32OrDefault(ctx, args[0].(string))
+	if err != nil {
+		return nil, err
+	}
 	return method.Outputs.Pack(evmAddr)
 }
 
