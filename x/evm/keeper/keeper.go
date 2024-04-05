@@ -421,8 +421,12 @@ func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 		return k.ReplayBlock.Header_.BaseFee
 	}
 	if k.EthBlockTestConfig.Enabled {
-		block := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
-		return block.BlockHeader.BaseFeePerGas
+		bb := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
+		b, err := bb.Decode()
+		if err != nil {
+			panic(err)
+		}
+		return b.Header_.BaseFee
 	}
 	return nil
 }
@@ -460,26 +464,12 @@ func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
 }
 
 func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
-	btBlock := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
-	btHeader := btBlock.BlockHeader
-	header := &ethtypes.Header{
-		ParentHash:  btHeader.ParentHash,
-		UncleHash:   btHeader.UncleHash,
-		Coinbase:    btHeader.Coinbase,
-		Root:        btHeader.StateRoot,
-		TxHash:      btHeader.TransactionsTrie,
-		ReceiptHash: btHeader.ReceiptTrie,
-		Bloom:       btHeader.Bloom,
-		Difficulty:  btHeader.Difficulty,
-		Number:      new(big.Int).Set(btHeader.Number),
-		GasLimit:    btHeader.GasLimit,
-		GasUsed:     btHeader.GasUsed,
-		Time:        btHeader.Timestamp,
-		Extra:       btHeader.ExtraData,
-		MixDigest:   btHeader.MixHash,
-		Nonce:       btHeader.Nonce,
-		BaseFee:     btHeader.BaseFeePerGas,
+	bb := k.BlockTest.Json.Blocks[ctx.BlockHeight()-1]
+	b, err := bb.Decode()
+	if err != nil {
+		return nil, err
 	}
+	header := b.Header_
 	getHash := func(height uint64) common.Hash {
 		height = height + 1
 		for i := 0; i < len(k.BlockTest.Json.Blocks); i++ {
