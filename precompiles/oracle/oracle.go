@@ -129,8 +129,13 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, input []byte, value *big.
 }
 
 func (p Precompile) getExchangeRates(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 0)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
+		return nil, err
+	}
 	exchangeRates := []DenomOracleExchangeRatePair{}
 	p.oracleKeeper.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
 		exchangeRates = append(exchangeRates, DenomOracleExchangeRatePair{Denom: denom, OracleExchangeRateVal: OracleExchangeRate{ExchangeRate: rate.ExchangeRate.String(), LastUpdate: rate.LastUpdate.String(), LastUpdateTimestamp: rate.LastUpdateTimestamp}})
@@ -141,8 +146,13 @@ func (p Precompile) getExchangeRates(ctx sdk.Context, method *abi.Method, args [
 }
 
 func (p Precompile) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
-	pcommon.AssertNonPayable(value)
-	pcommon.AssertArgsLength(args, 1)
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
 	lookbackSeconds := args[0].(uint64)
 	twaps, err := p.oracleKeeper.CalculateTwaps(ctx, lookbackSeconds)
 	if err != nil {
