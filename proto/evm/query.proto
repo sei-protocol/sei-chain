@@ -2,6 +2,7 @@ syntax = "proto3";
 package seiprotocol.seichain.evm;
 
 import "google/api/annotations.proto";
+import "evm/enums.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
@@ -17,6 +18,10 @@ service Query {
 
     rpc StaticCall(QueryStaticCallRequest) returns (QueryStaticCallResponse) {
         option (google.api.http).get = "/sei-protocol/seichain/evm/static_call";
+    }
+
+    rpc Pointer(QueryPointerRequest) returns (QueryPointerResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/pointer";
     }
 }
 
@@ -45,4 +50,15 @@ message QueryStaticCallRequest {
 
 message QueryStaticCallResponse {
     bytes data = 1;
+}
+
+message QueryPointerRequest {
+    PointerType pointer_type = 1;
+    string pointee = 2;
+}
+
+message QueryPointerResponse {
+    string pointer = 1;
+    uint32 version = 2;
+    bool exists = 3;
 }
