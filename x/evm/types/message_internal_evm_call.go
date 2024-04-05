@@ -18,7 +18,11 @@ func NewMessageInternalEVMCall(from sdk.AccAddress, to string, value *sdk.Int, d
 }
 
 func (msg *MsgInternalEVMCall) GetSigners() []sdk.AccAddress {
-	return []sdk.AccAddress{sdk.MustAccAddressFromBech32(msg.Sender)}
+	senderAddr, err := sdk.AccAddressFromBech32(msg.Sender)
+	if err != nil {
+		return []sdk.AccAddress{}
+	}
+	return []sdk.AccAddress{senderAddr}
 }
 
 func (msg *MsgInternalEVMCall) ValidateBasic() error {
