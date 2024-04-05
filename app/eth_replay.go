@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"math/big"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	ethcore "github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -202,6 +204,9 @@ func encodeTx(tx *ethtypes.Transaction, txConfig client.TxConfig) []byte {
 		txData, err = ethtx.NewBlobTx(tx)
 	}
 	if err != nil {
+		if strings.Contains(err.Error(), ethcore.ErrTipAboveFeeCap.Error()) {
+			return nil
+		}
 		panic(err)
 	}
 	msg, err := evmtypes.NewMsgEVMTransaction(txData)
