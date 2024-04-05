@@ -78,9 +78,13 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
 		s.flushCtx(s.snapshottedCtxs[i])
 	}
+
+	// delete state of self-destructed accoutns
+	s.clearAccountStateIfDestructed(s.tempStateCurrent)
 	surplus = s.tempStateCurrent.surplus
 	for _, ts := range s.tempStatesHist {
 		surplus = surplus.Add(ts.surplus)
+		s.clearAccountStateIfDestructed(ts)
 	}
 	if surplus.IsNegative() {
 		err = fmt.Errorf("negative surplus value: %s", surplus.String())
