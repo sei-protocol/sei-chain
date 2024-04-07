@@ -78,11 +78,11 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	}
 	if len(feeHist.Reward) == 0 || len(feeHist.Reward[0]) == 0 {
 		// if there is no EVM tx in the most recent block, return the minimum fee param
-		return (*hexutil.Big)(i.keeper.GetMinimumFeePerGas(i.ctxProvider(LatestCtxHeight)).RoundInt().BigInt()), nil
+		return (*hexutil.Big)(i.keeper.GetMinimumFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()), nil
 	}
 	return (*hexutil.Big)(new(big.Int).Add(
 		feeHist.Reward[0][0].ToInt(),
-		i.keeper.GetBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).RoundInt().BigInt(),
+		i.keeper.GetBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt(),
 	)), nil
 }
 

@@ -208,7 +208,7 @@ func EncodeTmBlock(
 		"size":             hexutil.Uint64(block.Block.Size()),
 		"uncles":           []common.Hash{}, // inapplicable to Sei
 		"transactions":     transactions,
-		"baseFeePerGas":    (*hexutil.Big)(k.GetBaseFeePerGas(ctx).RoundInt().BigInt()),
+		"baseFeePerGas":    (*hexutil.Big)(k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()),
 	}
 	if fullTx {
 		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei
