@@ -73,18 +73,18 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 // fee per gas to be burnt
 func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context) *big.Int {
-	return fc.evmKeeper.GetBaseFeePerGas(ctx).RoundInt().BigInt()
+	return fc.evmKeeper.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
 }
 
 // lowest allowed fee per gas
 func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
-	return fc.evmKeeper.GetMinimumFeePerGas(ctx).RoundInt().BigInt()
+	return fc.evmKeeper.GetMinimumFeePerGas(ctx).TruncateInt().BigInt()
 }
 
 // CalculatePriority returns a priority based on the effective gas price of the transaction
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
 	gp := txData.EffectiveGasPrice(utils.Big0)
-	priority := new(big.Int).Quo(gp, fc.evmKeeper.GetPriorityNormalizer(ctx).RoundInt().BigInt())
+	priority := sdk.NewDecFromBigInt(gp).Quo(fc.evmKeeper.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if priority.Cmp(big.NewInt(antedecorators.MaxPriority)) > 0 {
 		priority = big.NewInt(antedecorators.MaxPriority)
 	}

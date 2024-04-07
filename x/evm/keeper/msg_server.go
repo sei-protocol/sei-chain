@@ -124,7 +124,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		// to Sei transactions' priority, which is based on gas limit in
 		// Sei unit, so we use the same coefficient to convert gas unit here.
 		adjustedGasUsed := server.GetPriorityNormalizer(ctx).MulInt64(int64(serverRes.GasUsed))
-		originalGasMeter.ConsumeGas(adjustedGasUsed.RoundInt().Uint64(), "evm transaction")
+		originalGasMeter.ConsumeGas(adjustedGasUsed.TruncateInt().Uint64(), "evm transaction")
 	}()
 
 	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)

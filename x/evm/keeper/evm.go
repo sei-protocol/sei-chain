@@ -105,8 +105,8 @@ func (k *Keeper) callEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Addres
 		// infinite gas meter (used in queries)
 		seiGasRemaining = math.MaxUint64
 	}
-	multiplier := k.GetPriorityNormalizer(ctx).RoundInt().BigInt()
-	evmGasRemaining := new(big.Int).Quo(new(big.Int).SetUint64(seiGasRemaining), multiplier)
+	multiplier := k.GetPriorityNormalizer(ctx)
+	evmGasRemaining := sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(multiplier).TruncateInt().BigInt()
 	if evmGasRemaining.Cmp(MaxUint64BigInt) > 0 {
 		evmGasRemaining = MaxUint64BigInt
 	}
@@ -115,7 +115,7 @@ func (k *Keeper) callEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Addres
 		value = val.BigInt()
 	}
 	ret, leftoverGas, err := f(vm.AccountRef(sender), to, data, evmGasRemaining.Uint64(), value)
-	ctx.GasMeter().ConsumeGas(ctx.GasMeter().Limit()-new(big.Int).Mul(new(big.Int).SetUint64(leftoverGas), multiplier).Uint64(), "call EVM")
+	ctx.GasMeter().ConsumeGas(ctx.GasMeter().Limit()-sdk.NewDecFromInt(sdk.NewIntFromUint64(leftoverGas)).Mul(multiplier).TruncateInt().Uint64(), "call EVM")
 	if err != nil {
 		return nil, err
 	}
