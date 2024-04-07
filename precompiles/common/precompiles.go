@@ -95,7 +95,7 @@ func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer 
 func GetRemainingGas(ctx sdk.Context, evmKeeper EVMKeeper) uint64 {
 	gasMultipler := evmKeeper.GetPriorityNormalizer(ctx)
 	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
-	return new(big.Int).Mul(new(big.Int).SetUint64(seiGasRemaining), gasMultipler.RoundInt().BigInt()).Uint64()
+	return sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Mul(gasMultipler).TruncateInt().Uint64()
 }
 
 func ValidateCaller(ctx sdk.Context, evmKeeper EVMKeeper, caller common.Address, callingContract common.Address) error {

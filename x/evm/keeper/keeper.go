@@ -188,8 +188,8 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		GasLimit:    gp.Gas(),
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
 		Time:        uint64(ctx.BlockHeader().Time.Unix()),
-		Difficulty:  utils.Big0,                                  // only needed for PoW
-		BaseFee:     k.GetBaseFeePerGas(ctx).RoundInt().BigInt(), // feemarket not enabled
+		Difficulty:  utils.Big0,                                     // only needed for PoW
+		BaseFee:     k.GetBaseFeePerGas(ctx).TruncateInt().BigInt(), // feemarket not enabled
 		Random:      &rh,
 	}, nil
 }
