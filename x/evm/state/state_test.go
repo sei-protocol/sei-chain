@@ -37,13 +37,16 @@ func TestState(t *testing.T) {
 	tval := common.BytesToHash([]byte("mno"))
 	statedb.SetTransientState(evmAddr, tkey, tval)
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
-	// destruct should clear balance and state, but keep transient state. Committed state should also be accessible
+	// destruct should clear balance, but keep state. Committed state should also be accessible
+	// state would be cleared after finalize
 	statedb.SelfDestruct(evmAddr)
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
-	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
+	require.NotEqual(t, common.Hash{}, statedb.GetState(evmAddr, key))
 	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, key))
 	require.Equal(t, big.NewInt(0), statedb.GetBalance(evmAddr))
 	require.True(t, statedb.HasSelfDestructed(evmAddr))
+	statedb.Finalize()
+	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
 	// set storage
 	statedb.SetStorage(evmAddr, map[common.Hash]common.Hash{{}: {}})
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, common.Hash{}))
@@ -108,11 +111,13 @@ func TestSelfDestructAssociated(t *testing.T) {
 	// Selfdestruct6780 is equivalent to SelfDestruct if account is created in the same block
 	statedb.Selfdestruct6780(evmAddr)
 	require.Equal(t, tval, statedb.GetTransientState(evmAddr, tkey))
-	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
+	require.NotEqual(t, common.Hash{}, statedb.GetState(evmAddr, key))
 	require.Equal(t, big.NewInt(0), statedb.GetBalance(evmAddr))
 	require.Equal(t, big.NewInt(0), k.BankKeeper().GetBalance(ctx, seiAddr, k.GetBaseDenom(ctx)).Amount.BigInt())
 	require.True(t, statedb.HasSelfDestructed(evmAddr))
 	require.False(t, statedb.Created(evmAddr))
+	statedb.Finalize()
+	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
 	// association should also be removed
 	_, ok := k.GetSeiAddress(statedb.Ctx(), evmAddr)
 	require.False(t, ok)
