@@ -119,7 +119,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 		return nil, 0, err
 	}
 	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
-	gasLimitBigInt := new(big.Int).Mul(new(big.Int).SetUint64(suppliedGas), gasMultipler.RoundInt().BigInt())
+	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultipler).TruncateInt().BigInt()
 	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
 		gasLimitBigInt = utils.BigMaxU64
 	}
