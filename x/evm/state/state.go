@@ -70,9 +70,6 @@ func (s *DBImpl) SelfDestruct(acc common.Address) {
 
 	s.SubBalance(acc, s.GetBalance(acc), tracing.BalanceDecreaseSelfdestruct)
 
-	// clear account state
-	s.clearAccountState(acc)
-
 	// mark account as self-destructed
 	s.MarkAccount(acc, AccountDeleted)
 }
@@ -109,6 +106,15 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 	s.tempStateCurrent = s.tempStatesHist[rev]
 	s.tempStatesHist = s.tempStatesHist[:rev]
 	s.Snapshot()
+}
+
+func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
+	for acc, status := range st.transientAccounts {
+		if !bytes.Equal(status, AccountDeleted) {
+			return
+		}
+		s.clearAccountState(common.HexToAddress(acc))
+	}
 }
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
