@@ -61,7 +61,7 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	})
 	require.NotNil(t, err)
 
-	txData.GasFeeCap = k.GetMinimumFeePerGas(ctx).RoundInt().BigInt()
+	txData.GasFeeCap = k.GetMinimumFeePerGas(ctx).TruncateInt().BigInt()
 	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
 	typedTx, err = ethtx.NewDynamicFeeTx(tx)
