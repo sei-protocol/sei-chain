@@ -181,6 +181,21 @@ contract CW721ERC721PointerTest is Test {
     function testTransferFrom() public {
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"owner_of\":{\"token_id\":\"1\"}}")),
+            abi.encode("{\"owner\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}")
+        );
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsBytes(bytes,string)", bytes("{\"owner\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}"), "owner"),
+            abi.encode(bytes("sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe"))
+        );
+        vm.mockCall(
+            ADDR_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("getEvmAddr(string)", "sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe"),
+            abi.encode(address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266))
+        );
+        vm.mockCall(
+            WASMD_PRECOMPILE_ADDRESS,
             abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, bytes("{\"transfer_nft\":{\"recipient\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"token_id\":\"1\"}}"), bytes("[]")),
             abi.encode(bytes(""))
         );
