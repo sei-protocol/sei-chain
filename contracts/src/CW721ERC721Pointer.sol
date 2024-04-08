@@ -87,6 +87,7 @@ contract CW721ERC721Pointer is ERC721 {
         if (to == address(0)) {
             revert ERC721InvalidReceiver(address(0));
         }
+        require(from == ownerOf(tokenId), "`from` must be the owner");
         string memory recipient = _formatPayload("recipient", _doubleQuotes(AddrPrecompile.getSeiAddr(to)));
         string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
         string memory req = _curlyBrace(_formatPayload("transfer_nft", _curlyBrace(_join(recipient, tId, ","))));
