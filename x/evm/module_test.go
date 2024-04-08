@@ -65,4 +65,13 @@ func TestABCI(t *testing.T) {
 	m.EndBlock(ctx, abci.RequestEndBlock{})
 	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
+
+	// third block
+	m.BeginBlock(ctx, abci.RequestBeginBlock{})
+	k.AppendErrorToEvmTxDeferredInfo(ctx.WithTxIndex(0), common.Hash{1}, "test error")
+	k.SetTxResults([]*abci.ExecTxResult{{Code: 1}})
+	m.EndBlock(ctx, abci.RequestEndBlock{})
+	receipt, err := k.GetReceipt(ctx, common.Hash{1})
+	require.Nil(t, err)
+	require.Equal(t, receipt.VmError, "test error")
 }
