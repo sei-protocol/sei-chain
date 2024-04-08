@@ -59,6 +59,7 @@ func TestInternalCall(t *testing.T) {
 	contractAddr := crypto.CreateAddress(senderEvmAddr, 0)
 	require.NotEmpty(t, k.GetCode(ctx, contractAddr))
 	require.Equal(t, ret.Data, k.GetCode(ctx, contractAddr))
+	k.SetERC20NativePointer(ctx, "test", contractAddr)
 
 	receiverAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, receiverAddr, evmAddr)
