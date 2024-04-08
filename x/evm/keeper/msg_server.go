@@ -115,9 +115,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		bloom := ethtypes.Bloom{}
 		bloom.SetBytes(receipt.LogsBloom)
 		server.AppendToEvmTxDeferredInfo(ctx, bloom, tx.Hash(), surplus)
-		if serverRes.VmError == "" && tx.To() == nil {
-			server.AddToWhitelistIfApplicable(ctx, tx.Data(), common.HexToAddress(receipt.ContractAddress))
-		}
 
 		// GasUsed in serverRes is in EVM's gas unit, not Sei's gas unit.
 		// PriorityNormalizer is the coefficient that's used to adjust EVM

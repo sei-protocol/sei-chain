@@ -60,7 +60,6 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Addres
 	if err != nil {
 		return nil, err
 	}
-	var createdContractAddress common.Address
 	defer func() {
 		if finalizer != nil {
 			if err := finalizer(); err != nil {
@@ -68,16 +67,12 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Addres
 				return
 			}
 		}
-		if reterr == nil && to == nil {
-			k.AddToWhitelistIfApplicable(ctx, data, createdContractAddress)
-		}
 	}()
 	var f EVMCallFunc
 	if to == nil {
 		// contract creation
 		f = func(caller vm.ContractRef, _ *common.Address, input []byte, gas uint64, value *big.Int) ([]byte, uint64, error) {
-			ret, ca, leftoverGas, err := evm.Create(caller, input, gas, value)
-			createdContractAddress = ca
+			ret, _, leftoverGas, err := evm.Create(caller, input, gas, value)
 			return ret, leftoverGas, err
 		}
 	} else {

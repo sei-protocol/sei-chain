@@ -2,6 +2,10 @@ package ibc_test
 
 import (
 	"errors"
+	"math/big"
+	"reflect"
+	"testing"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -12,9 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
-	"math/big"
-	"reflect"
-	"testing"
 )
 
 type MockTransferKeeper struct{}
@@ -109,7 +110,7 @@ func TestPrecompile_Run(t *testing.T) {
 			args:       args{caller: senderEvmAddress, callingContract: common.Address{}, input: commonArgs.input, suppliedGas: 1000000, value: nil},
 			wantBz:     nil,
 			wantErr:    true,
-			wantErrMsg: "calling contract 0x0000000000000000000000000000000000000000 with code hash 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470 is not whitelisted for delegate calls",
+			wantErrMsg: "cannot delegatecall IBC",
 		},
 		{
 			name:   "failed transfer: empty sourcePort",
@@ -222,7 +223,7 @@ func TestPrecompile_Run(t *testing.T) {
 				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
 				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp)
 			require.Nil(t, err)
-			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value)
+			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return

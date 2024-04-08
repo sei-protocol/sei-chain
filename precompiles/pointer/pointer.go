@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -28,6 +29,7 @@ const (
 const PointerAddress = "0x000000000000000000000000000000000000100b"
 
 var _ vm.PrecompiledContract = &Precompile{}
+var _ vm.DynamicGasPrecompiledContract = &Precompile{}
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -89,7 +91,7 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ common.Address, input []byte, suppliedGas uint64, value *big.Int) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, 0, err
