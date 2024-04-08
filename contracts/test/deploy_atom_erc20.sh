@@ -16,9 +16,11 @@ printf "12345678\n" | seid tx evm send $owner1 1000000000000000000 --from admin
 printf "12345678\n" | seid tx evm send $owner2 1000000000000000000 --from admin
 
 echo "Deploying ERC20 pointer contract for UATOM..."
-deployment_output=$(printf "12345678\n" | seid tx evm deploy-erc20 uatom UATOM UATOM 6 --from admin --evm-rpc=$endpoint)
+printf "12345678\n" | seid tx evm call-contract 0x000000000000000000000000000000000000100b c31d960f000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000057561746f6d000000000000000000000000000000000000000000000000000000 --from admin --evm-rpc=$endpoint
+sleep 3
+pointer_output=$(seid q evm pointer NATIVE uatom --output json)
 
-erc20_deploy_addr=$(echo "$deployment_output" | grep 'Deployed to:' | awk '{print $3}')
+erc20_deploy_addr=$(echo "$pointer_output" | jq .pointer | tr -d '"')
 echo $erc20_deploy_addr > contracts/erc20_deploy_addr.txt
 
 # wait for deployment to finish on live chain

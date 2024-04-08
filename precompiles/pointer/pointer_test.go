@@ -34,7 +34,7 @@ func TestAddNative(t *testing.T) {
 	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
 	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(suppliedGas))
 	evm := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
-	_, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil)
+	_, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil, nil)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 	_, _, exists := testApp.EvmKeeper.GetERC20NativePointer(statedb.Ctx(), "test")
@@ -53,7 +53,7 @@ func TestAddNative(t *testing.T) {
 	})
 	statedb = state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
 	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
-	ret, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil)
+	ret, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil, nil)
 	require.Nil(t, err)
 	require.Equal(t, uint64(8907806), g)
 	outputs, err := m.Outputs.Unpack(ret)
@@ -67,7 +67,7 @@ func TestAddNative(t *testing.T) {
 	// pointer already exists
 	statedb = state.NewDBImpl(statedb.Ctx(), &testApp.EvmKeeper, true)
 	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
-	_, g, err = p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil)
+	_, g, err = p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil, nil)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
 }
