@@ -68,6 +68,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			debug.PrintStack()
 			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
 			telemetry.IncrCounter(1, types.ModuleName, "panics")
+			server.AppendErrorToEvmTxDeferredInfo(ctx, tx.Hash(), fmt.Sprintf("%s", pe))
 
 			panic(pe)
 		}
