@@ -125,10 +125,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 
 	switch method.Name {
 	case SendMethod:
-		if err := p.validateCaller(ctx, caller); err != nil {
-			return nil, err
-		}
-		return p.send(ctx, method, args, value)
+		return p.send(ctx, caller, method, args, value)
 	case SendNativeMethod:
 		return p.sendNative(ctx, method, args, caller, value)
 	case BalanceMethod:
@@ -145,15 +142,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 	return
 }
 
-func (p Precompile) validateCaller(ctx sdk.Context, caller common.Address) error {
-	codeHash := p.evmKeeper.GetCodeHash(ctx, caller)
-	if p.evmKeeper.IsCodeHashWhitelistedForBankSend(ctx, codeHash) {
-		return nil
-	}
-	return fmt.Errorf("caller %s with code hash %s is not whitelisted for arbitrary bank send", caller.Hex(), codeHash.Hex())
-}
-
-func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p Precompile) send(ctx sdk.Context, caller common.Address, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -164,6 +153,10 @@ func (p Precompile) send(ctx sdk.Context, method *abi.Method, args []interface{}
 	denom := args[2].(string)
 	if denom == "" {
 		return nil, errors.New("invalid denom")
+	}
+	pointer, _, exists := p.evmKeeper.GetERC20NativePointer(ctx, denom)
+	if !exists || pointer.Cmp(caller) != 0 {
+		return nil, fmt.Errorf("only pointer %s can send %s but got %s", pointer.Hex(), denom, caller.Hex())
 	}
 	amount := args[3].(*big.Int)
 	if amount.Cmp(utils.Big0) == 0 {

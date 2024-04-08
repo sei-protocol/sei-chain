@@ -16,6 +16,8 @@ describe("EVM Test", function () {
             let signer2
             before(async function() {
                 contractAddress = readDeploymentOutput('erc20_deploy_addr.txt');
+                console.log("ERC20 address is:");
+                console.log(contractAddress);
                 await sleep(1000);
     
                 // Create a signer
