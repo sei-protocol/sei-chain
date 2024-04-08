@@ -10,7 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 )
 
-const CurrentVersion uint16 = 1
+const CurrentVersion uint16 = 2
 
 //go:embed CW721ERC721Pointer.abi
 //go:embed CW721ERC721Pointer.bin

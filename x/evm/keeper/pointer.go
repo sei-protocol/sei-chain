@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
@@ -55,7 +56,7 @@ func (k *Keeper) DeleteERC20CW20Pointer(ctx sdk.Context, cw20Address string, ver
 }
 
 func (k *Keeper) SetERC721CW721Pointer(ctx sdk.Context, cw721Address string, addr common.Address) error {
-	return k.SetPointerInfo(ctx, types.PointerERC721CW721Key(cw721Address), addr[:], cw20.CurrentVersion)
+	return k.SetPointerInfo(ctx, types.PointerERC721CW721Key(cw721Address), addr[:], cw721.CurrentVersion)
 }
 
 func (k *Keeper) SetERC721CW721PointerWithVersion(ctx sdk.Context, cw721Address string, addr common.Address, version uint16) error {
