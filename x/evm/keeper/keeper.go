@@ -81,6 +81,7 @@ type EvmTxDeferredInfo struct {
 	TxHash  common.Hash
 	TxBloom ethtypes.Bloom
 	Surplus sdk.Int
+	Error   string
 }
 
 type AddressNoncePair struct {
@@ -222,7 +223,7 @@ func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []EvmTxDeferredInfo)
 			ctx.Logger().Error(fmt.Sprintf("getting invalid tx index in EVM deferred info: %d, num of txs: %d", txIdx, len(k.txResults)))
 			return true
 		}
-		if k.txResults[txIdx].Code == 0 {
+		if k.txResults[txIdx].Code == 0 || value.(*EvmTxDeferredInfo).Error != "" {
 			res = append(res, *(value.(*EvmTxDeferredInfo)))
 		}
 		return true
@@ -237,6 +238,14 @@ func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom
 		TxBloom: bloom,
 		TxHash:  txHash,
 		Surplus: surplus,
+	})
+}
+
+func (k *Keeper) AppendErrorToEvmTxDeferredInfo(ctx sdk.Context, txHash common.Hash, err string) {
+	k.deferredInfo.Store(ctx.TxIndex(), &EvmTxDeferredInfo{
+		TxIndx: ctx.TxIndex(),
+		TxHash: txHash,
+		Error:  err,
 	})
 }
 
