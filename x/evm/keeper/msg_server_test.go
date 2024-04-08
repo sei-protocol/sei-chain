@@ -302,8 +302,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), receipt.Status)
-	codeHash := k.GetCodeHash(ctx, common.HexToAddress(receipt.ContractAddress))
-	k.AddCodeHashWhitelistedForBankSend(ctx, codeHash)
+	k.SetERC20NativePointer(ctx, k.GetBaseDenom(ctx), common.HexToAddress(receipt.ContractAddress))
 
 	// call sendall
 	addr1, evmAddr1 := testkeeper.MockAddressPair()
