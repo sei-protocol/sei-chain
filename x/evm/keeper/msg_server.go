@@ -70,8 +70,8 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	// geth subtracts balances for the purposes of both transfers and paying gas
 	// this preserves the gas-paying/refunding events while suppressing the internal transfers
 
-	//TODO: further limit to precompile send_native
-	if emsg.To != nil && emsg.To.Hex() == bank.BankAddress {
+	//TODO: further limit to precompile send_native (has value)
+	if emsg.To != nil && emsg.To.Hex() == bank.BankAddress && emsg.Value.Cmp(big.NewInt(0)) > 0 {
 		stateDB.SetSuppressedEventReasons(map[tracing.BalanceChangeReason]struct{}{
 			tracing.BalanceChangeTransfer: {},
 		})
