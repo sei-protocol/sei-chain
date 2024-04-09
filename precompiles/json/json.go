@@ -75,7 +75,7 @@ func NewPrecompile() (*Precompile, error) {
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
 	if len(input) < 4 {
-		return 0
+		return pcommon.UnknownMethodCallGas
 	}
 	return uint64(GasCostPerByte * (len(input) - 4))
 }

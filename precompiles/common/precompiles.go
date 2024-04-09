@@ -12,6 +12,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
+const UnknownMethodCallGas uint64 = 3000
+
 type Contexter interface {
 	Ctx() sdk.Context
 }
