@@ -93,10 +93,15 @@ func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer 
 	return usei, wei, nil
 }
 
+/*
+*
+sei gas = evm gas * multiplier
+sei gas price = fee / sei gas = fee / (evm gas * multiplier) = evm gas / multiplier
+*/
 func GetRemainingGas(ctx sdk.Context, evmKeeper EVMKeeper) uint64 {
 	gasMultipler := evmKeeper.GetPriorityNormalizer(ctx)
 	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
-	return sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Mul(gasMultipler).TruncateInt().Uint64()
+	return sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(gasMultipler).TruncateInt().Uint64()
 }
 
 func ExtractMethodID(input []byte) ([]byte, error) {
