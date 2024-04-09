@@ -53,7 +53,7 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	args, err := send.Inputs.Pack(senderEVMAddr, evmAddr, "usei", big.NewInt(25))
 	require.Nil(t, err)
-	_, err = p.Run(&evm, senderEVMAddr, append(p.SendID, args...), nil) // should error because address is not whitelisted
+	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.SendID, args...), nil, false) // should error because address is not whitelisted
 	require.NotNil(t, err)
 
 	// Precompile sendNative test error
@@ -63,19 +63,19 @@ func TestRun(t *testing.T) {
 	argsNativeError, err := sendNative.Inputs.Pack(seiAddrString)
 	require.Nil(t, err)
 	// 0 amount disallowed
-	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(0))
+	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(0), false)
 	require.NotNil(t, err)
 	argsNativeError, err = sendNative.Inputs.Pack("")
 	require.Nil(t, err)
-	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(100))
+	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(100), false)
 	require.NotNil(t, err)
 	argsNativeError, err = sendNative.Inputs.Pack("invalidaddr")
 	require.Nil(t, err)
-	_, err = p.Run(&evm, senderEVMAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(100))
+	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(100), false)
 	require.NotNil(t, err)
 	argsNativeError, err = sendNative.Inputs.Pack(senderAddr.String())
 	require.Nil(t, err)
-	_, err = p.Run(&evm, evmAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(100))
+	_, err = p.Run(&evm, evmAddr, evmAddr, append(p.SendNativeID, argsNativeError...), big.NewInt(100), false)
 	require.NotNil(t, err)
 
 	// Send native 10_000_000_000_100, split into 10 usei 100wei
@@ -117,7 +117,7 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "usei")
 	require.Nil(t, err)
-	precompileRes, err := p.Run(&evm, common.Address{}, append(p.BalanceID, args...), nil)
+	precompileRes, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.BalanceID, args...), nil, false)
 	require.Nil(t, err)
 	is, err := balance.Outputs.Unpack(precompileRes)
 	require.Nil(t, err)
@@ -127,15 +127,15 @@ func TestRun(t *testing.T) {
 	require.Equal(t, big.NewInt(100), weiBalance.BigInt())
 
 	// Verify errors properly raised on bank balance calls with incorrect inputs
-	_, err = p.Run(&evm, common.Address{}, append(p.BalanceID, args[:1]...), nil)
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.BalanceID, args[:1]...), nil, false)
 	require.NotNil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "")
 	require.Nil(t, err)
-	_, err = p.Run(&evm, common.Address{}, append(p.BalanceID, args...), nil)
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.BalanceID, args...), nil, false)
 	require.NotNil(t, err)
 
 	// invalid input
-	_, err = p.Run(&evm, common.Address{}, []byte{1, 2, 3, 4}, nil)
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, []byte{1, 2, 3, 4}, nil, false)
 	require.NotNil(t, err)
 }
 
@@ -152,7 +152,7 @@ func TestMetadata(t *testing.T) {
 	require.Nil(t, err)
 	args, err := name.Inputs.Pack("usei")
 	require.Nil(t, err)
-	res, err := p.Run(&evm, common.Address{}, append(p.NameID, args...), nil)
+	res, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.NameID, args...), nil, false)
 	require.Nil(t, err)
 	outputs, err := name.Outputs.Unpack(res)
 	require.Nil(t, err)
@@ -162,7 +162,7 @@ func TestMetadata(t *testing.T) {
 	require.Nil(t, err)
 	args, err = symbol.Inputs.Pack("usei")
 	require.Nil(t, err)
-	res, err = p.Run(&evm, common.Address{}, append(p.SymbolID, args...), nil)
+	res, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.SymbolID, args...), nil, false)
 	require.Nil(t, err)
 	outputs, err = symbol.Outputs.Unpack(res)
 	require.Nil(t, err)
@@ -172,7 +172,7 @@ func TestMetadata(t *testing.T) {
 	require.Nil(t, err)
 	args, err = decimal.Inputs.Pack("usei")
 	require.Nil(t, err)
-	res, err = p.Run(&evm, common.Address{}, append(p.DecimalsID, args...), nil)
+	res, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.DecimalsID, args...), nil, false)
 	require.Nil(t, err)
 	outputs, err = decimal.Outputs.Unpack(res)
 	require.Nil(t, err)
@@ -182,7 +182,7 @@ func TestMetadata(t *testing.T) {
 	require.Nil(t, err)
 	args, err = supply.Inputs.Pack("usei")
 	require.Nil(t, err)
-	res, err = p.Run(&evm, common.Address{}, append(p.SupplyID, args...), nil)
+	res, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.SupplyID, args...), nil, false)
 	require.Nil(t, err)
 	outputs, err = supply.Outputs.Unpack(res)
 	require.Nil(t, err)

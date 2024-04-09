@@ -105,10 +105,16 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value *big.Int) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
+	if readOnly {
+		return nil, errors.New("cannot call staking precompile from staticcall")
+	}
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err
+	}
+	if caller.Cmp(callingContract) != 0 {
+		return nil, errors.New("cannot delegatecall staking")
 	}
 
 	switch method.Name {

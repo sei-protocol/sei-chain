@@ -38,7 +38,7 @@ func TestGetExchangeRate(t *testing.T) {
 
 	query, err := p.ABI.MethodById(p.GetExchangeRatesId)
 	require.Nil(t, err)
-	precompileRes, err := p.Run(&evm, common.Address{}, p.GetExchangeRatesId, nil)
+	precompileRes, err := p.Run(&evm, common.Address{}, common.Address{}, p.GetExchangeRatesId, nil, true)
 	require.Nil(t, err)
 	exchangeRates, err := query.Outputs.Unpack(precompileRes)
 	require.Nil(t, err)
@@ -114,7 +114,7 @@ func TestGetOracleTwaps(t *testing.T) {
 	require.Nil(t, err)
 	args, err := query.Inputs.Pack(uint64(3600))
 	require.Nil(t, err)
-	precompileRes, err := p.Run(&evm, common.Address{}, append(p.GetOracleTwapsId, args...), nil)
+	precompileRes, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.GetOracleTwapsId, args...), nil, true)
 	require.Nil(t, err)
 	twap, err := query.Outputs.Unpack(precompileRes)
 	require.Nil(t, err)
