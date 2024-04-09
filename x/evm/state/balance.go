@@ -18,6 +18,10 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 		s.AddBalance(evmAddr, new(big.Int).Neg(amt), reason)
 		return
 	}
+	if s.HasSelfDestructed(evmAddr) {
+		// redirect coins to fee collector, since simply burning here would cause coin supply mismatch
+		evmAddr, _ = s.k.GetFeeCollectorAddress(s.ctx)
+	}
 
 	usei, wei := SplitUseiWeiAmount(amt)
 	addr := s.getSeiAddress(evmAddr)
@@ -49,6 +53,10 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing
 	if amt.Sign() < 0 {
 		s.SubBalance(evmAddr, new(big.Int).Neg(amt), reason)
 		return
+	}
+	if s.HasSelfDestructed(evmAddr) {
+		// redirect coins to fee collector, since simply burning here would cause coin supply mismatch
+		evmAddr, _ = s.k.GetFeeCollectorAddress(s.ctx)
 	}
 
 	usei, wei := SplitUseiWeiAmount(amt)
