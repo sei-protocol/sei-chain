@@ -81,7 +81,7 @@ func NewPrecompile(govKeeper pcommon.GovKeeper, evmKeeper pcommon.EVMKeeper, ban
 func (p Precompile) RequiredGas(input []byte) uint64 {
 	methodID, err := pcommon.ExtractMethodID(input)
 	if err != nil {
-		return 0
+		return pcommon.UnknownMethodCallGas
 	}
 
 	if bytes.Equal(methodID, p.VoteID) {
@@ -91,7 +91,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	}
 
 	// This should never happen since this is going to fail during Run
-	return 0
+	return pcommon.UnknownMethodCallGas
 }
 
 func (p Precompile) Address() common.Address {
