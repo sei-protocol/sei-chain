@@ -2,7 +2,9 @@ package bank_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -115,6 +117,14 @@ func TestRun(t *testing.T) {
 	require.Empty(t, res.VmError)
 
 	evts := ctx.EventManager().ABCIEvents()
+
+	for _, evt := range evts {
+		var lines []string
+		for _, attr := range evt.Attributes {
+			lines = append(lines, fmt.Sprintf("%s=%s", string(attr.Key), string(attr.Value)))
+		}
+		fmt.Printf("type=%s\t%s\n", evt.Type, strings.Join(lines, "\t"))
+	}
 
 	var expectedEvts sdk.Events = []sdk.Event{
 		// gas is sent from sender

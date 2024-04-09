@@ -26,7 +26,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 	ctx := s.ctx
 
 	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
-	if s.IsSuppressedReason(reason) {
+	if s.eventsSuppressed {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
 	}
 
@@ -69,7 +69,7 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing
 
 	ctx := s.ctx
 	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
-	if s.IsSuppressedReason(reason) {
+	if s.eventsSuppressed {
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
 	}
 

@@ -165,7 +165,7 @@ func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
 	}
 }
 
-func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockContext, error) {
+func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool, to *common.Address) (*vm.BlockContext, error) {
 	if k.EthBlockTestConfig.Enabled {
 		return k.getBlockTestBlockCtx(ctx)
 	}
@@ -181,9 +181,15 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		return nil, err
 	}
 	rh := common.BytesToHash(r)
+
+	txfer := core.Transfer
+	if IsPayablePrecompile(to) {
+		txfer = state.TransferWithoutEvents
+	}
+
 	return &vm.BlockContext{
 		CanTransfer: core.CanTransfer,
-		Transfer:    core.Transfer,
+		Transfer:    txfer,
 		GetHash:     k.GetHashFn(ctx),
 		Coinbase:    coinbase,
 		GasLimit:    gp.Gas(),

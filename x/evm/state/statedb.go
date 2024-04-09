@@ -31,10 +31,8 @@ type DBImpl struct {
 	k          EVMKeeper
 	simulation bool
 
-	// for cases like bank.send_native, we want to suppress certain types of events
-	// the creator of this DB should set this map if applicable to the transaction
-	// if not set, nothing is suppressed (default)
-	suppressedEventReasons map[tracing.BalanceChangeReason]struct{}
+	// for cases like bank.send_native, we want to suppress transfer events
+	eventsSuppressed bool
 
 	logger *tracing.Hooks
 }
@@ -52,16 +50,12 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	return s
 }
 
-func (s *DBImpl) SetSuppressedEventReasons(reasons map[tracing.BalanceChangeReason]struct{}) {
-	s.suppressedEventReasons = reasons
+func (s *DBImpl) DisableEvents() {
+	s.eventsSuppressed = true
 }
 
-func (s *DBImpl) IsSuppressedReason(reason tracing.BalanceChangeReason) bool {
-	if s.suppressedEventReasons == nil {
-		return false
-	}
-	_, ok := s.suppressedEventReasons[reason]
-	return ok
+func (s *DBImpl) EnableEvents() {
+	s.eventsSuppressed = false
 }
 
 func (s *DBImpl) SetLogger(logger *tracing.Hooks) {

@@ -39,7 +39,7 @@ func TestGetVMBlockContext(t *testing.T) {
 	moduleAddr := k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 	evmAddr, _ := k.GetEVMAddress(ctx, moduleAddr)
 	k.DeleteAddressMapping(ctx, moduleAddr, evmAddr)
-	_, err := k.GetVMBlockContext(ctx, 0)
+	_, err := k.GetVMBlockContext(ctx, 0, &evmAddr)
 	require.NotNil(t, err)
 }
 

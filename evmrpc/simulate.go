@@ -281,7 +281,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	for idx, tx := range block.Transactions() {
 		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
 		txContext := core.NewEVMTxContext(msg)
-		blockContext, err := b.keeper.GetVMBlockContext(b.ctxProvider(prevBlockHeight), core.GasPool(b.RPCGasCap()))
+		blockContext, err := b.keeper.GetVMBlockContext(b.ctxProvider(prevBlockHeight), core.GasPool(b.RPCGasCap()), msg.To)
 		if err != nil {
 			return nil, vm.BlockContext{}, nil, nil, err
 		}
@@ -313,7 +313,7 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
 	txContext := core.NewEVMTxContext(msg)
 	if blockCtx == nil {
-		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
+		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()), msg.To)
 	}
 	evm := vm.NewEVM(*blockCtx, txContext, stateDB, b.ChainConfig(), *vmConfig)
 	if dbImpl, ok := stateDB.(*state.DBImpl); ok {

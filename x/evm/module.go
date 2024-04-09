@@ -179,7 +179,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	// mock beacon root if replaying
 	if am.keeper.EthReplayConfig.Enabled {
 		if beaconRoot := am.keeper.ReplayBlock.BeaconRoot(); beaconRoot != nil {
-			blockCtx, err := am.keeper.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
+			blockCtx, err := am.keeper.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64), nil)
 			if err != nil {
 				panic(err)
 			}

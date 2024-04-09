@@ -18,11 +18,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
@@ -63,19 +61,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	tx, _ := msg.AsTransaction()
 	ctx, gp := server.getGasPool(ctx)
 	emsg := server.getEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
-
-	// If the to_address is the bank precompile,
-	//    then suppress the cosmos events that are associated with value transfers to the precompile
-	//    the precompile emits its own events to capture the real transfer between the sender and sei address
-	// geth subtracts balances for the purposes of both transfers and paying gas
-	// this preserves the gas-paying/refunding events while suppressing the internal transfers
-
-	//TODO: further limit to precompile send_native (has value)
-	if emsg.To != nil && emsg.To.Hex() == bank.BankAddress && emsg.Value.Cmp(big.NewInt(0)) > 0 {
-		stateDB.SetSuppressedEventReasons(map[tracing.BalanceChangeReason]struct{}{
-			tracing.BalanceChangeTransfer: {},
-		})
-	}
 
 	defer func() {
 		if pe := recover(); pe != nil {
@@ -206,7 +191,7 @@ func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction,
 }
 
 func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
-	blockCtx, err := server.GetVMBlockContext(ctx, gp)
+	blockCtx, err := server.GetVMBlockContext(ctx, gp, msg.To)
 	if err != nil {
 		return nil, err
 	}
