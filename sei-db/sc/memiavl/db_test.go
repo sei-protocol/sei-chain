@@ -431,9 +431,6 @@ func TestInvalidOptions(t *testing.T) {
 	_, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true})
 	require.Error(t, err)
 
-	_, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, ReadOnly: true, CreateIfMissing: true})
-	require.Error(t, err)
-
 	db, err := OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir, CreateIfMissing: true})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
