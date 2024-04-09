@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -160,6 +161,10 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 	if err != nil {
 		return
 	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "native"),
+		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, token),
+		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", native.CurrentVersion))))
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }
@@ -207,6 +212,10 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 	if err != nil {
 		return
 	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw20"),
+		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
+		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", cw20.CurrentVersion))))
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }
@@ -254,6 +263,10 @@ func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller comm
 	if err != nil {
 		return
 	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw721"),
+		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
+		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", cw721.CurrentVersion))))
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }
