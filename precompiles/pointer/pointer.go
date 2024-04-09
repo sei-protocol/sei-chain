@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -91,10 +92,16 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+	if readOnly {
+		return nil, 0, errors.New("cannot call pointer precompile from staticcall")
+	}
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, 0, err
+	}
+	if caller.Cmp(callingContract) != 0 {
+		return nil, 0, errors.New("cannot delegatecall pointer")
 	}
 
 	switch method.Name {
@@ -110,7 +117,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ com
 	return
 }
 
-func (p Precompile) Run(*vm.EVM, common.Address, []byte, *big.Int) ([]byte, error) {
+func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool) ([]byte, error) {
 	panic("static gas Run is not implemented for dynamic gas precompile")
 }
 
