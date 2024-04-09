@@ -196,7 +196,7 @@ func TestRequiredGas(t *testing.T) {
 	balanceRequiredGas := p.RequiredGas(p.BalanceID)
 	require.Equal(t, uint64(1000), balanceRequiredGas)
 	// invalid method
-	require.Equal(t, uint64(0), p.RequiredGas([]byte{1, 1, 1, 1}))
+	require.Equal(t, uint64(3000), p.RequiredGas([]byte{1, 1, 1, 1}))
 }
 
 func TestAddress(t *testing.T) {
