@@ -32,7 +32,6 @@ func TestAddNative(t *testing.T) {
 	args, err := m.Inputs.Pack("test")
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
-
 	pAddr := p.Address()
 	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(suppliedGas), &pAddr)
 	evm := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
