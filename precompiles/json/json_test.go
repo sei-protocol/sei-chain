@@ -63,16 +63,16 @@ func TestExtractAsBytesList(t *testing.T) {
 		expectedOutput [][]byte
 	}{
 		{
-			[]byte("{\"key\":[]}"),
+			[]byte("{\"key\":[],\"key2\":1}"),
 			[][]byte{},
 		}, {
-			[]byte("{\"key\":[1,2,3]}"),
+			[]byte("{\"key\":[1,2,3],\"key2\":1}"),
 			[][]byte{[]byte("1"), []byte("2"), []byte("3")},
 		}, {
-			[]byte("{\"key\":[\"1\", \"2\"]}"),
+			[]byte("{\"key\":[\"1\", \"2\"],\"key2\":1}"),
 			[][]byte{[]byte("\"1\""), []byte("\"2\"")},
 		}, {
-			[]byte("{\"key\":[{\"nested\":1}, {\"nested\":2}]}"),
+			[]byte("{\"key\":[{\"nested\":1}, {\"nested\":2}],\"key2\":1}"),
 			[][]byte{[]byte("{\"nested\":1}"), []byte("{\"nested\":2}")},
 		},
 	} {
