@@ -71,6 +71,8 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		// check if the account has enough balance (without charging)
 		baseDenom := p.evmKeeper.GetBaseDenom(ctx)
 		seiBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, baseDenom).Amount
+		// no need to get wei balance here since the sei address is not used directly in EVM and thus does not
+		// contain any wei, so any wei balance in `sdk.AccAddress(evmAddr[:])` would not add up to 1usei anyway.
 		castBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), baseDenom).Amount
 		if new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt()).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
