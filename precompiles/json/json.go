@@ -155,7 +155,7 @@ func (p Precompile) extractAsBytesList(_ sdk.Context, method *abi.Method, args [
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
 	bz := args[0].([]byte)
-	decoded := map[string][]gjson.RawMessage{}
+	decoded := map[string]gjson.RawMessage{}
 	if err := gjson.Unmarshal(bz, &decoded); err != nil {
 		return nil, err
 	}
@@ -164,8 +164,12 @@ func (p Precompile) extractAsBytesList(_ sdk.Context, method *abi.Method, args [
 	if !ok {
 		return nil, fmt.Errorf("input does not contain key %s", key)
 	}
+	decodedResult := []gjson.RawMessage{}
+	if err := gjson.Unmarshal(result, &decodedResult); err != nil {
+		return nil, err
+	}
 
-	return method.Outputs.Pack(utils.Map(result, func(r gjson.RawMessage) []byte { return []byte(r) }))
+	return method.Outputs.Pack(utils.Map(decodedResult, func(r gjson.RawMessage) []byte { return []byte(r) }))
 }
 
 func (p Precompile) ExtractAsUint256(_ sdk.Context, _ *abi.Method, args []interface{}, value *big.Int) (*big.Int, error) {
