@@ -25,7 +25,7 @@ func TestRequiredGas(t *testing.T) {
 	require.Equal(t, uint64(2000), p.RequiredGas(p.ExecuteID))
 	require.Equal(t, uint64(2000), p.RequiredGas(p.InstantiateID))
 	require.Equal(t, uint64(1000), p.RequiredGas(p.QueryID))
-	require.Equal(t, uint64(0), p.RequiredGas([]byte{15, 15, 15, 15})) // invalid method
+	require.Equal(t, uint64(3000), p.RequiredGas([]byte{15, 15, 15, 15})) // invalid method
 }
 
 func TestAddress(t *testing.T) {
