@@ -117,7 +117,7 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value *big.Int) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err
@@ -125,9 +125,9 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 
 	switch method.Name {
 	case SendMethod:
-		return p.send(ctx, caller, method, args, value)
+		return p.send(ctx, caller, method, args, value, readOnly)
 	case SendNativeMethod:
-		return p.sendNative(ctx, method, args, caller, value)
+		return p.sendNative(ctx, method, args, caller, callingContract, value, readOnly)
 	case BalanceMethod:
 		return p.balance(ctx, method, args, value)
 	case NameMethod:
@@ -142,7 +142,10 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, input []byte, value 
 	return
 }
 
-func (p Precompile) send(ctx sdk.Context, caller common.Address, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p Precompile) send(ctx sdk.Context, caller common.Address, method *abi.Method, args []interface{}, value *big.Int, readOnly bool) ([]byte, error) {
+	if readOnly {
+		return nil, errors.New("cannot call send from staticcall")
+	}
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -180,7 +183,13 @@ func (p Precompile) send(ctx sdk.Context, caller common.Address, method *abi.Met
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address, value *big.Int) ([]byte, error) {
+func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address, callingContract common.Address, value *big.Int, readOnly bool) ([]byte, error) {
+	if readOnly {
+		return nil, errors.New("cannot call sendNative from staticcall")
+	}
+	if caller.Cmp(callingContract) != 0 {
+		return nil, errors.New("cannot delegatecall sendNative")
+	}
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}

@@ -112,7 +112,7 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, 0, err
@@ -126,20 +126,20 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 
 	switch method.Name {
 	case InstantiateMethod:
-		return p.instantiate(ctx, method, caller, args, value)
+		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly)
 	case ExecuteMethod:
-		return p.execute(ctx, method, caller, callingContract, args, value)
+		return p.execute(ctx, method, caller, callingContract, args, value, readOnly)
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
 	}
 	return
 }
 
-func (p Precompile) Run(*vm.EVM, common.Address, []byte, *big.Int) ([]byte, error) {
+func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool) ([]byte, error) {
 	panic("static gas Run is not implemented for dynamic gas precompile")
 }
 
-func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -148,8 +148,16 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 			return
 		}
 	}()
+	if readOnly {
+		rerr = errors.New("cannot call instantiate from staticcall")
+		return
+	}
 	if err := pcommon.ValidateArgsLength(args, 5); err != nil {
 		rerr = err
+		return
+	}
+	if caller.Cmp(callingContract) != 0 {
+		rerr = errors.New("cannot delegatecall instantiate")
 		return
 	}
 
@@ -214,7 +222,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	return
 }
 
-func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -223,6 +231,10 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 			return
 		}
 	}()
+	if readOnly {
+		rerr = errors.New("cannot call execute from staticcall")
+		return
+	}
 	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
 		rerr = err
 		return
