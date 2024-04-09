@@ -31,6 +31,12 @@ func TestAddBalance(t *testing.T) {
 	require.Nil(t, db.Err())
 	require.Equal(t, db.GetBalance(evmAddr), big.NewInt(10000000000000))
 	require.Equal(t, db.GetBalance(evmAddr2), big.NewInt(5000000000000))
+
+	_, evmAddr3 := testkeeper.MockAddressPair()
+	db.SelfDestruct(evmAddr3)
+	db.AddBalance(evmAddr2, big.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
+	require.Nil(t, db.Err())
+	require.Equal(t, db.GetBalance(evmAddr3), big.NewInt(0))
 }
 
 func TestSubBalance(t *testing.T) {
@@ -62,6 +68,12 @@ func TestSubBalance(t *testing.T) {
 	// insufficient balance
 	db.SubBalance(evmAddr2, big.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
 	require.NotNil(t, db.Err())
+
+	_, evmAddr3 := testkeeper.MockAddressPair()
+	db.SelfDestruct(evmAddr3)
+	db.SubBalance(evmAddr2, big.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
+	require.Nil(t, db.Err())
+	require.Equal(t, db.GetBalance(evmAddr3), big.NewInt(0))
 }
 
 func TestSetBalance(t *testing.T) {
