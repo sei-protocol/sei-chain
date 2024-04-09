@@ -84,7 +84,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, w
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p Precompile) RequiredGas(input []byte) uint64 {
 	// gas is calculated dynamically
-	return 0
+	return pcommon.UnknownMethodCallGas
 }
 
 func (p Precompile) Address() common.Address {

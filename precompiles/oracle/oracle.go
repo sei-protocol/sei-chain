@@ -97,13 +97,13 @@ func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeepe
 func (p Precompile) RequiredGas(input []byte) uint64 {
 	methodID, err := pcommon.ExtractMethodID(input)
 	if err != nil {
-		return 0
+		return pcommon.UnknownMethodCallGas
 	}
 
 	method, err := p.ABI.MethodById(methodID)
 	if err != nil {
 		// This should never happen since this method is going to fail during Run
-		return 0
+		return pcommon.UnknownMethodCallGas
 	}
 
 	return p.Precompile.RequiredGas(input, p.IsTransaction(method.Name))
