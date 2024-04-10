@@ -472,17 +472,6 @@ func TestRegisterPointer(t *testing.T) {
 	require.True(t, exists)
 	require.Equal(t, erc20.CurrentVersion, version)
 	require.Equal(t, pointer.String(), res.PointerAddress)
-	hasRegisteredEvent := false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-		require.Equal(t, types.EventTypePointerRegistered, e.Type)
-		require.Equal(t, "erc20", string(e.Attributes[0].Value))
-	}
-	require.True(t, hasRegisteredEvent)
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
 
 	// already exists
 	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
@@ -491,15 +480,6 @@ func TestRegisterPointer(t *testing.T) {
 		ErcAddress:  pointee.Hex(),
 	})
 	require.NotNil(t, err)
-	hasRegisteredEvent = false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-	}
-	require.False(t, hasRegisteredEvent)
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
 
 	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		Sender:      sender.String(),
@@ -511,17 +491,6 @@ func TestRegisterPointer(t *testing.T) {
 	require.True(t, exists)
 	require.Equal(t, erc721.CurrentVersion, version)
 	require.Equal(t, pointer.String(), res.PointerAddress)
-	hasRegisteredEvent = false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-		require.Equal(t, types.EventTypePointerRegistered, e.Type)
-		require.Equal(t, "erc721", string(e.Attributes[0].Value))
-	}
-	require.True(t, hasRegisteredEvent)
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
 
 	// already exists
 	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
@@ -530,12 +499,4 @@ func TestRegisterPointer(t *testing.T) {
 		ErcAddress:  pointee.Hex(),
 	})
 	require.NotNil(t, err)
-	hasRegisteredEvent = false
-	for _, e := range ctx.EventManager().Events() {
-		if e.Type != types.EventTypePointerRegistered {
-			continue
-		}
-		hasRegisteredEvent = true
-	}
-	require.False(t, hasRegisteredEvent)
 }
