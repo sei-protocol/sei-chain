@@ -3,7 +3,10 @@
     # Fund owner account in hardhat tests
     - cmd: printf "12345678\n" | seid tx evm send 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 10000000000000000000 --from admin | cut -d':' -f2-
       env: TX_HASH
-    - cmd: cast receipt "$TX_HASH" -j |jq -r ."status"
+    - cmd: seid q evm sei-addr 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
+    - cmd: echo $TX_HASH
+    - cmd: sleep 3
+    - cmd: cast receipt $TX_HASH -j |jq -r ."status"
       env: RESULT
     # Setup for Hardhat Integration Test
     - cmd: bash contracts/test/deploy_atom_erc20.sh
