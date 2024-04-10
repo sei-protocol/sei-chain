@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
+	ethtracing "github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -20,6 +21,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/tracers"
+	"github.com/sei-protocol/sei-chain/x/evm/tracing"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -39,7 +42,18 @@ func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, 
 
 func TestRun(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
+
+	var balanceChanges []balanceChange
+
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx = tracers.SetCtxBlockchainTracer(ctx, &tracing.Hooks{
+		Hooks: &ethtracing.Hooks{
+			OnBalanceChange: func(addr common.Address, prev, new *big.Int, reason ethtracing.BalanceChangeReason) {
+				balanceChanges = append(balanceChanges, balanceChange{prev.String(), new.String(), reason})
+			},
+		},
+	})
+
 	k := &testApp.EvmKeeper
 
 	// Setup sender addresses and environment
@@ -136,6 +150,15 @@ func TestRun(t *testing.T) {
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
+
+	// Test balance changes, there is 8 but we care about the first 4 here
+	require.Equal(t, 8, len(balanceChanges))
+	require.Equal(t, []balanceChange{
+		{"9800000000000000000", "9799989999999999900", ethtracing.BalanceChangeTransfer},
+		{"0", "10000000000100", ethtracing.BalanceChangeTransfer},
+		{"10000000000100", "0", ethtracing.BalanceChangeTransfer},
+		{"9799989999999999900", "9800000000000000000", ethtracing.BalanceChangeTransfer},
+	}, balanceChanges[0:4], "balance changes do not match, actual are:\n\n%s", balanceChangesValues(balanceChanges[0:4]))
 
 	evts := ctx.EventManager().ABCIEvents()
 
@@ -288,4 +311,20 @@ func TestAddress(t *testing.T) {
 	p, err := bank.NewPrecompile(k.BankKeeper(), k)
 	require.Nil(t, err)
 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
+}
+
+type balanceChange struct {
+	// We use string to avoid big.Int equality issues
+	old    string
+	new    string
+	reason ethtracing.BalanceChangeReason
+}
+
+func balanceChangesValues(changes []balanceChange) string {
+	out := make([]string, len(changes))
+	for i, change := range changes {
+		out[i] = fmt.Sprintf("{%q, %q, ethtracing.BalanceChangeReason(%d)}", change.old, change.new, change.reason)
+	}
+
+	return strings.Join(out, "\n")
 }

@@ -129,7 +129,7 @@ func (p Precompile) GetName() string {
 	return "wasmd"
 }
 
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, logger *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, 0, err
@@ -140,6 +140,10 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 		gasLimitBigInt = utils.BigMaxU64
 	}
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
+
+	if logger != nil && logger.OnGasChange != nil {
+		defer func() { logger.OnGasChange(suppliedGas, remainingGas, tracing.GasChangeCallPrecompiledContract) }()
+	}
 
 	switch method.Name {
 	case InstantiateMethod:

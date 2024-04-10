@@ -82,6 +82,12 @@ type Config struct {
 
 	// max number of concurrent NewHead subscriptions
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
+
+	// The EVM tracer to use when doing node synchronization, applies to
+	// all block produced but traces only EVM transactions.
+	//
+	// Refer to x/evm/tracers/registry.go#GlobalLiveTracerRegistry for registered tracers.
+	LiveEVMTracer string `mapstructure:"live_evm_tracer"`
 }
 
 var DefaultConfig = Config{
@@ -105,6 +111,7 @@ var DefaultConfig = Config{
 	MaxLogNoBlock:           10000,
 	MaxBlocksForLog:         2000,
 	MaxSubscriptionsNewHead: 10000,
+	LiveEVMTracer:           "",
 }
 
 const (
@@ -128,6 +135,7 @@ const (
 	flagMaxLogNoBlock           = "evm.max_log_no_block"
 	flagMaxBlocksForLog         = "evm.max_blocks_for_log"
 	flagMaxSubscriptionsNewHead = "evm.max_subscriptions_new_head"
+	flagLiveEVMTracer           = "evm.live_evm_tracer"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -230,6 +238,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxSubscriptionsNewHead); v != nil {
 		if cfg.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagLiveEVMTracer); v != nil {
+		if cfg.LiveEVMTracer, err = cast.ToStringE(v); err != nil {
 			return cfg, err
 		}
 	}
