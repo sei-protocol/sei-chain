@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -43,9 +44,8 @@ type filter struct {
 
 type FilterAPI struct {
 	tmClient     rpcclient.Client
-	nextFilterID uint64
 	filtersMu    sync.Mutex
-	filters      map[uint64]filter
+	filters      map[ethrpc.ID]filter
 	filterConfig *FilterConfig
 	logFetcher   *LogFetcher
 }
@@ -60,10 +60,9 @@ type EventItemDataWrapper struct {
 }
 
 func NewFilterAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, filterConfig *FilterConfig) *FilterAPI {
-	filters := make(map[uint64]filter)
+	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
 		tmClient:     tmClient,
-		nextFilterID: 1,
 		filtersMu:    sync.Mutex{},
 		filters:      filters,
 		filterConfig: filterConfig,
@@ -96,38 +95,36 @@ func (a *FilterAPI) timeoutLoop(timeout time.Duration) {
 func (a *FilterAPI) NewFilter(
 	_ context.Context,
 	crit filters.FilterCriteria,
-) (*uint64, error) {
+) (ethrpc.ID, error) {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
-	curFilterID := a.nextFilterID
-	a.nextFilterID++
+	curFilterID := ethrpc.NewID()
 	a.filters[curFilterID] = filter{
 		typ:          LogsSubscription,
 		fc:           crit,
 		deadline:     time.NewTimer(a.filterConfig.timeout),
 		lastToHeight: 0,
 	}
-	return &curFilterID, nil
+	return curFilterID, nil
 }
 
 func (a *FilterAPI) NewBlockFilter(
 	_ context.Context,
-) (*uint64, error) {
+) (ethrpc.ID, error) {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
-	curFilterID := a.nextFilterID
-	a.nextFilterID++
+	curFilterID := ethrpc.NewID()
 	a.filters[curFilterID] = filter{
 		typ:         BlocksSubscription,
 		deadline:    time.NewTimer(a.filterConfig.timeout),
 		blockCursor: "",
 	}
-	return &curFilterID, nil
+	return curFilterID, nil
 }
 
 func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
-	filterID uint64,
+	filterID ethrpc.ID,
 ) (interface{}, error) {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
@@ -177,7 +174,7 @@ func (a *FilterAPI) GetFilterChanges(
 
 func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
-	filterID uint64,
+	filterID ethrpc.ID,
 ) ([]*ethtypes.Log, error) {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
@@ -251,7 +248,7 @@ func (a *FilterAPI) getBlockHeadersAfter(
 
 func (a *FilterAPI) UninstallFilter(
 	_ context.Context,
-	filterID uint64,
+	filterID ethrpc.ID,
 ) bool {
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
