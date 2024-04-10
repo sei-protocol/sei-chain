@@ -63,6 +63,16 @@ func TestAddNative(t *testing.T) {
 	require.Equal(t, addr, pointerAddr)
 	require.Equal(t, native.CurrentVersion, version)
 	require.True(t, exists)
+	hasRegisteredEvent := false
+	for _, e := range ctx.EventManager().Events() {
+		if e.Type != types.EventTypePointerRegistered {
+			continue
+		}
+		hasRegisteredEvent = true
+		require.Equal(t, types.EventTypePointerRegistered, e.Type)
+		require.Equal(t, "native", string(e.Attributes[0].Value))
+	}
+	require.True(t, hasRegisteredEvent)
 
 	// pointer already exists
 	statedb = state.NewDBImpl(statedb.Ctx(), &testApp.EvmKeeper, true)
