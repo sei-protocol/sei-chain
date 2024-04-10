@@ -507,10 +507,10 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	} else {
 		// Serve abci query from historical sc store if proofs needed
 		scStore, err := rs.scStore.LoadVersion(version, true)
-		defer scStore.Close()
 		if err != nil {
 			return sdkerrors.QueryResult(err)
 		}
+		defer scStore.Close()
 		store = types.Queryable(commitment.NewStore(scStore.GetTreeByName(storeName), rs.logger))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
