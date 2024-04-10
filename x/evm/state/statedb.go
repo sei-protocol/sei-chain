@@ -31,6 +31,9 @@ type DBImpl struct {
 	k          EVMKeeper
 	simulation bool
 
+	// for cases like bank.send_native, we want to suppress transfer events
+	eventsSuppressed bool
+
 	logger *tracing.Hooks
 }
 
@@ -45,6 +48,14 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	}
 	s.Snapshot() // take an initial snapshot for GetCommitted
 	return s
+}
+
+func (s *DBImpl) DisableEvents() {
+	s.eventsSuppressed = true
+}
+
+func (s *DBImpl) EnableEvents() {
+	s.eventsSuppressed = false
 }
 
 func (s *DBImpl) SetLogger(logger *tracing.Hooks) {

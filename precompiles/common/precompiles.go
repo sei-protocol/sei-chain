@@ -78,7 +78,8 @@ func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk
 	}
 	coin := sdk.NewCoin(sdk.MustGetBaseDenom(), usei)
 	// refund payer because the following precompile logic will debit the payments from payer's account
-	if err := bankKeeper.SendCoins(ctx, precompileAddr, payer, sdk.NewCoins(coin)); err != nil {
+	// this creates a new event manager to avoid surfacing these as cosmos events
+	if err := bankKeeper.SendCoins(ctx.WithEventManager(sdk.NewEventManager()), precompileAddr, payer, sdk.NewCoins(coin)); err != nil {
 		return sdk.Coin{}, err
 	}
 	return coin, nil
@@ -87,7 +88,8 @@ func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk
 func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper) (sdk.Int, sdk.Int, error) {
 	usei, wei := state.SplitUseiWeiAmount(value)
 	// refund payer because the following precompile logic will debit the payments from payer's account
-	if err := bankKeeper.SendCoinsAndWei(ctx, precompileAddr, payer, usei, wei); err != nil {
+	// this creates a new event manager to avoid surfacing these as cosmos events
+	if err := bankKeeper.SendCoinsAndWei(ctx.WithEventManager(sdk.NewEventManager()), precompileAddr, payer, usei, wei); err != nil {
 		return sdk.Int{}, sdk.Int{}, err
 	}
 	return usei, wei, nil

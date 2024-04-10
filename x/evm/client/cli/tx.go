@@ -42,6 +42,7 @@ import (
 const (
 	FlagGasFeeCap = "gas-fee-cap"
 	FlagGas       = "gas-limit"
+	FlagValue     = "value"
 	FlagRPC       = "evm-rpc"
 	FlagNonce     = "nonce"
 )
@@ -502,12 +503,17 @@ func CmdCallContract() *cobra.Command {
 				}
 			}
 
+			value, err := cmd.Flags().GetUint64(FlagValue)
+			if err != nil {
+				return err
+			}
+
 			txData, err := getTxData(cmd)
 			if err != nil {
 				return err
 			}
 			txData.Nonce = nonce
-			txData.Value = utils.Big0
+			txData.Value = big.NewInt(int64(value))
 			txData.Data = payload
 			txData.To = &contract
 
@@ -523,6 +529,7 @@ func CmdCallContract() *cobra.Command {
 
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
+	cmd.Flags().Uint64(FlagValue, 0, "Value for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
 	flags.AddTxFlagsToCmd(cmd)

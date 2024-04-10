@@ -2,7 +2,9 @@ package bank_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -106,11 +108,47 @@ func TestRun(t *testing.T) {
 	req, err := types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
+	// send the transaction
 	msgServer := keeper.NewMsgServerImpl(k)
 	ante.Preprocess(ctx, req)
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
+
+	evts := ctx.EventManager().ABCIEvents()
+
+	for _, evt := range evts {
+		var lines []string
+		for _, attr := range evt.Attributes {
+			lines = append(lines, fmt.Sprintf("%s=%s", string(attr.Key), string(attr.Value)))
+		}
+		fmt.Printf("type=%s\t%s\n", evt.Type, strings.Join(lines, "\t"))
+	}
+
+	var expectedEvts sdk.Events = []sdk.Event{
+		// gas is sent from sender
+		banktypes.NewCoinSpentEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(2)))),
+		// sender sends coin to the receiver
+		banktypes.NewCoinSpentEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))),
+		banktypes.NewCoinReceivedEvent(seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))),
+		sdk.NewEvent(
+			banktypes.EventTypeTransfer,
+			sdk.NewAttribute(banktypes.AttributeKeyRecipient, seiAddr.String()),
+			sdk.NewAttribute(banktypes.AttributeKeySender, senderAddr.String()),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, sdk.NewCoin("usei", sdk.NewInt(10)).String()),
+		),
+		sdk.NewEvent(
+			sdk.EventTypeMessage,
+			sdk.NewAttribute(banktypes.AttributeKeySender, senderAddr.String()),
+		),
+		// gas refund to the sender
+		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
+		// tip is paid to the validator
+		banktypes.NewCoinReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(0)))),
+	}
+
+	require.EqualValues(t, expectedEvts.ToABCIEvents(), evts)
 
 	// Use precompile balance to verify sendNative usei amount succeeded
 	balance, err := p.ABI.MethodById(p.BalanceID)
