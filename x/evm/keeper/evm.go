@@ -125,7 +125,7 @@ func (k *Keeper) getOrCreateEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, 
 	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 	stateDB := state.NewDBImpl(executionCtx, k, false)
 	executionCtx, gp := k.getGasPool(executionCtx)
-	blockCtx, err := k.GetVMBlockContext(executionCtx, gp, nil)
+	blockCtx, err := k.GetVMBlockContext(executionCtx, gp)
 	if err != nil {
 		return nil, nil, err
 	}

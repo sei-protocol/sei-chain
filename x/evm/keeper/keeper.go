@@ -165,7 +165,7 @@ func (k *Keeper) PurgePrefix(ctx sdk.Context, pref []byte) {
 	}
 }
 
-func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool, to *common.Address) (*vm.BlockContext, error) {
+func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockContext, error) {
 	if k.EthBlockTestConfig.Enabled {
 		return k.getBlockTestBlockCtx(ctx)
 	}
@@ -182,9 +182,12 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool, to *common.
 	}
 	rh := common.BytesToHash(r)
 
-	txfer := core.Transfer
-	if IsPayablePrecompile(to) {
-		txfer = state.TransferWithoutEvents
+	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
+		if IsPayablePrecompile(&recipient) {
+			state.TransferWithoutEvents(db, sender, recipient, amount)
+		} else {
+			core.Transfer(db, sender, recipient, amount)
+		}
 	}
 
 	return &vm.BlockContext{

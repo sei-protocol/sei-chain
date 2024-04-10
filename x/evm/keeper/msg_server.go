@@ -191,7 +191,7 @@ func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction,
 }
 
 func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
-	blockCtx, err := server.GetVMBlockContext(ctx, gp, msg.To)
+	blockCtx, err := server.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
 	}
