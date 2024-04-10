@@ -190,6 +190,7 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 
 	// Statistics reporting goroutine
 	ticker := time.NewTicker(10 * time.Second)
+	ticks := 0
 	go func() {
 		start := time.Now()
 		for {
@@ -218,6 +219,10 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 					count := atomic.LoadInt64(sentCountPerMsgType[msgType])
 					atomic.StoreInt64(prevSentCounterPerMsgType[msgType], count)
 				}
+				ticks++
+				if config.Ticks > 0 && ticks >= int(config.Ticks) {
+					close(done)
+				}
 			case <-done:
 				ticker.Stop()
 				return
@@ -226,9 +231,11 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 	}()
 
 	// Wait for a termination signal
-	<-signals
-	fmt.Println("SIGINT received, shutting down producers and consumers...")
-	close(done)
+	if config.Ticks == 0 {
+		<-signals
+		fmt.Println("SIGINT received, shutting down producers and consumers...")
+		close(done)
+	}
 
 	fmt.Println("Waiting for wait groups...")
 

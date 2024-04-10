@@ -70,6 +70,7 @@ type Config struct {
 	TLS                bool                  `json:"tls"`
 	SeiTesterAddress   string                `json:"sei_tester_address"`
 	PostTxEvmQueries   PostTxEvmQueries      `json:"post_tx_evm_queries"`
+	Ticks              uint64                `json:"ticks"`
 
 	// These are dynamically set at startup
 	EVMAddresses *EVMAddresses
@@ -214,7 +215,7 @@ type WasmInstantiateType struct {
 
 type PostTxEvmQueries struct {
 	BlockByNumber int `json:"block_by_number"`
-	Receipt       int `json:"receipt`
+	Receipt       int `json:"receipt"`
 }
 
 type SignedTx struct {
