@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"math/big"
 	"math/rand"
 	"net/http"
 	"os"
@@ -30,6 +32,7 @@ import (
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
 
@@ -50,6 +53,9 @@ var (
 	producedCountPerMsgType   = make(map[string]*int64)
 	sentCountPerMsgType       = make(map[string]*int64)
 	prevSentCounterPerMsgType = make(map[string]*int64)
+
+	BlockHeightsWithTxs = []int{}
+	EvmTxHashes         = []common.Hash{}
 )
 
 type BlockData struct {
@@ -148,6 +154,7 @@ func run(config *Config) {
 	deployEvmContracts(config)
 	deployUniswapContracts(client, config)
 	startLoadtestWorkers(client, *config)
+	runEvmQueries(*config)
 }
 
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
@@ -190,13 +197,16 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 			case <-ticker.C:
 				currHeight := getLastHeight(config.BlockchainEndpoint)
 				for i := startHeight; i <= currHeight; i++ {
-					_, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
+					txCnt, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
 					if err != nil {
 						fmt.Printf("Encountered error scraping data: %s\n", err)
 						return
 					}
 					blockHeights = append(blockHeights, i)
 					blockTimes = append(blockTimes, blockTime)
+					if txCnt > 0 {
+						BlockHeightsWithTxs = append(BlockHeightsWithTxs, i)
+					}
 				}
 
 				printStats(start, producedCountPerMsgType, sentCountPerMsgType, prevSentCounterPerMsgType, blockHeights, blockTimes)
@@ -754,6 +764,54 @@ func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, erro
 	}
 
 	return len(blockResponse.Block.Data.Txs), blockResponse.Block.Header.Time, nil
+}
+
+func runEvmQueries(config Config) {
+	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
+	if len(ethEndpoints) == 0 {
+		return
+	}
+	ethClients := make([]*ethclient.Client, len(ethEndpoints))
+	for i, endpoint := range ethEndpoints {
+		client, err := ethclient.Dial(endpoint)
+		if err != nil {
+			fmt.Printf("Failed to connect to endpoint %s with error %s", endpoint, err.Error())
+		}
+		ethClients[i] = client
+	}
+	wg := sync.WaitGroup{}
+	start := time.Now()
+	for i := 0; i < config.PostTxEvmQueries.BlockByNumber; i++ {
+		wg.Add(1)
+		i := i
+		go func() {
+			defer func() { wg.Done() }()
+			height := int64(BlockHeightsWithTxs[i%len(BlockHeightsWithTxs)])
+			_, err := ethClients[i%len(ethClients)].BlockByNumber(context.Background(), big.NewInt(height))
+			if err != nil {
+				fmt.Printf("Failed to get full block of height %d due to %s\n", height, err)
+			}
+		}()
+	}
+	wg.Wait()
+	fmt.Printf("Querying %d blocks in parallel took %fs\n", config.PostTxEvmQueries.BlockByNumber, time.Since(start).Seconds())
+
+	wg = sync.WaitGroup{}
+	start = time.Now()
+	for i := 0; i < config.PostTxEvmQueries.Receipt; i++ {
+		wg.Add(1)
+		i := i
+		go func() {
+			defer func() { wg.Done() }()
+			hash := EvmTxHashes[i%len(EvmTxHashes)]
+			_, err := ethClients[i%len(ethClients)].TransactionReceipt(context.Background(), hash)
+			if err != nil {
+				fmt.Printf("Failed to get receipt of tx %s due to %s\n", hash.Hex(), err)
+			}
+		}()
+	}
+	wg.Wait()
+	fmt.Printf("Querying %d receipts in parallel took %fs\n", config.PostTxEvmQueries.Receipt, time.Since(start).Seconds())
 }
 
 func GetDefaultConfigFilePath() string {

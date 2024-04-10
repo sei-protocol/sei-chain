@@ -18,6 +18,10 @@
         "max": "21",
         "number_of_distinct_values": 20
     },
+    "post_tx_evm_queries": {
+      "block_by_number": 0,
+      "receipt": 0
+    },
     "message_configs": {
       "default": {
         "gas": 3000000,
