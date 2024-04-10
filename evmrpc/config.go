@@ -53,6 +53,12 @@ type Config struct {
 	// Timeout for EVM call in simulation
 	SimulationEVMTimeout time.Duration `mapstructure:"simulation_evm_timeout"`
 
+	// The EVM tracer to use when doing node synchronization, applies to
+	// all block produced but traces only EVM transactions.
+	//
+	// Refer to x/evm/tracers/registry.go#GlobalLiveTracerRegistry for registered tracers.
+	LiveEVMTracer string `mapstructure:"live_evm_tracer"`
+
 	// list of CORS allowed origins, separated by comma
 	CORSOrigins string `mapstructure:"cors_origins"`
 
@@ -92,6 +98,7 @@ var DefaultConfig = Config{
 	IdleTimeout:          rpc.DefaultHTTPTimeouts.IdleTimeout,
 	SimulationGasLimit:   10_000_000, // 10M
 	SimulationEVMTimeout: 60 * time.Second,
+	LiveEVMTracer:        "",
 	CORSOrigins:          "*",
 	WSOrigins:            "*",
 	FilterTimeout:        120 * time.Second,
@@ -114,6 +121,7 @@ const (
 	flagIdleTimeout          = "evm.idle_timeout"
 	flagSimulationGasLimit   = "evm.simulation_gas_limit"
 	flagSimulationEVMTimeout = "evm.simulation_evm_timeout"
+	flagLiveEVMTracer        = "evm.live_evm_tracer"
 	flagCORSOrigins          = "evm.cors_origins"
 	flagWSOrigins            = "evm.ws_origins"
 	flagFilterTimeout        = "evm.filter_timeout"
@@ -178,6 +186,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagLiveEVMTracer); v != nil {
+		if cfg.LiveEVMTracer, err = cast.ToStringE(v); err != nil {
+			return cfg, err
+		}
+	}
 	if v := opts.Get(flagCORSOrigins); v != nil {
 		if cfg.CORSOrigins, err = cast.ToStringE(v); err != nil {
 			return cfg, err
@@ -223,5 +236,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+
 	return cfg, nil
 }

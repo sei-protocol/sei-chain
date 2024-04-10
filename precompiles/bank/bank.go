@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/tracers"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -227,13 +228,28 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, err
 	}
 
-	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderSeiAddr, value, p.bankKeeper)
+	precompiledSeiAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address)
+
+	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, precompiledSeiAddr, senderSeiAddr, value, p.bankKeeper)
 	if err != nil {
 		return nil, err
 	}
 
+	if hooks := tracers.GetCtxEthTracingHooks(ctx); hooks != nil && hooks.OnBalanceChange != nil && (value.Sign() != 0) {
+		tracers.TraceTransferEVMValue(ctx, hooks, p.bankKeeper, precompiledSeiAddr, p.address, senderSeiAddr, caller, value)
+	}
+
 	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, usei, wei); err != nil {
 		return nil, err
+	}
+
+	if hooks := tracers.GetCtxEthTracingHooks(ctx); hooks != nil && hooks.OnBalanceChange != nil && (value.Sign() != 0) {
+		receveirEvmAddr, found := p.evmKeeper.GetEVMAddress(ctx, receiverSeiAddr)
+		if !found {
+			return nil, fmt.Errorf("sei address %s is not associated, this shouldn't happen at this point since SendCoinsAndWei above worked", receiverSeiAddr)
+		}
+
+		tracers.TraceTransferEVMValue(ctx, hooks, p.bankKeeper, senderSeiAddr, caller, receiverSeiAddr, receveirEvmAddr, value)
 	}
 
 	return method.Outputs.Pack(true)

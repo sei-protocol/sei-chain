@@ -28,6 +28,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/migrations"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/tracers"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -212,6 +213,13 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		coinbase = am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 	}
 	evmTxDeferredInfoList := am.keeper.GetEVMTxDeferredInfo(ctx)
+	evmHooks := tracers.GetCtxEthTracingHooks(ctx)
+
+	var coinbaseEVMAddress common.Address
+	if evmHooks != nil {
+		coinbaseEVMAddress = am.keeper.GetEVMAddressOrDefault(ctx, coinbase)
+	}
+
 	denom := am.keeper.GetBaseDenom(ctx)
 	surplus := utils.Sdk0
 	for _, deferredInfo := range evmTxDeferredInfoList {
@@ -231,9 +239,14 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance.Amount, weiBalance); err != nil {
 				panic(err)
 			}
+
+			if evmHooks != nil && evmHooks.OnBalanceChange != nil {
+				tracers.TraceTransactionRewards(ctx, evmHooks, am.keeper.BankKeeper(), coinbase, coinbaseEVMAddress, balance.Amount, weiBalance)
+			}
 		}
 		surplus = surplus.Add(deferredInfo.Surplus)
 	}
+
 	surplusUsei, surplusWei := state.SplitUseiWeiAmount(surplus.BigInt())
 	if surplusUsei.GT(sdk.ZeroInt()) {
 		if err := am.keeper.BankKeeper().AddCoins(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(am.keeper.GetBaseDenom(ctx), surplusUsei)), true); err != nil {
@@ -245,6 +258,12 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 			ctx.Logger().Error("failed to send wei surplus of %s to EVM module account", surplusWei)
 		}
 	}
+
+	if evmHooks != nil && evmHooks.OnBalanceChange != nil && (surplusUsei.GT(sdk.ZeroInt()) || surplusWei.GT(sdk.ZeroInt())) {
+		evmModuleAddress := am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName)
+		tracers.TraceBlockReward(ctx, evmHooks, am.keeper.BankKeeper(), evmModuleAddress, am.keeper.GetEVMAddressOrDefault(ctx, evmModuleAddress), surplusUsei, surplusWei)
+	}
+
 	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }))
 	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) ethtypes.Bloom { return i.TxBloom }))
 	return []abci.ValidatorUpdate{}

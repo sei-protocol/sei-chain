@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ type opts struct {
 	idleTimeout          interface{}
 	simulationGasLimit   interface{}
 	simulationEVMTimeout interface{}
+	liveEVMTracer        interface{}
 	corsOrigins          interface{}
 	wsOrigins            interface{}
 	filterTimeout        interface{}
@@ -61,6 +63,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.simulation_evm_timeout" {
 		return o.simulationEVMTimeout
 	}
+	if k == "evm.live_evm_tracer" {
+		return o.liveEVMTracer
+	}
 	if k == "evm.cors_origins" {
 		return o.corsOrigins
 	}
@@ -88,7 +93,7 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_blocks_for_log" {
 		return o.maxBlocksForLog
 	}
-	panic("unknown key")
+	panic(fmt.Errorf("unknown key: %s", k))
 }
 
 func TestReadConfig(t *testing.T) {
@@ -103,6 +108,7 @@ func TestReadConfig(t *testing.T) {
 		time.Duration(5),
 		uint64(10),
 		time.Duration(60),
+		"",
 		"",
 		"",
 		time.Duration(5),
