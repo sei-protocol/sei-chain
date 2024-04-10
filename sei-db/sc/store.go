@@ -72,6 +72,9 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (types.Committer, error) {
 	opts := cs.opts
 	opts.ReadOnly = copyExisting
+	if copyExisting {
+		opts.CreateIfMissing = false
+	}
 	db, err := memiavl.OpenDB(cs.logger, targetVersion, opts)
 	if err != nil {
 		return nil, err
