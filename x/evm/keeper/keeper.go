@@ -181,9 +181,18 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		return nil, err
 	}
 	rh := common.BytesToHash(r)
+
+	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
+		if IsPayablePrecompile(&recipient) {
+			state.TransferWithoutEvents(db, sender, recipient, amount)
+		} else {
+			core.Transfer(db, sender, recipient, amount)
+		}
+	}
+
 	return &vm.BlockContext{
 		CanTransfer: core.CanTransfer,
-		Transfer:    core.Transfer,
+		Transfer:    txfer,
 		GetHash:     k.GetHashFn(ctx),
 		Coinbase:    coinbase,
 		GasLimit:    gp.Gas(),
