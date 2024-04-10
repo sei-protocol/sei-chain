@@ -23,13 +23,20 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 		evmAddr, _ = s.k.GetFeeCollectorAddress(s.ctx)
 	}
 
+	ctx := s.ctx
+
+	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
+	if s.eventsSuppressed {
+		ctx = ctx.WithEventManager(sdk.NewEventManager())
+	}
+
 	usei, wei := SplitUseiWeiAmount(amt)
 	addr := s.getSeiAddress(evmAddr)
-	s.err = s.k.BankKeeper().SubUnlockedCoins(s.ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
+	s.err = s.k.BankKeeper().SubUnlockedCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if s.err != nil {
 		return
 	}
-	s.err = s.k.BankKeeper().SubWei(s.ctx, addr, wei)
+	s.err = s.k.BankKeeper().SubWei(ctx, addr, wei)
 	if s.err != nil {
 		return
 	}
@@ -54,18 +61,25 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing
 		s.SubBalance(evmAddr, new(big.Int).Neg(amt), reason)
 		return
 	}
+
 	if s.HasSelfDestructed(evmAddr) {
 		// redirect coins to fee collector, since simply burning here would cause coin supply mismatch
 		evmAddr, _ = s.k.GetFeeCollectorAddress(s.ctx)
 	}
 
+	ctx := s.ctx
+	// this avoids emitting cosmos events for ephemeral bookkeeping transfers like send_native
+	if s.eventsSuppressed {
+		ctx = ctx.WithEventManager(sdk.NewEventManager())
+	}
+
 	usei, wei := SplitUseiWeiAmount(amt)
 	addr := s.getSeiAddress(evmAddr)
-	s.err = s.k.BankKeeper().AddCoins(s.ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
+	s.err = s.k.BankKeeper().AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if s.err != nil {
 		return
 	}
-	s.err = s.k.BankKeeper().AddWei(s.ctx, addr, wei)
+	s.err = s.k.BankKeeper().AddWei(ctx, addr, wei)
 	if s.err != nil {
 		return
 	}
