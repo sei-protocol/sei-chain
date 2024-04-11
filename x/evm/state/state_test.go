@@ -116,11 +116,17 @@ func TestSelfDestructAssociated(t *testing.T) {
 	require.Equal(t, big.NewInt(0), k.BankKeeper().GetBalance(ctx, seiAddr, k.GetBaseDenom(ctx)).Amount.BigInt())
 	require.True(t, statedb.HasSelfDestructed(evmAddr))
 	require.False(t, statedb.Created(evmAddr))
+	statedb.AddBalance(evmAddr, big.NewInt(1), tracing.BalanceChangeUnspecified)
+	require.Equal(t, big.NewInt(1), statedb.GetBalance(evmAddr))
 	statedb.Finalize()
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
 	// association should also be removed
 	_, ok := k.GetSeiAddress(statedb.Ctx(), evmAddr)
 	require.False(t, ok)
+	// balance in destructed account should be cleared and transferred to coinbase
+	require.Equal(t, big.NewInt(0), statedb.GetBalance(evmAddr))
+	fc, _ := k.GetFeeCollectorAddress(statedb.Ctx())
+	require.Equal(t, big.NewInt(1), statedb.GetBalance(fc))
 }
 
 func TestSnapshot(t *testing.T) {
