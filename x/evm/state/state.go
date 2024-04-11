@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -108,10 +109,27 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 	s.Snapshot()
 }
 
+func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
+	for a, status := range st.transientAccounts {
+		if !bytes.Equal(status, AccountDeleted) {
+			continue
+		}
+		acc := common.HexToAddress(a)
+		residual := s.GetBalance(acc)
+		if residual.Cmp(utils.Big0) == 0 {
+			continue
+		}
+		s.SubBalance(acc, residual, tracing.BalanceDecreaseSelfdestructBurn)
+		// we don't want to really "burn" the token since it will mess up
+		// total supply calculation, so we send them to fee collector instead
+		s.AddBalance(s.coinbaseEvmAddress, residual, tracing.BalanceDecreaseSelfdestructBurn)
+	}
+}
+
 func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 	for acc, status := range st.transientAccounts {
 		if !bytes.Equal(status, AccountDeleted) {
-			return
+			continue
 		}
 		s.clearAccountState(common.HexToAddress(acc))
 	}
