@@ -17,7 +17,7 @@ interface IBank {
     ) external returns (bool success);
 
     function sendNative(
-        string memory toNativeAddress,
+        string memory toNativeAddress
     ) payable external returns (bool success);
 
     // Queries
@@ -25,6 +25,15 @@ interface IBank {
         address acc,
         string memory denom
     ) external view returns (uint256 amount);
+
+    struct Coin {
+        uint256 amount;
+        string denom;
+    }
+
+    function all_balances(
+        address acc
+    ) external view returns (Coin[] memory response);
 
     function name(
         string memory denom

@@ -17,13 +17,14 @@ import (
 )
 
 const (
-	SendMethod       = "send"
-	SendNativeMethod = "sendNative"
-	BalanceMethod    = "balance"
-	NameMethod       = "name"
-	SymbolMethod     = "symbol"
-	DecimalsMethod   = "decimals"
-	SupplyMethod     = "supply"
+	SendMethod        = "send"
+	SendNativeMethod  = "sendNative"
+	BalanceMethod     = "balance"
+	AllBalancesMethod = "all_balances"
+	NameMethod        = "name"
+	SymbolMethod      = "symbol"
+	DecimalsMethod    = "decimals"
+	SupplyMethod      = "supply"
 )
 
 const (
@@ -56,13 +57,19 @@ type Precompile struct {
 	evmKeeper  pcommon.EVMKeeper
 	address    common.Address
 
-	SendID       []byte
-	SendNativeID []byte
-	BalanceID    []byte
-	NameID       []byte
-	SymbolID     []byte
-	DecimalsID   []byte
-	SupplyID     []byte
+	SendID        []byte
+	SendNativeID  []byte
+	BalanceID     []byte
+	AllBalancesID []byte
+	NameID        []byte
+	SymbolID      []byte
+	DecimalsID    []byte
+	SupplyID      []byte
+}
+
+type CoinBalance struct {
+	Amount *big.Int
+	Denom  string
 }
 
 func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
@@ -83,6 +90,8 @@ func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (
 			p.SendNativeID = m.ID
 		case BalanceMethod:
 			p.BalanceID = m.ID
+		case AllBalancesMethod:
+			p.AllBalancesID = m.ID
 		case NameMethod:
 			p.NameID = m.ID
 		case SymbolMethod:
@@ -130,6 +139,8 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 		return p.sendNative(ctx, method, args, caller, callingContract, value, readOnly)
 	case BalanceMethod:
 		return p.balance(ctx, method, args, value)
+	case AllBalancesMethod:
+		return p.all_balances(ctx, method, args, value)
 	case NameMethod:
 		return p.name(ctx, method, args, value)
 	case SymbolMethod:
@@ -243,6 +254,35 @@ func (p Precompile) balance(ctx sdk.Context, method *abi.Method, args []interfac
 	}
 
 	return method.Outputs.Pack(p.bankKeeper.GetBalance(ctx, addr, denom).Amount.BigInt())
+}
+
+func (p Precompile) all_balances(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
+
+	addr, err := p.accAddressFromArg(ctx, args[0])
+	if err != nil {
+		return nil, err
+	}
+
+	coins := p.bankKeeper.GetAllBalances(ctx, addr)
+
+	// convert to coin balance structs
+	coinBalances := make([]CoinBalance, 0, len(coins))
+
+	for _, coin := range coins {
+		coinBalances = append(coinBalances, CoinBalance{
+			Amount: coin.Amount.BigInt(),
+			Denom:  coin.Denom,
+		})
+	}
+
+	return method.Outputs.Pack(coinBalances)
 }
 
 func (p Precompile) name(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {

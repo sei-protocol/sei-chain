@@ -34,7 +34,11 @@ func TestRun(t *testing.T) {
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	senderAddr, senderEVMAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
-	err := k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))))
+	err := k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("ufoo", sdk.NewInt(10000000))))
+	require.Nil(t, err)
+	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("ufoo", sdk.NewInt(10000000))))
+	require.Nil(t, err)
+	err = k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))))
 	require.Nil(t, err)
 	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))))
 	require.Nil(t, err)
@@ -163,6 +167,31 @@ func TestRun(t *testing.T) {
 	require.Equal(t, big.NewInt(10), is[0].(*big.Int))
 	weiBalance := k.BankKeeper().GetWeiBalance(ctx, seiAddr)
 	require.Equal(t, big.NewInt(100), weiBalance.BigInt())
+
+	// test get all balances
+	allBalances, err := p.ABI.MethodById(p.AllBalancesID)
+	require.Nil(t, err)
+	args, err = allBalances.Inputs.Pack(senderEVMAddr)
+	require.Nil(t, err)
+	precompileRes, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.AllBalancesID, args...), nil, false)
+	require.Nil(t, err)
+	balances, err := allBalances.Outputs.Unpack(precompileRes)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(balances))
+	parsedBalances := balances[0].([]struct {
+		Amount *big.Int `json:"amount"`
+		Denom  string   `json:"denom"`
+	})
+
+	require.Equal(t, 2, len(parsedBalances))
+	require.Equal(t, bank.CoinBalance{
+		Amount: big.NewInt(10000000),
+		Denom:  "ufoo",
+	}, bank.CoinBalance(parsedBalances[0]))
+	require.Equal(t, bank.CoinBalance{
+		Amount: big.NewInt(9999989),
+		Denom:  "usei",
+	}, bank.CoinBalance(parsedBalances[1]))
 
 	// Verify errors properly raised on bank balance calls with incorrect inputs
 	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.BalanceID, args[:1]...), nil, false)
