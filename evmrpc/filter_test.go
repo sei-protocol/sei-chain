@@ -61,10 +61,10 @@ func TestFilterNew(t *testing.T) {
 				require.True(t, errExists)
 			} else {
 				require.False(t, errExists, "error should not exist")
-				got := resObj["result"].(float64)
+				got := resObj["result"].(string)
 				// make sure next filter id is not equal to this one
 				resObj := sendRequestGood(t, "newFilter", filterCriteria)
-				got2 := resObj["result"].(float64)
+				got2 := resObj["result"].(string)
 				require.NotEqual(t, got, got2)
 			}
 		})
@@ -79,15 +79,15 @@ func TestFilterUninstall(t *testing.T) {
 		"toBlock":   "0xa",
 	}
 	resObj := sendRequestGood(t, "newFilter", filterCriteria)
-	filterId := int(resObj["result"].(float64))
-	require.GreaterOrEqual(t, filterId, 1)
+	filterId := resObj["result"].(string)
+	require.NotEmpty(t, filterId)
 
 	resObj = sendRequest(t, TestPort, "uninstallFilter", filterId)
 	uninstallSuccess := resObj["result"].(bool)
 	require.True(t, uninstallSuccess)
 
 	// uninstall non-existing filter
-	nonExistingFilterId := 100
+	nonExistingFilterId := "100"
 	resObj = sendRequest(t, TestPort, "uninstallFilter", nonExistingFilterId)
 	uninstallSuccess = resObj["result"].(bool)
 	require.False(t, uninstallSuccess)
@@ -220,7 +220,7 @@ func TestFilterGetFilterLogs(t *testing.T) {
 		"toBlock":   "0x2",
 	}
 	resObj := sendRequestGood(t, "newFilter", filterCriteria)
-	filterId := int(resObj["result"].(float64))
+	filterId := resObj["result"].(string)
 
 	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
 	logs := resObj["result"].([]interface{})
@@ -242,7 +242,7 @@ func TestFilterGetFilterChanges(t *testing.T) {
 		"fromBlock": "0x2",
 	}
 	resObj := sendRequest(t, TestPort, "newFilter", filterCriteria)
-	filterId := int(resObj["result"].(float64))
+	filterId := resObj["result"].(string)
 
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	logs := resObj["result"].([]interface{})
@@ -284,7 +284,7 @@ func TestFilterGetFilterChanges(t *testing.T) {
 func TestFilterBlockFilter(t *testing.T) {
 	t.Parallel()
 	resObj := sendRequestGood(t, "newBlockFilter")
-	blockFilterId := int(resObj["result"].(float64))
+	blockFilterId := resObj["result"].(string)
 	resObj = sendRequestGood(t, "getFilterChanges", blockFilterId)
 	hashesInterface := resObj["result"].([]interface{})
 	for _, hashInterface := range hashesInterface {
@@ -309,7 +309,7 @@ func TestFilterExpiration(t *testing.T) {
 		"toBlock":   "0xa",
 	}
 	resObj := sendRequestGood(t, "newFilter", filterCriteria)
-	filterId := int(resObj["result"].(float64))
+	filterId := resObj["result"].(string)
 
 	// wait for filter to expire
 	time.Sleep(2 * filterTimeoutDuration)
@@ -326,7 +326,7 @@ func TestFilterGetFilterLogsKeepsFilterAlive(t *testing.T) {
 		"toBlock":   "0xa",
 	}
 	resObj := sendRequestGood(t, "newFilter", filterCriteria)
-	filterId := int(resObj["result"].(float64))
+	filterId := resObj["result"].(string)
 
 	for i := 0; i < 5; i++ {
 		// should keep filter alive
@@ -344,7 +344,7 @@ func TestFilterGetFilterChangesKeepsFilterAlive(t *testing.T) {
 		"toBlock":   "0xa",
 	}
 	resObj := sendRequestGood(t, "newFilter", filterCriteria)
-	filterId := int(resObj["result"].(float64))
+	filterId := resObj["result"].(string)
 
 	for i := 0; i < 5; i++ {
 		// should keep filter alive
