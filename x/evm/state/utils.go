@@ -17,7 +17,7 @@ var CoinbaseAddressPrefix = []byte("evm_coinbase")
 func GetCoinbaseAddress(txIdx int) sdk.AccAddress {
 	txIndexBz := make([]byte, 8)
 	binary.BigEndian.PutUint64(txIndexBz, uint64(txIdx))
-	return sdk.AccAddress(append(CoinbaseAddressPrefix, txIndexBz...))
+	return append(CoinbaseAddressPrefix, txIndexBz...)
 }
 
 func SplitUseiWeiAmount(amt *big.Int) (sdk.Int, sdk.Int) {
