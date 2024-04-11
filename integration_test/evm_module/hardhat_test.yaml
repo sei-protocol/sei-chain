@@ -3,6 +3,7 @@
     # Fund owner account in hardhat tests
     - cmd: printf "12345678\n" | seid tx evm send 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 10000000000000000000 --from admin | cut -d':' -f2-
       env: TX_HASH
+    - cmd: sleep 3
     - cmd: cast receipt "$TX_HASH" -j |jq -r ."status"
       env: RESULT
     # Setup for Hardhat Integration Test

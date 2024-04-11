@@ -18,6 +18,10 @@
         "max": "21",
         "number_of_distinct_values": 20
     },
+    "post_tx_evm_queries": {
+      "block_by_number": 0,
+      "receipt": 0
+    },
     "message_configs": {
       "default": {
         "gas": 3000000,
@@ -115,5 +119,6 @@
         "contract_address": "sei1nwp0ynjv84wxysf2f5ctvysl6dpm8ngm70hss6jeqt8q7e7u345s8zru6u",
         "percentage": "0.1"
       }
-  ]
+  ],
+  "ticks": 0
 }

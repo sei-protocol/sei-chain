@@ -202,6 +202,7 @@ func (c *LoadTestClient) BuildTxs(
 			switch messageType {
 			case EVM, ERC20, ERC721, UNIV2:
 				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType), MsgType: messageType}
+				EvmTxHashes = append(EvmTxHashes, signedTx.EvmTx.Hash())
 			default:
 				msgTypeCount := atomic.LoadInt64(producedCountPerMsgType[messageType])
 				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, msgTypeCount), MsgType: messageType}
