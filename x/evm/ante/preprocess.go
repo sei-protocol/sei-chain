@@ -15,6 +15,7 @@ import (
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -30,6 +31,9 @@ import (
 
 // Accounts need to have at least 1Sei to force association. Note that account won't be charged.
 const BalanceThreshold uint64 = 1000000
+
+var BigBalanceThreshold *big.Int = new(big.Int).SetUint64(BalanceThreshold)
+var BigBalanceThresholdMinus1 *big.Int = new(big.Int).SetUint64(BalanceThreshold - 1)
 
 var SignerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
 	derived.London: ethtypes.NewLondonSigner,
@@ -71,11 +75,18 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		// check if the account has enough balance (without charging)
 		baseDenom := p.evmKeeper.GetBaseDenom(ctx)
 		seiBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, baseDenom).Amount
-		// no need to get wei balance here since the sei address is not used directly in EVM and thus does not
-		// contain any wei, so any wei balance in `sdk.AccAddress(evmAddr[:])` would not add up to 1usei anyway.
 		castBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), baseDenom).Amount
-		if new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt()).Cmp(new(big.Int).SetUint64(BalanceThreshold)) < 0 {
-			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
+		totalUsei := new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt())
+		if totalUsei.Cmp(BigBalanceThreshold) < 0 {
+			if totalUsei.Cmp(BigBalanceThresholdMinus1) < 0 {
+				// no need to check for wei balances since the sum wouldn't reach 2usei
+				return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
+			}
+			seiWeiBalance := p.evmKeeper.BankKeeper().GetWeiBalance(ctx, seiAddr)
+			evmWeiBalance := p.evmKeeper.BankKeeper().GetWeiBalance(ctx, sdk.AccAddress(evmAddr[:]))
+			if seiWeiBalance.Add(evmWeiBalance).LT(bankkeeper.OneUseiInWei) {
+				return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
+			}
 		}
 		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
 			return ctx, err
