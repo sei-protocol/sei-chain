@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -134,6 +135,43 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	})
 	// already associated
 	require.NotNil(t, err)
+}
+
+func TestPreprocessAssociateTxWithWeiBalance(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+
+	emptyData := make([]byte, 32)
+	prefixedMessage := fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(emptyData)) + string(emptyData)
+	hash := crypto.Keccak256Hash([]byte(prefixedMessage))
+	sig, err := crypto.Sign(hash.Bytes(), key)
+	require.Nil(t, err)
+	R, S, _, _ := ethtx.DecodeSignature(sig)
+	V := big.NewInt(int64(sig[64]))
+
+	txData := ethtx.AssociateTx{V: V.Bytes(), R: R.Bytes(), S: S.Bytes(), CustomMessage: prefixedMessage}
+	msg, err := types.NewMsgEVMTransaction(&txData)
+	require.Nil(t, err)
+	seiAddr := sdk.AccAddress(privKey.PubKey().Address())
+	evmAddr := crypto.PubkeyToAddress(key.PublicKey)
+	k.BankKeeper().AddCoins(ctx, seiAddr, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(int64(ante.BalanceThreshold-1)))), true)
+	k.BankKeeper().AddWei(ctx, sdk.AccAddress(evmAddr[:]), bankkeeper.OneUseiInWei.Sub(sdk.OneInt()))
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		panic("should not be called")
+	})
+	// not enough balance (0.9999999999999999 wei only)
+	require.NotNil(t, err)
+	k.BankKeeper().AddWei(ctx, seiAddr, sdk.OneInt())
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		panic("should not be called")
+	})
+	require.Nil(t, err)
+	associated, ok := k.GetEVMAddress(ctx, seiAddr)
+	require.True(t, ok)
+	require.Equal(t, evmAddr, associated)
 }
 
 func TestGetVersion(t *testing.T) {
