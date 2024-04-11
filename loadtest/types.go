@@ -69,6 +69,8 @@ type Config struct {
 	MetricsPort        uint64                `json:"metrics_port"`
 	TLS                bool                  `json:"tls"`
 	SeiTesterAddress   string                `json:"sei_tester_address"`
+	PostTxEvmQueries   PostTxEvmQueries      `json:"post_tx_evm_queries"`
+	Ticks              uint64                `json:"ticks"`
 
 	// These are dynamically set at startup
 	EVMAddresses *EVMAddresses
@@ -209,6 +211,11 @@ type VortexContract struct {
 type WasmInstantiateType struct {
 	CodeID  uint64 `json:"code_id"`
 	Payload string `json:"payload"`
+}
+
+type PostTxEvmQueries struct {
+	BlockByNumber int `json:"block_by_number"`
+	Receipt       int `json:"receipt"`
 }
 
 type SignedTx struct {
