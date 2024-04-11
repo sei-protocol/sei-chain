@@ -8,6 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGetCoinbaseAddress(t *testing.T) {
+	coinbaseAddr := state.GetCoinbaseAddress(1)
+	require.Equal(t, coinbaseAddr, "sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqpz6djs7")
+}
+
 func TestSplitUseiWeiAmount(t *testing.T) {
 	for _, test := range []struct {
 		amt         *big.Int
