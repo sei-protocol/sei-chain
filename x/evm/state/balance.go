@@ -18,10 +18,6 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 		s.AddBalance(evmAddr, new(big.Int).Neg(amt), reason)
 		return
 	}
-	if s.HasSelfDestructed(evmAddr) {
-		// redirect coins to fee collector, since simply burning here would cause coin supply mismatch
-		evmAddr, _ = s.k.GetFeeCollectorAddress(s.ctx)
-	}
 
 	ctx := s.ctx
 
@@ -60,11 +56,6 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing
 	if amt.Sign() < 0 {
 		s.SubBalance(evmAddr, new(big.Int).Neg(amt), reason)
 		return
-	}
-
-	if s.HasSelfDestructed(evmAddr) {
-		// redirect coins to fee collector, since simply burning here would cause coin supply mismatch
-		evmAddr, _ = s.k.GetFeeCollectorAddress(s.ctx)
 	}
 
 	ctx := s.ctx
@@ -125,7 +116,7 @@ func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int, reason tracing
 }
 
 func (s *DBImpl) getSeiAddress(evmAddr common.Address) sdk.AccAddress {
-	if feeCollector, _ := s.k.GetFeeCollectorAddress(s.ctx); feeCollector == evmAddr {
+	if s.coinbaseEvmAddress.Cmp(evmAddr) == 0 {
 		return s.coinbaseAddress
 	}
 	return s.k.GetSeiAddressOrDefault(s.ctx, evmAddr)

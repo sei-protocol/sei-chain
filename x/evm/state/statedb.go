@@ -26,7 +26,8 @@ type DBImpl struct {
 	// a temporary address that collects fees for this particular transaction so that there is
 	// no single bottleneck for fee collection. Its account state and balance will be deleted
 	// before the block commits
-	coinbaseAddress sdk.AccAddress
+	coinbaseAddress    sdk.AccAddress
+	coinbaseEvmAddress common.Address
 
 	k          EVMKeeper
 	simulation bool
@@ -38,13 +39,15 @@ type DBImpl struct {
 }
 
 func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
+	feeCollector, _ := k.GetFeeCollectorAddress(ctx)
 	s := &DBImpl{
-		ctx:              ctx,
-		k:                k,
-		snapshottedCtxs:  []sdk.Context{},
-		coinbaseAddress:  GetCoinbaseAddress(ctx.TxIndex()),
-		simulation:       simulation,
-		tempStateCurrent: NewTemporaryState(),
+		ctx:                ctx,
+		k:                  k,
+		snapshottedCtxs:    []sdk.Context{},
+		coinbaseAddress:    GetCoinbaseAddress(ctx.TxIndex()),
+		simulation:         simulation,
+		tempStateCurrent:   NewTemporaryState(),
+		coinbaseEvmAddress: feeCollector,
 	}
 	s.Snapshot() // take an initial snapshot for GetCommitted
 	return s
@@ -82,6 +85,14 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 		return
 	}
 
+	// delete state of self-destructed accounts
+	s.handleResidualFundsInDestructedAccounts(s.tempStateCurrent)
+	s.clearAccountStateIfDestructed(s.tempStateCurrent)
+	for _, ts := range s.tempStatesHist {
+		s.handleResidualFundsInDestructedAccounts(ts)
+		s.clearAccountStateIfDestructed(ts)
+	}
+
 	// remove transient states
 	// write cache to underlying
 	s.flushCtx(s.ctx)
@@ -90,12 +101,9 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 		s.flushCtx(s.snapshottedCtxs[i])
 	}
 
-	// delete state of self-destructed accoutns
-	s.clearAccountStateIfDestructed(s.tempStateCurrent)
 	surplus = s.tempStateCurrent.surplus
 	for _, ts := range s.tempStatesHist {
 		surplus = surplus.Add(ts.surplus)
-		s.clearAccountStateIfDestructed(ts)
 	}
 	if surplus.IsNegative() {
 		err = fmt.Errorf("negative surplus value: %s", surplus.String())
@@ -119,15 +127,16 @@ func (s *DBImpl) GetStorageRoot(common.Address) common.Hash {
 func (s *DBImpl) Copy() vm.StateDB {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore())
 	return &DBImpl{
-		ctx:              newCtx,
-		snapshottedCtxs:  append(s.snapshottedCtxs, s.ctx),
-		tempStateCurrent: NewTemporaryState(),
-		tempStatesHist:   append(s.tempStatesHist, s.tempStateCurrent),
-		k:                s.k,
-		coinbaseAddress:  s.coinbaseAddress,
-		simulation:       s.simulation,
-		err:              s.err,
-		logger:           s.logger,
+		ctx:                newCtx,
+		snapshottedCtxs:    append(s.snapshottedCtxs, s.ctx),
+		tempStateCurrent:   NewTemporaryState(),
+		tempStatesHist:     append(s.tempStatesHist, s.tempStateCurrent),
+		k:                  s.k,
+		coinbaseAddress:    s.coinbaseAddress,
+		coinbaseEvmAddress: s.coinbaseEvmAddress,
+		simulation:         s.simulation,
+		err:                s.err,
+		logger:             s.logger,
 	}
 }
 
