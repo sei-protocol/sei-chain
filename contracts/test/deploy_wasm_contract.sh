@@ -17,9 +17,8 @@ instantiate_result=$(printf "12345678\n" | $seidbin tx wasm instantiate "$contra
 
 contract_addr=$(echo "$instantiate_result" |jq -r '.logs[].events[].attributes[] | select(.key == "_contract_address").value')
 
-echo "Deployed counter contract with address $contract_addr"
-
-echo "$contract_addr" > contracts/wasm_contract_addr.txt
-
+echo "Deployed counter contract with address:"
+echo $contract_addr
 
 #  write the contract address to wasm_contract_addr.txt
+echo "$contract_addr" > contracts/wasm_contract_addr.txt

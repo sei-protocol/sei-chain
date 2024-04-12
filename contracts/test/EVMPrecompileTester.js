@@ -235,7 +235,8 @@ describe("EVM Test", function () {
         describe("EVM Wasm Precompile Tester", function () {
             const WasmPrecompileContract = '0x0000000000000000000000000000000000001002';
             before(async function() {
-                const wasmContractAddress = readDeploymentOutput('wasm_contract_address.txt');
+                wasmContractAddress = readDeploymentOutput('wasm_contract_address.txt');
+                console.log(wasmContractAddress);
 
                 const [signer, _] = await ethers.getSigners();
                 owner = await signer.getAddress();
