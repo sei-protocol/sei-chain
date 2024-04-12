@@ -277,7 +277,7 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Help:      "ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step",
 
 			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
-		}, append(labels, "apply_block_ms")).With(labelsAndValues...),
+		}, labels).With(labelsAndValues...),
 	}
 }
 

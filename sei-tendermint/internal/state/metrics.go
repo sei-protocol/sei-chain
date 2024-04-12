@@ -39,17 +39,17 @@ type Metrics struct {
 	UpdateMempoolTime metrics.Histogram
 
 	// FinalizeBlockLatency measures how long it takes to run abci FinalizeBlock
-	FinalizeBlockLatency metrics.Histogram `metrics_labels:"finalize_blocks_ms"  metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	FinalizeBlockLatency metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
 
 	// SaveBlockResponseLatency measures how long it takes to run save the FinalizeBlockRes
-	SaveBlockResponseLatency metrics.Histogram `metrics_labels:"save_block_response_ms"  metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	SaveBlockResponseLatency metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
 
 	// SaveBlockLatency measure how long it takes to save the block
-	SaveBlockLatency metrics.Histogram `metrics_labels:"save_block_ms"  metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	SaveBlockLatency metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
 
 	// PruneBlockLatency measures how long it takes to prune block from blockstore
-	PruneBlockLatency metrics.Histogram `metrics_labels:"prune_block_ms"  metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	PruneBlockLatency metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
 
 	// FireEventsLatency measures how long it takes to fire events for indexing
-	FireEventsLatency metrics.Histogram `metrics_labels:"prune_block_ms"  metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	FireEventsLatency metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
 }

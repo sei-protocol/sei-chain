@@ -172,7 +172,7 @@ type Metrics struct {
 	CompleteProposalTime metrics.Histogram
 
 	// ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step
-	ApplyBlockLatency metrics.Histogram `metrics_labels:"apply_block_ms"  metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	ApplyBlockLatency metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
 }
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.
