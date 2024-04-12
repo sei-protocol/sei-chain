@@ -13,9 +13,10 @@ echo "Storing wasm counter contract"
 store_result=$(printf "12345678\n" | $seidbin tx wasm store integration_test/contracts/counter_parallel.wasm -y --from="$keyname" --chain-id="$chainid" --gas=5000000 --fees=1000000usei --broadcast-mode=block --output=json)
 contract_id=$(echo "$store_result" | jq -r '.logs[].events[].attributes[] | select(.key == "code_id").value')
 echo "Instantiating wasm counter contract"
-instantiate_result=$(printf "12345678\n" | $seidbin tx wasm instantiate "$contract_id" '{}' -y --no-admin --from="$keyname" --chain-id="$chainid" --gas=5000000 --fees=1000000usei --broadcast-mode=block --label=dex --output=json)
+instantiate_result=$(printf "12345678\n" | $seidbin tx wasm instantiate "$contract_id" '{"count": 0}' -y --no-admin --from="$keyname" --chain-id="$chainid" --gas=5000000 --fees=1000000usei --broadcast-mode=block --label=dex --output=json)
+echo $instantiate_result
 
-contract_addr=$(echo "$instantiate_result" |jq -r '.logs[].events[].attributes[] | select(.key == "_contract_address").value')
+contract_addr=$(echo "$instantiate_result" |jq -r 'first(.logs[].events[].attributes[] | select(.key == "_contract_address").value)')
 
 echo "Deployed counter contract with address:"
 echo $contract_addr
