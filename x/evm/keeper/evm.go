@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 
@@ -47,6 +48,12 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	senderAddr, err := sdk.AccAddressFromBech32(req.Sender)
 	if err != nil {
 		return nil, err
+	}
+	// delegatecall caller must be associated; otherwise any state change on EVM contract will be lost
+	// after they asssociate.
+	_, found := k.GetEVMAddress(ctx, senderAddr)
+	if !found {
+		return nil, fmt.Errorf("sender %s is not associated", req.Sender)
 	}
 	ret, err := k.CallEVM(ctx, senderAddr, to, &zeroInt, req.Data)
 	if err != nil {

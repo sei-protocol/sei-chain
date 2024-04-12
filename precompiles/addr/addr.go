@@ -112,8 +112,11 @@ func (p Precompile) getSeiAddr(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, err
 	}
 
-	seiAddrStr := p.evmKeeper.GetSeiAddressOrDefault(ctx, args[0].(common.Address)).String()
-	return method.Outputs.Pack(seiAddrStr)
+	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, args[0].(common.Address))
+	if !found {
+		return nil, fmt.Errorf("EVM address %s is not associated", args[0].(common.Address).Hex())
+	}
+	return method.Outputs.Pack(seiAddr.String())
 }
 
 func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
@@ -125,9 +128,14 @@ func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, err
 	}
 
-	evmAddr, err := p.evmKeeper.GetEVMAddressFromBech32OrDefault(ctx, args[0].(string))
+	seiAddr, err := sdk.AccAddressFromBech32(args[0].(string))
 	if err != nil {
 		return nil, err
+	}
+
+	evmAddr, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
+	if !found {
+		return nil, fmt.Errorf("sei address %s is not associated", args[0].(string))
 	}
 	return method.Outputs.Pack(evmAddr)
 }
