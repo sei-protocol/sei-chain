@@ -11,7 +11,7 @@ import (
 
 const (
 	GasMultiplierNumerator                   uint64 = 1
-	DefaultGasMultiplierDenominator          uint64 = 1
+	DefaultGasMultiplierDenominator          uint64 = 5
 	WasmCorrectDependencyDiscountDenominator uint64 = 2
 )
 
