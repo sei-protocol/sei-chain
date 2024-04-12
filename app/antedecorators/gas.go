@@ -50,7 +50,7 @@ func getMessageMultiplierDenominator(ctx sdk.Context, msg sdk.Msg, aclKeeper acl
 			msgInfo,
 			wasmExecuteMsg.Sender,
 		) {
-			return WasmCorrectDependencyDiscountDenominator
+			return WasmCorrectDependencyDiscountDenominator * DefaultGasMultiplierDenominator
 		}
 	}
 	return DefaultGasMultiplierDenominator
