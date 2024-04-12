@@ -68,14 +68,18 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 	return nil
 }
 
-func (cs *CommitStore) LoadVersion(targetVersion int64, createNew bool) (types.Committer, error) {
+// copyExisting is for creating new memiavl object given existing folder
+func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (types.Committer, error) {
 	opts := cs.opts
-	opts.ReadOnly = createNew
+	opts.ReadOnly = copyExisting
+	if copyExisting {
+		opts.CreateIfMissing = false
+	}
 	db, err := memiavl.OpenDB(cs.logger, targetVersion, opts)
 	if err != nil {
 		return nil, err
 	}
-	if createNew {
+	if copyExisting {
 		return &CommitStore{
 			logger: cs.logger,
 			db:     db,
