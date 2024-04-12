@@ -19,15 +19,15 @@ describe("EVM Test", function () {
                 console.log("ERC20 address is:");
                 console.log(contractAddress);
                 await sleep(1000);
-    
+
                 // Create a signer
                 [signer, signer2] = await ethers.getSigners();
                 owner = await signer.getAddress();
                 owner2 = await signer2.getAddress();
-    
+
                 const contractABIPath = path.join(__dirname, '../../precompiles/common/erc20_abi.json');
                 const contractABI = require(contractABIPath);
-    
+
                 // Get a contract instance
                 erc20 = new ethers.Contract(contractAddress, contractABI, signer);
 
@@ -45,7 +45,7 @@ describe("EVM Test", function () {
                 const receipt2 = await tx2.wait();
                 expect(receipt2.status).to.equal(1);
             });
-    
+
             it("Transfer function", async function() {
                 const beforeBalance = await erc20.balanceOf(owner);
                 const tx = await erc20.transfer(owner2, 1);
@@ -77,13 +77,13 @@ describe("EVM Test", function () {
                 expect(approveReceipt.status).to.equal(1);
                 expect(await erc20.allowance(owner, owner2)).to.equal(100);
 
-                const erc20AsOwner2 = erc20.connect(signer2); 
+                const erc20AsOwner2 = erc20.connect(signer2);
 
-    
+
                 // transfer from owner to owner2
                 const balanceBefore = await erc20.balanceOf(owner2);
                 const transferFromTx = await erc20AsOwner2.transferFrom(owner, owner2, 100);
-    
+
                 // await sleep(3000);
                 const transferFromReceipt = await transferFromTx.wait();
                 expect(transferFromReceipt.status).to.equal(1);
@@ -91,17 +91,17 @@ describe("EVM Test", function () {
                 const diff = balanceAfter - balanceBefore;
                 expect(diff).to.equal(100);
             });
-    
+
             it("Balance of function", async function() {
                 const balance = await erc20.balanceOf(owner);
                 expect(balance).to.be.greaterThan(Number(0));
             });
-    
+
             it("Name function", async function () {
                 const name = await erc20.name()
                 expect(name).to.equal('UATOM');
             });
-    
+
             it("Symbol function", async function () {
                 const symbol = await erc20.symbol()
                 // expect symbol to be 'UATOM'
@@ -117,17 +117,17 @@ describe("EVM Test", function () {
             before(async function() {
                 govProposal = readDeploymentOutput('gov_proposal_output.txt');
                 await sleep(1000);
-    
+
                 // Create a proposal
                 const [signer, _] = await ethers.getSigners();
                 owner = await signer.getAddress();
-    
+
                 const contractABIPath = path.join(__dirname, '../../precompiles/gov/abi.json');
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
                 gov = new ethers.Contract(GovPrecompileContract, contractABI, signer);
             });
-    
+
             it("Gov deposit", async function () {
                 const depositAmount = ethers.parseEther('0.01');
                 const deposit = await gov.deposit(govProposal, {
@@ -231,6 +231,27 @@ describe("EVM Test", function () {
                 }
             });
         });
+
+        describe("EVM Wasm Precompile Tester", function () {
+            const WasmPrecompileContract = '0x0000000000000000000000000000000000001002';
+            before(async function() {
+                const wasmContractAddress = readDeploymentOutput('wasm_contract_address.txt');
+
+                const [signer, _] = await ethers.getSigners();
+                owner = await signer.getAddress();
+
+                const contractABIPath = path.join(__dirname, '../../precompiles/wasmd/abi.json');
+                const contractABI = require(contractABIPath);
+                // Get a contract instance
+                wasmd = new ethers.Contract(WasmPrecompileContract, contractABI, signer);
+            });
+
+            it("Wasm Precompile Execute", async function () {
+                expect(wasmContractAddress).to.not.be.empty;
+            });
+
+        });
+
     });
 });
 
