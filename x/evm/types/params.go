@@ -125,7 +125,7 @@ func validateChainID(i interface{}) error {
 	}
 
 	if v.IsNegative() {
-		return fmt.Errorf("negative min fee per gas: %d", v)
+		return fmt.Errorf("negative chain ID: %d", v)
 	}
 
 	return nil
