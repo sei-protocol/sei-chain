@@ -10,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
@@ -20,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
+func TestEVMFeeCheckDecorator(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	handler := ante.NewEVMFeeCheckDecorator(k)
 	privKey := testkeeper.MockPrivateKey()
@@ -30,7 +29,7 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
 	chainID := k.ChainID(ctx)
 	txData := ethtypes.DynamicFeeTx{
-		Nonce:     1,
+		Nonce:     0,
 		GasFeeCap: big.NewInt(10000000000000),
 		Gas:       1000,
 		To:        to,
@@ -86,64 +85,6 @@ func TestEVMFeeCheckDecoratorCancun(t *testing.T) {
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, coinsAmt)
 
 	// should succeed now that the sender has enough funds
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
-		return ctx, nil
-	})
-	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
-		return ctx, nil
-	})
-	require.Nil(t, err)
-
-	// should fail because blob gas fee cap is too low
-	blobTxData := ethtypes.BlobTx{
-		Nonce:      1,
-		GasFeeCap:  uint256.MustFromBig(txData.GasFeeCap),
-		Gas:        1000,
-		To:         *to,
-		Value:      uint256.NewInt(1000000000000000),
-		Data:       []byte("abc"),
-		BlobHashes: []common.Hash{{}},
-		ChainID:    uint256.MustFromBig(chainID),
-	}
-	tx, err = ethtypes.SignTx(ethtypes.NewTx(&blobTxData), signer, key)
-	require.Nil(t, err)
-	typedBlobTx, err := ethtx.NewBlobTx(tx)
-	require.Nil(t, err)
-	msg, err = types.NewMsgEVMTransaction(typedBlobTx)
-	require.Nil(t, err)
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
-		return ctx, nil
-	})
-	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
-		return ctx, nil
-	})
-	require.NotNil(t, err)
-
-	// should fail because insufficient balance due to additional blob cost
-	blobTxData.BlobFeeCap = uint256.NewInt(1000000000000)
-	tx, err = ethtypes.SignTx(ethtypes.NewTx(&blobTxData), signer, key)
-	require.Nil(t, err)
-	typedBlobTx, err = ethtx.NewBlobTx(tx)
-	require.Nil(t, err)
-	msg, err = types.NewMsgEVMTransaction(typedBlobTx)
-	require.Nil(t, err)
-	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
-		return ctx, nil
-	})
-	require.Nil(t, err)
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
-		return ctx, nil
-	})
-	require.NotNil(t, err)
-
-	// should succeed
-	amt = new(big.Int).Mul(typedBlobTx.GetBlobFeeCap(), new(big.Int).SetUint64(typedBlobTx.BlobGas()))
-	coinsAmt = sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt)))
-	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
-	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, coinsAmt)
-
 	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
