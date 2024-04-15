@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -40,9 +41,9 @@ func (h *EVMQueryHandler) HandleERC20TransferPayload(ctx sdk.Context, recipient 
 	if err != nil {
 		return nil, err
 	}
-	evmAddr, err := h.k.GetEVMAddressFromBech32OrDefault(ctx, recipient)
-	if err != nil {
-		return nil, err
+	evmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(recipient))
+	if !found {
+		return nil, fmt.Errorf("%s is not associated", recipient)
 	}
 	bz, err := abi.Pack("transfer", evmAddr, amount.BigInt())
 	if err != nil {
@@ -129,7 +130,10 @@ func (h *EVMQueryHandler) HandleERC20Balance(ctx sdk.Context, contractAddress st
 	if err != nil {
 		return nil, err
 	}
-	evmAddr := h.k.GetEVMAddressOrDefault(ctx, addr)
+	evmAddr, found := h.k.GetEVMAddress(ctx, addr)
+	if !found {
+		return nil, fmt.Errorf("address %s is not associated", addr.String())
+	}
 	contract := common.HexToAddress(contractAddress)
 	abi, err := native.NativeMetaData.GetAbi()
 	if err != nil {
@@ -192,13 +196,13 @@ func (h *EVMQueryHandler) HandleERC721TransferPayload(ctx sdk.Context, from stri
 	if err != nil {
 		return nil, err
 	}
-	fromEvmAddr, err := h.k.GetEVMAddressFromBech32OrDefault(ctx, from)
-	if err != nil {
-		return nil, err
+	fromEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(from))
+	if !found {
+		return nil, fmt.Errorf("%s is not associated", from)
 	}
-	toEvmAddr, err := h.k.GetEVMAddressFromBech32OrDefault(ctx, recipient)
-	if err != nil {
-		return nil, err
+	toEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(recipient))
+	if !found {
+		return nil, fmt.Errorf("%s is not associated", recipient)
 	}
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
@@ -216,10 +220,11 @@ func (h *EVMQueryHandler) HandleERC721ApprovePayload(ctx sdk.Context, spender st
 	spenderEvmAddr := common.Address{} // empty address if approval should be revoked (i.e. spender string is empty)
 	var err error
 	if spender != "" {
-		spenderEvmAddr, err = h.k.GetEVMAddressFromBech32OrDefault(ctx, spender)
-		if err != nil {
-			return nil, err
+		evmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(spender))
+		if !found {
+			return nil, fmt.Errorf("%s is not associated", spender)
 		}
+		spenderEvmAddr = evmAddr
 	}
 	abi, err := cw721.Cw721MetaData.GetAbi()
 	if err != nil {
@@ -238,9 +243,9 @@ func (h *EVMQueryHandler) HandleERC721ApprovePayload(ctx sdk.Context, spender st
 }
 
 func (h *EVMQueryHandler) HandleERC721SetApprovalAllPayload(ctx sdk.Context, to string, approved bool) ([]byte, error) {
-	evmAddr, err := h.k.GetEVMAddressFromBech32OrDefault(ctx, to)
-	if err != nil {
-		return nil, err
+	evmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(to))
+	if !found {
+		return nil, fmt.Errorf("%s is not associated", to)
 	}
 	abi, err := cw721.Cw721MetaData.GetAbi()
 	if err != nil {
@@ -259,13 +264,13 @@ func (h *EVMQueryHandler) HandleERC20TransferFromPayload(ctx sdk.Context, owner 
 	if err != nil {
 		return nil, err
 	}
-	ownerEvmAddr, err := h.k.GetEVMAddressFromBech32OrDefault(ctx, owner)
-	if err != nil {
-		return nil, err
+	ownerEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(owner))
+	if !found {
+		return nil, fmt.Errorf("%s is not associated", owner)
 	}
-	recipientEvmAddr, err := h.k.GetEVMAddressFromBech32OrDefault(ctx, recipient)
-	if err != nil {
-		return nil, err
+	recipientEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(recipient))
+	if !found {
+		return nil, fmt.Errorf("%s is not associated", recipient)
 	}
 	bz, err := abi.Pack("transferFrom", ownerEvmAddr, recipientEvmAddr, amount.BigInt())
 	if err != nil {
@@ -280,9 +285,9 @@ func (h *EVMQueryHandler) HandleERC20ApprovePayload(ctx sdk.Context, spender str
 	if err != nil {
 		return nil, err
 	}
-	spenderEvmAddr, err := h.k.GetEVMAddressFromBech32OrDefault(ctx, spender)
-	if err != nil {
-		return nil, err
+	spenderEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(spender))
+	if !found {
+		return nil, fmt.Errorf("%s is not associated", spender)
 	}
 
 	bz, err := abi.Pack("approve", spenderEvmAddr, amount.BigInt())
@@ -299,12 +304,15 @@ func (h *EVMQueryHandler) HandleERC20Allowance(ctx sdk.Context, contractAddress 
 	if err != nil {
 		return nil, err
 	}
-	ownerEvmAddr := h.k.GetEVMAddressOrDefault(ctx, ownerAddr)
+	ownerEvmAddr, found := h.k.GetEVMAddress(ctx, ownerAddr)
+	if !found {
+		return nil, fmt.Errorf("owner %s is not associated", ownerAddr.String())
+	}
 
 	// Get the evm address of spender
-	spenderEvmAddr, err := h.k.GetEVMAddressFromBech32OrDefault(ctx, spender)
-	if err != nil {
-		return nil, err
+	spenderEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(spender))
+	if !found {
+		return nil, fmt.Errorf("%s is not associated", spender)
 	}
 
 	// Fetch the contract ABI
@@ -375,13 +383,13 @@ func (h *EVMQueryHandler) HandleERC721IsApprovedForAll(ctx sdk.Context, caller s
 	if err != nil {
 		return nil, err
 	}
-	ownerEvmAddr, err := h.k.GetEVMAddressFromBech32OrDefault(ctx, owner)
-	if err != nil {
-		return nil, err
+	ownerEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(owner))
+	if !found {
+		return nil, fmt.Errorf("%s is not associated", owner)
 	}
-	operatorEvmAddr, err := h.k.GetEVMAddressFromBech32OrDefault(ctx, operator)
-	if err != nil {
-		return nil, err
+	operatorEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(operator))
+	if !found {
+		return nil, fmt.Errorf("%s is not associated", operator)
 	}
 	contract := common.HexToAddress(contractAddress)
 	abi, err := cw721.Cw721MetaData.GetAbi()

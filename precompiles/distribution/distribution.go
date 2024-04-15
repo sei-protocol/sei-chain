@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"errors"
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -124,7 +125,10 @@ func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, call
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
-	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !found {
+		return nil, fmt.Errorf("delegator %s is not associated", caller.Hex())
+	}
 	withdrawAddr, err := p.accAddressFromArg(ctx, args[0])
 	if err != nil {
 		return nil, err
@@ -144,7 +148,10 @@ func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Metho
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
-	delegator := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !found {
+		return nil, fmt.Errorf("delegator %s is not associated", caller.Hex())
+	}
 	validator, err := sdk.ValAddressFromBech32(args[0].(string))
 	if err != nil {
 		return nil, err
