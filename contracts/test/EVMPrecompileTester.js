@@ -235,8 +235,7 @@ describe("EVM Test", function () {
         describe("EVM Wasm Precompile Tester", function () {
             const WasmPrecompileContract = '0x0000000000000000000000000000000000001002';
             before(async function() {
-                wasmContractAddress = readDeploymentOutput('wasm_contract_address.txt');
-                console.log(wasmContractAddress);
+                wasmContractAddress = readDeploymentOutput('wasm_contract_addr.txt');
 
                 const [signer, _] = await ethers.getSigners();
                 owner = await signer.getAddress();
@@ -249,6 +248,81 @@ describe("EVM Test", function () {
 
             it("Wasm Precompile Execute", async function () {
                 expect(wasmContractAddress).to.not.be.empty;
+                encoder = new TextEncoder();
+                decoder = new TextDecoder();
+
+                queryCountMsg = {get_count: {}};
+                queryStr = JSON.stringify(queryCountMsg);
+                queryBz = encoder.encode(queryStr);
+                initialCountBz = await wasmd.query(wasmContractAddress, queryBz);
+                initialCount = parseHexToJSON(initialCountBz)
+
+                incrementMsg = {increment: {}};
+                incrementStr = JSON.stringify(incrementMsg);
+                incrementBz = encoder.encode(incrementStr);
+
+                coins = [];
+                coinsStr = JSON.stringify(coins);
+                coinsBz = encoder.encode(coinsStr);
+
+                execute = await wasmd.execute(wasmContractAddress, incrementBz, coinsBz);
+                const receipt = await execute.wait();
+                expect(receipt.status).to.equal(1);
+
+                finalCountBz = await wasmd.query(wasmContractAddress, queryBz);
+                finalCount = parseHexToJSON(finalCountBz)
+                expect(finalCount.count).to.equal(initialCount.count + 1);
+            });
+
+            it("Wasm Precompile Batch Execute", async function () {
+                expect(wasmContractAddress).to.not.be.empty;
+                encoder = new TextEncoder();
+                decoder = new TextDecoder();
+
+                queryCountMsg = {get_count: {}};
+                queryStr = JSON.stringify(queryCountMsg);
+                queryBz = encoder.encode(queryStr);
+                initialCountBz = await wasmd.query(wasmContractAddress, queryBz);
+                initialCount = parseHexToJSON(initialCountBz)
+
+                incrementMsg = {increment: {}};
+                incrementStr = JSON.stringify(incrementMsg);
+                incrementBz = encoder.encode(incrementStr);
+
+                coins = [];
+                coinsStr = JSON.stringify(coins);
+                coinsBz = encoder.encode(coinsStr);
+
+                executeBatch = [
+                    {
+                        contractAddress: wasmContractAddress,
+                        msg: incrementBz,
+                        coins: coinsBz,
+                    },
+                    {
+                        contractAddress: wasmContractAddress,
+                        msg: incrementBz,
+                        coins: coinsBz,
+                    },
+                    {
+                        contractAddress: wasmContractAddress,
+                        msg: incrementBz,
+                        coins: coinsBz,
+                    },
+                    {
+                        contractAddress: wasmContractAddress,
+                        msg: incrementBz,
+                        coins: coinsBz,
+                    },
+                ];
+
+                executeBatch = await wasmd.execute_batch(executeBatch);
+                const receipt = await executeBatch.wait();
+                expect(receipt.status).to.equal(1);
+
+                finalCountBz = await wasmd.query(wasmContractAddress, queryBz);
+                finalCount = parseHexToJSON(finalCountBz)
+                expect(finalCount.count).to.equal(initialCount.count + 4);
             });
 
         });
@@ -272,4 +346,13 @@ function readDeploymentOutput(fileName) {
         console.error(`Error reading file: ${error}`);
     }
     return fileContent;
+}
+
+function parseHexToJSON(hexStr) {
+    // Remove the 0x prefix
+    hexStr = hexStr.slice(2);
+    // Convert to bytes
+    const bytes = Buffer.from(hexStr, 'hex');
+    // Convert to JSON
+    return JSON.parse(bytes.toString());
 }
