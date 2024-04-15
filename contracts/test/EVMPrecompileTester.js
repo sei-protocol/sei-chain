@@ -236,6 +236,7 @@ describe("EVM Test", function () {
             const WasmPrecompileContract = '0x0000000000000000000000000000000000001002';
             before(async function() {
                 wasmContractAddress = readDeploymentOutput('wasm_contract_addr.txt');
+                wasmCodeID = parseInt(readDeploymentOutput('wasm_code_id.txt'));
 
                 const [signer, _] = await ethers.getSigners();
                 owner = await signer.getAddress();
@@ -246,10 +247,30 @@ describe("EVM Test", function () {
                 wasmd = new ethers.Contract(WasmPrecompileContract, contractABI, signer);
             });
 
+            it("Wasm Precompile Instantiate", async function () {
+                encoder = new TextEncoder();
+
+                queryCountMsg = {get_count: {}};
+                queryStr = JSON.stringify(queryCountMsg);
+                queryBz = encoder.encode(queryStr);
+
+                instantiateMsg = {count: 2};
+                instantiateStr = JSON.stringify(instantiateMsg);
+                instantiateBz = encoder.encode(instantiateStr);
+
+                coins = [];
+                coinsStr = JSON.stringify(coins);
+                coinsBz = encoder.encode(coinsStr);
+
+                instantiate = await wasmd.instantiate(wasmCodeID, "", instantiateBz, "counter-contract", coinsBz);
+                const receipt = await instantiate.wait();
+                expect(receipt.status).to.equal(1);
+                // TODO: is there any way to get the instantiate results for contract address - or in events?
+            });
+
             it("Wasm Precompile Execute", async function () {
                 expect(wasmContractAddress).to.not.be.empty;
                 encoder = new TextEncoder();
-                decoder = new TextDecoder();
 
                 queryCountMsg = {get_count: {}};
                 queryStr = JSON.stringify(queryCountMsg);
@@ -277,7 +298,6 @@ describe("EVM Test", function () {
             it("Wasm Precompile Batch Execute", async function () {
                 expect(wasmContractAddress).to.not.be.empty;
                 encoder = new TextEncoder();
-                decoder = new TextDecoder();
 
                 queryCountMsg = {get_count: {}};
                 queryStr = JSON.stringify(queryCountMsg);
