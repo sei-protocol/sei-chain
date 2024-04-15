@@ -16,12 +16,14 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
 const (
-	InstantiateMethod = "instantiate"
-	ExecuteMethod     = "execute"
-	QueryMethod       = "query"
+	InstantiateMethod  = "instantiate"
+	ExecuteMethod      = "execute"
+	ExecuteBatchMethod = "execute_batch"
+	QueryMethod        = "query"
 )
 
 const WasmdAddress = "0x0000000000000000000000000000000000001002"
@@ -42,9 +44,16 @@ type Precompile struct {
 	wasmdViewKeeper pcommon.WasmdViewKeeper
 	address         common.Address
 
-	InstantiateID []byte
-	ExecuteID     []byte
-	QueryID       []byte
+	InstantiateID  []byte
+	ExecuteID      []byte
+	ExecuteBatchID []byte
+	QueryID        []byte
+}
+
+type ExecuteMsg struct {
+	ContractAddress string `json:"contractAddress"`
+	Msg             []byte `json:"msg"`
+	Coins           []byte `json:"coins"`
 }
 
 func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper, bankKeeper pcommon.BankKeeper) (*Precompile, error) {
@@ -69,11 +78,13 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 
 	for name, m := range newAbi.Methods {
 		switch name {
-		case "instantiate":
+		case InstantiateMethod:
 			p.InstantiateID = m.ID
-		case "execute":
+		case ExecuteMethod:
 			p.ExecuteID = m.ID
-		case "query":
+		case ExecuteBatchMethod:
+			p.ExecuteBatchID = m.ID
+		case QueryMethod:
 			p.QueryID = m.ID
 		}
 	}
@@ -100,6 +111,8 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 func (Precompile) IsTransaction(method string) bool {
 	switch method {
 	case ExecuteMethod:
+		return true
+	case ExecuteBatchMethod:
 		return true
 	case InstantiateMethod:
 		return true
@@ -129,6 +142,8 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly)
 	case ExecuteMethod:
 		return p.execute(ctx, method, caller, callingContract, args, value, readOnly)
+	case ExecuteBatchMethod:
+		return p.execute_batch(ctx, method, caller, callingContract, args, value, readOnly)
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
 	}
@@ -187,8 +202,9 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		rerr = err
 		return
 	}
-	if !coins.AmountOf(sdk.MustGetBaseDenom()).IsZero() {
-		rerr = errors.New("deposit of usei must be done through the `value` field")
+	coinsValue := coins.AmountOf(sdk.MustGetBaseDenom()).Mul(state.SdkUseiToSweiMultiplier).BigInt()
+	if (value == nil && coinsValue.Sign() == 1) || (value != nil && coinsValue.Cmp(value) != 0) {
+		rerr = errors.New("coin amount must equal value specified")
 		return
 	}
 
@@ -206,14 +222,19 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		rerr = err
 		return
 	}
-
-	if value != nil {
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, value, p.bankKeeper)
+	useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
+	if value != nil && !useiAmt.IsZero() {
+		useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, useiAmtAsWei, p.bankKeeper)
 		if err != nil {
 			rerr = err
 			return
 		}
-		coins = coins.Add(coin)
+		// sanity check coin amounts match
+		if !coin.Amount.Equal(useiAmt) {
+			rerr = errors.New("mismatch between coins and payment value")
+			return
+		}
 	}
 
 	addr, data, err := p.wasmdKeeper.Instantiate(ctx, codeID, creatorAddr, adminAddr, msg, label, coins)
@@ -222,6 +243,125 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		return
 	}
 	ret, rerr = method.Outputs.Pack(addr.String(), data)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+	if readOnly {
+		rerr = errors.New("cannot call execute from staticcall")
+		return
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		rerr = err
+		return
+	}
+
+	executeMsgs := args[0].([]struct {
+		ContractAddress string `json:"contractAddress"`
+		Msg             []byte `json:"msg"`
+		Coins           []byte `json:"coins"`
+	})
+
+	responses := make([][]byte, 0, len(executeMsgs))
+
+	// validate coins add up to value
+	validateValue := big.NewInt(0)
+	for i := 0; i < len(executeMsgs); i++ {
+		executeMsg := ExecuteMsg(executeMsgs[i])
+		coinsBz := executeMsg.Coins
+		coins := sdk.NewCoins()
+		if err := json.Unmarshal(coinsBz, &coins); err != nil {
+			rerr = err
+			return
+		}
+		messageAmount := coins.AmountOf(sdk.MustGetBaseDenom()).Mul(state.SdkUseiToSweiMultiplier).BigInt()
+		validateValue.Add(validateValue, messageAmount)
+	}
+	// if validateValue is greater than zero, then value must be provided, and they must be equal
+	if (value == nil && validateValue.Sign() == 1) || (value != nil && validateValue.Cmp(value) != 0) {
+		rerr = errors.New("sum of coin amounts must equal value specified")
+		return
+	}
+	for i := 0; i < len(executeMsgs); i++ {
+		executeMsg := ExecuteMsg(executeMsgs[i])
+
+		// type assertion will always succeed because it's already validated in p.Prepare call in Run()
+		contractAddrStr := executeMsg.ContractAddress
+		if caller.Cmp(callingContract) != 0 {
+			erc20pointer, _, erc20exists := p.evmKeeper.GetERC20CW20Pointer(ctx, contractAddrStr)
+			erc721pointer, _, erc721exists := p.evmKeeper.GetERC721CW721Pointer(ctx, contractAddrStr)
+			if (!erc20exists || erc20pointer.Cmp(callingContract) != 0) && (!erc721exists || erc721pointer.Cmp(callingContract) != 0) {
+				return nil, 0, fmt.Errorf("%s is not a pointer of %s", callingContract.Hex(), contractAddrStr)
+			}
+		}
+
+		contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
+		if err != nil {
+			rerr = err
+			return
+		}
+		senderAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+		msg := executeMsg.Msg
+		coinsBz := executeMsg.Coins
+		coins := sdk.NewCoins()
+		if err := json.Unmarshal(coinsBz, &coins); err != nil {
+			rerr = err
+			return
+		}
+		useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
+		if value != nil && !useiAmt.IsZero() {
+			// process coin amount from the value provided
+			useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
+			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
+			if err != nil {
+				rerr = err
+				return
+			}
+			value.Sub(value, useiAmtAsWei)
+			if value.Sign() == -1 {
+				rerr = errors.New("insufficient value provided for payment")
+				return
+			}
+			// sanity check coin amounts match
+			if !coin.Amount.Equal(useiAmt) {
+				rerr = errors.New("mismatch between coins and payment value")
+				return
+			}
+		}
+		// Run basic validation, can also just expose validateLabel and validate validateWasmCode in sei-wasmd
+		msgExecute := wasmtypes.MsgExecuteContract{
+			Sender:   senderAddr.String(),
+			Contract: contractAddr.String(),
+			Msg:      msg,
+			Funds:    coins,
+		}
+		if err := msgExecute.ValidateBasic(); err != nil {
+			rerr = err
+			return
+		}
+
+		res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
+		if err != nil {
+			rerr = err
+			return
+		}
+		responses = append(responses, res)
+	}
+	if value != nil && value.Sign() != 0 {
+		rerr = errors.New("value remaining after execution, must match provided amounts exactly")
+		return
+	}
+	ret, rerr = method.Outputs.Pack(responses)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
@@ -271,10 +411,12 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		rerr = err
 		return
 	}
-	if !coins.AmountOf(sdk.MustGetBaseDenom()).IsZero() {
-		rerr = errors.New("deposit of usei must be done through the `value` field")
+	coinsValue := coins.AmountOf(sdk.MustGetBaseDenom()).Mul(state.SdkUseiToSweiMultiplier).BigInt()
+	if (value == nil && coinsValue.Sign() == 1) || (value != nil && coinsValue.Cmp(value) != 0) {
+		rerr = errors.New("coin amount must equal value specified")
 		return
 	}
+
 	// Run basic validation, can also just expose validateLabel and validate validateWasmCode in sei-wasmd
 	msgExecute := wasmtypes.MsgExecuteContract{
 		Sender:   senderAddr.String(),
@@ -288,13 +430,19 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		return
 	}
 
-	if value != nil {
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, value, p.bankKeeper)
+	useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
+	if value != nil && !useiAmt.IsZero() {
+		useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
 		if err != nil {
 			rerr = err
 			return
 		}
-		coins = coins.Add(coin)
+		// sanity check coin amounts match
+		if !coin.Amount.Equal(useiAmt) {
+			rerr = errors.New("mismatch between coins and payment value")
+			return
+		}
 	}
 	res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
 	if err != nil {

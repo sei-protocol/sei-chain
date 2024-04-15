@@ -11,6 +11,7 @@
     - cmd: bash contracts/test/get_validator_address.sh
     - cmd: bash contracts/test/send_gov_proposal.sh
     - cmd: bash contracts/test/query_oracle_data.sh
+    - cmd: bash contracts/test/deploy_wasm_contract.sh
   verifiers:
     - type: eval
       expr: RESULT == "0x1"
