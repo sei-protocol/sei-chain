@@ -70,7 +70,7 @@ func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
 				{sender: "3", isEVM: true, evmAddress: "0xabc", evmNonce: 3, priority: 9},
 				{sender: "2", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 7},
 			},
-			expectedOutput: []int64{1, 2, 3},
+			expectedOutput: []int64{1, 3},
 		},
 		{
 			name: "PriorityWithEVMAndNonEVMDuplicateNonce",
@@ -380,17 +380,23 @@ func TestTxPriorityQueue_TryReplacement(t *testing.T) {
 		expectedQueue    []*WrappedTx
 		expectedHeap     []*WrappedTx
 	}{
-		{&WrappedTx{isEVM: false}, []*WrappedTx{}, false, false, []*WrappedTx{}, []*WrappedTx{}},
-		{&WrappedTx{isEVM: true, evmAddress: "addr1"}, []*WrappedTx{}, false, false, []*WrappedTx{}, []*WrappedTx{}},
+		// non-evm transaction is inserted into empty queue
+		{&WrappedTx{isEVM: false}, []*WrappedTx{}, false, false, []*WrappedTx{{isEVM: false}}, []*WrappedTx{{isEVM: false}}},
+		// evm transaction is inserted into empty queue
+		{&WrappedTx{isEVM: true, evmAddress: "addr1"}, []*WrappedTx{}, false, false, []*WrappedTx{{isEVM: true, evmAddress: "addr1"}}, []*WrappedTx{{isEVM: true, evmAddress: "addr1"}}},
+		// evm transaction (new nonce) is inserted into queue with existing tx (lower nonce)
 		{
 			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")}, []*WrappedTx{
 				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
 			}, false, false, []*WrappedTx{
 				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+				{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")},
 			}, []*WrappedTx{
 				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+				{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")},
 			},
 		},
+		// evm transaction (new nonce) is not inserted because it's a duplicate nonce and same priority
 		{
 			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("abc")}, []*WrappedTx{
 				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
@@ -400,6 +406,7 @@ func TestTxPriorityQueue_TryReplacement(t *testing.T) {
 				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
 			},
 		},
+		// evm transaction (new nonce) replaces the existing nonce transaction because its priority is higher
 		{
 			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 101, tx: []byte("abc")}, []*WrappedTx{
 				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
@@ -425,13 +432,13 @@ func TestTxPriorityQueue_TryReplacement(t *testing.T) {
 		for _, e := range test.existing {
 			pq.PushTx(e)
 		}
-		replaced, dropped := pq.TryReplacement(test.tx)
+		replaced, inserted := pq.PushTx(test.tx)
 		if test.expectedReplaced {
 			require.NotNil(t, replaced)
 		} else {
 			require.Nil(t, replaced)
 		}
-		require.Equal(t, test.expectedDropped, dropped)
+		require.Equal(t, test.expectedDropped, !inserted)
 		for i, q := range pq.evmQueue[test.tx.evmAddress] {
 			require.Equal(t, test.expectedQueue[i].tx.Key(), q.tx.Key())
 			require.Equal(t, test.expectedQueue[i].priority, q.priority)

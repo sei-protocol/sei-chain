@@ -71,12 +71,10 @@ func (pq *TxPriorityQueue) getTxWithSameNonceUnsafe(tx *WrappedTx) (*WrappedTx, 
 	return nil, -1
 }
 
-func (pq *TxPriorityQueue) TryReplacement(tx *WrappedTx) (replaced *WrappedTx, shouldDrop bool) {
+func (pq *TxPriorityQueue) tryReplacementUnsafe(tx *WrappedTx) (replaced *WrappedTx, shouldDrop bool) {
 	if !tx.isEVM {
 		return nil, false
 	}
-	pq.mtx.Lock()
-	defer pq.mtx.Unlock()
 	queue, ok := pq.evmQueue[tx.evmAddress]
 	if ok && len(queue) > 0 {
 		existing, idx := pq.getTxWithSameNonceUnsafe(tx)
@@ -338,11 +336,25 @@ func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {
 //}
 
 // PushTx adds a valid transaction to the priority queue. It is thread safe.
-func (pq *TxPriorityQueue) PushTx(tx *WrappedTx) {
+func (pq *TxPriorityQueue) PushTx(tx *WrappedTx) (*WrappedTx, bool) {
 	pq.mtx.Lock()
 	defer pq.mtx.Unlock()
 
+	replacedTx, shouldDrop := pq.tryReplacementUnsafe(tx)
+
+	// tx was not inserted, and nothing was replaced
+	if shouldDrop {
+		return nil, false
+	}
+
+	// tx replaced an existing transaction
+	if replacedTx != nil {
+		return replacedTx, true
+	}
+
+	// tx was not inserted yet, so insert it
 	pq.pushTxUnsafe(tx)
+	return nil, true
 }
 
 func (pq *TxPriorityQueue) popTxUnsafe() *WrappedTx {

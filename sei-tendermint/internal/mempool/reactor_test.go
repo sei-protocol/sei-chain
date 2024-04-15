@@ -167,7 +167,7 @@ func TestReactorBroadcastDoesNotPanic(t *testing.T) {
 	secondaryReactor.observePanic = observePanic
 
 	firstTx := &WrappedTx{}
-	primaryMempool.insertTx(firstTx, true)
+	primaryMempool.insertTx(firstTx)
 
 	// run the router
 	rts.start(ctx, t)
@@ -180,7 +180,7 @@ func TestReactorBroadcastDoesNotPanic(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			primaryMempool.insertTx(next, true)
+			primaryMempool.insertTx(next)
 		}()
 	}
 
