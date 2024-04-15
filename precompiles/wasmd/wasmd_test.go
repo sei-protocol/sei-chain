@@ -39,6 +39,7 @@ func TestInstantiate(t *testing.T) {
 	testApp := app.Setup(false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
 	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
 	require.Nil(t, err)
@@ -70,7 +71,7 @@ func TestInstantiate(t *testing.T) {
 	require.Equal(t, 2, len(outputs))
 	require.Equal(t, "sei1hrpna9v7vs3stzyd4z3xf00676kf78zpe2u5ksvljswn2vnjp3yslucc3n", outputs[0].(string))
 	require.Empty(t, outputs[1].([]byte))
-	require.Equal(t, uint64(902898), g)
+	require.Equal(t, uint64(902838), g)
 
 	// non-existent code ID
 	args, _ = instantiateMethod.Inputs.Pack(
@@ -171,8 +172,9 @@ func TestExecute(t *testing.T) {
 
 func TestQuery(t *testing.T) {
 	testApp := app.Setup(false, false)
-	mockAddr, _ := testkeeper.MockAddressPair()
+	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
 	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
 	require.Nil(t, err)
