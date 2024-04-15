@@ -22,7 +22,9 @@ import (
 func TestSimple(t *testing.T) {
 	bytecode := native.GetBin()
 	abi, err := native.NativeMetaData.GetAbi()
+	require.Nil(t, err)
 	args, err := abi.Pack("", "test", "TST", "TST", uint8(6))
+	require.Nil(t, err)
 	contractData := append(bytecode, args...)
 
 	testApp := testkeeper.EVMTestApp
@@ -51,12 +53,13 @@ func TestSimple(t *testing.T) {
 	req, err := types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))))
-	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, amt))
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(200000000)))))
-	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(200000000)))))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(200000000)))))
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
@@ -70,10 +73,14 @@ func TestSimple(t *testing.T) {
 	require.NotNil(t, receipt)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), receipt.Status)
 	k.SetERC20NativePointer(ctx, "test", common.HexToAddress(receipt.ContractAddress))
+	_, found := k.GetSeiAddress(ctx, common.HexToAddress(receipt.ContractAddress))
+	require.True(t, found)
 
 	// send transaction to the contract
 	contractAddr := common.HexToAddress(receipt.ContractAddress)
-	data, err := abi.Pack("transfer", common.HexToAddress("0x34b575c2eaae50b81375f077517e6490adbd9735"), big.NewInt(1))
+	to := common.HexToAddress("0x34b575c2eaae50b81375f077517e6490adbd9735")
+	k.SetAddressMapping(ctx, sdk.AccAddress(to[:]), to)
+	data, err := abi.Pack("transfer", to, big.NewInt(1))
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
