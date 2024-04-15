@@ -295,20 +295,17 @@ describe("EVM Test", function () {
 
 
       it("Should set the string correctly and emit an event", async function () {
-        // Call setBoolVar
         await delay()
         const txResponse = await evmTester.setStringVar("test");
         await txResponse.wait();  // Wait for the transaction to be mined
+
         await expect(txResponse)
             .to.emit(evmTester, 'StringSet')
             .withArgs(owner.address, "test");
-
-        // Verify that addr is set correctly
         expect(await evmTester.stringVar()).to.equal("test");
       });
 
       it("Should set the bytes correctly and emit an event", async function () {
-        // Call setBoolVar
         await delay()
         const txResponse = await evmTester.setBytesVar(ethers.toUtf8Bytes("test"));
         await txResponse.wait();
@@ -316,7 +313,6 @@ describe("EVM Test", function () {
         await expect(txResponse)
             .to.emit(evmTester, 'BytesSet')
             .withArgs(owner.address, ethers.toUtf8Bytes("test"));
-
         const bytesVar = await evmTester.bytesVar()
         expect(ethers.toUtf8String(bytesVar)).to.equal("test");
       });
