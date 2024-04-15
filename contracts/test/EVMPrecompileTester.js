@@ -30,12 +30,25 @@ describe("EVM Test", function () {
     
                 // Get a contract instance
                 erc20 = new ethers.Contract(contractAddress, contractABI, signer);
+
+                // force association on owner2
+                const tx1 = await signer.sendTransaction({
+                    to: owner2,
+                    value: 100000000000000
+                });
+                const receipt1 = await tx1.wait();
+                expect(receipt1.status).to.equal(1);
+                const tx2 = await signer2.sendTransaction({
+                    to: owner,
+                    value: 1
+                });
+                const receipt2 = await tx2.wait();
+                expect(receipt2.status).to.equal(1);
             });
     
             it("Transfer function", async function() {
-                const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
                 const beforeBalance = await erc20.balanceOf(owner);
-                const tx = await erc20.transfer(receiver, 1);
+                const tx = await erc20.transfer(owner2, 1);
                 const receipt = await tx.wait();
                 expect(receipt.status).to.equal(1);
                 const afterBalance = await erc20.balanceOf(owner);
@@ -56,7 +69,6 @@ describe("EVM Test", function () {
             });
 
             it("Approve and TransferFrom functions", async function() {
-                const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
                 // lets have owner approve the transfer and have owner2 do the transferring
                 const approvalAmount = await erc20.allowance(owner, owner2);
                 expect(approvalAmount).to.equal(0);
@@ -69,13 +81,13 @@ describe("EVM Test", function () {
 
     
                 // transfer from owner to owner2
-                const balanceBefore = await erc20.balanceOf(receiver);
-                const transferFromTx = await erc20AsOwner2.transferFrom(owner, receiver, 100);
+                const balanceBefore = await erc20.balanceOf(owner2);
+                const transferFromTx = await erc20AsOwner2.transferFrom(owner, owner2, 100);
     
                 // await sleep(3000);
                 const transferFromReceipt = await transferFromTx.wait();
                 expect(transferFromReceipt.status).to.equal(1);
-                const balanceAfter = await erc20.balanceOf(receiver);
+                const balanceAfter = await erc20.balanceOf(owner2);
                 const diff = balanceAfter - balanceBefore;
                 expect(diff).to.equal(100);
             });
