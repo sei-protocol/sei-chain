@@ -23,6 +23,14 @@ interface IWasmd {
         bytes memory coins
     ) payable external returns (bytes memory response);
 
+    struct ExecuteMsg {
+        string contractAddress;
+        bytes msg;
+        bytes coins;
+    }
+
+    function execute_batch(ExecuteMsg[] memory executeMsgs) payable external returns (bytes[] memory responses);
+
     // Queries
     function query(string memory contractAddress, bytes memory req) external view returns (bytes memory response);
 }
