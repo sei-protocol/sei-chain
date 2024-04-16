@@ -11,6 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// func TestHandleStaticCall(t *testing.T) {
+// 	k, ctx := testkeeper.MockEVMKeeper()
+// 	from, _ := testkeeper.MockAddressPair()
+// 	_, to := testkeeper.MockAddressPair()
+// 	h := wasm.NewEVMQueryHandler(k)
+// 	res, err := h.HandleStaticCall(ctx, from.String(), to.String(), []byte("123"))
+// 	require.Nil(t, err)
+// 	require.NotEmpty(t, res)
+// }
+
 func TestERC721TransferPayload(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	addr1, e1 := testkeeper.MockAddressPair()
@@ -43,6 +53,7 @@ func TestERC721ApproveAllPayload(t *testing.T) {
 	require.NotEmpty(t, res)
 }
 
+<<<<<<< Updated upstream
 func TestERC20TransferPayload(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	addr1, e1 := testkeeper.MockAddressPair()
@@ -53,6 +64,29 @@ func TestERC20TransferPayload(t *testing.T) {
 	require.Nil(t, err)
 	require.NotEmpty(t, res)
 }
+=======
+// func TestERC20TransferPayload(t *testing.T) {
+// 	k, ctx := testkeeper.MockEVMKeeper()
+// 	addr1, _ := testkeeper.MockAddressPair()
+// 	h := wasm.NewEVMQueryHandler(k)
+// 	value := types.NewInt(500)
+// 	res, err := h.HandleERC20TransferPayload(ctx, addr1.String(), &value)
+// 	require.Nil(t, err)
+// 	require.NotEmpty(t, res)
+// }
+
+// func TestHandleERC20TokenInfo(t *testing.T) {
+// 	k, ctx := testkeeper.MockEVMKeeper()
+// 	addr1, _ := testkeeper.MockAddressPair()
+// 	addr2, _ := testkeeper.MockAddressPair()
+// 	h := wasm.NewEVMQueryHandler(k)
+// 	fmt.Println("addr1 = ", addr1)
+// 	fmt.Println("addr2 = ", addr2)
+// 	res, err := h.HandleERC20TokenInfo(ctx, addr1.String(), addr2.String())
+// 	require.Nil(t, err)
+// 	require.NotEmpty(t, res)
+// }
+>>>>>>> Stashed changes
 
 func TestERC20TransferFromPayload(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
@@ -77,6 +111,26 @@ func TestERC20ApprovePayload(t *testing.T) {
 	require.Nil(t, err)
 	require.NotEmpty(t, res)
 }
+
+// func TestHandleERC20Balance(t *testing.T) {
+// 	k, ctx := testkeeper.MockEVMKeeper()
+// 	_, contractAddr := testkeeper.MockAddressPair()
+// 	addr, _ := testkeeper.MockAddressPair()
+// 	h := wasm.NewEVMQueryHandler(k)
+// 	res, err := h.HandleERC20Balance(ctx, contractAddr.String(), addr.String())
+// 	require.Nil(t, err)
+// 	require.NotEmpty(t, res)
+// }
+
+// func TestHandleERC721Owner(t *testing.T) {
+// 	k, ctx := testkeeper.MockEVMKeeper()
+// 	caller, _ := testkeeper.MockAddressPair()
+// 	_, contractAddr := testkeeper.MockAddressPair()
+// 	h := wasm.NewEVMQueryHandler(k)
+// 	_, err := h.HandleERC721Owner(ctx, caller.String(), contractAddr.String(), "1")
+// 	require.Nil(t, err)
+//  require.NotEmpty(t, res)
+// }
 
 func TestGetAddress(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
