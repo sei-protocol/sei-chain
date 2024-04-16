@@ -1609,8 +1609,10 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 		}),
 		ConsensusParamUpdates: &tmproto.ConsensusParams{
 			Block: &tmproto.BlockParams{
-				MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-				MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				MaxBytes:                       endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				MaxGas:                         endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				CosmosGasMultiplierNumerator:   endBlockResp.ConsensusParamUpdates.Block.CosmosGasMultiplierNumerator,
+				CosmosGasMultiplierDenominator: endBlockResp.ConsensusParamUpdates.Block.CosmosGasMultiplierDenominator,
 			},
 			Evidence: &tmproto.EvidenceParams{
 				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,

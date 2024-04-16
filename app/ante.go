@@ -85,9 +85,9 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	sequentialVerifyDecorator := ante.NewSigVerificationDecorator(options.AccountKeeper, options.SignModeHandler)
 
 	anteDecorators := []sdk.AnteFullDecorator{
-		sdk.CustomDepWrappedAnteDecorator(ante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(*options.AccessControlKeeper)), depdecorators.GasMeterSetterDecorator{}), // outermost AnteDecorator. SetUpContext must be called first
+		sdk.CustomDepWrappedAnteDecorator(ante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter()), depdecorators.GasMeterSetterDecorator{}), // outermost AnteDecorator. SetUpContext must be called first
 		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{ante.NewDeductFeeDecorator(options.AccountKeeper, options.BankKeeper, options.FeegrantKeeper, options.ParamsKeeper.(paramskeeper.Keeper), options.TxFeeChecker)}, *options.OracleKeeper),
-		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit)), // after setup context to enforce limits early
+		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit, antedecorators.GetGasMeterSetter())), // after setup context to enforce limits early
 		sdk.DefaultWrappedAnteDecorator(ante.NewRejectExtensionOptionsDecorator()),
 		oracle.NewSpammingPreventionDecorator(*options.OracleKeeper),
 		oracle.NewOracleVoteAloneDecorator(),

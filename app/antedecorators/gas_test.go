@@ -58,7 +58,7 @@ func TestMultiplierGasSetter(t *testing.T) {
 		},
 	})
 
-	gasMeterSetter := antedecorators.GetGasMeterSetter(testApp.AccessControlKeeper)
+	gasMeterSetter := antedecorators.GetGasMeterSetter()
 	ctxWithGasMeter := gasMeterSetter(false, ctx, 1000, testTx)
 	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
 	require.Equal(t, uint64(1), ctxWithGasMeter.GasMeter().GasConsumed())
@@ -150,7 +150,7 @@ func TestMultiplierGasSetterWithWasmReference(t *testing.T) {
 			},
 		},
 	})
-	gasMeterSetter := antedecorators.GetGasMeterSetter(testApp.AccessControlKeeper)
+	gasMeterSetter := antedecorators.GetGasMeterSetter()
 	ctxWithGasMeter := gasMeterSetter(false, ctx, 1000, testTx)
 	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
 	require.Equal(t, uint64(1), ctxWithGasMeter.GasMeter().GasConsumed())
@@ -245,7 +245,7 @@ func TestMultiplierGasSetterWithWasmReferenceCycle(t *testing.T) {
 			},
 		},
 	})
-	gasMeterSetter := antedecorators.GetGasMeterSetter(testApp.AccessControlKeeper)
+	gasMeterSetter := antedecorators.GetGasMeterSetter()
 	ctxWithGasMeter := gasMeterSetter(false, ctx, 1000, testTx)
 	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
 	require.Equal(t, uint64(2), ctxWithGasMeter.GasMeter().GasConsumed())
