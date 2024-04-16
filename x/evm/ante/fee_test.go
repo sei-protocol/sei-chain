@@ -27,7 +27,7 @@ func TestEVMFeeCheckDecorator(t *testing.T) {
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	to := new(common.Address)
 	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
-	chainID := k.ChainID(ctx)
+	chainID := k.ChainID()
 	txData := ethtypes.DynamicFeeTx{
 		Nonce:     0,
 		GasFeeCap: big.NewInt(10000000000000),

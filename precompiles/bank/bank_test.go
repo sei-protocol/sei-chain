@@ -113,7 +113,7 @@ func TestRun(t *testing.T) {
 		Data:     argsNative,
 		Nonce:    0,
 	}
-	chainID := k.ChainID(ctx)
+	chainID := k.ChainID()
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
