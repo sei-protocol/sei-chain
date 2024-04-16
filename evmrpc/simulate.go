@@ -356,12 +356,14 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 }
 
 func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
+	excessBlobGas := uint64(0)
 	header := &ethtypes.Header{
-		Difficulty: common.Big0,
-		Number:     blockNumber,
-		BaseFee:    b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
-		GasLimit:   b.config.GasCap,
-		Time:       uint64(time.Now().Unix()),
+		Difficulty:    common.Big0,
+		Number:        blockNumber,
+		BaseFee:       b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
+		GasLimit:      b.config.GasCap,
+		Time:          uint64(time.Now().Unix()),
+		ExcessBlobGas: &excessBlobGas,
 	}
 	number := blockNumber.Int64()
 	block, err := blockByNumber(context.Background(), b.tmClient, &number)
