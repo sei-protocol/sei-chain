@@ -53,6 +53,13 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	return s
 }
 
+func (s *DBImpl) AddSurplus(surplus sdk.Int) {
+	if surplus.IsNil() || surplus.IsZero() {
+		return
+	}
+	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Add(surplus)
+}
+
 func (s *DBImpl) DisableEvents() {
 	s.eventsSuppressed = true
 }
