@@ -77,7 +77,7 @@ func TestPrepare(t *testing.T) {
 			},
 		},
 	}
-	shanghai := params.Rules{ChainID: k.ChainID(ctx), IsShanghai: true}
+	shanghai := params.Rules{ChainID: k.ChainID(), IsShanghai: true}
 	statedb.Prepare(
 		shanghai, sender, coinbase, &dest, precompiles, txaccesses,
 	)

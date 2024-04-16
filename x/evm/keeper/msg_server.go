@@ -196,7 +196,7 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	if err != nil {
 		return nil, err
 	}
-	cfg := types.DefaultChainConfig().EthereumConfig(server.ChainID(ctx))
+	cfg := types.DefaultChainConfig().EthereumConfig(server.ChainID())
 	txCtx := core.NewEVMTxContext(msg)
 	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	stateDB.SetEVM(evmInstance)

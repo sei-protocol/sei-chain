@@ -33,6 +33,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -59,6 +60,7 @@ type Keeper struct {
 	pendingTxs                   map[string][]*PendingTx
 	keyToNonce                   map[tmtypes.TxKey]*AddressNoncePair
 
+	Config      *config.Config
 	QueryConfig *querier.Config
 
 	// only used during ETH replay. Not used in chain critical path.
@@ -115,7 +117,7 @@ func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethty
 func NewKeeper(
 	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, paramstore paramtypes.Subspace,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
-	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper) *Keeper {
+	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, conf *config.Config) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -133,6 +135,7 @@ func NewKeeper(
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
 		deferredInfo:                 &sync.Map{},
+		Config:                       conf,
 	}
 	return k
 }

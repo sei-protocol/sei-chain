@@ -24,7 +24,7 @@ func TestAddNative(t *testing.T) {
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	_, caller := testkeeper.MockAddressPair()
 	suppliedGas := uint64(10000000)
-	cfg := types.DefaultChainConfig().EthereumConfig(testApp.EvmKeeper.ChainID(ctx))
+	cfg := types.DefaultChainConfig().EthereumConfig(testApp.EvmKeeper.ChainID())
 
 	// token has no metadata
 	m, err := p.ABI.MethodById(p.AddNativePointerID)

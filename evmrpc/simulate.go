@@ -243,8 +243,7 @@ func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
 func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
 func (b *Backend) ChainConfig() *params.ChainConfig {
-	ctx := b.ctxProvider(LatestCtxHeight)
-	return types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID(ctx))
+	return types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID())
 }
 
 func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {

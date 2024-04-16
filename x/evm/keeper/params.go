@@ -36,12 +36,12 @@ func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 	return k.GetParams(ctx).MinimumFeePerGas
 }
 
-func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
+func (k *Keeper) ChainID() *big.Int {
 	if k.EthReplayConfig.Enabled || k.EthBlockTestConfig.Enabled {
 		// replay is for eth mainnet so always return 1
 		return utils.Big1
 	}
-	return k.GetParams(ctx).ChainId.BigInt()
+	return big.NewInt(k.Config.ChainID)
 }
 
 func (k *Keeper) WhitelistedCwCodeHashesForDelegateCall(ctx sdk.Context) [][]byte {

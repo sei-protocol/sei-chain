@@ -33,14 +33,14 @@ func TestSendRawTransaction(t *testing.T) {
 		To:        &to,
 		Value:     big.NewInt(1000),
 		Data:      []byte("abc"),
-		ChainID:   EVMKeeper.ChainID(Ctx),
+		ChainID:   EVMKeeper.ChainID(),
 	}
 	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
 	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
 	privKey := hd.Secp256k1.Generate()(derivedPriv)
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
-	ethCfg := types.DefaultChainConfig().EthereumConfig(EVMKeeper.ChainID(Ctx))
+	ethCfg := types.DefaultChainConfig().EthereumConfig(EVMKeeper.ChainID())
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
 	tx := ethtypes.NewTx(&txData)
 	tx, err := ethtypes.SignTx(tx, signer, key)

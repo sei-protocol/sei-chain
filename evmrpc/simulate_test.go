@@ -26,7 +26,7 @@ func TestEstimateGas(t *testing.T) {
 		"to":      to.Hex(),
 		"value":   "0x10",
 		"nonce":   "0x1",
-		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID()),
 	}
 	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20)))
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
@@ -57,7 +57,7 @@ func TestEstimateGas(t *testing.T) {
 		"to":      contractAddr.Hex(),
 		"value":   "0x0",
 		"nonce":   "0x2",
-		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID()),
 		"input":   fmt.Sprintf("%#x", input),
 	}
 	resObj = sendRequestGood(t, "estimateGas", txArgs, nil, map[string]interface{}{})
@@ -86,7 +86,7 @@ func TestCreateAccessList(t *testing.T) {
 		"to":      contractAddr.Hex(),
 		"value":   "0x0",
 		"nonce":   "0x1",
-		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID()),
 		"input":   fmt.Sprintf("%#x", input),
 	}
 	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20)))
@@ -122,7 +122,7 @@ func TestCall(t *testing.T) {
 		"to":      contractAddr.Hex(),
 		"value":   "0x0",
 		"nonce":   "0x2",
-		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID()),
 		"input":   fmt.Sprintf("%#x", input),
 	}
 	resObj := sendRequestGood(t, "call", txArgs, nil, map[string]interface{}{}, map[string]interface{}{})

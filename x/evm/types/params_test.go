@@ -1,8 +1,9 @@
 package types_test
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"testing"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,6 @@ func TestDefaultParams(t *testing.T) {
 		PriorityNormalizer:                     types.DefaultPriorityNormalizer,
 		BaseFeePerGas:                          types.DefaultBaseFeePerGas,
 		MinimumFeePerGas:                       types.DefaultMinFeePerGas,
-		ChainId:                                types.DefaultChainID,
 		WhitelistedCwCodeHashesForDelegateCall: types.DefaultWhitelistedCwCodeHashesForDelegateCall,
 	}, types.DefaultParams())
 
@@ -36,15 +36,6 @@ func TestValidateParamsNegativeBaseFeePerGas(t *testing.T) {
 	err := params.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "negative base fee per gas")
-}
-
-func TestValidateParamsNegativeChainID(t *testing.T) {
-	params := types.DefaultParams()
-	params.ChainId = sdk.NewInt(-1) // Set to invalid negative value
-
-	err := params.Validate()
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "negative chain ID")
 }
 
 func TestBaseFeeMinimumFee(t *testing.T) {
