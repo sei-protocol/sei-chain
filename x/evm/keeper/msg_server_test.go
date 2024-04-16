@@ -7,7 +7,9 @@ import (
 	"os"
 	"testing"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -24,6 +26,17 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
+
+type mockTx struct {
+	msgs    []sdk.Msg
+	signers []sdk.AccAddress
+}
+
+func (tx mockTx) GetMsgs() []sdk.Msg                              { return tx.msgs }
+func (tx mockTx) ValidateBasic() error                            { return nil }
+func (tx mockTx) GetSigners() []sdk.AccAddress                    { return tx.signers }
+func (tx mockTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
+func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
 
 func TestEVMTransaction(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
@@ -63,6 +76,10 @@ func TestEVMTransaction(t *testing.T) {
 
 	// Deploy Simple Storage contract
 	ante.Preprocess(ctx, req)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -97,6 +114,10 @@ func TestEVMTransaction(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -143,6 +164,10 @@ func TestEVMTransactionError(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	ante.Preprocess(ctx, req)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err) // there should only be VM error, no msg-level error
 	require.NotEmpty(t, res.VmError)
@@ -194,9 +219,14 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 
 	// Deploy Simple Storage contract with insufficient gas
 	ante.Preprocess(ctx, req)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
 	_, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "intrinsic gas too low") // this can only happen in test because we didn't call CheckTx in this test
+	require.Contains(t, err.Error(), "intrinsic gas too low")                                               // this can only happen in test because we didn't call CheckTx in this test
+	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, evmAddr[:], k.GetBaseDenom(ctx)).Amount) // fee should be charged
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {
@@ -237,6 +267,10 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 
 	// Deploy Simple Storage contract
 	ante.Preprocess(ctx, req)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -290,6 +324,10 @@ func TestEVMPrecompiles(t *testing.T) {
 
 	// Deploy SendAll contract
 	ante.Preprocess(ctx, req)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(500000))
@@ -333,6 +371,10 @@ func TestEVMPrecompiles(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -397,6 +439,10 @@ func TestEVMBlockEnv(t *testing.T) {
 
 	// Deploy Simple Storage contract
 	ante.Preprocess(ctx, req)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
@@ -431,6 +477,10 @@ func TestEVMBlockEnv(t *testing.T) {
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
