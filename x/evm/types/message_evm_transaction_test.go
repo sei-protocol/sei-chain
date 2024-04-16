@@ -2,14 +2,15 @@ package types_test
 
 import (
 	"encoding/hex"
+	"math/big"
+	"testing"
+
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"math/big"
-	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
@@ -35,7 +36,7 @@ func TestIsNotAssociate(t *testing.T) {
 
 func TestAsTransaction(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
-	chainID := k.ChainID(ctx)
+	chainID := k.ChainID()
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
