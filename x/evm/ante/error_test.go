@@ -32,42 +32,8 @@ var testErr = errors.New("test")
 func TestAnteErrorHandler_Handle(t *testing.T) {
 	tests := []test{
 		{
-			name:         "no error",
+			name:         "no error should avoid appending an error",
 			txResultCode: abci.CodeTypeOK,
-			tx:           &ethtx.LegacyTx{},
-			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
-				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
-			},
-		},
-		{
-			name:         "no error on check tx",
-			txResultCode: code.CodeTypeUnknownError,
-			ctxSetup: func(ctx sdk.Context) sdk.Context {
-				return ctx.WithIsCheckTx(true)
-			},
-			handlerErr: testErr,
-			tx:         &ethtx.LegacyTx{},
-			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
-				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
-			},
-		},
-		{
-			name:         "no error on recheck tx",
-			txResultCode: code.CodeTypeUnknownError,
-			ctxSetup: func(ctx sdk.Context) sdk.Context {
-				return ctx.WithIsReCheckTx(true)
-			},
-			handlerErr: testErr,
-			tx:         &ethtx.LegacyTx{},
-			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
-				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
-			},
-		},
-		{
-			name:         "no error on simulate",
-			txResultCode: code.CodeTypeUnknownError,
-			handlerErr:   testErr,
-			simulate:     true,
 			tx:           &ethtx.LegacyTx{},
 			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
 				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
@@ -82,6 +48,40 @@ func TestAnteErrorHandler_Handle(t *testing.T) {
 				require.ErrorIs(t, err, testErr)
 				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 1)
 				require.Equal(t, k.GetEVMTxDeferredInfo(ctx)[0].Error, testErr.Error())
+			},
+		},
+		{
+			name:         "error on check tx should avoid appending an error",
+			txResultCode: code.CodeTypeUnknownError,
+			ctxSetup: func(ctx sdk.Context) sdk.Context {
+				return ctx.WithIsCheckTx(true)
+			},
+			handlerErr: testErr,
+			tx:         &ethtx.LegacyTx{},
+			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
+				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
+			},
+		},
+		{
+			name:         "error on re-check tx should avoid appending an error",
+			txResultCode: code.CodeTypeUnknownError,
+			ctxSetup: func(ctx sdk.Context) sdk.Context {
+				return ctx.WithIsReCheckTx(true)
+			},
+			handlerErr: testErr,
+			tx:         &ethtx.LegacyTx{},
+			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
+				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
+			},
+		},
+		{
+			name:         "error with simulate should avoid appending an error",
+			txResultCode: code.CodeTypeUnknownError,
+			handlerErr:   testErr,
+			simulate:     true,
+			tx:           &ethtx.LegacyTx{},
+			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
+				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
 			},
 		},
 		{
