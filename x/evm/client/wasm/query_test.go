@@ -53,7 +53,6 @@ func TestERC721ApproveAllPayload(t *testing.T) {
 	require.NotEmpty(t, res)
 }
 
-<<<<<<< Updated upstream
 func TestERC20TransferPayload(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	addr1, e1 := testkeeper.MockAddressPair()
@@ -64,7 +63,7 @@ func TestERC20TransferPayload(t *testing.T) {
 	require.Nil(t, err)
 	require.NotEmpty(t, res)
 }
-=======
+
 // func TestERC20TransferPayload(t *testing.T) {
 // 	k, ctx := testkeeper.MockEVMKeeper()
 // 	addr1, _ := testkeeper.MockAddressPair()
@@ -86,7 +85,6 @@ func TestERC20TransferPayload(t *testing.T) {
 // 	require.Nil(t, err)
 // 	require.NotEmpty(t, res)
 // }
->>>>>>> Stashed changes
 
 func TestERC20TransferFromPayload(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
