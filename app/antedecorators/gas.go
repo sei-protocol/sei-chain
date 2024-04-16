@@ -11,6 +11,11 @@ func GetGasMeterSetter() func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context {
 			return ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 		}
 
-		return ctx.WithGasMeter(types.NewMultiplierGasMeter(gasLimit, ctx.ConsensusParams().Block.CosmosGasMultiplierNumerator, ctx.ConsensusParams().Block.CosmosGasMultiplierDenominator))
+		consensusParams := ctx.ConsensusParams()
+		if consensusParams == nil || consensusParams.Block == nil {
+			panic("block params is nil")
+		}
+
+		return ctx.WithGasMeter(types.NewMultiplierGasMeter(gasLimit, consensusParams.Block.CosmosGasMultiplierNumerator, consensusParams.Block.CosmosGasMultiplierDenominator))
 	}
 }
