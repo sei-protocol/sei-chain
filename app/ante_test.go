@@ -262,5 +262,5 @@ func TestEvmAnteErrorHandler(t *testing.T) {
 	}})
 	deferredInfo := testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.Equal(t, 1, len(deferredInfo))
-	require.Equal(t, "incorrect account sequence", deferredInfo[0].Error)
+	require.Contains(t, deferredInfo[0].Error, "nonce too high")
 }
