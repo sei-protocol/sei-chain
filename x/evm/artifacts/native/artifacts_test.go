@@ -41,7 +41,7 @@ func TestSimple(t *testing.T) {
 		Data:     contractData,
 		Nonce:    0,
 	}
-	chainID := k.ChainID(ctx)
+	chainID := k.ChainID()
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())

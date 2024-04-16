@@ -236,7 +236,7 @@ func TestEvmAnteErrorHandler(t *testing.T) {
 		Data:     []byte{},
 		Nonce:    1, // will cause ante error
 	}
-	chainID := testkeeper.EVMTestApp.EvmKeeper.ChainID(ctx)
+	chainID := testkeeper.EVMTestApp.EvmKeeper.ChainID()
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())

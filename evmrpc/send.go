@@ -134,7 +134,7 @@ func (s *SendAPI) signTransaction(unsignedTx *ethtypes.Transaction, from string)
 	if !ok {
 		return nil, errors.New("from address does not have hosted key")
 	}
-	chainId := s.keeper.ChainID(s.ctxProvider(LatestCtxHeight))
+	chainId := s.keeper.ChainID()
 	signer := ethtypes.LatestSignerForChainID(chainId)
 	return ethtypes.SignTx(unsignedTx, signer, privKey)
 }

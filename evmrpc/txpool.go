@@ -46,7 +46,7 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
+		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID()),
 		big.NewInt(sdkCtx.BlockHeight()),
 		uint64(sdkCtx.BlockTime().Unix()),
 	)

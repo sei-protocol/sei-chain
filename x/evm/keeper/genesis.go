@@ -55,9 +55,6 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 
 	if k.EthReplayConfig.Enabled && !ethReplayInitialied {
 		header := k.OpenEthDatabase()
-		params := k.GetParams(ctx)
-		params.ChainId = sdk.OneInt()
-		k.SetParams(ctx, params)
 		k.SetReplayInitialHeight(ctx, header.Number.Int64())
 		ethReplayInitialied = true
 	}

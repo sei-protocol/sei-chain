@@ -33,7 +33,7 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 		Value:    big.NewInt(1000),
 		Data:     []byte("abc"),
 	}
-	chainID := k.ChainID(ctx)
+	chainID := k.ChainID()
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
@@ -109,7 +109,7 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 		Value:    big.NewInt(1000),
 		Data:     []byte("abc"),
 	}
-	chainID := k.ChainID(ctx)
+	chainID := k.ChainID()
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
