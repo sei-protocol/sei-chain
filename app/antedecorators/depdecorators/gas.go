@@ -10,6 +10,7 @@ type GasMeterSetterDecorator struct {
 }
 
 func (d GasMeterSetterDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
+	// TODO: Remove below since no more wasm dependency discount
 	for _, msg := range tx.GetMsgs() {
 		if _, ok := msg.(*wasmtypes.MsgExecuteContract); ok {
 			// if we have a wasm execute message, we need to declare the dependency to read accesscontrol for giving gas discount
