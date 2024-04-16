@@ -21,7 +21,7 @@ func TestMultiplierGasSetter(t *testing.T) {
 	ctx := testApp.NewContext(false, types.Header{}).WithBlockHeight(2)
 	blockParams := tmtypes.DefaultBlockParams()
 	ctx = ctx.WithConsensusParams(&types.ConsensusParams{
-		Block: &types.BlockParams{MaxGas: blockParams.MaxGas, MaxBytes: blockParams.MaxBytes, CosmosGasMultiplierNumerator: blockParams.CosmosGasMultiplierNumerator, CosmosGasMultiplierDenominator: 2},
+		Block: &types.BlockParams{MaxGas: blockParams.MaxGas, MaxBytes: blockParams.MaxBytes, CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 2},
 	})
 	testMsg := wasmtypes.MsgExecuteContract{
 		Contract: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
@@ -51,7 +51,7 @@ func TestMultiplierGasSetter(t *testing.T) {
 	require.Equal(t, uint64(1), ctxWithGasMeter.GasMeter().GasConsumed())
 
 	ctx = ctx.WithConsensusParams(&types.ConsensusParams{
-		Block: &types.BlockParams{MaxGas: blockParams.MaxGas, MaxBytes: blockParams.MaxBytes, CosmosGasMultiplierNumerator: blockParams.CosmosGasMultiplierNumerator, CosmosGasMultiplierDenominator: 4},
+		Block: &types.BlockParams{MaxGas: blockParams.MaxGas, MaxBytes: blockParams.MaxBytes, CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 4},
 	})
 
 	ctxWithGasMeter = gasMeterSetter(false, ctx, 1000, testTx)
