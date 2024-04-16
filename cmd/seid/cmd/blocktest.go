@@ -18,6 +18,7 @@ import (
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	ethtests "github.com/ethereum/go-ethereum/tests"
 	"github.com/sei-protocol/sei-chain/app"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/tendermint/tendermint/libs/log"
 
 	//nolint:gosec,G108
@@ -57,6 +58,8 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 			cache := store.NewCommitKVStoreCacheManager()
 			wasmGasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
 			wasmGasRegisterConfig.GasMultiplier = 21_000_000
+			// turn on Cancun for block test
+			evmtypes.CancunTime = 0
 			a := app.New(
 				logger,
 				db,

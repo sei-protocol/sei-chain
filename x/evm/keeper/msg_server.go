@@ -58,9 +58,10 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
+	stateDB.AddSurplus(msg.Derived.AnteSurplus)
 	tx, _ := msg.AsTransaction()
-	ctx, gp := server.getGasPool(ctx)
-	emsg := server.getEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
+	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
+	gp := server.GetGasPool()
 
 	defer func() {
 		if pe := recover(); pe != nil {
@@ -162,11 +163,11 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	return
 }
 
-func (k *Keeper) getGasPool(ctx sdk.Context) (sdk.Context, core.GasPool) {
-	return ctx, math.MaxUint64
+func (k *Keeper) GetGasPool() core.GasPool {
+	return math.MaxUint64
 }
 
-func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) *core.Message {
+func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) *core.Message {
 	msg := &core.Message{
 		Nonce:             tx.Nonce(),
 		GasLimit:          tx.Gas(),
@@ -183,7 +184,7 @@ func (server msgServer) getEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction,
 		From:              sender,
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
-	baseFee := server.GetBaseFee(ctx)
+	baseFee := k.GetBaseFee(ctx)
 	if baseFee != nil {
 		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
 	}
@@ -199,7 +200,7 @@ func (server msgServer) applyEVMMessage(ctx sdk.Context, msg *core.Message, stat
 	txCtx := core.NewEVMTxContext(msg)
 	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	stateDB.SetEVM(evmInstance)
-	st := core.NewStateTransition(evmInstance, msg, &gp)
+	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
 	res, err := st.TransitionDb()
 	return res, err
 }
