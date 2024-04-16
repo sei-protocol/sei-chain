@@ -2,6 +2,7 @@ package ante_test
 
 import (
 	"errors"
+	"github.com/golang/protobuf/proto"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -18,7 +19,7 @@ import (
 
 type test struct {
 	name         string
-	tx           func() *types.MsgEVMTransaction
+	tx           proto.Message
 	simulate     bool
 	ctxSetup     func(ctx sdk.Context) sdk.Context
 	handlerErr   error
@@ -33,10 +34,7 @@ func TestAnteErrorHandler_Handle(t *testing.T) {
 		{
 			name:         "no error",
 			txResultCode: abci.CodeTypeOK,
-			tx: func() *types.MsgEVMTransaction {
-				msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{})
-				return msg
-			},
+			tx:           &ethtx.LegacyTx{},
 			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
 				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
 			},
@@ -48,10 +46,7 @@ func TestAnteErrorHandler_Handle(t *testing.T) {
 				return ctx.WithIsCheckTx(true)
 			},
 			handlerErr: testErr,
-			tx: func() *types.MsgEVMTransaction {
-				msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{})
-				return msg
-			},
+			tx:         &ethtx.LegacyTx{},
 			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
 				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
 			},
@@ -63,10 +58,17 @@ func TestAnteErrorHandler_Handle(t *testing.T) {
 				return ctx.WithIsReCheckTx(true)
 			},
 			handlerErr: testErr,
-			tx: func() *types.MsgEVMTransaction {
-				msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{})
-				return msg
+			tx:         &ethtx.LegacyTx{},
+			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
+				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
 			},
+		},
+		{
+			name:         "no error on simulate",
+			txResultCode: code.CodeTypeUnknownError,
+			handlerErr:   testErr,
+			simulate:     true,
+			tx:           &ethtx.LegacyTx{},
 			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
 				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
 			},
@@ -75,10 +77,7 @@ func TestAnteErrorHandler_Handle(t *testing.T) {
 			name:         "error should append error to deferred info",
 			handlerErr:   testErr,
 			txResultCode: code.CodeTypeUnknownError,
-			tx: func() *types.MsgEVMTransaction {
-				msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{})
-				return msg
-			},
+			tx:           &ethtx.LegacyTx{},
 			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
 				require.ErrorIs(t, err, testErr)
 				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 1)
@@ -89,10 +88,7 @@ func TestAnteErrorHandler_Handle(t *testing.T) {
 			name:         "error should not append error to deferred info if associate tx",
 			handlerErr:   testErr,
 			txResultCode: code.CodeTypeUnknownError,
-			tx: func() *types.MsgEVMTransaction {
-				msg, _ := types.NewMsgEVMTransaction(&ethtx.AssociateTx{})
-				return msg
-			},
+			tx:           &ethtx.AssociateTx{},
 			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
 				require.ErrorIs(t, err, testErr)
 				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
@@ -102,12 +98,8 @@ func TestAnteErrorHandler_Handle(t *testing.T) {
 			name:         "error should not append error if data of tx cannot be decoded (not an evm message)",
 			handlerErr:   testErr,
 			txResultCode: code.CodeTypeUnknownError,
-			tx: func() *types.MsgEVMTransaction {
-				// not an evm message
-				msg, _ := types.NewMsgEVMTransaction(&sdk.ABCIMessageLog{
-					Log: "string",
-				})
-				return msg
+			tx: &sdk.ABCIMessageLog{ // this isn't a tx, so it'll fail to parse
+				Log: "string",
 			},
 			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
 				require.ErrorIs(t, err, testErr)
@@ -124,8 +116,8 @@ func TestAnteErrorHandler_Handle(t *testing.T) {
 			return ctx, test.handlerErr
 		}, k)
 		k.SetTxResults([]*abci.ExecTxResult{{Code: test.txResultCode}})
-
-		newCtx, err := eh.Handle(ctx, &mockTx{msgs: []sdk.Msg{test.tx()}}, false)
+		msg, _ := types.NewMsgEVMTransaction(test.tx)
+		newCtx, err := eh.Handle(ctx, &mockTx{msgs: []sdk.Msg{msg}}, test.simulate)
 		test.assertions(t, newCtx, k, err)
 	}
 }
