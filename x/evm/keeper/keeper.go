@@ -200,6 +200,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		Time:        uint64(ctx.BlockHeader().Time.Unix()),
 		Difficulty:  utils.Big0,                                     // only needed for PoW
 		BaseFee:     k.GetBaseFeePerGas(ctx).TruncateInt().BigInt(), // feemarket not enabled
+		BlobBaseFee: utils.Big0,                                     // Cancun not enabled
 		Random:      &rh,
 	}, nil
 }

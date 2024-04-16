@@ -8,6 +8,8 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
+var CancunTime int64 = -1
+
 /*
 *
 XXBlock/Time fields indicate upgrade heights/timestamps. For example, a BerlinBlock
@@ -45,7 +47,7 @@ func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 
 func DefaultChainConfig() ChainConfig {
 	return ChainConfig{
-		CancunTime: 0,
+		CancunTime: CancunTime,
 		PragueTime: -1,
 		VerkleTime: -1,
 	}

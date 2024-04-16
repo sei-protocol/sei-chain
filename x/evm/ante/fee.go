@@ -6,6 +6,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
@@ -55,13 +57,37 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		}
 	}
 
-	// fee + value
-	anteCharge := txData.Cost() // this would include blob fee if it's a blob tx
-
-	senderEVMAddr := evmtypes.MustGetEVMTransactionMessage(tx).Derived.SenderEVMAddr
 	// check if the sender has enough balance to cover fees
-	if state.NewDBImpl(ctx, fc.evmKeeper, true).GetBalance(senderEVMAddr).Cmp(anteCharge) < 0 {
-		return ctx, sdkerrors.ErrInsufficientFunds
+	etx, _ := msg.AsTransaction()
+	emsg := fc.evmKeeper.GetEVMMessage(ctx, etx, msg.Derived.SenderEVMAddr)
+	stateDB := state.NewDBImpl(ctx, fc.evmKeeper, false)
+	gp := fc.evmKeeper.GetGasPool()
+	blockCtx, err := fc.evmKeeper.GetVMBlockContext(ctx, gp)
+	if err != nil {
+		return ctx, err
+	}
+	cfg := evmtypes.DefaultChainConfig().EthereumConfig(fc.evmKeeper.ChainID(ctx))
+	txCtx := core.NewEVMTxContext(emsg)
+	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
+	stateDB.SetEVM(evmInstance)
+	st := core.NewStateTransition(evmInstance, emsg, &gp, true)
+	// run stateless checks before charging gas (mimicking Geth behavior)
+	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
+		// we don't want to run nonce check here for CheckTx because we have special
+		// logic for pending nonce during CheckTx in sig.go
+		if err := st.StatelessChecks(); err != nil {
+			return ctx, err
+		}
+	}
+	if err := st.BuyGas(); err != nil {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, err.Error())
+	}
+	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
+		surplus, err := stateDB.Finalize()
+		if err != nil {
+			return ctx, err
+		}
+		msg.Derived.AnteSurplus = surplus
 	}
 
 	// calculate the priority by dividing the total fee with the native gas limit (i.e. the effective native gas price)

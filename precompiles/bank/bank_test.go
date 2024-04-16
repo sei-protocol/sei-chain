@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -23,6 +25,17 @@ import (
 	"github.com/stretchr/testify/require"
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
+
+type mockTx struct {
+	msgs    []sdk.Msg
+	signers []sdk.AccAddress
+}
+
+func (tx mockTx) GetMsgs() []sdk.Msg                              { return tx.msgs }
+func (tx mockTx) ValidateBasic() error                            { return nil }
+func (tx mockTx) GetSigners() []sdk.AccAddress                    { return tx.signers }
+func (tx mockTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
+func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
 
 func TestRun(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
@@ -93,8 +106,8 @@ func TestRun(t *testing.T) {
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	addr := common.HexToAddress(bank.BankAddress)
 	txData := ethtypes.LegacyTx{
-		GasPrice: big.NewInt(100000),
-		Gas:      20000000,
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      200000,
 		To:       &addr,
 		Value:    big.NewInt(10_000_000_000_100),
 		Data:     argsNative,
@@ -116,6 +129,10 @@ func TestRun(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 	ante.Preprocess(ctx, req)
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -132,7 +149,7 @@ func TestRun(t *testing.T) {
 
 	var expectedEvts sdk.Events = []sdk.Event{
 		// gas is sent from sender
-		banktypes.NewCoinSpentEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(2)))),
+		banktypes.NewCoinSpentEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200000)))),
 		// sender sends coin to the receiver
 		banktypes.NewCoinSpentEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))),
 		banktypes.NewCoinReceivedEvent(seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))),
@@ -147,9 +164,9 @@ func TestRun(t *testing.T) {
 			sdk.NewAttribute(banktypes.AttributeKeySender, senderAddr.String()),
 		),
 		// gas refund to the sender
-		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
+		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(172056)))),
 		// tip is paid to the validator
-		banktypes.NewCoinReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(0)))),
+		banktypes.NewCoinReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27944)))),
 	}
 
 	require.EqualValues(t, expectedEvts.ToABCIEvents(), evts)
@@ -189,7 +206,7 @@ func TestRun(t *testing.T) {
 		Denom:  "ufoo",
 	}, bank.CoinBalance(parsedBalances[0]))
 	require.Equal(t, bank.CoinBalance{
-		Amount: big.NewInt(9999989),
+		Amount: big.NewInt(9972045),
 		Denom:  "usei",
 	}, bank.CoinBalance(parsedBalances[1]))
 
