@@ -93,7 +93,7 @@ func TestPrecompile_Run(t *testing.T) {
 			fields:           fields{transferKeeper: &MockTransferKeeper{}},
 			args:             commonArgs,
 			wantBz:           packedTrue,
-			wantRemainingGas: 992974,
+			wantRemainingGas: 994040,
 			wantErr:          false,
 		},
 		{

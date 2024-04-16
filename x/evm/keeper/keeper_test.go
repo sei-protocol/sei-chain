@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
@@ -30,8 +31,8 @@ func TestPurgePrefixNotHang(t *testing.T) {
 }
 
 func TestGetChainID(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
-	require.Equal(t, types.DefaultChainID.Int64(), k.ChainID(ctx).Int64())
+	k, _ := keeper.MockEVMKeeper()
+	require.Equal(t, config.DefaultConfig.ChainID, k.ChainID().Int64())
 }
 
 func TestGetVMBlockContext(t *testing.T) {
