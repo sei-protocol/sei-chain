@@ -53,7 +53,7 @@ func TestStaking(t *testing.T) {
 		Data:     args,
 		Nonce:    0,
 	}
-	chainID := k.ChainID(ctx)
+	chainID := k.ChainID()
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
@@ -162,7 +162,7 @@ func TestStakingError(t *testing.T) {
 		Data:     args,
 		Nonce:    0,
 	}
-	chainID := k.ChainID(ctx)
+	chainID := k.ChainID()
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())

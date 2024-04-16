@@ -25,6 +25,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -449,7 +450,7 @@ func init() {
 }
 
 func generateTxData() {
-	chainId := big.NewInt(types.DefaultChainID.Int64())
+	chainId := big.NewInt(config.DefaultConfig.ChainID)
 	to := common.HexToAddress("010203")
 	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3, txBuilder4 client.TxBuilder
 	txBuilder1, tx1 = buildTx(ethtypes.DynamicFeeTx{
@@ -572,7 +573,7 @@ func generateTxData() {
 }
 
 func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transaction) {
-	chainId := big.NewInt(types.DefaultChainID.Int64())
+	chainId := big.NewInt(config.DefaultConfig.ChainID)
 	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
 	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
 	privKey := hd.Secp256k1.Generate()(derivedPriv)
