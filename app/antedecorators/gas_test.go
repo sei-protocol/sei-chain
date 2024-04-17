@@ -55,4 +55,19 @@ func TestMultiplierGasSetter(t *testing.T) {
 	ctxWithGasMeter = gasMeterSetter(false, ctx, 1000, testTx)
 	ctxWithGasMeter.GasMeter().ConsumeGas(100, "")
 	require.Equal(t, uint64(25), ctxWithGasMeter.GasMeter().GasConsumed())
+
+	// Test over gas limit even with 1/4 gas multiplier
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, paramtypes.CosmosGasParams{CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 4})
+	ctxWithGasMeter = gasMeterSetter(false, ctx, 20, testTx)
+	require.Panics(t, func() { ctxWithGasMeter.GasMeter().ConsumeGas(100, "") })
+	require.Equal(t, true, ctxWithGasMeter.GasMeter().IsOutOfGas())
+
+	// Simulation mode has infinite gas meter with multiplier
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, paramtypes.CosmosGasParams{CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 4})
+	// Gas limit is effectively ignored in simulation
+	ctxWithGasMeter = gasMeterSetter(true, ctx, 20, testTx)
+	require.NotPanics(t, func() { ctxWithGasMeter.GasMeter().ConsumeGas(100, "") })
+	require.Equal(t, uint64(25), ctxWithGasMeter.GasMeter().GasConsumed())
+	require.Equal(t, false, ctxWithGasMeter.GasMeter().IsOutOfGas())
+
 }
