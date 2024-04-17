@@ -116,6 +116,10 @@ type GetSeiAddressRequest struct {
 	EvmAddress string `json:"evm_address"`
 }
 
+type StaticCallResponse struct {
+	EncodedData string `json:"encoded_data"`
+}
+
 type ERCPayloadResponse struct {
 	EncodedPayload string `json:"encoded_payload"`
 }
