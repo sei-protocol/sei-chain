@@ -337,6 +337,7 @@ func (txmp *TxMempool) CheckTx(
 			}
 			if err := txmp.canAddPendingTx(wtx); err != nil {
 				// TODO: eviction strategy for pending transactions
+				removeHandler(true)
 				return err
 			}
 			atomic.AddInt64(&txmp.pendingSizeBytes, int64(wtx.Size()))

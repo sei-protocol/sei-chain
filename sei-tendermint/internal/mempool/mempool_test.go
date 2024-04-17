@@ -607,6 +607,28 @@ func TestTxMempool_PendingStoreSize(t *testing.T) {
 	require.Contains(t, err.Error(), "mempool pending set is full")
 }
 
+func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Wait)
+
+	txmp := setup(t, client, 10)
+	txmp.config.PendingSize = 1
+	peerID := uint16(1)
+	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+	require.NoError(t, txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 1)), nil, TxInfo{SenderID: peerID}))
+	err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 2)), nil, TxInfo{SenderID: peerID})
+	require.Error(t, err)
+	txCache := txmp.cache.(*LRUTxCache)
+	// Make sure the second tx is removed from cache
+	require.Equal(t, 1, len(txCache.cacheMap))
+}
+
 func TestTxMempool_EVMEviction(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
