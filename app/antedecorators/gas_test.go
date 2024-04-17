@@ -7,11 +7,11 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/proto/tendermint/types"
-	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 func TestMultiplierGasSetter(t *testing.T) {
@@ -19,10 +19,8 @@ func TestMultiplierGasSetter(t *testing.T) {
 	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
 	ctx := testApp.NewContext(false, types.Header{}).WithBlockHeight(2)
-	blockParams := tmtypes.DefaultBlockParams()
-	ctx = ctx.WithConsensusParams(&types.ConsensusParams{
-		Block: &types.BlockParams{MaxGas: blockParams.MaxGas, MaxBytes: blockParams.MaxBytes, CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 2},
-	})
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, *paramtypes.DefaultCosmosGasParams())
+	testApp.ParamsKeeper.SetFeesParams(ctx, paramtypes.DefaultGenesis().GetFeesParams())
 	testMsg := wasmtypes.MsgExecuteContract{
 		Contract: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
 		Msg:      []byte("{\"xyz\":{}}"),
@@ -45,15 +43,15 @@ func TestMultiplierGasSetter(t *testing.T) {
 		},
 	})
 
-	gasMeterSetter := antedecorators.GetGasMeterSetter()
+	// Test with 1/2 cosmos gas multiplier
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, paramtypes.CosmosGasParams{CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 2})
+	gasMeterSetter := antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)
 	ctxWithGasMeter := gasMeterSetter(false, ctx, 1000, testTx)
 	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
 	require.Equal(t, uint64(1), ctxWithGasMeter.GasMeter().GasConsumed())
 
-	ctx = ctx.WithConsensusParams(&types.ConsensusParams{
-		Block: &types.BlockParams{MaxGas: blockParams.MaxGas, MaxBytes: blockParams.MaxBytes, CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 4},
-	})
-
+	// Test with 1/4 cosmos gas multiplier
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, paramtypes.CosmosGasParams{CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 4})
 	ctxWithGasMeter = gasMeterSetter(false, ctx, 1000, testTx)
 	ctxWithGasMeter.GasMeter().ConsumeGas(100, "")
 	require.Equal(t, uint64(25), ctxWithGasMeter.GasMeter().GasConsumed())
