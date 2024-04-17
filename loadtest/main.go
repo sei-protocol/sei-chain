@@ -31,6 +31,7 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/sync/semaphore"
@@ -819,6 +820,26 @@ func runEvmQueries(config Config) {
 	}
 	wg.Wait()
 	fmt.Printf("Querying %d receipts in parallel took %fs\n", config.PostTxEvmQueries.Receipt, time.Since(start).Seconds())
+
+	if config.EVMAddresses.ERC20.Cmp(common.Address{}) != 0 {
+		wg = sync.WaitGroup{}
+		start = time.Now()
+		for i := 0; i < config.PostTxEvmQueries.Filters; i++ {
+			wg.Add(1)
+			i := i
+			go func() {
+				defer func() { wg.Done() }()
+				_, err := ethClients[i%len(ethClients)].FilterLogs(context.Background(), ethereum.FilterQuery{
+					Addresses: []common.Address{config.EVMAddresses.ERC20},
+				})
+				if err != nil {
+					fmt.Printf("Failed to get logs due to %s\n", err)
+				}
+			}()
+		}
+		wg.Wait()
+		fmt.Printf("Querying %d filter logs in parallel took %fs\n", config.PostTxEvmQueries.Filters, time.Since(start).Seconds())
+	}
 }
 
 func GetDefaultConfigFilePath() string {
