@@ -216,6 +216,7 @@ type WasmInstantiateType struct {
 type PostTxEvmQueries struct {
 	BlockByNumber int `json:"block_by_number"`
 	Receipt       int `json:"receipt"`
+	Filters       int `json:"filters"`
 }
 
 type SignedTx struct {

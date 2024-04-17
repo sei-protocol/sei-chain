@@ -20,7 +20,8 @@
     },
     "post_tx_evm_queries": {
       "block_by_number": 0,
-      "receipt": 0
+      "receipt": 0,
+      "filters": 0
     },
     "message_configs": {
       "default": {
