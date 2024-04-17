@@ -51,7 +51,9 @@ type FilterAPI struct {
 }
 
 type FilterConfig struct {
-	timeout time.Duration
+	timeout  time.Duration
+	maxLog   int64
+	maxBlock int64
 }
 
 type EventItemDataWrapper struct {
@@ -60,6 +62,7 @@ type EventItemDataWrapper struct {
 }
 
 func NewFilterAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, filterConfig *FilterConfig) *FilterAPI {
+	logFetcher.filterConfig = filterConfig
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
 		tmClient:     tmClient,
@@ -261,9 +264,10 @@ func (a *FilterAPI) UninstallFilter(
 }
 
 type LogFetcher struct {
-	tmClient    rpcclient.Client
-	k           *keeper.Keeper
-	ctxProvider func(int64) sdk.Context
+	tmClient     rpcclient.Client
+	k            *keeper.Keeper
+	ctxProvider  func(int64) sdk.Context
+	filterConfig *FilterConfig
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
@@ -275,6 +279,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		}
 		return f.GetLogsForBlock(ctx, block, crit, bloomIndexes), block.Block.Height, nil
 	}
+	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
 	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
@@ -290,6 +295,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if lastToHeight > begin {
 		begin = lastToHeight
 	}
+	if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
+		end = begin + f.filterConfig.maxBlock - 1
+	}
 	// begin should always be <= end block at this point
 	if begin > end {
 		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
@@ -303,6 +311,10 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 			return nil, 0, err
 		}
 		res = append(res, f.GetLogsForBlock(ctx, block, crit, bloomIndexes)...)
+		if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
+			res = res[:int(f.filterConfig.maxLog)]
+			break
+		}
 	}
 
 	return res, end, nil

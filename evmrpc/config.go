@@ -73,6 +73,12 @@ type Config struct {
 
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
+
+	// max number of logs returned if block range is open-ended
+	MaxLogNoBlock int64 `mapstructure:"max_log_no_block"`
+
+	// max number of blocks to query logs for
+	MaxBlocksForLog int64 `mapstructure:"max_blocks_for_log"`
 }
 
 var DefaultConfig = Config{
@@ -93,6 +99,8 @@ var DefaultConfig = Config{
 	MaxTxPoolTxs:         1000,
 	Slow:                 false,
 	DenyList:             make([]string, 0),
+	MaxLogNoBlock:        10000,
+	MaxBlocksForLog:      2000,
 }
 
 const (
@@ -113,6 +121,8 @@ const (
 	flagCheckTxTimeout       = "evm.checktx_timeout"
 	flagSlow                 = "evm.slow"
 	flagDenyList             = "evm.deny_list"
+	flagMaxLogNoBlock        = "evm.max_log_no_block"
+	flagMaxBlocksForLog      = "evm.max_blocks_for_log"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -200,6 +210,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagDenyList); v != nil {
 		if cfg.DenyList, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxLogNoBlock); v != nil {
+		if cfg.MaxLogNoBlock, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxBlocksForLog); v != nil {
+		if cfg.MaxBlocksForLog, err = cast.ToInt64E(v); err != nil {
 			return cfg, err
 		}
 	}
