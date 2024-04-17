@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
-	
+
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 

@@ -2,7 +2,6 @@ package ante_test
 
 import (
 	"errors"
-	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -15,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type test struct {
