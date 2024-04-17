@@ -33,7 +33,12 @@ func (h *EVMQueryHandler) HandleStaticCall(ctx sdk.Context, from string, to stri
 		toSeiAddr := common.HexToAddress(to)
 		toAddr = &toSeiAddr
 	}
-	return h.k.StaticCallEVM(ctx, fromAddr, toAddr, data)
+	res, err := h.k.StaticCallEVM(ctx, fromAddr, toAddr, data)
+	if err != nil {
+		return nil, err
+	}
+	response := bindings.StaticCallResponse{EncodedData: base64.StdEncoding.EncodeToString(res)}
+	return json.Marshal(response)
 }
 
 func (h *EVMQueryHandler) HandleERC20TransferPayload(ctx sdk.Context, recipient string, amount *sdk.Int) ([]byte, error) {
