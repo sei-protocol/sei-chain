@@ -496,6 +496,15 @@ checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 # controls whether to have txns go through one by one
 slow = {{ .EVM.Slow }}
 
+# Deny list defines list of methods that EVM RPC should fail fast
+deny_list = {{ .EVM.DenyList }}
+
+# max number of logs returned if block range is open-ended
+max_log_no_block = {{ .EVM.MaxLogNoBlock }}
+
+# max number of blocks to query logs for
+max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
+
 [eth_replay]
 eth_replay_enabled = {{ .ETHReplay.Enabled }}
 eth_rpc = "{{ .ETHReplay.EthRPC }}"
