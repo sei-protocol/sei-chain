@@ -26,6 +26,8 @@ type opts struct {
 	maxTxPoolTxs         interface{}
 	slow                 interface{}
 	denyList             interface{}
+	maxLogNoBlock        interface{}
+	maxBlocksForLog      interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -80,6 +82,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.deny_list" {
 		return o.denyList
 	}
+	if k == "evm.max_log_no_block" {
+		return o.maxLogNoBlock
+	}
+	if k == "evm.max_blocks_for_log" {
+		return o.maxBlocksForLog
+	}
 	panic("unknown key")
 }
 
@@ -102,6 +110,8 @@ func TestReadConfig(t *testing.T) {
 		1000,
 		false,
 		make([]string, 0),
+		20000,
+		1000,
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)

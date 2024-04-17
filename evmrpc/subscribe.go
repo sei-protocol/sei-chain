@@ -33,6 +33,7 @@ type SubscriptionConfig struct {
 }
 
 func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig) *SubscriptionAPI {
+	logFetcher.filterConfig = &FilterConfig{}
 	return &SubscriptionAPI{
 		tmClient:            tmClient,
 		subscriptionManager: NewSubscriptionManager(tmClient),
