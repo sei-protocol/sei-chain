@@ -570,6 +570,7 @@ message Evidence {
 message EvmTxInfo {
   string senderAddress = 1;
   uint64 nonce = 2;
+  string txHash = 3;
 }
 
 //----------------------------------------
