@@ -86,10 +86,6 @@ func (h *EVMQueryHandler) HandleERC20TokenInfo(ctx sdk.Context, contractAddress 
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("totalSupply pack = ", string(bz))
-	fmt.Println("contract addr = ", contract)
-	funcselector := []byte("0x18160ddd")
-	fmt.Println("funcselector = ", funcselector) // can also try using this
 	res, err := h.k.StaticCallEVM(ctx, callerAddr, &contract, bz)
 	if err != nil {
 		fmt.Println("static call error = ", err)
