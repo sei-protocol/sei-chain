@@ -14,6 +14,7 @@ contract EVMCompatibilityTester {
     event Uint256Set(address indexed performer, uint256 value);
     event StringSet(address indexed performer, string value);
     event LogIndexEvent(address indexed performer, uint256 value);
+    event BytesSet(address indexed performer, bytes value);
 
     struct MsgDetails {
         address sender;
@@ -39,6 +40,8 @@ contract EVMCompatibilityTester {
     MsgDetails public lastMsgDetails;
 
     mapping(address => uint256) public balances;
+
+    bytes public bytesVar;
 
     constructor() {
         owner = msg.sender;
@@ -164,6 +167,11 @@ contract EVMCompatibilityTester {
     function emitDummyEvent(string memory str, uint256 num) external {
         bytes memory bytes_ = bytes(string(abi.encodePacked(str, "Bytes")));
         emit DummyEvent(str, true, msg.sender, num, bytes_);
+    }
+
+    function setBytesVar(bytes memory value) public {
+        bytesVar = value;
+        emit BytesSet(msg.sender, value);
     }
 }
 
