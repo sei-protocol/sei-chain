@@ -146,7 +146,7 @@ func TestHandleERC20TokenInfo(t *testing.T) {
 	k.SetAddressMapping(ctx, addr1, contract)
 	k.SetAddressMapping(ctx, caller, sei2)
 	h := wasm.NewEVMQueryHandler(k)
-	// deployERC20ToAddr(t, ctx, k, contract)
+	deployERC20ToAddr(t, ctx, k, contract)
 	res, err := h.HandleERC20TokenInfo(ctx, contract.String(), caller.String())
 	require.Nil(t, err)
 	require.NotEmpty(t, res)
