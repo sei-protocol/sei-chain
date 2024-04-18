@@ -53,6 +53,7 @@ type Context struct {
 	evm              bool   // EVM transaction flag
 	evmNonce         uint64 // EVM Transaction nonce
 	evmSenderAddress string // EVM Sender address
+	evmTxHash        string // EVM TX hash
 
 	msgValidator *acltypes.MsgValidator
 	messageIndex int // Used to track current message being processed
@@ -135,6 +136,10 @@ func (c Context) EVMSenderAddress() string {
 
 func (c Context) EVMNonce() uint64 {
 	return c.evmNonce
+}
+
+func (c Context) EVMTxHash() string {
+	return c.evmTxHash
 }
 
 func (c Context) IsEVM() bool {
@@ -394,6 +399,11 @@ func (c Context) WithEVMNonce(nonce uint64) Context {
 
 func (c Context) WithIsEVM(isEVM bool) Context {
 	c.evm = isEVM
+	return c
+}
+
+func (c Context) WithEVMTxHash(txHash string) Context {
+	c.evmTxHash = txHash
 	return c
 }
 

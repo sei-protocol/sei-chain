@@ -1498,6 +1498,8 @@ func TestDeliverTx(t *testing.T) {
 		app.BeginBlock(app.deliverState.ctx, abci.RequestBeginBlock{Header: header})
 
 		for i := 0; i < txPerHeight; i++ {
+			// every even i is an evm tx
+			isEvm := i%2 == 0
 			counter := int64(blockN*txPerHeight + i)
 			tx := newTxCounter(counter, counter)
 
@@ -1505,12 +1507,30 @@ func TestDeliverTx(t *testing.T) {
 			require.NoError(t, err)
 
 			decoded, _ := app.txDecoder(txBytes)
-			res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+
+			ctx := app.deliverState.ctx
+
+			if isEvm {
+				ctx = ctx.WithIsEVM(true)
+				ctx = ctx.WithEVMNonce(12345)
+				ctx = ctx.WithEVMTxHash("hash")
+				ctx = ctx.WithEVMSenderAddress("address")
+			}
+
+			res := app.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
 			require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
 			events := res.GetEvents()
 			require.Len(t, events, 3, "should contain ante handler, message type and counter events respectively")
 			require.Equal(t, sdk.MarkEventsToIndex(counterEvent("ante_handler", counter).ToABCIEvents(), map[string]struct{}{})[0], events[0], "ante handler event")
 			require.Equal(t, sdk.MarkEventsToIndex(counterEvent(sdk.EventTypeMessage, counter).ToABCIEvents(), map[string]struct{}{})[0], events[2], "msg handler update counter event")
+
+			if isEvm {
+				require.Equal(t, uint64(12345), res.EvmTxInfo.Nonce)
+				require.Equal(t, "hash", res.EvmTxInfo.TxHash)
+				require.Equal(t, "address", res.EvmTxInfo.SenderAddress)
+			} else {
+				require.Nil(t, res.EvmTxInfo)
+			}
 		}
 
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
