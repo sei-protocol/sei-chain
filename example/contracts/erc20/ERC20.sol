@@ -79,20 +79,15 @@ interface IERC20 {
 }
 
 contract ERC20 is IERC20 {
-    string public name;
-    string public symbol;
-    uint8 public decimals;
-    uint256 public totalSupply;
+    string public name = "ERC20";
+    string public symbol = "ERC20";
+    uint8 public decimals = 18;
 
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
-    constructor(string memory _name, string memory _symbol, uint8 _decimals, uint256 _totalSupply) {
-        name = _name;
-        symbol = _symbol;
-        decimals = _decimals;
-        totalSupply = _totalSupply;
-        balanceOf[msg.sender] = _totalSupply;
+    function totalSupply() external pure override returns (uint256) {
+        return 1000000 * 10 ** 18;
     }
 
     function transfer(address to, uint256 value) external returns (bool) {
