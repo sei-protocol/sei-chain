@@ -63,3 +63,28 @@ func TestRouter(t *testing.T) {
 	_, err = router.AnteHandle(sdk.Context{}, mockTx{msgs: []sdk.Msg{evmMsg, bankMsg}}, false)
 	require.NotNil(t, err)
 }
+
+func TestEVMRouterDecorator_AnteDeps(t *testing.T) {
+	bankMsg := &banktypes.MsgSend{}
+	evmMsg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{})
+
+	// non-EVM message
+	mockAnte := mockAnteState{}
+	router := ante.NewEVMRouterDecorator(mockAnte.regularAnteHandler, mockAnte.evmAnteHandler, mockAnte.regularAnteDepGenerator, mockAnte.evmAnteDepGenerator)
+	txDeps := []sdkacltypes.AccessOperation{{}}
+	_, err := router.AnteDeps(txDeps, mockTx{msgs: []sdk.Msg{bankMsg}}, 0)
+	require.Nil(t, err)
+	require.Equal(t, "regulardep", mockAnte.call)
+
+	// EVM message
+	mockAnte = mockAnteState{}
+	_, err = router.AnteDeps(txDeps, mockTx{msgs: []sdk.Msg{evmMsg}}, 0)
+	require.Nil(t, err)
+	require.Equal(t, "evmdep", mockAnte.call)
+
+	// mixed messages
+	mockAnte = mockAnteState{}
+	_, err = router.AnteDeps(txDeps, mockTx{msgs: []sdk.Msg{evmMsg, bankMsg}}, 0)
+	require.NotNil(t, err)
+	require.Equal(t, "", mockAnte.call)
+}
