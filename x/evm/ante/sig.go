@@ -34,6 +34,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	ctx = ctx.WithIsEVM(true)
 	ctx = ctx.WithEVMNonce(txNonce)
 	ctx = ctx.WithEVMSenderAddress(evmAddr.Hex())
+	ctx = ctx.WithEVMTxHash(ethTx.Hash().Hex())
 
 	if ctx.IsCheckTx() {
 		if txNonce < nextNonce {
