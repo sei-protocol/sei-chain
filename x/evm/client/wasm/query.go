@@ -9,6 +9,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/example/contracts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
@@ -18,6 +19,16 @@ import (
 type EVMQueryHandler struct {
 	k *keeper.Keeper
 }
+
+type EVMKeeper interface {
+	StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, data []byte) ([]byte, error)
+	GetEVMAddress(ctx sdk.Context, addr sdk.AccAddress) (common.Address, bool)
+	GetSeiAddress(ctx sdk.Context, addr common.Address) (sdk.AccAddress, bool)
+	GetSeiAddressOrDefault(ctx sdk.Context, addr common.Address) sdk.AccAddress
+}
+
+// option: define interface for keeper
+// option: can mock out staticcall function
 
 func NewEVMQueryHandler(k *keeper.Keeper) *EVMQueryHandler {
 	return &EVMQueryHandler{k: k}
@@ -59,7 +70,8 @@ func (h *EVMQueryHandler) HandleERC20TokenInfo(ctx sdk.Context, contractAddress 
 		return nil, err
 	}
 	contract := common.HexToAddress(contractAddress)
-	abi, err := native.NativeMetaData.GetAbi()
+	// abi, err := native.NativeMetaData.GetAbi()
+	abi, err := erc20.Erc20MetaData.GetAbi()
 	if err != nil {
 		return nil, err
 	}
@@ -69,12 +81,18 @@ func (h *EVMQueryHandler) HandleERC20TokenInfo(ctx sdk.Context, contractAddress 
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("totalSupply pack = ", string(bz))
+	fmt.Println("contract addr = ", contract)
+	funcselector := []byte("0x18160ddd")
+	fmt.Println("funcselector = ", funcselector) // can also try using this
 	res, err := h.k.StaticCallEVM(ctx, callerAddr, &contract, bz)
 	if err != nil {
+		fmt.Println("static call error = ", err)
 		return nil, err
 	}
 	unpacked, err := abi.Unpack("totalSupply", res)
 	if err != nil {
+		fmt.Println("unpacking totalSupply error = ", err)
 		return nil, err
 	}
 	totalSupply := sdk.NewIntFromBigInt(unpacked[0].(*big.Int))
