@@ -93,13 +93,11 @@ func TestERC20TransferPayload(t *testing.T) {
 
 func TestHandleERC20TokenInfo(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
-	addr1, contract := testkeeper.MockAddressPair()
-	caller, sei2 := testkeeper.MockAddressPair()
-	k.SetAddressMapping(ctx, addr1, contract)
-	k.SetAddressMapping(ctx, caller, sei2)
+	sei1, eth1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, sei1, eth1)
 	h := wasm.NewEVMQueryHandler(k)
-	deployERC20ToAddr(t, ctx, k, contract)
-	res, err := h.HandleERC20TokenInfo(ctx, contract.String(), caller.String())
+	deployERC20ToAddr(t, ctx, k, eth1)
+	res, err := h.HandleERC20TokenInfo(ctx, eth1.String(), sei1.String())
 	require.Nil(t, err)
 	require.NotEmpty(t, res)
 }
