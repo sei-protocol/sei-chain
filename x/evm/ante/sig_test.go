@@ -40,6 +40,8 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
 	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
+	sender, err := signer.Sender(tx)
+	require.Nil(t, err)
 	typedTx, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
 	msg, err := types.NewMsgEVMTransaction(typedTx)
@@ -52,10 +54,15 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	require.Nil(t, err)
 
 	// should return error because nonce is incorrect
-	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	resCtx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
+
+	require.Equal(t, uint64(1), resCtx.EVMNonce())
+	require.Equal(t, sender.Hex(), resCtx.EVMSenderAddress())
+	require.Equal(t, tx.Hash().Hex(), resCtx.EVMTxHash())
+	require.Equal(t, true, resCtx.IsEVM())
 
 	// should return error if acc is not found (i.e. preprocess not called)
 	txData.Nonce = 0
