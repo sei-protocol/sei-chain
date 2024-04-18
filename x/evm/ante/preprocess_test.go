@@ -219,3 +219,57 @@ func TestEVMAddressDecorator(t *testing.T) {
 	require.True(t, associated)
 	require.Equal(t, evmAddr, associatedEvmAddr)
 }
+
+// MockTxNotSigVerifiable is a simple mock transaction type that implements sdk.Tx but not SigVerifiableTx
+type MockTxIncompatible struct {
+	msgs []sdk.Msg
+}
+
+func (m MockTxIncompatible) GetMsgs() []sdk.Msg {
+	return m.msgs
+}
+
+func (m MockTxIncompatible) ValidateBasic() error {
+	return nil
+}
+
+func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	handler := ante.NewEVMAddressDecorator(k, k.AccountKeeper())
+
+	_, err := handler.AnteHandle(ctx, MockTxIncompatible{}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "invalid tx type")
+
+	// Prepare a SigVerifiableTx with no public key
+	privKey := testkeeper.MockPrivateKey()
+	sender, _ := testkeeper.PrivateKeyToAddresses(privKey)
+	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, &secp256k1.PubKey{}, 1, 1)) // deliberately no pubkey set
+	msg := banktypes.NewMsgSend(sender, sender, sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))   // to self to simplify
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	// Since the handler logs the error but does not stop processing, we expect no error returned
+	require.Nil(t, err, "Expected no error from AnteHandle despite missing public key")
+
+	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, nil, 1, 1))              // deliberately no pubkey set
+	msg = banktypes.NewMsgSend(sender, sender, sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt()))) // to self to simplify
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+
+	// Since the handler logs the error but does not stop processing, we expect no error returned
+	require.Nil(t, err, "Expected no error from AnteHandle despite nil public key")
+
+	// Prepare a SigVerifiableTx with a pubkey that fails to parse
+	brokenPubKey := &secp256k1.PubKey{Key: []byte{1, 2, 3}} // deliberately too short to be valid
+	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, brokenPubKey, 1, 1))
+	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+
+	// Since the handler logs the error but does not stop processing, we expect no error returned
+	require.Nil(t, err, "Expected no error from AnteHandle despite inability to parse public key")
+}

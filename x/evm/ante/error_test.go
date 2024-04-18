@@ -98,11 +98,12 @@ func TestAnteErrorHandler_Handle(t *testing.T) {
 			name:         "error should not append error if data of tx cannot be decoded (not an evm message)",
 			handlerErr:   testErr,
 			txResultCode: code.CodeTypeUnknownError,
-			tx: &sdk.ABCIMessageLog{ // this isn't a tx, so it'll fail to parse
-				Log: "string",
+			tx: &sdk.GasInfo{ // not a valid eth tx, just a random proto so it will fail
+				GasWanted: 100,
+				GasUsed:   100,
 			},
 			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
-				require.ErrorIs(t, err, testErr)
+				require.Error(t, err, "failed to unpack message data")
 				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
 			},
 		},

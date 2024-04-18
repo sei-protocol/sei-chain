@@ -1,16 +1,14 @@
 package ante
 
 import (
-	"crypto/sha256"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/params"
+
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -70,39 +68,40 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	return next(ctx, tx, simulate)
 }
 
-//nolint:deadcode
-func validateBlobSidecar(hashes []common.Hash, sidecar *ethtypes.BlobTxSidecar) error {
-	if len(sidecar.Blobs) != len(hashes) {
-		return fmt.Errorf("invalid number of %d blobs compared to %d blob hashes", len(sidecar.Blobs), len(hashes))
-	}
-	if len(sidecar.Commitments) != len(hashes) {
-		return fmt.Errorf("invalid number of %d blob commitments compared to %d blob hashes", len(sidecar.Commitments), len(hashes))
-	}
-	if len(sidecar.Proofs) != len(hashes) {
-		return fmt.Errorf("invalid number of %d blob proofs compared to %d blob hashes", len(sidecar.Proofs), len(hashes))
-	}
-	// Blob quantities match up, validate that the provers match with the
-	// transaction hash before getting to the cryptography
-	hasher := sha256.New()
-	for i, want := range hashes {
-		hasher.Write(sidecar.Commitments[i][:])
-		hash := hasher.Sum(nil)
-		hasher.Reset()
-
-		var vhash common.Hash
-		vhash[0] = params.BlobTxHashVersion
-		copy(vhash[1:], hash[1:])
-
-		if vhash != want {
-			return fmt.Errorf("blob %d: computed hash %#x mismatches transaction one %#x", i, vhash, want)
-		}
-	}
-	// Blob commitments match with the hashes in the transaction, verify the
-	// blobs themselves via KZG
-	for i := range sidecar.Blobs {
-		if err := kzg4844.VerifyBlobProof(sidecar.Blobs[i], sidecar.Commitments[i], sidecar.Proofs[i]); err != nil {
-			return fmt.Errorf("invalid blob %d: %v", i, err)
-		}
-	}
-	return nil
-}
+// NOTE: if we re-enable blob support we can put this back.
+// this allows code coverage to calculate correctly
+//func validateBlobSidecar(hashes []common.Hash, sidecar *ethtypes.BlobTxSidecar) error {
+//	if len(sidecar.Blobs) != len(hashes) {
+//		return fmt.Errorf("invalid number of %d blobs compared to %d blob hashes", len(sidecar.Blobs), len(hashes))
+//	}
+//	if len(sidecar.Commitments) != len(hashes) {
+//		return fmt.Errorf("invalid number of %d blob commitments compared to %d blob hashes", len(sidecar.Commitments), len(hashes))
+//	}
+//	if len(sidecar.Proofs) != len(hashes) {
+//		return fmt.Errorf("invalid number of %d blob proofs compared to %d blob hashes", len(sidecar.Proofs), len(hashes))
+//	}
+//	// Blob quantities match up, validate that the provers match with the
+//	// transaction hash before getting to the cryptography
+//	hasher := sha256.New()
+//	for i, want := range hashes {
+//		hasher.Write(sidecar.Commitments[i][:])
+//		hash := hasher.Sum(nil)
+//		hasher.Reset()
+//
+//		var vhash common.Hash
+//		vhash[0] = params.BlobTxHashVersion
+//		copy(vhash[1:], hash[1:])
+//
+//		if vhash != want {
+//			return fmt.Errorf("blob %d: computed hash %#x mismatches transaction one %#x", i, vhash, want)
+//		}
+//	}
+//	// Blob commitments match with the hashes in the transaction, verify the
+//	// blobs themselves via KZG
+//	for i := range sidecar.Blobs {
+//		if err := kzg4844.VerifyBlobProof(sidecar.Blobs[i], sidecar.Commitments[i], sidecar.Proofs[i]); err != nil {
+//			return fmt.Errorf("invalid blob %d: %v", i, err)
+//		}
+//	}
+//	return nil
+//}
