@@ -3,9 +3,11 @@ name: ETH Blocktests
 on:
   push:
     branches:
+      - main
       - seiv2
   pull_request:
     branches:
+      - main
       - seiv2
 
 defaults:
