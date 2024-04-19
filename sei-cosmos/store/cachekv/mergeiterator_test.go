@@ -6,7 +6,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
 	"github.com/cosmos/cosmos-sdk/store/types"
-	sdktypes "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -14,7 +13,6 @@ import (
 func TestMangerIterator(t *testing.T) {
 	// initiate mock kvstore
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
-	eventManager := sdktypes.NewEventManager()
 	kvstore := cachekv.NewStore(mem, types.NewKVStoreKey("CacheKvTest"), types.DefaultCacheSizeLimit)
 	value := randSlice(defaultValueSizeBz)
 	startKey := randSlice(32)
@@ -29,27 +27,13 @@ func TestMangerIterator(t *testing.T) {
 	cache := kvstore.Iterator(nil, nil)
 	for ; cache.Valid(); cache.Next() {
 	}
-	iter := cachekv.NewCacheMergeIterator(parent, cache, true, types.NewKVStoreKey("CacheKvTest"), eventManager)
+	iter := cachekv.NewCacheMergeIterator(parent, cache, true, types.NewKVStoreKey("CacheKvTest"))
+
+	// get the next value and it should not be nil
+	nextValue := iter.Value()
+	require.NotNil(t, nextValue)
 
 	// get the next value
-	iter.Value()
-
-	// assert the resource access is still emitted correctly when the cache store is unavailable
-	require.Equal(t, "access_type", string(eventManager.Events()[0].Attributes[0].Key))
-	require.Equal(t, "read", string(eventManager.Events()[0].Attributes[0].Value))
-	require.Equal(t, "store_key", string(eventManager.Events()[0].Attributes[1].Key))
-	require.Equal(t, "CacheKvTest", string(eventManager.Events()[0].Attributes[1].Value))
-
-	// assert event emission when cache is available
-	cache = kvstore.Iterator(keys[1], keys[2])
-	iter = cachekv.NewCacheMergeIterator(parent, cache, true, types.NewKVStoreKey("CacheKvTest"), eventManager)
-
-	// get the next value
-	iter.Value()
-
-	// assert the resource access is still emitted correctly when the cache store is available
-	require.Equal(t, "access_type", string(eventManager.Events()[0].Attributes[0].Key))
-	require.Equal(t, "read", string(eventManager.Events()[0].Attributes[0].Value))
-	require.Equal(t, "store_key", string(eventManager.Events()[0].Attributes[1].Key))
-	require.Equal(t, "CacheKvTest", string(eventManager.Events()[0].Attributes[1].Value))
+	nextValue = iter.Value()
+	require.NotNil(t, nextValue)
 }

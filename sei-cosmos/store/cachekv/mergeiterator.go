@@ -16,11 +16,10 @@ import (
 //
 // TODO: Optimize by memoizing.
 type cacheMergeIterator struct {
-	parent       types.Iterator
-	cache        types.Iterator
-	ascending    bool
-	storeKey     sdktypes.StoreKey
-	eventManager *sdktypes.EventManager
+	parent    types.Iterator
+	cache     types.Iterator
+	ascending bool
+	storeKey  sdktypes.StoreKey
 }
 
 var _ types.Iterator = (*cacheMergeIterator)(nil)
@@ -29,14 +28,12 @@ func NewCacheMergeIterator(
 	parent, cache types.Iterator,
 	ascending bool,
 	storeKey sdktypes.StoreKey,
-	eventManager *sdktypes.EventManager,
 ) *cacheMergeIterator {
 	iter := &cacheMergeIterator{
-		parent:       parent,
-		cache:        cache,
-		ascending:    ascending,
-		storeKey:     storeKey,
-		eventManager: eventManager,
+		parent:    parent,
+		cache:     cache,
+		ascending: ascending,
+		storeKey:  storeKey,
 	}
 
 	return iter
@@ -138,14 +135,12 @@ func (iter *cacheMergeIterator) Value() []byte {
 	// If parent is invalid, get the cache value.
 	if !iter.parent.Valid() {
 		value := iter.cache.Value()
-		iter.eventManager.EmitResourceAccessReadEvent("iterator", iter.storeKey, iter.cache.Key(), value)
 		return value
 	}
 
 	// If cache is invalid, get the parent value.
 	if !iter.cache.Valid() {
 		value := iter.parent.Value()
-		iter.eventManager.EmitResourceAccessReadEvent("iterator", iter.storeKey, iter.parent.Key(), value)
 		return value
 	}
 
@@ -156,11 +151,9 @@ func (iter *cacheMergeIterator) Value() []byte {
 	switch cmp {
 	case -1: // parent < cache
 		value := iter.parent.Value()
-		iter.eventManager.EmitResourceAccessReadEvent("iterator", iter.storeKey, keyP, value)
 		return value
 	case 0, 1: // parent >= cache
 		value := iter.cache.Value()
-		iter.eventManager.EmitResourceAccessReadEvent("iterator", iter.storeKey, keyC, value)
 		return value
 	default:
 		panic("invalid comparison result")

@@ -56,8 +56,6 @@ func (store *Store) GetEvents() []abci.Event {
 
 // Implements Store
 func (store *Store) ResetEvents() {
-	store.mtx.Lock()
-	defer store.mtx.Unlock()
 	store.eventManager = sdktypes.NewEventManager()
 }
 
@@ -77,7 +75,6 @@ func (store *Store) getFromCache(key []byte) []byte {
 // Get implements types.KVStore.
 func (store *Store) Get(key []byte) (value []byte) {
 	types.AssertValidKey(key)
-	store.eventManager.EmitResourceAccessReadEvent("get", store.storeKey, key, value)
 	return store.getFromCache(key)
 }
 
@@ -86,13 +83,11 @@ func (store *Store) Set(key []byte, value []byte) {
 	types.AssertValidKey(key)
 	types.AssertValidValue(value)
 	store.setCacheValue(key, value, false, true)
-	store.eventManager.EmitResourceAccessWriteEvent("set", store.storeKey, key, value)
 }
 
 // Has implements types.KVStore.
 func (store *Store) Has(key []byte) bool {
 	value := store.Get(key)
-	store.eventManager.EmitResourceAccessReadEvent("has", store.storeKey, key, value)
 	return value != nil
 }
 
@@ -194,7 +189,7 @@ func (store *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	}()
 	store.dirtyItems(start, end)
 	cache = newMemIterator(start, end, store.sortedCache, store.deleted, ascending, store.eventManager, store.storeKey)
-	return NewCacheMergeIterator(parent, cache, ascending, store.storeKey, store.eventManager)
+	return NewCacheMergeIterator(parent, cache, ascending, store.storeKey)
 }
 
 func (store *Store) VersionExists(version int64) bool {
