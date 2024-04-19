@@ -48,7 +48,7 @@ func main() {
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      20000000,
 		To:       nil,
 		Value:    big.NewInt(0),
 		Data:     bz,
@@ -69,8 +69,8 @@ func main() {
 
 	// fund the account
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
-	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000000)))
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000000))))
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt)
 
 	msgServer := keeper.NewMsgServerImpl(k)

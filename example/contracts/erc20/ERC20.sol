@@ -78,39 +78,39 @@ interface IERC20 {
     function transferFrom(address from, address to, uint256 value) external returns (bool);
 }
 
-contract ERC20 {
-    function totalSupply() external pure returns (uint256) {
-        return 1000000;
+contract ERC20 is IERC20 {
+    string public name = "ERC20";
+    string public symbol = "ERC20";
+    uint8 public decimals = 18;
+
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function totalSupply() external pure override returns (uint256) {
+        return 1000000 * 10 ** 18;
     }
-    // function balanceOf(address) external pure returns (uint256) {
-    //     return 1000;
-    // }
 
-    // function allowance(address, address) external pure returns (uint256) {
-    //     return 100;
-    // }
+    function transfer(address to, uint256 value) external returns (bool) {
+        require(balanceOf[msg.sender] >= value, "ERC20: transfer amount exceeds balance");
+        balanceOf[msg.sender] -= value;
+        balanceOf[to] += value;
+        emit Transfer(msg.sender, to, value);
+        return true;
+    }
 
-    // function name() external pure returns (string memory) {
-    //     return "ERC20";
-    // }
+    function approve(address spender, uint256 value) external returns (bool) {
+        allowance[msg.sender][spender] = value;
+        emit Approval(msg.sender, spender, value);
+        return true;
+    }
 
-    // function symbol() external pure returns (string memory) {
-    //     return "ERC20";
-    // }
-
-    // function decimals() external pure returns (uint8) {
-    //     return 18;
-    // }
-
-    // function transfer(address, uint256) external pure returns (bool) {
-    //     return true;
-    // }
-
-    // function approve(address, uint256) external pure returns (bool) {
-    //     return true;
-    // }
-
-    // function transferFrom(address, address, uint256) external pure returns (bool) {
-    //     return true;
-    // }
+    function transferFrom(address from, address to, uint256 value) external returns (bool) {
+        require(balanceOf[from] >= value, "ERC20: transfer amount exceeds balance");
+        require(allowance[from][msg.sender] >= value, "ERC20: transfer amount exceeds allowance");
+        balanceOf[from] -= value;
+        balanceOf[to] += value;
+        allowance[from][msg.sender] -= value;
+        emit Transfer(from, to, value);
+        return true;
+    }
 }
