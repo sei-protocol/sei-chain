@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.0.0) (token/ERC20/IERC20.sol)
 
+// NOTE: NOT A REAL IMPLEMENTATION -- DO NOT USE IN PROD
+
 pragma solidity ^0.8.20;
 
 /**
@@ -78,6 +80,7 @@ interface IERC20 {
     function transferFrom(address from, address to, uint256 value) external returns (bool);
 }
 
+// NOTE: NOT A REAL IMPLEMENTATION -- DO NOT USE IN PROD
 contract ERC20 is IERC20 {
     string public name = "ERC20";
     string public symbol = "ERC20";

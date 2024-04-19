@@ -317,7 +317,6 @@ func (h *EVMQueryHandler) HandleERC20ApprovePayload(ctx sdk.Context, spender str
 }
 
 func (h *EVMQueryHandler) HandleERC20Allowance(ctx sdk.Context, contractAddress string, owner string, spender string) ([]byte, error) {
-	panic("HandleERC20Allowance")
 	// Get the evm address of the owner
 	ownerAddr, err := sdk.AccAddressFromBech32(owner)
 	if err != nil {
@@ -363,7 +362,6 @@ func (h *EVMQueryHandler) HandleERC20Allowance(ctx sdk.Context, contractAddress 
 }
 
 func (h *EVMQueryHandler) HandleERC721Approved(ctx sdk.Context, caller string, contractAddress string, tokenId string) ([]byte, error) {
-	panic("HandleERC721Approved")
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
 		return nil, err
@@ -399,7 +397,6 @@ func (h *EVMQueryHandler) HandleERC721Approved(ctx sdk.Context, caller string, c
 }
 
 func (h *EVMQueryHandler) HandleERC721IsApprovedForAll(ctx sdk.Context, caller string, contractAddress string, owner string, operator string) ([]byte, error) {
-	panic("HandleERC721IsApprovedForAll")
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
 		return nil, err
@@ -434,7 +431,6 @@ func (h *EVMQueryHandler) HandleERC721IsApprovedForAll(ctx sdk.Context, caller s
 }
 
 func (h *EVMQueryHandler) HandleERC721NameSymbol(ctx sdk.Context, caller string, contractAddress string) ([]byte, error) {
-	panic("HandleERC721NameSymbol")
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
 		return nil, err
@@ -475,7 +471,6 @@ func (h *EVMQueryHandler) HandleERC721NameSymbol(ctx sdk.Context, caller string,
 }
 
 func (h *EVMQueryHandler) HandleERC721Uri(ctx sdk.Context, caller string, contractAddress string, tokenId string) ([]byte, error) {
-	panic("HandleERC721Uri")
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
 		return nil, err
