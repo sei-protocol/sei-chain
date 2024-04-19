@@ -81,11 +81,3 @@ func (app *gRPCApplication) Flush(_ context.Context, req *types.RequestFlush) (*
 func (app *gRPCApplication) Commit(ctx context.Context, req *types.RequestCommit) (*types.ResponseCommit, error) {
 	return app.Application.Commit(ctx)
 }
-
-func (app *gRPCApplication) CheckTx(ctx context.Context, req *types.RequestCheckTx) (*types.ResponseCheckTx, error) {
-	resV2, err := app.Application.CheckTx(ctx, req)
-	if err != nil {
-		return &types.ResponseCheckTx{}, err
-	}
-	return resV2.ResponseCheckTx, nil
-}

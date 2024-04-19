@@ -405,14 +405,6 @@ check-tx-error-blacklist-enabled = {{ .Mempool.CheckTxErrorBlacklistEnabled }}
 
 check-tx-error-threshold = {{ .Mempool.CheckTxErrorThreshold }}
 
-pending-size = {{ .Mempool.PendingSize }}
-
-max-pending-txs-bytes = {{ .Mempool.MaxPendingTxsBytes }}
-
-pending-ttl-duration = "{{ .Mempool.PendingTTLDuration }}"
-
-pending-ttl-num-blocks = {{ .Mempool.PendingTTLNumBlocks }}
-
 #######################################################
 ###         State Sync Configuration Options        ###
 #######################################################

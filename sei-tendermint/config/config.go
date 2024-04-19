@@ -800,16 +800,6 @@ type MempoolConfig struct {
 	// blacklist the peer.
 	CheckTxErrorBlacklistEnabled bool `mapstructure:"check-tx-error-blacklist-enabled"`
 	CheckTxErrorThreshold        int  `mapstructure:"check-tx-error-threshold"`
-
-	// Maximum number of transactions in the pending set
-	PendingSize int `mapstructure:"pending-size"`
-
-	// Limit the total size of all txs in the pending set.
-	MaxPendingTxsBytes int64 `mapstructure:"max-pending-txs-bytes"`
-
-	PendingTTLDuration time.Duration `mapstructure:"pending-ttl-duration"`
-
-	PendingTTLNumBlocks int64 `mapstructure:"pending-ttl-num-blocks"`
 }
 
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
@@ -827,10 +817,6 @@ func DefaultMempoolConfig() *MempoolConfig {
 		TxNotifyThreshold:            0,
 		CheckTxErrorBlacklistEnabled: false,
 		CheckTxErrorThreshold:        0,
-		PendingSize:                  5000,
-		MaxPendingTxsBytes:           1024 * 1024 * 1024, // 1GB
-		PendingTTLDuration:           0 * time.Second,
-		PendingTTLNumBlocks:          0,
 	}
 }
 

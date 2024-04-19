@@ -163,14 +163,14 @@ func (app *Application) InitChain(_ context.Context, req *abci.RequestInitChain)
 }
 
 // CheckTx implements ABCI.
-func (app *Application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
+func (app *Application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTx, error) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
 	_, _, err := parseTx(req.Tx)
 	if err != nil {
-		return &abci.ResponseCheckTxV2{
-			ResponseCheckTx: &abci.ResponseCheckTx{Code: code.CodeTypeEncodingError},
+		return &abci.ResponseCheckTx{
+			Code: code.CodeTypeEncodingError,
 		}, nil
 	}
 
@@ -178,9 +178,7 @@ func (app *Application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*a
 		time.Sleep(time.Duration(app.cfg.CheckTxDelayMS) * time.Millisecond)
 	}
 
-	return &abci.ResponseCheckTxV2{
-		ResponseCheckTx: &abci.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1},
-	}, nil
+	return &abci.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}, nil
 }
 
 // FinalizeBlock implements ABCI.

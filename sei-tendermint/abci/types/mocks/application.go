@@ -38,15 +38,15 @@ func (_m *Application) ApplySnapshotChunk(_a0 context.Context, _a1 *types.Reques
 }
 
 // CheckTx provides a mock function with given fields: _a0, _a1
-func (_m *Application) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTx) (*types.ResponseCheckTxV2, error) {
+func (_m *Application) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTx) (*types.ResponseCheckTx, error) {
 	ret := _m.Called(_a0, _a1)
 
-	var r0 *types.ResponseCheckTxV2
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestCheckTx) *types.ResponseCheckTxV2); ok {
+	var r0 *types.ResponseCheckTx
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestCheckTx) *types.ResponseCheckTx); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*types.ResponseCheckTxV2)
+			r0 = ret.Get(0).(*types.ResponseCheckTx)
 		}
 	}
 

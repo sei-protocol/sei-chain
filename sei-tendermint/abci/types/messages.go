@@ -155,9 +155,9 @@ func ToResponseInfo(res *ResponseInfo) *Response {
 	}
 }
 
-func ToResponseCheckTx(res *ResponseCheckTxV2) *Response {
+func ToResponseCheckTx(res *ResponseCheckTx) *Response {
 	return &Response{
-		Value: &Response_CheckTx{res.ResponseCheckTx},
+		Value: &Response_CheckTx{res},
 	}
 }
 

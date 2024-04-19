@@ -139,7 +139,7 @@ func checkTxsRange(ctx context.Context, t *testing.T, cs *State, start, end int)
 		var rCode uint32
 		err := assertMempool(t, cs.txNotifier).CheckTx(ctx, txBytes, func(r *abci.ResponseCheckTx) { rCode = r.Code }, mempool.TxInfo{})
 		require.NoError(t, err, "error after checkTx")
-		require.Equal(t, code.CodeTypeOK, rCode, "checkTx code is error, txBytes %X, index=%d", txBytes, i)
+		require.Equal(t, code.CodeTypeOK, rCode, "checkTx code is error, txBytes %X", txBytes)
 	}
 }
 
@@ -166,7 +166,7 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	require.NoError(t, err)
 	newBlockHeaderCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlockHeader)
 
-	const numTxs int64 = 50
+	const numTxs int64 = 100
 	go checkTxsRange(ctx, t, cs, 0, int(numTxs))
 
 	startTestRound(ctx, cs, cs.roundState.Height(), cs.roundState.Round())
@@ -308,18 +308,18 @@ func (app *CounterApplication) FinalizeBlock(_ context.Context, req *abci.Reques
 	return res, nil
 }
 
-func (app *CounterApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
+func (app *CounterApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTx, error) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
 	txValue := txAsUint64(req.Tx)
 	if txValue != uint64(app.mempoolTxCount) {
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
+		return &abci.ResponseCheckTx{
 			Code: code.CodeTypeBadNonce,
-		}}, nil
+		}, nil
 	}
 	app.mempoolTxCount++
-	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: code.CodeTypeOK}}, nil
+	return &abci.ResponseCheckTx{Code: code.CodeTypeOK}, nil
 }
 
 func txAsUint64(tx []byte) uint64 {
@@ -331,6 +331,7 @@ func txAsUint64(tx []byte) uint64 {
 func (app *CounterApplication) Commit(context.Context) (*abci.ResponseCommit, error) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
+
 	app.mempoolTxCount = app.txCount
 	return &abci.ResponseCommit{}, nil
 }

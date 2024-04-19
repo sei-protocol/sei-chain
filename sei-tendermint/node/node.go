@@ -349,7 +349,6 @@ func makeNode(
 		eventBus,
 		waitSync,
 		nodeMetrics.consensus,
-		cfg,
 	)
 
 	node.router.AddChDescToBeAdded(consensus.GetStateChannelDescriptor(), csReactor.SetStateChannel)

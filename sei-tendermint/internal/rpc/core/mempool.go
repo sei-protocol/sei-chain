@@ -158,9 +158,6 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 	skipCount := validateSkipCount(page, perPage)
 
 	txs := env.Mempool.ReapMaxTxs(skipCount + tmmath.MinInt(perPage, totalCount-skipCount))
-	if skipCount > len(txs) {
-		skipCount = len(txs)
-	}
 	result := txs[skipCount:]
 
 	return &coretypes.ResultUnconfirmedTxs{
@@ -188,7 +185,7 @@ func (env *Environment) CheckTx(ctx context.Context, req *coretypes.RequestCheck
 	if err != nil {
 		return nil, err
 	}
-	return &coretypes.ResultCheckTx{ResponseCheckTx: *res.ResponseCheckTx}, nil
+	return &coretypes.ResultCheckTx{ResponseCheckTx: *res}, nil
 }
 
 func (env *Environment) RemoveTx(ctx context.Context, req *coretypes.RequestRemoveTx) error {
