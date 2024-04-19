@@ -272,6 +272,35 @@ func (g *infiniteGasMeter) String() string {
 	return fmt.Sprintf("InfiniteGasMeter:\n  consumed: %d", g.consumed)
 }
 
+type infiniteMultiplierGasMeter struct {
+	infiniteGasMeter
+	multiplierNumerator   uint64
+	multiplierDenominator uint64
+}
+
+func NewInfiniteMultiplierGasMeter(multiplierNumerator uint64, multiplierDenominator uint64) GasMeter {
+	return &infiniteMultiplierGasMeter{
+		infiniteGasMeter: infiniteGasMeter{
+			consumed: 0,
+			lock:     &sync.Mutex{},
+		},
+		multiplierNumerator:   multiplierNumerator,
+		multiplierDenominator: multiplierDenominator,
+	}
+}
+
+func (g *infiniteMultiplierGasMeter) adjustGas(original Gas) Gas {
+	return original * g.multiplierNumerator / g.multiplierDenominator
+}
+
+func (g *infiniteMultiplierGasMeter) ConsumeGas(amount Gas, descriptor string) {
+	g.infiniteGasMeter.ConsumeGas(g.adjustGas(amount), descriptor)
+}
+
+func (g *infiniteMultiplierGasMeter) RefundGas(amount Gas, descriptor string) {
+	g.infiniteGasMeter.RefundGas(g.adjustGas(amount), descriptor)
+}
+
 type noConsumptionInfiniteGasMeter struct {
 	infiniteGasMeter
 }

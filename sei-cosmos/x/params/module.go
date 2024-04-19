@@ -97,10 +97,17 @@ func NewAppModule(k keeper.Keeper) AppModule {
 
 func (am AppModule) RegisterInvariants(_ sdk.InvariantRegistry) {}
 
-func (am AppModule) InitGenesis(ctx sdk.Context, _ codec.JSONCodec, _ json.RawMessage) []abci.ValidatorUpdate {
-	defaultGenesis := types.DefaultGenesis()
-	am.keeper.SetFeesParams(ctx, defaultGenesis.FeesParams)
+func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, gs json.RawMessage) []abci.ValidatorUpdate {
+	var genesisState types.GenesisState
+	cdc.MustUnmarshalJSON(gs, &genesisState)
+
+	am.keeper.InitGenesis(ctx, &genesisState)
 	return []abci.ValidatorUpdate{}
+}
+
+func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
+	gs := am.keeper.ExportGenesis(ctx)
+	return cdc.MustMarshalJSON(gs)
 }
 
 func (AppModule) Route() sdk.Route { return sdk.Route{} }
@@ -120,6 +127,8 @@ func (am AppModule) LegacyQuerierHandler(legacyQuerierCdc *codec.LegacyAmino) sd
 // module-specific gRPC queries.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
 	proposal.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+	m := keeper.NewMigrator(am.keeper)
+	_ = cfg.RegisterMigration(types.ModuleName, 1, m.Migrate1to2)
 }
 
 // ProposalContents returns all the params content functions used to
@@ -141,10 +150,5 @@ func (am AppModule) WeightedOperations(_ module.SimulationState) []simtypes.Weig
 	return nil
 }
 
-// ExportGenesis performs a no-op.
-func (am AppModule) ExportGenesis(_ sdk.Context, _ codec.JSONCodec) json.RawMessage {
-	return nil
-}
-
 // ConsensusVersion implements AppModule/ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 1 }
+func (AppModule) ConsensusVersion() uint64 { return 2 }

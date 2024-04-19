@@ -23,6 +23,7 @@ func NewQueryCmd() *cobra.Command {
 
 	cmd.AddCommand(NewQuerySubspaceParamsCmd())
 	cmd.AddCommand(NewQueryFeeParamsCmd())
+	cmd.AddCommand(NewQueryCosmosGasParamsCmd())
 	cmd.AddCommand(NewQueryBlockParamsCmd())
 
 	return cmd
@@ -57,7 +58,6 @@ func NewQuerySubspaceParamsCmd() *cobra.Command {
 	return cmd
 }
 
-
 func NewQueryFeeParamsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "feesparams",
@@ -79,6 +79,35 @@ func NewQueryFeeParamsCmd() *cobra.Command {
 			clientCtx.Codec.UnmarshalJSON([]byte(res.Param.Value), &feeParams)
 
 			return clientCtx.PrintProto(&feeParams)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func NewQueryCosmosGasParamsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "cosmosgasparams",
+		Short: "Query for cosmos gas params",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := proposal.NewQueryClient(clientCtx)
+
+			params := proposal.QueryParamsRequest{Subspace: "params", Key: string(types.ParamStoreKeyCosmosGasParams)}
+			res, err := queryClient.Params(cmd.Context(), &params)
+			if err != nil {
+				return err
+			}
+
+			cosmosGasParams := types.CosmosGasParams{}
+			clientCtx.Codec.UnmarshalJSON([]byte(res.Param.Value), &cosmosGasParams)
+
+			return clientCtx.PrintProto(&cosmosGasParams)
 		},
 	}
 

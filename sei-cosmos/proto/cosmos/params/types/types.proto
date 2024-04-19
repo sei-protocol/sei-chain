@@ -13,6 +13,12 @@ message FeesParams {
       [(gogoproto.nullable) = false, (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.DecCoins"];
 }
 
+message CosmosGasParams {
+  uint64 cosmos_gas_multiplier_numerator   = 1;
+  uint64 cosmos_gas_multiplier_denominator = 2;
+}
+
 message GenesisState {
   FeesParams fees_params = 1 [(gogoproto.nullable) = false];
+  CosmosGasParams cosmos_gas_params = 2 [(gogoproto.nullable) = false];
 }
