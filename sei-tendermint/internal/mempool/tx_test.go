@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -228,4 +230,135 @@ func TestWrappedTxList_Remove(t *testing.T) {
 
 	sort.Ints(expected)
 	require.Equal(t, expected, got)
+}
+
+func TestPendingTxsPopTxsGood(t *testing.T) {
+	pendingTxs := NewPendingTxs(config.TestMempoolConfig())
+	for _, test := range []struct {
+		origLen    int
+		popIndices []int
+		expected   []int
+	}{
+		{
+			origLen:    1,
+			popIndices: []int{},
+			expected:   []int{0},
+		}, {
+			origLen:    1,
+			popIndices: []int{0},
+			expected:   []int{},
+		}, {
+			origLen:    2,
+			popIndices: []int{0},
+			expected:   []int{1},
+		}, {
+			origLen:    2,
+			popIndices: []int{1},
+			expected:   []int{0},
+		}, {
+			origLen:    2,
+			popIndices: []int{0, 1},
+			expected:   []int{},
+		}, {
+			origLen:    3,
+			popIndices: []int{1},
+			expected:   []int{0, 2},
+		}, {
+			origLen:    3,
+			popIndices: []int{0, 2},
+			expected:   []int{1},
+		}, {
+			origLen:    3,
+			popIndices: []int{0, 1, 2},
+			expected:   []int{},
+		}, {
+			origLen:    5,
+			popIndices: []int{0, 1, 4},
+			expected:   []int{2, 3},
+		}, {
+			origLen:    5,
+			popIndices: []int{1, 3},
+			expected:   []int{0, 2, 4},
+		},
+	} {
+		pendingTxs.txs = []TxWithResponse{}
+		for i := 0; i < test.origLen; i++ {
+			pendingTxs.txs = append(pendingTxs.txs, TxWithResponse{
+				tx:     &WrappedTx{tx: []byte{}},
+				txInfo: TxInfo{SenderID: uint16(i)}})
+		}
+		pendingTxs.popTxsAtIndices(test.popIndices)
+		require.Equal(t, len(test.expected), len(pendingTxs.txs))
+		for i, e := range test.expected {
+			require.Equal(t, e, int(pendingTxs.txs[i].txInfo.SenderID))
+		}
+	}
+}
+
+func TestPendingTxsPopTxsBad(t *testing.T) {
+	pendingTxs := NewPendingTxs(config.TestMempoolConfig())
+	// out of range
+	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{0}) })
+	// out of order
+	pendingTxs.txs = []TxWithResponse{{}, {}, {}}
+	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{1, 0}) })
+	// duplicate
+	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{2, 2}) })
+}
+
+func TestPendingTxs_InsertCondition(t *testing.T) {
+	mempoolCfg := config.TestMempoolConfig()
+
+	// First test exceeding number of txs
+	mempoolCfg.PendingSize = 2
+
+	pendingTxs := NewPendingTxs(mempoolCfg)
+
+	// Transaction setup
+	tx1 := &WrappedTx{
+		tx:       types.Tx("tx1_data"),
+		priority: 1,
+	}
+	tx1Size := tx1.Size()
+
+	tx2 := &WrappedTx{
+		tx:       types.Tx("tx2_data"),
+		priority: 2,
+	}
+	tx2Size := tx2.Size()
+
+	err := pendingTxs.Insert(tx1, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.Nil(t, err)
+
+	err = pendingTxs.Insert(tx2, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.Nil(t, err)
+
+	// Should fail due to pending store size limit
+	tx3 := &WrappedTx{
+		tx:       types.Tx("tx3_data_exceeding_pending_size"),
+		priority: 3,
+	}
+
+	err = pendingTxs.Insert(tx3, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.NotNil(t, err)
+
+	// Second test exceeding byte size condition
+	mempoolCfg.PendingSize = 5
+	pendingTxs = NewPendingTxs(mempoolCfg)
+	mempoolCfg.MaxPendingTxsBytes = int64(tx1Size + tx2Size)
+
+	err = pendingTxs.Insert(tx1, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.Nil(t, err)
+
+	err = pendingTxs.Insert(tx2, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.Nil(t, err)
+
+	// Should fail due to exceeding max pending transaction bytes
+	tx3 = &WrappedTx{
+		tx:       types.Tx("tx3_small_but_exceeds_byte_limit"),
+		priority: 3,
+	}
+
+	err = pendingTxs.Insert(tx3, &abci.ResponseCheckTxV2{}, TxInfo{})
+	require.NotNil(t, err)
 }

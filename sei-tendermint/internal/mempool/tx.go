@@ -1,10 +1,13 @@
 package mempool
 
 import (
+	"errors"
 	"sort"
 	"sync"
 	"time"
 
+	abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/libs/clist"
 	"github.com/tendermint/tendermint/types"
 )
@@ -63,6 +66,20 @@ type WrappedTx struct {
 	// transaction in the mempool can be evicted when it is simultaneously having
 	// a reCheckTx callback executed.
 	removed bool
+
+	// this is the callback that can be called when a transaction is removed
+	removeHandler func(removeFromCache bool)
+
+	// evm properties that aid in prioritization
+	evmAddress string
+	evmNonce   uint64
+	isEVM      bool
+}
+
+// IsBefore returns true if the WrappedTx is before the given WrappedTx
+// this applies to EVM transactions only
+func (wtx *WrappedTx) IsBefore(tx *WrappedTx) bool {
+	return wtx.evmNonce < tx.evmNonce
 }
 
 func (wtx *WrappedTx) Size() int {
@@ -72,9 +89,9 @@ func (wtx *WrappedTx) Size() int {
 // TxStore implements a thread-safe mapping of valid transaction(s).
 //
 // NOTE:
-// - Concurrent read-only access to a *WrappedTx object is OK. However, mutative
-//   access is not allowed. Regardless, it is not expected for the mempool to
-//   need mutative access.
+//   - Concurrent read-only access to a *WrappedTx object is OK. However, mutative
+//     access is not allowed. Regardless, it is not expected for the mempool to
+//     need mutative access.
 type TxStore struct {
 	mtx       sync.RWMutex
 	hashTxs   map[types.TxKey]*WrappedTx // primary index
@@ -289,5 +306,146 @@ func (wtl *WrappedTxList) Remove(wtx *WrappedTx) {
 		}
 
 		i++
+	}
+}
+
+type PendingTxs struct {
+	mtx       *sync.RWMutex
+	txs       []TxWithResponse
+	config    *config.MempoolConfig
+	sizeBytes uint64
+}
+
+type TxWithResponse struct {
+	tx              *WrappedTx
+	checkTxResponse *abci.ResponseCheckTxV2
+	txInfo          TxInfo
+}
+
+func NewPendingTxs(conf *config.MempoolConfig) *PendingTxs {
+	return &PendingTxs{
+		mtx:       &sync.RWMutex{},
+		txs:       []TxWithResponse{},
+		config:    conf,
+		sizeBytes: 0,
+	}
+}
+func (p *PendingTxs) EvaluatePendingTransactions() (
+	acceptedTxs []TxWithResponse,
+	rejectedTxs []TxWithResponse,
+) {
+	poppedIndices := []int{}
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+	for i := 0; i < len(p.txs); i++ {
+		switch p.txs[i].checkTxResponse.Checker() {
+		case abci.Accepted:
+			acceptedTxs = append(acceptedTxs, p.txs[i])
+			poppedIndices = append(poppedIndices, i)
+		case abci.Rejected:
+			rejectedTxs = append(rejectedTxs, p.txs[i])
+			poppedIndices = append(poppedIndices, i)
+		}
+	}
+	p.popTxsAtIndices(poppedIndices)
+	return
+}
+
+// assume mtx is already acquired
+func (p *PendingTxs) popTxsAtIndices(indices []int) {
+	if len(indices) == 0 {
+		return
+	}
+	newTxs := []TxWithResponse{}
+	start := 0
+	for _, idx := range indices {
+		if idx <= start-1 {
+			panic("indices popped from pending tx store should be sorted without duplicate")
+		}
+		if idx >= len(p.txs) {
+			panic("indices popped from pending tx store out of range")
+		}
+		p.sizeBytes -= uint64(p.txs[idx].tx.Size())
+		newTxs = append(newTxs, p.txs[start:idx]...)
+		start = idx + 1
+	}
+	newTxs = append(newTxs, p.txs[start:]...)
+	p.txs = newTxs
+}
+
+func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, txInfo TxInfo) error {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+
+	if len(p.txs) >= p.config.PendingSize || uint64(tx.Size())+p.sizeBytes > uint64(p.config.MaxPendingTxsBytes) {
+		return errors.New("pending store is full")
+	}
+
+	p.txs = append(p.txs, TxWithResponse{
+		tx:              tx,
+		checkTxResponse: resCheckTx,
+		txInfo:          txInfo,
+	})
+	p.sizeBytes += uint64(tx.Size())
+	return nil
+}
+
+func (p *PendingTxs) Peek(max int) []TxWithResponse {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+	// priority is fifo
+	if max > len(p.txs) {
+		return p.txs
+	}
+	return p.txs[:max]
+}
+
+func (p *PendingTxs) Size() int {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+	return len(p.txs)
+}
+
+func (p *PendingTxs) PurgeExpired(blockHeight int64, now time.Time, cb func(wtx *WrappedTx)) {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+
+	if len(p.txs) == 0 {
+		return
+	}
+
+	// txs retains the ordering of insertion
+	if p.config.TTLNumBlocks > 0 {
+		idxFirstNotExpiredTx := len(p.txs)
+		for i, ptx := range p.txs {
+			// once found, we can break because these are ordered
+			if (blockHeight - ptx.tx.height) <= p.config.TTLNumBlocks {
+				idxFirstNotExpiredTx = i
+				break
+			} else {
+				cb(ptx.tx)
+				p.sizeBytes -= uint64(ptx.tx.Size())
+			}
+		}
+		p.txs = p.txs[idxFirstNotExpiredTx:]
+	}
+
+	if len(p.txs) == 0 {
+		return
+	}
+
+	if p.config.TTLDuration > 0 {
+		idxFirstNotExpiredTx := len(p.txs)
+		for i, ptx := range p.txs {
+			// once found, we can break because these are ordered
+			if now.Sub(ptx.tx.timestamp) <= p.config.TTLDuration {
+				idxFirstNotExpiredTx = i
+				break
+			} else {
+				cb(ptx.tx)
+				p.sizeBytes -= uint64(ptx.tx.Size())
+			}
+		}
+		p.txs = p.txs[idxFirstNotExpiredTx:]
 	}
 }

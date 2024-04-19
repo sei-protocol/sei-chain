@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tendermint/tendermint/config"
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/p2p"
@@ -121,6 +122,7 @@ type ConsSyncReactor interface {
 type Reactor struct {
 	service.BaseService
 	logger log.Logger
+	cfg    *config.Config
 
 	state    *State
 	eventBus *eventbus.EventBus
@@ -148,6 +150,7 @@ func NewReactor(
 	eventBus *eventbus.EventBus,
 	waitSync bool,
 	metrics *Metrics,
+	cfg *config.Config,
 ) *Reactor {
 	r := &Reactor{
 		logger:      logger,
@@ -160,6 +163,7 @@ func NewReactor(
 		peerEvents:  peerEvents,
 		readySignal: make(chan struct{}),
 		channels:    &channelBundle{},
+		cfg:         cfg,
 	}
 	r.BaseService = *service.NewBaseService(logger, "Consensus", r)
 
@@ -646,7 +650,12 @@ func (r *Reactor) pickSendVote(ctx context.Context, ps *PeerState, votes types.V
 		return false, nil
 	}
 
-	r.logger.Debug("sending vote message", "ps", ps, "vote", vote)
+	if r.cfg.BaseConfig.LogLevel == log.LogLevelDebug {
+		psJson, err := ps.ToJSON() // expensive, so we only want to call if debug is on
+		if err != nil {
+			r.logger.Debug("sending vote message", "ps", string(psJson), "vote", vote)
+		}
+	}
 	if err := voteCh.Send(ctx, p2p.Envelope{
 		To: ps.peerID,
 		Message: &tmcons.Vote{

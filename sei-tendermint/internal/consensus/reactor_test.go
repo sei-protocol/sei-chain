@@ -97,6 +97,7 @@ func setup(
 			state.eventBus,
 			true,
 			NopMetrics(),
+			config.DefaultConfig(),
 		)
 
 		reactor.SetStateChannel(rts.stateChannels[nodeID])
@@ -697,6 +698,7 @@ func TestSwitchToConsensusVoteExtensions(t *testing.T) {
 				cs.eventBus,
 				true,
 				NopMetrics(),
+				config.DefaultConfig(),
 			)
 
 			if testCase.shouldPanic {

@@ -184,7 +184,7 @@ func (t TxRecordSet) Validate(maxSizeBytes int64, otxs Txs) error {
 	for i, cur := range allCopy {
 		// allCopy is sorted, so any duplicated data will be adjacent.
 		if i+1 < len(allCopy) && bytes.Equal(cur, allCopy[i+1]) {
-			return fmt.Errorf("found duplicate transaction with hash: %x", cur.Hash())
+			return fmt.Errorf("found duplicate transaction with hash: %x", cur.Key())
 		}
 	}
 

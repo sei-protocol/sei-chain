@@ -60,7 +60,7 @@ func (a ABCIApp) BroadcastTxCommit(ctx context.Context, tx types.Tx) (*coretypes
 		return nil, err
 	}
 
-	res := &coretypes.ResultBroadcastTxCommit{CheckTx: *resp}
+	res := &coretypes.ResultBroadcastTxCommit{CheckTx: *resp.ResponseCheckTx}
 	if res.CheckTx.IsErr() {
 		return res, nil
 	}
