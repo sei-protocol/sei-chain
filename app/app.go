@@ -1215,7 +1215,7 @@ func (app *App) ProcessTxs(
 ) ([]*abci.ExecTxResult, sdk.Context) {
 	// Only run concurrently if no error
 	// Branch off the current context and pass a cached context to the concurrent delivered TXs that are shared.
-	// runTx will write to this ephermeral CacheMultiStore, after the process block is done, Write() is called on this
+	// runTx will write to this ephemeral CacheMultiStore, after the process block is done, Write() is called on this
 	// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
 	// deterministic ordering between validators in the case of concurrent deliverTXs
 	processBlockCtx, processBlockCache := app.CacheContext(ctx)
@@ -1289,7 +1289,7 @@ func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioriti
 	return prioritizedTxs, otherTxs, prioritizedIndices, otherIndices
 }
 
-// ExecuteTxsConcurrently calls the appropriate function for processing transacitons
+// ExecuteTxsConcurrently calls the appropriate function for processing transactions
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
 	// TODO after OCC release, remove this check and call ProcessTXsWithOCC directly
 	if ctx.IsOCCEnabled() {
