@@ -27,6 +27,25 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v3.9.0
+sei-chain:
+* [#1565](https://github.com/sei-protocol/sei-chain/pull/1565) Cosmos Gas Multiplier Params
+* [#1444](https://github.com/sei-protocol/sei-chain/pull/1444) Adding tokenfactory denom metadata endpoint
+
+sei-cosmos:
+* [#489](https://github.com/sei-protocol/sei-cosmos/pull/489) Cosmos Gas Multiplier Params
+* [#477](https://github.com/sei-protocol/sei-cosmos/pull/477) [OCC] if synchronous, reset non-pending
+
+sei-tendermint:
+* [211](https://github.com/sei-protocol/sei-tendermint/pull/211) Replay events during restart to avoid tx missing
+
+sei-db:
+* [#62](https://github.com/sei-protocol/sei-db/pull/62) Set CreateIfMissing to false when copyExisting
+
+sei-wasmd:
+* [45](https://github.com/sei-protocol/sei-wasmd/pull/45) Update LimitSimulationGasDecorator with custom Gas Meter Setter
+* [44](https://github.com/sei-protocol/sei-wasmd/pull/44) Bump wasmvm to v1.5.2
+
 ## v3.8.0
 sei-tendermint:
 * [209](https://github.com/sei-protocol/sei-tendermint/pull/209) Use write-lock in (*TxPriorityQueue).ReapMax funcs
