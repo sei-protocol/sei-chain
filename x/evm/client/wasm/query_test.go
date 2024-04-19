@@ -37,17 +37,6 @@ func deployERC20ToAddr(t *testing.T, ctx types.Context, k *keeper.Keeper, to com
 	k.SetCode(ctx, to, bz)
 }
 
-// func TestHandleStaticCall(t *testing.T) {
-// 	k, ctx := testkeeper.MockEVMKeeper()
-// 	from, _ := testkeeper.MockAddressPair()
-// 	_, to := testkeeper.MockAddressPair()
-// 	h := wasm.NewEVMQueryHandler(k)
-// 	deployERC20ToAddr(t, ctx, k, to)
-// 	res, err := h.HandleStaticCall(ctx, from.String(), to.String(), []byte("123"))
-// 	require.Nil(t, err)
-// 	require.NotNil(t, res)
-// }
-
 func TestERC721TransferPayload(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	addr1, e1 := testkeeper.MockAddressPair()
@@ -193,15 +182,11 @@ func (tx mockTx) GetSigners() []sdk.AccAddress                    { return tx.si
 func (tx mockTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
 func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
 
-func TestHandleStaticCall(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
-	code, err := os.ReadFile("../../../../example/contracts/simplestorage/SimpleStorage.bin")
+func deployContract(t *testing.T, ctx sdk.Context, k *keeper.Keeper, path string, privKey cryptotypes.PrivKey) (*evmtypes.MsgEVMTransactionResponse, evmtypes.MsgServer) {
+	code, err := os.ReadFile(path)
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
-	privKey := testkeeper.MockPrivateKey()
-	testPrivHex := hex.EncodeToString(privKey.Bytes())
-	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
 		Gas:      200000,
@@ -215,14 +200,16 @@ func TestHandleStaticCall(t *testing.T) {
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
 	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
 	txwrapper, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
 	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
 	k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, evmAddr[:], amt)
@@ -237,6 +224,26 @@ func TestHandleStaticCall(t *testing.T) {
 	require.Nil(t, err)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
+	return res, msgServer
+}
+
+func createSigner(k *keeper.Keeper, ctx sdk.Context) (ethtypes.Signer) {
+	chainID := k.ChainID()
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	return signer
+}
+
+func TestHandleStaticCall(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	signer := createSigner(k, ctx)
+	res, msgServer := deployContract(t, ctx, k, "../../../../example/contracts/simplestorage/SimpleStorage.bin", privKey)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
 	require.NotEmpty(t, res.ReturnData)
@@ -252,9 +259,9 @@ func TestHandleStaticCall(t *testing.T) {
 	contractAddr := common.HexToAddress(receipt.ContractAddress)
 	abi, err := simplestorage.SimplestorageMetaData.GetAbi()
 	require.Nil(t, err)
-	bz, err = abi.Pack("set", big.NewInt(20))
+	bz, err := abi.Pack("set", big.NewInt(20))
 	require.Nil(t, err)
-	txData = ethtypes.LegacyTx{
+	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
 		Gas:      200000,
 		To:       &contractAddr,
@@ -262,11 +269,11 @@ func TestHandleStaticCall(t *testing.T) {
 		Data:     bz,
 		Nonce:    1,
 	}
-	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
-	txwrapper, err = ethtx.NewLegacyTx(tx)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
-	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
+	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req)
 	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
