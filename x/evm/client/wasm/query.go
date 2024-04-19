@@ -10,7 +10,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 
-	// "github.com/sei-protocol/sei-chain/example/contracts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
@@ -20,16 +19,6 @@ import (
 type EVMQueryHandler struct {
 	k *keeper.Keeper
 }
-
-type EVMKeeper interface {
-	StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, data []byte) ([]byte, error)
-	GetEVMAddress(ctx sdk.Context, addr sdk.AccAddress) (common.Address, bool)
-	GetSeiAddress(ctx sdk.Context, addr common.Address) (sdk.AccAddress, bool)
-	GetSeiAddressOrDefault(ctx sdk.Context, addr common.Address) sdk.AccAddress
-}
-
-// option: define interface for keeper
-// option: can mock out staticcall function
 
 func NewEVMQueryHandler(k *keeper.Keeper) *EVMQueryHandler {
 	return &EVMQueryHandler{k: k}

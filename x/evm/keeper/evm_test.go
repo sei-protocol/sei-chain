@@ -106,11 +106,11 @@ func TestStaticCall(t *testing.T) {
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(2000)))))
 	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, testAddr, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(2000)))))
 
-	args, err = abi.Pack("totalSupply")
+	args, err = abi.Pack("balanceOf", senderEvmAddr)
 	require.Nil(t, err)
 	res, err := k.StaticCallEVM(ctx, testAddr, &contractAddr, args)
 	require.Nil(t, err)
-	decoded, err := abi.Unpack("totalSupply", res)
+	decoded, err := abi.Unpack("balanceOf", res)
 	require.Nil(t, err)
 	require.Equal(t, 1, len(decoded))
 	require.Equal(t, big.NewInt(int64(2000)), decoded[0].(*big.Int))
