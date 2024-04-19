@@ -27,6 +27,14 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v5.0.0
+sei-chain:
+[Compare v3.9.0...v5.0.0](https://github.com/sei-protocol/sei-chain/compare/v3.9.0...008ff68)
+sei-cosmos:
+[Compare v0.2.84...v0.3.1](https://github.com/sei-protocol/sei-cosmos/compare/v0.2.83...v0.3.1)
+sei-tendermint:
+[Compare v0.2.40...v0.3.0](https://github.com/sei-protocol/sei-tendermint/compare/v0.2.40...v0.3.0)
+
 ## v3.9.0
 sei-chain:
 * [#1565](https://github.com/sei-protocol/sei-chain/pull/1565) Cosmos Gas Multiplier Params

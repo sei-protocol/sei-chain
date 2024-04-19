@@ -90,6 +90,7 @@ var upgradesList = []string{
 	"v4.1.8-evm-devnet",
 	"v4.1.9-evm-devnet",
 	"v4.2.0-evm-devnet",
+	"v5.0.0",
 }
 
 // if there is an override list, use that instead, for integration tests
