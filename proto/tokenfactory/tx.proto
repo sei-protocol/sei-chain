@@ -15,10 +15,6 @@ service Msg {
   rpc ChangeAdmin(MsgChangeAdmin) returns (MsgChangeAdminResponse);
   rpc SetDenomMetadata(MsgSetDenomMetadata)
       returns (MsgSetDenomMetadataResponse);
-
-  // ForceTransfer is deactivated for now because we need to think through edge
-  // cases rpc ForceTransfer(MsgForceTransfer) returns
-  // (MsgForceTransferResponse);
 }
 
 // MsgCreateDenom defines the message structure for the CreateDenom gRPC service
@@ -78,20 +74,6 @@ message MsgChangeAdmin {
 // MsgChangeAdminResponse defines the response structure for an executed
 // MsgChangeAdmin message.
 message MsgChangeAdminResponse {}
-
-// message MsgForceTransfer {
-//   string sender = 1 [ (gogoproto.moretags) = "yaml:\"sender\"" ];
-//   cosmos.base.v1beta1.Coin amount = 2 [
-//     (gogoproto.moretags) = "yaml:\"amount\"",
-//     (gogoproto.nullable) = false
-//   ];
-//   string transferFromAddress = 3
-//       [ (gogoproto.moretags) = "yaml:\"transfer_from_address\"" ];
-//   string transferToAddress = 4
-//       [ (gogoproto.moretags) = "yaml:\"transfer_to_address\"" ];
-// }
-
-// message MsgForceTransferResponse {}
 
 // MsgSetDenomMetadata is the sdk.Msg type for allowing an admin account to set
 // the denom's bank metadata
