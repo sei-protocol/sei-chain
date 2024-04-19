@@ -120,7 +120,7 @@ func TestGetNextScheduledTokenRelease(t *testing.T) {
 		require.Equal(t, currentTime.AddDate(0, 0, 1).Format(minttypes.TokenReleaseDateFormat), nextScheduledRelease.GetStartDate())
 	})
 
-	t.Run("Panic on invalid foramt", func(t *testing.T) {
+	t.Run("Panic on invalid format", func(t *testing.T) {
 		// No next scheduled token release intially
 		tokenReleaseSchedule := []mintTypes.ScheduledTokenRelease{
 			{
