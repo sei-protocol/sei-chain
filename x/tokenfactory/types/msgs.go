@@ -11,7 +11,6 @@ const (
 	TypeMsgCreateDenom      = "create_denom"
 	TypeMsgMint             = "mint"
 	TypeMsgBurn             = "burn"
-	TypeMsgForceTransfer    = "force_transfer"
 	TypeMsgChangeAdmin      = "change_admin"
 	TypeMsgSetDenomMetadata = "set_denom_metadata"
 )
@@ -118,51 +117,6 @@ func (m MsgBurn) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.Sender)
 	return []sdk.AccAddress{sender}
 }
-
-// var _ sdk.Msg = &MsgForceTransfer{}
-
-// // NewMsgForceTransfer creates a transfer funds from one account to another
-// func NewMsgForceTransfer(sender string, amount sdk.Coin, fromAddr, toAddr string) *MsgForceTransfer {
-// 	return &MsgForceTransfer{
-// 		Sender:              sender,
-// 		Amount:              amount,
-// 		TransferFromAddress: fromAddr,
-// 		TransferToAddress:   toAddr,
-// 	}
-// }
-
-// func (m MsgForceTransfer) Route() string { return RouterKey }
-// func (m MsgForceTransfer) Type() string  { return TypeMsgForceTransfer }
-// func (m MsgForceTransfer) ValidateBasic() error {
-// 	_, err := sdk.AccAddressFromBech32(m.Sender)
-// 	if err != nil {
-// 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
-// 	}
-
-// 	_, err = sdk.AccAddressFromBech32(m.TransferFromAddress)
-// 	if err != nil {
-// 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid address (%s)", err)
-// 	}
-// 	_, err = sdk.AccAddressFromBech32(m.TransferToAddress)
-// 	if err != nil {
-// 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid address (%s)", err)
-// 	}
-
-// 	if !m.Amount.IsValid() {
-// 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, m.Amount.String())
-// 	}
-
-// 	return nil
-// }
-
-// func (m MsgForceTransfer) GetSignBytes() []byte {
-// 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&m))
-// }
-
-// func (m MsgForceTransfer) GetSigners() []sdk.AccAddress {
-// 	sender, _ := sdk.AccAddressFromBech32(m.Sender)
-// 	return []sdk.AccAddress{sender}
-// }
 
 var _ sdk.Msg = &MsgChangeAdmin{}
 
