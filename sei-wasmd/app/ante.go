@@ -48,8 +48,8 @@ func NewAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteDepGenerat
 	}
 
 	anteDecorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(ante.NewDefaultSetUpContextDecorator()),                                           // outermost AnteDecorator. SetUpContext must be called first
-		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit)), // after setup context to enforce limits early
+		sdk.DefaultWrappedAnteDecorator(ante.NewDefaultSetUpContextDecorator()),                                                                               // outermost AnteDecorator. SetUpContext must be called first
+		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewLimitSimulationGasDecorator(options.WasmConfig.SimulationGasLimit, wasmkeeper.DefaultGasMeterSetter())), // after setup context to enforce limits early
 		sdk.DefaultWrappedAnteDecorator(wasmkeeper.NewCountTXDecorator(options.TXCounterStoreKey)),
 		sdk.DefaultWrappedAnteDecorator(ante.NewRejectExtensionOptionsDecorator()),
 		sdk.DefaultWrappedAnteDecorator(ante.NewValidateBasicDecorator()),

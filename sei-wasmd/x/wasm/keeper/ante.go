@@ -57,14 +57,22 @@ func decodeHeightCounter(bz []byte) (int64, uint32) {
 // LimitSimulationGasDecorator ante decorator to limit gas in simulation calls
 type LimitSimulationGasDecorator struct {
 	gasLimit *sdk.Gas
+	// inputs: simulate, ctx, gas limit, tx
+	gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context
 }
 
 // NewLimitSimulationGasDecorator constructor accepts nil value to fallback to block gas limit.
-func NewLimitSimulationGasDecorator(gasLimit *sdk.Gas) *LimitSimulationGasDecorator {
+func NewLimitSimulationGasDecorator(gasLimit *sdk.Gas, gasMeterSetter func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context) *LimitSimulationGasDecorator {
 	if gasLimit != nil && *gasLimit == 0 {
 		panic("gas limit must not be zero")
 	}
-	return &LimitSimulationGasDecorator{gasLimit: gasLimit}
+	return &LimitSimulationGasDecorator{gasLimit, gasMeterSetter}
+}
+
+func DefaultGasMeterSetter() func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context {
+	return func(simulate bool, ctx sdk.Context, gasLimit uint64, tx sdk.Tx) sdk.Context {
+		return ctx.WithGasMeter(sdk.NewGasMeter(gasLimit))
+	}
 }
 
 // AnteHandle that limits the maximum gas available in simulations only.
@@ -85,12 +93,13 @@ func (d LimitSimulationGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simu
 
 	// apply custom node gas limit
 	if d.gasLimit != nil {
-		return next(ctx.WithGasMeter(sdk.NewGasMeter(*d.gasLimit)), tx, simulate)
+		return next(d.gasMeterSetter(simulate, ctx, *d.gasLimit, tx), tx, simulate)
 	}
 
 	// default to max block gas when set, to be on the safe side
 	if maxGas := ctx.ConsensusParams().GetBlock().MaxGas; maxGas > 0 {
-		return next(ctx.WithGasMeter(sdk.NewGasMeter(sdk.Gas(maxGas))), tx, simulate)
+		return next(d.gasMeterSetter(simulate, ctx, sdk.Gas(maxGas), tx), tx, simulate)
 	}
+
 	return next(ctx, tx, simulate)
 }
