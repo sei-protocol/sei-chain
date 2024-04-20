@@ -9,7 +9,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
@@ -81,7 +80,6 @@ func (h *EVMQueryHandler) HandleERC20TokenInfo(ctx sdk.Context, contractAddress 
 	}
 	unpacked, err := abi.Unpack("totalSupply", res)
 	if err != nil {
-		fmt.Println("unpacking totalSupply error = ", err)
 		return nil, err
 	}
 	totalSupply := sdk.NewIntFromBigInt(unpacked[0].(*big.Int))

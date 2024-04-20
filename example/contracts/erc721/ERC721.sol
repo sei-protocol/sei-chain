@@ -3,8 +3,6 @@
 
 pragma solidity ^0.8.20;
 
-// NOTE: NOT A REAL IMPLEMENTATION -- DO NOT USE IN PROD
-
 interface IERC165 {
     function supportsInterface(bytes4 interfaceId) external view returns (bool);
 }
