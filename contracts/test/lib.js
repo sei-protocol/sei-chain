@@ -28,12 +28,14 @@ async function storeWasm(path) {
     return getEventAttribute(response, "store_code", "code_id")
 }
 
-async function instantiateWasm(codeId, adminAddr, label, args={}) {
-    const command = `seid tx wasm instantiate ${codeId} '${JSON.stringify(args)}' --label ${label} --admin ${adminAddr} --from admin --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+async function instantiateWasm(codeId, adminAddr, label, args = {}) {
+    const jsonString = JSON.stringify(args).replace(/"/g, '\\"');
+    const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from admin --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
     const output = await execute(command);
-    const response = JSON.parse(output)
-    return getEventAttribute(response, "instantiate", "_contract_address")
+    const response = JSON.parse(output);
+    return getEventAttribute(response, "instantiate", "_contract_address");
 }
+
 
 async function getSeiAddress(evmAddress) {
     const command = `seid q evm sei-addr ${evmAddress} -o json`
@@ -51,7 +53,8 @@ async function deployEvmContract(name, args=[]) {
 }
 
 async function queryWasm(contractAddress, operation, args={}){
-    const command = `seid query wasm contract-state smart ${contractAddress} '{"${operation}": ${JSON.stringify(args)}}' --output json`
+    const jsonString = JSON.stringify({ [operation]: args }).replace(/"/g, '\\"');
+    const command = `seid query wasm contract-state smart ${contractAddress} "${jsonString}" --output json`;
     const output = await execute(command);
     return JSON.parse(output)
 }
@@ -61,7 +64,7 @@ async function execute(command) {
     const checkSeidCommand = 'command -v seid';
     return new Promise((resolve, reject) => {
         exec(checkSeidCommand, (error, stdout, stderr) => {
-            if (stdout) {
+            if (false) {
                 // seid is available, execute command normally
                 execCommand(command, resolve, reject);
             } else {
