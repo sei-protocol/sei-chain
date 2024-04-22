@@ -2,7 +2,6 @@ const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
 const { exec } = require("child_process"); // Importing exec from child_process
 const { cons } = require("fp-ts/lib/NonEmptyArray2v");
-const {fundAddress, storeWasm, instantiateWasm, getSeiAddress} = require("./lib")
 
 // Run instructions
 // Should be run on a local chain using: `npx hardhat test --network seilocal test/ERC20toCW20PointerTest.js`
