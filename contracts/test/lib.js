@@ -64,7 +64,7 @@ async function execute(command) {
     const checkSeidCommand = 'command -v seid';
     return new Promise((resolve, reject) => {
         exec(checkSeidCommand, (error, stdout, stderr) => {
-            if (checkSeidCommand) {
+            if (stdout) {
                 // seid is available, execute command normally
                 execCommand(command, resolve, reject);
             } else {
