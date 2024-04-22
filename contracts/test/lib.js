@@ -66,7 +66,7 @@ async function execute(command) {
                 execCommand(command, resolve, reject);
             } else {
                 // seid is not available, execute command inside Docker (integration test)
-                const dockerCommand = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${command}'`;
+                const dockerCommand = `docker exec sei-node-0 /bin/bash -c 'printf "12345678\\n" | export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${command}'`;
                 execCommand(dockerCommand, resolve, reject);
             }
         });
