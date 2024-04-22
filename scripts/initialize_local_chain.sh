@@ -79,6 +79,7 @@ fi
 sed -i.bak -e 's/# concurrency-workers = .*/concurrency-workers = 500/' $APP_TOML_PATH
 sed -i.bak -e 's/occ-enabled = .*/occ-enabled = true/' $APP_TOML_PATH
 sed -i.bak -e 's/sc-enable = .*/sc-enable = true/' $APP_TOML_PATH
+sed -i.bak -e 's/ss-enable = .*/ss-enable = true/' $APP_TOML_PATH
 
 
 # set block time to 2s
