@@ -1001,7 +1001,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
-
+	// TODO UPDATE `v5.1.0` with the final version that will be upgraded to introduce the EVM module - REMOVE THIS TODO
 	if upgradeInfo.Name == "v5.1.0" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
 			Added: []string{evmtypes.StoreKey},
