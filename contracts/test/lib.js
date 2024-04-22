@@ -60,24 +60,24 @@ async function queryWasm(contractAddress, operation, args={}){
 }
 
 async function execute(command) {
-    // Check if the seid binary is available on the path
-    const checkSeidCommand = 'command -v seid';
     return new Promise((resolve, reject) => {
-        exec(checkSeidCommand, (error, stdout, stderr) => {
-            if (stdout) {
-                // seid is available, execute command normally
-                execCommand(command, resolve, reject);
-            } else {
+        // Check if the Docker container 'sei-node-0' is running
+        exec("docker ps --filter 'name=sei-node-0' --format '{{.Names}}'", (error, stdout, stderr) => {
+            if (stdout.includes('sei-node-0')) {
+                // The container is running, modify the command to execute inside Docker
                 command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
-                // seid is not available, execute command inside Docker (integration test)
                 const dockerCommand = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && printf "12345678\\n" | ${command}'`;
                 execCommand(dockerCommand, resolve, reject);
+            } else {
+                // The container is not running, execute command normally
+                execCommand(command, resolve, reject);
             }
         });
     });
 }
 
 function execCommand(command, resolve, reject) {
+    console.log(`executing: ${command}`);
     exec(command, (error, stdout, stderr) => {
         if (error) {
             console.log(`error: ${error.message}`);
