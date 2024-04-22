@@ -55,6 +55,10 @@ func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method
 	return ctxer.Ctx(), method, args, nil
 }
 
+func (p Precompile) GetABI() abi.ABI {
+	return p.ABI
+}
+
 func ValidateArgsLength(args []interface{}, length int) error {
 	if len(args) != length {
 		return fmt.Errorf("expected %d arguments but got %d", length, len(args))

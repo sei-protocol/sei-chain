@@ -251,6 +251,10 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
+func (p Precompile) GetName() string {
+	return "ibc"
+}
+
 func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
