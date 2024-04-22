@@ -6,23 +6,23 @@ import (
 )
 
 type Config struct {
-	Enabled    bool   `mapstructure:"eth_replay_enabled"`
-	EthRPC     string `mapstructure:"eth_rpc"`
-	EthDataDir string `mapstructure:"eth_data_dir"`
-	ContractStateChecks bool `mapstructure:"contract_state_checks"`
+	Enabled             bool   `mapstructure:"eth_replay_enabled"`
+	EthRPC              string `mapstructure:"eth_rpc"`
+	EthDataDir          string `mapstructure:"eth_data_dir"`
+	ContractStateChecks bool   `mapstructure:"contract_state_checks"`
 }
 
 var DefaultConfig = Config{
-	Enabled:    false,
-	EthRPC:     "http://44.234.105.54:18545",
-	EthDataDir: "/root/.ethereum/chaindata",
+	Enabled:             false,
+	EthRPC:              "http://44.234.105.54:18545",
+	EthDataDir:          "/root/.ethereum/chaindata",
 	ContractStateChecks: false,
 }
 
 const (
-	flagEnabled    = "eth_replay.eth_replay_enabled"
-	flagEthRPC     = "eth_replay.eth_rpc"
-	flagEthDataDir = "eth_replay.eth_data_dir"
+	flagEnabled             = "eth_replay.eth_replay_enabled"
+	flagEthRPC              = "eth_replay.eth_rpc"
+	flagEthDataDir          = "eth_replay.eth_data_dir"
 	flagContractStateChecks = "eth_replay.contract_state_checks"
 )
 
