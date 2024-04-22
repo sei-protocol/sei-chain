@@ -96,6 +96,10 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
+func (p Precompile) GetName() string {
+	return "distribution"
+}
+
 func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
 	if readOnly {
 		return nil, errors.New("cannot call distr precompile from staticcall")
