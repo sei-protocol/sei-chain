@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"math/big"
 	"net/http"
 	"os"
@@ -27,13 +26,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	"github.com/sei-protocol/sei-chain/precompiles/staking"
+	"github.com/sei-protocol/sei-chain/precompiles"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/wsei"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -61,13 +57,10 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdAssociateAddress())
 	cmd.AddCommand(CmdSend())
 	cmd.AddCommand(CmdDeployContract())
-	cmd.AddCommand(CmdDeployErc20())
-	cmd.AddCommand(CmdDeployErcCw20())
 	cmd.AddCommand(CmdCallContract())
-	cmd.AddCommand(CmdDeployErcCw721())
 	cmd.AddCommand(CmdDeployWSEI())
 	cmd.AddCommand(CmdERC20Send())
-	cmd.AddCommand(CmdDelegate())
+	cmd.AddCommand(CmdCallPrecompile())
 	cmd.AddCommand(NativeSendTxCmd())
 	cmd.AddCommand(NewAddERCNativePointerProposalTxCmd())
 	cmd.AddCommand(NewAddERCCW20PointerProposalTxCmd())
@@ -296,259 +289,9 @@ func CmdDeployContract() *cobra.Command {
 	return cmd
 }
 
-func CmdDeployErc20() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "deploy-erc20 [denom] [name] [symbol] [decimal] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
-		Short: "Deploy ERC20 contract for a native Sei token",
-		Long:  "",
-		Args:  cobra.ExactArgs(4),
-		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			err = sdk.ValidateDenom(args[0])
-			if err != nil {
-				return err
-			}
-			denom := args[0]
-			name := args[1]
-			symbol := args[2]
-			decimal, err := strconv.ParseUint(args[3], 10, 64)
-			if err != nil {
-				return err
-			}
-			if decimal > math.MaxUint8 {
-				return fmt.Errorf("decimal cannot be larger than %d", math.MaxUint8)
-			}
-
-			bytecode := native.GetBin()
-			constructorArguments := []interface{}{
-				denom, name, symbol, uint8(decimal),
-			}
-
-			packedArgs, err := native.GetParsedABI().Pack("", constructorArguments...)
-			if err != nil {
-				return err
-			}
-			contractData := append(bytecode, packedArgs...)
-
-			key, err := getPrivateKey(cmd)
-			if err != nil {
-				return err
-			}
-
-			rpc, err := cmd.Flags().GetString(FlagRPC)
-			if err != nil {
-				return err
-			}
-			var nonce uint64
-			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
-				nonce = uint64(n)
-			} else {
-				nonce, err = getNonce(rpc, key.PublicKey)
-				if err != nil {
-					return err
-				}
-			}
-
-			txData, err := getTxData(cmd)
-			if err != nil {
-				return err
-			}
-			txData.Nonce = nonce
-			txData.Value = utils.Big0
-			txData.Data = contractData
-
-			resp, err := sendTx(txData, rpc, key)
-			if err != nil {
-				return err
-			}
-
-			senderAddr := crypto.PubkeyToAddress(key.PublicKey)
-			data, err := rlp.EncodeToBytes([]interface{}{senderAddr, nonce})
-			if err != nil {
-				return err
-			}
-			hash := crypto.Keccak256Hash(data)
-			contractAddress := hash.Bytes()[12:]
-			contractAddressHex := hex.EncodeToString(contractAddress)
-
-			fmt.Println("Deployer:", senderAddr)
-			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
-			fmt.Println("Transaction hash:", resp.Hex())
-			return nil
-		},
-	}
-
-	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
-	cmd.Flags().Uint64(FlagGas, 5000000, "Gas limit for the transaction")
-	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
-	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
-	flags.AddTxFlagsToCmd(cmd)
-
-	return cmd
-}
-
-func CmdDeployErcCw20() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "deploy-erccw20 [cw20addr] [name] [symbol] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
-		Short: "Deploy ERC20 contract for a CW20 token",
-		Long:  "",
-		Args:  cobra.ExactArgs(3),
-		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			_, err = sdk.AccAddressFromBech32(args[0])
-			if err != nil {
-				return err
-			}
-
-			bytecode := cw20.GetBin()
-			constructorArguments := []interface{}{
-				args[0], args[1], args[2],
-			}
-
-			packedArgs, err := cw20.GetParsedABI().Pack("", constructorArguments...)
-			if err != nil {
-				return err
-			}
-			contractData := append(bytecode, packedArgs...)
-
-			key, err := getPrivateKey(cmd)
-			if err != nil {
-				return err
-			}
-
-			rpc, err := cmd.Flags().GetString(FlagRPC)
-			if err != nil {
-				return err
-			}
-			var nonce uint64
-			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
-				nonce = uint64(n)
-			} else {
-				nonce, err = getNonce(rpc, key.PublicKey)
-				if err != nil {
-					return err
-				}
-			}
-
-			txData, err := getTxData(cmd)
-			if err != nil {
-				return err
-			}
-			txData.Nonce = nonce
-			txData.Value = utils.Big0
-			txData.Data = contractData
-
-			resp, err := sendTx(txData, rpc, key)
-			if err != nil {
-				return err
-			}
-
-			senderAddr := crypto.PubkeyToAddress(key.PublicKey)
-			data, err := rlp.EncodeToBytes([]interface{}{senderAddr, nonce})
-			if err != nil {
-				return err
-			}
-			hash := crypto.Keccak256Hash(data)
-			contractAddress := hash.Bytes()[12:]
-			contractAddressHex := hex.EncodeToString(contractAddress)
-
-			fmt.Println("Deployer:", senderAddr)
-			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
-			fmt.Println("Transaction hash:", resp.Hex())
-			return nil
-		},
-	}
-
-	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
-	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
-	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
-	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
-	flags.AddTxFlagsToCmd(cmd)
-
-	return cmd
-}
-
-func CmdDeployErcCw721() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "deploy-erccw721 [cw721addr] [name] [symbol] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
-		Short: "Deploy ERC721 contract for a CW20 token",
-		Long:  "",
-		Args:  cobra.ExactArgs(3),
-		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			_, err = sdk.AccAddressFromBech32(args[0])
-			if err != nil {
-				return err
-			}
-
-			bytecode := cw721.GetBin()
-			constructorArguments := []interface{}{
-				args[0], args[1], args[2],
-			}
-
-			packedArgs, err := cw721.GetParsedABI().Pack("", constructorArguments...)
-			if err != nil {
-				return err
-			}
-			contractData := append(bytecode, packedArgs...)
-
-			key, err := getPrivateKey(cmd)
-			if err != nil {
-				return err
-			}
-
-			rpc, err := cmd.Flags().GetString(FlagRPC)
-			if err != nil {
-				return err
-			}
-			var nonce uint64
-			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
-				nonce = uint64(n)
-			} else {
-				nonce, err = getNonce(rpc, key.PublicKey)
-				if err != nil {
-					return err
-				}
-			}
-
-			txData, err := getTxData(cmd)
-			if err != nil {
-				return err
-			}
-			txData.Nonce = nonce
-			txData.Value = utils.Big0
-			txData.Data = contractData
-
-			resp, err := sendTx(txData, rpc, key)
-			if err != nil {
-				return err
-			}
-
-			senderAddr := crypto.PubkeyToAddress(key.PublicKey)
-			data, err := rlp.EncodeToBytes([]interface{}{senderAddr, nonce})
-			if err != nil {
-				return err
-			}
-			hash := crypto.Keccak256Hash(data)
-			contractAddress := hash.Bytes()[12:]
-			contractAddressHex := hex.EncodeToString(contractAddress)
-
-			fmt.Println("Deployer:", senderAddr)
-			fmt.Println("Deployed to:", fmt.Sprintf("0x%s", contractAddressHex))
-			fmt.Println("Transaction hash:", resp.Hex())
-			return nil
-		},
-	}
-
-	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
-	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
-	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
-	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
-	flags.AddTxFlagsToCmd(cmd)
-
-	return cmd
-}
-
 func CmdCallContract() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "call-contract [addr] [payload hex] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
+		Use:   "call-contract [addr] [payload hex] --value=<payment> --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
 		Short: "Call EVM contract with a bytes payload in hex",
 		Long:  "",
 		Args:  cobra.ExactArgs(2),
@@ -578,9 +321,13 @@ func CmdCallContract() *cobra.Command {
 				}
 			}
 
-			value, err := cmd.Flags().GetUint64(FlagValue)
+			value, err := cmd.Flags().GetString(FlagValue)
 			if err != nil {
 				return err
+			}
+			valueBig, success := new(big.Int).SetString(value, 10)
+			if !success || valueBig.Cmp(utils.Big0) < 0 {
+				return fmt.Errorf("%s is not a valid value. Must be a decimal nonnegative integer", value)
 			}
 
 			txData, err := getTxData(cmd)
@@ -588,7 +335,7 @@ func CmdCallContract() *cobra.Command {
 				return err
 			}
 			txData.Nonce = nonce
-			txData.Value = big.NewInt(int64(value))
+			txData.Value = valueBig
 			txData.Data = payload
 			txData.To = &contract
 
@@ -604,7 +351,7 @@ func CmdCallContract() *cobra.Command {
 
 	cmd.Flags().Uint64(FlagGasFeeCap, 1000000000000, "Gas fee cap for the transaction")
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
-	cmd.Flags().Uint64(FlagValue, 0, "Value for the transaction")
+	cmd.Flags().String(FlagValue, "0", "Value for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
 	flags.AddTxFlagsToCmd(cmd)
@@ -681,19 +428,15 @@ func CmdERC20Send() *cobra.Command {
 	return cmd
 }
 
-func CmdDelegate() *cobra.Command {
+func CmdCallPrecompile() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "delegate [val-addr] [amount] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
-		Short: "delegate recipient <amount>usei",
+		Use:   "call-precompile [precompile name] [method] [args...] --value=<payment> --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
+		Short: "call method on precompile",
 		Long:  "",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			amt, err := strconv.ParseUint(args[1], 10, 64)
-			if err != nil {
-				return err
-			}
-			abi := staking.GetABI()
-			payload, err := abi.Pack("delegate", args[0], new(big.Int).SetUint64(amt))
+			pInfo := precompiles.GetPrecompileInfo(args[0])
+			payload, err := getMethodPayload(pInfo.ABI, args[1:])
 			if err != nil {
 				return err
 			}
@@ -717,14 +460,23 @@ func CmdDelegate() *cobra.Command {
 				}
 			}
 
+			value, err := cmd.Flags().GetString(FlagValue)
+			if err != nil {
+				return err
+			}
+			valueBig, success := new(big.Int).SetString(value, 10)
+			if !success || valueBig.Cmp(utils.Big0) < 0 {
+				return fmt.Errorf("%s is not a valid value. Must be a decimal nonnegative integer", value)
+			}
+
 			txData, err := getTxData(cmd)
 			if err != nil {
 				return err
 			}
 			txData.Nonce = nonce
-			txData.Value = utils.Big0
+			txData.Value = valueBig
 			txData.Data = payload
-			to := common.HexToAddress(staking.StakingAddress)
+			to := pInfo.Address
 			txData.To = &to
 
 			resp, err := sendTx(txData, rpc, key)
@@ -741,6 +493,7 @@ func CmdDelegate() *cobra.Command {
 	cmd.Flags().Uint64(FlagGas, 7000000, "Gas limit for the transaction")
 	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 	cmd.Flags().Int64(FlagNonce, -1, "Nonce override for the transaction. Negative value means no override")
+	cmd.Flags().String(FlagValue, "", "Value for the transaction")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd

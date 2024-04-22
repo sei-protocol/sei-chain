@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"strconv"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -172,80 +171,7 @@ func CmdQueryPayload() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			method := newAbi.Methods[args[1]]
-			abiArgs := []interface{}{}
-			for i, input := range method.Inputs {
-				idx := i + 2
-				if idx >= len(args) {
-					return errors.New("not enough arguments")
-				}
-				var arg interface{}
-				var err error
-				switch input.Type.T {
-				case abi.IntTy:
-					if input.Type.Size > 64 {
-						bi, success := new(big.Int).SetString(args[idx], 10)
-						if !success {
-							err = errors.New("invalid big.Int")
-						} else {
-							arg = bi
-						}
-					} else {
-						val, e := strconv.ParseInt(args[idx], 10, 64)
-						err = e
-						switch input.Type.Size {
-						case 8:
-							arg = int8(val)
-						case 16:
-							arg = int16(val)
-						case 32:
-							arg = int32(val)
-						case 64:
-							arg = val
-						}
-					}
-				case abi.UintTy:
-					if input.Type.Size > 64 {
-						bi, success := new(big.Int).SetString(args[idx], 10)
-						if !success {
-							err = errors.New("invalid big.Int")
-						} else {
-							arg = bi
-						}
-					} else {
-						val, e := strconv.ParseUint(args[idx], 10, 64)
-						err = e
-						switch input.Type.Size {
-						case 8:
-							arg = uint8(val)
-						case 16:
-							arg = uint16(val)
-						case 32:
-							arg = uint32(val)
-						case 64:
-							arg = val
-						}
-					}
-				case abi.BoolTy:
-					if args[idx] != TrueStr && args[idx] != FalseStr {
-						err = fmt.Errorf("boolean argument has to be either \"%s\" or \"%s\"", TrueStr, FalseStr)
-					} else {
-						arg = args[idx] == TrueStr
-					}
-				case abi.StringTy:
-					arg = args[idx]
-				case abi.AddressTy:
-					arg = common.HexToAddress(args[idx])
-				default:
-					return errors.New("argument type not supported yet")
-				}
-				if err != nil {
-					return err
-				}
-				abiArgs = append(abiArgs, arg)
-			}
-
-			bz, err := newAbi.Pack(args[1], abiArgs...)
+			bz, err := getMethodPayload(newAbi, args[1:])
 			if err != nil {
 				return err
 			}

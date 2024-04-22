@@ -670,6 +670,7 @@ func New(
 
 	if enableCustomEVMPrecompiles {
 		if err := precompiles.InitializePrecompiles(
+			false,
 			&app.EvmKeeper,
 			app.BankKeeper,
 			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
