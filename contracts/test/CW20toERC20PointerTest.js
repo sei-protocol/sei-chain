@@ -4,6 +4,7 @@ const { expect } = require("chai");
 const CW20_POINTER_WASM = "../example/cosmwasm/cw20/artifacts/cwerc20.wasm";
 describe("CW20 to ERC20 Pointer", function () {
     let deployer;
+    let deployerSeiAddress;
     let testToken;
     let wasmAddress;
 
@@ -25,7 +26,7 @@ describe("CW20 to ERC20 Pointer", function () {
         });
         await resp.wait()
 
-        const deployerSeiAddress = await getSeiAddress(deployerAddr)
+        deployerSeiAddress = await getSeiAddress(deployerAddr)
 
         // deploy TestToken
         testToken = await deployEvmContract("TestToken", ["TEST", "TEST"])
@@ -36,9 +37,40 @@ describe("CW20 to ERC20 Pointer", function () {
         wasmAddress = await instantiateWasm(codeId, deployerSeiAddress, "cw20-erc20", {erc20_address: tokenAddr })
     })
 
-    it("should return token_info", async function(){
-        const result = await queryWasm(wasmAddress, "token_info", {})
-        expect(result).to.deep.equal({"data":{"name":"TEST","symbol":"TEST","decimals":18,"total_supply":"1000000000000"}})
+    async function assertUnsupported(addr, operation, args) {
+        try {
+            await queryWasm(addr, operation, args);
+            // If the promise resolves, force the test to fail
+            expect.fail(`Expected rejection: address=${addr} operation=${operation} args=${JSON.stringify(args)}`);
+        } catch (error) {
+            expect(error.message).to.include("ERC20 does not support");
+        }
+    }
+
+    describe("query", function(){
+        it("should return token_info", async function(){
+            const result = await queryWasm(wasmAddress, "token_info", {})
+            expect(result).to.deep.equal({data:{name:"TEST",symbol:"TEST",decimals:18,total_supply:"1000000000000"}})
+        })
+
+        it("should return balance", async function(){
+            const result = await queryWasm(wasmAddress, "balance", {address: deployerSeiAddress})
+            expect(result).to.deep.equal({ data: { balance: '1000000000000' } })
+        })
+
+        it("should return allowance", async function(){
+            const result = await queryWasm(wasmAddress, "allowance", {owner: deployerSeiAddress, spender: deployerSeiAddress})
+            expect(result).to.deep.equal({ data: { allowance: '0', expires: { never: {} } } })
+        })
+
+        it("should throw exception on unsupported endpoints", async function() {
+            await assertUnsupported(wasmAddress, "minter", {})
+            await assertUnsupported(wasmAddress, "marketing_info", {})
+            await assertUnsupported(wasmAddress, "download_logo", {})
+            await assertUnsupported(wasmAddress, "all_allowances", { owner: deployerSeiAddress })
+            await assertUnsupported(wasmAddress, "all_accounts", {})
+        });
     })
+
 
 })
