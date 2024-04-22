@@ -17,6 +17,14 @@ describe("CW20 to ERC20 Pointer", function () {
         deployer = signers[0];
         const deployerAddr = await deployer.getAddress();
         await fundAddress(deployerAddr);
+
+        // force to associate
+        const resp = await deployer.sendTransaction({
+            to: deployerAddr,
+            value: 0
+        });
+        await resp.wait()
+
         const deployerSeiAddress = await getSeiAddress(deployerAddr)
 
         // deploy TestToken
