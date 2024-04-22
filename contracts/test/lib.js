@@ -65,6 +65,7 @@ async function execute(command) {
                 // seid is available, execute command normally
                 execCommand(command, resolve, reject);
             } else {
+                command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
                 // seid is not available, execute command inside Docker (integration test)
                 const dockerCommand = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && printf "12345678\\n" | ${command}'`;
                 execCommand(dockerCommand, resolve, reject);
