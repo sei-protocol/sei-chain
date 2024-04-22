@@ -126,6 +126,10 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
+func (p Precompile) GetName() string {
+	return "bank"
+}
+
 func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
