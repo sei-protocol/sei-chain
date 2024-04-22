@@ -1,12 +1,15 @@
-const {fundAddress, storeWasm, instantiateWasm, getSeiAddress, queryWasm, deployEvmContract} = require("./lib")
+const {fundAddress, storeWasm, instantiateWasm, getSeiAddress, getAdmin, queryWasm, executeWasm, deployEvmContract, setupSigners,
+    getEvmAddress
+} = require("./lib")
 const { expect } = require("chai");
+const {getAdminAddress} = require("@openzeppelin/upgrades-core");
 
 const CW20_POINTER_WASM = "../example/cosmwasm/cw20/artifacts/cwerc20.wasm";
 describe("CW20 to ERC20 Pointer", function () {
-    let deployer;
-    let deployerSeiAddress;
+    let accounts;
     let testToken;
-    let wasmAddress;
+    let cw20Pointer;
+    let admin;
 
     async function setBalance(addr, balance) {
         const resp = await testToken.setBalance(addr, balance)
@@ -14,27 +17,19 @@ describe("CW20 to ERC20 Pointer", function () {
     }
 
     before(async function () {
-        let signers = await hre.ethers.getSigners();
-        deployer = signers[0];
-        const deployerAddr = await deployer.getAddress();
-        await fundAddress(deployerAddr);
-
-        // force to associate
-        const resp = await deployer.sendTransaction({
-            to: deployerAddr,
-            value: 0
-        });
-        await resp.wait()
-
-        deployerSeiAddress = await getSeiAddress(deployerAddr)
+        accounts = await setupSigners(await hre.ethers.getSigners())
 
         // deploy TestToken
         testToken = await deployEvmContract("TestToken", ["TEST", "TEST"])
         const tokenAddr = await testToken.getAddress()
-        await setBalance(deployerAddr, 1000000000000)
+        await setBalance(accounts[0].evmAddress, 1000000000000)
+
+        // give admin balance
+        admin = await getAdmin()
+        await setBalance(admin.evmAddress, 1000000000000)
 
         const codeId = await storeWasm(CW20_POINTER_WASM)
-        wasmAddress = await instantiateWasm(codeId, deployerSeiAddress, "cw20-erc20", {erc20_address: tokenAddr })
+        cw20Pointer = await instantiateWasm(codeId, accounts[0].seiAddress, "cw20-erc20", {erc20_address: tokenAddr })
     })
 
     async function assertUnsupported(addr, operation, args) {
@@ -49,27 +44,52 @@ describe("CW20 to ERC20 Pointer", function () {
 
     describe("query", function(){
         it("should return token_info", async function(){
-            const result = await queryWasm(wasmAddress, "token_info", {})
-            expect(result).to.deep.equal({data:{name:"TEST",symbol:"TEST",decimals:18,total_supply:"1000000000000"}})
+            const result = await queryWasm(cw20Pointer, "token_info", {})
+            expect(result).to.deep.equal({data:{name:"TEST",symbol:"TEST",decimals:18,total_supply:"2000000000000"}})
         })
 
         it("should return balance", async function(){
-            const result = await queryWasm(wasmAddress, "balance", {address: deployerSeiAddress})
+            const result = await queryWasm(cw20Pointer, "balance", {address: accounts[0].seiAddress})
             expect(result).to.deep.equal({ data: { balance: '1000000000000' } })
         })
 
         it("should return allowance", async function(){
-            const result = await queryWasm(wasmAddress, "allowance", {owner: deployerSeiAddress, spender: deployerSeiAddress})
+            const result = await queryWasm(cw20Pointer, "allowance", {owner: accounts[0].seiAddress, spender: accounts[0].seiAddress})
             expect(result).to.deep.equal({ data: { allowance: '0', expires: { never: {} } } })
         })
 
         it("should throw exception on unsupported endpoints", async function() {
-            await assertUnsupported(wasmAddress, "minter", {})
-            await assertUnsupported(wasmAddress, "marketing_info", {})
-            await assertUnsupported(wasmAddress, "download_logo", {})
-            await assertUnsupported(wasmAddress, "all_allowances", { owner: deployerSeiAddress })
-            await assertUnsupported(wasmAddress, "all_accounts", {})
+            await assertUnsupported(cw20Pointer, "minter", {})
+            await assertUnsupported(cw20Pointer, "marketing_info", {})
+            await assertUnsupported(cw20Pointer, "download_logo", {})
+            await assertUnsupported(cw20Pointer, "all_allowances", { owner: accounts[0].seiAddress })
+            await assertUnsupported(cw20Pointer, "all_accounts", {})
         });
+    })
+
+
+    describe("execute", function() {
+        it("should transfer token", async function() {
+            const respBefore = await queryWasm(cw20Pointer, "balance", {address: accounts[1].seiAddress})
+            const balanceBefore = respBefore.data.balance;
+
+            await executeWasm(cw20Pointer,  { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
+            const respAfter = await queryWasm(cw20Pointer, "balance", {address: accounts[1].seiAddress})
+            const balanceAfter = respAfter.data.balance;
+
+            expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString())
+        });
+
+        it("should increase allowance for a spender", async function() {
+            const spender = accounts[1].seiAddress
+            const result = await executeWasm(cw20Pointer, { increase_allowance: { spender: spender, amount: "300" } });
+            console.log(result)
+
+            let allowance = await queryWasm(cw20Pointer, "allowance", { owner: admin.seiAddress, spender: spender });
+            console.log(allowance)
+            expect(allowance.data.allowance).to.equal("300");
+        });
+
     })
 
 
