@@ -373,7 +373,7 @@ func TestDecodeTransactionsConcurrently(t *testing.T) {
 		Data:     []byte("abc"),
 	}
 	chainCfg := evmtypes.DefaultChainConfig()
-	ethCfg := chainCfg.EthereumConfig(config.DefaultChainID)
+	ethCfg := chainCfg.EthereumConfig(big.NewInt(config.DefaultChainID))
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), uint64(123))
 	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	ethtxdata, _ := ethtx.NewTxDataFromTx(tx)
