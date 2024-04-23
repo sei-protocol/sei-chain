@@ -1,7 +1,6 @@
 package evm_test
 
 import (
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"testing"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
