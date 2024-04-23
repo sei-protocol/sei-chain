@@ -1,6 +1,7 @@
 package evm_test
 
 import (
+	"github.com/stretchr/testify/assert"
 	"math/big"
 	"testing"
 
@@ -16,6 +17,39 @@ import (
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
+
+func TestModuleName(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	module := evm.NewAppModule(nil, k)
+	assert.Equal(t, "evm", module.Name())
+}
+
+func TestModuleRoute(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	module := evm.NewAppModule(nil, k)
+	assert.Equal(t, "evm", module.Route().Path())
+	assert.Equal(t, false, module.Route().Empty())
+}
+
+func TestQuerierRoute(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	module := evm.NewAppModule(nil, k)
+	assert.Equal(t, "evm", module.QuerierRoute())
+}
+
+func TestModuleExportGenesis(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	module := evm.NewAppModule(nil, k)
+	jsonMsg := module.ExportGenesis(ctx, types.ModuleCdc)
+	jsonStr := string(jsonMsg)
+	assert.Equal(t, "{\"params\":{\"priority_normalizer\":\"1.000000000000000000\",\"base_fee_per_gas\":\"0.000000000000000000\",\"minimum_fee_per_gas\":\"1000000000.000000000000000000\",\"whitelisted_cw_code_hashes_for_delegate_call\":[\"ol1416zS7kfMOcIk4WL+ebU+a75u0qVujAqGWT6+YQI=\",\"lM3Zw+hcJvfOxDwjv7SzsrLXGgqNhcWN8S/+wHQf68g=\"]},\"address_associations\":[]}", jsonStr)
+}
+
+func TestConsensusVersion(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	module := evm.NewAppModule(nil, k)
+	assert.Equal(t, 5, module.ConsensusVersion())
+}
 
 func TestABCI(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
