@@ -1,5 +1,13 @@
 const { exec } = require("child_process"); // Importing exec from child_process
 
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function delay() {
+    await sleep(1000)
+}
+
 async function fundAddress(addr) {
     return await execute(`seid tx evm send ${addr} 10000000000000000000 --from admin`);
 }
@@ -88,6 +96,7 @@ async function setupSigners(signers) {
     for(let signer of signers) {
         const evmAddress = await signer.getAddress();
         await fundAddress(evmAddress);
+        await delay()
         const resp = await signer.sendTransaction({
             to: evmAddress,
             value: 0
