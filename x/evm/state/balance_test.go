@@ -69,6 +69,7 @@ func TestSubBalance(t *testing.T) {
 	db.SubBalance(evmAddr2, big.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
 	require.NotNil(t, db.Err())
 
+	db.WithErr(nil)
 	_, evmAddr3 := testkeeper.MockAddressPair()
 	db.SelfDestruct(evmAddr3)
 	db.SubBalance(evmAddr2, big.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
