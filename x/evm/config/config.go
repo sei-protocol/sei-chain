@@ -2,7 +2,7 @@ package config
 
 import "math/big"
 
-const DefaultChainID = int64(713716)
+const DefaultChainID = int64(713715)
 
 // ChainIDMapping is a mapping of cosmos chain IDs to their respective chain IDs.
 var ChainIDMapping = map[string]int64{

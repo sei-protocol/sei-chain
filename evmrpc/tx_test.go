@@ -123,7 +123,7 @@ func TestGetTransaction(t *testing.T) {
 		require.Equal(t, "0x3e8", resObj["value"].(string))
 		require.Equal(t, "0x2", resObj["type"].(string))
 		require.Equal(t, 0, len(resObj["accessList"].([]interface{})))
-		require.Equal(t, "0xae3f4", resObj["chainId"].(string))
+		require.Equal(t, "0xae3f3", resObj["chainId"].(string))
 		require.Equal(t, "0x0", resObj["v"].(string))
 		require.Equal(t, "0xa1ac0e5b8202742e54ae7af350ed855313cc4f9861c2d75a0e541b4aff7c981e", resObj["r"].(string))
 		require.Equal(t, "0x288b16881aed9640cd360403b9db1ce3961b29af0b00158311856d1446670996", resObj["s"].(string))
