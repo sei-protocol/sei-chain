@@ -213,7 +213,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	denom := am.keeper.GetBaseDenom(ctx)
 	surplus := utils.Sdk0
 	for _, deferredInfo := range evmTxDeferredInfoList {
-		if deferredInfo.Error != "" {
+		if deferredInfo.Error != "" && deferredInfo.TxHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
 			_ = am.keeper.SetReceipt(ctx, deferredInfo.TxHash, &types.Receipt{
 				TxHashHex:        deferredInfo.TxHash.Hex(),
 				TransactionIndex: uint32(deferredInfo.TxIndx),
@@ -227,7 +227,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
 		if !balance.IsZero() || !weiBalance.IsZero() {
 			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance, weiBalance); err != nil {
-				panic(err)
+				ctx.Logger().Error(fmt.Sprintf("failed to send usei surplus from %s to coinbase account due to %s", coinbaseAddress.String(), err))
 			}
 		}
 		surplus = surplus.Add(deferredInfo.Surplus)
@@ -243,7 +243,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 			ctx.Logger().Error("failed to send wei surplus of %s to EVM module account", surplusWei)
 		}
 	}
-	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }))
+	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Filter(utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }), func(h common.Hash) bool { return h.Cmp(ethtypes.EmptyTxsHash) != 0 }))
 	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) ethtypes.Bloom { return i.TxBloom }))
 	return []abci.ValidatorUpdate{}
 }
