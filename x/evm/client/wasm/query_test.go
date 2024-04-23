@@ -154,7 +154,7 @@ func TestHandleStaticCall(t *testing.T) {
 		Data:     bz,
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())

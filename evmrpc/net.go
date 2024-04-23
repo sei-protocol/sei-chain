@@ -23,5 +23,5 @@ func NewNetAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int
 func (i *NetAPI) Version() string {
 	startTime := time.Now()
 	defer recordMetrics("net_version", startTime, true)
-	return fmt.Sprintf("%d", i.keeper.ChainID().Uint64())
+	return fmt.Sprintf("%d", i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)).Uint64())
 }

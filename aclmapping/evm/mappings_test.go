@@ -80,9 +80,9 @@ func (suite *KeeperTestSuite) buildSendMsgTo(to common.Address, amt *big.Int) *t
 		To:        &to,
 		Value:     amt,
 		Data:      []byte(""),
-		ChainID:   suite.App.EvmKeeper.ChainID(),
+		ChainID:   suite.App.EvmKeeper.ChainID(suite.Ctx),
 	}
-	ethCfg := types.DefaultChainConfig().EthereumConfig(suite.App.EvmKeeper.ChainID())
+	ethCfg := types.DefaultChainConfig().EthereumConfig(suite.App.EvmKeeper.ChainID(suite.Ctx))
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(suite.Ctx.BlockHeight()), uint64(suite.Ctx.BlockTime().Unix()))
 	tx := ethtypes.NewTx(&txData)
 	tx, err := ethtypes.SignTx(tx, signer, suite.sender)

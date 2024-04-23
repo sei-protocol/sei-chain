@@ -31,8 +31,17 @@ func TestPurgePrefixNotHang(t *testing.T) {
 }
 
 func TestGetChainID(t *testing.T) {
-	k, _ := keeper.MockEVMKeeper()
-	require.Equal(t, config.DefaultConfig.ChainID, k.ChainID().Int64())
+	k, ctx := keeper.MockEVMKeeper()
+	require.Equal(t, config.DefaultChainID, k.ChainID(ctx).Int64())
+
+	ctx = ctx.WithChainID("pacific-1")
+	require.Equal(t, int64(1329), k.ChainID(ctx).Int64())
+
+	ctx = ctx.WithChainID("atlantic-2")
+	require.Equal(t, int64(1328), k.ChainID(ctx).Int64())
+
+	ctx = ctx.WithChainID("arctic-1")
+	require.Equal(t, int64(713715), k.ChainID(ctx).Int64())
 }
 
 func TestGetVMBlockContext(t *testing.T) {
