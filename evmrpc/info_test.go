@@ -23,7 +23,7 @@ func TestBlockNumber(t *testing.T) {
 func TestChainID(t *testing.T) {
 	resObj := sendRequestGood(t, "chainId")
 	result := resObj["result"].(string)
-	require.Equal(t, "0xae3f3", result)
+	require.Equal(t, "0xae3f4", result)
 }
 
 func TestAccounts(t *testing.T) {
