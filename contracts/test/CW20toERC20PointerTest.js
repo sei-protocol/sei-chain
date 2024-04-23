@@ -83,22 +83,22 @@ describe("CW20 to ERC20 Pointer", function () {
 
         //TODO: other execute methods
 
-        // it("should increase and decrease allowance for a spender", async function() {
-        //     const spender = accounts[1].seiAddress
-        //     const result = await executeWasm(cw20Pointer, { increase_allowance: { spender: spender, amount: "300" } });
-        //     console.log(result)
-        //
-        //     let allowance = await queryWasm(cw20Pointer, "allowance", { owner: admin.seiAddress, spender: spender });
-        //     console.log(allowance)
-        //     expect(allowance.data.allowance).to.equal("300");
-        //
-        //     const result2 = await executeWasm(cw20Pointer, { decrease_allowance: { spender: spender, amount: "300" } });
-        //     console.log(result2)
-        //
-        //     allowance = await queryWasm(cw20Pointer, "allowance", { owner: admin.seiAddress, spender: spender });
-        //     console.log(allowance)
-        //     expect(allowance.data.allowance).to.equal("0");
-        // });
+        it("should increase and decrease allowance for a spender", async function() {
+            const spender = accounts[1].seiAddress
+            const result = await executeWasm(cw20Pointer, { increase_allowance: { spender: spender, amount: "300" } });
+            console.log(result)
+
+            let allowance = await queryWasm(cw20Pointer, "allowance", { owner: admin.seiAddress, spender: spender });
+            console.log(allowance)
+            expect(allowance.data.allowance).to.equal("300");
+
+            const result2 = await executeWasm(cw20Pointer, { decrease_allowance: { spender: spender, amount: "300" } });
+            console.log(result2)
+
+            allowance = await queryWasm(cw20Pointer, "allowance", { owner: admin.seiAddress, spender: spender });
+            console.log(allowance)
+            expect(allowance.data.allowance).to.equal("0");
+        });
 
     })
 
