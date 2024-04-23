@@ -73,6 +73,9 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		gp := k.GetGasPool()
 		value := utils.Big0
 		if val != nil {
+			if val.IsNegative() {
+				return nil, fmt.Errorf("negative value not allowed: %s", val)
+			}
 			value = val.BigInt()
 		}
 		evmMsg := &core.Message{
