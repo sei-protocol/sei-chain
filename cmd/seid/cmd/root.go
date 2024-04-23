@@ -512,9 +512,6 @@ eth_blocktest_test_data_path = "{{ .ETHBlockTest.TestDataPath }}"
 
 [evm_query]
 evm_query_gas_limit = {{ .EvmQuery.GasLimit }}
-
-[evm_module]
-evm_chain_id = {{ .EvmModule.ChainID }}
 `
 
 	return customAppTemplate, customAppConfig
