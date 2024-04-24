@@ -280,7 +280,7 @@ func deployContract(t *testing.T, ctx sdk.Context, k *keeper.Keeper, path string
 		Data:     bz,
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())

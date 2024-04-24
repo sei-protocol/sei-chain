@@ -88,6 +88,10 @@ func (p Precompile) Address() common.Address {
 	return p.address
 }
 
+func (p Precompile) GetName() string {
+	return "json"
+}
+
 func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input []byte, value *big.Int, _ bool) (bz []byte, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {

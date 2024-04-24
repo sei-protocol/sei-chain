@@ -1,29 +1,21 @@
 package config
 
-import (
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/spf13/cast"
-)
+import "math/big"
 
-type Config struct {
-	ChainID int64 `mapstructure:"evm_chain_id"`
+const DefaultChainID = int64(713715)
+
+// ChainIDMapping is a mapping of cosmos chain IDs to their respective chain IDs.
+var ChainIDMapping = map[string]int64{
+	// pacific-1 chain ID == 0x531
+	"pacific-1": int64(1329),
+	// atlantic-2 chain ID == 0x530
+	"atlantic-2": int64(1328),
+	"arctic-1":   int64(713715),
 }
 
-var DefaultConfig = Config{
-	ChainID: 713715,
-}
-
-const (
-	flagChainID = "evm_module.evm_chain_id"
-)
-
-func ReadConfig(opts servertypes.AppOptions) (Config, error) {
-	cfg := DefaultConfig // copy
-	var err error
-	if v := opts.Get(flagChainID); v != nil {
-		if cfg.ChainID, err = cast.ToInt64E(v); err != nil {
-			return cfg, err
-		}
+func GetEVMChainID(cosmosChainID string) *big.Int {
+	if evmChainID, ok := ChainIDMapping[cosmosChainID]; ok {
+		return big.NewInt(evmChainID)
 	}
-	return cfg, nil
+	return big.NewInt(DefaultChainID)
 }

@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -36,12 +37,14 @@ func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 	return k.GetParams(ctx).MinimumFeePerGas
 }
 
-func (k *Keeper) ChainID() *big.Int {
+func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 	if k.EthReplayConfig.Enabled || k.EthBlockTestConfig.Enabled {
 		// replay is for eth mainnet so always return 1
 		return utils.Big1
 	}
-	return big.NewInt(k.Config.ChainID)
+	// return mapped chain ID
+	return config.GetEVMChainID(ctx.ChainID())
+
 }
 
 func (k *Keeper) WhitelistedCwCodeHashesForDelegateCall(ctx sdk.Context) [][]byte {

@@ -46,7 +46,7 @@ func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 func (i *InfoAPI) ChainId() *hexutil.Big {
 	startTime := time.Now()
 	defer recordMetrics("eth_ChainId", startTime, true)
-	return (*hexutil.Big)(i.keeper.ChainID())
+	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
 func (i *InfoAPI) Coinbase() (common.Address, error) {

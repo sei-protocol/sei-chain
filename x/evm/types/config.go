@@ -8,7 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
-var CancunTime int64 = -1
+var CancunTime int64 = 0
 
 /*
 *
