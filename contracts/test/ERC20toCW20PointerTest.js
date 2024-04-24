@@ -4,7 +4,7 @@ const { exec } = require("child_process"); // Importing exec from child_process
 const { cons } = require("fp-ts/lib/NonEmptyArray2v");
 
 // Run instructions
-// Should be run on a local chain using: `npx hardhat test --network seilocal test/CW20ERC20PointerTest.js`
+// Should be run on a local chain using: `npx hardhat test --network seilocal test/ERC20toCW20PointerTest.js`
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -27,7 +27,7 @@ const secondAnvilPk = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603
 const secondAnvilWallet = new ethers.Wallet(secondAnvilPk);
 const secondAnvilSigner = secondAnvilWallet.connect(ethers.provider);
 
-describe("CW20ERC20PointerTest", function () {
+describe("ERC20 to CW20 Pointer", function () {
     let adminAddrSei;
     let contractAddress;
     let deployerAddrETH;

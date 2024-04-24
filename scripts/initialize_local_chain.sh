@@ -70,6 +70,18 @@ END_DATE_5DAYS=$($PYTHON_CMD -c "from datetime import datetime, timedelta; print
 cat ~/.sei/config/genesis.json | jq --arg start_date "$START_DATE" --arg end_date "$END_DATE_3DAYS" '.app_state["mint"]["params"]["token_release_schedule"]=[{"start_date": $start_date, "end_date": $end_date, "token_release_amount": "999999999999"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 cat ~/.sei/config/genesis.json | jq --arg start_date "$END_DATE_3DAYS" --arg end_date "$END_DATE_5DAYS" '.app_state["mint"]["params"]["token_release_schedule"] += [{"start_date": $start_date, "end_date": $end_date, "token_release_amount": "999999999999"}]' > ~/.sei/config/tmp_genesis.json && mv ~/.sei/config/tmp_genesis.json ~/.sei/config/genesis.json
 
+if [ ! -z "$2" ]; then
+  APP_TOML_PATH="$2"
+else
+  APP_TOML_PATH="$HOME/.sei/config/app.toml"
+fi
+# Enable OCC and SeiDB
+sed -i.bak -e 's/# concurrency-workers = .*/concurrency-workers = 500/' $APP_TOML_PATH
+sed -i.bak -e 's/occ-enabled = .*/occ-enabled = true/' $APP_TOML_PATH
+sed -i.bak -e 's/sc-enable = .*/sc-enable = true/' $APP_TOML_PATH
+sed -i.bak -e 's/ss-enable = .*/ss-enable = true/' $APP_TOML_PATH
+
+
 # set block time to 2s
 if [ ! -z "$1" ]; then
   CONFIG_PATH="$1"

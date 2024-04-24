@@ -451,7 +451,7 @@ func init() {
 }
 
 func generateTxData() {
-	chainId := big.NewInt(config.DefaultConfig.ChainID)
+	chainId := big.NewInt(config.DefaultChainID)
 	to := common.HexToAddress("010203")
 	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3, txBuilder4 client.TxBuilder
 	txBuilder1, tx1 = buildTx(ethtypes.DynamicFeeTx{
@@ -574,7 +574,7 @@ func generateTxData() {
 }
 
 func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transaction) {
-	chainId := big.NewInt(config.DefaultConfig.ChainID)
+	chainId := big.NewInt(config.DefaultChainID)
 	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
 	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
 	privKey := hd.Secp256k1.Generate()(derivedPriv)

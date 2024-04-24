@@ -105,18 +105,25 @@ jobs:
             ],
           },
           {
-            name: "Hardhat tests",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/evm_module/hardhat_test.yaml",
-              "./scripts/hardhat.sh"
-            ]
-          },
-          {
             name: "SeiDB State Store",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
               "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+            ]
+          },
+          {
+            name: "EVM Module",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/evm_module/hardhat_test.yaml",
+              "./integration_test/evm_module/scripts/evm_tests.sh",
+            ]
+          },
+          {
+            name: "EVM Interoperability",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/evm_module/hardhat_test.yaml",
+              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
             ]
           },
         ]
@@ -127,7 +134,7 @@ jobs:
           python-version: '3.10'
       - uses: actions/setup-node@v2
         with:
-          node-version: '16'
+          node-version: '20'
 
       - name: Pyyaml
         run: |
