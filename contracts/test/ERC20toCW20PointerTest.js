@@ -130,23 +130,22 @@ describe("ERC20 to CW20 Pointer", function () {
             const spender = accounts[1];
             const amountToTransfer = 10;
 
-            const balanceOfDeployer = await pointer.balanceOf(owner.evmAddress);
-            expect(Number(balanceOfDeployer)).to.be.greaterThanOrEqual(amountToTransfer);
-
-            const tx = await pointer.approve(spender.evmAddress, amountToTransfer);
-            await tx.wait();
-
-            const allowanceBefore = await pointer.allowance(owner.evmAddress, spender.evmAddress);
-            expect(Number(allowanceBefore)).to.be.greaterThanOrEqual(amountToTransfer);
-
-            // capture recipient balance before transfer
+            // capture balances before
             const recipientBalanceBefore = await pointer.balanceOf(recipient.evmAddress);
             const ownerBalanceBefore = await pointer.balanceOf(owner.evmAddress);
+            expect(Number(ownerBalanceBefore)).to.be.greaterThanOrEqual(amountToTransfer);
+
+            // approve the amount
+            const tx = await pointer.approve(spender.evmAddress, amountToTransfer);
+            await tx.wait();
+            const allowanceBefore = await pointer.allowance(owner.evmAddress, spender.evmAddress);
+            expect(Number(allowanceBefore)).to.be.greaterThanOrEqual(amountToTransfer);
 
             // transfer
             const tfTx = await pointer.connect(spender.signer).transferFrom(owner.evmAddress, recipient.evmAddress, amountToTransfer);
             const receipt = await tfTx.wait();
 
+            // capture balances after
             const recipientBalanceAfter = await pointer.balanceOf(recipient.evmAddress);
             const ownerBalanceAfter = await pointer.balanceOf(owner.evmAddress);
 
