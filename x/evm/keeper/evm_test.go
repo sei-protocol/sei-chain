@@ -6,6 +6,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -142,19 +143,28 @@ func TestNegativeTransfer(t *testing.T) {
 		To:     victimEvmAddr.Hex(),
 	}
 
-	// logging
+	// pre verification
 	preAttackerBal := testkeeper.EVMTestApp.BankKeeper.GetBalance(ctx, attackerAddr, k.GetBaseDenom(ctx)).Amount.Int64()
 	preVictimBal := testkeeper.EVMTestApp.BankKeeper.GetBalance(ctx, victimAddr, k.GetBaseDenom(ctx)).Amount.Int64()
 	require.Zero(t, preAttackerBal)
 	require.Equal(t, steal_amount, preVictimBal)
 
-	// EXECUTE ATTACK
 	_, err := k.HandleInternalEVMCall(ctx, req)
-	require.ErrorContains(t, err, "negative value not allowed")
+	require.ErrorContains(t, err, "invalid coins")
 
-	// post logging
+	// post verification
 	postAttackerBal := testkeeper.EVMTestApp.BankKeeper.GetBalance(ctx, attackerAddr, k.GetBaseDenom(ctx)).Amount.Int64()
 	postVictimBal := testkeeper.EVMTestApp.BankKeeper.GetBalance(ctx, victimAddr, k.GetBaseDenom(ctx)).Amount.Int64()
 	require.Zero(t, postAttackerBal)
 	require.Equal(t, steal_amount, postVictimBal)
+
+	zeroVal := sdk.NewInt(0)
+	req2 := &types.MsgInternalEVMCall{
+		Sender: attackerAddr.String(),
+		Data:   make([]byte, params.MaxInitCodeSize+1),
+		Value:  &zeroVal,
+	}
+
+	_, err = k.HandleInternalEVMCall(ctx, req2)
+	require.ErrorContains(t, err, "max initcode size exceeded")
 }
