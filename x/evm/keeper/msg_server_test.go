@@ -55,7 +55,7 @@ func TestEVMTransaction(t *testing.T) {
 		Data:     bz,
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
@@ -144,7 +144,7 @@ func TestEVMTransactionError(t *testing.T) {
 		Data:     []byte("123090321920390920123"), // gibberish data
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
@@ -198,7 +198,7 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 		Data:     bz,
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
@@ -246,7 +246,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 		Data:      bz,
 		Nonce:     0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
@@ -303,7 +303,7 @@ func TestEVMPrecompiles(t *testing.T) {
 		Data:     bz,
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
@@ -418,7 +418,7 @@ func TestEVMBlockEnv(t *testing.T) {
 		Data:     bz,
 		Nonce:    0,
 	}
-	chainID := k.ChainID()
+	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
