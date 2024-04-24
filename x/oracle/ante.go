@@ -3,7 +3,6 @@ package oracle
 import (
 	"encoding/hex"
 	"fmt"
-	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -17,17 +16,13 @@ import (
 // SpammingPreventionDecorator will check if the transaction's gas is smaller than
 // configured hard cap
 type SpammingPreventionDecorator struct {
-	oracleKeeper  keeper.Keeper
-	oracleVoteMap map[string]int64
-	mu            *sync.Mutex
+	oracleKeeper keeper.Keeper
 }
 
 // NewSpammingPreventionDecorator returns new spamming prevention decorator instance
 func NewSpammingPreventionDecorator(oracleKeeper keeper.Keeper) SpammingPreventionDecorator {
 	return SpammingPreventionDecorator{
-		oracleKeeper:  oracleKeeper,
-		oracleVoteMap: make(map[string]int64),
-		mu:            &sync.Mutex{},
+		oracleKeeper: oracleKeeper,
 	}
 }
 
@@ -87,9 +82,6 @@ func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOpera
 
 // CheckOracleSpamming check whether the msgs are spamming purpose or not
 func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs []sdk.Msg) error {
-	spd.mu.Lock()
-	defer spd.mu.Unlock()
-
 	curHeight := ctx.BlockHeight()
 	for _, msg := range msgs {
 		switch msg := msg.(type) {
@@ -108,11 +100,12 @@ func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs
 			if err != nil {
 				return err
 			}
-			if lastSubmittedHeight, ok := spd.oracleVoteMap[msg.Validator]; ok && lastSubmittedHeight == curHeight {
+
+			spamPreventionCounterHeight := spd.oracleKeeper.GetSpamPreventionCounter(ctx, valAddr)
+			if spamPreventionCounterHeight == curHeight {
 				return sdkerrors.Wrap(sdkerrors.ErrAlreadyExists, fmt.Sprintf("the validator has already submitted a vote at the current height=%d", curHeight))
 			}
-
-			spd.oracleVoteMap[msg.Validator] = curHeight
+			spd.oracleKeeper.SetSpamPreventionCounter(ctx, valAddr)
 			continue
 		default:
 			return nil

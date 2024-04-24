@@ -138,6 +138,7 @@ func CreateTestInput(t *testing.T) TestInput {
 	keyParams := sdk.NewKVStoreKey(paramstypes.StoreKey)
 	tKeyParams := sdk.NewTransientStoreKey(paramstypes.TStoreKey)
 	keyOracle := sdk.NewKVStoreKey(types.StoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(types.MemStoreKey)
 	keyStaking := sdk.NewKVStoreKey(stakingtypes.StoreKey)
 	keyDistr := sdk.NewKVStoreKey(distrtypes.StoreKey)
 
@@ -152,6 +153,7 @@ func CreateTestInput(t *testing.T) TestInput {
 	ms.MountStoreWithDB(tKeyParams, sdk.StoreTypeTransient, db)
 	ms.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
 	ms.MountStoreWithDB(keyOracle, sdk.StoreTypeIAVL, db)
+	ms.MountStoreWithDB(memKeys[types.MemStoreKey], sdk.StoreTypeMemory, nil)
 	ms.MountStoreWithDB(keyStaking, sdk.StoreTypeIAVL, db)
 	ms.MountStoreWithDB(keyDistr, sdk.StoreTypeIAVL, db)
 
@@ -230,6 +232,7 @@ func CreateTestInput(t *testing.T) TestInput {
 	keeper := NewKeeper(
 		appCodec,
 		keyOracle,
+		memKeys[types.MemStoreKey],
 		paramsKeeper.Subspace(types.ModuleName),
 		accountKeeper,
 		bankKeeper,

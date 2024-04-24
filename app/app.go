@@ -416,7 +416,7 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey, banktypes.DeferredCacheStoreKey, evmtypes.MemStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey, banktypes.DeferredCacheStoreKey, evmtypes.MemStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
 		BaseApp:           bApp,
@@ -511,7 +511,7 @@ func New(
 	app.EvidenceKeeper = *evidenceKeeper
 
 	app.OracleKeeper = oraclekeeper.NewKeeper(
-		appCodec, keys[oracletypes.StoreKey], app.GetSubspace(oracletypes.ModuleName),
+		appCodec, keys[oracletypes.StoreKey], memKeys[oracletypes.MemStoreKey], app.GetSubspace(oracletypes.ModuleName),
 		app.AccountKeeper, app.BankKeeper, app.DistrKeeper, &stakingKeeper, distrtypes.ModuleName,
 	)
 
