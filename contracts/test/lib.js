@@ -1,5 +1,7 @@
 const { exec } = require("child_process"); // Importing exec from child_process
 
+const adminKeyName = "admin"
+
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -9,7 +11,7 @@ async function delay() {
 }
 
 async function fundAddress(addr) {
-    return await execute(`seid tx evm send ${addr} 10000000000000000000 --from admin`);
+    return await execute(`seid tx evm send ${addr} 10000000000000000000 --from ${adminKeyName}`);
 }
 
 async function getAdmin() {
@@ -23,14 +25,12 @@ async function getAdmin() {
 }
 
 async function getAdminSeiAddress() {
-    return (await execute(`seid keys show admin -a`)).trim()
+    return (await execute(`seid keys show ${adminKeyName} -a`)).trim()
 }
 
 async function associateAdmin() {
     try {
-        const result = await execute(`seid tx evm associate-address --from admin`)
-        console.log(result)
-        return result
+        return await execute(`seid tx evm associate-address --from ${adminKeyName}`)
     }catch(e){
         console.log("skipping associate")
     }
@@ -54,15 +54,36 @@ function getEventAttribute(response, type, attribute) {
 }
 
 async function storeWasm(path) {
-    const command = `seid tx wasm store ${path} --from admin --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    const command = `seid tx wasm store ${path} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
     return getEventAttribute(response, "store_code", "code_id")
 }
+async function getPointerForCw20(cw20Address) {
+    const command = `seid query evm pointer CW20 ${cw20Address} -o json`
+    const output = await execute(command);
+    return JSON.parse(output);
+}
+
+async function deployErc20PointerForCw20(provider, cw20Address) {
+    const command = `seid tx evm call-precompile pointer addCW20Pointer ${cw20Address} --from=admin -b block`
+    const output = await execute(command);
+    const txHash = output.replace(/.*0x/, "0x").trim()
+    let attempt = 0;
+    while(attempt < 10) {
+        const receipt = await provider.getTransactionReceipt(txHash);
+        if(receipt) {
+            return (await getPointerForCw20(cw20Address)).pointer
+        }
+        await sleep(500)
+        attempt++
+    }
+    throw new Error("contract deployment failed")
+}
 
 async function instantiateWasm(codeId, adminAddr, label, args = {}) {
     const jsonString = JSON.stringify(args).replace(/"/g, '\\"');
-    const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from admin --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+    const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
     const output = await execute(command);
     const response = JSON.parse(output);
     return getEventAttribute(response, "instantiate", "_contract_address");
@@ -121,7 +142,7 @@ async function queryWasm(contractAddress, operation, args={}){
 
 async function executeWasm(contractAddress, msg, args = {}, coins = "0usei") {
     const jsonString = JSON.stringify(msg).replace(/"/g, '\\"'); // Properly escape JSON string
-    const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from admin --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+    const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
     const output = await execute(command);
     return JSON.parse(output);
 }
@@ -169,4 +190,5 @@ module.exports = {
     getAdmin,
     setupSigners,
     deployEvmContract,
+    deployErc20PointerForCw20,
 };
