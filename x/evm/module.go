@@ -6,7 +6,6 @@ import (
 	"math"
 
 	// this line is used by starport scaffolding # 1
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
