@@ -505,6 +505,7 @@ max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
 eth_replay_enabled = {{ .ETHReplay.Enabled }}
 eth_rpc = "{{ .ETHReplay.EthRPC }}"
 eth_data_dir = "{{ .ETHReplay.EthDataDir }}"
+eth_replay_contract_state_checks = {{ .ETHReplay.ContractStateChecks }}
 
 [eth_blocktest]
 eth_blocktest_enabled = {{ .ETHBlockTest.Enabled }}
