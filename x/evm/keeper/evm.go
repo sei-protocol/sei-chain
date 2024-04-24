@@ -7,10 +7,12 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -65,16 +67,22 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 }
 
 func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Address, val *sdk.Int, data []byte) (retdata []byte, reterr error) {
+	if to == nil && len(data) > params.MaxInitCodeSize {
+		return nil, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
+	}
+	value := utils.Big0
+	if val != nil {
+		if val.IsNegative() {
+			return nil, sdkerrors.ErrInvalidCoins
+		}
+		value = val.BigInt()
+	}
 	evm := types.GetCtxEVM(ctx)
 	if evm == nil {
 		// This call was not part of an existing StateTransition, so it should trigger one
 		executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
 		stateDB := state.NewDBImpl(executionCtx, k, false)
 		gp := k.GetGasPool()
-		value := utils.Big0
-		if val != nil {
-			value = val.BigInt()
-		}
 		evmMsg := &core.Message{
 			Nonce:             stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
 			GasLimit:          k.getEvmGasLimitFromCtx(ctx),
