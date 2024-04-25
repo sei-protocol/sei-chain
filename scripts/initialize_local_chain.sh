@@ -106,11 +106,11 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   sed -i '' 's/mode = "full"/mode = "validator"/g' $CONFIG_PATH
   sed -i '' 's/indexer = \["null"\]/indexer = \["kv"\]/g' $CONFIG_PATH
-  sed -i '' 's/unsafe-propose-timeout-override =.*/unsafe-propose-timeout-override = "2s"/g' $CONFIG_PATH
-  sed -i '' 's/unsafe-propose-timeout-delta-override =.*/unsafe-propose-timeout-delta-override = "2s"/g' $CONFIG_PATH
-  sed -i '' 's/unsafe-vote-timeout-override =.*/unsafe-vote-timeout-override = "2s"/g' $CONFIG_PATH
-  sed -i '' 's/unsafe-vote-timeout-delta-override =.*/unsafe-vote-timeout-delta-override = "2s"/g' $CONFIG_PATH
-  sed -i '' 's/unsafe-commit-timeout-override =.*/unsafe-commit-timeout-override = "2s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-propose-timeout-override =.*/unsafe-propose-timeout-override = "10s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-propose-timeout-delta-override =.*/unsafe-propose-timeout-delta-override = "10s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-vote-timeout-override =.*/unsafe-vote-timeout-override = "10s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-vote-timeout-delta-override =.*/unsafe-vote-timeout-delta-override = "10s"/g' $CONFIG_PATH
+  sed -i '' 's/unsafe-commit-timeout-override =.*/unsafe-commit-timeout-override = "10s"/g' $CONFIG_PATH
   # sed -i '' 's/slow = false/slow = true/g' $APP_PATH
 else
   printf "Platform not supported, please ensure that the following values are set in your config.toml:\n"
