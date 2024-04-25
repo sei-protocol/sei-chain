@@ -268,12 +268,13 @@ func printStats(
 		totalProduced += atomic.LoadInt64(producedCountPerMsgType[msg_type])
 	}
 
-	var tps float64
+	var totalTps float64 = 0
 	for msgType := range sentCountPerMsgType {
 		sentCount := atomic.LoadInt64(sentCountPerMsgType[msgType])
 		prevTotalSent := atomic.LoadInt64(prevSentPerCounterPerMsgType[msgType])
 		//nolint:gosec
-		tps = float64(sentCount-prevTotalSent) / elapsed.Seconds()
+		tps := float64(sentCount-prevTotalSent) / elapsed.Seconds()
+		totalTps += tps
 		defer metrics.SetThroughputMetricByType("tps", float32(tps), msgType)
 	}
 
@@ -292,7 +293,7 @@ func printStats(
 		fmt.Printf("Unable to calculate stats, not enough data. Skipping...\n")
 	} else {
 		avgDuration := totalDuration.Milliseconds() / int64(len(blockTimes)-1)
-		fmt.Printf("High Level - Time Elapsed: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, totalProduced, totalSent, tps, avgDuration, blockHeights)
+		fmt.Printf("High Level - Time Elapsed: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, totalProduced, totalSent, totalTps, avgDuration, blockHeights)
 	}
 }
 
