@@ -813,3 +813,18 @@ func TestCalculateTwapsWithUnsupportedDenom(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
 }
+
+func TestSpamPreventionCounter(t *testing.T) {
+	input := CreateTestInput(t)
+
+	// verify value == -1 when not set
+	require.Equal(t, int64(-1), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
+
+	input.Ctx = input.Ctx.WithBlockHeight(3)
+
+	input.OracleKeeper.SetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0]))
+	// verify counter value correct when set
+	require.Equal(t, int64(3), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
+	// verify value == -1 for a different address
+	require.Equal(t, int64(-1), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[1])))
+}

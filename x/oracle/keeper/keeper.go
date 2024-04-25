@@ -22,6 +22,7 @@ import (
 type Keeper struct {
 	cdc        codec.BinaryCodec
 	storeKey   sdk.StoreKey
+	memKey     sdk.StoreKey
 	paramSpace paramstypes.Subspace
 
 	accountKeeper types.AccountKeeper
@@ -33,7 +34,7 @@ type Keeper struct {
 }
 
 // NewKeeper constructs a new keeper for oracle
-func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey,
+func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, memKey sdk.StoreKey,
 	paramspace paramstypes.Subspace, accountKeeper types.AccountKeeper,
 	bankKeeper types.BankKeeper, distrKeeper types.DistributionKeeper,
 	stakingKeeper types.StakingKeeper, distrName string,
@@ -51,6 +52,7 @@ func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey,
 	return Keeper{
 		cdc:           cdc,
 		storeKey:      storeKey,
+		memKey:        memKey,
 		paramSpace:    paramspace,
 		accountKeeper: accountKeeper,
 		bankKeeper:    bankKeeper,
@@ -570,4 +572,23 @@ func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds uint64)
 	}
 
 	return nil
+}
+
+func (k Keeper) GetSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) int64 {
+	store := ctx.KVStore(k.memKey)
+	bz := store.Get(types.GetSpamPreventionCounterKey(validatorAddr))
+	if bz == nil {
+		return -1
+	}
+
+	return int64(sdk.BigEndianToUint64(bz))
+}
+
+func (k Keeper) SetSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) {
+	store := ctx.KVStore(k.memKey)
+
+	height := ctx.BlockHeight()
+	bz := sdk.Uint64ToBigEndian(uint64(height))
+
+	store.Set(types.GetSpamPreventionCounterKey(validatorAddr), bz)
 }

@@ -62,6 +62,7 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdERC20Send())
 	cmd.AddCommand(CmdCallPrecompile())
 	cmd.AddCommand(NativeSendTxCmd())
+	cmd.AddCommand(NativeRegisterPointerCmd())
 	cmd.AddCommand(NewAddERCNativePointerProposalTxCmd())
 	cmd.AddCommand(NewAddERCCW20PointerProposalTxCmd())
 	cmd.AddCommand(NewAddERCCW721PointerProposalTxCmd())
@@ -464,9 +465,13 @@ func CmdCallPrecompile() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			valueBig, success := new(big.Int).SetString(value, 10)
-			if !success || valueBig.Cmp(utils.Big0) < 0 {
-				return fmt.Errorf("%s is not a valid value. Must be a decimal nonnegative integer", value)
+
+			valueBig := big.NewInt(0)
+			if value != "" {
+				valueBig, success := new(big.Int).SetString(value, 10)
+				if !success || valueBig.Cmp(utils.Big0) < 0 {
+					return fmt.Errorf("%s is not a valid value. Must be a decimal nonnegative integer", value)
+				}
 			}
 
 			txData, err := getTxData(cmd)

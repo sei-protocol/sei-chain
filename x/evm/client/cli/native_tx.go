@@ -45,3 +45,32 @@ func NativeSendTxCmd() *cobra.Command {
 
 	return cmd
 }
+
+func NativeRegisterPointerCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "register-pointer [pointer type] [erc address]",
+		Short: `Register a CosmWasm pointer for an ERC20/721 contract. Pointer type is either ERC20 or ERC721`,
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			msg := &types.MsgRegisterPointer{
+				Sender:      clientCtx.GetFromAddress().String(),
+				PointerType: types.PointerType(types.PointerType_value[args[0]]),
+				ErcAddress:  args[1],
+			}
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
+
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
