@@ -81,6 +81,11 @@ async function deployErc20PointerForCw20(provider, cw20Address) {
     throw new Error("contract deployment failed")
 }
 
+async function deployWasm(path, adminAddr, label, args = {}) {
+    const codeId = await storeWasm(path)
+    return await instantiateWasm(codeId, adminAddr, label, args)
+}
+
 async function instantiateWasm(codeId, adminAddr, label, args = {}) {
     const jsonString = JSON.stringify(args).replace(/"/g, '\\"');
     const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
@@ -181,6 +186,7 @@ function execCommand(command, resolve, reject) {
 module.exports = {
     fundAddress,
     storeWasm,
+    deployWasm,
     instantiateWasm,
     execute,
     getSeiAddress,

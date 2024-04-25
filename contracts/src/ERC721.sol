@@ -177,6 +177,43 @@ contract ERC721 is IERC721 {
 }
 
 contract MyNFT is ERC721 {
+
+    // needed to concatenate the token ID to the URI
+    function uintToString(uint _num) internal pure returns (string memory) {
+        if (_num == 0) {
+            return "0";
+        }
+        uint j = _num;
+        uint len;
+        while (j != 0) {
+            len++;
+            j /= 10;
+        }
+        bytes memory bstr = new bytes(len);
+        uint k = len;
+        while (_num != 0) {
+            k = k-1;
+            uint8 temp = (48 + uint8(_num - _num / 10 * 10));
+            bytes1 b1 = bytes1(temp);
+            bstr[k] = b1;
+            _num /= 10;
+        }
+        return string(bstr);
+    }
+
+    function name() external pure returns (string memory _name) {
+        return "MyNFT";
+    }
+
+    function symbol() external pure returns (string memory _symbol) {
+        return "MYNFT";
+    }
+
+    function tokenURI(uint256 tokenId) external pure returns (string memory) {
+        string memory numAsString = uintToString(tokenId);
+        return string(abi.encodePacked("https://sei.io/token/", numAsString));
+    }
+
     function mint(address to, uint id) external {
         _mint(to, id);
     }
