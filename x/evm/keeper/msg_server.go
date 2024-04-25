@@ -98,6 +98,14 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
+
+		// Add metrics for receipt status
+		if receipt.Status == uint32(ethtypes.ReceiptStatusFailed) {
+			telemetry.IncrCounter(1, "receipt", "status", "failed")
+		} else {
+			telemetry.IncrCounter(1, "receipt", "status", "success")
+		}
+
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
 			err = ferr
@@ -110,7 +118,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 					telemetry.NewLabel("type", err.Error()),
 				},
 			)
-
 			return
 		}
 		bloom := ethtypes.Bloom{}
