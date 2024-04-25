@@ -23,7 +23,7 @@ func (w KeeperWrapper) HandleEBDeposit(ctx context.Context, sdkCtx sdk.Context, 
 	if msg.IsEmpty() {
 		return nil
 	}
-	_, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg, dexutils.ZeroUserProvidedGas) // deposit
+	_, err := utils.CallContractSudo(sdkCtx, w.Keeper, contractAddr, msg, 0) // deposit
 	if err != nil {
 		sdkCtx.Logger().Error(fmt.Sprintf("Error during deposit: %s", err.Error()))
 		return err
