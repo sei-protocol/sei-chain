@@ -2,6 +2,7 @@ package ante
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -23,6 +24,6 @@ func (gl GasLimitDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	}
 
 	adjustedGasLimit := gl.evmKeeper.GetPriorityNormalizer(ctx).MulInt64(int64(txData.GetGas()))
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(adjustedGasLimit.TruncateInt().Uint64()))
+	ctx = ctx.WithGasMeter(utils.NewGasMeterWithMultiplier(ctx, adjustedGasLimit.TruncateInt().Uint64()))
 	return next(ctx, tx, simulate)
 }
