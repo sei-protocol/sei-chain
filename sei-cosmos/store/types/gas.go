@@ -51,6 +51,7 @@ type GasMeter interface {
 	IsPastLimit() bool
 	IsOutOfGas() bool
 	String() string
+	Multiplier() (numerator uint64, denominator uint64)
 }
 
 type basicGasMeter struct {
@@ -164,6 +165,10 @@ func (g *basicGasMeter) String() string {
 	return fmt.Sprintf("BasicGasMeter:\n  limit: %d\n  consumed: %d", g.limit, g.consumed)
 }
 
+func (g *basicGasMeter) Multiplier() (numerator uint64, denominator uint64) {
+	return 1, 1
+}
+
 type multiplierGasMeter struct {
 	basicGasMeter
 	multiplierNumerator   uint64
@@ -192,6 +197,10 @@ func (g *multiplierGasMeter) ConsumeGas(amount Gas, descriptor string) {
 
 func (g *multiplierGasMeter) RefundGas(amount Gas, descriptor string) {
 	g.basicGasMeter.RefundGas(g.adjustGas(amount), descriptor)
+}
+
+func (g *multiplierGasMeter) Multiplier() (numerator uint64, denominator uint64) {
+	return g.multiplierNumerator, g.multiplierDenominator
 }
 
 type infiniteGasMeter struct {
@@ -272,6 +281,10 @@ func (g *infiniteGasMeter) String() string {
 	return fmt.Sprintf("InfiniteGasMeter:\n  consumed: %d", g.consumed)
 }
 
+func (g *infiniteGasMeter) Multiplier() (numerator uint64, denominator uint64) {
+	return 1, 1
+}
+
 type infiniteMultiplierGasMeter struct {
 	infiniteGasMeter
 	multiplierNumerator   uint64
@@ -299,6 +312,10 @@ func (g *infiniteMultiplierGasMeter) ConsumeGas(amount Gas, descriptor string) {
 
 func (g *infiniteMultiplierGasMeter) RefundGas(amount Gas, descriptor string) {
 	g.infiniteGasMeter.RefundGas(g.adjustGas(amount), descriptor)
+}
+
+func (g *infiniteMultiplierGasMeter) Multiplier() (numerator uint64, denominator uint64) {
+	return g.multiplierNumerator, g.multiplierDenominator
 }
 
 type noConsumptionInfiniteGasMeter struct {

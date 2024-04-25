@@ -23,6 +23,9 @@ func TestInfiniteGasMeter(t *testing.T) {
 	meter.ConsumeGas(Gas(math.MaxUint64/2), "consume half max uint64")
 	require.Panics(t, func() { meter.ConsumeGas(Gas(math.MaxUint64/2)+2, "panic") })
 	require.Panics(t, func() { meter.RefundGas(meter.GasConsumed()+1, "refund greater than consumed") })
+	n, d := meter.Multiplier()
+	require.Equal(t, uint64(1), n)
+	require.Equal(t, uint64(1), d)
 }
 
 func TestGasMeter(t *testing.T) {
@@ -68,6 +71,9 @@ func TestGasMeter(t *testing.T) {
 		meter2 := NewGasMeter(math.MaxUint64)
 		meter2.ConsumeGas(Gas(math.MaxUint64/2), "consume half max uint64")
 		require.Panics(t, func() { meter2.ConsumeGas(Gas(math.MaxUint64/2)+2, "panic") })
+		n, d := meter.Multiplier()
+		require.Equal(t, uint64(1), n)
+		require.Equal(t, uint64(1), d)
 	}
 }
 
@@ -104,6 +110,10 @@ func TestMultiplierGasMeter(t *testing.T) {
 				require.True(t, meter.IsOutOfGas(), "At limit but got IsOutOfGas() false")
 			}
 		}
+
+		n, d := meter.Multiplier()
+		require.Equal(t, tc.multiplierNumerator, n)
+		require.Equal(t, tc.multiplierDenominator, d)
 	}
 }
 
@@ -135,6 +145,10 @@ func TestInfiniteMultiplierGasMeter(t *testing.T) {
 			require.False(t, meter.IsPastLimit(), "Not exceeded limit but got IsPastLimit() true")
 			require.False(t, meter.IsOutOfGas(), "Not yet at limit but got IsOutOfGas() true")
 		}
+
+		n, d := meter.Multiplier()
+		require.Equal(t, tc.multiplierNumerator, n)
+		require.Equal(t, tc.multiplierDenominator, d)
 	}
 }
 
