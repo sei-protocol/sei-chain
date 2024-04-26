@@ -12,6 +12,7 @@ describe("CW721 to ERC721 Pointer", function () {
     before(async function () {
         accounts = await setupSigners(await hre.ethers.getSigners())
         erc721 = await deployEvmContract("MyNFT")
+        console.log("erc721 = ", erc721)
         admin = await getAdmin()
         pointer = await deployWasm(CW721_POINTER_WASM,
             accounts[0].seiAddress,
@@ -125,11 +126,26 @@ describe("CW721 to ERC721 Pointer", function () {
 
         it("should set an operator for all tokens of an owner", async function () {
             await executeWasm(pointer, { approve_all: { operator: accounts[1].seiAddress }});
-            expect(await erc721.isApprovedForAll(accounts[0].evmAddress, accounts[1].evmAddress)).to.be.true;
+            expect(await erc721.isApprovedForAll(admin.evmAddress, accounts[1].evmAddress)).to.be.true;
             await executeWasm(pointer, { revoke_all: { operator: accounts[1].seiAddress }});
-            expect(await erc721.isApprovedForAll(accounts[0].evmAddress, accounts[1].evmAddress)).to.be.false;
+            expect(await erc721.isApprovedForAll(admin.evmAddress, accounts[1].evmAddress)).to.be.false;
         });
 
+        it("should burn a token", async function() {
+            // try it just from erc721 itself
+            // accounts[1] owns token id 2
+            burnSolidityRes = await (await erc721.burn(2)).wait()
+            console.log("burnSolidityRes", burnSolidityRes)
+
+            // console.log("In burn token")
+            // burnResult = await executeWasm(pointer, { burn: { token_id: "2" }});
+            // console.log("burnResult", burnResult)
+            // const ownerResult = await queryWasm(pointer, "owner_of", { token_id: "2" });
+            // console.log(ownerResult);
+            // what should happen is the owner should be the zero address
+            // with 2 it should not work
+            // expect(ownerResult).to.deep.equal({ data: { owner: accounts[2].seiAddress, approvals: [] } });
+        })
     });
 
 })
