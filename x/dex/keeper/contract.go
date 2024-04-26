@@ -55,7 +55,7 @@ func (k Keeper) GetContract(ctx sdk.Context, contractAddr string) (types.Contrac
 }
 
 func (k Keeper) GetContractWithoutGasCharge(ctx sdk.Context, contractAddr string) (types.ContractInfoV2, error) {
-	return k.GetContract(ctx.WithGasMeter(utils.NewInfiniteGasMeterWithMultiplier(ctx)), contractAddr)
+	return k.GetContract(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), contractAddr)
 }
 
 func (k Keeper) GetContractGasLimit(ctx sdk.Context, contractAddr sdk.AccAddress) (uint64, error) {
