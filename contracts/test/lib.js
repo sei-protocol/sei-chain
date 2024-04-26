@@ -65,6 +65,12 @@ async function getPointerForCw20(cw20Address) {
     return JSON.parse(output);
 }
 
+async function getPointerForCw721(cw721Address) {
+    const command = `seid query evm pointer CW721 ${cw721Address} -o json`
+    const output = await execute(command);
+    return JSON.parse(output);
+}
+
 async function deployErc20PointerForCw20(provider, cw20Address) {
     const command = `seid tx evm call-precompile pointer addCW20Pointer ${cw20Address} --from=admin -b block`
     const output = await execute(command);
