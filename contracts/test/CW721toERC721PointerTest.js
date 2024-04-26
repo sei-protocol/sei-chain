@@ -125,9 +125,9 @@ describe("CW721 to ERC721 Pointer", function () {
 
         it("should set an operator for all tokens of an owner", async function () {
             await executeWasm(pointer, { approve_all: { operator: accounts[1].seiAddress }});
-            expect(await erc721.isApprovedForAll(accounts[0].evmAddress, accounts[1].evmAddress)).to.be.true;
+            expect(await erc721.isApprovedForAll(admin.evmAddress, accounts[1].evmAddress)).to.be.true
             await executeWasm(pointer, { revoke_all: { operator: accounts[1].seiAddress }});
-            expect(await erc721.isApprovedForAll(accounts[0].evmAddress, accounts[1].evmAddress)).to.be.false;
+            expect(await erc721.isApprovedForAll(admin.evmAddress, accounts[1].evmAddress)).to.be.false;
         });
 
     });
