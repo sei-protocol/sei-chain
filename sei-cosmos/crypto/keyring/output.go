@@ -2,6 +2,7 @@ package keyring
 
 import (
 	"encoding/hex"
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
@@ -77,9 +78,13 @@ func MkAccKeysOutput(infos []Info) ([]KeyOutput, error) {
 		if err != nil {
 			return nil, err
 		}
-		kos[i], err = PopulateEvmAddrIfApplicable(info, kos[i])
-		if err != nil {
-			return nil, err
+		if info.GetAlgo() == hd.Secp256k1Type {
+			// We only support getting evm-addr if the algo type is secp256k1 (which it should be, though there
+			// may be some legacy keys with sr25519)
+			kos[i], err = PopulateEvmAddrIfApplicable(info, kos[i])
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -89,6 +94,7 @@ func MkAccKeysOutput(infos []Info) ([]KeyOutput, error) {
 func PopulateEvmAddrIfApplicable(info Info, o KeyOutput) (KeyOutput, error) {
 	localInfo, ok := info.(LocalInfo)
 	if ok {
+		// Only works with secp256k1 algo
 		priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
 		if err != nil {
 			return o, err
@@ -99,6 +105,7 @@ func PopulateEvmAddrIfApplicable(info Info, o KeyOutput) (KeyOutput, error) {
 			return o, err
 		}
 		o.EvmAddress = crypto.PubkeyToAddress(privKey.PublicKey).Hex()
+	} else {
 	}
 	return o, nil
 }

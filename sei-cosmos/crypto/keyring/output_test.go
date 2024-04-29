@@ -2,6 +2,7 @@ package keyring
 
 import (
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/sr25519"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -27,4 +28,20 @@ func TestBech32KeysOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expectedOutput, out)
 	require.Equal(t, `{Name:multisig Type:multi Address:cosmos1nf8lf6n4wa43rzmdzwe6hkrnw5guekhqt595cw EvmAddress: PubKey:{"@type":"/cosmos.crypto.multisig.LegacyAminoPubKey","threshold":1,"public_keys":[{"@type":"/cosmos.crypto.secp256k1.PubKey","key":"AurroA7jvfPd1AadmmOvWM2rJSwipXfRf8yD6pLbA2DJ"}]} Mnemonic:}`, fmt.Sprintf("%+v", out))
+}
+
+func TestMkAccKeyOutputForSr25519(t *testing.T) {
+	sk := sr25519.GenPrivKey()
+	tmpKey := sk.PubKey()
+	multisigPk := kmultisig.NewLegacyAminoPubKey(1, []types.PubKey{tmpKey})
+
+	info, err := NewMultiInfo("multisig", multisigPk)
+	require.NoError(t, err)
+	accAddr := sdk.AccAddress(info.GetPubKey().Address())
+	expectedOutput, err := NewKeyOutput(info.GetName(), info.GetType(), accAddr, multisigPk)
+	require.NoError(t, err)
+
+	out, err := MkAccKeyOutput(info)
+	require.NoError(t, err)
+	require.Equal(t, expectedOutput, out)
 }
