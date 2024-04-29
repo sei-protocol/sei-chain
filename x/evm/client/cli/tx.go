@@ -172,8 +172,11 @@ func CmdSend() *cobra.Command {
 			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
 				nonce = uint64(n)
 			} else {
+				fmt.Printf("Getting nonce\n")
 				nonce, err = getNonce(rpc, key.PublicKey)
+				fmt.Printf("Finished getting nonce\n")
 				if err != nil {
+					fmt.Printf("Get none errord: %s\n", err)
 					return err
 				}
 			}
@@ -184,6 +187,7 @@ func CmdSend() *cobra.Command {
 				return fmt.Errorf("%s is an invalid amount to send", args[1])
 			}
 			txData, err := getTxData(cmd)
+			fmt.Printf("Finished getting txdata\n")
 			if err != nil {
 				return err
 			}
@@ -192,7 +196,9 @@ func CmdSend() *cobra.Command {
 			txData.Data = []byte("")
 			txData.To = &to
 			resp, err := sendTx(txData, rpc, key)
+			fmt.Printf("Finished send tx\n")
 			if err != nil {
+				fmt.Printf("Send tx error'd %s\n", err)
 				return err
 			}
 
