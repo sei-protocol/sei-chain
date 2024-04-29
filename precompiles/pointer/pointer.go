@@ -13,7 +13,9 @@ import (
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
@@ -32,6 +34,9 @@ const PointerAddress = "0x000000000000000000000000000000000000100b"
 
 var _ vm.PrecompiledContract = &Precompile{}
 var _ vm.DynamicGasPrecompiledContract = &Precompile{}
+var TopicNativePointerDeployed = crypto.Keccak256Hash([]byte("native_deployed"))
+var TopicCW20PointerDeployed = crypto.Keccak256Hash([]byte("cw20_deployed"))
+var TopicCW721PointerDeployed = crypto.Keccak256Hash([]byte("cw721_deployed"))
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -176,6 +181,12 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "native"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, token),
 		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", native.CurrentVersion))))
+	evm.StateDB.AddLog(&ethtypes.Log{
+		Address:     p.address,
+		Topics:      []common.Hash{TopicNativePointerDeployed, crypto.Keccak256Hash([]byte(token))},
+		Data:        contractAddr[:],
+		BlockNumber: uint64(ctx.BlockHeight()),
+	})
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }
@@ -227,6 +238,12 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw20"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
 		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", cw20.CurrentVersion))))
+	evm.StateDB.AddLog(&ethtypes.Log{
+		Address:     p.address,
+		Topics:      []common.Hash{TopicCW20PointerDeployed, common.Hash(cwAddress)},
+		Data:        contractAddr[:],
+		BlockNumber: uint64(ctx.BlockHeight()),
+	})
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }
@@ -278,6 +295,12 @@ func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller comm
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw721"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
 		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", cw721.CurrentVersion))))
+	evm.StateDB.AddLog(&ethtypes.Log{
+		Address:     p.address,
+		Topics:      []common.Hash{TopicCW721PointerDeployed, common.Hash(cwAddress)},
+		Data:        contractAddr[:],
+		BlockNumber: uint64(ctx.BlockHeight()),
+	})
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }

@@ -1,6 +1,7 @@
 package pointer_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -73,6 +75,12 @@ func TestAddNative(t *testing.T) {
 		require.Equal(t, "native", string(e.Attributes[0].Value))
 	}
 	require.True(t, hasRegisteredEvent)
+	ls := statedb.GetAllLogs()
+	require.Equal(t, 1, len(ls))
+	require.Equal(t, pointer.PointerAddress, ls[0].Address.Hex())
+	require.Equal(t, pointer.TopicNativePointerDeployed, ls[0].Topics[0])
+	require.Equal(t, crypto.Keccak256Hash([]byte("test")), ls[0].Topics[1])
+	require.True(t, bytes.Equal(pointerAddr[:], ls[0].Data))
 
 	// pointer already exists
 	statedb = state.NewDBImpl(statedb.Ctx(), &testApp.EvmKeeper, true)
