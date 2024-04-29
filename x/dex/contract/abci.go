@@ -9,7 +9,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/logging"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -163,7 +162,7 @@ func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo
 	whitelistedStore := multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr))
 	newEventManager := sdk.NewEventManager()
 	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager).WithGasMeter(
-		seisync.NewGasWrapper(utils.NewInfiniteGasMeterWithMultiplier(ctx)),
+		seisync.NewGasWrapper(sdk.NewInfiniteGasMeterWithMultiplier(ctx)),
 	)
 }
 
