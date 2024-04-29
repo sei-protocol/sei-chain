@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"io"
 	"math/big"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
