@@ -71,7 +71,7 @@ func NewLimitSimulationGasDecorator(gasLimit *sdk.Gas, gasMeterSetter func(bool,
 
 func DefaultGasMeterSetter() func(bool, sdk.Context, uint64, sdk.Tx) sdk.Context {
 	return func(simulate bool, ctx sdk.Context, gasLimit uint64, tx sdk.Tx) sdk.Context {
-		return ctx.WithGasMeter(sdk.NewGasMeter(gasLimit))
+		return ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
 	}
 }
 

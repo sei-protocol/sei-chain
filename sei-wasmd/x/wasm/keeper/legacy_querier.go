@@ -107,7 +107,7 @@ func queryContractState(ctx sdk.Context, bech, queryMethod string, data []byte, 
 		return keeper.QueryRaw(ctx, contractAddr, data), nil
 	case QueryMethodContractStateSmart:
 		// we enforce a subjective gas limit on all queries to avoid infinite loops
-		ctx = ctx.WithGasMeter(sdk.NewGasMeter(gasLimit))
+		ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
 		msg := types.RawContractMessage(data)
 		if err := msg.ValidateBasic(); err != nil {
 			return nil, sdkerrors.Wrap(err, "json msg")
