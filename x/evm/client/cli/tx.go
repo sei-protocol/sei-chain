@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"io"
 	"math/big"
 	"net/http"
@@ -94,6 +95,9 @@ func CmdAssociateAddress() *cobra.Command {
 				localInfo, ok := info.(keyring.LocalInfo)
 				if !ok {
 					return errors.New("can only associate address for local keys")
+				}
+				if localInfo.GetAlgo() != hd.Secp256k1Type {
+					return errors.New("can only use addresses using secp256k1")
 				}
 				priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
 				if err != nil {
@@ -579,20 +583,20 @@ func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
 	kb := txf.Keybase()
 	info, err := kb.Key(clientCtx.GetFromName())
 	if err != nil {
-		fmt.Printf("PSUDEBUG err from kb.key: %s\n", err)
 		return nil, err
 	}
 	localInfo, ok := info.(keyring.LocalInfo)
 	if !ok {
 		return nil, errors.New("can only associate address for local keys")
 	}
+	if localInfo.GetAlgo() != hd.Secp256k1Type {
+		return nil, errors.New("can only use addresses using secp256k1")
+	}
 	priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
 	if err != nil {
-		fmt.Printf("PSUDEBUG err from PrivKeyFromBytes: %s\n", err)
 		return nil, err
 	}
 	privHex := hex.EncodeToString(priv.Bytes())
-	fmt.Printf("PSUDEBUG hex to dedcsa\n", err)
 	key, _ := crypto.HexToECDSA(privHex)
 	return key, nil
 }
