@@ -8,6 +8,8 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
@@ -195,6 +197,10 @@ func getAddressPrivKeyMap(kb keyring.Keyring) map[string]*ecdsa.PrivateKey {
 		localInfo, ok := key.(keyring.LocalInfo)
 		if !ok {
 			// will only show local key
+			continue
+		}
+		if localInfo.GetAlgo() != hd.Secp256k1Type {
+			fmt.Printf("Skipping address %s because it isn't signed with secp256k1\n", localInfo.Name)
 			continue
 		}
 		priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
