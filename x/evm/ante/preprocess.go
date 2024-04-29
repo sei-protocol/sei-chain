@@ -358,7 +358,7 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		}
 		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes(), btcec.S256())
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed to parse pubkey for %s", acc), "err", err)
+			ctx.Logger().Error(fmt.Sprintf("failed to parse pubkey for %s", acc.GetPubKey()), "err", err)
 			continue
 		}
 		evmAddr, err := pubkeyToEVMAddress(pk.SerializeUncompressed())
