@@ -2,24 +2,35 @@
 
 import subprocess
 import sys
-import os
-import re
 
-def check_and_prompt_package_installation():
+def install(package):
+    # install package with pip
     try:
-        import requests
-    except ImportError:
-        print("The required Python package 'requests' is not installed.")
-        print("Please install it using your system's package manager. For example:")
-        print("sudo apt install python3-requests")
-        sys.exit(1)
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        print(f"Successfully installed {package}")
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to install {package}. Please install it manually.")
+        sys.exit(1)  # Exit if the installation fails
 
-# Now explicitly import after ensuring installation
-import requests
+# required packages
+dependencies = ['requests']
+
+for package in dependencies:
+    try:
+        __import__(package)
+    except ImportError:
+        print(f"Installing the '{package}' package...")
+        install(package)
+    finally:
+        globals()[package] = __import__(package)  # ensure modules available globally after install
+
+# additional imports
+import os
 import json
 import zipfile
 from io import BytesIO
 
+# Mapping of env to chain_id
 ENV_TO_CHAIN_ID = {
     "local": None,
     "devnet": "arctic-1",
@@ -60,30 +71,17 @@ Please backup any important existing data before proceeding.
 """)
 
 def install_latest_release():
-    try:
-        response = requests.get("https://api.github.com/repos/sei-protocol/sei-chain/releases/latest")
-        response.raise_for_status()
-        latest_version = response.json()["tag_name"]
-        zip_url = f"https://github.com/sei-protocol/sei-chain/archive/refs/tags/{latest_version}.zip"
-        download_and_unzip(zip_url)
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to download or parse release data: {e}")
-        sys.exit(1)
-
-def download_and_unzip(url):
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        with zipfile.ZipFile(BytesIO(response.content)) as z:
-            z.extractall(".")
-            os.chdir(z.namelist()[0])
-        run_command("make install")
-    except requests.exceptions.RequestException as e:
-        print(f"Error downloading the zip file: {e}")
-        sys.exit(1)
-    except zipfile.BadZipFile:
-        print("Downloaded file is not a zip file.")
-        sys.exit(1)
+    response = requests.get("https://api.github.com/repos/sei-protocol/sei-chain/releases/latest")
+    if response.status_code != 200:
+        raise Exception(f"Error getting latest version: {response.status_code}")
+    latest_version = response.json()["tag_name"]
+    response = requests.get(f"https://github.com/sei-protocol/sei-chain/archive/refs/tags/{latest_version}.zip")
+    if response.status_code != 200:
+        raise Exception(f"Error downloading sei binary {latest_version}")
+    zip_file = zipfile.ZipFile(BytesIO(response.content))
+    zip_file.extractall(".")
+    os.chdir(zip_file.namelist()[0])
+    run_command("make install")
 
 def get_rpc_server(chain_id):
     chains_json_url = "https://raw.githubusercontent.com/sei-protocol/chain-registry/main/chains.json"
@@ -94,6 +92,7 @@ def get_rpc_server(chain_id):
         if chains[chain]['chainId'] == chain_id:
             rpcs = chains[chain]['rpc']
             break
+    # check connectivity
     for rpc in rpcs:
         try:
             response = requests.get(rpc['url'])
@@ -114,6 +113,7 @@ def take_manual_inputs():
     while choice not in ['1', '2', '3']:
         print("Invalid input. Please enter '1', '2' or '3'.")
         choice = input("Enter choice: ")
+
     env = ""
     if choice == "1":
         env = "local"
@@ -126,10 +126,11 @@ def take_manual_inputs():
     print("1. sei-db")
     print("2. legacy (default)")
     db_choice = input("Enter choice (default is 2): ").strip() or "2"
+
     return env, db_choice
 
 def get_state_sync_params(rpc_url):
-    trust_height_delta = 40000
+    trust_height_delta = 40000 # may need to tune
     response = requests.get(f"{rpc_url}/status")
     latest_height = int(response.json()['sync_info']['latest_block_height'])
     sync_block_height = latest_height - trust_height_delta if latest_height > trust_height_delta else latest_height
@@ -159,49 +160,54 @@ def main():
     moniker = "demo"
     print(f"Setting up a node in {env}")
     chain_id = ENV_TO_CHAIN_ID[env]
+    # Install binary
     install_latest_release()
+    # Short circuit and run init local script
     if env == "local":
         run_command("chmod +x scripts/initialize_local_chain.sh")
         run_command("scripts/initialize_local_chain.sh")
 
     rpc_url = get_rpc_server(chain_id)
+
+    # Remove previous sei data
     run_command("rm -rf $HOME/.sei")
-    run_command(f"seid init --chain-id {chain_id} {moniker}")
+    # Init seid
+    run_command(f"seid init {moniker} --chain-id {chain_id}")
     sync_block_height, sync_block_hash = get_state_sync_params(rpc_url)
     persistent_peers = get_persistent_peers(rpc_url)
     genesis_file = get_genesis_file(chain_id)
 
-    config_path = os.path.expanduser('~/.sei/config/config.toml')
-    app_config_path = os.path.expanduser('~/.sei/config/app.toml')
-    genesis_path = os.path.join(os.path.dirname(config_path), 'genesis.json')
-    with open(genesis_path, 'wb') as f:
-        f.write(genesis_file.content)
+# Set genesis and config.toml
+config_path = os.path.expanduser('~/.sei/config/config.toml')
+app_config_path = os.path.expanduser('~/.sei/config/app.toml')
+genesis_path = os.path.join(os.path.dirname(config_path), 'genesis.json')
 
-    with open(config_path, 'r') as file:
-        config_data = file.read()
+with open(genesis_path, 'wb') as f:
+    f.write(genesis_file.content)
+
+# Read and modify config.toml
+with open(config_path, 'r') as file:
+    config_data = file.read()
+config_data = config_data.replace('rpc-servers = ""', f'rpc-servers = "{rpc_url},{rpc_url}"')
+config_data = config_data.replace('trust-height = 0', f'trust-height = {sync_block_height}')
+config_data = config_data.replace('trust-hash = ""', f'trust-hash = "{sync_block_hash}"')
+config_data = config_data.replace('persistent-peers = ""', f'persistent-peers = "{persistent_peers}"')
+config_data = config_data.replace('enable = false', 'enable = true')
+config_data = config_data.replace('db-sync-enable = true', 'db-sync-enable = false')
+config_data = config_data.replace('use-p2p = false', 'use-p2p = true')
+with open(config_path, 'w') as file:
+    file.write(config_data)
+
+# Read, modify, and write app.toml if sei-db is selected
+if db_choice == "1":
     with open(app_config_path, 'r') as file:
-        app_config_data = file.read()
+        app_data = file.read()
+    app_data = app_data.replace('sc-enable = false', 'sc-enable = true')
+    app_data = app_data.replace('ss-enable = false', 'ss-enable = true')
+    with open(app_config_path, 'w') as file:
+        file.write(app_data)
 
-    config_data = config_data.replace('rpc-servers = ""', f'rpc-servers = "{rpc_url},{rpc_url}"')
-    config_data = config_data.replace('trust-height = 0', f'trust-height = {sync_block_height}')
-    config_data = config_data.replace('trust-hash = ""', f'trust-hash = "{sync_block_hash}"')
-    config_data = config_data.replace('persistent-peers = ""', f'persistent-peers = "{persistent_peers}"')
-    config_data = config_data.replace('enable = false', 'enable = true')
-    config_data = config_data.replace('db-sync-enable = true', 'db-sync-enable = false')
-    config_data = config_data.replace('use-p2p = false', 'use-p2p = true')
-    with open(config_path, 'w') as file:
-        file.write(config_data)
-
-    if db_choice == "1":
-        app_config_data = re.sub(
-            r"(?<=\[state-commit\]\n# Enable defines if the SeiDB should be enabled to override existing IAVL db backend.\nsc-enable = ).*",
-            "true",
-            app_config_data
-        )
-        with open(app_config_path, 'w') as file:
-            file.write(app_config_data)
-        print("Configured app.toml with sc-enable set to true")
-
+    # Start seid
     print("Starting seid...")
     run_command("seid start")
 
