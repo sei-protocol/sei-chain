@@ -172,11 +172,8 @@ func CmdSend() *cobra.Command {
 			if n, err := cmd.Flags().GetInt64(FlagNonce); err == nil && n >= 0 {
 				nonce = uint64(n)
 			} else {
-				fmt.Printf("Getting nonce\n")
 				nonce, err = getNonce(rpc, key.PublicKey)
-				fmt.Printf("Finished getting nonce\n")
 				if err != nil {
-					fmt.Printf("Get none errord: %s\n", err)
 					return err
 				}
 			}
@@ -187,7 +184,6 @@ func CmdSend() *cobra.Command {
 				return fmt.Errorf("%s is an invalid amount to send", args[1])
 			}
 			txData, err := getTxData(cmd)
-			fmt.Printf("Finished getting txdata\n")
 			if err != nil {
 				return err
 			}
@@ -196,9 +192,7 @@ func CmdSend() *cobra.Command {
 			txData.Data = []byte("")
 			txData.To = &to
 			resp, err := sendTx(txData, rpc, key)
-			fmt.Printf("Finished send tx\n")
 			if err != nil {
-				fmt.Printf("Send tx error'd %s\n", err)
 				return err
 			}
 
@@ -585,6 +579,7 @@ func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
 	kb := txf.Keybase()
 	info, err := kb.Key(clientCtx.GetFromName())
 	if err != nil {
+		fmt.Printf("PSUDEBUG err from kb.key: %s\n", err)
 		return nil, err
 	}
 	localInfo, ok := info.(keyring.LocalInfo)
@@ -593,9 +588,11 @@ func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
 	}
 	priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
 	if err != nil {
+		fmt.Printf("PSUDEBUG err from PrivKeyFromBytes: %s\n", err)
 		return nil, err
 	}
 	privHex := hex.EncodeToString(priv.Bytes())
+	fmt.Printf("PSUDEBUG hex to dedcsa\n", err)
 	key, _ := crypto.HexToECDSA(privHex)
 	return key, nil
 }
