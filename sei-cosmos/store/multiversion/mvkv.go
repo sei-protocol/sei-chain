@@ -2,6 +2,7 @@ package multiversion
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"sort"
 
@@ -122,6 +123,15 @@ func (store *VersionIndexedStore) GetWriteset() map[string][]byte {
 	return store.writeset
 }
 
+// WriteAbort writes an abort to the store but only allows one abort to be written PER instance of mvkv. This is because we pair abort channel writes with panics, and if we hit this more than once, it means that the panic was swallowed, so we won't write any aborts after a first abort is written to prevent any potential for deadlocking due to full channels
+func (store *VersionIndexedStore) WriteAbort(abort scheduler.Abort) {
+	select {
+	case store.abortChannel <- abort:
+	default:
+		fmt.Println("WARN: abort channel full, discarding val")
+	}
+}
+
 // Get implements types.KVStore.
 func (store *VersionIndexedStore) Get(key []byte) []byte {
 	// first try to get from writeset cache, if cache miss, then try to get from multiversion store, if that misses, then get from parent store
@@ -152,7 +162,7 @@ func (store *VersionIndexedStore) Get(key []byte) []byte {
 	if mvsValue != nil {
 		if mvsValue.IsEstimate() {
 			abort := scheduler.NewEstimateAbort(mvsValue.Index())
-			store.abortChannel <- abort
+			store.WriteAbort(abort)
 			panic(abort)
 		} else {
 			// This handles both detecting readset conflicts and updating readset if applicable
@@ -202,7 +212,7 @@ func (store *VersionIndexedStore) ValidateReadset() bool {
 		if mvsValue != nil {
 			if mvsValue.IsEstimate() {
 				// if we see an estimate, that means that we need to abort and rerun
-				store.abortChannel <- scheduler.NewEstimateAbort(mvsValue.Index())
+				store.WriteAbort(scheduler.NewEstimateAbort(mvsValue.Index()))
 				return false
 			} else {
 				if mvsValue.IsDeleted() {
