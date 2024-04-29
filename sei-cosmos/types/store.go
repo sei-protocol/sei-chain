@@ -181,8 +181,8 @@ type (
 	GasConfig = types.GasConfig
 )
 
-func NewGasMeter(limit Gas) GasMeter {
-	return types.NewGasMeter(limit)
+func NewGasMeter(limit Gas, multiplierNumerator uint64, multiplierDenominator uint64) GasMeter {
+	return types.NewMultiplierGasMeter(limit, multiplierNumerator, multiplierDenominator)
 }
 
 type (
@@ -190,6 +190,23 @@ type (
 	ErrorGasOverflow = types.ErrorGasOverflow
 )
 
-func NewInfiniteGasMeter() GasMeter {
-	return types.NewInfiniteGasMeter()
+func NewInfiniteGasMeter(multiplierNumerator uint64, multiplierDenominator uint64) GasMeter {
+	return types.NewInfiniteMultiplierGasMeter(multiplierNumerator, multiplierDenominator)
+}
+
+// Helpers for setting gas meter with parent ctx multiplier
+func NewGasMeterWithMultiplier(ctx Context, limit uint64) GasMeter {
+	if ctx.GasMeter() == nil {
+		return NewGasMeter(limit, 1, 1)
+	}
+	n, d := ctx.GasMeter().Multiplier()
+	return types.NewMultiplierGasMeter(limit, n, d)
+}
+
+func NewInfiniteGasMeterWithMultiplier(ctx Context) GasMeter {
+	if ctx.GasMeter() == nil {
+		return NewInfiniteGasMeter(1, 1)
+	}
+	n, d := ctx.GasMeter().Multiplier()
+	return types.NewInfiniteMultiplierGasMeter(n, d)
 }

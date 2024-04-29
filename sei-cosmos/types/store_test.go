@@ -61,10 +61,32 @@ func (s *storeTestSuite) TestNewTransientStoreKeys() {
 }
 
 func (s *storeTestSuite) TestNewInfiniteGasMeter() {
-	gm := sdk.NewInfiniteGasMeter()
+	gm := sdk.NewInfiniteGasMeter(1, 1)
 	s.Require().NotNil(gm)
 	_, ok := gm.(types.GasMeter)
 	s.Require().True(ok)
+}
+
+func (s *storeTestSuite) TestNewGasMeterWithMultiplier() {
+	ctx := sdk.Context{}
+	n, d := sdk.NewGasMeterWithMultiplier(ctx, 10).Multiplier()
+	s.Require().Equal(uint64(1), n)
+	s.Require().Equal(uint64(1), d)
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(10, 3, 4))
+	n, d = sdk.NewGasMeterWithMultiplier(ctx, 10).Multiplier()
+	s.Require().Equal(uint64(3), n)
+	s.Require().Equal(uint64(4), d)
+}
+
+func (s *storeTestSuite) TestNewInfiniteGasMeterWithMultiplier() {
+	ctx := sdk.Context{}
+	n, d := sdk.NewInfiniteGasMeterWithMultiplier(ctx).Multiplier()
+	s.Require().Equal(uint64(1), n)
+	s.Require().Equal(uint64(1), d)
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(10, 3, 4))
+	n, d = sdk.NewInfiniteGasMeterWithMultiplier(ctx).Multiplier()
+	s.Require().Equal(uint64(3), n)
+	s.Require().Equal(uint64(4), d)
 }
 
 func (s *storeTestSuite) TestStoreTypes() {

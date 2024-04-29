@@ -490,7 +490,7 @@ func TestSimulateTx(t *testing.T) {
 
 	anteOpt := func(bapp *BaseApp) {
 		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-			newCtx = ctx.WithGasMeter(sdk.NewGasMeter(gasConsumed))
+			newCtx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasConsumed))
 			return
 		})
 	}
@@ -665,7 +665,7 @@ func TestTxGasLimits(t *testing.T) {
 	gasGranted := uint64(10)
 	anteOpt := func(bapp *BaseApp) {
 		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-			newCtx = ctx.WithGasMeter(sdk.NewGasMeter(gasGranted))
+			newCtx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasGranted))
 
 			// AnteHandlers must have their own defer/recover in order for the BaseApp
 			// to know how much gas was used! This is because the GasMeter is created in
@@ -754,7 +754,7 @@ func TestTxGasLimits(t *testing.T) {
 // 	gasGranted := uint64(10)
 // 	anteOpt := func(bapp *BaseApp) {
 // 		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-// 			newCtx = ctx.WithGasMeter(sdk.NewGasMeter(gasGranted))
+// 			newCtx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasGranted))
 
 // 			defer func() {
 // 				if r := recover(); r != nil {
@@ -817,7 +817,7 @@ func TestTxGasLimits(t *testing.T) {
 // 		// reset the block gas
 // 		header := tmproto.Header{Height: app.LastBlockHeight() + 1}
 // 		app.setDeliverState(header)
-// 		app.deliverState.ctx = app.deliverState.ctx.WithBlockGasMeter(sdk.NewGasMeter(app.getMaximumBlockGas(app.deliverState.ctx)))
+// 		app.deliverState.ctx = app.deliverState.ctx.WithBlockGasMeter(sdk.NewGasMeter(app.getMaximumBlockGas(app.deliverState.ctx), 1, 1))
 // 		app.BeginBlock(app.deliverState.ctx, abci.RequestBeginBlock{Header: header})
 
 // 		// execute the transaction multiple times
@@ -982,7 +982,7 @@ func TestGasConsumptionBadTx(t *testing.T) {
 	gasWanted := uint64(5)
 	anteOpt := func(bapp *BaseApp) {
 		bapp.SetAnteHandler(func(ctx sdk.Context, tx sdk.Tx, simulate bool) (newCtx sdk.Context, err error) {
-			newCtx = ctx.WithGasMeter(sdk.NewGasMeter(gasWanted))
+			newCtx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasWanted))
 
 			defer func() {
 				if r := recover(); r != nil {

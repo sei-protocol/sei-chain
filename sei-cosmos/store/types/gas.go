@@ -60,15 +60,6 @@ type basicGasMeter struct {
 	lock     *sync.Mutex
 }
 
-// NewGasMeter returns a reference to a new basicGasMeter.
-func NewGasMeter(limit Gas) GasMeter {
-	return &basicGasMeter{
-		limit:    limit,
-		consumed: 0,
-		lock:     &sync.Mutex{},
-	}
-}
-
 func (g *basicGasMeter) GasConsumed() Gas {
 	g.lock.Lock()
 	defer g.lock.Unlock()
@@ -206,14 +197,6 @@ func (g *multiplierGasMeter) Multiplier() (numerator uint64, denominator uint64)
 type infiniteGasMeter struct {
 	consumed Gas
 	lock     *sync.Mutex
-}
-
-// NewInfiniteGasMeter returns a reference to a new infiniteGasMeter.
-func NewInfiniteGasMeter() GasMeter {
-	return &infiniteGasMeter{
-		consumed: 0,
-		lock:     &sync.Mutex{},
-	}
 }
 
 func (g *infiniteGasMeter) GasConsumed() Gas {
