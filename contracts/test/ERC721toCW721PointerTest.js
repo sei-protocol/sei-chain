@@ -39,12 +39,10 @@ describe("ERC721 to CW721 Pointer", function () {
             minter: admin.seiAddress
         })
 
-        // mint some to admin
         await executeWasm(cw721Address,  { mint : { token_id : "1", owner : admin.seiAddress, token_uri: "token uri 1"}});
         await executeWasm(cw721Address,  { mint : { token_id : "2", owner : accounts[0].seiAddress, token_uri: "token uri 2"}});
         await executeWasm(cw721Address,  { mint : { token_id : "3", owner : accounts[1].seiAddress, token_uri: "token uri 3"}});
 
-        // deploy TestToken
         const pointerAddr = await deployErc721PointerForCw721(hre.ethers.provider, cw721Address)
         const contract = new hre.ethers.Contract(pointerAddr, erc721Abi, hre.ethers.provider);
         pointerAcc0 = contract.connect(accounts[0].signer)
@@ -62,7 +60,6 @@ describe("ERC721 to CW721 Pointer", function () {
             expect(symbol).to.equal("TEST");
         });
 
-        // haven't minted any
         it("owner of", async function () {
             const owner = await pointerAcc0.ownerOf(1);
             expect(owner).to.equal(admin.evmAddress);
@@ -93,7 +90,6 @@ describe("ERC721 to CW721 Pointer", function () {
         it("approve", async function () {
             const approvedTxResp = await pointerAcc0.approve(accounts[1].evmAddress, 2)
             await approvedTxResp.wait()
-            // const approvedTxResp = await mine()
             const approved = await pointerAcc0.getApproved(2); 
             expect(approved).to.equal(accounts[1].evmAddress);
 
