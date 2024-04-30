@@ -11,7 +11,6 @@ import (
 	"math/big"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
@@ -374,15 +373,15 @@ func CmdERC20Send() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			contract := common.HexToAddress(args[0])
 			recipient := common.HexToAddress(args[1])
-			amt, err := strconv.ParseUint(args[2], 10, 64)
-			if err != nil {
-				return err
+			amt, ok := new(big.Int).SetString(args[2], 10)
+			if !ok {
+				return errors.New(fmt.Sprintf("Unable to parse amount: %s\n", args[2]))
 			}
 			abi, err := native.NativeMetaData.GetAbi()
 			if err != nil {
 				return err
 			}
-			payload, err := abi.Pack("transfer", recipient, new(big.Int).SetUint64(amt))
+			payload, err := abi.Pack("transfer", recipient, amt)
 			if err != nil {
 				return err
 			}
