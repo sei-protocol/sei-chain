@@ -288,6 +288,18 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		// set block context time as of the block time (block time is the time of the CURRENT block)
 		blockContext.Time = block.Time()
 
+		// set address association for the sender if not present. Note that here we take the shortcut
+		// of querying from the latest height with the assumption that if this tx has been processed
+		// at all then its association must be present in the latest height
+		_, associated := b.keeper.GetSeiAddress(statedb.Ctx(), msg.From)
+		if !associated {
+			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)
+			if !associatedNow {
+				return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("address %s is not associated in the latest height", msg.From.Hex())
+			}
+			b.keeper.SetAddressMapping(statedb.Ctx(), seiAddr, msg.From)
+		}
+
 		if idx == txIndex {
 			return tx, *blockContext, statedb, emptyRelease, nil
 		}
