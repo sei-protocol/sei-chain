@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -62,6 +64,7 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(CmdERC20Send())
 	cmd.AddCommand(CmdCallPrecompile())
 	cmd.AddCommand(NativeSendTxCmd())
+	cmd.AddCommand(NativeRegisterPointerCmd())
 	cmd.AddCommand(NewAddERCNativePointerProposalTxCmd())
 	cmd.AddCommand(NewAddERCCW20PointerProposalTxCmd())
 	cmd.AddCommand(NewAddERCCW721PointerProposalTxCmd())
@@ -93,6 +96,9 @@ func CmdAssociateAddress() *cobra.Command {
 				localInfo, ok := info.(keyring.LocalInfo)
 				if !ok {
 					return errors.New("can only associate address for local keys")
+				}
+				if localInfo.GetAlgo() != hd.Secp256k1Type {
+					return errors.New("can only use addresses using secp256k1")
 				}
 				priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
 				if err != nil {
@@ -464,9 +470,13 @@ func CmdCallPrecompile() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			valueBig, success := new(big.Int).SetString(value, 10)
-			if !success || valueBig.Cmp(utils.Big0) < 0 {
-				return fmt.Errorf("%s is not a valid value. Must be a decimal nonnegative integer", value)
+
+			valueBig := big.NewInt(0)
+			if value != "" {
+				valueBig, success := new(big.Int).SetString(value, 10)
+				if !success || valueBig.Cmp(utils.Big0) < 0 {
+					return fmt.Errorf("%s is not a valid value. Must be a decimal nonnegative integer", value)
+				}
 			}
 
 			txData, err := getTxData(cmd)
@@ -579,6 +589,9 @@ func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
 	localInfo, ok := info.(keyring.LocalInfo)
 	if !ok {
 		return nil, errors.New("can only associate address for local keys")
+	}
+	if localInfo.GetAlgo() != hd.Secp256k1Type {
+		return nil, errors.New("can only use addresses using secp256k1")
 	}
 	priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
 	if err != nil {

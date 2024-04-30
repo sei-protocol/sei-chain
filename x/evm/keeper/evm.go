@@ -80,7 +80,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	evm := types.GetCtxEVM(ctx)
 	if evm == nil {
 		// This call was not part of an existing StateTransition, so it should trigger one
-		executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+		executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 		stateDB := state.NewDBImpl(executionCtx, k, false)
 		gp := k.GetGasPool()
 		evmMsg := &core.Message{
@@ -156,7 +156,7 @@ func (k *Keeper) getOrCreateEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, 
 	if evm != nil {
 		return evm, nil
 	}
-	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	stateDB := state.NewDBImpl(executionCtx, k, false)
 	gp := k.GetGasPool()
 	blockCtx, err := k.GetVMBlockContext(executionCtx, gp)

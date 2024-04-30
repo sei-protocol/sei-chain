@@ -55,7 +55,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	// 	3. At the beginning of message server (here), gas meter is set to infinite again, because EVM internal logic will then take over and manage out-of-gas scenarios.
 	// 	4. At the end of message server, gas consumed by EVM is adjusted to Sei's unit and counted in the original gas meter, because that original gas meter will be used to count towards block gas after message server returns
 	originalGasMeter := ctx.GasMeter()
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
 	stateDB.AddSurplus(msg.Derived.AnteSurplus)
@@ -98,6 +98,14 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
+
+		// Add metrics for receipt status
+		if receipt.Status == uint32(ethtypes.ReceiptStatusFailed) {
+			telemetry.IncrCounter(1, "receipt", "status", "failed")
+		} else {
+			telemetry.IncrCounter(1, "receipt", "status", "success")
+		}
+
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
 			err = ferr
@@ -110,7 +118,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 					telemetry.NewLabel("type", err.Error()),
 				},
 			)
-
 			return
 		}
 		bloom := ethtypes.Bloom{}

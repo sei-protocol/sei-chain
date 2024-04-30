@@ -59,7 +59,7 @@ func (q Querier) StaticCall(c context.Context, req *types.QueryStaticCallRequest
 		return nil, errors.New("cannot use static call to create contracts")
 	}
 	if ctx.GasMeter().Limit() == 0 {
-		ctx = ctx.WithGasMeter(sdk.NewGasMeter(q.QueryConfig.GasLimit))
+		ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, q.QueryConfig.GasLimit))
 	}
 	to := common.HexToAddress(req.To)
 	res, err := q.Keeper.StaticCallEVM(ctx, q.Keeper.AccountKeeper().GetModuleAddress(types.ModuleName), &to, req.Data)
