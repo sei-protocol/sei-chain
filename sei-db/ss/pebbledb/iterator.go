@@ -85,9 +85,13 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 		}
 	}
 
-	// Make sure we do not return any tombstone value
+	// Make sure we skip to the next key if the current one is tombstone
 	if valTombstoned(itr.source.Value()) {
-		itr.valid = false
+		if reverse {
+			itr.nextReverse()
+		} else {
+			itr.nextForward()
+		}
 	}
 
 	return itr

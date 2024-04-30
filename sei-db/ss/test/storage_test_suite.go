@@ -362,31 +362,32 @@ func (s *StorageTestSuite) TestDatabaseIteratorDeletes() {
 	defer db.Close()
 
 	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value001")}))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, [][]byte{[]byte("key002")}, [][]byte{[]byte("value002")}))
 	s.Require().NoError(DBApplyDeleteChangeset(db, 5, storeKey1, [][]byte{[]byte("key001")}))
 
 	itr, err := db.Iterator(storeKey1, 11, []byte("key001"), nil)
 	s.Require().NoError(err)
 
-	// there should be no valid key in the iterator
+	// there should be only one valid key in the iterator
 	var count = 0
 	for ; itr.Valid(); itr.Next() {
-		count++
-	}
-	s.Require().Equal(0, count)
-	s.Require().NoError(itr.Error())
-	itr.Close()
-
-	s.Require().NoError(DBApplyChangeset(db, 10, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value002")}))
-	itr, err = db.Iterator(storeKey1, 11, []byte("key001"), nil)
-	s.Require().NoError(err)
-
-	// there should only be one valid key in the iterator
-	count = 0
-	for ; itr.Valid(); itr.Next() {
-		s.Require().Equal([]byte("key001"), itr.Key())
+		s.Require().Equal([]byte("key002"), itr.Key())
 		count++
 	}
 	s.Require().Equal(1, count)
+	s.Require().NoError(itr.Error())
+	itr.Close()
+
+	s.Require().NoError(DBApplyChangeset(db, 10, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value001")}))
+	itr, err = db.Iterator(storeKey1, 11, []byte("key001"), nil)
+	s.Require().NoError(err)
+
+	// there should be two valid keys in the iterator
+	count = 0
+	for ; itr.Valid(); itr.Next() {
+		count++
+	}
+	s.Require().Equal(2, count)
 	s.Require().NoError(itr.Error())
 	itr.Close()
 }
