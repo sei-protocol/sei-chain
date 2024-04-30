@@ -365,6 +365,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorDeletes() {
 	s.Require().NoError(DBApplyDeleteChangeset(db, 5, storeKey1, [][]byte{[]byte("key001")}))
 
 	itr, err := db.Iterator(storeKey1, 11, []byte("key001"), nil)
+	s.Require().NoError(err)
 
 	// there should be no valid key in the iterator
 	var count = 0
