@@ -4,6 +4,9 @@ const {expect} = require("chai");
 const CW721_BASE_WASM_LOCATION = "../contracts/wasm/cw721_base.wasm";
 
 const erc721Abi = [
+    "event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)",
+    "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
+    "event ApprovalForAll(address indexed owner, address indexed operator, bool approved)",
     "function name() view returns (string)",
     "function symbol() view returns (string)",
     "function totalSupply() view returns (uint256)",
@@ -14,9 +17,10 @@ const erc721Abi = [
     "function isApprovedForAll(address owner, address operator) view returns (bool)",
     "function approve(address to, uint256 tokenId) returns (bool)",
     "function setApprovalForAll(address operator, bool _approved) returns (bool)",
-    "function transferFrom(address from, address to, uint256 tokenId) returns (bool)"
+    "function transferFrom(address from, address to, uint256 tokenId) returns (bool)",
+    "function safeTransferFrom(address from, address to, uint256 tokenId) returns (bool)",
+    "function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) returns (bool)"
 ];
-
 
 describe("ERC721 to CW721 Pointer", function () {
     let accounts;
@@ -35,12 +39,10 @@ describe("ERC721 to CW721 Pointer", function () {
             minter: admin.seiAddress
         })
 
-        console.log("cw721Address = ", cw721Address)
-
         // mint some to admin
-        await executeWasm(cw721Address,  { mint : { token_id : "1", owner : admin.seiAddress }});
-        await executeWasm(cw721Address,  { mint : { token_id : "2", owner : accounts[0].seiAddress }});
-        await executeWasm(cw721Address,  { mint : { token_id : "3", owner : accounts[1].seiAddress }});
+        await executeWasm(cw721Address,  { mint : { token_id : "1", owner : admin.seiAddress, token_uri: "token uri 1"}});
+        await executeWasm(cw721Address,  { mint : { token_id : "2", owner : accounts[0].seiAddress, token_uri: "token uri 2"}});
+        await executeWasm(cw721Address,  { mint : { token_id : "3", owner : accounts[1].seiAddress, token_uri: "token uri 3"}});
 
         // deploy TestToken
         const pointerAddr = await deployErc721PointerForCw721(hre.ethers.provider, cw721Address)
@@ -68,7 +70,7 @@ describe("ERC721 to CW721 Pointer", function () {
 
         it("token uri", async function () {
             const uri = await pointerAcc0.tokenURI(1);
-            expect(uri).to.equal("null");
+            expect(uri).to.equal("token uri 1");
         });
 
         it("balance of", async function () {
@@ -87,13 +89,17 @@ describe("ERC721 to CW721 Pointer", function () {
         });
     })
 
-    // TODO: do some unhappy paths!
-
     describe("write", function(){
         it("approve", async function () {
-            await mine(pointerAcc0.approve(accounts[1].evmAddress, 2))
+            const approvedTxResp = await pointerAcc0.approve(accounts[1].evmAddress, 2)
+            await approvedTxResp.wait()
+            // const approvedTxResp = await mine()
             const approved = await pointerAcc0.getApproved(2); 
             expect(approved).to.equal(accounts[1].evmAddress);
+
+            await expect(approvedTxResp)
+                .to.emit(pointerAcc0, 'Approval')
+                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, 2);
         });
 
         it("cannot approve token you don't own", async function () {
@@ -101,28 +107,43 @@ describe("ERC721 to CW721 Pointer", function () {
         });
 
         it("transfer from", async function () {
-            // accounts[1] should transfer token id 2
+            // accounts[0] should transfer token id 2 to accounts[1]
             await mine(pointerAcc0.approve(accounts[1].evmAddress, 2));
-            await mine(pointerAcc1.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 2));
+            transferTxResp = await pointerAcc1.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 2);
+            await transferTxResp.wait();
+            await expect(transferTxResp)
+                .to.emit(pointerAcc0, 'Transfer')
+                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, 2);
             const balance0 = await pointerAcc0.balanceOf(accounts[0].evmAddress);
             expect(balance0).to.equal(0);
             const balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress);
             expect(balance1).to.equal(2);
+
+            // return token id 2 back to accounts[0] using safe transfer from
+            await mine(pointerAcc1.approve(accounts[0].evmAddress, 2));
+            await mine(pointerAcc1.safeTransferFrom(accounts[1].evmAddress, accounts[0].evmAddress, 2));
+            const balance0After = await pointerAcc0.balanceOf(accounts[0].evmAddress);
+            expect(balance0After).to.equal(1);
         });
 
-        // TODO: set token uri and test that you can read the new one
+        it("cannot transfer token you don't own", async function () {
+            await expect(pointerAcc0.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 3)).to.be.reverted;
+        });
 
-        // it("set approval for all", async function () {
-        //     await pointer.setApprovalForAll(accounts[0].seiAddress, true);
-        //     const approved = await pointer.isApprovedForAll(admin.evmAddress, accounts[0].evmAddress);
-        //     expect(approved).to.equal(true);
-        // });
+        it("set approval for all", async function () {
+            const setApprovalForAllTxResp = await pointerAcc0.setApprovalForAll(accounts[1].evmAddress, true);
+            await setApprovalForAllTxResp.wait();
+            await expect(setApprovalForAllTxResp)
+                .to.emit(pointerAcc0, 'ApprovalForAll')
+                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, true);
+            const approved = await pointerAcc0.isApprovedForAll(accounts[0].evmAddress, accounts[1].evmAddress);
+            expect(approved).to.equal(true);
 
-        // it("transfer from", async function () {
-        //     await pointer.transferFrom(admin.evmAddress, accounts[0].evmAddress, 1);
-        //     const balance = await pointer.balanceOf(accounts[0].evmAddress);
-        //     expect(balance).to.equal(1);
-        // });
+            // test revoking approval
+            await mine(pointerAcc0.setApprovalForAll(accounts[1].evmAddress, false));
+            const approvedAfter = await pointerAcc0.isApprovedForAll(accounts[0].evmAddress, accounts[1].evmAddress);
+            expect(approvedAfter).to.equal(false);
+        });
     })
 })
 

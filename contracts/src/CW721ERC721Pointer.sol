@@ -99,8 +99,8 @@ contract CW721ERC721Pointer is ERC721 {
         string memory spender = _formatPayload("spender", _doubleQuotes(AddrPrecompile.getSeiAddr(approved)));
         string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
         string memory req = _curlyBrace(_formatPayload("approve", _curlyBrace(_join(spender, tId, ","))));
-         _execute(bytes(req));
-         emit Approval(ownerOf(tokenId), approved, tokenId);
+        _execute(bytes(req));
+        emit Approval(ownerOf(tokenId), approved, tokenId);
     }
 
     function setApprovalForAll(address operator, bool approved) public override {
