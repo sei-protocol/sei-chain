@@ -147,15 +147,22 @@ func (txs *TxStore) GetTxByHash(hash types.TxKey) *WrappedTx {
 
 // IsTxRemoved returns true if a transaction by hash is marked as removed and
 // false otherwise.
-func (txs *TxStore) IsTxRemoved(hash types.TxKey) bool {
+func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
 	txs.mtx.RLock()
 	defer txs.mtx.RUnlock()
 
-	wtx, ok := txs.hashTxs[hash]
+	// if this instance has already been marked, return true
+	if wtx.removed == true {
+		return true
+	}
+
+	// otherwise if the same hash exists, return its state
+	wtx, ok := txs.hashTxs[wtx.hash]
 	if ok {
 		return wtx.removed
 	}
 
+	// otherwise we haven't seen this tx
 	return false
 }
 

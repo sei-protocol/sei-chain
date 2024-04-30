@@ -736,7 +736,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 	// Only evaluate transactions that have not been removed. This can happen
 	// if an existing transaction is evicted during CheckTx and while this
 	// callback is being executed for the same evicted transaction.
-	if !txmp.txStore.IsTxRemoved(wtx.hash) {
+	if !txmp.txStore.IsTxRemoved(wtx) {
 		var err error
 		if txmp.postCheck != nil {
 			err = txmp.postCheck(tx, res.ResponseCheckTx)
@@ -806,7 +806,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 
 		// Only execute CheckTx if the transaction is not marked as removed which
 		// could happen if the transaction was evicted.
-		if !txmp.txStore.IsTxRemoved(wtx.hash) {
+		if !txmp.txStore.IsTxRemoved(wtx) {
 			res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{
 				Tx:   wtx.tx,
 				Type: abci.CheckTxType_Recheck,
@@ -893,7 +893,7 @@ func (txmp *TxMempool) insertTx(wtx *WrappedTx) bool {
 }
 
 func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReenqueue bool, updatePriorityIndex bool) {
-	if txmp.txStore.IsTxRemoved(wtx.hash) {
+	if txmp.txStore.IsTxRemoved(wtx) {
 		return
 	}
 

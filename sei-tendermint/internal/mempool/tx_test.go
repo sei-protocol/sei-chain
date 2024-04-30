@@ -76,6 +76,80 @@ func TestTxStore_SetTx(t *testing.T) {
 	require.Equal(t, wtx, res)
 }
 
+func TestTxStore_IsTxRemoved(t *testing.T) {
+	// Initialize the store
+	txs := NewTxStore()
+
+	// Current time for timestamping transactions
+	now := time.Now()
+
+	// Tests setup as a slice of anonymous structs
+	tests := []struct {
+		name        string
+		wtx         *WrappedTx
+		setup       func(*TxStore, *WrappedTx) // Optional setup function to manipulate store state
+		wantRemoved bool
+	}{
+		{
+			name: "Existing transaction not removed",
+			wtx: &WrappedTx{
+				tx:        types.Tx("tx_hash_1"),
+				hash:      types.Tx("tx_hash_1").Key(),
+				removed:   false,
+				timestamp: now,
+			},
+			setup: func(ts *TxStore, w *WrappedTx) {
+				ts.SetTx(w)
+			},
+			wantRemoved: false,
+		},
+		{
+			name: "Existing transaction marked as removed",
+			wtx: &WrappedTx{
+				tx:        types.Tx("tx_hash_2"),
+				hash:      types.Tx("tx_hash_2").Key(),
+				removed:   true,
+				timestamp: now,
+			},
+			setup: func(ts *TxStore, w *WrappedTx) {
+				ts.SetTx(w)
+			},
+			wantRemoved: true,
+		},
+		{
+			name: "Non-existing transaction",
+			wtx: &WrappedTx{
+				tx:        types.Tx("tx_hash_3"),
+				hash:      types.Tx("tx_hash_3").Key(),
+				removed:   false,
+				timestamp: now,
+			},
+			wantRemoved: false,
+		},
+		{
+			name: "Non-existing transaction but marked as removed",
+			wtx: &WrappedTx{
+				tx:        types.Tx("tx_hash_4"),
+				hash:      types.Tx("tx_hash_4").Key(),
+				removed:   true,
+				timestamp: now,
+			},
+			wantRemoved: true,
+		},
+	}
+
+	// Execute test scenarios
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setup != nil {
+				tt.setup(txs, tt.wtx)
+			}
+			removed := txs.IsTxRemoved(tt.wtx)
+			require.Equal(t, tt.wantRemoved, removed)
+		})
+	}
+}
+
 func TestTxStore_GetOrSetPeerByTxHash(t *testing.T) {
 	txs := NewTxStore()
 	wtx := &WrappedTx{
