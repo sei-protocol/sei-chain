@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/cosmos/cosmos-sdk/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
@@ -65,10 +66,25 @@ func TestERC20TransferPayload(t *testing.T) {
 	addr1, e1 := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, addr1, e1)
 	h := wasm.NewEVMQueryHandler(k)
-	value := sdk.NewInt(500)
+	value := types.NewInt(500)
 	res, err := h.HandleERC20TransferPayload(ctx, addr1.String(), &value)
 	require.Nil(t, err)
 	require.NotEmpty(t, res)
+}
+
+func TestHandleERC20TokenInfo(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc20/ERC20.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	tokenInfo, err := h.HandleERC20TokenInfo(ctx, contractAddr.String(), addr1.String())
+	require.Nil(t, err)
+	require.Equal(t, string(tokenInfo), "{\"name\":\"ERC20\",\"symbol\":\"ERC20\",\"decimals\":18,\"total_supply\":\"1000000000000000000000000\"}")
 }
 
 func TestERC20TransferFromPayload(t *testing.T) {
@@ -78,7 +94,7 @@ func TestERC20TransferFromPayload(t *testing.T) {
 	k.SetAddressMapping(ctx, addr1, e1)
 	k.SetAddressMapping(ctx, addr2, e2)
 	h := wasm.NewEVMQueryHandler(k)
-	value := sdk.NewInt(500)
+	value := types.NewInt(500)
 	res, err := h.HandleERC20TransferFromPayload(ctx, addr1.String(), addr2.String(), &value)
 	require.Nil(t, err)
 	require.NotEmpty(t, res)
@@ -89,10 +105,124 @@ func TestERC20ApprovePayload(t *testing.T) {
 	addr1, e1 := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, addr1, e1)
 	h := wasm.NewEVMQueryHandler(k)
-	value := sdk.NewInt(500)
+	value := types.NewInt(500)
 	res, err := h.HandleERC20ApprovePayload(ctx, addr1.String(), &value)
 	require.Nil(t, err)
 	require.NotEmpty(t, res)
+}
+
+func TestHandleERC20Balance(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc20/ERC20.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC20Balance(ctx, contractAddr.String(), addr1.String())
+	require.Nil(t, err)
+	require.Equal(t, string(res2), "{\"balance\":\"0\"}")
+	require.NotEmpty(t, res2)
+}
+
+func TestHandleERC721Owner(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc721/DummyERC721.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC721Owner(ctx, addr1.String(), contractAddr.String(), "1")
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+}
+
+func TestHandleERC20Allowance(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc20/ERC20.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	addr2, e2 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	k.SetAddressMapping(ctx, addr2, e2)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC20Allowance(ctx, contractAddr.String(), addr1.String(), addr2.String())
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	require.Equal(t, string(res2), "{\"allowance\":\"0\"}")
+}
+
+func TestHandleERC721Approved(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc721/DummyERC721.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	addr2, e2 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	k.SetAddressMapping(ctx, addr2, e2)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC721Approved(ctx, addr1.String(), contractAddr.String(), "1")
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+}
+
+func TestHandleERC721IsApprovedForAll(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc721/DummyERC721.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	addr2, e2 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	k.SetAddressMapping(ctx, addr2, e2)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC721IsApprovedForAll(ctx, addr1.String(), contractAddr.String(), addr2.String(), addr2.String())
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+}
+
+func TestHandleERC721NameSymbol(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc721/DummyERC721.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC721NameSymbol(ctx, addr1.String(), contractAddr.String())
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	require.Equal(t, string(res2), "{\"name\":\"DummyERC721\",\"symbol\":\"DUMMY\"}")
+}
+
+func TestHandleERC721TokenURI(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc721/DummyERC721.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC721Uri(ctx, addr1.String(), contractAddr.String(), "1")
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
 }
 
 func TestGetAddress(t *testing.T) {
@@ -137,18 +267,14 @@ func (tx mockTx) GetSigners() []sdk.AccAddress                    { return tx.si
 func (tx mockTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
 func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
 
-func TestHandleStaticCall(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
-	code, err := os.ReadFile("../../../../example/contracts/simplestorage/SimpleStorage.bin")
+func deployContract(t *testing.T, ctx sdk.Context, k *keeper.Keeper, path string, privKey cryptotypes.PrivKey) (*evmtypes.MsgEVMTransactionResponse, evmtypes.MsgServer) {
+	code, err := os.ReadFile(path)
 	require.Nil(t, err)
 	bz, err := hex.DecodeString(string(code))
 	require.Nil(t, err)
-	privKey := testkeeper.MockPrivateKey()
-	testPrivHex := hex.EncodeToString(privKey.Bytes())
-	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      2000000,
 		To:       nil,
 		Value:    big.NewInt(0),
 		Data:     bz,
@@ -159,6 +285,8 @@ func TestHandleStaticCall(t *testing.T) {
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	blockNum := big.NewInt(ctx.BlockHeight())
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
 	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
 	txwrapper, err := ethtx.NewLegacyTx(tx)
@@ -167,13 +295,13 @@ func TestHandleStaticCall(t *testing.T) {
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
-	k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(100000000)))
+	k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(100000000))))
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, evmAddr[:], amt)
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	// Deploy Simple Storage contract
 	ante.Preprocess(ctx, req)
 	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
@@ -181,11 +309,37 @@ func TestHandleStaticCall(t *testing.T) {
 	require.Nil(t, err)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
+
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	if receipt.Status != 1 {
+		t.Fatalf("receipt status is not 1, got %d, vmerror = %s", receipt.Status, receipt.VmError)
+	}
+	return res, msgServer
+}
+
+func createSigner(k *keeper.Keeper, ctx sdk.Context) ethtypes.Signer {
+	chainID := k.ChainID(ctx)
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	return signer
+}
+
+func TestHandleStaticCall(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	signer := createSigner(k, ctx)
+	res, msgServer := deployContract(t, ctx, k, "../../../../example/contracts/simplestorage/SimpleStorage.bin", privKey)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
-	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
+	require.Equal(t, uint64(100000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64())
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
@@ -196,9 +350,9 @@ func TestHandleStaticCall(t *testing.T) {
 	contractAddr := common.HexToAddress(receipt.ContractAddress)
 	abi, err := simplestorage.SimplestorageMetaData.GetAbi()
 	require.Nil(t, err)
-	bz, err = abi.Pack("set", big.NewInt(20))
+	bz, err := abi.Pack("set", big.NewInt(20))
 	require.Nil(t, err)
-	txData = ethtypes.LegacyTx{
+	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
 		Gas:      200000,
 		To:       &contractAddr,
@@ -206,11 +360,11 @@ func TestHandleStaticCall(t *testing.T) {
 		Data:     bz,
 		Nonce:    1,
 	}
-	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
-	txwrapper, err = ethtx.NewLegacyTx(tx)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
-	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
+	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	ante.Preprocess(ctx, req)
 	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {

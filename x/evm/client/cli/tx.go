@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -94,6 +96,9 @@ func CmdAssociateAddress() *cobra.Command {
 				localInfo, ok := info.(keyring.LocalInfo)
 				if !ok {
 					return errors.New("can only associate address for local keys")
+				}
+				if localInfo.GetAlgo() != hd.Secp256k1Type {
+					return errors.New("can only use addresses using secp256k1")
 				}
 				priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
 				if err != nil {
@@ -584,6 +589,9 @@ func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
 	localInfo, ok := info.(keyring.LocalInfo)
 	if !ok {
 		return nil, errors.New("can only associate address for local keys")
+	}
+	if localInfo.GetAlgo() != hd.Secp256k1Type {
+		return nil, errors.New("can only use addresses using secp256k1")
 	}
 	priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
 	if err != nil {
