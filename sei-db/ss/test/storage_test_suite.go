@@ -1,15 +1,13 @@
 package sstest
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/exp/slices"
-
-	"fmt"
-
-	"github.com/sei-protocol/sei-db/ss/types"
 )
 
 const (
@@ -305,7 +303,7 @@ func (s *StorageTestSuite) TestDatabaseIterator() {
 		s.Require().False(itr.Valid())
 	}
 
-	// iterator with with a start and end domain over multiple versions
+	// iterator with a start and end domain over multiple versions
 	for v := int64(1); v < 5; v++ {
 		itr2, err := db.Iterator(storeKey1, v, []byte("key010"), []byte("key019"))
 		s.Require().NoError(err)
@@ -333,7 +331,6 @@ func (s *StorageTestSuite) TestDatabaseIterator() {
 	s.Require().Error(err)
 	s.Require().Nil(iter3)
 }
-
 func (s *StorageTestSuite) TestDatabaseIteratorRangedDeletes() {
 	db, err := s.NewDB(s.T().TempDir())
 	s.Require().NoError(err)
@@ -357,6 +354,42 @@ func (s *StorageTestSuite) TestDatabaseIteratorRangedDeletes() {
 	}
 	s.Require().Equal(1, count)
 	s.Require().NoError(itr.Error())
+}
+
+func (s *StorageTestSuite) TestDatabaseIteratorDeletes() {
+	db, err := s.NewDB(s.T().TempDir())
+	s.Require().NoError(err)
+	defer db.Close()
+
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value001")}))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, [][]byte{[]byte("key002")}, [][]byte{[]byte("value002")}))
+	s.Require().NoError(DBApplyDeleteChangeset(db, 5, storeKey1, [][]byte{[]byte("key001")}))
+
+	itr, err := db.Iterator(storeKey1, 11, []byte("key001"), nil)
+	s.Require().NoError(err)
+
+	// there should be only one valid key in the iterator
+	var count = 0
+	for ; itr.Valid(); itr.Next() {
+		s.Require().Equal([]byte("key002"), itr.Key())
+		count++
+	}
+	s.Require().Equal(1, count)
+	s.Require().NoError(itr.Error())
+	itr.Close()
+
+	s.Require().NoError(DBApplyChangeset(db, 10, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value001")}))
+	itr, err = db.Iterator(storeKey1, 11, []byte("key001"), nil)
+	s.Require().NoError(err)
+
+	// there should be two valid keys in the iterator
+	count = 0
+	for ; itr.Valid(); itr.Next() {
+		count++
+	}
+	s.Require().Equal(2, count)
+	s.Require().NoError(itr.Error())
+	itr.Close()
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorMultiVersion() {

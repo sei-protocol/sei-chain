@@ -59,3 +59,19 @@ func DBApplyChangeset(db types.StateStore, version int64, storeKey string, key, 
 
 	return db.ApplyChangeset(version, ncs)
 }
+
+// Helper for creating the changeset and applying it to db
+func DBApplyDeleteChangeset(db types.StateStore, version int64, storeKey string, key [][]byte) error {
+	cs := &iavl.ChangeSet{}
+	cs.Pairs = []*iavl.KVPair{}
+	for j := 0; j < len(key); j++ {
+		cs.Pairs = append(cs.Pairs, &iavl.KVPair{Key: key[j], Delete: true})
+	}
+
+	ncs := &proto.NamedChangeSet{
+		Name:      storeKey,
+		Changeset: *cs,
+	}
+
+	return db.ApplyChangeset(version, ncs)
+}

@@ -63,9 +63,8 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	if valid {
 		currKey, currKeyVersion, ok := SplitMVCCKey(itr.source.Key())
 		if !ok {
-			// XXX: This should not happen as that would indicate we have a malformed
-			// MVCC value.
-			panic(fmt.Sprintf("invalid PebbleDB MVCC value: %s", itr.source.Key()))
+			// XXX: This should not happen as that would indicate we have a malformed MVCC key.
+			panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 		}
 
 		curKeyVersionDecoded, err := decodeUint64Ascending(currKeyVersion)
@@ -83,6 +82,15 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 			// It is guaranteed this won't move the iterator to a key that is invalid since
 			// curKeyVersionDecoded <= requested iterator version, so there exists at least one version of currKey SeekLT may move to
 			itr.valid = itr.source.SeekLT(MVCCEncode(currKey, itr.version+1))
+		}
+	}
+
+	// Make sure we skip to the next key if the current one is tombstone
+	if valTombstoned(itr.source.Value()) {
+		if reverse {
+			itr.nextReverse()
+		} else {
+			itr.nextForward()
 		}
 	}
 
