@@ -375,7 +375,7 @@ func CmdERC20Send() *cobra.Command {
 			recipient := common.HexToAddress(args[1])
 			amt, ok := new(big.Int).SetString(args[2], 10)
 			if !ok {
-				return fmt.Errorf("Unable to parse amount: %s", args[2])
+				return fmt.Errorf("unable to parse amount: %s", args[2])
 			}
 			abi, err := native.NativeMetaData.GetAbi()
 			if err != nil {
