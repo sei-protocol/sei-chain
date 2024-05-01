@@ -65,6 +65,12 @@ async function getPointerForCw20(cw20Address) {
     return JSON.parse(output);
 }
 
+async function getPointerForCw721(cw721Address) {
+    const command = `seid query evm pointer CW721 ${cw721Address} -o json`
+    const output = await execute(command);
+    return JSON.parse(output);
+}
+
 async function deployErc20PointerForCw20(provider, cw20Address) {
     const command = `seid tx evm call-precompile pointer addCW20Pointer ${cw20Address} --from=admin -b block`
     const output = await execute(command);
@@ -74,6 +80,22 @@ async function deployErc20PointerForCw20(provider, cw20Address) {
         const receipt = await provider.getTransactionReceipt(txHash);
         if(receipt) {
             return (await getPointerForCw20(cw20Address)).pointer
+        }
+        await sleep(500)
+        attempt++
+    }
+    throw new Error("contract deployment failed")
+}
+
+async function deployErc721PointerForCw721(provider, cw721Address) {
+    const command = `seid tx evm call-precompile pointer addCW721Pointer ${cw721Address} --from=admin -b block`
+    const output = await execute(command);
+    const txHash = output.replace(/.*0x/, "0x").trim()
+    let attempt = 0;
+    while(attempt < 10) {
+        const receipt = await provider.getTransactionReceipt(txHash);
+        if(receipt) {
+            return (await getPointerForCw721(cw721Address)).pointer
         }
         await sleep(500)
         attempt++
@@ -197,4 +219,5 @@ module.exports = {
     setupSigners,
     deployEvmContract,
     deployErc20PointerForCw20,
+    deployErc721PointerForCw721,
 };
