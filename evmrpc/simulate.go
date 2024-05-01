@@ -23,6 +23,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -288,6 +289,20 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		// set block context time as of the block time (block time is the time of the CURRENT block)
 		blockContext.Time = block.Time()
 
+		// set address association for the sender if not present. Note that here we take the shortcut
+		// of querying from the latest height with the assumption that if this tx has been processed
+		// at all then its association must be present in the latest height
+		_, associated := b.keeper.GetSeiAddress(statedb.Ctx(), msg.From)
+		if !associated {
+			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)
+			if !associatedNow {
+				return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("address %s is not associated in the latest height", msg.From.Hex())
+			}
+			if err := ante.NewEVMPreprocessDecorator(b.keeper, b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
+				return nil, vm.BlockContext{}, nil, nil, err
+			}
+		}
+
 		if idx == txIndex {
 			return tx, *blockContext, statedb, emptyRelease, nil
 		}
@@ -307,6 +322,24 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
 	statedb := state.NewDBImpl(b.ctxProvider(block.Number().Int64()-1), b.keeper, true)
+	signer := ethtypes.MakeSigner(b.ChainConfig(), block.Number(), block.Time())
+	for _, tx := range block.Transactions() {
+		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
+
+		// set address association for the sender if not present. Note that here we take the shortcut
+		// of querying from the latest height with the assumption that if this tx has been processed
+		// at all then its association must be present in the latest height
+		_, associated := b.keeper.GetSeiAddress(statedb.Ctx(), msg.From)
+		if !associated {
+			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)
+			if !associatedNow {
+				return nil, emptyRelease, fmt.Errorf("address %s is not associated in the latest height", msg.From.Hex())
+			}
+			if err := ante.NewEVMPreprocessDecorator(b.keeper, b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
+				return nil, emptyRelease, err
+			}
+		}
+	}
 	return statedb, emptyRelease, nil
 }
 

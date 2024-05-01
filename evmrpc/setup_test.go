@@ -80,6 +80,8 @@ var MockBlockID = tmtypes.BlockID{
 	Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000001")),
 }
 
+var NewHeadsCalled = make(chan struct{})
+
 type MockClient struct {
 	mock.Client
 }
@@ -271,6 +273,7 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 	if query == "tm.event = 'NewBlockHeader'" {
 		resCh := make(chan coretypes.ResultEvent, 5)
 		go func() {
+			<-NewHeadsCalled
 			for i := uint64(0); i < 5; i++ {
 				resCh <- coretypes.ResultEvent{
 					SubscriptionID: subscriber,
@@ -571,6 +574,9 @@ func generateTxData() {
 		ChainID:   chainId,
 	})
 	UnconfirmedTx = unconfirmedTxBuilder.GetTx()
+
+	tracerTestTxFrom := common.HexToAddress("0x5b4eba929f3811980f5ae0c5d04fa200f837df4e")
+	EVMKeeper.SetAddressMapping(Ctx, sdk.AccAddress(tracerTestTxFrom[:]), tracerTestTxFrom)
 }
 
 func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transaction) {

@@ -88,7 +88,7 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 				return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
 			}
 		}
-		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
+		if err := p.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
 			return ctx, err
 		}
 		return ctx.WithPriority(antedecorators.EVMAssociatePriority), nil // short-circuit without calling next
@@ -96,7 +96,7 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		// noop; for readability
 	} else {
 		// not associatedTx and not already associated
-		if err := p.associateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
+		if err := p.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
 			return ctx, err
 		}
 		if p.evmKeeper.EthReplayConfig.Enabled {
@@ -107,7 +107,7 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	return next(ctx, tx, simulate)
 }
 
-func (p *EVMPreprocessDecorator) associateAddresses(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address, pubkey cryptotypes.PubKey) error {
+func (p *EVMPreprocessDecorator) AssociateAddresses(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address, pubkey cryptotypes.PubKey) error {
 	p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
 	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
 		if err := acc.SetPubKey(pubkey); err != nil {
