@@ -164,6 +164,17 @@ func SetThroughputMetric(metricName string, value float32) {
 	)
 }
 
+// Measures number of active websocket connections
+// Metric Name:
+//
+//	sei_oracle_price_update_count
+func SetWebsocketConnections(value int64) {
+	telemetry.SetGauge(
+		float32(value),
+		"sei", "websocket", "connections",
+	)
+}
+
 // Measures number of times a denom's price is updated
 // Metric Name:
 //
