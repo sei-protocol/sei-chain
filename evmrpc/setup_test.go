@@ -571,6 +571,9 @@ func generateTxData() {
 		ChainID:   chainId,
 	})
 	UnconfirmedTx = unconfirmedTxBuilder.GetTx()
+
+	tracerTestTxFrom := common.HexToAddress("0x5b4eba929f3811980f5ae0c5d04fa200f837df4e")
+	EVMKeeper.SetAddressMapping(Ctx, sdk.AccAddress(tracerTestTxFrom[:]), tracerTestTxFrom)
 }
 
 func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transaction) {
