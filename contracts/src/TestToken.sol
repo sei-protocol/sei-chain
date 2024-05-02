@@ -9,6 +9,12 @@ contract TestToken is ERC20, Ownable {
         _mint(msg.sender, 1000 * (10 ** uint256(decimals())));
     }
 
+    uint256 public num;
+
+    function setNum(uint256 _num) public {
+        num = _num;
+    }
+
     // setBalance verifies modifier works
     function setBalance(address account, uint256 amount) public onlyOwner {
         uint256 currentBalance = balanceOf(account);
@@ -17,5 +23,13 @@ contract TestToken is ERC20, Ownable {
         } else if (amount < currentBalance) {
             _burn(account, currentBalance - amount);
         }
+    }
+
+    function mint(address account, uint256 amount) public onlyOwner {
+        _mint(account, amount);
+    }
+
+    function mintFreely(address account, uint256 amount) public {
+        _mint(account, amount);
     }
 }

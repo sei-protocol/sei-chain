@@ -14,9 +14,24 @@ async function fundAddress(addr) {
     return await execute(`seid tx evm send ${addr} 10000000000000000000 --from ${adminKeyName}`);
 }
 
+async function fundAddressCosmos(addr) {
+    const adminSeiAddr = (await getAdmin()).seiAddress
+    return await execute(`seid tx bank send ${adminSeiAddr} ${addr} 10000000000usei --fees 20000usei -b block -y`)
+}
+
 async function getAdmin() {
-    await associateAdmin()
+    await associateAdmin(adminKeyName)
     const seiAddress = await getAdminSeiAddress()
+    const evmAddress = await getEvmAddress(seiAddress)
+    return {
+        seiAddress,
+        evmAddress
+    }
+}
+
+async function getKey(name) {
+    await associateKey(name)
+    const seiAddress = await getKeyAddress(name)
     const evmAddress = await getEvmAddress(seiAddress)
     return {
         seiAddress,
@@ -28,10 +43,32 @@ async function getAdminSeiAddress() {
     return (await execute(`seid keys show ${adminKeyName} -a`)).trim()
 }
 
-async function associateAdmin() {
+async function addKey(name) {
+    console.log("executing seid keys add ", name)
+    const res = await execute(`printf "y" | seid keys add ${name} 2> /dev/null`)
+    console.log("add key res = ", res )
+    const addrs = await getKey(name)
+    fundAddressCosmos(addrs.seiAddress)
+    await associateAdmin(name)
+    return addrs
+}
+
+async function getKeyAddress(name) {
+    return (await execute(`seid keys show ${name} -a`)).trim()
+}
+
+async function associateAdmin(name) {
     try {
-        return await execute(`seid tx evm associate-address --from ${adminKeyName}`)
+        return await execute(`seid tx evm associate-address --from ${name}`)
     }catch(e){
+        console.log("skipping associate")
+    }
+}
+
+async function associateKey(name) {
+    try {
+        return await execute(`seid tx evm associate-address --from ${name}`)
+    } catch(e) {
         console.log("skipping associate")
     }
 }
@@ -135,6 +172,7 @@ async function getEvmAddress(seiAddress) {
 async function deployEvmContract(name, args=[]) {
     const Contract = await ethers.getContractFactory(name);
     const contract = await Contract.deploy(...args);
+    console.log("contract = ", contract)
     await contract.waitForDeployment()
     return contract;
 }
@@ -167,14 +205,20 @@ async function queryWasm(contractAddress, operation, args={}){
     return JSON.parse(output)
 }
 
-async function executeWasm(contractAddress, msg, coins = "0usei") {
+async function executeWasm(contractAddress, msg, coins="0usei") {
+    return executeWasmWithSigner(contractAddress, msg, adminKeyName, coins);
+}
+
+async function executeWasmWithSigner(contractAddress, msg, keyName, coins="0usei"){
     const jsonString = JSON.stringify(msg).replace(/"/g, '\\"'); // Properly escape JSON string
-    const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+    const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${keyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+    console.log("command = ", command)
     const output = await execute(command);
     return JSON.parse(output);
 }
 
 async function execute(command) {
+    console.log("executing command = ", command)
     return new Promise((resolve, reject) => {
         // Check if the Docker container 'sei-node-0' is running
         exec("docker ps --filter 'name=sei-node-0' --format '{{.Names}}'", (error, stdout, stderr) => {
@@ -194,10 +238,12 @@ async function execute(command) {
 function execCommand(command, resolve, reject) {
     exec(command, (error, stdout, stderr) => {
         if (error) {
+            console.log("in execCommand error = ", error)
             reject(error);
             return;
         }
         if (stderr) {
+            console.log("in execCommand stderr = ", stderr)
             reject(new Error(stderr));
             return;
         }
@@ -215,7 +261,10 @@ module.exports = {
     getEvmAddress,
     queryWasm,
     executeWasm,
+    executeWasmWithSigner,
     getAdmin,
+    getKey,
+    addKey,
     setupSigners,
     deployEvmContract,
     deployErc20PointerForCw20,
