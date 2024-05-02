@@ -2,9 +2,11 @@ package ibc_test
 
 import (
 	"errors"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 	"math/big"
 	"reflect"
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
@@ -422,6 +424,182 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 			}
 			if !reflect.DeepEqual(gotRemainingGas, tt.wantRemainingGas) {
 				t.Errorf("Run() gotRemainingGas = %v, want %v", gotRemainingGas, tt.wantRemainingGas)
+			}
+		})
+	}
+}
+
+func TestPrecompile_GetAdjustedHeight(t *testing.T) {
+	type args struct {
+		latestConsensusHeight clienttypes.Height
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    clienttypes.Height
+		wantErr bool
+	}{
+		{
+			name: "height is adjusted with defaults",
+			args: args{
+				latestConsensusHeight: clienttypes.NewHeight(2, 3),
+			},
+			want: clienttypes.Height{
+				RevisionNumber: 2,
+				RevisionHeight: 1003,
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ibc.GetAdjustedHeight(tt.args.latestConsensusHeight)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetAdjustedHeight() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetAdjustedHeight() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+type MockClientKeeper struct {
+	consensusState       *MockConsensusState
+	returnConsensusState bool
+}
+
+func (ck *MockClientKeeper) GetClientState(ctx sdk.Context, clientID string) (exported.ClientState, bool) {
+	return nil, false
+}
+
+func (ck *MockClientKeeper) GetClientConsensusState(ctx sdk.Context, clientID string, height exported.Height) (exported.ConsensusState, bool) {
+	return ck.consensusState, ck.returnConsensusState
+}
+
+type MockConsensusState struct {
+	timestamp uint64
+}
+
+func (m *MockConsensusState) Reset() {
+	panic("implement me")
+}
+
+func (m *MockConsensusState) String() string {
+	panic("implement me")
+}
+
+func (m *MockConsensusState) ProtoMessage() {
+	panic("implement me")
+}
+
+func (m *MockConsensusState) ClientType() string {
+	return "mock"
+}
+
+func (m *MockConsensusState) GetRoot() exported.Root {
+	return nil
+}
+
+func (m *MockConsensusState) GetTimestamp() uint64 {
+	return m.timestamp
+}
+
+func (m *MockConsensusState) ValidateBasic() error {
+	return nil
+}
+
+func TestPrecompile_GetAdjustedTimestamp(t *testing.T) {
+	type fields struct {
+		transferKeeper   pcommon.TransferKeeper
+		evmKeeper        pcommon.EVMKeeper
+		clientKeeper     pcommon.ClientKeeper
+		connectionKeeper pcommon.ConnectionKeeper
+		channelKeeper    pcommon.ChannelKeeper
+	}
+	type args struct {
+		ctx      sdk.Context
+		clientId string
+		height   clienttypes.Height
+		time     time.Time
+	}
+	timestampSeconds := 1714680155
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    uint64
+		wantErr bool
+	}{
+		{
+			name: "if consensus timestamp is less than the given time, return the given time adjusted with default",
+			fields: fields{
+				clientKeeper: &MockClientKeeper{
+					consensusState: &MockConsensusState{
+						timestamp: uint64(timestampSeconds - 1),
+					},
+					returnConsensusState: true,
+				},
+			},
+			args: args{
+				time: time.Unix(int64(uint64(timestampSeconds)), 0),
+			},
+			want:    uint64(timestampSeconds)*1_000_000_000 + uint64((time.Duration(10) * time.Minute).Nanoseconds()),
+			wantErr: false,
+		},
+		{
+			name: "if consensus state is not found, return the given time adjusted with default",
+			fields: fields{
+				clientKeeper: &MockClientKeeper{
+					returnConsensusState: false,
+				},
+			},
+			args: args{
+				time: time.Unix(int64(uint64(timestampSeconds)), 0),
+			},
+			want:    uint64(timestampSeconds)*1_000_000_000 + uint64((time.Duration(10) * time.Minute).Nanoseconds()),
+			wantErr: false,
+		},
+		{
+			name: "if time from local clock can not be retrieved, return error",
+			fields: fields{
+				clientKeeper: &MockClientKeeper{
+					returnConsensusState: false,
+				},
+			},
+			args: args{
+				time: time.Unix(int64(uint64(0)), 0),
+			},
+			wantErr: true,
+		},
+		{
+			name: "if consensus timestamp is > than the given time, return the consensus time adjusted with default",
+			fields: fields{
+				clientKeeper: &MockClientKeeper{
+					consensusState: &MockConsensusState{
+						timestamp: uint64(timestampSeconds+1) * 1_000_000_000,
+					},
+					returnConsensusState: true,
+				},
+			},
+			args: args{
+				time: time.Unix(int64(uint64(timestampSeconds)), 0),
+			},
+			want:    uint64(timestampSeconds+1)*1_000_000_000 + uint64((time.Duration(10) * time.Minute).Nanoseconds()),
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, tt.fields.evmKeeper, tt.fields.clientKeeper, tt.fields.connectionKeeper, tt.fields.channelKeeper)
+			got, err := p.GetAdjustedTimestamp(tt.args.ctx, tt.args.clientId, tt.args.height, tt.args.time)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetAdjustedTimestamp() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("GetAdjustedTimestamp() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

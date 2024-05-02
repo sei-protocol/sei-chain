@@ -264,13 +264,13 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 		return
 	}
 
-	height, err := p.getAdjustedHeight(*latestConsensusHeight)
+	height, err := GetAdjustedHeight(*latestConsensusHeight)
 	if err != nil {
 		rerr = err
 		return
 	}
 
-	timeoutTimestamp, err := p.getAdjustedTimestamp(ctx, connection.ClientId, *latestConsensusHeight)
+	timeoutTimestamp, err := p.GetAdjustedTimestamp(ctx, connection.ClientId, *latestConsensusHeight, time.Now())
 	if err != nil {
 		rerr = err
 		return
@@ -352,7 +352,7 @@ func (p Precompile) getConsensusLatestHeight(ctx sdk.Context, connection connect
 	}, nil
 }
 
-func (p Precompile) getAdjustedHeight(latestConsensusHeight clienttypes.Height) (clienttypes.Height, error) {
+func GetAdjustedHeight(latestConsensusHeight clienttypes.Height) (clienttypes.Height, error) {
 	defaultTimeoutHeight, err := clienttypes.ParseHeight(types.DefaultRelativePacketTimeoutHeight)
 	if err != nil {
 		return clienttypes.Height{}, err
@@ -364,7 +364,7 @@ func (p Precompile) getAdjustedHeight(latestConsensusHeight clienttypes.Height) 
 	return absoluteHeight, nil
 }
 
-func (p Precompile) getAdjustedTimestamp(ctx sdk.Context, clientId string, height clienttypes.Height) (uint64, error) {
+func (p Precompile) GetAdjustedTimestamp(ctx sdk.Context, clientId string, height clienttypes.Height, currentTime time.Time) (uint64, error) {
 	consensusState, found := p.clientKeeper.GetClientConsensusState(ctx, clientId, height)
 	var consensusStateTimestamp uint64
 	if found {
@@ -372,7 +372,7 @@ func (p Precompile) getAdjustedTimestamp(ctx sdk.Context, clientId string, heigh
 	}
 
 	defaultRelativePacketTimeoutTimestamp := types.DefaultRelativePacketTimeoutTimestamp
-	now := time.Now().UnixNano()
+	now := currentTime.UnixNano()
 	if now > 0 {
 		now := uint64(now)
 		if now > consensusStateTimestamp {
