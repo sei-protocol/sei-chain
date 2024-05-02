@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 
 	snapshot "github.com/cosmos/cosmos-sdk/snapshots/types"
@@ -98,29 +100,43 @@ func (ws *WasmSnapshotter) Restore(
 	return snapshot.SnapshotItem{}, snapshot.ErrUnknownFormat
 }
 
-func restoreV1(ctx sdk.Context, k *Keeper, compressedCode []byte) error {
+func restoreV1(ctx sdk.Context, k *Keeper, compressedCode []byte, num int) error {
 	wasmCode, err := ioutils.Uncompress(compressedCode, uint64(types.MaxWasmSize))
 	if err != nil {
 		return sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
 	}
 
 	// FIXME: check which codeIDs the checksum matches??
-	_, err = k.wasmVM.Create(wasmCode)
+	checkSum, err := k.wasmVM.Create(wasmCode)
 	if err != nil {
 		return sdkerrors.Wrap(types.ErrCreateFailed, err.Error())
 	}
+	ctx.Logger().Info(fmt.Sprintf("Restored %d WASM code with checksum %X", num, checkSum))
 	return nil
 }
 
 func finalizeV1(ctx sdk.Context, k *Keeper) error {
-	// FIXME: ensure all codes have been uploaded?
+	var errCheckingExistence error
+	k.IterateCodeInfos(ctx, func(id uint64, info types.CodeInfo) bool {
+		_, err := k.GetByteCode(ctx, id)
+		if err != nil {
+			e := fmt.Sprintf("Could not find byte code for ID %d hash %X: %s", id, info.CodeHash, err)
+			ctx.Logger().Error(e)
+			errCheckingExistence = errors.New(e)
+		}
+
+		return false
+	})
+	if errCheckingExistence != nil {
+		return errCheckingExistence
+	}
 	return k.InitializePinnedCodes(ctx)
 }
 
 func (ws *WasmSnapshotter) processAllItems(
 	height uint64,
 	protoReader protoio.Reader,
-	cb func(sdk.Context, *Keeper, []byte) error,
+	cb func(sdk.Context, *Keeper, []byte, int) error,
 	finalize func(sdk.Context, *Keeper) error,
 ) (snapshot.SnapshotItem, error) {
 	ctx := sdk.NewContext(ws.cms, tmproto.Header{Height: int64(height)}, false, log.NewNopLogger())
@@ -128,7 +144,9 @@ func (ws *WasmSnapshotter) processAllItems(
 	// keep the last item here... if we break, it will either be empty (if we hit io.EOF)
 	// or contain the last item (if we hit payload == nil)
 	var item snapshot.SnapshotItem
+	itemNum := 0
 	for {
+		itemNum++
 		item = snapshot.SnapshotItem{}
 		err := protoReader.ReadMsg(&item)
 		if err == io.EOF {
@@ -144,7 +162,7 @@ func (ws *WasmSnapshotter) processAllItems(
 			break
 		}
 
-		if err := cb(ctx, ws.wasm, payload.Payload); err != nil {
+		if err := cb(ctx, ws.wasm, payload.Payload, itemNum); err != nil {
 			return snapshot.SnapshotItem{}, sdkerrors.Wrap(err, "processing snapshot item")
 		}
 	}
