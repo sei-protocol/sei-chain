@@ -85,7 +85,7 @@ func TestFeeHistory(t *testing.T) {
 		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0xa", expectedBaseFee: "0x0", expectedGasUsed: 0.5},
 		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0xa", expectedBaseFee: "0x0", expectedGasUsed: 0.5},
 		{name: "Request on future block", blockCount: 1, lastBlock: "0x9", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0xa", expectedBaseFee: "0x0", expectedGasUsed: 0.5},
-		{name: "Block count exceeds limit", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedError: errors.New("blockCount must be less than or equal to 1024")},
+		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1", expectedReward: "0xa", expectedBaseFee: "0x0", expectedGasUsed: 0.5},
 		{name: "Too many percentiles", blockCount: 10, lastBlock: "latest", rewardPercentiles: make([]interface{}, 101), expectedError: errors.New("rewardPercentiles length must be less than or equal to 100")},
 		{name: "Invalid percentiles order", blockCount: 10, lastBlock: "latest", rewardPercentiles: []interface{}{99, 1}, expectedError: errors.New("invalid reward percentiles: must be ascending and between 0 and 100")},
 	}

@@ -26,6 +26,8 @@ type InfoAPI struct {
 	connectionType ConnectionType
 }
 
+const defaultMaxBlockHistory = 1024
+
 func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, homeDir string, connectionType ConnectionType) *InfoAPI {
 	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, homeDir: homeDir, connectionType: connectionType}
 }
@@ -99,8 +101,9 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 	}
 
 	// default go-ethereum max block history is 1024
-	if blockCount > 1024 {
-		return nil, errors.New("blockCount must be less than or equal to 1024")
+	// https://github.com/ethereum/go-ethereum/blob/master/eth/gasprice/feehistory.go#L235
+	if blockCount > defaultMaxBlockHistory {
+		blockCount = defaultMaxBlockHistory
 	}
 
 	// if someone needs more than 100 reward percentiles, we can discuss, but it's not likely
