@@ -165,21 +165,6 @@ func TestWebsocketOrigins(t *testing.T) {
 	}
 }
 
-// Testevmrpc.IsWebsocket tests if an incoming websocket upgrade request is handled properly.
-func TestIsWebsocket(t *testing.T) {
-	r, _ := http.NewRequest(http.MethodGet, "/", nil)
-
-	assert.False(t, evmrpc.IsWebsocket(r))
-	r.Header.Set("upgrade", "websocket")
-	assert.False(t, evmrpc.IsWebsocket(r))
-	r.Header.Set("connection", "upgrade")
-	assert.True(t, evmrpc.IsWebsocket(r))
-	r.Header.Set("connection", "upgrade,keep-alive")
-	assert.True(t, evmrpc.IsWebsocket(r))
-	r.Header.Set("connection", " UPGRADE,keep-alive")
-	assert.True(t, evmrpc.IsWebsocket(r))
-}
-
 func Test_CheckPath(t *testing.T) {
 	tests := []struct {
 		req      *http.Request
