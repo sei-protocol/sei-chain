@@ -43,11 +43,12 @@ type filter struct {
 }
 
 type FilterAPI struct {
-	tmClient     rpcclient.Client
-	filtersMu    sync.Mutex
-	filters      map[ethrpc.ID]filter
-	filterConfig *FilterConfig
-	logFetcher   *LogFetcher
+	tmClient       rpcclient.Client
+	filtersMu      sync.Mutex
+	filters        map[ethrpc.ID]filter
+	filterConfig   *FilterConfig
+	logFetcher     *LogFetcher
+	connectionType ConnectionType
 }
 
 type FilterConfig struct {
@@ -61,15 +62,16 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, filterConfig *FilterConfig) *FilterAPI {
+func NewFilterAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, filterConfig *FilterConfig, connectionType ConnectionType) *FilterAPI {
 	logFetcher.filterConfig = filterConfig
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
-		tmClient:     tmClient,
-		filtersMu:    sync.Mutex{},
-		filters:      filters,
-		filterConfig: filterConfig,
-		logFetcher:   logFetcher,
+		tmClient:       tmClient,
+		filtersMu:      sync.Mutex{},
+		filters:        filters,
+		filterConfig:   filterConfig,
+		logFetcher:     logFetcher,
+		connectionType: connectionType,
 	}
 
 	go api.timeoutLoop(filterConfig.timeout)

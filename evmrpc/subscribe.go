@@ -25,20 +25,22 @@ type SubscriptionAPI struct {
 	subscriptionManager *SubscriptionManager
 	subscriptonConfig   *SubscriptionConfig
 
-	logFetcher *LogFetcher
+	logFetcher     *LogFetcher
+	connectionType ConnectionType
 }
 
 type SubscriptionConfig struct {
 	subscriptionCapacity int
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig) *SubscriptionAPI {
+func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, connectionType ConnectionType) *SubscriptionAPI {
 	logFetcher.filterConfig = &FilterConfig{}
 	return &SubscriptionAPI{
 		tmClient:            tmClient,
 		subscriptionManager: NewSubscriptionManager(tmClient),
 		subscriptonConfig:   subscriptionConfig,
 		logFetcher:          logFetcher,
+		connectionType:      connectionType,
 	}
 }
 

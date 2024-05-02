@@ -218,8 +218,8 @@ func TestGetTransactionError(t *testing.T) {
 
 func TestSign(t *testing.T) {
 	homeDir := t.TempDir()
-	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir)
-	infoApi := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir)
+	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP)
+	infoApi := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
 	require.Nil(t, err)
