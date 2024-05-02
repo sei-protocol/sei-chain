@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -26,12 +27,13 @@ type SubscriptionAPI struct {
 	subscriptonConfig   *SubscriptionConfig
 
 	logFetcher          *LogFetcher
-	newHeadListenersMtx *sync.Mutex
+	newHeadListenersMtx *sync.RWMutex
 	newHeadListeners    map[rpc.ID]chan map[string]interface{}
 }
 
 type SubscriptionConfig struct {
 	subscriptionCapacity int
+	newHeadLimit         uint64
 }
 
 func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig) *SubscriptionAPI {
@@ -41,7 +43,7 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subsc
 		subscriptionManager: NewSubscriptionManager(tmClient),
 		subscriptonConfig:   subscriptionConfig,
 		logFetcher:          logFetcher,
-		newHeadListenersMtx: &sync.Mutex{},
+		newHeadListenersMtx: &sync.RWMutex{},
 		newHeadListeners:    make(map[rpc.ID]chan map[string]interface{}),
 	}
 	id, subCh, err := api.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), api.subscriptonConfig.subscriptionCapacity)
@@ -87,6 +89,12 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 
 	rpcSub := notifier.CreateSubscription()
 	listener := make(chan map[string]interface{})
+	a.newHeadListenersMtx.Lock()
+	defer a.newHeadListenersMtx.Unlock()
+	if uint64(len(a.newHeadListeners)) >= a.subscriptonConfig.newHeadLimit {
+		return nil, errors.New("no new subscription can be created")
+	}
+	a.newHeadListeners[rpcSub.ID] = listener
 
 	go func() {
 	OUTER:
@@ -108,9 +116,6 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 		delete(a.newHeadListeners, rpcSub.ID)
 		close(listener)
 	}()
-	a.newHeadListenersMtx.Lock()
-	defer a.newHeadListenersMtx.Unlock()
-	a.newHeadListeners[rpcSub.ID] = listener
 
 	return rpcSub, nil
 }
