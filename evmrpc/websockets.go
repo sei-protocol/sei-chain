@@ -1,8 +1,9 @@
 package evmrpc
 
 import (
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"net/http"
+
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 type wsConnectionHandler struct {
