@@ -28,12 +28,14 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 
 	usei, wei := SplitUseiWeiAmount(amt)
 	addr := s.getSeiAddress(evmAddr)
-	s.err = s.k.BankKeeper().SubUnlockedCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
-	if s.err != nil {
+	err := s.k.BankKeeper().SubUnlockedCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
+	if err != nil {
+		s.err = err
 		return
 	}
-	s.err = s.k.BankKeeper().SubWei(ctx, addr, wei)
-	if s.err != nil {
+	err = s.k.BankKeeper().SubWei(ctx, addr, wei)
+	if err != nil {
+		s.err = err
 		return
 	}
 
@@ -66,12 +68,14 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing
 
 	usei, wei := SplitUseiWeiAmount(amt)
 	addr := s.getSeiAddress(evmAddr)
-	s.err = s.k.BankKeeper().AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
-	if s.err != nil {
+	err := s.k.BankKeeper().AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
+	if err != nil {
+		s.err = err
 		return
 	}
-	s.err = s.k.BankKeeper().AddWei(ctx, addr, wei)
-	if s.err != nil {
+	err = s.k.BankKeeper().AddWei(ctx, addr, wei)
+	if err != nil {
+		s.err = err
 		return
 	}
 
@@ -87,7 +91,7 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
-	usei := s.k.BankKeeper().GetBalance(s.ctx, s.getSeiAddress(evmAddr), s.k.GetBaseDenom(s.ctx)).Amount
+	usei := s.k.BankKeeper().SpendableCoins(s.ctx, s.getSeiAddress(evmAddr)).AmountOf(s.k.GetBaseDenom(s.ctx))
 	wei := s.k.BankKeeper().GetWeiBalance(s.ctx, s.getSeiAddress(evmAddr))
 	return usei.Mul(SdkUseiToSweiMultiplier).Add(wei).BigInt()
 }
@@ -123,5 +127,8 @@ func (s *DBImpl) getSeiAddress(evmAddr common.Address) sdk.AccAddress {
 
 func (s *DBImpl) send(from sdk.AccAddress, to sdk.AccAddress, amt *big.Int) {
 	usei, wei := SplitUseiWeiAmount(amt)
-	s.err = s.k.BankKeeper().SendCoinsAndWei(s.ctx, from, to, usei, wei)
+	err := s.k.BankKeeper().SendCoinsAndWei(s.ctx, from, to, usei, wei)
+	if err != nil {
+		s.err = err
+	}
 }

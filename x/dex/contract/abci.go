@@ -162,7 +162,7 @@ func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo
 	whitelistedStore := multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr))
 	newEventManager := sdk.NewEventManager()
 	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager).WithGasMeter(
-		seisync.NewGasWrapper(sdk.NewInfiniteGasMeter()),
+		seisync.NewGasWrapper(sdk.NewInfiniteGasMeterWithMultiplier(ctx)),
 	)
 }
 

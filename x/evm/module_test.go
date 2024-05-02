@@ -2,12 +2,15 @@ package evm_test
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
+	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtracing "github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -17,9 +20,43 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/tracers"
 	"github.com/sei-protocol/sei-chain/x/evm/tracing"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
+
+func TestModuleName(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	module := evm.NewAppModule(nil, k)
+	assert.Equal(t, "evm", module.Name())
+}
+
+func TestModuleRoute(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	module := evm.NewAppModule(nil, k)
+	assert.Equal(t, "evm", module.Route().Path())
+	assert.Equal(t, false, module.Route().Empty())
+}
+
+func TestQuerierRoute(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	module := evm.NewAppModule(nil, k)
+	assert.Equal(t, "evm", module.QuerierRoute())
+}
+
+func TestModuleExportGenesis(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	module := evm.NewAppModule(nil, k)
+	jsonMsg := module.ExportGenesis(ctx, types.ModuleCdc)
+	jsonStr := string(jsonMsg)
+	assert.Equal(t, "{\"params\":{\"priority_normalizer\":\"1.000000000000000000\",\"base_fee_per_gas\":\"0.000000000000000000\",\"minimum_fee_per_gas\":\"1000000000.000000000000000000\",\"whitelisted_cw_code_hashes_for_delegate_call\":[\"ol1416zS7kfMOcIk4WL+ebU+a75u0qVujAqGWT6+YQI=\",\"lM3Zw+hcJvfOxDwjv7SzsrLXGgqNhcWN8S/+wHQf68g=\"]},\"address_associations\":[]}", jsonStr)
+}
+
+func TestConsensusVersion(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	module := evm.NewAppModule(nil, k)
+	assert.Equal(t, uint64(5), module.ConsensusVersion())
+}
 
 func TestABCI(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
@@ -86,6 +123,30 @@ func TestABCI(t *testing.T) {
 	receipt, err := k.GetReceipt(ctx, common.Hash{1})
 	require.Nil(t, err)
 	require.Equal(t, receipt.VmError, "test error")
+
+	// fourth block with locked tokens in coinbase address
+	m.BeginBlock(ctx, abci.RequestBeginBlock{})
+	coinbase := state.GetCoinbaseAddress(2)
+	vms := vesting.NewMsgServerImpl(*k.AccountKeeper(), k.BankKeeper())
+	_, err = vms.CreateVestingAccount(sdk.WrapSDKContext(ctx), &vestingtypes.MsgCreateVestingAccount{
+		FromAddress: sdk.AccAddress(evmAddr1[:]).String(),
+		ToAddress:   coinbase.String(),
+		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
+		EndTime:     math.MaxInt64,
+	})
+	require.Nil(t, err)
+	s = state.NewDBImpl(ctx.WithTxIndex(2), k, false)
+	s.SubBalance(evmAddr1, big.NewInt(2000000000000), ethtracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr2, big.NewInt(1000000000000), ethtracing.BalanceChangeUnspecified)
+	s.AddBalance(feeCollectorAddr, big.NewInt(1000000000000), ethtracing.BalanceChangeUnspecified)
+	surplus, err = s.Finalize()
+	require.Nil(t, err)
+	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{}, surplus)
+	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}})
+	require.Equal(t, sdk.OneInt(), k.BankKeeper().SpendableCoins(ctx, coinbase).AmountOf("usei"))
+	m.EndBlock(ctx, abci.RequestEndBlock{}) // should not crash
+	require.Equal(t, sdk.OneInt(), k.BankKeeper().GetBalance(ctx, coinbase, "usei").Amount)
+	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().SpendableCoins(ctx, coinbase).AmountOf("usei"))
 }
 
 func addTestBalanceChangeTracerToCtx(ctx sdk.Context, balanceChanges *[]evmBalanceChange) sdk.Context {

@@ -56,7 +56,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	// 	3. At the beginning of message server (here), gas meter is set to infinite again, because EVM internal logic will then take over and manage out-of-gas scenarios.
 	// 	4. At the end of message server, gas consumed by EVM is adjusted to Sei's unit and counted in the original gas meter, because that original gas meter will be used to count towards block gas after message server returns
 	originalGasMeter := ctx.GasMeter()
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
 	stateDB.AddSurplus(msg.Derived.AnteSurplus)
@@ -99,6 +99,14 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
+
+		// Add metrics for receipt status
+		if receipt.Status == uint32(ethtypes.ReceiptStatusFailed) {
+			telemetry.IncrCounter(1, "receipt", "status", "failed")
+		} else {
+			telemetry.IncrCounter(1, "receipt", "status", "success")
+		}
+
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
 			err = ferr
@@ -111,7 +119,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 					telemetry.NewLabel("type", err.Error()),
 				},
 			)
-
 			return
 		}
 		bloom := ethtypes.Bloom{}
@@ -192,7 +199,7 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 	return msg
 }
 
-func (server msgServer) applyEVMTx(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (res *core.ExecutionResult, err error) {
+func (k *Keeper) applyEVMTx(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (res *core.ExecutionResult, err error) {
 	evmHooks := evmtracers.GetCtxEthTracingHooks(ctx)
 
 	var onStart func(vm *vm.EVM)
@@ -218,10 +225,29 @@ func (server msgServer) applyEVMTx(ctx sdk.Context, tx *ethtypes.Transaction, ms
 		}
 	}
 
-	return server.applyEVMMessageWithTracing(ctx, msg, stateDB, gp, onStart, onEnd)
+	return k.applyEVMMessageWithTracing(ctx, msg, stateDB, gp, onStart, onEnd)
 }
 
-func (server msgServer) applyEVMMessageWithTracing(
+func (k *Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (res *core.ExecutionResult, err error) {
+	evmTracer := evmtracers.GetCtxBlockchainTracer(ctx)
+
+	var onStart func(*vm.EVM)
+	if evmTracer != nil && evmTracer.OnSeiSystemCallStart != nil {
+		onStart = func(*vm.EVM) {
+			evmTracer.OnSeiSystemCallStart()
+		}
+	}
+	var onEnd func(*core.ExecutionResult, error)
+	if evmTracer != nil && evmTracer.OnSeiSystemCallEnd != nil {
+		onEnd = func(*core.ExecutionResult, error) {
+			evmTracer.OnSeiSystemCallEnd()
+		}
+	}
+
+	return k.applyEVMMessageWithTracing(ctx, msg, stateDB, gp, onStart, onEnd)
+}
+
+func (k *Keeper) applyEVMMessageWithTracing(
 	ctx sdk.Context,
 	msg *core.Message,
 	stateDB *state.DBImpl,
@@ -229,11 +255,11 @@ func (server msgServer) applyEVMMessageWithTracing(
 	onStart func(vm *vm.EVM),
 	onEnd func(res *core.ExecutionResult, err error),
 ) (res *core.ExecutionResult, err error) {
-	blockCtx, err := server.GetVMBlockContext(ctx, gp)
+	blockCtx, err := k.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
 	}
-	cfg := types.DefaultChainConfig().EthereumConfig(server.ChainID())
+	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
 	evmHooks := evmtracers.GetCtxEthTracingHooks(ctx)
 	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{

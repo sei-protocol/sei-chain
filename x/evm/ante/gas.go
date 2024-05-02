@@ -23,6 +23,6 @@ func (gl GasLimitDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	}
 
 	adjustedGasLimit := gl.evmKeeper.GetPriorityNormalizer(ctx).MulInt64(int64(txData.GetGas()))
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(adjustedGasLimit.TruncateInt().Uint64()))
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, adjustedGasLimit.TruncateInt().Uint64()))
 	return next(ctx, tx, simulate)
 }

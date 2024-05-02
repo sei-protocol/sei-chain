@@ -139,7 +139,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
 		gasLimitBigInt = utils.BigMaxU64
 	}
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(gasLimitBigInt.Uint64()))
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
 
 	if logger != nil && logger.OnGasChange != nil {
 		defer func() { logger.OnGasChange(suppliedGas, remainingGas, tracing.GasChangeCallPrecompiledContract) }()

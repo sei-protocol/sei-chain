@@ -21,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -372,7 +373,7 @@ func TestDecodeTransactionsConcurrently(t *testing.T) {
 		Data:     []byte("abc"),
 	}
 	chainCfg := evmtypes.DefaultChainConfig()
-	ethCfg := chainCfg.EthereumConfig(big.NewInt(713715))
+	ethCfg := chainCfg.EthereumConfig(big.NewInt(config.DefaultChainID))
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), uint64(123))
 	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	ethtxdata, _ := ethtx.NewTxDataFromTx(tx)

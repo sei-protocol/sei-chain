@@ -80,6 +80,8 @@ var MockBlockID = tmtypes.BlockID{
 	Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000001")),
 }
 
+var NewHeadsCalled = make(chan struct{})
+
 type MockClient struct {
 	mock.Client
 }
@@ -271,6 +273,7 @@ func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query str
 	if query == "tm.event = 'NewBlockHeader'" {
 		resCh := make(chan coretypes.ResultEvent, 5)
 		go func() {
+			<-NewHeadsCalled
 			for i := uint64(0); i < 5; i++ {
 				resCh <- coretypes.ResultEvent{
 					SubscriptionID: subscriber,
@@ -451,7 +454,7 @@ func init() {
 }
 
 func generateTxData() {
-	chainId := big.NewInt(config.DefaultConfig.ChainID)
+	chainId := big.NewInt(config.DefaultChainID)
 	to := common.HexToAddress("010203")
 	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3, txBuilder4 client.TxBuilder
 	txBuilder1, tx1 = buildTx(ethtypes.DynamicFeeTx{
@@ -571,10 +574,13 @@ func generateTxData() {
 		ChainID:   chainId,
 	})
 	UnconfirmedTx = unconfirmedTxBuilder.GetTx()
+
+	tracerTestTxFrom := common.HexToAddress("0x5b4eba929f3811980f5ae0c5d04fa200f837df4e")
+	EVMKeeper.SetAddressMapping(Ctx, sdk.AccAddress(tracerTestTxFrom[:]), tracerTestTxFrom)
 }
 
 func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transaction) {
-	chainId := big.NewInt(config.DefaultConfig.ChainID)
+	chainId := big.NewInt(config.DefaultChainID)
 	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
 	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
 	privKey := hd.Secp256k1.Generate()(derivedPriv)

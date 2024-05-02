@@ -6,7 +6,6 @@ import (
 	"math"
 
 	// this line is used by starport scaffolding # 1
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -185,7 +184,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 				panic(err)
 			}
 			statedb := state.NewDBImpl(ctx, am.keeper, false)
-			vmenv := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID()), vm.Config{})
+			vmenv := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{})
 			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
 			_, err = statedb.Finalize()
 			if err != nil {
@@ -223,7 +222,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	denom := am.keeper.GetBaseDenom(ctx)
 	surplus := utils.Sdk0
 	for _, deferredInfo := range evmTxDeferredInfoList {
-		if deferredInfo.Error != "" {
+		if deferredInfo.Error != "" && deferredInfo.TxHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
 			_ = am.keeper.SetReceipt(ctx, deferredInfo.TxHash, &types.Receipt{
 				TxHashHex:        deferredInfo.TxHash.Hex(),
 				TransactionIndex: uint32(deferredInfo.TxIndx),
@@ -233,15 +232,15 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		}
 		idx := deferredInfo.TxIndx
 		coinbaseAddress := state.GetCoinbaseAddress(idx)
-		balance := am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom)
+		balance := am.keeper.BankKeeper().SpendableCoins(ctx, coinbaseAddress).AmountOf(denom)
 		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
-		if !balance.Amount.IsZero() || !weiBalance.IsZero() {
-			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance.Amount, weiBalance); err != nil {
-				panic(err)
+		if !balance.IsZero() || !weiBalance.IsZero() {
+			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance, weiBalance); err != nil {
+				ctx.Logger().Error(fmt.Sprintf("failed to send usei surplus from %s to coinbase account due to %s", coinbaseAddress.String(), err))
 			}
 
 			if evmHooks != nil && evmHooks.OnBalanceChange != nil {
-				tracers.TraceTransactionRewards(ctx, evmHooks, am.keeper.BankKeeper(), coinbase, coinbaseEVMAddress, balance.Amount, weiBalance)
+				tracers.TraceTransactionRewards(ctx, evmHooks, am.keeper.BankKeeper(), coinbase, coinbaseEVMAddress, balance, weiBalance)
 			}
 		}
 		surplus = surplus.Add(deferredInfo.Surplus)
@@ -264,7 +263,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		tracers.TraceBlockReward(ctx, evmHooks, am.keeper.BankKeeper(), evmModuleAddress, am.keeper.GetEVMAddressOrDefault(ctx, evmModuleAddress), surplusUsei, surplusWei)
 	}
 
-	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }))
+	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Filter(utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }), func(h common.Hash) bool { return h.Cmp(ethtypes.EmptyTxsHash) != 0 }))
 	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) ethtypes.Bloom { return i.TxBloom }))
 	return []abci.ValidatorUpdate{}
 }

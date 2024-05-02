@@ -7,8 +7,12 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -28,7 +32,7 @@ func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEV
 	if err != nil {
 		return nil, err
 	}
-	ret, err := k.CallEVM(ctx, senderAddr, to, req.Value, req.Data)
+	ret, err := k.CallEVM(ctx, k.GetEVMAddressOrDefault(ctx, senderAddr), to, req.Value, req.Data)
 	if err != nil {
 		return nil, err
 	}
@@ -51,30 +55,62 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	}
 	// delegatecall caller must be associated; otherwise any state change on EVM contract will be lost
 	// after they asssociate.
-	_, found := k.GetEVMAddress(ctx, senderAddr)
+	senderEvmAddr, found := k.GetEVMAddress(ctx, senderAddr)
 	if !found {
 		return nil, fmt.Errorf("sender %s is not associated", req.Sender)
 	}
-	ret, err := k.CallEVM(ctx, senderAddr, to, &zeroInt, req.Data)
+	ret, err := k.CallEVM(ctx, senderEvmAddr, to, &zeroInt, req.Data)
 	if err != nil {
 		return nil, err
 	}
 	return &sdk.Result{Data: ret}, nil
 }
 
-func (k *Keeper) CallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, val *sdk.Int, data []byte) (retdata []byte, reterr error) {
-	evm, finalizer, err := k.getOrCreateEVM(ctx, from)
-	if err != nil {
-		return nil, err
+func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Address, val *sdk.Int, data []byte) (retdata []byte, reterr error) {
+	if to == nil && len(data) > params.MaxInitCodeSize {
+		return nil, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
 	}
-	defer func() {
-		if finalizer != nil {
-			if err := finalizer(); err != nil {
-				reterr = err
-				return
-			}
+	value := utils.Big0
+	if val != nil {
+		if val.IsNegative() {
+			return nil, sdkerrors.ErrInvalidCoins
 		}
-	}()
+		value = val.BigInt()
+	}
+	evm := types.GetCtxEVM(ctx)
+	if evm == nil {
+		// This call was not part of an existing StateTransition, so it should trigger one
+		executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+		stateDB := state.NewDBImpl(executionCtx, k, false)
+		gp := k.GetGasPool()
+		evmMsg := &core.Message{
+			Nonce:             stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
+			GasLimit:          k.getEvmGasLimitFromCtx(ctx),
+			GasPrice:          utils.Big0, // fees are already paid on the CW transaction
+			GasFeeCap:         utils.Big0,
+			GasTipCap:         utils.Big0,
+			To:                to,
+			Value:             value,
+			Data:              data,
+			SkipAccountChecks: false,
+			From:              from,
+		}
+		res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
+		if err != nil {
+			return nil, err
+		}
+		k.consumeEvmGas(ctx, res.UsedGas)
+		if res.Err != nil {
+			return nil, res.Err
+		}
+		surplus, err := stateDB.Finalize()
+		if err != nil {
+			return nil, err
+		}
+		k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{}, ethtypes.EmptyTxsHash, surplus)
+		return res.ReturnData, nil
+	}
+	// This call is part of an existing StateTransition, so directly invoking `Call`
 	var f EVMCallFunc
 	if to == nil {
 		// contract creation
@@ -91,57 +127,61 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Addres
 }
 
 func (k *Keeper) StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, data []byte) ([]byte, error) {
-	evm, _, err := k.getOrCreateEVM(ctx, from)
+	evm, err := k.getOrCreateEVM(ctx, from)
 	if err != nil {
 		return nil, err
 	}
-	return k.callEVM(ctx, from, to, nil, data, func(caller vm.ContractRef, addr *common.Address, input []byte, gas uint64, _ *big.Int) ([]byte, uint64, error) {
+	return k.callEVM(ctx, k.GetEVMAddressOrDefault(ctx, from), to, nil, data, func(caller vm.ContractRef, addr *common.Address, input []byte, gas uint64, _ *big.Int) ([]byte, uint64, error) {
 		return evm.StaticCall(caller, *addr, input, gas)
 	})
 }
 
-func (k *Keeper) callEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, val *sdk.Int, data []byte, f EVMCallFunc) ([]byte, error) {
-	sender := k.GetEVMAddressOrDefault(ctx, from)
-	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
-	if ctx.GasMeter().Limit() <= 0 {
-		// infinite gas meter (used in queries)
-		seiGasRemaining = math.MaxUint64
-	}
-	multiplier := k.GetPriorityNormalizer(ctx)
-	evmGasRemaining := sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(multiplier).TruncateInt().BigInt()
-	if evmGasRemaining.Cmp(MaxUint64BigInt) > 0 {
-		evmGasRemaining = MaxUint64BigInt
-	}
+func (k *Keeper) callEVM(ctx sdk.Context, from common.Address, to *common.Address, val *sdk.Int, data []byte, f EVMCallFunc) ([]byte, error) {
+	evmGasLimit := k.getEvmGasLimitFromCtx(ctx)
 	value := utils.Big0
 	if val != nil {
 		value = val.BigInt()
 	}
-	ret, leftoverGas, err := f(vm.AccountRef(sender), to, data, evmGasRemaining.Uint64(), value)
-	ctx.GasMeter().ConsumeGas(ctx.GasMeter().Limit()-sdk.NewDecFromInt(sdk.NewIntFromUint64(leftoverGas)).Mul(multiplier).TruncateInt().Uint64(), "call EVM")
+	ret, leftoverGas, err := f(vm.AccountRef(from), to, data, evmGasLimit, value)
+	k.consumeEvmGas(ctx, evmGasLimit-leftoverGas)
 	if err != nil {
 		return nil, err
 	}
 	return ret, nil
 }
 
-func (k *Keeper) getOrCreateEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, func() error, error) {
+// only used for StaticCalls
+func (k *Keeper) getOrCreateEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, error) {
 	evm := types.GetCtxEVM(ctx)
 	if evm != nil {
-		return evm, nil, nil
+		return evm, nil
 	}
-	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	stateDB := state.NewDBImpl(executionCtx, k, false)
 	gp := k.GetGasPool()
 	blockCtx, err := k.GetVMBlockContext(executionCtx, gp)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID())
+	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
 	evm = vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	stateDB.SetEVM(evm)
-	return evm, func() error {
-		_, err := stateDB.Finalize()
-		return err
-	}, nil
+	return evm, nil
+}
+
+func (k *Keeper) getEvmGasLimitFromCtx(ctx sdk.Context) uint64 {
+	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
+	if ctx.GasMeter().Limit() <= 0 {
+		return math.MaxUint64
+	}
+	evmGasBig := sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(k.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
+	if evmGasBig.Cmp(MaxUint64BigInt) > 0 {
+		evmGasBig = MaxUint64BigInt
+	}
+	return evmGasBig.Uint64()
+}
+
+func (k *Keeper) consumeEvmGas(ctx sdk.Context, usedEvmGas uint64) {
+	ctx.GasMeter().ConsumeGas(sdk.NewDecFromInt(sdk.NewIntFromUint64(usedEvmGas)).Mul(k.GetPriorityNormalizer(ctx)).TruncateInt().Uint64(), "call EVM")
 }
