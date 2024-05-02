@@ -14,25 +14,26 @@ import (
 )
 
 type TxPoolAPI struct {
-	tmClient     rpcclient.Client
-	keeper       *keeper.Keeper
-	ctxProvider  func(int64) sdk.Context
-	txDecoder    sdk.TxDecoder
-	txPoolConfig *TxPoolConfig
+	tmClient       rpcclient.Client
+	keeper         *keeper.Keeper
+	ctxProvider    func(int64) sdk.Context
+	txDecoder      sdk.TxDecoder
+	txPoolConfig   *TxPoolConfig
+	connectionType ConnectionType
 }
 
 type TxPoolConfig struct {
 	maxNumTxs int
 }
 
-func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, txPoolConfig *TxPoolConfig) *TxPoolAPI {
-	return &TxPoolAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, txPoolConfig: txPoolConfig}
+func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, txPoolConfig *TxPoolConfig, connectionType ConnectionType) *TxPoolAPI {
+	return &TxPoolAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, txPoolConfig: txPoolConfig, connectionType: connectionType}
 }
 
 // For now, we put all unconfirmed txs in pending and none in queued
 func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]map[string]*RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("sei_content", startTime, returnErr == nil)
+	defer recordMetrics("sei_content", t.connectionType, startTime, returnErr == nil)
 	content := map[string]map[string]map[string]*RPCTransaction{
 		"pending": make(map[string]map[string]*RPCTransaction),
 		"queued":  make(map[string]map[string]*RPCTransaction),

@@ -29,6 +29,7 @@ type SubscriptionAPI struct {
 	logFetcher          *LogFetcher
 	newHeadListenersMtx *sync.RWMutex
 	newHeadListeners    map[rpc.ID]chan map[string]interface{}
+	connectionType      ConnectionType
 }
 
 type SubscriptionConfig struct {
@@ -36,7 +37,7 @@ type SubscriptionConfig struct {
 	newHeadLimit         uint64
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig) *SubscriptionAPI {
+func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
 	logFetcher.filterConfig = filterConfig
 	api := &SubscriptionAPI{
 		tmClient:            tmClient,
@@ -45,6 +46,7 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subsc
 		logFetcher:          logFetcher,
 		newHeadListenersMtx: &sync.RWMutex{},
 		newHeadListeners:    make(map[rpc.ID]chan map[string]interface{}),
+		connectionType:      connectionType,
 	}
 	id, subCh, err := api.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), api.subscriptonConfig.subscriptionCapacity)
 	if err != nil {
@@ -81,7 +83,7 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subsc
 }
 
 func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, err error) {
-	defer recordMetrics("eth_newHeads", time.Now(), err == nil)
+	defer recordMetrics("eth_newHeads", a.connectionType, time.Now(), err == nil)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -121,7 +123,7 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 }
 
 func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, err error) {
-	defer recordMetrics("eth_logs", time.Now(), err == nil)
+	defer recordMetrics("eth_logs", a.connectionType, time.Now(), err == nil)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
