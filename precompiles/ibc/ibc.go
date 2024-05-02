@@ -345,19 +345,25 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 		return
 	}
 
-	height, err := p.getAdjustedHeight(ctx, *connection)
+	latestConsensusHeight, err := p.getConsensusLatestHeight(ctx, *connection)
 	if err != nil {
 		rerr = err
 		return
 	}
 
-	timeoutTimestamp, err := p.getAdjustedTimestamp(ctx, connection.ClientId, *height)
+	height, err := p.getAdjustedHeight(*latestConsensusHeight)
 	if err != nil {
 		rerr = err
 		return
 	}
 
-	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderSeiAddr, receiverAddressString, *height, timeoutTimestamp)
+	timeoutTimestamp, err := p.getAdjustedTimestamp(ctx, connection.ClientId, *latestConsensusHeight)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderSeiAddr, receiverAddressString, height, timeoutTimestamp)
 
 	if err != nil {
 		rerr = err
@@ -425,15 +431,10 @@ func (p Precompile) getConsensusLatestHeight(ctx sdk.Context, connection connect
 	}, nil
 }
 
-func (p Precompile) getAdjustedHeight(ctx sdk.Context, connection connectiontypes.ConnectionEnd) (*clienttypes.Height, error) {
-	latestConsensusHeight, err := p.getConsensusLatestHeight(ctx, connection)
-	if err != nil {
-		return nil, err
-	}
-
+func (p Precompile) getAdjustedHeight(latestConsensusHeight clienttypes.Height) (clienttypes.Height, error) {
 	defaultTimeoutHeight, err := clienttypes.ParseHeight(types.DefaultRelativePacketTimeoutHeight)
 	if err != nil {
-		return nil, err
+		return clienttypes.Height{}, err
 	}
 
 	absoluteHeight := latestConsensusHeight
@@ -444,20 +445,19 @@ func (p Precompile) getAdjustedHeight(ctx sdk.Context, connection connectiontype
 
 func (p Precompile) getAdjustedTimestamp(ctx sdk.Context, clientId string, height clienttypes.Height) (uint64, error) {
 	consensusState, found := p.clientKeeper.GetClientConsensusState(ctx, clientId, height)
-	if !found {
-		return 0, errors.New("consensus state not found")
+	var consensusStateTimestamp uint64
+	if found {
+		consensusStateTimestamp = consensusState.GetTimestamp()
 	}
 
-	timeoutTimestamp := types.DefaultRelativePacketTimeoutTimestamp
-
+	defaultRelativePacketTimeoutTimestamp := types.DefaultRelativePacketTimeoutTimestamp
 	now := time.Now().UnixNano()
-	consensusStateTimestamp := consensusState.GetTimestamp()
 	if now > 0 {
 		now := uint64(now)
 		if now > consensusStateTimestamp {
-			return now + timeoutTimestamp, nil
+			return now + defaultRelativePacketTimeoutTimestamp, nil
 		} else {
-			return consensusStateTimestamp + timeoutTimestamp, nil
+			return consensusStateTimestamp + defaultRelativePacketTimeoutTimestamp, nil
 		}
 	} else {
 		return 0, errors.New("local clock time is not greater than Jan 1st, 1970 12:00 AM")
