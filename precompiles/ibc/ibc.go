@@ -5,9 +5,10 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	"math/big"
 	"time"
+
+	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 

@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
