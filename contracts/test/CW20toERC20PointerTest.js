@@ -27,19 +27,11 @@ describe("CW20 to ERC20 Pointer", function () {
 
         // give admin balance
         admin = await getAdmin()
-        console.log("trying to add admin2")
         admin2 = await addKey("admin2")
 
-        // TODO: NOT WORKING!!!! should be associated
-        console.log("checking association right after key creation")
-        const output = await execute(`seid q evm evm-addr $(seid keys show admin2 -a)`)
-        console.log("output = ", output)
-
-        console.log("admin2 = ", admin2)
         await setBalance(admin.evmAddress, 1000000000000)
 
         const codeId = await storeWasm(CW20_POINTER_WASM)
-
         cw20Pointer = await instantiateWasm(codeId, admin.seiAddress, "cw20-erc20", {erc20_address: tokenAddr })
     })
 
@@ -131,26 +123,14 @@ describe("CW20 to ERC20 Pointer", function () {
             expect(allowance.data.allowance).to.equal("0");
         });
 
-        // need to approve third party
-        // third party needs to the transferFrom
-
-        it.only("should transfer token using transferFrom", async function() {
-            // allow admin2 to spend admin's tokens
-            // await executeWasm(cw20Pointer,  { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
-
-            console.log("checking association")
-            const output = await execute(`seid q evm evm-addr $(seid keys show admin2 -a)`)
-            console.log("output = ", output)
-
-            const increaseAllowanceRes = await executeWasm(cw20Pointer, { increase_allowance: { spender: admin2.seiAddress, amount: "300" } });
-            console.log("increaseAllowanceRes = ", increaseAllowanceRes)
+        it("should transfer token using transferFrom", async function() {
+            await executeWasm(cw20Pointer, { increase_allowance: { spender: admin2.seiAddress, amount: "300" } });
             let allowance = await queryWasm(cw20Pointer, "allowance", { owner: admin.seiAddress, spender: admin2.seiAddress });
             expect(allowance.data.allowance).to.equal("300");
 
             const respBefore = await queryWasm(cw20Pointer, "balance", {address: accounts[1].seiAddress});
             const balanceBefore = respBefore.data.balance;
-            const txfr = await executeWasmWithSigner(cw20Pointer,  { transfer_from: { owner: admin.seiAddress, recipient: accounts[1].seiAddress, amount: "100" } }, "admin2");
-            console.log("txfr = ", txfr)
+            await executeWasmWithSigner(cw20Pointer,  { transfer_from: { owner: admin.seiAddress, recipient: accounts[1].seiAddress, amount: "100" } }, "admin2");
             const respAfter = await queryWasm(cw20Pointer, "balance", {address: accounts[1].seiAddress});
             const balanceAfter = respAfter.data.balance;
             expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString())

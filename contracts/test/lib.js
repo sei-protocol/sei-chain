@@ -48,7 +48,7 @@ async function addKey(name) {
     const res = await execute(`printf "y" | seid keys add ${name} 2> /dev/null`)
     console.log("add key res = ", res )
     const addrs = await getKey(name)
-    fundAddressCosmos(addrs.seiAddress)
+    await fundAddressCosmos(addrs.seiAddress)
     await associateAdmin(name)
     return addrs
 }
