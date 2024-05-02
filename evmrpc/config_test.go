@@ -9,25 +9,26 @@ import (
 )
 
 type opts struct {
-	httpEnabled          interface{}
-	httpPort             interface{}
-	wsEnabled            interface{}
-	wsPort               interface{}
-	readTimeout          interface{}
-	readHeaderTimeout    interface{}
-	writeTimeout         interface{}
-	idleTimeout          interface{}
-	simulationGasLimit   interface{}
-	simulationEVMTimeout interface{}
-	corsOrigins          interface{}
-	wsOrigins            interface{}
-	filterTimeout        interface{}
-	checkTxTimeout       interface{}
-	maxTxPoolTxs         interface{}
-	slow                 interface{}
-	denyList             interface{}
-	maxLogNoBlock        interface{}
-	maxBlocksForLog      interface{}
+	httpEnabled             interface{}
+	httpPort                interface{}
+	wsEnabled               interface{}
+	wsPort                  interface{}
+	readTimeout             interface{}
+	readHeaderTimeout       interface{}
+	writeTimeout            interface{}
+	idleTimeout             interface{}
+	simulationGasLimit      interface{}
+	simulationEVMTimeout    interface{}
+	corsOrigins             interface{}
+	wsOrigins               interface{}
+	filterTimeout           interface{}
+	checkTxTimeout          interface{}
+	maxTxPoolTxs            interface{}
+	slow                    interface{}
+	denyList                interface{}
+	maxLogNoBlock           interface{}
+	maxBlocksForLog         interface{}
+	maxSubscriptionsNewHead interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -88,6 +89,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_blocks_for_log" {
 		return o.maxBlocksForLog
 	}
+	if k == "evm.max_subscriptions_new_head" {
+		return o.maxSubscriptionsNewHead
+	}
 	panic("unknown key")
 }
 
@@ -112,6 +116,7 @@ func TestReadConfig(t *testing.T) {
 		make([]string, 0),
 		20000,
 		1000,
+		10000,
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)
