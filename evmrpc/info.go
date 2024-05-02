@@ -93,9 +93,24 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 	defer recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
 	result = &FeeHistoryResult{}
 
+	// logic consistent with go-ethereum's validation (block < 1 means no block)
+	if blockCount < 1 {
+		return result, nil
+	}
+
+	// default go-ethereum max block history is 1024
+	if blockCount > 1024 {
+		return nil, errors.New("blockCount must be less than or equal to 1024")
+	}
+
+	// if someone needs more than 100 reward percentiles, we can discuss, but it's not likely
+	if len(rewardPercentiles) > 100 {
+		return nil, errors.New("rewardPercentiles length must be less than or equal to 100")
+	}
+
 	// validate reward percentiles
 	for i, p := range rewardPercentiles {
-		if p < 0 || p > 100 || (i > 0 && p < rewardPercentiles[i-1]) {
+		if p < 0 || p > 100 || (i > 0 && p <= rewardPercentiles[i-1]) {
 			return nil, errors.New("invalid reward percentiles: must be ascending and between 0 and 100")
 		}
 	}
