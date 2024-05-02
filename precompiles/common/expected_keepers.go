@@ -83,11 +83,6 @@ type TransferKeeper interface {
 	) error
 }
 
-type IBCKeeper_old interface {
-	GetChannelClientState(ctx sdk.Context, portID, channelID string) (string, exported.ClientState, error)
-	ChannelConsensusState(c context.Context, req *types.QueryChannelConsensusStateRequest) (*types.QueryChannelConsensusStateResponse, error)
-}
-
 type ClientKeeper interface {
 	GetClientState(ctx sdk.Context, clientID string) (exported.ClientState, bool)
 	GetClientConsensusState(ctx sdk.Context, clientID string, height exported.Height) (exported.ConsensusState, bool)

@@ -241,3 +241,188 @@ func TestPrecompile_Run(t *testing.T) {
 		})
 	}
 }
+
+func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
+	senderSeiAddress, senderEvmAddress := testkeeper.MockAddressPair()
+	receiverAddress := "cosmos1yykwxjzr2tv4mhx5tsf8090sdg96f2ax8fydk2"
+
+	type fields struct {
+		transferKeeper   pcommon.TransferKeeper
+		clientKeeper     pcommon.ClientKeeper
+		connectionKeeper pcommon.ConnectionKeeper
+		channelKeeper    pcommon.ChannelKeeper
+	}
+
+	type input struct {
+		receiverAddr  string
+		sourcePort    string
+		sourceChannel string
+		denom         string
+		amount        *big.Int
+	}
+	type args struct {
+		caller          common.Address
+		callingContract common.Address
+		input           *input
+		suppliedGas     uint64
+		value           *big.Int
+	}
+
+	commonArgs := args{
+		caller:          senderEvmAddress,
+		callingContract: senderEvmAddress,
+		input: &input{
+			receiverAddr:  receiverAddress,
+			sourcePort:    "transfer",
+			sourceChannel: "channel-0",
+			denom:         "denom",
+			amount:        big.NewInt(100),
+		},
+		suppliedGas: uint64(1000000),
+		value:       nil,
+	}
+
+	tests := []struct {
+		name             string
+		fields           fields
+		args             args
+		wantBz           []byte
+		wantRemainingGas uint64
+		wantErr          bool
+		wantErrMsg       string
+	}{
+		{
+			name:       "failed transfer: caller not whitelisted",
+			fields:     fields{transferKeeper: &MockTransferKeeper{}},
+			args:       args{caller: senderEvmAddress, callingContract: common.Address{}, input: commonArgs.input, suppliedGas: 1000000, value: nil},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "cannot delegatecall IBC",
+		},
+		{
+			name:   "failed transfer: empty sourcePort",
+			fields: fields{transferKeeper: &MockTransferKeeper{}},
+			args: args{
+				caller:          senderEvmAddress,
+				callingContract: senderEvmAddress,
+				input: &input{
+					receiverAddr:  receiverAddress,
+					sourcePort:    "", // empty sourcePort
+					sourceChannel: "channel-0",
+					denom:         "denom",
+					amount:        big.NewInt(100),
+				},
+				suppliedGas: uint64(1000000),
+				value:       nil,
+			},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "port cannot be empty",
+		},
+		{
+			name:   "failed transfer: empty sourceChannel",
+			fields: fields{transferKeeper: &MockTransferKeeper{}},
+			args: args{
+				caller:          senderEvmAddress,
+				callingContract: senderEvmAddress,
+				input: &input{
+					receiverAddr:  receiverAddress,
+					sourcePort:    "transfer",
+					sourceChannel: "",
+					denom:         "denom",
+					amount:        big.NewInt(100),
+				},
+				suppliedGas: uint64(1000000),
+				value:       nil,
+			},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "channelID cannot be empty",
+		},
+		{
+			name:   "failed transfer: invalid denom",
+			fields: fields{transferKeeper: &MockTransferKeeper{}},
+			args: args{
+				caller:          senderEvmAddress,
+				callingContract: senderEvmAddress,
+				input: &input{
+					receiverAddr:  receiverAddress,
+					sourcePort:    "transfer",
+					sourceChannel: "channel-0",
+					denom:         "",
+					amount:        big.NewInt(100),
+				},
+				suppliedGas: uint64(1000000),
+				value:       nil,
+			},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "invalid denom",
+		},
+		{
+			name:   "failed transfer: invalid receiver address",
+			fields: fields{transferKeeper: &MockTransferKeeper{}},
+			args: args{
+				caller:          senderEvmAddress,
+				callingContract: senderEvmAddress,
+				input: &input{
+					receiverAddr:  "invalid",
+					sourcePort:    "transfer",
+					sourceChannel: "channel-0",
+					denom:         "",
+					amount:        big.NewInt(100),
+				},
+				suppliedGas: uint64(1000000),
+				value:       nil,
+			},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "decoding bech32 failed: invalid bech32 string length 7",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, senderSeiAddress, senderEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB:   stateDb,
+				TxContext: vm.TxContext{Origin: senderEvmAddress},
+			}
+
+			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper,
+				k, tt.fields.clientKeeper,
+				tt.fields.connectionKeeper,
+				tt.fields.channelKeeper)
+			transfer, err := p.ABI.MethodById(p.TransferWithDefaultTimeoutID)
+			require.Nil(t, err)
+			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverAddr,
+				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount)
+			require.Nil(t, err)
+			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm,
+				tt.args.caller,
+				tt.args.callingContract,
+				append(p.TransferWithDefaultTimeoutID, inputs...),
+				tt.args.suppliedGas,
+				tt.args.value,
+				nil,
+				false)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			}
+
+			if !reflect.DeepEqual(gotBz, tt.wantBz) {
+				t.Errorf("Run() gotBz = %v, want %v", gotBz, tt.wantBz)
+			}
+			if !reflect.DeepEqual(gotRemainingGas, tt.wantRemainingGas) {
+				t.Errorf("Run() gotRemainingGas = %v, want %v", gotRemainingGas, tt.wantRemainingGas)
+			}
+		})
+	}
+}
