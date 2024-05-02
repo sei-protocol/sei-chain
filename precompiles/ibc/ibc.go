@@ -158,61 +158,13 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		rerr = err
 		return
 	}
-	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !ok {
-		rerr = errors.New("caller is not a valid SEI address")
-		return
-	}
-
-	receiverAddressString, ok := args[0].(string)
-	if !ok {
-		rerr = errors.New("receiverAddress is not a string")
-		return
-	}
-	_, bz, err := bech32.DecodeAndConvert(receiverAddressString)
-	if err != nil {
-		rerr = err
-		return
-	}
-	err = sdk.VerifyAddressFormat(bz)
+	validatedArgs, err := p.validateCommonArgs(ctx, args, caller)
 	if err != nil {
 		rerr = err
 		return
 	}
 
-	port, ok := args[1].(string)
-	if !ok {
-		rerr = errors.New("port is not a string")
-		return
-	}
-	if port == "" {
-		rerr = errors.New("port cannot be empty")
-		return
-	}
-
-	channelID, ok := args[2].(string)
-	if !ok {
-		rerr = errors.New("channelID is not a string")
-		return
-	}
-	if channelID == "" {
-		rerr = errors.New("channelID cannot be empty")
-		return
-	}
-
-	denom := args[3].(string)
-	if denom == "" {
-		rerr = errors.New("invalid denom")
-		return
-	}
-
-	amount, ok := args[4].(*big.Int)
-	if !ok {
-		rerr = errors.New("amount is not a big.Int")
-		return
-	}
-
-	if amount.Cmp(big.NewInt(0)) == 0 {
+	if validatedArgs.amount.Cmp(big.NewInt(0)) == 0 {
 		// short circuit
 		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 		ret, rerr = method.Outputs.Pack(true)
@@ -220,8 +172,8 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 	}
 
 	coin := sdk.Coin{
-		Denom:  denom,
-		Amount: sdk.NewIntFromBigInt(amount),
+		Denom:  validatedArgs.denom,
+		Amount: sdk.NewIntFromBigInt(validatedArgs.amount),
 	}
 
 	revisionNumber, ok := args[5].(uint64)
@@ -247,7 +199,15 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		return
 	}
 
-	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderSeiAddr, receiverAddressString, height, timeoutTimestamp)
+	err = p.transferKeeper.SendTransfer(
+		ctx,
+		validatedArgs.port,
+		validatedArgs.channelID,
+		coin,
+		validatedArgs.senderSeiAddr,
+		validatedArgs.receiverAddressString,
+		height,
+		timeoutTimestamp)
 
 	if err != nil {
 		rerr = err
@@ -272,61 +232,13 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 		rerr = err
 		return
 	}
-	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !ok {
-		rerr = errors.New("caller is not a valid SEI address")
-		return
-	}
-
-	receiverAddressString, ok := args[0].(string)
-	if !ok {
-		rerr = errors.New("receiverAddress is not a string")
-		return
-	}
-	_, bz, err := bech32.DecodeAndConvert(receiverAddressString)
-	if err != nil {
-		rerr = err
-		return
-	}
-	err = sdk.VerifyAddressFormat(bz)
+	validatedArgs, err := p.validateCommonArgs(ctx, args, caller)
 	if err != nil {
 		rerr = err
 		return
 	}
 
-	port, ok := args[1].(string)
-	if !ok {
-		rerr = errors.New("port is not a string")
-		return
-	}
-	if port == "" {
-		rerr = errors.New("port cannot be empty")
-		return
-	}
-
-	channelID, ok := args[2].(string)
-	if !ok {
-		rerr = errors.New("channelID is not a string")
-		return
-	}
-	if channelID == "" {
-		rerr = errors.New("channelID cannot be empty")
-		return
-	}
-
-	denom := args[3].(string)
-	if denom == "" {
-		rerr = errors.New("invalid denom")
-		return
-	}
-
-	amount, ok := args[4].(*big.Int)
-	if !ok {
-		rerr = errors.New("amount is not a big.Int")
-		return
-	}
-
-	if amount.Cmp(big.NewInt(0)) == 0 {
+	if validatedArgs.amount.Cmp(big.NewInt(0)) == 0 {
 		// short circuit
 		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 		ret, rerr = method.Outputs.Pack(true)
@@ -334,11 +246,11 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 	}
 
 	coin := sdk.Coin{
-		Denom:  denom,
-		Amount: sdk.NewIntFromBigInt(amount),
+		Denom:  validatedArgs.denom,
+		Amount: sdk.NewIntFromBigInt(validatedArgs.amount),
 	}
 
-	connection, err := p.getChannelConnection(ctx, port, channelID)
+	connection, err := p.getChannelConnection(ctx, validatedArgs.port, validatedArgs.channelID)
 
 	if err != nil {
 		rerr = err
@@ -363,7 +275,15 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 		return
 	}
 
-	err = p.transferKeeper.SendTransfer(ctx, port, channelID, coin, senderSeiAddr, receiverAddressString, height, timeoutTimestamp)
+	err = p.transferKeeper.SendTransfer(
+		ctx,
+		validatedArgs.port,
+		validatedArgs.channelID,
+		coin,
+		validatedArgs.senderSeiAddr,
+		validatedArgs.receiverAddressString,
+		height,
+		timeoutTimestamp)
 
 	if err != nil {
 		rerr = err
@@ -462,4 +382,67 @@ func (p Precompile) getAdjustedTimestamp(ctx sdk.Context, clientId string, heigh
 	} else {
 		return 0, errors.New("local clock time is not greater than Jan 1st, 1970 12:00 AM")
 	}
+}
+
+type ValidatedArgs struct {
+	senderSeiAddr         sdk.AccAddress
+	receiverAddressString string
+	port                  string
+	channelID             string
+	denom                 string
+	amount                *big.Int
+}
+
+func (p Precompile) validateCommonArgs(ctx sdk.Context, args []interface{}, caller common.Address) (*ValidatedArgs, error) {
+	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !ok {
+		return nil, errors.New("caller is not a valid SEI address")
+	}
+
+	receiverAddressString, ok := args[0].(string)
+	if !ok {
+		return nil, errors.New("receiverAddress is not a string")
+	}
+	_, bz, err := bech32.DecodeAndConvert(receiverAddressString)
+	if err != nil {
+		return nil, err
+	}
+	err = sdk.VerifyAddressFormat(bz)
+	if err != nil {
+		return nil, err
+	}
+
+	port, ok := args[1].(string)
+	if !ok {
+		return nil, errors.New("port is not a string")
+	}
+	if port == "" {
+		return nil, errors.New("port cannot be empty")
+	}
+
+	channelID, ok := args[2].(string)
+	if !ok {
+		return nil, errors.New("channelID is not a string")
+	}
+	if channelID == "" {
+		return nil, errors.New("channelID cannot be empty")
+	}
+
+	denom := args[3].(string)
+	if denom == "" {
+		return nil, errors.New("invalid denom")
+	}
+
+	amount, ok := args[4].(*big.Int)
+	if !ok {
+		return nil, errors.New("amount is not a big.Int")
+	}
+	return &ValidatedArgs{
+		senderSeiAddr:         senderSeiAddr,
+		receiverAddressString: receiverAddressString,
+		port:                  port,
+		channelID:             channelID,
+		denom:                 denom,
+		amount:                amount,
+	}, nil
 }
