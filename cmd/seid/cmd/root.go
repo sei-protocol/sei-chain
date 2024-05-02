@@ -501,6 +501,9 @@ max_log_no_block = {{ .EVM.MaxLogNoBlock }}
 # max number of blocks to query logs for
 max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
 
+# max number of concurrent NewHead subscriptions
+max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
+
 [eth_replay]
 eth_replay_enabled = {{ .ETHReplay.Enabled }}
 eth_rpc = "{{ .ETHReplay.EthRPC }}"
