@@ -21,6 +21,11 @@ import (
 )
 
 func TestGetTxReceipt(t *testing.T) {
+	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"))
+	require.Nil(t, err)
+	receipt.To = ""
+	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"), receipt)
+
 	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}"
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -53,15 +58,16 @@ func TestGetTxReceipt(t *testing.T) {
 	require.Equal(t, "0x0", log["logIndex"].(string))
 	require.False(t, log["removed"].(bool))
 	require.Equal(t, "0x0", resObj["status"].(string))
-	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["to"].(string))
+	require.Equal(t, nil, resObj["to"])
 	require.Equal(t, "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e", resObj["transactionHash"].(string))
 	require.Equal(t, "0x0", resObj["transactionIndex"].(string))
 	require.Equal(t, "0x1", resObj["type"].(string))
 	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["contractAddress"].(string))
 
-	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"))
+	receipt, err = EVMKeeper.GetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"))
 	require.Nil(t, err)
 	receipt.ContractAddress = ""
+	receipt.To = "0x1234567890123456789012345678901234567890"
 	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"), receipt)
 	body = "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}"
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
@@ -75,6 +81,7 @@ func TestGetTxReceipt(t *testing.T) {
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 	resObj = resObj["result"].(map[string]interface{})
 	require.Nil(t, resObj["contractAddress"])
+	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["to"].(string))
 
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestBadPort), strings.NewReader(body))
 	require.Nil(t, err)

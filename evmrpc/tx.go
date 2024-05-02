@@ -269,13 +269,13 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
+
 	fields := map[string]interface{}{
 		"blockHash":         bh,
 		"blockNumber":       hexutil.Uint64(receipt.BlockNumber),
 		"transactionHash":   common.HexToHash(receipt.TxHashHex),
 		"transactionIndex":  hexutil.Uint64(evmTxIndex),
 		"from":              common.HexToAddress(receipt.From),
-		"to":                common.HexToAddress(receipt.To),
 		"gasUsed":           hexutil.Uint64(receipt.GasUsed),
 		"cumulativeGasUsed": hexutil.Uint64(receipt.CumulativeGasUsed),
 		"logs":              logs,
@@ -284,10 +284,13 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 		"effectiveGasPrice": (*hexutil.Big)(big.NewInt(int64(receipt.EffectiveGasPrice))),
 		"status":            hexutil.Uint(receipt.Status),
 	}
-	if receipt.ContractAddress != "" {
+	if receipt.ContractAddress != "" && receipt.To == "" {
 		fields["contractAddress"] = common.HexToAddress(receipt.ContractAddress)
 	} else {
 		fields["contractAddress"] = nil
+	}
+	if receipt.To != "" {
+		fields["to"] = common.HexToAddress(receipt.To)
 	}
 	return fields, nil
 }

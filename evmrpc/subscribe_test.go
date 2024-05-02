@@ -15,6 +15,7 @@ import (
 func TestSubscribeNewHeads(t *testing.T) {
 	t.Parallel()
 	recvCh, done := sendWSRequestGood(t, "subscribe", "newHeads")
+	NewHeadsCalled <- struct{}{}
 	defer func() { done <- struct{}{} }()
 
 	receivedSubMsg := false

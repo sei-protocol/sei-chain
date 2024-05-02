@@ -25,63 +25,100 @@ type SubscriptionAPI struct {
 	subscriptionManager *SubscriptionManager
 	subscriptonConfig   *SubscriptionConfig
 
-	logFetcher     *LogFetcher
-	connectionType ConnectionType
+	logFetcher          *LogFetcher
+	newHeadListenersMtx *sync.Mutex
+	newHeadListeners    map[rpc.ID]chan map[string]interface{}
+	connectionType      ConnectionType
 }
 
 type SubscriptionConfig struct {
 	subscriptionCapacity int
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, connectionType ConnectionType) *SubscriptionAPI {
-	logFetcher.filterConfig = &FilterConfig{}
-	return &SubscriptionAPI{
+func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
+	logFetcher.filterConfig = filterConfig
+	api := &SubscriptionAPI{
 		tmClient:            tmClient,
 		subscriptionManager: NewSubscriptionManager(tmClient),
 		subscriptonConfig:   subscriptionConfig,
 		logFetcher:          logFetcher,
+		newHeadListenersMtx: &sync.Mutex{},
+		newHeadListeners:    make(map[rpc.ID]chan map[string]interface{}),
 		connectionType:      connectionType,
 	}
+	id, subCh, err := api.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), api.subscriptonConfig.subscriptionCapacity)
+	if err != nil {
+		panic(err)
+	}
+	go func() {
+		defer func() {
+			_ = api.subscriptionManager.Unsubscribe(context.Background(), id)
+		}()
+		for {
+			res := <-subCh
+			ethHeader, err := encodeTmHeader(res.Data.(tmtypes.EventDataNewBlockHeader))
+			if err != nil {
+				fmt.Printf("error encoding new head event %#v due to %s\n", res.Data, err)
+				continue
+			}
+			api.newHeadListenersMtx.Lock()
+			for _, c := range api.newHeadListeners {
+				c := c
+				go func() {
+					defer func() {
+						// if the channel is already closed, sending to it will panic
+						if err := recover(); err != nil {
+							return
+						}
+					}()
+					c <- ethHeader
+				}()
+			}
+			api.newHeadListenersMtx.Unlock()
+		}
+	}()
+	return api
 }
 
-func (a *SubscriptionAPI) NewHeads(ctx context.Context) (*rpc.Subscription, error) {
+func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, err error) {
+	defer recordMetrics("eth_newHeads", a.connectionType, time.Now(), err == nil)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
 	}
 
 	rpcSub := notifier.CreateSubscription()
-	subscriberID, subCh, err := a.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), a.subscriptonConfig.subscriptionCapacity)
-	if err != nil {
-		return nil, err
-	}
+	listener := make(chan map[string]interface{})
 
 	go func() {
-		defer func() {
-			_ = a.subscriptionManager.Unsubscribe(context.Background(), subscriberID)
-		}()
+	OUTER:
 		for {
 			select {
-			case res := <-subCh:
-				ethHeader, err := encodeTmHeader(res.Data.(tmtypes.EventDataNewBlockHeader))
+			case res := <-listener:
+				err = notifier.Notify(rpcSub.ID, res)
 				if err != nil {
-					return
-				}
-				err = notifier.Notify(rpcSub.ID, ethHeader)
-				if err != nil {
-					return
+					break OUTER
 				}
 			case <-rpcSub.Err():
-				return
+				break OUTER
 			case <-notifier.Closed():
-				return
+				break OUTER
 			}
 		}
+		a.newHeadListenersMtx.Lock()
+		defer a.newHeadListenersMtx.Unlock()
+		delete(a.newHeadListeners, rpcSub.ID)
+		close(listener)
 	}()
+	a.newHeadListenersMtx.Lock()
+	defer a.newHeadListenersMtx.Unlock()
+	a.newHeadListeners[rpcSub.ID] = listener
+
 	return rpcSub, nil
 }
 
-func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (*rpc.Subscription, error) {
+func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, err error) {
+	defer recordMetrics("eth_logs", a.connectionType, time.Now(), err == nil)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
