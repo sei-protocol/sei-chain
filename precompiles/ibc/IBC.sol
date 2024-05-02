@@ -19,4 +19,12 @@ interface IBC {
         uint64 revisionHeight,
         uint64 timeoutTimestamp
     ) external returns (bool success);
+
+    function transferWithDefaultTimeout(
+        string toAddress,
+        string memory port,
+        string memory channel,
+        string memory denom,
+        uint256 amount
+    ) external returns (bool success);
 }

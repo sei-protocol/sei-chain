@@ -36,7 +36,7 @@ func TestPrecompile_Run(t *testing.T) {
 	senderSeiAddress, senderEvmAddress := testkeeper.MockAddressPair()
 	receiverAddress := "cosmos1yykwxjzr2tv4mhx5tsf8090sdg96f2ax8fydk2"
 
-	pre, _ := ibc.NewPrecompile(nil, nil)
+	pre, _ := ibc.NewPrecompile(nil, nil, nil, nil, nil)
 	testTransfer, _ := pre.ABI.MethodById(pre.TransferID)
 	packedTrue, _ := testTransfer.Outputs.Pack(true)
 
@@ -216,7 +216,7 @@ func TestPrecompile_Run(t *testing.T) {
 				StateDB:   stateDb,
 				TxContext: vm.TxContext{Origin: senderEvmAddress},
 			}
-			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, k)
+			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, k, nil, nil, nil)
 			transfer, err := p.ABI.MethodById(p.TransferID)
 			require.Nil(t, err)
 			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverAddr,
