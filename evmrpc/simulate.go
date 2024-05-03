@@ -32,7 +32,8 @@ import (
 )
 
 type SimulationAPI struct {
-	backend *Backend
+	backend        *Backend
+	connectionType ConnectionType
 }
 
 func NewSimulationAPI(
@@ -41,9 +42,11 @@ func NewSimulationAPI(
 	txDecoder sdk.TxDecoder,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
+	connectionType ConnectionType,
 ) *SimulationAPI {
 	return &SimulationAPI{
-		backend: NewBackend(ctxProvider, keeper, txDecoder, tmClient, config),
+		backend:        NewBackend(ctxProvider, keeper, txDecoder, tmClient, config),
+		connectionType: connectionType,
 	}
 }
 
@@ -55,7 +58,7 @@ type AccessListResult struct {
 
 func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_createAccessList", startTime, returnErr == nil)
+	defer recordMetrics("eth_createAccessList", s.connectionType, startTime, returnErr == nil)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -73,7 +76,7 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_estimateGas", startTime, returnErr == nil)
+	defer recordMetrics("eth_estimateGas", s.connectionType, startTime, returnErr == nil)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -84,7 +87,7 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 
 func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_call", startTime, returnErr == nil)
+	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
 	if blockNrOrHash == nil {
 		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 		blockNrOrHash = &latest

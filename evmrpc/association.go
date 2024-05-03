@@ -18,15 +18,16 @@ import (
 )
 
 type AssociationAPI struct {
-	tmClient    rpcclient.Client
-	keeper      *keeper.Keeper
-	ctxProvider func(int64) sdk.Context
-	txDecoder   sdk.TxDecoder
-	sendAPI     *SendAPI
+	tmClient       rpcclient.Client
+	keeper         *keeper.Keeper
+	ctxProvider    func(int64) sdk.Context
+	txDecoder      sdk.TxDecoder
+	sendAPI        *SendAPI
+	connectionType ConnectionType
 }
 
-func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, sendAPI *SendAPI) *AssociationAPI {
-	return &AssociationAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, sendAPI: sendAPI}
+func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, sendAPI *SendAPI, connectionType ConnectionType) *AssociationAPI {
+	return &AssociationAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, sendAPI: sendAPI, connectionType: connectionType}
 }
 
 type AssociateRequest struct {
@@ -38,7 +39,7 @@ type AssociateRequest struct {
 
 func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("sei_associate", startTime, returnErr == nil)
+	defer recordMetrics("sei_associate", t.connectionType, startTime, returnErr == nil)
 	rBytes, err := decodeHexString(req.R)
 	if err != nil {
 		return err
@@ -86,7 +87,7 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 
 func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Address) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("sei_getSeiAddress", startTime, returnErr == nil)
+	defer recordMetrics("sei_getSeiAddress", t.connectionType, startTime, returnErr == nil)
 	seiAddress, found := t.keeper.GetSeiAddress(t.ctxProvider(LatestCtxHeight), ethAddress)
 	if !found {
 		return "", fmt.Errorf("failed to find Sei address for %s", ethAddress.Hex())
@@ -97,7 +98,7 @@ func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Addr
 
 func (t *AssociationAPI) GetEVMAddress(_ context.Context, seiAddress string) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("sei_getEVMAddress", startTime, returnErr == nil)
+	defer recordMetrics("sei_getEVMAddress", t.connectionType, startTime, returnErr == nil)
 	seiAddr, err := sdk.AccAddressFromBech32(seiAddress)
 	if err != nil {
 		return "", err
