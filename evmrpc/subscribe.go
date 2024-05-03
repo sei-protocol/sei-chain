@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -26,23 +27,26 @@ type SubscriptionAPI struct {
 	subscriptonConfig   *SubscriptionConfig
 
 	logFetcher          *LogFetcher
-	newHeadListenersMtx *sync.Mutex
+	newHeadListenersMtx *sync.RWMutex
 	newHeadListeners    map[rpc.ID]chan map[string]interface{}
+	connectionType      ConnectionType
 }
 
 type SubscriptionConfig struct {
 	subscriptionCapacity int
+	newHeadLimit         uint64
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig) *SubscriptionAPI {
+func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
 	logFetcher.filterConfig = filterConfig
 	api := &SubscriptionAPI{
 		tmClient:            tmClient,
 		subscriptionManager: NewSubscriptionManager(tmClient),
 		subscriptonConfig:   subscriptionConfig,
 		logFetcher:          logFetcher,
-		newHeadListenersMtx: &sync.Mutex{},
+		newHeadListenersMtx: &sync.RWMutex{},
 		newHeadListeners:    make(map[rpc.ID]chan map[string]interface{}),
+		connectionType:      connectionType,
 	}
 	id, subCh, err := api.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), api.subscriptonConfig.subscriptionCapacity)
 	if err != nil {
@@ -79,7 +83,7 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subsc
 }
 
 func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, err error) {
-	defer recordMetrics("eth_newHeads", time.Now(), err == nil)
+	defer recordMetrics("eth_newHeads", a.connectionType, time.Now(), err == nil)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -87,6 +91,12 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 
 	rpcSub := notifier.CreateSubscription()
 	listener := make(chan map[string]interface{})
+	a.newHeadListenersMtx.Lock()
+	defer a.newHeadListenersMtx.Unlock()
+	if uint64(len(a.newHeadListeners)) >= a.subscriptonConfig.newHeadLimit {
+		return nil, errors.New("no new subscription can be created")
+	}
+	a.newHeadListeners[rpcSub.ID] = listener
 
 	go func() {
 	OUTER:
@@ -108,15 +118,12 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 		delete(a.newHeadListeners, rpcSub.ID)
 		close(listener)
 	}()
-	a.newHeadListenersMtx.Lock()
-	defer a.newHeadListenersMtx.Unlock()
-	a.newHeadListeners[rpcSub.ID] = listener
 
 	return rpcSub, nil
 }
 
 func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, err error) {
-	defer recordMetrics("eth_logs", time.Now(), err == nil)
+	defer recordMetrics("eth_logs", a.connectionType, time.Now(), err == nil)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported

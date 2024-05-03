@@ -10,26 +10,27 @@ import (
 )
 
 type opts struct {
-	httpEnabled          interface{}
-	httpPort             interface{}
-	wsEnabled            interface{}
-	wsPort               interface{}
-	readTimeout          interface{}
-	readHeaderTimeout    interface{}
-	writeTimeout         interface{}
-	idleTimeout          interface{}
-	simulationGasLimit   interface{}
-	simulationEVMTimeout interface{}
-	liveEVMTracer        interface{}
-	corsOrigins          interface{}
-	wsOrigins            interface{}
-	filterTimeout        interface{}
-	checkTxTimeout       interface{}
-	maxTxPoolTxs         interface{}
-	slow                 interface{}
-	denyList             interface{}
-	maxLogNoBlock        interface{}
-	maxBlocksForLog      interface{}
+	httpEnabled             interface{}
+	httpPort                interface{}
+	wsEnabled               interface{}
+	wsPort                  interface{}
+	readTimeout             interface{}
+	readHeaderTimeout       interface{}
+	writeTimeout            interface{}
+	idleTimeout             interface{}
+	simulationGasLimit      interface{}
+	simulationEVMTimeout    interface{}
+	corsOrigins             interface{}
+	wsOrigins               interface{}
+	filterTimeout           interface{}
+	checkTxTimeout          interface{}
+	maxTxPoolTxs            interface{}
+	slow                    interface{}
+	denyList                interface{}
+	maxLogNoBlock           interface{}
+	maxBlocksForLog         interface{}
+	maxSubscriptionsNewHead interface{}
+	liveEVMTracer           interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -63,9 +64,6 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.simulation_evm_timeout" {
 		return o.simulationEVMTimeout
 	}
-	if k == "evm.live_evm_tracer" {
-		return o.liveEVMTracer
-	}
 	if k == "evm.cors_origins" {
 		return o.corsOrigins
 	}
@@ -93,6 +91,12 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_blocks_for_log" {
 		return o.maxBlocksForLog
 	}
+	if k == "evm.max_subscriptions_new_head" {
+		return o.maxSubscriptionsNewHead
+	}
+	if k == "evm.live_evm_tracer" {
+		return o.liveEVMTracer
+	}
 	panic(fmt.Errorf("unknown key: %s", k))
 }
 
@@ -110,7 +114,6 @@ func TestReadConfig(t *testing.T) {
 		time.Duration(60),
 		"",
 		"",
-		"",
 		time.Duration(5),
 		time.Duration(5),
 		1000,
@@ -118,6 +121,8 @@ func TestReadConfig(t *testing.T) {
 		make([]string, 0),
 		20000,
 		1000,
+		10000,
+		"",
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)

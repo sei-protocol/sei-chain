@@ -53,12 +53,6 @@ type Config struct {
 	// Timeout for EVM call in simulation
 	SimulationEVMTimeout time.Duration `mapstructure:"simulation_evm_timeout"`
 
-	// The EVM tracer to use when doing node synchronization, applies to
-	// all block produced but traces only EVM transactions.
-	//
-	// Refer to x/evm/tracers/registry.go#GlobalLiveTracerRegistry for registered tracers.
-	LiveEVMTracer string `mapstructure:"live_evm_tracer"`
-
 	// list of CORS allowed origins, separated by comma
 	CORSOrigins string `mapstructure:"cors_origins"`
 
@@ -85,52 +79,63 @@ type Config struct {
 
 	// max number of blocks to query logs for
 	MaxBlocksForLog int64 `mapstructure:"max_blocks_for_log"`
+
+	// max number of concurrent NewHead subscriptions
+	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
+
+	// The EVM tracer to use when doing node synchronization, applies to
+	// all block produced but traces only EVM transactions.
+	//
+	// Refer to x/evm/tracers/registry.go#GlobalLiveTracerRegistry for registered tracers.
+	LiveEVMTracer string `mapstructure:"live_evm_tracer"`
 }
 
 var DefaultConfig = Config{
-	HTTPEnabled:          true,
-	HTTPPort:             8545,
-	WSEnabled:            true,
-	WSPort:               8546,
-	ReadTimeout:          rpc.DefaultHTTPTimeouts.ReadTimeout,
-	ReadHeaderTimeout:    rpc.DefaultHTTPTimeouts.ReadHeaderTimeout,
-	WriteTimeout:         rpc.DefaultHTTPTimeouts.WriteTimeout,
-	IdleTimeout:          rpc.DefaultHTTPTimeouts.IdleTimeout,
-	SimulationGasLimit:   10_000_000, // 10M
-	SimulationEVMTimeout: 60 * time.Second,
-	LiveEVMTracer:        "",
-	CORSOrigins:          "*",
-	WSOrigins:            "*",
-	FilterTimeout:        120 * time.Second,
-	CheckTxTimeout:       5 * time.Second,
-	MaxTxPoolTxs:         1000,
-	Slow:                 false,
-	DenyList:             make([]string, 0),
-	MaxLogNoBlock:        10000,
-	MaxBlocksForLog:      2000,
+	HTTPEnabled:             true,
+	HTTPPort:                8545,
+	WSEnabled:               true,
+	WSPort:                  8546,
+	ReadTimeout:             rpc.DefaultHTTPTimeouts.ReadTimeout,
+	ReadHeaderTimeout:       rpc.DefaultHTTPTimeouts.ReadHeaderTimeout,
+	WriteTimeout:            rpc.DefaultHTTPTimeouts.WriteTimeout,
+	IdleTimeout:             rpc.DefaultHTTPTimeouts.IdleTimeout,
+	SimulationGasLimit:      10_000_000, // 10M
+	SimulationEVMTimeout:    60 * time.Second,
+	CORSOrigins:             "*",
+	WSOrigins:               "*",
+	FilterTimeout:           120 * time.Second,
+	CheckTxTimeout:          5 * time.Second,
+	MaxTxPoolTxs:            1000,
+	Slow:                    false,
+	DenyList:                make([]string, 0),
+	MaxLogNoBlock:           10000,
+	MaxBlocksForLog:         2000,
+	MaxSubscriptionsNewHead: 10000,
+	LiveEVMTracer:           "",
 }
 
 const (
-	flagHTTPEnabled          = "evm.http_enabled"
-	flagHTTPPort             = "evm.http_port"
-	flagWSEnabled            = "evm.ws_enabled"
-	flagWSPort               = "evm.ws_port"
-	flagReadTimeout          = "evm.read_timeout"
-	flagReadHeaderTimeout    = "evm.read_header_timeout"
-	flagWriteTimeout         = "evm.write_timeout"
-	flagIdleTimeout          = "evm.idle_timeout"
-	flagSimulationGasLimit   = "evm.simulation_gas_limit"
-	flagSimulationEVMTimeout = "evm.simulation_evm_timeout"
-	flagLiveEVMTracer        = "evm.live_evm_tracer"
-	flagCORSOrigins          = "evm.cors_origins"
-	flagWSOrigins            = "evm.ws_origins"
-	flagFilterTimeout        = "evm.filter_timeout"
-	flagMaxTxPoolTxs         = "evm.max_tx_pool_txs"
-	flagCheckTxTimeout       = "evm.checktx_timeout"
-	flagSlow                 = "evm.slow"
-	flagDenyList             = "evm.deny_list"
-	flagMaxLogNoBlock        = "evm.max_log_no_block"
-	flagMaxBlocksForLog      = "evm.max_blocks_for_log"
+	flagHTTPEnabled             = "evm.http_enabled"
+	flagHTTPPort                = "evm.http_port"
+	flagWSEnabled               = "evm.ws_enabled"
+	flagWSPort                  = "evm.ws_port"
+	flagReadTimeout             = "evm.read_timeout"
+	flagReadHeaderTimeout       = "evm.read_header_timeout"
+	flagWriteTimeout            = "evm.write_timeout"
+	flagIdleTimeout             = "evm.idle_timeout"
+	flagSimulationGasLimit      = "evm.simulation_gas_limit"
+	flagSimulationEVMTimeout    = "evm.simulation_evm_timeout"
+	flagCORSOrigins             = "evm.cors_origins"
+	flagWSOrigins               = "evm.ws_origins"
+	flagFilterTimeout           = "evm.filter_timeout"
+	flagMaxTxPoolTxs            = "evm.max_tx_pool_txs"
+	flagCheckTxTimeout          = "evm.checktx_timeout"
+	flagSlow                    = "evm.slow"
+	flagDenyList                = "evm.deny_list"
+	flagMaxLogNoBlock           = "evm.max_log_no_block"
+	flagMaxBlocksForLog         = "evm.max_blocks_for_log"
+	flagMaxSubscriptionsNewHead = "evm.max_subscriptions_new_head"
+	flagLiveEVMTracer           = "evm.live_evm_tracer"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -186,11 +191,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	if v := opts.Get(flagLiveEVMTracer); v != nil {
-		if cfg.LiveEVMTracer, err = cast.ToStringE(v); err != nil {
-			return cfg, err
-		}
-	}
 	if v := opts.Get(flagCORSOrigins); v != nil {
 		if cfg.CORSOrigins, err = cast.ToStringE(v); err != nil {
 			return cfg, err
@@ -236,6 +236,15 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-
+	if v := opts.Get(flagMaxSubscriptionsNewHead); v != nil {
+		if cfg.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagLiveEVMTracer); v != nil {
+		if cfg.LiveEVMTracer, err = cast.ToStringE(v); err != nil {
+			return cfg, err
+		}
+	}
 	return cfg, nil
 }

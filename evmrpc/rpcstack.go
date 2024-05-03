@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/gorilla/websocket"
 	"github.com/rs/cors"
 	"github.com/tendermint/tendermint/libs/log"
 )
@@ -202,7 +203,7 @@ func (h *HTTPServer) Start() error {
 func (h *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// check if ws request and serve if ws enabled
 	ws := h.wsHandler.Load().(*rpcHandler)
-	if ws != nil && IsWebsocket(r) {
+	if ws != nil && websocket.IsWebSocketUpgrade(r) {
 		if CheckPath(r, h.WsConfig.prefix) {
 			ws.ServeHTTP(w, r)
 		}
@@ -374,12 +375,6 @@ func (h *HTTPServer) wsAllowed() bool {
 	return h.wsHandler.Load().(*rpcHandler) != nil
 }
 
-// IsWebsocket checks the header of an http request for a websocket upgrade request.
-func IsWebsocket(r *http.Request) bool {
-	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
-		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
-}
-
 // NewHTTPHandlerStack returns wrapped http-related handlers
 func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, JwtSecret []byte) http.Handler {
 	// Wrap the CORS-handler within a host-handler
@@ -394,9 +389,9 @@ func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, JwtSe
 // NewWSHandlerStack returns a wrapped ws-related handler.
 func NewWSHandlerStack(srv http.Handler, JwtSecret []byte) http.Handler {
 	if len(JwtSecret) != 0 {
-		return newJWTHandler(JwtSecret, srv)
+		return NewWSConnectionHandler(newJWTHandler(JwtSecret, srv))
 	}
-	return srv
+	return NewWSConnectionHandler(srv)
 }
 
 func newCorsHandler(srv http.Handler, allowedOrigins []string) http.Handler {
