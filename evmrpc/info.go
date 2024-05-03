@@ -24,10 +24,11 @@ type InfoAPI struct {
 	txDecoder      sdk.TxDecoder
 	homeDir        string
 	connectionType ConnectionType
+	maxBlocks      int64
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, homeDir string, connectionType ConnectionType) *InfoAPI {
-	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, homeDir: homeDir, connectionType: connectionType}
+func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, homeDir string, maxBlocks int64, connectionType ConnectionType) *InfoAPI {
+	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks}
 }
 
 type FeeHistoryResult struct {
@@ -93,9 +94,25 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 	defer recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
 	result = &FeeHistoryResult{}
 
+	// logic consistent with go-ethereum's validation (block < 1 means no block)
+	if blockCount < 1 {
+		return result, nil
+	}
+
+	// default go-ethereum max block history is 1024
+	// https://github.com/ethereum/go-ethereum/blob/master/eth/gasprice/feehistory.go#L235
+	if blockCount > math.HexOrDecimal64(i.maxBlocks) {
+		blockCount = math.HexOrDecimal64(i.maxBlocks)
+	}
+
+	// if someone needs more than 100 reward percentiles, we can discuss, but it's not likely
+	if len(rewardPercentiles) > 100 {
+		return nil, errors.New("rewardPercentiles length must be less than or equal to 100")
+	}
+
 	// validate reward percentiles
 	for i, p := range rewardPercentiles {
-		if p < 0 || p > 100 || (i > 0 && p < rewardPercentiles[i-1]) {
+		if p < 0 || p > 100 || (i > 0 && p <= rewardPercentiles[i-1]) {
 			return nil, errors.New("invalid reward percentiles: must be ascending and between 0 and 100")
 		}
 	}
