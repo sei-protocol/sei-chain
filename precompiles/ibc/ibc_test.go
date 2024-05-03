@@ -522,9 +522,9 @@ func TestPrecompile_GetAdjustedTimestamp(t *testing.T) {
 		ctx      sdk.Context
 		clientId string
 		height   clienttypes.Height
-		time     time.Time
 	}
 	timestampSeconds := 1714680155
+	ctx := sdk.Context{}
 	tests := []struct {
 		name    string
 		fields  fields
@@ -543,7 +543,7 @@ func TestPrecompile_GetAdjustedTimestamp(t *testing.T) {
 				},
 			},
 			args: args{
-				time: time.Unix(int64(uint64(timestampSeconds)), 0),
+				ctx: ctx.WithBlockTime(time.Unix(int64(timestampSeconds), 0)),
 			},
 			want:    uint64(timestampSeconds)*1_000_000_000 + uint64((time.Duration(10) * time.Minute).Nanoseconds()),
 			wantErr: false,
@@ -556,7 +556,7 @@ func TestPrecompile_GetAdjustedTimestamp(t *testing.T) {
 				},
 			},
 			args: args{
-				time: time.Unix(int64(uint64(timestampSeconds)), 0),
+				ctx: ctx.WithBlockTime(time.Unix(int64(timestampSeconds), 0)),
 			},
 			want:    uint64(timestampSeconds)*1_000_000_000 + uint64((time.Duration(10) * time.Minute).Nanoseconds()),
 			wantErr: false,
@@ -569,7 +569,7 @@ func TestPrecompile_GetAdjustedTimestamp(t *testing.T) {
 				},
 			},
 			args: args{
-				time: time.Unix(int64(uint64(0)), 0),
+				ctx: ctx.WithBlockTime(time.Unix(int64(0), 0)),
 			},
 			wantErr: true,
 		},
@@ -584,7 +584,7 @@ func TestPrecompile_GetAdjustedTimestamp(t *testing.T) {
 				},
 			},
 			args: args{
-				time: time.Unix(int64(uint64(timestampSeconds)), 0),
+				ctx: ctx.WithBlockTime(time.Unix(int64(timestampSeconds), 0)),
 			},
 			want:    uint64(timestampSeconds+1)*1_000_000_000 + uint64((time.Duration(10) * time.Minute).Nanoseconds()),
 			wantErr: false,
@@ -593,7 +593,7 @@ func TestPrecompile_GetAdjustedTimestamp(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, tt.fields.evmKeeper, tt.fields.clientKeeper, tt.fields.connectionKeeper, tt.fields.channelKeeper)
-			got, err := p.GetAdjustedTimestamp(tt.args.ctx, tt.args.clientId, tt.args.height, tt.args.time)
+			got, err := p.GetAdjustedTimestamp(tt.args.ctx, tt.args.clientId, tt.args.height)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetAdjustedTimestamp() error = %v, wantErr %v", err, tt.wantErr)
 				return

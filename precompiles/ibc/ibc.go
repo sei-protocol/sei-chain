@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"time"
 
 	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 
@@ -270,7 +269,7 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 		return
 	}
 
-	timeoutTimestamp, err := p.GetAdjustedTimestamp(ctx, connection.ClientId, *latestConsensusHeight, time.Now())
+	timeoutTimestamp, err := p.GetAdjustedTimestamp(ctx, connection.ClientId, *latestConsensusHeight)
 	if err != nil {
 		rerr = err
 		return
@@ -364,7 +363,7 @@ func GetAdjustedHeight(latestConsensusHeight clienttypes.Height) (clienttypes.He
 	return absoluteHeight, nil
 }
 
-func (p Precompile) GetAdjustedTimestamp(ctx sdk.Context, clientId string, height clienttypes.Height, currentTime time.Time) (uint64, error) {
+func (p Precompile) GetAdjustedTimestamp(ctx sdk.Context, clientId string, height clienttypes.Height) (uint64, error) {
 	consensusState, found := p.clientKeeper.GetClientConsensusState(ctx, clientId, height)
 	var consensusStateTimestamp uint64
 	if found {
@@ -372,16 +371,16 @@ func (p Precompile) GetAdjustedTimestamp(ctx sdk.Context, clientId string, heigh
 	}
 
 	defaultRelativePacketTimeoutTimestamp := types.DefaultRelativePacketTimeoutTimestamp
-	now := currentTime.UnixNano()
-	if now > 0 {
-		now := uint64(now)
+	blockTime := ctx.BlockTime().UnixNano()
+	if blockTime > 0 {
+		now := uint64(blockTime)
 		if now > consensusStateTimestamp {
 			return now + defaultRelativePacketTimeoutTimestamp, nil
 		} else {
 			return consensusStateTimestamp + defaultRelativePacketTimeoutTimestamp, nil
 		}
 	} else {
-		return 0, errors.New("local clock time is not greater than Jan 1st, 1970 12:00 AM")
+		return 0, errors.New("block time is not greater than Jan 1st, 1970 12:00 AM")
 	}
 }
 
