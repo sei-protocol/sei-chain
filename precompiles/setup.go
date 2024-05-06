@@ -49,6 +49,9 @@ func InitializePrecompiles(
 	distrKeeper common.DistributionKeeper,
 	oracleKeeper common.OracleKeeper,
 	transferKeeper common.TransferKeeper,
+	clientKeeper common.ClientKeeper,
+	connectionKeeper common.ConnectionKeeper,
+	channelKeeper common.ChannelKeeper,
 ) error {
 	SetupMtx.Lock()
 	defer SetupMtx.Unlock()
@@ -87,7 +90,7 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
-	ibcp, err := ibc.NewPrecompile(transferKeeper, evmKeeper)
+	ibcp, err := ibc.NewPrecompile(transferKeeper, evmKeeper, clientKeeper, connectionKeeper, channelKeeper)
 	if err != nil {
 		return err
 	}
@@ -130,7 +133,7 @@ func InitializePrecompiles(
 func GetPrecompileInfo(name string) PrecompileInfo {
 	if !Initialized {
 		// Precompile Info does not require any keeper state
-		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}
 	i, ok := PrecompileNamesToInfo[name]
 	if !ok {

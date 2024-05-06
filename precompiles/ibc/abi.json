@@ -50,7 +50,46 @@
         "type": "bool"
       }
     ],
-    "stateMutability": "view",
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "toAddress",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "port",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "channel",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "denom",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "transferWithDefaultTimeout",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "payable",
     "type": "function"
   }
 ]
