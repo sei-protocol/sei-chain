@@ -54,6 +54,7 @@ type Context struct {
 	evmNonce         uint64 // EVM Transaction nonce
 	evmSenderAddress string // EVM Sender address
 	evmTxHash        string // EVM TX hash
+	evmVmError       string // EVM VM error during execution
 
 	msgValidator *acltypes.MsgValidator
 	messageIndex int // Used to track current message being processed
@@ -144,6 +145,10 @@ func (c Context) EVMTxHash() string {
 
 func (c Context) IsEVM() bool {
 	return c.evm
+}
+
+func (c Context) EVMVMError() string {
+	return c.evmVmError
 }
 
 func (c Context) PendingTxChecker() abci.PendingTxChecker {
@@ -404,6 +409,11 @@ func (c Context) WithIsEVM(isEVM bool) Context {
 
 func (c Context) WithEVMTxHash(txHash string) Context {
 	c.evmTxHash = txHash
+	return c
+}
+
+func (c Context) WithEVMVMError(vmError string) Context {
+	c.evmVmError = vmError
 	return c
 }
 
