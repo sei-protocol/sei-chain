@@ -44,11 +44,10 @@ async function getSeiBalance(seiAddr, denom="usei") {
 
 async function importKey(name, keyfile) {
     try {
-        const result = await execute(`printf "12345678"| seid keys import ${name} ${keyfile}`)
-        console.log(result)
-        return result
+        return await execute(`seid keys import ${name} ${keyfile}`, `printf "12345678\\n12345678\\n"`)
     } catch(e) {
-        console.log("skipping key import")
+        console.log("not importing key (skipping)")
+        console.log(e)
     }
 }
 
@@ -220,15 +219,14 @@ async function executeWasm(contractAddress, msg, coins = "0usei") {
     return JSON.parse(output);
 }
 
-async function execute(command) {
+async function execute(command, interaction=`printf "12345678\\n"`){
     return new Promise((resolve, reject) => {
         // Check if the Docker container 'sei-node-0' is running
         exec("docker ps --filter 'name=sei-node-0' --format '{{.Names}}'", (error, stdout, stderr) => {
             if (stdout.includes('sei-node-0')) {
                 // The container is running, modify the command to execute inside Docker
                 command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
-                command = command.replace("printf \"12345678\\n\" |", "")
-                const dockerCommand = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && printf "12345678\\n" | ${command}'`;
+                const dockerCommand = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
                 execCommand(dockerCommand, resolve, reject);
             } else {
                 // The container is not running, execute command normally
