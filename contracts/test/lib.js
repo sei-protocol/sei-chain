@@ -44,7 +44,9 @@ async function getSeiBalance(seiAddr, denom="usei") {
 
 async function importKey(name, keyfile) {
     try {
-        return await execute(`printf "12345678"| seid keys import ${name} ${keyfile}`)
+        const result = await execute(`printf "12345678"| seid keys import ${name} ${keyfile}`)
+        console.log(result)
+        return result
     } catch(e) {
         console.log("skipping key import")
     }
