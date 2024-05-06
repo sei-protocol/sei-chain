@@ -4,10 +4,12 @@ const {fundAddress, storeWasm, instantiateWasm, execute, getSeiAddress, getAdmin
 const { expect } = require("chai");
 
 const CW20_POINTER_WASM = "../example/cosmwasm/cw20/artifacts/cwerc20.wasm";
+const CW20_RECEIVER_WASM = "../example/cosmwasm/cw20Escrow/artifacts/cw20_escrow.wasm";
 describe("CW20 to ERC20 Pointer", function () {
     let accounts;
     let testToken;
     let cw20Pointer;
+    let cw20Receiver;
     let admin;
     let admin2;
 
@@ -32,7 +34,9 @@ describe("CW20 to ERC20 Pointer", function () {
         await setBalance(admin.evmAddress, 1000000000000)
 
         const codeId = await storeWasm(CW20_POINTER_WASM)
+        const codeIdReceiver = await storeWasm(CW20_RECEIVER_WASM)
         cw20Pointer = await instantiateWasm(codeId, admin.seiAddress, "cw20-erc20", {erc20_address: tokenAddr })
+        cw20Receiver = await instantiateWasm(codeIdReceiver, admin.seiAddress, "cw20Escrow", { } )
     })
 
     async function assertUnsupported(addr, operation, args) {
@@ -84,24 +88,20 @@ describe("CW20 to ERC20 Pointer", function () {
         });
 
         // Having issues testing `send`
-        // it.only("should transfer token using send", async function() {
-        //     const respBefore = await queryWasm(cw20Pointer, "balance", {address: accounts[1].seiAddress})
-        //     const balanceBefore = respBefore.data.balance;
+        it.only("should transfer token using send", async function() {
+            const respBefore = await queryWasm(cw20Pointer, "balance", {address: accounts[1].seiAddress})
+            const balanceBefore = respBefore.data.balance;
 
-        //     console.log("balanceBefore", balanceBefore)
+            const res = await executeWasm(cw20Pointer,  { send: { contract: cw20Receiver, amount: "100", msg: "msg" } });
+            console.log("send res = ", res)
 
-        //     console.log("cw20Pointer2", cw20Pointer2)
+            const respAfter = await queryWasm(cw20Pointer, "balance", {address: accounts[1].seiAddress})
+            const balanceAfter = respAfter.data.balance;
 
-        //     const res = await executeWasm(cw20Pointer,  { send: { contract: cw20Pointer2, amount: "100", msg: "msg" } });
-        //     console.log("send res = ", res)
+            console.log("balanceAfter", balanceAfter)
 
-        //     const respAfter = await queryWasm(cw20Pointer, "balance", {address: accounts[1].seiAddress})
-        //     const balanceAfter = respAfter.data.balance;
-
-        //     console.log("balanceAfter", balanceAfter)
-
-        //     expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString())
-        // });
+            expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString())
+        });
 
         // TODO: other execute methods
         //  - transfer, send, transferFrom, sendFrom
@@ -124,6 +124,7 @@ describe("CW20 to ERC20 Pointer", function () {
         });
 
         it("should transfer token using transferFrom", async function() {
+            // TODO: Do simplified version where approvals are granted from accounts[0] to admin evm address and then admin can do a transferFrom.
             await executeWasm(cw20Pointer, { increase_allowance: { spender: admin2.seiAddress, amount: "300" } });
             let allowance = await queryWasm(cw20Pointer, "allowance", { owner: admin.seiAddress, spender: admin2.seiAddress });
             expect(allowance.data.allowance).to.equal("300");

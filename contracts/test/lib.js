@@ -91,7 +91,7 @@ function getEventAttribute(response, type, attribute) {
 }
 
 async function storeWasm(path) {
-    const command = `seid tx wasm store ${path} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    const command = `seid tx wasm store ${path} --from ${adminKeyName} --gas=10000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
     return getEventAttribute(response, "store_code", "code_id")

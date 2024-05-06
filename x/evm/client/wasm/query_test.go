@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 	"strings"
@@ -96,6 +97,7 @@ func TestERC20TransferFromPayload(t *testing.T) {
 	h := wasm.NewEVMQueryHandler(k)
 	value := types.NewInt(500)
 	res, err := h.HandleERC20TransferFromPayload(ctx, addr1.String(), addr2.String(), &value)
+	fmt.Println("res = ", res)
 	require.Nil(t, err)
 	require.NotEmpty(t, res)
 }
