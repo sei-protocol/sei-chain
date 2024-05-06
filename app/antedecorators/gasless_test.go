@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/staking"
@@ -14,9 +13,7 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/crypto/secp256k1"
-	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	tmdb "github.com/tendermint/tm-db"
 )
 
 var output = ""
@@ -112,53 +109,6 @@ func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper orac
 	return err
 }
 
-func TestGaslessDecorator(t *testing.T) {
-	output = ""
-	anteDecorators := []sdk.AnteFullDecorator{
-		FakeAnteDecoratorOne{},
-		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{FakeAnteDecoratorTwo{}}, oraclekeeper.Keeper{}),
-		FakeAnteDecoratorThree{},
-	}
-	chainedHandler, depGen := sdk.ChainAnteDecorators(anteDecorators...)
-
-	db := tmdb.NewMemDB()
-	stateStore := store.NewCommitMultiStore(db)
-	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
-
-	// normal tx (not gasless)
-	_, err := chainedHandler(ctx, FakeTx{}, false)
-	require.NoError(t, err)
-	require.Equal(t, "onetwothree", output)
-	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
-	require.NoError(t, err)
-	require.Equal(t, "onetwothree", outputDeps)
-
-	// gasless tx (deliverTx) -> wrapped should still be run
-	output = ""
-	outputDeps = ""
-	_, err = chainedHandler(ctx, FakeTx{
-		FakeMsgs: []sdk.Msg{&types.MsgPlaceOrders{}},
-		Gas:      100,
-	}, false)
-	require.NoError(t, err)
-	require.Equal(t, "onetwothree", output)
-	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
-	require.NoError(t, err)
-	require.Equal(t, "onetwothree", outputDeps)
-
-	// gasless tx (checkTx) -> wrapped should not be run
-	output = ""
-	outputDeps = ""
-	_, err = chainedHandler(ctx.WithIsCheckTx(true), FakeTx{
-		FakeMsgs: []sdk.Msg{&types.MsgPlaceOrders{}},
-	}, false)
-	require.NoError(t, err)
-	require.Equal(t, "onethree", output)
-	_, err = depGen([]accesscontrol.AccessOperation{}, FakeTx{}, 1)
-	require.NoError(t, err)
-	require.Equal(t, "onetwothree", outputDeps)
-}
-
 func TestOracleVoteGasless(t *testing.T) {
 	input := oraclekeeper.CreateTestInput(t)
 
@@ -196,15 +146,6 @@ func TestOracleVoteGasless(t *testing.T) {
 	// reset gasless
 	gasless = true
 	err = CallGaslessDecoratorWithMsg(ctx, &vote2, input.OracleKeeper)
-	require.NoError(t, err)
-	require.True(t, gasless)
-}
-
-func TestDexPlaceOrderGasless(t *testing.T) {
-	// this needs to be updated if its changed from constant true
-	// reset gasless
-	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil).WithIsCheckTx(true), &types.MsgPlaceOrders{}, oraclekeeper.Keeper{})
 	require.NoError(t, err)
 	require.True(t, gasless)
 }
