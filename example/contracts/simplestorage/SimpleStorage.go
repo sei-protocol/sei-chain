@@ -31,7 +31,7 @@ var (
 
 // SimplestorageMetaData contains all meta data concerning the Simplestorage contract.
 var SimplestorageMetaData = &bind.MetaData{
-	ABI: "[{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"SetEvent\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"get\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"set\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
+	ABI: "[{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"SetEvent\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"bad\",\"outputs\":[],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"get\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"set\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
 }
 
 // SimplestorageABI is the input ABI used to generate the binding from.
@@ -178,6 +178,35 @@ func (_Simplestorage *SimplestorageTransactorRaw) Transfer(opts *bind.TransactOp
 // Transact invokes the (paid) contract method with params as input values.
 func (_Simplestorage *SimplestorageTransactorRaw) Transact(opts *bind.TransactOpts, method string, params ...interface{}) (*types.Transaction, error) {
 	return _Simplestorage.Contract.contract.Transact(opts, method, params...)
+}
+
+// Bad is a free data retrieval call binding the contract method 0x9c3674fc.
+//
+// Solidity: function bad() pure returns()
+func (_Simplestorage *SimplestorageCaller) Bad(opts *bind.CallOpts) error {
+	var out []interface{}
+	err := _Simplestorage.contract.Call(opts, &out, "bad")
+
+	if err != nil {
+		return err
+	}
+
+	return err
+
+}
+
+// Bad is a free data retrieval call binding the contract method 0x9c3674fc.
+//
+// Solidity: function bad() pure returns()
+func (_Simplestorage *SimplestorageSession) Bad() error {
+	return _Simplestorage.Contract.Bad(&_Simplestorage.CallOpts)
+}
+
+// Bad is a free data retrieval call binding the contract method 0x9c3674fc.
+//
+// Solidity: function bad() pure returns()
+func (_Simplestorage *SimplestorageCallerSession) Bad() error {
+	return _Simplestorage.Contract.Bad(&_Simplestorage.CallOpts)
 }
 
 // Get is a free data retrieval call binding the contract method 0x6d4ce63c.

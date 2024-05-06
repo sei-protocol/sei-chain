@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"math/big"
 	"os"
@@ -25,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
+	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 type mockTx struct {
@@ -588,4 +590,84 @@ func TestRegisterPointer(t *testing.T) {
 		hasRegisteredEvent = true
 	}
 	require.False(t, hasRegisteredEvent)
+}
+
+func TestEvmError(t *testing.T) {
+	k := testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	code, err := os.ReadFile("../../../example/contracts/simplestorage/SimpleStorage.bin")
+	require.Nil(t, err)
+	bz, err := hex.DecodeString(string(code))
+	require.Nil(t, err)
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	txData := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      200000,
+		To:       nil,
+		Value:    big.NewInt(0),
+		Data:     bz,
+		Nonce:    0,
+	}
+	chainID := k.ChainID(ctx)
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err := types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
+	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt)
+
+	tb := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	tb.SetMsgs(req)
+	sdktx := tb.GetTx()
+	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(sdktx)
+	require.Nil(t, err)
+
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
+	require.Equal(t, uint32(0), res.Code)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.EvmTxInfo.TxHash))
+	require.Nil(t, err)
+
+	// send transaction that's gonna be reverted to the contract
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	abi, err := simplestorage.SimplestorageMetaData.GetAbi()
+	require.Nil(t, err)
+	bz, err = abi.Pack("bad")
+	require.Nil(t, err)
+	txData = ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      200000,
+		To:       &contractAddr,
+		Value:    big.NewInt(0),
+		Data:     bz,
+		Nonce:    1,
+	}
+	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err = ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err = types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	tb = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	tb.SetMsgs(req)
+	sdktx = tb.GetTx()
+	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(sdktx)
+	require.Nil(t, err)
+
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
+	require.Equal(t, uint32(0), res.Code)
+	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.EvmTxInfo.TxHash))
+	require.Nil(t, err)
+	require.Equal(t, receipt.VmError, res.EvmTxInfo.VmError)
 }
