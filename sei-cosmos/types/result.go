@@ -227,6 +227,10 @@ func (r TxResponse) GetTx() Tx {
 	return nil
 }
 
+type ResultDecorator interface {
+	DecorateSdkResult(*Result)
+}
+
 // WrapServiceResult wraps a result from a protobuf RPC service method call in
 // a Result object or error. This method takes care of marshaling the res param to
 // protobuf and attaching any events on the ctx.EventManager() to the Result.
@@ -248,8 +252,14 @@ func WrapServiceResult(ctx Context, res proto.Message, err error) (*Result, erro
 		events = evtMgr.ABCIEvents()
 	}
 
-	return &Result{
+	sdkRes := &Result{
 		Data:   data,
 		Events: events,
-	}, nil
+	}
+	if res != nil {
+		if decorator, ok := res.(ResultDecorator); ok {
+			decorator.DecorateSdkResult(sdkRes)
+		}
+	}
+	return sdkRes, nil
 }
