@@ -50,11 +50,8 @@ async function importKey(name, keyfile) {
     }
 }
 
-async function getAdmin() {
-    await getNativeAccount(adminKeyName)
-}
-
 async function getNativeAccount(keyName) {
+    await associateKey(adminKeyName)
     const seiAddress = await getKeySeiAddress(keyName)
     await fundSeiAddress(seiAddress)
     await delay()
@@ -63,6 +60,11 @@ async function getNativeAccount(keyName) {
         seiAddress,
         evmAddress
     }
+}
+
+async function getAdmin() {
+    await associateKey(adminKeyName)
+    return await getNativeAccount(adminKeyName)
 }
 
 async function getKeySeiAddress(name) {
