@@ -675,6 +675,9 @@ func New(
 			app.DistrKeeper,
 			app.OracleKeeper,
 			app.TransferKeeper,
+			app.IBCKeeper.ClientKeeper,
+			app.IBCKeeper.ConnectionKeeper,
+			app.IBCKeeper.ChannelKeeper,
 		); err != nil {
 			panic(err)
 		}
