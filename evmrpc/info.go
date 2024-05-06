@@ -18,15 +18,17 @@ import (
 )
 
 type InfoAPI struct {
-	tmClient    rpcclient.Client
-	keeper      *keeper.Keeper
-	ctxProvider func(int64) sdk.Context
-	txDecoder   sdk.TxDecoder
-	homeDir     string
+	tmClient       rpcclient.Client
+	keeper         *keeper.Keeper
+	ctxProvider    func(int64) sdk.Context
+	txDecoder      sdk.TxDecoder
+	homeDir        string
+	connectionType ConnectionType
+	maxBlocks      int64
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, homeDir string) *InfoAPI {
-	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, homeDir: homeDir}
+func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, homeDir string, maxBlocks int64, connectionType ConnectionType) *InfoAPI {
+	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks}
 }
 
 type FeeHistoryResult struct {
@@ -38,26 +40,26 @@ type FeeHistoryResult struct {
 
 func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 	startTime := time.Now()
-	defer recordMetrics("eth_BlockNumber", startTime, true)
+	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime, true)
 	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight).BlockHeight())
 }
 
 //nolint:revive
 func (i *InfoAPI) ChainId() *hexutil.Big {
 	startTime := time.Now()
-	defer recordMetrics("eth_ChainId", startTime, true)
+	defer recordMetrics("eth_ChainId", i.connectionType, startTime, true)
 	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
 func (i *InfoAPI) Coinbase() (common.Address, error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_Coinbase", startTime, true)
+	defer recordMetrics("eth_Coinbase", i.connectionType, startTime, true)
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
 func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_Accounts", startTime, returnErr == nil)
+	defer recordMetrics("eth_Accounts", i.connectionType, startTime, returnErr == nil)
 	kb, err := getTestKeyring(i.homeDir)
 	if err != nil {
 		return []common.Address{}, err
@@ -70,7 +72,7 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GasPrice", startTime, returnErr == nil)
+	defer recordMetrics("eth_GasPrice", i.connectionType, startTime, returnErr == nil)
 	// get fee history of the most recent block with 50% reward percentile
 	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
 	if err != nil {
@@ -89,12 +91,28 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 // lastBlock is inclusive
 func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_feeHistory", startTime, returnErr == nil)
+	defer recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
 	result = &FeeHistoryResult{}
+
+	// logic consistent with go-ethereum's validation (block < 1 means no block)
+	if blockCount < 1 {
+		return result, nil
+	}
+
+	// default go-ethereum max block history is 1024
+	// https://github.com/ethereum/go-ethereum/blob/master/eth/gasprice/feehistory.go#L235
+	if blockCount > math.HexOrDecimal64(i.maxBlocks) {
+		blockCount = math.HexOrDecimal64(i.maxBlocks)
+	}
+
+	// if someone needs more than 100 reward percentiles, we can discuss, but it's not likely
+	if len(rewardPercentiles) > 100 {
+		return nil, errors.New("rewardPercentiles length must be less than or equal to 100")
+	}
 
 	// validate reward percentiles
 	for i, p := range rewardPercentiles {
-		if p < 0 || p > 100 || (i > 0 && p < rewardPercentiles[i-1]) {
+		if p < 0 || p > 100 || (i > 0 && p <= rewardPercentiles[i-1]) {
 			return nil, errors.New("invalid reward percentiles: must be ascending and between 0 and 100")
 		}
 	}

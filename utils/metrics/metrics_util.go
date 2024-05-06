@@ -164,6 +164,18 @@ func SetThroughputMetric(metricName string, value float32) {
 	)
 }
 
+// Measures number of new websocket connects
+// Metric Name:
+//
+//	sei_websocket_connect
+func IncWebsocketConnects() {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "websocket", "connect"},
+		1,
+		nil,
+	)
+}
+
 // Measures number of times a denom's price is updated
 // Metric Name:
 //
@@ -252,12 +264,13 @@ func IncrementOptimisticProcessingCounter(enabled bool) {
 // Metric Name:
 //
 //	sei_rpc_request_counter
-func IncrementRpcRequestCounter(endpoint string, success bool) {
+func IncrementRpcRequestCounter(endpoint string, connectionType string, success bool) {
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "rpc", "request", "counter"},
 		float32(1),
 		[]metrics.Label{
 			telemetry.NewLabel("endpoint", endpoint),
+			telemetry.NewLabel("connection", connectionType),
 			telemetry.NewLabel("success", strconv.FormatBool(success)),
 		},
 	)
@@ -267,11 +280,14 @@ func IncrementRpcRequestCounter(endpoint string, success bool) {
 // Metric Name:
 //
 //	sei_rpc_request_latency_ms
-func MeasureRpcRequestLatency(endpoint string, startTime time.Time) {
+func MeasureRpcRequestLatency(endpoint string, connectionType string, startTime time.Time) {
 	metrics.MeasureSinceWithLabels(
 		[]string{"sei", "rpc", "request", "latency_ms"},
 		startTime.UTC(),
-		[]metrics.Label{telemetry.NewLabel("endpoint", endpoint)},
+		[]metrics.Label{
+			telemetry.NewLabel("endpoint", endpoint),
+			telemetry.NewLabel("connection", connectionType),
+		},
 	)
 }
 

@@ -20,34 +20,36 @@ import (
 )
 
 type SendAPI struct {
-	tmClient    rpcclient.Client
-	txConfig    client.TxConfig
-	sendConfig  *SendConfig
-	keeper      *keeper.Keeper
-	ctxProvider func(int64) sdk.Context
-	homeDir     string
-	backend     *Backend
+	tmClient       rpcclient.Client
+	txConfig       client.TxConfig
+	sendConfig     *SendConfig
+	keeper         *keeper.Keeper
+	ctxProvider    func(int64) sdk.Context
+	homeDir        string
+	backend        *Backend
+	connectionType ConnectionType
 }
 
 type SendConfig struct {
 	slow bool
 }
 
-func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig) *SendAPI {
+func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, connectionType ConnectionType) *SendAPI {
 	return &SendAPI{
-		tmClient:    tmClient,
-		txConfig:    txConfig,
-		sendConfig:  sendConfig,
-		keeper:      k,
-		ctxProvider: ctxProvider,
-		homeDir:     homeDir,
-		backend:     NewBackend(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig),
+		tmClient:       tmClient,
+		txConfig:       txConfig,
+		sendConfig:     sendConfig,
+		keeper:         k,
+		ctxProvider:    ctxProvider,
+		homeDir:        homeDir,
+		backend:        NewBackend(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig),
+		connectionType: connectionType,
 	}
 }
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_sendRawTransaction", startTime, err == nil)
+	defer recordMetrics("eth_sendRawTransaction", s.connectionType, startTime, err == nil)
 	tx := new(ethtypes.Transaction)
 	if err = tx.UnmarshalBinary(input); err != nil {
 		return
@@ -94,7 +96,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 
 func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _ *string) (result *ethapi.SignTransactionResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_signTransaction", startTime, returnErr == nil)
+	defer recordMetrics("eth_signTransaction", s.connectionType, startTime, returnErr == nil)
 	var unsignedTx = args.ToTransaction()
 	signedTx, err := s.signTransaction(unsignedTx, args.From.Address().Hex())
 	if err != nil {
@@ -109,7 +111,7 @@ func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _
 
 func (s *SendAPI) SendTransaction(ctx context.Context, args ethapi.TransactionArgs) (result common.Hash, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_sendTransaction", startTime, returnErr == nil)
+	defer recordMetrics("eth_sendTransaction", s.connectionType, startTime, returnErr == nil)
 	if err := args.SetDefaults(ctx, s.backend); err != nil {
 		return common.Hash{}, err
 	}

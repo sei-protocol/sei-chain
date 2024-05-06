@@ -278,9 +278,9 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 	return blockRes, err
 }
 
-func recordMetrics(apiMethod string, startTime time.Time, success bool) {
-	metrics.IncrementRpcRequestCounter(apiMethod, success)
-	metrics.MeasureRpcRequestLatency(apiMethod, startTime)
+func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time, success bool) {
+	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
+	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
 }
 
 func CheckVersion(ctx sdk.Context, k *keeper.Keeper) error {

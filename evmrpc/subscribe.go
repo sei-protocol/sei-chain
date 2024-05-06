@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -19,67 +20,126 @@ import (
 )
 
 const SleepInterval = 5 * time.Second
+const NewHeadsListenerBuffer = 10
 
 type SubscriptionAPI struct {
 	tmClient            rpcclient.Client
 	subscriptionManager *SubscriptionManager
 	subscriptonConfig   *SubscriptionConfig
 
-	logFetcher *LogFetcher
+	logFetcher          *LogFetcher
+	newHeadListenersMtx *sync.RWMutex
+	newHeadListeners    map[rpc.ID]chan map[string]interface{}
+	connectionType      ConnectionType
 }
 
 type SubscriptionConfig struct {
 	subscriptionCapacity int
+	newHeadLimit         uint64
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig) *SubscriptionAPI {
-	logFetcher.filterConfig = &FilterConfig{}
-	return &SubscriptionAPI{
+func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
+	logFetcher.filterConfig = filterConfig
+	api := &SubscriptionAPI{
 		tmClient:            tmClient,
 		subscriptionManager: NewSubscriptionManager(tmClient),
 		subscriptonConfig:   subscriptionConfig,
 		logFetcher:          logFetcher,
+		newHeadListenersMtx: &sync.RWMutex{},
+		newHeadListeners:    make(map[rpc.ID]chan map[string]interface{}),
+		connectionType:      connectionType,
+	}
+	id, subCh, err := api.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), api.subscriptonConfig.subscriptionCapacity)
+	if err != nil {
+		panic(err)
+	}
+	go func() {
+		defer func() {
+			_ = api.subscriptionManager.Unsubscribe(context.Background(), id)
+		}()
+		for {
+			res := <-subCh
+			ethHeader, err := encodeTmHeader(res.Data.(tmtypes.EventDataNewBlockHeader))
+			if err != nil {
+				fmt.Printf("error encoding new head event %#v due to %s\n", res.Data, err)
+				continue
+			}
+			api.newHeadListenersMtx.Lock()
+			toDelete := []rpc.ID{}
+			for id, c := range api.newHeadListeners {
+				if !handleListener(c, ethHeader) {
+					toDelete = append(toDelete, id)
+				}
+			}
+			for _, id := range toDelete {
+				delete(api.newHeadListeners, id)
+			}
+			api.newHeadListenersMtx.Unlock()
+		}
+	}()
+	return api
+}
+
+func handleListener(c chan map[string]interface{}, ethHeader map[string]interface{}) bool {
+	// if the channel is already closed, sending to it/closing it will panic
+	defer func() { _ = recover() }()
+	select {
+	case c <- ethHeader:
+		return true
+	default:
+		// this path is hit when the buffer is full, meaning that the subscriber is not consuming
+		// fast enough
+		close(c)
+		return false
 	}
 }
 
-func (a *SubscriptionAPI) NewHeads(ctx context.Context) (*rpc.Subscription, error) {
+func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, err error) {
+	defer recordMetrics("eth_newHeads", a.connectionType, time.Now(), err == nil)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
 	}
 
 	rpcSub := notifier.CreateSubscription()
-	subscriberID, subCh, err := a.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), a.subscriptonConfig.subscriptionCapacity)
-	if err != nil {
-		return nil, err
+	listener := make(chan map[string]interface{}, NewHeadsListenerBuffer)
+	a.newHeadListenersMtx.Lock()
+	defer a.newHeadListenersMtx.Unlock()
+	if uint64(len(a.newHeadListeners)) >= a.subscriptonConfig.newHeadLimit {
+		return nil, errors.New("no new subscription can be created")
 	}
+	a.newHeadListeners[rpcSub.ID] = listener
 
 	go func() {
-		defer func() {
-			_ = a.subscriptionManager.Unsubscribe(context.Background(), subscriberID)
-		}()
+	OUTER:
 		for {
 			select {
-			case res := <-subCh:
-				ethHeader, err := encodeTmHeader(res.Data.(tmtypes.EventDataNewBlockHeader))
+			case res, ok := <-listener:
+				err = notifier.Notify(rpcSub.ID, res)
 				if err != nil {
-					return
+					break OUTER
 				}
-				err = notifier.Notify(rpcSub.ID, ethHeader)
-				if err != nil {
-					return
+				if !ok {
+					break OUTER
 				}
 			case <-rpcSub.Err():
-				return
+				break OUTER
 			case <-notifier.Closed():
-				return
+				break OUTER
 			}
 		}
+		a.newHeadListenersMtx.Lock()
+		defer a.newHeadListenersMtx.Unlock()
+		delete(a.newHeadListeners, rpcSub.ID)
+		defer func() { _ = recover() }() // might have already been closed
+		close(listener)
 	}()
+
 	return rpcSub, nil
 }
 
-func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (*rpc.Subscription, error) {
+func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, err error) {
+	defer recordMetrics("eth_logs", a.connectionType, time.Now(), err == nil)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
