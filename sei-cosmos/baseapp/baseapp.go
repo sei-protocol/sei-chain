@@ -1022,6 +1022,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 	txMsgData := &sdk.TxMsgData{
 		Data: make([]*sdk.MsgData, 0, len(msgs)),
 	}
+	var evmError string
 
 	// NOTE: GasWanted is determined by the AnteHandler and GasUsed by the GasMeter.
 	for i, msg := range msgs {
@@ -1090,6 +1091,10 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 
 		msgMsCache.Write()
 
+		if msgResult.EvmError != "" {
+			evmError = msgResult.EvmError
+		}
+
 		if ctx.MsgValidator() == nil {
 			continue
 		}
@@ -1118,9 +1123,10 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 	}
 
 	return &sdk.Result{
-		Data:   data,
-		Log:    strings.TrimSpace(msgLogs.String()),
-		Events: events.ToABCIEvents(),
+		Data:     data,
+		Log:      strings.TrimSpace(msgLogs.String()),
+		Events:   events.ToABCIEvents(),
+		EvmError: evmError,
 	}, nil
 }
 

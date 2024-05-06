@@ -318,7 +318,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 			SenderAddress: resCtx.EVMSenderAddress(),
 			Nonce:         resCtx.EVMNonce(),
 			TxHash:        resCtx.EVMTxHash(),
-			VmError:       resCtx.EVMVMError(),
+			VmError:       result.EvmError,
 		}
 	}
 	return

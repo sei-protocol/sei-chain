@@ -99,6 +99,9 @@ message Result {
   // Events contains a slice of Event objects that were emitted during message
   // or handler execution.
   repeated tendermint.abci.Event events = 3 [(gogoproto.nullable) = false];
+
+  // EVM VM error during execution
+  string evmError = 4;
 }
 
 // SimulationResponse defines the response generated when a transaction is
