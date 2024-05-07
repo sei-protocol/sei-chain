@@ -1,1 +1,1 @@
-83444d73b27092c72b5ed210698ec7e61120eb6961cacebe9d9caa42273bbb1f  cw20_escrow.wasm
+6addb311695f9448a1f830a51f750ab469104f83acac13515ef31c214c3a12c8  example/cosmwasm/cw20Escrow/artifacts/cw20_escrow.wasm
