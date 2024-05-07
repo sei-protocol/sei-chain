@@ -3,6 +3,7 @@ package keeper
 import (
 	"encoding/binary"
 
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -47,4 +48,15 @@ func (k *Keeper) GetCodeSize(ctx sdk.Context, addr common.Address) int {
 		return 0
 	}
 	return int(binary.BigEndian.Uint64(bz))
+}
+
+func (k *Keeper) IterateAllCode(ctx sdk.Context, cb func(addr common.Address, code []byte) bool) {
+	iter := prefix.NewStore(ctx.KVStore(k.storeKey), types.CodeKeyPrefix).Iterator(nil, nil)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		evmAddr := common.BytesToAddress(iter.Key())
+		if cb(evmAddr, iter.Value()) {
+			break
+		}
+	}
 }
