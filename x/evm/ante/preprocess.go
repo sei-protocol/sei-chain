@@ -115,21 +115,7 @@ func (p *EVMPreprocessDecorator) AssociateAddresses(ctx sdk.Context, seiAddr sdk
 		}
 		p.accountKeeper.SetAccount(ctx, acc)
 	}
-	castAddr := sdk.AccAddress(evmAddr[:])
-	castAddrBalances := p.evmKeeper.BankKeeper().GetAllBalances(ctx, castAddr)
-	if !castAddrBalances.IsZero() {
-		if err := p.evmKeeper.BankKeeper().SendCoins(ctx, castAddr, seiAddr, castAddrBalances); err != nil {
-			return err
-		}
-	}
-	castAddrWei := p.evmKeeper.BankKeeper().GetWeiBalance(ctx, castAddr)
-	if !castAddrWei.IsZero() {
-		if err := p.evmKeeper.BankKeeper().SendCoinsAndWei(ctx, castAddr, seiAddr, sdk.ZeroInt(), castAddrWei); err != nil {
-			return err
-		}
-	}
-	p.evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
-	return nil
+	return migrateBalance(ctx, p.evmKeeper, evmAddr, seiAddr)
 }
 
 // stateless
@@ -340,6 +326,24 @@ func NewEVMAddressDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accountk
 	return &EVMAddressDecorator{evmKeeper: evmKeeper, accountKeeper: accountKeeper}
 }
 
+func migrateBalance(ctx sdk.Context, evmKeeper *evmkeeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) error {
+	castAddr := sdk.AccAddress(evmAddr[:])
+	castAddrBalances := evmKeeper.BankKeeper().GetAllBalances(ctx, castAddr)
+	if !castAddrBalances.IsZero() {
+		if err := evmKeeper.BankKeeper().SendCoins(ctx, castAddr, seiAddr, castAddrBalances); err != nil {
+			return err
+		}
+	}
+	castAddrWei := evmKeeper.BankKeeper().GetWeiBalance(ctx, castAddr)
+	if !castAddrWei.IsZero() {
+		if err := evmKeeper.BankKeeper().SendCoinsAndWei(ctx, castAddr, seiAddr, sdk.ZeroInt(), castAddrWei); err != nil {
+			return err
+		}
+	}
+	evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
+	return nil
+}
+
 //nolint:revive
 func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	sigTx, ok := tx.(authsigning.SigVerifiableTx)
@@ -367,6 +371,10 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 			continue
 		}
 		p.evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
+		if err := migrateBalance(ctx, p.evmKeeper, evmAddr, signer); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
+			return ctx, err
+		}
 	}
 	return next(ctx, tx, simulate)
 }

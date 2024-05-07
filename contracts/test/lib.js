@@ -10,13 +10,52 @@ async function delay() {
     await sleep(1000)
 }
 
-async function fundAddress(addr) {
-    return await execute(`seid tx evm send ${addr} 10000000000000000000 --from ${adminKeyName}`);
+async function fundAddress(addr, amount="10000000000000000000") {
+    const result = await evmSend(addr, adminKeyName, amount)
+    await delay()
+    return result
 }
 
-async function getAdmin() {
-    await associateAdmin()
-    const seiAddress = await getAdminSeiAddress()
+async function evmSend(addr, fromKey, amount="100000000000000000000000") {
+    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b block -y`);
+    return output.replace(/.*0x/, "0x").trim()
+}
+
+async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
+    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b block --fees 20000usei -y`);
+    await delay()
+    return result
+}
+
+async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei") {
+    return await execute(`seid tx bank send ${adminKeyName} ${seiAddr} ${amount}${denom} -b block --fees 20000usei -y`);
+}
+
+async function getSeiBalance(seiAddr, denom="usei") {
+    const result = await execute(`seid query bank balances ${seiAddr} -o json`);
+    const balances = JSON.parse(result)
+    for(let b of balances.balances) {
+        if(b.denom === denom) {
+            return parseInt(b.amount, 10)
+        }
+    }
+    return 0
+}
+
+async function importKey(name, keyfile) {
+    try {
+        return await execute(`seid keys import ${name} ${keyfile}`, `printf "12345678\\n12345678\\n"`)
+    } catch(e) {
+        console.log("not importing key (skipping)")
+        console.log(e)
+    }
+}
+
+async function getNativeAccount(keyName) {
+    await associateKey(adminKeyName)
+    const seiAddress = await getKeySeiAddress(keyName)
+    await fundSeiAddress(seiAddress)
+    await delay()
     const evmAddress = await getEvmAddress(seiAddress)
     return {
         seiAddress,
@@ -24,13 +63,19 @@ async function getAdmin() {
     }
 }
 
-async function getAdminSeiAddress() {
-    return (await execute(`seid keys show ${adminKeyName} -a`)).trim()
+async function getAdmin() {
+    await associateKey(adminKeyName)
+    return await getNativeAccount(adminKeyName)
 }
 
-async function associateAdmin() {
+async function getKeySeiAddress(name) {
+    return (await execute(`seid keys show ${name} -a`)).trim()
+}
+
+async function associateKey(keyName) {
     try {
-        return await execute(`seid tx evm associate-address --from ${adminKeyName}`)
+        await execute(`seid tx evm associate-address --from ${keyName} -b block`)
+        await delay()
     }catch(e){
         console.log("skipping associate")
     }
@@ -174,14 +219,14 @@ async function executeWasm(contractAddress, msg, coins = "0usei") {
     return JSON.parse(output);
 }
 
-async function execute(command) {
+async function execute(command, interaction=`printf "12345678\\n"`){
     return new Promise((resolve, reject) => {
         // Check if the Docker container 'sei-node-0' is running
         exec("docker ps --filter 'name=sei-node-0' --format '{{.Names}}'", (error, stdout, stderr) => {
             if (stdout.includes('sei-node-0')) {
                 // The container is running, modify the command to execute inside Docker
                 command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
-                const dockerCommand = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && printf "12345678\\n" | ${command}'`;
+                const dockerCommand = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
                 execCommand(dockerCommand, resolve, reject);
             } else {
                 // The container is not running, execute command normally
@@ -205,8 +250,19 @@ function execCommand(command, resolve, reject) {
     });
 }
 
+async function waitForReceipt(txHash) {
+    let receipt = await ethers.provider.getTransactionReceipt(txHash)
+    while(!receipt) {
+        await delay()
+        receipt = await ethers.provider.getTransactionReceipt(txHash)
+    }
+    return receipt
+}
+
 module.exports = {
     fundAddress,
+    fundSeiAddress,
+    getSeiBalance,
     storeWasm,
     deployWasm,
     instantiateWasm,
@@ -220,4 +276,11 @@ module.exports = {
     deployEvmContract,
     deployErc20PointerForCw20,
     deployErc721PointerForCw721,
+    importKey,
+    getNativeAccount,
+    associateKey,
+    delay,
+    bankSend,
+    evmSend,
+    waitForReceipt,
 };
