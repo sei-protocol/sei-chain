@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -27,6 +28,12 @@ func (k *Keeper) DeleteAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress
 }
 
 func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (common.Address, bool) {
+	// CW address has a different length and should always be considered associated
+	// Note that this association is one-way since CW address is longer than EOA address
+	// and would need to be cropped.
+	if len(seiAddress) == wasmtypes.ContractAddrLen {
+		return common.BytesToAddress(seiAddress), true
+	}
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.SeiAddressToEVMAddressKey(seiAddress))
 	addr := common.Address{}
