@@ -142,7 +142,7 @@ func (k *Keeper) SetCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Addres
 	if err != nil {
 		return err
 	}
-	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(common.HexToAddress(addr)), erc20Address[:], erc20.CurrentVersion)
+	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(addr))), erc20Address[:], erc20.CurrentVersion)
 }
 
 func (k *Keeper) GetCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {
@@ -158,7 +158,7 @@ func (k *Keeper) SetCW721ERC721Pointer(ctx sdk.Context, erc721Address common.Add
 	if err != nil {
 		return err
 	}
-	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(common.HexToAddress(addr)), erc721Address[:], erc721.CurrentVersion)
+	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(addr))), erc721Address[:], erc721.CurrentVersion)
 }
 
 func (k *Keeper) GetCW721ERC721Pointer(ctx sdk.Context, erc721Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {
@@ -185,7 +185,7 @@ func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, vers
 func (k *Keeper) SetPointerInfo(ctx sdk.Context, pref []byte, addr []byte, version uint16) error {
 	existingAddr, existingVersion, exists := k.GetPointerInfo(ctx, pref)
 	if exists && existingVersion >= version {
-		return fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", string(existingAddr), existingVersion, version)
+		return fmt.Errorf("pointer at %X with version %d exists when trying to set pointer for version %d", string(existingAddr), existingVersion, version)
 	}
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
 	versionBz := make([]byte, 2)
