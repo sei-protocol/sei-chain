@@ -53,7 +53,10 @@ func CmdQuerySeiAddress() *cobra.Command {
 		Short: "gets sei address (sei...) by EVM address (0x...) if account has association set",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 
 			queryClient := types.NewQueryClient(clientCtx)
 
@@ -77,8 +80,10 @@ func CmdQueryEVMAddress() *cobra.Command {
 		Short: "gets evm address (0x...) by Sei address (sei...) if account has association set",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
-
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			queryClient := types.NewQueryClient(clientCtx)
 
 			res, err := queryClient.EVMAddressBySeiAddress(context.Background(), &types.QueryEVMAddressBySeiAddressRequest{SeiAddress: args[0]})
@@ -101,7 +106,10 @@ func CmdQueryERC20() *cobra.Command {
 		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			queryClient := types.NewQueryClient(clientCtx)
 			abi, err := native.NativeMetaData.GetAbi()
 			if err != nil {
@@ -160,8 +168,10 @@ func CmdQueryPayload() *cobra.Command {
 		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
-
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			dat, err := os.ReadFile(args[0])
 			if err != nil {
 				return err
@@ -191,8 +201,10 @@ func CmdQueryERC20Payload() *cobra.Command {
 		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
-
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			abi, err := cw20.Cw20MetaData.GetAbi()
 			if err != nil {
 				return err
@@ -232,8 +244,10 @@ func CmdQueryERC721Payload() *cobra.Command {
 		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
-
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			abi, err := cw721.Cw721MetaData.GetAbi()
 			if err != nil {
 				return err
@@ -273,8 +287,10 @@ func CmdQueryPointer() *cobra.Command {
 		Short: "get pointer address of the specified type (one of [NATIVE, CW20, CW721, ERC20, ERC721]) and pointee",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
-
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			queryClient := types.NewQueryClient(clientCtx)
 
 			res, err := queryClient.Pointer(context.Background(), &types.QueryPointerRequest{
