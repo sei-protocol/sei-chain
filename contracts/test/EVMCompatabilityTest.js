@@ -660,7 +660,7 @@ describe("EVM Test", function () {
         expect(isBigNumber(estimatedGas)).to.be.true;
       });
 
-      it.only("Should do large estimate gas efficiently", async function () {
+      it("Should do large estimate gas efficiently", async function () {
         batcher = await deployEvmContract("MultiSender");
         wallets = generateWallets(12).map(wallet => wallet.address);
         const gas = await batcher.batchTransferEqualAmount.estimateGas(wallets, 1000000000000, {value: 100000000000000});
