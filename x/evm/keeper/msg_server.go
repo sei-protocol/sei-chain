@@ -243,6 +243,15 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 		receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
 	}
 
+	if perr := stateDB.GetPrecompileError(); perr != nil {
+		if receipt.Status > 0 {
+			ctx.Logger().Error(fmt.Sprintf("Transaction %s succeeded in execution but has precompile error %s", receipt.TxHashHex, perr.Error()))
+		} else {
+			// append precompile error to VM error
+			receipt.VmError = fmt.Sprintf("%s|%s", receipt.VmError, perr.Error())
+		}
+	}
+
 	receipt.From = origMsg.Derived.SenderEVMAddr.Hex()
 
 	return receipt, server.SetReceipt(ctx, tx.Hash(), receipt)

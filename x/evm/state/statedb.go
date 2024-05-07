@@ -22,6 +22,9 @@ type DBImpl struct {
 	// If err is not nil at the end of the execution, the transaction will be rolled
 	// back.
 	err error
+	// whenever this is set, the same error would also cause EVM to revert, which is
+	// why we don't put it in `tempState`, since we still want to be able to access it later.
+	precompileErr error
 
 	// a temporary address that collects fees for this particular transaction so that there is
 	// no single bottleneck for fee collection. Its account state and balance will be deleted
@@ -143,6 +146,7 @@ func (s *DBImpl) Copy() vm.StateDB {
 		coinbaseEvmAddress: s.coinbaseEvmAddress,
 		simulation:         s.simulation,
 		err:                s.err,
+		precompileErr:      s.precompileErr,
 		logger:             s.logger,
 	}
 }
@@ -169,6 +173,14 @@ func (s *DBImpl) TxIndex() int {
 
 func (s *DBImpl) Preimages() map[common.Hash][]byte {
 	return map[common.Hash][]byte{}
+}
+
+func (s *DBImpl) SetPrecompileError(err error) {
+	s.precompileErr = err
+}
+
+func (s *DBImpl) GetPrecompileError() error {
+	return s.precompileErr
 }
 
 // ** TEST ONLY FUNCTIONS **//
