@@ -1,26 +1,7 @@
-const {setupSigners, deployErc721PointerForCw721, getAdmin, deployWasm,  executeWasm} = require("./lib");
+const {setupSigners, deployErc721PointerForCw721, getAdmin, deployWasm,  executeWasm, ABI} = require("./lib");
 const {expect} = require("chai");
 
 const CW721_BASE_WASM_LOCATION = "../contracts/wasm/cw721_base.wasm";
-
-const erc721Abi = [
-    "event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)",
-    "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
-    "event ApprovalForAll(address indexed owner, address indexed operator, bool approved)",
-    "function name() view returns (string)",
-    "function symbol() view returns (string)",
-    "function totalSupply() view returns (uint256)",
-    "function tokenURI(uint256 tokenId) view returns (string)",
-    "function balanceOf(address owner) view returns (uint256 balance)",
-    "function ownerOf(uint256 tokenId) view returns (address owner)",
-    "function getApproved(uint256 tokenId) view returns (address operator)",
-    "function isApprovedForAll(address owner, address operator) view returns (bool)",
-    "function approve(address to, uint256 tokenId) returns (bool)",
-    "function setApprovalForAll(address operator, bool _approved) returns (bool)",
-    "function transferFrom(address from, address to, uint256 tokenId) returns (bool)",
-    "function safeTransferFrom(address from, address to, uint256 tokenId) returns (bool)",
-    "function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) returns (bool)"
-];
 
 describe("ERC721 to CW721 Pointer", function () {
     let accounts;
@@ -44,7 +25,7 @@ describe("ERC721 to CW721 Pointer", function () {
         await executeWasm(cw721Address,  { mint : { token_id : "3", owner : accounts[1].seiAddress, token_uri: "token uri 3"}});
 
         const pointerAddr = await deployErc721PointerForCw721(hre.ethers.provider, cw721Address)
-        const contract = new hre.ethers.Contract(pointerAddr, erc721Abi, hre.ethers.provider);
+        const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC721, hre.ethers.provider);
         pointerAcc0 = contract.connect(accounts[0].signer)
         pointerAcc1 = contract.connect(accounts[1].signer) 
     })

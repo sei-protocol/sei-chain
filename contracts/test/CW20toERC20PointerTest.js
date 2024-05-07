@@ -1,10 +1,6 @@
-const {fundAddress, storeWasm, instantiateWasm, getSeiAddress, getAdmin, queryWasm, executeWasm, deployEvmContract, setupSigners,
-    getEvmAddress
-} = require("./lib")
+const {getAdmin, queryWasm, executeWasm, deployEvmContract, setupSigners, deployErc20PointerForCw20, deployWasm, WASM} = require("./lib")
 const { expect } = require("chai");
-const {getAdminAddress} = require("@openzeppelin/upgrades-core");
 
-const CW20_POINTER_WASM = "../example/cosmwasm/cw20/artifacts/cwerc20.wasm";
 describe("CW20 to ERC20 Pointer", function () {
     let accounts;
     let testToken;
@@ -29,8 +25,7 @@ describe("CW20 to ERC20 Pointer", function () {
         admin = await getAdmin()
         await setBalance(admin.evmAddress, 1000000000000)
 
-        const codeId = await storeWasm(CW20_POINTER_WASM)
-        cw20Pointer = await instantiateWasm(codeId, accounts[0].seiAddress, "cw20-erc20", {erc20_address: tokenAddr })
+        cw20Pointer = await deployWasm(WASM.POINTER_CW20, accounts[0].seiAddress, "cw20-erc20", {erc20_address: tokenAddr })
     })
 
     async function assertUnsupported(addr, operation, args) {
@@ -42,6 +37,17 @@ describe("CW20 to ERC20 Pointer", function () {
             expect(error.message).to.include("ERC20 does not support");
         }
     }
+
+    describe.skip("validation", function(){
+        it("should not allow a pointer to the pointer", async function(){
+            try {
+                await deployErc20PointerForCw20(hre.ethers.provider, cw20Pointer, 5)
+                expect.fail(`Expected to be prevented from creating a pointer`);
+            } catch(e){
+                expect(e.message).to.include("Cannot create a pointer to a pointer");
+            }
+        })
+    })
 
     describe("query", function(){
         it("should return token_info", async function(){

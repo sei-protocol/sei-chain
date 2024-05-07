@@ -1,7 +1,7 @@
-const {setupSigners, deployEvmContract, getAdmin, deployWasm, executeWasm, queryWasm} = require("./lib");
+const {setupSigners, deployEvmContract, getAdmin, deployWasm, executeWasm, queryWasm, deployErc20PointerForCw20,
+    deployErc721PointerForCw721, WASM
+} = require("./lib");
 const {expect} = require("chai");
-
-const CW721_POINTER_WASM = "../example/cosmwasm/cw721/artifacts/cwerc721.wasm";
 
 describe("CW721 to ERC721 Pointer", function () {
     let accounts;
@@ -13,7 +13,7 @@ describe("CW721 to ERC721 Pointer", function () {
         accounts = await setupSigners(await hre.ethers.getSigners())
         erc721 = await deployEvmContract("MyNFT")
         admin = await getAdmin()
-        pointer = await deployWasm(CW721_POINTER_WASM,
+        pointer = await deployWasm(WASM.POINTER_CW721,
             accounts[0].seiAddress,
             "cw721-erc721",
             {erc721_address: await erc721.getAddress() }
@@ -27,8 +27,18 @@ describe("CW721 to ERC721 Pointer", function () {
         await (await erc721.setApprovalForAll(admin.evmAddress, true)).wait();
     })
 
-    describe("query", function(){
+    describe.skip("validation", function(){
+        it("should not allow a pointer to the pointer", async function(){
+            try {
+                await deployErc721PointerForCw721(hre.ethers.provider, pointer, 5)
+                expect.fail(`Expected to be prevented from creating a pointer`);
+            } catch(e){
+                expect(e.message).to.include("Cannot create a pointer to a pointer");
+            }
+        })
+    })
 
+    describe("query", function(){
         it("should query the owner of a token", async function () {
             const result = await queryWasm(pointer, "owner_of", { token_id: "1" });
             expect(result).to.deep.equal({data:{

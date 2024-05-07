@@ -2,6 +2,45 @@ const { exec } = require("child_process"); // Importing exec from child_process
 
 const adminKeyName = "admin"
 
+const ABI = {
+    ERC20: [
+        "function name() view returns (string)",
+        "function symbol() view returns (string)",
+        "function decimals() view returns (uint8)",
+        "function totalSupply() view returns (uint256)",
+        "function balanceOf(address owner) view returns (uint256 balance)",
+        "function transfer(address to, uint amount) returns (bool)",
+        "function allowance(address owner, address spender) view returns (uint256)",
+        "function approve(address spender, uint256 value) returns (bool)",
+        "function transferFrom(address from, address to, uint value) returns (bool)"
+    ],
+    ERC721: [
+        "event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)",
+        "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
+        "event ApprovalForAll(address indexed owner, address indexed operator, bool approved)",
+        "function name() view returns (string)",
+        "function symbol() view returns (string)",
+        "function totalSupply() view returns (uint256)",
+        "function tokenURI(uint256 tokenId) view returns (string)",
+        "function balanceOf(address owner) view returns (uint256 balance)",
+        "function ownerOf(uint256 tokenId) view returns (address owner)",
+        "function getApproved(uint256 tokenId) view returns (address operator)",
+        "function isApprovedForAll(address owner, address operator) view returns (bool)",
+        "function approve(address to, uint256 tokenId) returns (bool)",
+        "function setApprovalForAll(address operator, bool _approved) returns (bool)",
+        "function transferFrom(address from, address to, uint256 tokenId) returns (bool)",
+        "function safeTransferFrom(address from, address to, uint256 tokenId) returns (bool)",
+        "function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) returns (bool)"
+    ],
+}
+
+const WASM = {
+    CW721: "../contracts/wasm/cw721_base.wasm",
+    CW20: "../contracts/wasm/cw20_base.wasm",
+    POINTER_CW20: "../example/cosmwasm/cw20/artifacts/cwerc20.wasm",
+    POINTER_CW721: "../example/cosmwasm/cw721/artifacts/cwerc721.wasm",
+}
+
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -116,12 +155,12 @@ async function getPointerForCw721(cw721Address) {
     return JSON.parse(output);
 }
 
-async function deployErc20PointerForCw20(provider, cw20Address) {
+async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
     const command = `seid tx evm call-precompile pointer addCW20Pointer ${cw20Address} --from=admin -b block`
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
-    while(attempt < 10) {
+    while(attempt < attempts) {
         const receipt = await provider.getTransactionReceipt(txHash);
         if(receipt) {
             return (await getPointerForCw20(cw20Address)).pointer
@@ -283,4 +322,6 @@ module.exports = {
     bankSend,
     evmSend,
     waitForReceipt,
+    WASM,
+    ABI,
 };
