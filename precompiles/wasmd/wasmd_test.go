@@ -113,15 +113,20 @@ func TestInstantiate(t *testing.T) {
 	)
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
+	require.NotNil(t, statedb.GetPrecompileError())
 	require.Equal(t, uint64(0), g)
 
 	// bad inputs
 	badArgs, _ := instantiateMethod.Inputs.Pack(codeID, "not bech32", []byte("{}"), "test", amtsbz)
+	statedb.SetPrecompileError(nil)
 	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, badArgs...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
+	require.NotNil(t, statedb.GetPrecompileError())
 	badArgs, _ = instantiateMethod.Inputs.Pack(codeID, mockAddr.String(), []byte("{}"), "test", []byte("bad coins"))
+	statedb.SetPrecompileError(nil)
 	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, badArgs...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
+	require.NotNil(t, statedb.GetPrecompileError())
 }
 
 func TestExecute(t *testing.T) {
@@ -192,24 +197,32 @@ func TestExecute(t *testing.T) {
 
 	// disallowed delegatecall
 	contractAddrDisallowed := common.BytesToAddress([]byte("contractB"))
+	statedb.SetPrecompileError(nil)
 	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.ExecuteID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
+	require.NotNil(t, statedb.GetPrecompileError())
 
 	// bad contract address
 	args, _ = executeMethod.Inputs.Pack(mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
+	statedb.SetPrecompileError(nil)
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
+	require.NotNil(t, statedb.GetPrecompileError())
 
 	// bad inputs
 	args, _ = executeMethod.Inputs.Pack("not bech32", []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
+	statedb.SetPrecompileError(nil)
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
+	require.NotNil(t, statedb.GetPrecompileError())
 	args, _ = executeMethod.Inputs.Pack(contractAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), []byte("bad coins"))
+	statedb.SetPrecompileError(nil)
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
+	require.NotNil(t, statedb.GetPrecompileError())
 }
 
 func TestQuery(t *testing.T) {
