@@ -81,10 +81,8 @@ describe("CW20 to ERC20 Pointer", function () {
             expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString())
         });
 
-        //TODO: other execute methods
-
         it("should increase and decrease allowance for a spender", async function() {
-            const spender = accounts[1].seiAddress
+            const spender = accounts[0].seiAddress
             await executeWasm(cw20Pointer, { increase_allowance: { spender: spender, amount: "300" } });
 
             let allowance = await queryWasm(cw20Pointer, "allowance", { owner: admin.seiAddress, spender: spender });
@@ -96,7 +94,16 @@ describe("CW20 to ERC20 Pointer", function () {
             expect(allowance.data.allowance).to.equal("0");
         });
 
+        it("should transfer token using transferFrom simplified", async function() {
+            const resp = await testToken.approve(admin.evmAddress, 100);
+            await resp.wait();
+
+            const respBefore = await queryWasm(cw20Pointer, "balance", {address: accounts[0].seiAddress});
+            const balanceBefore = respBefore.data.balance;
+            await executeWasm(cw20Pointer,  { transfer_from: { owner: accounts[0].seiAddress, recipient: accounts[1].seiAddress, amount: "100" } });
+            const respAfter = await queryWasm(cw20Pointer, "balance", {address: accounts[0].seiAddress});
+            const balanceAfter = respAfter.data.balance;
+            expect(balanceAfter).to.equal((parseInt(balanceBefore) - 100).toString())
+        });
     })
-
-
 })
