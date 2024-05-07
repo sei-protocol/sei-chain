@@ -16,11 +16,19 @@ import (
 )
 
 func (k *Keeper) SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error {
-	return k.SetPointerInfo(ctx, types.PointerERC20NativeKey(token), addr[:], native.CurrentVersion)
+	err := k.SetPointerInfo(ctx, types.PointerERC20NativeKey(token), addr[:], native.CurrentVersion)
+	if err != nil {
+		return err
+	}
+	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(addr), []byte(token), native.CurrentVersion)
 }
 
 func (k *Keeper) SetERC20NativePointerWithVersion(ctx sdk.Context, token string, addr common.Address, version uint16) error {
-	return k.SetPointerInfo(ctx, types.PointerERC20NativeKey(token), addr[:], version)
+	err := k.SetPointerInfo(ctx, types.PointerERC20NativeKey(token), addr[:], version)
+	if err != nil {
+		return err
+	}
+	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(addr), []byte(token), version)
 }
 
 func (k *Keeper) GetERC20NativePointer(ctx sdk.Context, token string) (addr common.Address, version uint16, exists bool) {
@@ -31,16 +39,37 @@ func (k *Keeper) GetERC20NativePointer(ctx sdk.Context, token string) (addr comm
 	return
 }
 
+func (k *Keeper) GetERC20NativeByPointer(ctx sdk.Context, addr common.Address) (token string, version uint16, exists bool) {
+	tokenBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(addr))
+	if exists {
+		token = string(tokenBz)
+	}
+	return
+}
+
 func (k *Keeper) DeleteERC20NativePointer(ctx sdk.Context, token string, version uint16) {
-	k.DeletePointerInfo(ctx, types.PointerERC20NativeKey(token), version)
+	addr, _, exists := k.GetERC20NativePointer(ctx, token)
+	if exists {
+		k.DeletePointerInfo(ctx, types.PointerERC20NativeKey(token), version)
+		k.DeletePointerInfo(ctx, types.PointerReverseRegistryKey(addr), version)
+	}
+
 }
 
 func (k *Keeper) SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error {
-	return k.SetPointerInfo(ctx, types.PointerERC20CW20Key(cw20Address), addr[:], cw20.CurrentVersion)
+	err := k.SetPointerInfo(ctx, types.PointerERC20CW20Key(cw20Address), addr[:], cw20.CurrentVersion)
+	if err != nil {
+		return err
+	}
+	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(addr), []byte(cw20Address), cw20.CurrentVersion)
 }
 
 func (k *Keeper) SetERC20CW20PointerWithVersion(ctx sdk.Context, cw20Address string, addr common.Address, version uint16) error {
-	return k.SetPointerInfo(ctx, types.PointerERC20CW20Key(cw20Address), addr[:], version)
+	err := k.SetPointerInfo(ctx, types.PointerERC20CW20Key(cw20Address), addr[:], version)
+	if err != nil {
+		return err
+	}
+	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(addr), []byte(cw20Address), version)
 }
 
 func (k *Keeper) GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool) {
@@ -51,16 +80,37 @@ func (k *Keeper) GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr 
 	return
 }
 
+func (k *Keeper) GetERC20CW20ByPointer(ctx sdk.Context, addr common.Address) (cw20Address string, version uint16, exists bool) {
+	cw20AddressBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(addr))
+	if exists {
+		cw20Address = string(cw20AddressBz)
+	}
+	return
+}
+
 func (k *Keeper) DeleteERC20CW20Pointer(ctx sdk.Context, cw20Address string, version uint16) {
-	k.DeletePointerInfo(ctx, types.PointerERC20CW20Key(cw20Address), version)
+	addr, _, exists := k.GetERC20CW20Pointer(ctx, cw20Address)
+	if exists {
+		k.DeletePointerInfo(ctx, types.PointerERC20CW20Key(cw20Address), version)
+		k.DeletePointerInfo(ctx, types.PointerReverseRegistryKey(addr), version)
+	}
+
 }
 
 func (k *Keeper) SetERC721CW721Pointer(ctx sdk.Context, cw721Address string, addr common.Address) error {
-	return k.SetPointerInfo(ctx, types.PointerERC721CW721Key(cw721Address), addr[:], cw721.CurrentVersion)
+	err := k.SetPointerInfo(ctx, types.PointerERC721CW721Key(cw721Address), addr[:], cw721.CurrentVersion)
+	if err != nil {
+		return err
+	}
+	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(addr), []byte(cw721Address), cw721.CurrentVersion)
 }
 
 func (k *Keeper) SetERC721CW721PointerWithVersion(ctx sdk.Context, cw721Address string, addr common.Address, version uint16) error {
-	return k.SetPointerInfo(ctx, types.PointerERC721CW721Key(cw721Address), addr[:], version)
+	err := k.SetPointerInfo(ctx, types.PointerERC721CW721Key(cw721Address), addr[:], version)
+	if err != nil {
+		return err
+	}
+	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(addr), []byte(cw721Address), version)
 }
 
 func (k *Keeper) GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool) {
@@ -71,12 +121,28 @@ func (k *Keeper) GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (ad
 	return
 }
 
+func (k *Keeper) GetERC721CW721ByPointer(ctx sdk.Context, addr common.Address) (cw721Address string, version uint16, exists bool) {
+	cw721AddressBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(addr))
+	if exists {
+		cw721Address = string(cw721AddressBz)
+	}
+	return
+}
+
 func (k *Keeper) DeleteERC721CW721Pointer(ctx sdk.Context, cw721Address string, version uint16) {
-	k.DeletePointerInfo(ctx, types.PointerERC721CW721Key(cw721Address), version)
+	addr, _, exists := k.GetERC721CW721Pointer(ctx, cw721Address)
+	if exists {
+		k.DeletePointerInfo(ctx, types.PointerERC721CW721Key(cw721Address), version)
+		k.DeletePointerInfo(ctx, types.PointerReverseRegistryKey(addr), version)
+	}
 }
 
 func (k *Keeper) SetCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Address, addr string) error {
-	return k.SetPointerInfo(ctx, types.PointerCW20ERC20Key(erc20Address), []byte(addr), erc20.CurrentVersion)
+	err := k.SetPointerInfo(ctx, types.PointerCW20ERC20Key(erc20Address), []byte(addr), erc20.CurrentVersion)
+	if err != nil {
+		return err
+	}
+	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(common.HexToAddress(addr)), erc20Address[:], erc20.CurrentVersion)
 }
 
 func (k *Keeper) GetCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {
@@ -88,7 +154,11 @@ func (k *Keeper) GetCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Addres
 }
 
 func (k *Keeper) SetCW721ERC721Pointer(ctx sdk.Context, erc721Address common.Address, addr string) error {
-	return k.SetPointerInfo(ctx, types.PointerCW721ERC721Key(erc721Address), []byte(addr), erc721.CurrentVersion)
+	err := k.SetPointerInfo(ctx, types.PointerCW721ERC721Key(erc721Address), []byte(addr), erc721.CurrentVersion)
+	if err != nil {
+		return err
+	}
+	return k.SetPointerInfo(ctx, types.PointerReverseRegistryKey(common.HexToAddress(addr)), erc721Address[:], erc721.CurrentVersion)
 }
 
 func (k *Keeper) GetCW721ERC721Pointer(ctx sdk.Context, erc721Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {

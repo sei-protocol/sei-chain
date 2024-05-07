@@ -46,8 +46,9 @@ var (
 	ReplayedHeight       = []byte{0x13}
 	ReplayInitialHeight  = []byte{0x14}
 
-	PointerRegistryPrefix = []byte{0x15}
-	PointerCWCodePrefix   = []byte{0x16}
+	PointerRegistryPrefix        = []byte{0x15}
+	PointerCWCodePrefix          = []byte{0x16}
+	PointerReverseRegistryPrefix = []byte{0x17}
 )
 
 var (
@@ -119,4 +120,8 @@ func PointerCW721ERC721Key(erc721Addr common.Address) []byte {
 		append(PointerRegistryPrefix, PointerCW721ERC721Prefix...),
 		erc721Addr[:]...,
 	)
+}
+
+func PointerReverseRegistryKey(addr common.Address) []byte {
+	return append(PointerReverseRegistryPrefix, addr[:]...)
 }
