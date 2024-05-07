@@ -29,8 +29,9 @@ message Nonce {
 }
 
 message Serialized {
-  bytes key = 1;
-  bytes value = 2;
+  bytes prefix = 1;
+  bytes key = 2;
+  bytes value = 3;
 }
 
 // GenesisState defines the evm module's genesis state.
