@@ -96,17 +96,17 @@ describe("ERC20 to CW20 Pointer", function () {
             await cleanupTx.wait();
         });
 
-        it.only("should fail transfer() if sender has insufficient balance", async function () {
+        it("should fail transfer() if sender has insufficient balance", async function () {
             const recipient = accounts[1];
             await expect(pointer.transfer(recipient.evmAddress, 20000000)).to.be.revertedWith("CosmWasm execute failed");
         });
 
-        it.only("transfer to unassociated address should fail", async function() {
+        it("transfer to unassociated address should fail", async function() {
             const unassociatedRecipient = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
             await expect(pointer.transfer(unassociatedRecipient, 1)).to.be.revertedWithoutReason;
         });
 
-        it.only("transfer to contract address should succeed", async function() {
+        it("transfer to contract address should succeed", async function() {
             const contract = await pointer.getAddress();
             const tx = await pointer.transfer(contract, 1);
             await tx.wait();
