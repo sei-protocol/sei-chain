@@ -137,6 +137,25 @@ function getEventAttribute(response, type, attribute) {
     throw new Error("attribute not found")
 }
 
+async function createTokenFactoryTokenAndMint(name, amount, recipient) {
+    const command = `seid tx tokenfactory create-denom ${name} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    const output = await execute(command);
+    const response = JSON.parse(output)
+    const token_denom = getEventAttribute(response, "create_denom", "new_token_denom")
+    const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    await execute(mint_command);
+
+    const send_command = `seid tx bank send ${adminKeyName} ${recipient} ${amount}${token_denom} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    await execute(send_command);
+    return token_denom
+}
+
+async function getPointerForNative(name) {
+    const command = `seid query evm pointer NATIVE ${name} -o json`
+    const output = await execute(command);
+    return JSON.parse(output);
+}
+
 async function storeWasm(path) {
     const command = `seid tx wasm store ${path} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
@@ -166,6 +185,22 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
             return (await getPointerForCw20(cw20Address)).pointer
         } else if(receipt){
             throw new Error("contract deployment failed")
+        }
+        await sleep(500)
+        attempt++
+    }
+    throw new Error("contract deployment failed")
+}
+
+async function deployErc20PointerNative(provider, name) {
+    const command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=admin -b block`
+    const output = await execute(command);
+    const txHash = output.replace(/.*0x/, "0x").trim()
+    let attempt = 0;
+    while(attempt < 10) {
+        const receipt = await provider.getTransactionReceipt(txHash);
+        if(receipt) {
+            return (await getPointerForNative(name)).pointer
         }
         await sleep(500)
         attempt++
@@ -335,6 +370,7 @@ module.exports = {
     storeWasm,
     deployWasm,
     instantiateWasm,
+    createTokenFactoryTokenAndMint,
     execute,
     getSeiAddress,
     getEvmAddress,
@@ -344,6 +380,7 @@ module.exports = {
     setupSigners,
     deployEvmContract,
     deployErc20PointerForCw20,
+    deployErc20PointerNative,
     deployErc721PointerForCw721,
     registerPointerForCw20,
     registerPointerForCw721,
