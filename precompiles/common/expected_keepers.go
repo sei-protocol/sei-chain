@@ -39,6 +39,8 @@ type EVMKeeper interface {
 	GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool)
 	SetERC721CW721Pointer(ctx sdk.Context, cw721Address string, addr common.Address) error
 	GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool)
+	IncrementDepth(ctx sdk.Context) int
+	DecrementDepth(ctx sdk.Context) int
 }
 
 type OracleKeeper interface {

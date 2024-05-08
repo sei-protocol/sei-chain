@@ -198,6 +198,11 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 }
 
 func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
+	depth := k.IncrementDepth(ctx)
+	defer k.DecrementDepth(ctx)
+	if !ctx.IsCheckTx() {
+		ctx.Logger().Info(fmt.Sprintf("[Debug] applyEVMMessage tx=%s, depth=%d", ctx.EVMTxHash(), depth))
+	}
 	blockCtx, err := k.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err

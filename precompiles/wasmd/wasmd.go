@@ -393,6 +393,10 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		return
 	}
 
+	depth := p.evmKeeper.IncrementDepth(ctx)
+	defer p.evmKeeper.DecrementDepth(ctx)
+	ctx.Logger().Info(fmt.Sprintf("[Debug] wasm.precompile execute tx=%s, stack=%d\n", ctx.EVMTxHash(), depth))
+
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
 	contractAddrStr := args[0].(string)
 	if caller.Cmp(callingContract) != 0 {

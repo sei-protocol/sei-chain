@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -45,7 +46,9 @@ type Keeper struct {
 	Paramstore  paramtypes.Subspace
 
 	deferredInfo *sync.Map
-	txResults    []*abci.ExecTxResult
+	depth        sync.Map
+
+	txResults []*abci.ExecTxResult
 
 	bankKeeper     bankkeeper.Keeper
 	accountKeeper  *authkeeper.AccountKeeper
@@ -252,6 +255,36 @@ func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []EvmTxDeferredInfo)
 	return
 }
 
+func (k *Keeper) IncrementDepth(ctx sdk.Context) int {
+	if ctx.IsCheckTx() {
+		return 0
+	}
+
+	// Load or Store zero value if not present
+	val, _ := k.depth.LoadOrStore(ctx.TxIndex(), new(int32))
+	val32 := val.(*int32)
+
+	// Atomically increment the value
+	return int(atomic.AddInt32(val32, 1))
+}
+
+func (k *Keeper) DecrementDepth(ctx sdk.Context) int {
+	if ctx.IsCheckTx() {
+		return 0
+	}
+
+	// Load or Store zero value if not present
+	val, ok := k.depth.LoadOrStore(ctx.TxIndex(), new(int32))
+	if !ok {
+		panic("attempt to decrement a non-existing depth")
+	}
+
+	val32 := val.(*int32)
+
+	// Atomically increment the value
+	return int(atomic.AddInt32(val32, -1))
+}
+
 func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom, txHash common.Hash, surplus sdk.Int) {
 	k.deferredInfo.Store(ctx.TxIndex(), &EvmTxDeferredInfo{
 		TxIndx:  ctx.TxIndex(),
@@ -271,6 +304,7 @@ func (k *Keeper) AppendErrorToEvmTxDeferredInfo(ctx sdk.Context, txHash common.H
 
 func (k *Keeper) ClearEVMTxDeferredInfo() {
 	k.deferredInfo = &sync.Map{}
+	k.depth = sync.Map{}
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {

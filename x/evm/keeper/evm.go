@@ -23,6 +23,8 @@ type EVMCallFunc func(caller vm.ContractRef, addr *common.Address, input []byte,
 var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 
 func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEVMCall) (*sdk.Result, error) {
+	fmt.Printf("[Debug] HandleInternalEVMCall tx=%s checkTx=%v (invoking CallEVM)\n", ctx.EVMTxHash(), ctx.IsCheckTx())
+
 	var to *common.Address
 	if req.To != "" {
 		addr := common.HexToAddress(req.To)
@@ -67,6 +69,10 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 }
 
 func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Address, val *sdk.Int, data []byte) (retdata []byte, reterr error) {
+	depth := k.IncrementDepth(ctx)
+	defer k.DecrementDepth(ctx)
+	ctx.Logger().Info(fmt.Sprintf("[Debug] CallEVM tx=%s, isCheckTx=%v, stack=%d\n", ctx.EVMTxHash(), ctx.IsCheckTx(), depth))
+
 	if to == nil && len(data) > params.MaxInitCodeSize {
 		return nil, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
 	}
@@ -127,6 +133,11 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 }
 
 func (k *Keeper) StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, data []byte) ([]byte, error) {
+	depth := k.IncrementDepth(ctx)
+	defer k.DecrementDepth(ctx)
+
+	ctx.Logger().Info(fmt.Sprintf("[Debug] StaticCallEVM tx=%s, isCheckTx=%v, stack=%d\n", ctx.EVMTxHash(), ctx.IsCheckTx(), depth))
+
 	evm, err := k.getOrCreateEVM(ctx, from)
 	if err != nil {
 		return nil, err

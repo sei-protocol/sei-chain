@@ -346,6 +346,7 @@ module.exports = {
     getNativeAccount,
     associateKey,
     delay,
+    sleep,
     bankSend,
     evmSend,
     waitForReceipt,
