@@ -1,8 +1,6 @@
 package state
 
 import (
-	"fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -114,9 +112,6 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	surplus = s.tempStateCurrent.surplus
 	for _, ts := range s.tempStatesHist {
 		surplus = surplus.Add(ts.surplus)
-	}
-	if surplus.IsNegative() {
-		err = fmt.Errorf("negative surplus value: %s", surplus.String())
 	}
 	return
 }

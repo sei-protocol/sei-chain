@@ -51,7 +51,7 @@ func TestModuleExportGenesis(t *testing.T) {
 func TestConsensusVersion(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
-	assert.Equal(t, uint64(5), module.ConsensusVersion())
+	assert.Equal(t, uint64(6), module.ConsensusVersion())
 }
 
 func TestABCI(t *testing.T) {
@@ -135,4 +135,17 @@ func TestABCI(t *testing.T) {
 	m.EndBlock(ctx, abci.RequestEndBlock{}) // should not crash
 	require.Equal(t, sdk.OneInt(), k.BankKeeper().GetBalance(ctx, coinbase, "usei").Amount)
 	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().SpendableCoins(ctx, coinbase).AmountOf("usei"))
+}
+
+func TestAnteSurplus(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	m := evm.NewAppModule(nil, k)
+	// first block
+	m.BeginBlock(ctx, abci.RequestBeginBlock{})
+	k.AddAnteSurplus(ctx, common.BytesToHash([]byte("1234")), sdk.NewInt(1_000_000_000_001))
+	m.EndBlock(ctx, abci.RequestEndBlock{})
+	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
+	require.Equal(t, uint64(1), k.BankKeeper().GetWeiBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName)).Uint64())
+	// ante surplus should be cleared
+	require.Equal(t, uint64(0), k.GetAnteSurplusSum(ctx).Uint64())
 }
