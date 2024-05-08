@@ -162,8 +162,10 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
     let attempt = 0;
     while(attempt < attempts) {
         const receipt = await provider.getTransactionReceipt(txHash);
-        if(receipt) {
+        if(receipt && receipt.status === 1) {
             return (await getPointerForCw20(cw20Address)).pointer
+        } else if(receipt){
+            throw new Error("contract deployment failed")
         }
         await sleep(500)
         attempt++
@@ -178,8 +180,10 @@ async function deployErc721PointerForCw721(provider, cw721Address) {
     let attempt = 0;
     while(attempt < 10) {
         const receipt = await provider.getTransactionReceipt(txHash);
-        if(receipt) {
+        if(receipt && receipt.status === 1) {
             return (await getPointerForCw721(cw721Address)).pointer
+        } else if(receipt){
+            throw new Error("contract deployment failed")
         }
         await sleep(500)
         attempt++
@@ -198,6 +202,20 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}) {
     const output = await execute(command);
     const response = JSON.parse(output);
     return getEventAttribute(response, "instantiate", "_contract_address");
+}
+
+async function registerPointerForCw20(erc20Address, fees="20000usei", from=adminKeyName) {
+    const command = `seid tx evm register-pointer ERC20 ${erc20Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
+    const output = await execute(command);
+    const response = JSON.parse(output)
+    return getEventAttribute(response, "pointer_registered", "pointer_address")
+}
+
+async function registerPointerForCw721(erc721Address, fees="20000usei", from=adminKeyName) {
+    const command = `seid tx evm register-pointer ERC721 ${erc721Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
+    const output = await execute(command);
+    const response = JSON.parse(output)
+    return getEventAttribute(response, "pointer_registered", "pointer_address")
 }
 
 
@@ -315,6 +333,8 @@ module.exports = {
     deployEvmContract,
     deployErc20PointerForCw20,
     deployErc721PointerForCw721,
+    registerPointerForCw20,
+    registerPointerForCw721,
     importKey,
     getNativeAccount,
     associateKey,
