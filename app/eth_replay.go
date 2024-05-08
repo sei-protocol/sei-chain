@@ -11,6 +11,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -101,6 +102,10 @@ func Replay(a *App) {
 		_, err = a.Commit(context.Background())
 		if err != nil {
 			panic(err)
+		}
+		res, broken := bankkeeper.TotalSupply(a.BankKeeper)(a.GetCheckCtx())
+		if broken {
+			panic(res)
 		}
 		h++
 	}
