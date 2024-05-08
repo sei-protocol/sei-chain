@@ -77,6 +77,12 @@ func NewStore(
 		if err != nil {
 			panic(err)
 		}
+		// Check whether SC was enabled before but SS was not
+		ssVersion, _ := ssStore.GetLatestVersion()
+		scVersion, _ := scStore.GetLatestVersion()
+		if ssVersion <= 0 && scVersion > 0 {
+			panic("Enabling SS store without state sync could cause data corruption")
+		}
 		if err = ss.RecoverStateStore(homeDir, logger, ssStore); err != nil {
 			panic(err)
 		}
