@@ -208,14 +208,23 @@ async function registerPointerForCw20(erc20Address, fees="20000usei", from=admin
     const command = `seid tx evm register-pointer ERC20 ${erc20Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
+
+    try{
+        return getEventAttribute(response, "pointer_registered", "pointer_address")
+    } catch(e) {
+        throw new Error("contract deployment failed")
+    }
 }
 
 async function registerPointerForCw721(erc721Address, fees="20000usei", from=adminKeyName) {
     const command = `seid tx evm register-pointer ERC721 ${erc721Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
+    try {
+        return getEventAttribute(response, "pointer_registered", "pointer_address")
+    } catch (e) {
+        throw new Error("contract deployment failed")
+    }
 }
 
 

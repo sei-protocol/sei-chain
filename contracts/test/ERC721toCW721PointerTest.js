@@ -1,4 +1,6 @@
-const {setupSigners, deployErc721PointerForCw721, getAdmin, deployWasm,  executeWasm, ABI} = require("./lib");
+const {setupSigners, deployErc721PointerForCw721, getAdmin, deployWasm,  executeWasm, ABI, registerPointerForCw20,
+    registerPointerForCw721
+} = require("./lib");
 const {expect} = require("chai");
 
 const CW721_BASE_WASM_LOCATION = "../contracts/wasm/cw721_base.wasm";
@@ -28,6 +30,17 @@ describe("ERC721 to CW721 Pointer", function () {
         const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC721, hre.ethers.provider);
         pointerAcc0 = contract.connect(accounts[0].signer)
         pointerAcc1 = contract.connect(accounts[1].signer) 
+    })
+
+    describe("validation", function(){
+        it("should not allow a pointer to the pointer", async function(){
+            try {
+                await registerPointerForCw721(await pointerAcc0.getAddress())
+                expect.fail(`Expected to be prevented from creating a pointer`);
+            } catch(e){
+                expect(e.message).to.include("contract deployment failed");
+            }
+        })
     })
 
     describe("read", function(){

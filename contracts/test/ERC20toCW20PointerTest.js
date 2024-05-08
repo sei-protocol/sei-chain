@@ -1,4 +1,4 @@
-const {setupSigners, deployErc20PointerForCw20, getAdmin, deployWasm, WASM, ABI
+const {setupSigners, deployErc20PointerForCw20, getAdmin, deployWasm, WASM, ABI, registerPointerForCw20
 } = require("./lib");
 const {expect} = require("chai");
 
@@ -32,13 +32,13 @@ describe("ERC20 to CW20 Pointer", function () {
         pointer = contract.connect(accounts[0].signer)
     })
 
-    describe.skip("validation", function(){
+    describe("validation", function(){
         it("should not allow a pointer to the pointer", async function(){
             try {
-                await deployWasm(WASM.POINTER_CW20, accounts[0].seiAddress, "cw20-erc20", {erc20_address: pointerAddr })
+                await registerPointerForCw20(await pointer.getAddress())
                 expect.fail(`Expected to be prevented from creating a pointer`);
             } catch(e){
-                expect(e.message).to.include("Cannot create a pointer to a pointer");
+                expect(e.message).to.include("contract deployment failed");
             }
         })
     })
