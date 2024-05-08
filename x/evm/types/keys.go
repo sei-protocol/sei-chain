@@ -49,6 +49,8 @@ var (
 	PointerRegistryPrefix        = []byte{0x15}
 	PointerCWCodePrefix          = []byte{0x16}
 	PointerReverseRegistryPrefix = []byte{0x17}
+
+	AnteSurplusPrefix = []byte{0x18}
 )
 
 var (

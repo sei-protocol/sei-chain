@@ -68,6 +68,7 @@ func ExportGenesis(ctx sdk.Context, k *keeper.Keeper) *types.GenesisState {
 		types.TxHashesPrefix,
 		types.PointerRegistryPrefix,
 		types.PointerCWCodePrefix,
+		types.PointerReverseRegistryPrefix,
 	} {
 		k.IterateAll(ctx, prefix, func(key, val []byte) bool {
 			genesis.Serialized = append(genesis.Serialized, &types.Serialized{
