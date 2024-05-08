@@ -164,7 +164,7 @@ func TestQuerySmartContractPanics(t *testing.T) {
 		CodeID:  1,
 		Created: types.NewAbsoluteTxPosition(ctx),
 	})
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(DefaultInstanceCost)).WithLogger(log.TestingLogger())
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, DefaultInstanceCost)).WithLogger(log.TestingLogger())
 
 	specs := map[string]struct {
 		doInContract func()
@@ -283,9 +283,8 @@ func TestQueryContractListByCodeOrdering(t *testing.T) {
 	var h int64 = 10
 	setBlock := func(ctx sdk.Context, height int64) sdk.Context {
 		ctx = ctx.WithBlockHeight(height)
-		meter := sdk.NewGasMeter(1000000)
+		meter := sdk.NewGasMeterWithMultiplier(ctx, 1000000)
 		ctx = ctx.WithGasMeter(meter)
-		ctx = ctx.WithBlockGasMeter(meter)
 		return ctx
 	}
 

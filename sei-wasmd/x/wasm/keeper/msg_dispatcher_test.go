@@ -350,7 +350,7 @@ func TestDispatchSubmessages(t *testing.T) {
 			var mockStore wasmtesting.MockCommitMultiStore
 			em := sdk.NewEventManager()
 			ctx := sdk.Context{}.WithMultiStore(&mockStore).
-				WithGasMeter(sdk.NewGasMeter(100)).
+				WithGasMeter(sdk.NewGasMeter(100, 1, 1)).
 				WithEventManager(em).WithLogger(log.TestingLogger())
 			d := NewMessageDispatcher(spec.msgHandler, spec.replyer)
 			gotData, gotErr := d.DispatchSubmessages(ctx, RandomAccountAddress(t), "any_port", spec.msgs, wasmvmtypes.MessageInfo{}, types.CodeInfo{})

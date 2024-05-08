@@ -115,8 +115,7 @@ func TestDispatchSubMsgErrorHandling(t *testing.T) {
 
 	// prep - create one chain and upload the code
 	ctx, keepers := CreateTestInput(t, false, ReflectFeatures)
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
-	ctx = ctx.WithBlockGasMeter(sdk.NewInfiniteGasMeter())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	keeper := keepers.WasmKeeper
 	contractStart := sdk.NewCoins(sdk.NewInt64Coin(fundedDenom, int64(fundedAmount)))
 	uploader := keepers.Faucet.NewFundedAccount(ctx, contractStart.Add(contractStart...)...)
@@ -313,7 +312,7 @@ func TestDispatchSubMsgErrorHandling(t *testing.T) {
 			reflectSendBz, err := json.Marshal(reflectSend)
 			require.NoError(t, err)
 
-			execCtx := ctx.WithGasMeter(sdk.NewGasMeter(ctxGasLimit))
+			execCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, ctxGasLimit))
 			defer func() {
 				if tc.isOutOfGasPanic {
 					r := recover()
