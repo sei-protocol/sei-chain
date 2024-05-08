@@ -19,7 +19,6 @@ type Derived struct {
 	PubKey        *secp256k1.PubKey
 	IsAssociate   bool
 	Version       SignerVersion
-	AnteSurplus   sdk.Int
 }
 
 // Derived should never come from deserialization or be transmitted after serialization,
