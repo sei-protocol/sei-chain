@@ -46,7 +46,7 @@ type Keeper struct {
 	Paramstore  paramtypes.Subspace
 
 	deferredInfo *sync.Map
-	depth        sync.Map
+	depth        *sync.Map
 
 	txResults []*abci.ExecTxResult
 
@@ -136,6 +136,7 @@ func NewKeeper(
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
 		deferredInfo:                 &sync.Map{},
+		depth:                        &sync.Map{},
 	}
 	return k
 }
@@ -304,7 +305,7 @@ func (k *Keeper) AppendErrorToEvmTxDeferredInfo(ctx sdk.Context, txHash common.H
 
 func (k *Keeper) ClearEVMTxDeferredInfo() {
 	k.deferredInfo = &sync.Map{}
-	k.depth = sync.Map{}
+	k.depth = &sync.Map{}
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
