@@ -5,6 +5,7 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 )
 
 // add any payable precompiles here
@@ -13,6 +14,7 @@ var payablePrecompiles = map[string]struct{}{
 	bank.BankAddress:       {},
 	staking.StakingAddress: {},
 	gov.GovAddress:         {},
+	wasmd.WasmdAddress:     {},
 }
 
 func IsPayablePrecompile(addr *common.Address) bool {
