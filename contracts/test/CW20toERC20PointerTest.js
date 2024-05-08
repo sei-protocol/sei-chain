@@ -125,10 +125,9 @@ describe("CW20 to ERC20 Pointer", function () {
             expect(allowance.data.allowance).to.equal("0");
         });
 
-        it("should transfer token using transferFrom simplified", async function() {
+        it("should transfer token using transferFrom", async function() {
             const resp = await testToken.approve(admin.evmAddress, 100);
             await resp.wait();
-
             const respBefore = await queryWasm(cw20Pointer, "balance", {address: accounts[0].seiAddress});
             const balanceBefore = respBefore.data.balance;
             await executeWasm(cw20Pointer,  { transfer_from: { owner: accounts[0].seiAddress, recipient: accounts[1].seiAddress, amount: "100" } });
