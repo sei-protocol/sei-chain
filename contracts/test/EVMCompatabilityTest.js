@@ -3,6 +3,7 @@ const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
 const { ethers, upgrades } = require('hardhat');
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
+const { deployEvmContract } = require("./lib")
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -45,6 +46,15 @@ async function sendTransactionAndCheckGas(sender, recipient, amount) {
 function generateWallet() {
   const wallet = ethers.Wallet.createRandom();
   return wallet.connect(ethers.provider);
+}
+
+function generateWallets(num) {
+  const arr = []
+  for(let i=0; i<num; i++) {
+      const wallet = ethers.Wallet.createRandom();
+      arr.push(wallet);
+  }
+  return arr;
 }
 
 async function sendTx(sender, txn, responses) {
@@ -648,6 +658,13 @@ describe("EVM Test", function () {
           data: evmTester.interface.encodeFunctionData("setBoolVar", [true])
         });
         expect(isBigNumber(estimatedGas)).to.be.true;
+      });
+
+      it("Should do large estimate gas efficiently", async function () {
+        batcher = await deployEvmContract("MultiSender");
+        wallets = generateWallets(12).map(wallet => wallet.address);
+        const gas = await batcher.batchTransferEqualAmount.estimateGas(wallets, 1000000000000, {value: 100000000000000});
+        expect(gas).to.be.greaterThan(0);
       });
 
       it("Should check the network status", async function () {
