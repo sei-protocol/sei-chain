@@ -33,7 +33,7 @@ type seiPointerTest struct {
 func TestEVMtoCWPointers(t *testing.T) {
 	tests := []seiPointerTest{
 		{
-			name: "ERC20NativePointer, prevents pointer to cw20 pointer",
+			name: "ERC20NativePointer prevents pointer to cw20 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					evmSetter:  k.SetERC20NativePointer,
@@ -46,7 +46,7 @@ func TestEVMtoCWPointers(t *testing.T) {
 			version: native.CurrentVersion,
 		},
 		{
-			name: "ERC20NativePointer, prevents pointer to cw721 pointer",
+			name: "ERC20NativePointer prevents pointer to cw721 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					evmSetter:  k.SetERC20NativePointer,
@@ -59,7 +59,7 @@ func TestEVMtoCWPointers(t *testing.T) {
 			version: native.CurrentVersion,
 		},
 		{
-			name: "ERC20CW20Pointer, prevents pointer to cw721 pointer",
+			name: "ERC20CW20Pointer prevents pointer to cw721 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					evmSetter:  k.SetERC20CW20Pointer,
@@ -72,7 +72,7 @@ func TestEVMtoCWPointers(t *testing.T) {
 			version: cw20.CurrentVersion,
 		},
 		{
-			name: "ERC20CW20Pointer, prevents pointer to cw20 pointer",
+			name: "ERC20CW20Pointer prevents pointer to cw20 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					evmSetter:  k.SetERC20CW20Pointer,
@@ -85,7 +85,7 @@ func TestEVMtoCWPointers(t *testing.T) {
 			version: cw20.CurrentVersion,
 		},
 		{
-			name: "ERC721CW721Pointer, prevents pointer to cw721 pointer",
+			name: "ERC721CW721Pointer prevents pointer to cw721 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					evmSetter:  k.SetERC721CW721Pointer,
@@ -98,7 +98,7 @@ func TestEVMtoCWPointers(t *testing.T) {
 			version: cw721.CurrentVersion,
 		},
 		{
-			name: "ERC721CW721Pointer, prevents pointer to cw20 pointer",
+			name: "ERC721CW721Pointer prevents pointer to cw20 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					evmSetter:  k.SetERC721CW721Pointer,
@@ -150,7 +150,7 @@ func TestEVMtoCWPointers(t *testing.T) {
 func TestCWtoEVMPointers(t *testing.T) {
 	tests := []seiPointerTest{
 		{
-			name: "CW20ERC20Pointer, prevents pointer to native pointer",
+			name: "CW20ERC20Pointer prevents pointer to native pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					cwSetter:  k.SetCW20ERC20Pointer,
@@ -161,7 +161,7 @@ func TestCWtoEVMPointers(t *testing.T) {
 			},
 		},
 		{
-			name: "CW20ERC20Pointer, prevents pointer to erc20 pointer",
+			name: "CW20ERC20Pointer prevents pointer to erc20 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					cwSetter:  k.SetCW20ERC20Pointer,
@@ -172,7 +172,7 @@ func TestCWtoEVMPointers(t *testing.T) {
 			},
 		},
 		{
-			name: "CW20ERC20Pointer, prevents pointer to erc721 pointer",
+			name: "CW20ERC20Pointer prevents pointer to erc721 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					cwSetter:  k.SetCW20ERC20Pointer,
@@ -183,7 +183,7 @@ func TestCWtoEVMPointers(t *testing.T) {
 			},
 		},
 		{
-			name: "CW721ERC721Pointer, prevents pointer to native pointer",
+			name: "CW721ERC721Pointer prevents pointer to native pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					cwSetter:  k.SetCW721ERC721Pointer,
@@ -194,7 +194,7 @@ func TestCWtoEVMPointers(t *testing.T) {
 			},
 		},
 		{
-			name: "CW721ERC721Pointer, prevents pointer to erc721 pointer",
+			name: "CW721ERC721Pointer prevents pointer to erc721 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					cwSetter:  k.SetCW721ERC721Pointer,
@@ -205,7 +205,7 @@ func TestCWtoEVMPointers(t *testing.T) {
 			},
 		},
 		{
-			name: "CW721ERC721Pointer, prevents pointer to erc20 pointer",
+			name: "CW721ERC721Pointer prevents pointer to erc20 pointer",
 			getHandlers: func(k *evmkeeper.Keeper) *handlers {
 				return &handlers{
 					cwSetter:  k.SetCW721ERC721Pointer,

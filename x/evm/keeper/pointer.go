@@ -3,10 +3,10 @@ package keeper
 import (
 	"encoding/binary"
 	"fmt"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
