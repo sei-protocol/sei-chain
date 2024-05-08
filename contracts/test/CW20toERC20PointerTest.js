@@ -89,6 +89,18 @@ describe("CW20 to ERC20 Pointer", function () {
             expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString())
         });
 
+        it("transfer to unassociated address should fail", async function() {
+            const unassociatedSeiAddr = "sei1z7qugn2xy4ww0c9nsccftxw592n4xhxccmcf4q";
+            const respBefore = await queryWasm(cw20Pointer, "balance", {address: accounts[1].seiAddress})
+            const balanceBefore = respBefore.data.balance;
+
+            await executeWasm(cw20Pointer,  { transfer: { recipient: unassociatedSeiAddr, amount: "100" } });
+            const respAfter = await queryWasm(cw20Pointer, "balance", {address: accounts[1].seiAddress})
+            const balanceAfter = respAfter.data.balance;
+
+            expect(balanceAfter).to.equal((parseInt(balanceBefore)).toString())
+        });
+
         //TODO: other execute methods
 
         it("should increase and decrease allowance for a spender", async function() {
