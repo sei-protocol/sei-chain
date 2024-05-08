@@ -3,13 +3,13 @@ package keeper
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
@@ -53,7 +53,7 @@ func (k *Keeper) DeleteERC20NativePointer(ctx sdk.Context, token string, version
 	}
 }
 
-// ERC20 -> Native Token
+// ERC20 -> CW20
 func (k *Keeper) SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error {
 	return k.SetERC20CW20PointerWithVersion(ctx, cw20Address, addr, cw20.CurrentVersion)
 }
