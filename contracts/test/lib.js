@@ -2,6 +2,45 @@ const { exec } = require("child_process"); // Importing exec from child_process
 
 const adminKeyName = "admin"
 
+const ABI = {
+    ERC20: [
+        "function name() view returns (string)",
+        "function symbol() view returns (string)",
+        "function decimals() view returns (uint8)",
+        "function totalSupply() view returns (uint256)",
+        "function balanceOf(address owner) view returns (uint256 balance)",
+        "function transfer(address to, uint amount) returns (bool)",
+        "function allowance(address owner, address spender) view returns (uint256)",
+        "function approve(address spender, uint256 value) returns (bool)",
+        "function transferFrom(address from, address to, uint value) returns (bool)"
+    ],
+    ERC721: [
+        "event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)",
+        "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
+        "event ApprovalForAll(address indexed owner, address indexed operator, bool approved)",
+        "function name() view returns (string)",
+        "function symbol() view returns (string)",
+        "function totalSupply() view returns (uint256)",
+        "function tokenURI(uint256 tokenId) view returns (string)",
+        "function balanceOf(address owner) view returns (uint256 balance)",
+        "function ownerOf(uint256 tokenId) view returns (address owner)",
+        "function getApproved(uint256 tokenId) view returns (address operator)",
+        "function isApprovedForAll(address owner, address operator) view returns (bool)",
+        "function approve(address to, uint256 tokenId) returns (bool)",
+        "function setApprovalForAll(address operator, bool _approved) returns (bool)",
+        "function transferFrom(address from, address to, uint256 tokenId) returns (bool)",
+        "function safeTransferFrom(address from, address to, uint256 tokenId) returns (bool)",
+        "function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) returns (bool)"
+    ],
+}
+
+const WASM = {
+    CW721: "../contracts/wasm/cw721_base.wasm",
+    CW20: "../contracts/wasm/cw20_base.wasm",
+    POINTER_CW20: "../example/cosmwasm/cw20/artifacts/cwerc20.wasm",
+    POINTER_CW721: "../example/cosmwasm/cw721/artifacts/cwerc721.wasm",
+}
+
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -116,15 +155,17 @@ async function getPointerForCw721(cw721Address) {
     return JSON.parse(output);
 }
 
-async function deployErc20PointerForCw20(provider, cw20Address) {
+async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
     const command = `seid tx evm call-precompile pointer addCW20Pointer ${cw20Address} --from=admin -b block`
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
-    while(attempt < 10) {
+    while(attempt < attempts) {
         const receipt = await provider.getTransactionReceipt(txHash);
-        if(receipt) {
+        if(receipt && receipt.status === 1) {
             return (await getPointerForCw20(cw20Address)).pointer
+        } else if(receipt){
+            throw new Error("contract deployment failed")
         }
         await sleep(500)
         attempt++
@@ -139,8 +180,10 @@ async function deployErc721PointerForCw721(provider, cw721Address) {
     let attempt = 0;
     while(attempt < 10) {
         const receipt = await provider.getTransactionReceipt(txHash);
-        if(receipt) {
+        if(receipt && receipt.status === 1) {
             return (await getPointerForCw721(cw721Address)).pointer
+        } else if(receipt){
+            throw new Error("contract deployment failed")
         }
         await sleep(500)
         attempt++
@@ -159,6 +202,27 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}) {
     const output = await execute(command);
     const response = JSON.parse(output);
     return getEventAttribute(response, "instantiate", "_contract_address");
+}
+
+async function registerPointerForCw20(erc20Address, fees="20000usei", from=adminKeyName) {
+    const command = `seid tx evm register-pointer ERC20 ${erc20Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
+    const output = await execute(command);
+    const response = JSON.parse(output)
+    if(response.code !== 0) {
+        throw new Error("contract deployment failed")
+    }
+    return getEventAttribute(response, "pointer_registered", "pointer_address")
+}
+
+async function registerPointerForCw721(erc721Address, fees="20000usei", from=adminKeyName) {
+    const command = `seid tx evm register-pointer ERC721 ${erc721Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
+    const output = await execute(command);
+    const response = JSON.parse(output)
+    if(response.code !== 0) {
+        throw new Error("contract deployment failed")
+    }
+    return getEventAttribute(response, "pointer_registered", "pointer_address")
+
 }
 
 
@@ -276,6 +340,8 @@ module.exports = {
     deployEvmContract,
     deployErc20PointerForCw20,
     deployErc721PointerForCw721,
+    registerPointerForCw20,
+    registerPointerForCw721,
     importKey,
     getNativeAccount,
     associateKey,
@@ -283,4 +349,6 @@ module.exports = {
     bankSend,
     evmSend,
     waitForReceipt,
+    WASM,
+    ABI,
 };
