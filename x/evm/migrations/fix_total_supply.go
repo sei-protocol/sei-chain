@@ -29,6 +29,9 @@ func FixTotalSupply(ctx sdk.Context, k *keeper.Keeper) error {
 		weiInUsei = weiInUsei.Add(sdk.OneInt())
 	}
 	correctSupply = correctSupply.Add(weiInUsei)
-	k.BankKeeper().SetSupply(ctx, sdk.NewCoin(sdk.MustGetBaseDenom(), correctSupply))
+	currentSupply := k.BankKeeper().GetSupply(ctx, sdk.MustGetBaseDenom()).Amount
+	if !currentSupply.Equal(correctSupply) {
+		k.BankKeeper().SetSupply(ctx, sdk.NewCoin(sdk.MustGetBaseDenom(), correctSupply))
+	}
 	return nil
 }
