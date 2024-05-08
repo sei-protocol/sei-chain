@@ -88,14 +88,6 @@ describe("ERC20 to Native Pointer", function () {
 
         it("should fail transfer() if sender has insufficient balance", async function () {
             let recipient = accounts[1];
-
-            try {
-                console.log("try")
-                const estimated = await pointer.transfer(recipient.evmAddress, 1001);
-                console.log("estimated", estimated)
-            } catch (error) {
-                console.log("error", error)
-            }
             // TODO: determine why we aren't able to extract the error message
             await expectRevert.unspecified(pointer.transfer(recipient.evmAddress, 1001));
         });
