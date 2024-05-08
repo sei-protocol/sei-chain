@@ -153,6 +153,16 @@ func (k *Keeper) GetStoreKey() sdk.StoreKey {
 	return k.storeKey
 }
 
+func (k *Keeper) IterateAll(ctx sdk.Context, pref []byte, cb func(key, val []byte) bool) {
+	iter := k.PrefixStore(ctx, pref).Iterator(nil, nil)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		if cb(iter.Key(), iter.Value()) {
+			break
+		}
+	}
+}
+
 func (k *Keeper) PrefixStore(ctx sdk.Context, pref []byte) sdk.KVStore {
 	store := ctx.KVStore(k.GetStoreKey())
 	return prefix.NewStore(store, pref)

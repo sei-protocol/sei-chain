@@ -12,8 +12,34 @@ message AddressAssociation {
   string eth_address = 2;    // Ethereum address
 }
 
+message Code {
+  string address = 1;
+  bytes code = 2;
+}
+
+message ContractState {
+  string address = 1;
+  bytes key = 2;
+  bytes value = 3;
+}
+
+message Nonce {
+  string address = 1;
+  uint64 nonce = 2;
+}
+
+message Serialized {
+  bytes prefix = 1;
+  bytes key = 2;
+  bytes value = 3;
+}
+
 // GenesisState defines the evm module's genesis state.
 message GenesisState {
   Params params = 1 [(gogoproto.nullable) = false];
   repeated AddressAssociation address_associations = 2; // List of address associations
+  repeated Code codes = 3; // List of stored code
+  repeated ContractState states = 4; // List of contract state
+  repeated Nonce nonces = 5;
+  repeated Serialized serialized = 6;
 }
