@@ -329,9 +329,17 @@ func (p Precompile) symbol(ctx sdk.Context, method *abi.Method, args []interface
 	return method.Outputs.Pack(metadata.Symbol)
 }
 
-func (p Precompile) decimals(_ sdk.Context, method *abi.Method, _ []interface{}, value *big.Int) ([]byte, error) {
+func (p Precompile) decimals(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
+	}
+	if err := pcommon.ValidateArgsLength(nil, 1); err != nil {
+		return nil, err
+	}
+	denom := args[0].(string)
+	_, found := p.bankKeeper.GetDenomMetaData(ctx, denom)
+	if !found {
+	return nil, fmt.Errorf("denom %s not found", denom)
 	}
 
 	// all native tokens are integer-based, returns decimals for microdenom (usei)

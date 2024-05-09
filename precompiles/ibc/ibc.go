@@ -434,7 +434,10 @@ func (p Precompile) validateCommonArgs(ctx sdk.Context, args []interface{}, call
 		return nil, errors.New("channelID cannot be empty")
 	}
 
-	denom := args[3].(string)
+	denom, ok := args[3].(string)
+	if !ok {
+		return nil, errors.New("denom is not a string")
+	}
 	if denom == "" {
 		return nil, errors.New("invalid denom")
 	}

@@ -102,7 +102,7 @@ func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer 
 /*
 *
 sei gas = evm gas * multiplier
-sei gas price = fee / sei gas = fee / (evm gas * multiplier) = evm gas / multiplier
+sei gas price = fee / sei gas = fee / (evm gas * multiplier) = evm gas price / multiplier
 */
 func GetRemainingGas(ctx sdk.Context, evmKeeper EVMKeeper) uint64 {
 	gasMultipler := evmKeeper.GetPriorityNormalizer(ctx)

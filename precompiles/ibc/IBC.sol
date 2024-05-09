@@ -10,7 +10,7 @@ IBC constant IBC_CONTRACT = IBC(
 interface IBC {
     // Transactions
     function transfer(
-        string toAddress,
+        string memory toAddress,
         string memory port,
         string memory channel,
         string memory denom,
@@ -21,7 +21,7 @@ interface IBC {
     ) external returns (bool success);
 
     function transferWithDefaultTimeout(
-        string toAddress,
+        string memory toAddress,
         string memory port,
         string memory channel,
         string memory denom,
