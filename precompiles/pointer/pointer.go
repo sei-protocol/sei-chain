@@ -24,6 +24,7 @@ import (
 )
 
 const (
+	PrecompileName   = "pointer"
 	AddNativePointer = "addNativePointer"
 	AddCW20Pointer   = "addCW20Pointer"
 	AddCW721Pointer  = "addCW721Pointer"
@@ -95,7 +96,7 @@ func (p Precompile) Address() common.Address {
 }
 
 func (p Precompile) GetName() string {
-	return "pointer"
+	return PrecompileName
 }
 
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
