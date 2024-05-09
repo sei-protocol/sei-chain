@@ -1,12 +1,16 @@
 package ante
 
 import (
+	"math/big"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
+
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 type EVMSigVerifyDecorator struct {
@@ -38,8 +42,16 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	chainID := svd.evmKeeper.ChainID(ctx)
 	txChainID := ethTx.ChainId()
 
-	if ethTx.Type() > 0 {
-		// chain ID must match for EIP-155+
+	// validate chain ID on the transaction
+	switch ethTx.Type() {
+	case ethtypes.LegacyTxType:
+		// legacy either can have a zero or correct chain ID
+		if txChainID.Cmp(big.NewInt(0)) != 0 && txChainID.Cmp(chainID) != 0 {
+			ctx.Logger().Error("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
+			return ctx, sdkerrors.ErrInvalidChainID
+		}
+	default:
+		// after legacy, all transactions must have the correct chain ID
 		if txChainID.Cmp(chainID) != 0 {
 			ctx.Logger().Error("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
 			return ctx, sdkerrors.ErrInvalidChainID
