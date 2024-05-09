@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"math/big"
 	"math/rand"
 	"os"
@@ -86,7 +87,7 @@ func NewSigner() TestAcct {
 
 	pvKeyHex := hex.EncodeToString(priv1.Bytes())
 	key, _ := crypto.HexToECDSA(pvKeyHex)
-	ethCfg := types2.DefaultChainConfig().EthereumConfig(big.NewInt(1))
+	ethCfg := types2.DefaultChainConfig().EthereumConfig(big.NewInt(config.DefaultChainID))
 	signer := ethtypes.MakeSigner(ethCfg, utils2.Big1, 1)
 	address := crypto.PubkeyToAddress(key.PublicKey)
 
