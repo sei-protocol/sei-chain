@@ -163,6 +163,11 @@ func TestExecute(t *testing.T) {
 	}
 	suppliedGas := uint64(1000000)
 	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
+	// circular interop
+	statedb.WithCtx(statedb.Ctx().WithIsEVM(false))
+	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
+	require.Equal(t, "sei does not support CW->EVM->CW call pattern", err.Error())
+	statedb.WithCtx(statedb.Ctx().WithIsEVM(true))
 	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
 	require.Nil(t, err)
 	outputs, err := executeMethod.Outputs.Unpack(res)
