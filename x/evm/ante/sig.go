@@ -37,10 +37,11 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	ctx = ctx.WithEVMSenderAddress(evmAddr.Hex())
 	ctx = ctx.WithEVMTxHash(ethTx.Hash().Hex())
 
+	if ethTx.ChainId().Cmp(chainID) != 0 {
+		return ctx, sdkerrors.ErrInvalidChainID
+	}
+
 	if ctx.IsCheckTx() {
-		if ethTx.ChainId().Cmp(chainID) != 0 {
-			return ctx, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "chain-id mismatched: got %s, expected %s", ethTx.ChainId().String(), chainID.String())
-		}
 		if txNonce < nextNonce {
 			return ctx, sdkerrors.ErrWrongSequence
 		}
