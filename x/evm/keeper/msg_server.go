@@ -84,8 +84,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
-		receipt, err := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)
-		if err != nil {
+		receipt, rerr := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)
+		if rerr != nil {
+			err = rerr
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 
 			telemetry.IncrCounterWithLabels(
