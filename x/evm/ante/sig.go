@@ -27,6 +27,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 
 	evmAddr := types.MustGetEVMTransactionMessage(tx).Derived.SenderEVMAddr
 
+	chainID := svd.evmKeeper.ChainID(ctx)
 	nextNonce := svd.evmKeeper.GetNonce(ctx, evmAddr)
 	txNonce := ethTx.Nonce()
 
@@ -37,6 +38,9 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	ctx = ctx.WithEVMTxHash(ethTx.Hash().Hex())
 
 	if ctx.IsCheckTx() {
+		if ethTx.ChainId().Cmp(chainID) != 0 {
+			return ctx, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "chain-id mismatched: got %s, expected %s", ethTx.ChainId().String(), chainID.String())
+		}
 		if txNonce < nextNonce {
 			return ctx, sdkerrors.ErrWrongSequence
 		}
