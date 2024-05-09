@@ -155,7 +155,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	case ExecuteMethod:
 		return p.execute(ctx, method, caller, callingContract, args, value, readOnly)
 	case ExecuteBatchMethod:
-		return p.execute_batch(ctx, method, caller, callingContract, args, value, readOnly)
+		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly)
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
 	}
@@ -259,7 +259,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	return
 }
 
-func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -322,7 +322,11 @@ func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller co
 			rerr = err
 			return
 		}
-		senderAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+		senderAddr, senderAssociated := p.evmKeeper.GetSeiAddress(ctx, caller)
+		if !senderAssociated {
+			rerr = fmt.Errorf("sender %s is not associated", caller.Hex())
+			return
+		}
 		msg := executeMsg.Msg
 		coinsBz := executeMsg.Coins
 		coins := sdk.NewCoins()

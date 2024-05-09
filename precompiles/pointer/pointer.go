@@ -24,6 +24,7 @@ import (
 )
 
 const (
+	PrecompileName   = "pointer"
 	AddNativePointer = "addNativePointer"
 	AddCW20Pointer   = "addCW20Pointer"
 	AddCW721Pointer  = "addCW721Pointer"
@@ -95,7 +96,7 @@ func (p Precompile) Address() common.Address {
 }
 
 func (p Precompile) GetName() string {
-	return "pointer"
+	return PrecompileName
 }
 
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
@@ -133,6 +134,9 @@ func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.In
 }
 
 func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, 0, err
 	}
@@ -187,6 +191,9 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 }
 
 func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, 0, err
 	}
@@ -238,6 +245,9 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 }
 
 func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, 0, err
 	}
