@@ -1073,32 +1073,92 @@ describe("EVM Test", function () {
   });
 });
 
-describe("Ethereum Validations ", function() {
-  it.only("should prevent wrong chainId", async function() {
-    await setupSigners(await hre.ethers.getSigners())
-    const signer = generateWallet()
-    await fundAddress(await signer.getAddress())
+describe("EVM Validations ", function() {
 
-    // const accounts = await setupSigners(await hre.ethers.getSigners())
-    const signedTx = await signer.signTransaction({
-      to: await signer.getAddress(),
-      value: 0,
-      chainId: "0x12345",
-      type: 2,
-      nonce: 0,
-      maxPriorityFeePerGas: 21000,
-      gasLimit: 21000,
-      maxFeePerGas:10000000000})
+  describe("chainId", async function(){
+    let signer;
 
-    const nodeUrl = 'http://localhost:8545';
-    const response = await axios.post(nodeUrl, {
-      method: 'eth_sendRawTransaction',
-      params: [signedTx],
-      id: 1,
-      jsonrpc: "2.0"
+    before(async function(){
+      await setupSigners(await hre.ethers.getSigners())
+      signer = generateWallet()
+      await fundAddress(await signer.getAddress())
     })
-    expect(response.data.error.message).to.include("invalid chain-id")
-  });
+
+    it("should prevent wrong chainId for eip-155 txs", async function() {
+      const nonce = await ethers.provider.getTransactionCount(signer, "pending")
+
+      const signedTx = await signer.signTransaction({
+        to: await signer.getAddress(),
+        value: 0,
+        chainId: "0x12345",
+        type: 2,
+        nonce: nonce,
+        maxPriorityFeePerGas: 21000,
+        gasLimit: 21000,
+        maxFeePerGas:10000000000})
+
+      const nodeUrl = 'http://localhost:8545';
+      const response = await axios.post(nodeUrl, {
+        method: 'eth_sendRawTransaction',
+        params: [signedTx],
+        id: 1,
+        jsonrpc: "2.0"
+      })
+      expect(response.data.error.message).to.include("invalid chain-id")
+    });
+
+    it("should prevent wrong chainId for legacy txs", async function() {
+      const nonce = await ethers.provider.getTransactionCount(signer, "pending")
+
+
+      // const accounts = await setupSigners(await hre.ethers.getSigners())
+      const signedTx = await signer.signTransaction({
+        type: 0,
+        to: await signer.getAddress(),
+        value: 0,
+        nonce: nonce,
+        chainId: "0x12345",
+        gasPrice: 1000000000000,
+        gasLimit: 21000})
+
+      const nodeUrl = 'http://localhost:8545';
+      const response = await axios.post(nodeUrl, {
+        method: 'eth_sendRawTransaction',
+        params: [signedTx],
+        id: 1,
+        jsonrpc: "2.0"
+      })
+
+      expect(response.data.error.message).to.include("invalid chain-id")
+    });
+
+    it("should allow empty chainId for legacy txs", async function() {
+      const nonce = await ethers.provider.getTransactionCount(signer, "pending")
+
+      // const accounts = await setupSigners(await hre.ethers.getSigners())
+      const signedTx = await signer.signTransaction({
+        type: 0,
+        to: await signer.getAddress(),
+        value: 0,
+        nonce: nonce,
+        gasPrice: 1000000000000,
+        gasLimit: 21000})
+
+      const nodeUrl = 'http://localhost:8545';
+      const response = await axios.post(nodeUrl, {
+        method: 'eth_sendRawTransaction',
+        params: [signedTx],
+        id: 1,
+        jsonrpc: "2.0"
+      })
+
+      expect(response.data.result).to.match(/0x.*/)
+    });
+
+
+
+  })
+
 })
 
 describe("EVM throughput", function(){
