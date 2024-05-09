@@ -95,13 +95,12 @@ func RegisterErcPointerCmd() *cobra.Command {
 			var payload []byte
 			var err error
 			switch args[0] {
-			// TODO: dont use raw strings here
 			case "CW20":
-				payload, err = getMethodPayload(pInfo.ABI, []string{"addCW20Pointer", args[1]})
+				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddCW20Pointer, args[1]})
 			case "CW721":
-				payload, err = getMethodPayload(pInfo.ABI, []string{"addCW721Pointer", args[1]})
+				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddCW721Pointer, args[1]})
 			case "NATIVE":
-				payload, err = getMethodPayload(pInfo.ABI, []string{"addNativePointer", args[1]})
+				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddNativePointer, args[1]})
 			default:
 				return fmt.Errorf("invalid pointer type: %s", args[0])
 			}
