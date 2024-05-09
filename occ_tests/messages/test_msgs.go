@@ -2,7 +2,6 @@ package messages
 
 import (
 	"fmt"
-	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"math/big"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
@@ -12,6 +11,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )

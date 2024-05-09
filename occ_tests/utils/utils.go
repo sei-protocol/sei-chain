@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
-	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"math/big"
 	"math/rand"
 	"os"
@@ -36,6 +35,7 @@ import (
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	types2 "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
