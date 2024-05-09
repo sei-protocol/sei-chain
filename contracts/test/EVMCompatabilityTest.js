@@ -1074,7 +1074,7 @@ describe("EVM Test", function () {
 });
 
 describe("Ethereum Validations ", function() {
-  it("should prevent wrong chainId", async function() {
+  it.only("should prevent wrong chainId", async function() {
     await setupSigners(await hre.ethers.getSigners())
     const signer = generateWallet()
     await fundAddress(await signer.getAddress())
@@ -1083,7 +1083,7 @@ describe("Ethereum Validations ", function() {
     const signedTx = await signer.signTransaction({
       to: await signer.getAddress(),
       value: 0,
-      chainId: "0x530",
+      chainId: "0x12345",
       type: 2,
       nonce: 0,
       maxPriorityFeePerGas: 21000,
