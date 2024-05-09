@@ -3,11 +3,10 @@ package ante
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmtypes "github.com/tendermint/tendermint/types"
-
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	abci "github.com/tendermint/tendermint/abci/types"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 type EVMSigVerifyDecorator struct {
@@ -27,7 +26,6 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 
 	evmAddr := types.MustGetEVMTransactionMessage(tx).Derived.SenderEVMAddr
 
-	chainID := svd.evmKeeper.ChainID(ctx)
 	nextNonce := svd.evmKeeper.GetNonce(ctx, evmAddr)
 	txNonce := ethTx.Nonce()
 
@@ -37,8 +35,15 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	ctx = ctx.WithEVMSenderAddress(evmAddr.Hex())
 	ctx = ctx.WithEVMTxHash(ethTx.Hash().Hex())
 
-	if ethTx.ChainId().Cmp(chainID) != 0 {
-		return ctx, sdkerrors.ErrInvalidChainID
+	chainID := svd.evmKeeper.ChainID(ctx)
+	txChainID := ethTx.ChainId()
+
+	if ethTx.Type() > 0 {
+		// chain ID must match for EIP-155+
+		if txChainID.Cmp(chainID) != 0 {
+			ctx.Logger().Error("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
+			return ctx, sdkerrors.ErrInvalidChainID
+		}
 	}
 
 	if ctx.IsCheckTx() {
