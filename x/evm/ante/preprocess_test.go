@@ -11,7 +11,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -130,7 +129,7 @@ func TestPreprocessAssociateTx(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, evmAddr, associated)
 
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		panic("should not be called")
 	})
 	// already associated
@@ -157,12 +156,9 @@ func TestPreprocessAssociateTxWithWeiBalance(t *testing.T) {
 	require.Nil(t, err)
 	seiAddr := sdk.AccAddress(privKey.PubKey().Address())
 	evmAddr := crypto.PubkeyToAddress(key.PublicKey)
-	k.BankKeeper().AddCoins(ctx, seiAddr, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(int64(ante.BalanceThreshold-1)))), true)
-	k.BankKeeper().AddWei(ctx, sdk.AccAddress(evmAddr[:]), bankkeeper.OneUseiInWei.Sub(sdk.OneInt()))
 	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		panic("should not be called")
 	})
-	// not enough balance (0.9999999999999999 wei only)
 	require.NotNil(t, err)
 	k.BankKeeper().AddWei(ctx, seiAddr, sdk.OneInt())
 	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
@@ -220,6 +216,25 @@ func TestEVMAddressDecorator(t *testing.T) {
 	require.Equal(t, evmAddr, associatedEvmAddr)
 }
 
+func TestIsAccountBalancePositive(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	s1, e1 := testkeeper.MockAddressPair()
+	s2, e2 := testkeeper.MockAddressPair()
+	s3, e3 := testkeeper.MockAddressPair()
+	s4, e4 := testkeeper.MockAddressPair()
+	s5, e5 := testkeeper.MockAddressPair()
+	require.Nil(t, k.BankKeeper().AddCoins(ctx, s1, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.OneInt())), true))
+	require.Nil(t, k.BankKeeper().AddCoins(ctx, sdk.AccAddress(e2[:]), sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.OneInt())), true))
+	require.Nil(t, k.BankKeeper().AddWei(ctx, s3, sdk.OneInt()))
+	require.Nil(t, k.BankKeeper().AddWei(ctx, sdk.AccAddress(e4[:]), sdk.OneInt()))
+	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
+	require.True(t, handler.IsAccountBalancePositive(ctx, s1, e1))
+	require.True(t, handler.IsAccountBalancePositive(ctx, s2, e2))
+	require.True(t, handler.IsAccountBalancePositive(ctx, s3, e3))
+	require.True(t, handler.IsAccountBalancePositive(ctx, s4, e4))
+	require.False(t, handler.IsAccountBalancePositive(ctx, s5, e5))
+}
+
 // MockTxNotSigVerifiable is a simple mock transaction type that implements sdk.Tx but not SigVerifiableTx
 type MockTxIncompatible struct {
 	msgs []sdk.Msg
@@ -266,7 +281,7 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 	// Prepare a SigVerifiableTx with a pubkey that fails to parse
 	brokenPubKey := &secp256k1.PubKey{Key: []byte{1, 2, 3}} // deliberately too short to be valid
 	k.AccountKeeper().SetAccount(ctx, authtypes.NewBaseAccount(sender, brokenPubKey, 1, 1))
-	ctx, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, signers: []sdk.AccAddress{sender}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 

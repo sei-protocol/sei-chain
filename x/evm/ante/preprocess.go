@@ -15,7 +15,6 @@ import (
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -73,20 +72,8 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
 	} else if isAssociateTx {
 		// check if the account has enough balance (without charging)
-		baseDenom := p.evmKeeper.GetBaseDenom(ctx)
-		seiBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, baseDenom).Amount
-		castBalance := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), baseDenom).Amount
-		totalUsei := new(big.Int).Add(seiBalance.BigInt(), castBalance.BigInt())
-		if totalUsei.Cmp(BigBalanceThreshold) < 0 {
-			if totalUsei.Cmp(BigBalanceThresholdMinus1) < 0 {
-				// no need to check for wei balances since the sum wouldn't reach 2usei
-				return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
-			}
-			seiWeiBalance := p.evmKeeper.BankKeeper().GetWeiBalance(ctx, seiAddr)
-			evmWeiBalance := p.evmKeeper.BankKeeper().GetWeiBalance(ctx, sdk.AccAddress(evmAddr[:]))
-			if seiWeiBalance.Add(evmWeiBalance).LT(bankkeeper.OneUseiInWei) {
-				return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1Sei to force association")
-			}
+		if !p.IsAccountBalancePositive(ctx, seiAddr, evmAddr) {
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
 		}
 		if err := p.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
 			return ctx, err
@@ -116,6 +103,20 @@ func (p *EVMPreprocessDecorator) AssociateAddresses(ctx sdk.Context, seiAddr sdk
 		p.accountKeeper.SetAccount(ctx, acc)
 	}
 	return migrateBalance(ctx, p.evmKeeper, evmAddr, seiAddr)
+}
+
+func (p *EVMPreprocessDecorator) IsAccountBalancePositive(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address) bool {
+	baseDenom := p.evmKeeper.GetBaseDenom(ctx)
+	if amt := p.evmKeeper.BankKeeper().GetBalance(ctx, seiAddr, baseDenom).Amount; amt.IsPositive() {
+		return true
+	}
+	if amt := p.evmKeeper.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), baseDenom).Amount; amt.IsPositive() {
+		return true
+	}
+	if amt := p.evmKeeper.BankKeeper().GetWeiBalance(ctx, seiAddr); amt.IsPositive() {
+		return true
+	}
+	return p.evmKeeper.BankKeeper().GetWeiBalance(ctx, sdk.AccAddress(evmAddr[:])).IsPositive()
 }
 
 // stateless
