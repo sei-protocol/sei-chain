@@ -156,7 +156,7 @@ async function getPointerForCw721(cw721Address) {
 }
 
 async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
-    const command = `seid tx evm call-precompile pointer addCW20Pointer ${cw20Address} --from=admin -b block`
+    const command = `seid tx evm register-erc-pointer CW20 ${cw20Address} --from=admin -b block`
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
@@ -174,7 +174,7 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
 }
 
 async function deployErc721PointerForCw721(provider, cw721Address) {
-    const command = `seid tx evm call-precompile pointer addCW721Pointer ${cw721Address} --from=admin -b block`
+    const command = `seid tx evm register-erc-pointer CW721 ${cw721Address} --from=admin -b block`
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
@@ -205,7 +205,7 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}) {
 }
 
 async function registerPointerForCw20(erc20Address, fees="20000usei", from=adminKeyName) {
-    const command = `seid tx evm register-pointer ERC20 ${erc20Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
+    const command = `seid tx evm register-cw-pointer ERC20 ${erc20Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
     if(response.code !== 0) {
@@ -215,7 +215,7 @@ async function registerPointerForCw20(erc20Address, fees="20000usei", from=admin
 }
 
 async function registerPointerForCw721(erc721Address, fees="20000usei", from=adminKeyName) {
-    const command = `seid tx evm register-pointer ERC721 ${erc721Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
+    const command = `seid tx evm register-cw-pointer ERC721 ${erc721Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
     if(response.code !== 0) {
