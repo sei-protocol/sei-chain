@@ -156,7 +156,7 @@ async function getPointerForCw721(cw721Address) {
 }
 
 async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
-    const command = `seid tx evm register-erc-pointer CW20 ${cw20Address} --from=admin -b block`
+    const command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=admin -b block`
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
@@ -174,7 +174,7 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
 }
 
 async function deployErc721PointerForCw721(provider, cw721Address) {
-    const command = `seid tx evm register-erc-pointer CW721 ${cw721Address} --from=admin -b block`
+    const command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=admin -b block`
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;

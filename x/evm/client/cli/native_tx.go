@@ -59,7 +59,7 @@ func NativeSendTxCmd() *cobra.Command {
 func RegisterCwPointerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "register-cw-pointer [pointer type] [erc address]",
-		Short: `Register a CosmWasm pointer for an ERC20/721 contract. Pointer type is either ERC20 or ERC721`,
+		Short: `Register a CosmWasm pointer for an ERC20/721 contract. Pointer type is either ERC20 or ERC721.`,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
@@ -85,10 +85,10 @@ func RegisterCwPointerCmd() *cobra.Command {
 	return cmd
 }
 
-func RegisterErcPointerCmd() *cobra.Command {
+func RegisterEvmPointerCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "register-erc-pointer [pointer type] [cw-address] --gas-fee-cap=<cap> --gas-limit=<limit> --evm-rpc=<url>",
-		Short: `Register an ERC pointer for a CosmWasm contract. Pointer type is either CW20, CW721, or NATIVE`,
+		Use:   "register-evm-pointer [pointer type] [cw-address] --gas-fee-cap=<cap> --gas-limit=<limit> --evm-rpc=<url>",
+		Short: `Register an EVM pointer for a CosmWasm contract. Pointer type is either CW20, CW721, or NATIVE.`,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pInfo := precompiles.GetPrecompileInfo(pointer.PrecompileName)
