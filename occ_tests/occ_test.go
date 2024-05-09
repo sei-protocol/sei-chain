@@ -170,38 +170,40 @@ func TestParallelTransactions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		blockTime := time.Now()
-		accts := utils.NewTestAccounts(5)
+		t.Run(tt.name, func(t *testing.T) {
+			blockTime := time.Now()
+			accts := utils.NewTestAccounts(5)
 
-		// execute sequentially, then in parallel
-		// the responses and state should match for both
-		sCtx := utils.NewTestContext(t, accts, blockTime, 1, false)
-		txs := tt.txs(sCtx)
-		if tt.shuffle {
-			txs = utils.Shuffle(txs)
-		}
-
-		if tt.before != nil {
-			tt.before(sCtx)
-		}
-
-		sEvts, sResults, _, sErr := utils.RunWithoutOCC(sCtx, txs)
-		require.NoError(t, sErr, tt.name)
-		require.Len(t, sResults, len(txs))
-
-		for i := 0; i < tt.runs; i++ {
-			pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers, true)
-			if tt.before != nil {
-				tt.before(pCtx)
+			// execute sequentially, then in parallel
+			// the responses and state should match for both
+			sCtx := utils.NewTestContext(t, accts, blockTime, 1, false)
+			txs := tt.txs(sCtx)
+			if tt.shuffle {
+				txs = utils.Shuffle(txs)
 			}
-			pEvts, pResults, _, pErr := utils.RunWithOCC(pCtx, txs)
-			require.NoError(t, pErr, tt.name)
-			require.Len(t, pResults, len(txs))
 
-			assertExecTxResultCode(t, sResults, pResults, 0, tt.name)
-			assertEqualEvents(t, sEvts, pEvts, tt.name)
-			assertEqualExecTxResults(t, sResults, pResults, tt.name)
-			assertEqualState(t, sCtx.Ctx, pCtx.Ctx, tt.name)
-		}
+			if tt.before != nil {
+				tt.before(sCtx)
+			}
+
+			sEvts, sResults, _, sErr := utils.RunWithoutOCC(sCtx, txs)
+			require.NoError(t, sErr, tt.name)
+			require.Len(t, sResults, len(txs))
+
+			for i := 0; i < tt.runs; i++ {
+				pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers, true)
+				if tt.before != nil {
+					tt.before(pCtx)
+				}
+				pEvts, pResults, _, pErr := utils.RunWithOCC(pCtx, txs)
+				require.NoError(t, pErr, tt.name)
+				require.Len(t, pResults, len(txs))
+
+				assertExecTxResultCode(t, sResults, pResults, 0, tt.name)
+				assertEqualEvents(t, sEvts, pEvts, tt.name)
+				assertEqualExecTxResults(t, sResults, pResults, tt.name)
+				assertEqualState(t, sCtx.Ctx, pCtx.Ctx, tt.name)
+			}
+		})
 	}
 }
