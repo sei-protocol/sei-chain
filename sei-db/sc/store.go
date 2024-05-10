@@ -39,15 +39,8 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 	return commitStore
 }
 
-func (cs *CommitStore) Initialize(initialStores []string) error {
-	options := cs.opts
-	options.InitialStores = initialStores
-	db, err := memiavl.OpenDB(cs.logger, 0, options)
-	if err != nil {
-		return err
-	}
-	cs.db = db
-	return nil
+func (cs *CommitStore) Initialize(initialStores []string) {
+	cs.opts.InitialStores = initialStores
 }
 
 func (cs *CommitStore) SetInitialVersion(initialVersion int64) error {
