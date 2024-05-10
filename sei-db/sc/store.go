@@ -77,16 +77,15 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (type
 			db:     db,
 			opts:   opts,
 		}, nil
-	} else {
-		if cs.db != nil {
-			cs.db.Close()
-		}
-		db, err := memiavl.OpenDB(cs.logger, targetVersion, cs.opts)
-		if err != nil {
-			return nil, err
-		}
-		cs.db = db
 	}
+	if cs.db != nil {
+		cs.db.Close()
+	}
+	db, err := memiavl.OpenDB(cs.logger, targetVersion, cs.opts)
+	if err != nil {
+		return nil, err
+	}
+	cs.db = db
 	return cs, nil
 }
 
