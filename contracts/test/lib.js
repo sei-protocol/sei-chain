@@ -137,13 +137,6 @@ function getEventAttribute(response, type, attribute) {
     throw new Error("attribute not found")
 }
 
-async function file(path) {
-    if (await isDocker()) {
-        return path.replace(/\.\.\//g, "/sei-protocol/sei-chain/")
-    }
-    return path;
-}
-
 async function storeWasm(path) {
     const command = `seid tx wasm store ${path} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
@@ -304,6 +297,7 @@ async function isDocker() {
 async function execute(command, interaction=`printf "12345678\\n"`){
     if (await isDocker()) {
         command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
+        command = command.replace("/sei-protocol/sei-chain//sei-protocol/sei-chain/", "/sei-protocol/sei-chain/")
         command = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
     }
     return await execCommand(command);
@@ -360,7 +354,6 @@ module.exports = {
     bankSend,
     evmSend,
     waitForReceipt,
-    file,
     isDocker,
     WASM,
     ABI,

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { expectRevert } = require('@openzeppelin/test-helpers');
-const {deployWasm, storeWasm, setupSigners, getAdmin, file, execute, isDocker, ABI} = require("./lib");
+const {deployWasm, storeWasm, setupSigners, getAdmin, execute, isDocker, ABI} = require("./lib");
 
 
     describe("EVM Precompile Tester", function () {
@@ -27,7 +27,7 @@ const {deployWasm, storeWasm, setupSigners, getAdmin, file, execute, isDocker, A
                 govProposal = govProposalResponse.logs[0].events[3].attributes[1].value;
 
                 const signer = accounts[0].signer
-                const contractABIPath = await file('../../precompiles/gov/abi.json');
+                const contractABIPath = '../../precompiles/gov/abi.json';
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
                 gov = new ethers.Contract(GovPrecompileContract, contractABI, signer);
@@ -49,7 +49,7 @@ const {deployWasm, storeWasm, setupSigners, getAdmin, file, execute, isDocker, A
             let distribution;
             before(async function () {
                const signer = accounts[0].signer;
-                const contractABIPath = await file('../../precompiles/distribution/abi.json');
+                const contractABIPath = '../../precompiles/distribution/abi.json';
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
                 distribution = new ethers.Contract(DistributionPrecompileContract, contractABI, signer);
@@ -73,7 +73,7 @@ const {deployWasm, storeWasm, setupSigners, getAdmin, file, execute, isDocker, A
                 validatorAddr = JSON.parse(await execute("seid q staking validators -o json")).validators[0].operator_address
                 signer = accounts[0].signer;
 
-                const contractABIPath = await file('../../precompiles/staking/abi.json');
+                const contractABIPath = '../../precompiles/staking/abi.json';
                 const contractABI = require(contractABIPath);
 
                 staking = new ethers.Contract(StakingPrecompileContract, contractABI, signer);
@@ -108,7 +108,7 @@ const {deployWasm, storeWasm, setupSigners, getAdmin, file, execute, isDocker, A
                 exchangeRatesJSON = JSON.parse(exchangeRatesContent).denom_oracle_exchange_rate_pairs;
                 twapsJSON = JSON.parse(twapsContent).oracle_twaps;
 
-                const contractABIPath = await file('../../precompiles/oracle/abi.json');
+                const contractABIPath = '../../precompiles/oracle/abi.json';
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
                 oracle = new ethers.Contract(OraclePrecompileContract, contractABI, accounts[0].signer);
@@ -148,14 +148,14 @@ const {deployWasm, storeWasm, setupSigners, getAdmin, file, execute, isDocker, A
             let owner;
 
             before(async function () {
-                const counterWasm = await file('../integration_test/contracts/counter_parallel.wasm');
+                const counterWasm = '../integration_test/contracts/counter_parallel.wasm';
                 wasmCodeID = await storeWasm(counterWasm);
 
-                const counterParallelWasm = await file('../integration_test/contracts/counter_parallel.wasm')
+                const counterParallelWasm = '../integration_test/contracts/counter_parallel.wasm'
                 wasmContractAddress = await deployWasm(counterParallelWasm, accounts[0].seiAddress, "counter", {count: 0});
                 owner = accounts[0].signer;
 
-                const contractABIPath = await file('../../precompiles/wasmd/abi.json');
+                const contractABIPath = '../../precompiles/wasmd/abi.json';
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
                 wasmd = new ethers.Contract(WasmPrecompileContract, contractABI, owner);
