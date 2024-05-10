@@ -1,23 +1,8 @@
-const {setupSigners, deployErc20PointerNative, getAdmin, createTokenFactoryTokenAndMint} = require("./lib");
+const {setupSigners, deployErc20PointerNative, getAdmin, createTokenFactoryTokenAndMint, ABI} = require("./lib");
 const {expect} = require("chai");
 
 const { expectRevert } = require('@openzeppelin/test-helpers');
 require("@nomicfoundation/hardhat-chai-matchers");
-
-
-const erc20Abi = [
-    "function name() view returns (string)",
-    "function symbol() view returns (string)",
-    "function decimals() view returns (uint8)",
-    "function totalSupply() view returns (uint256)",
-    "function balanceOf(address owner) view returns (uint256 balance)",
-    "function transfer(address to, uint amount) returns (bool)",
-    "function allowance(address owner, address spender) view returns (uint256)",
-    "function approve(address spender, uint256 value) returns (bool)",
-    "function transferFrom(address from, address to, uint value) returns (bool)",
-    "error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)",
-];
-
 
 describe("ERC20 to Native Pointer", function () {
     let accounts;
@@ -33,7 +18,7 @@ describe("ERC20 to Native Pointer", function () {
 
         // deploy TestToken
         const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, denom)
-        const contract = new hre.ethers.Contract(pointerAddr, erc20Abi, hre.ethers.provider);
+        const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC20, hre.ethers.provider);
         pointer = contract.connect(accounts[0].signer)
     })
 

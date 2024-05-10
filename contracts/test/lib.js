@@ -12,7 +12,8 @@ const ABI = {
         "function transfer(address to, uint amount) returns (bool)",
         "function allowance(address owner, address spender) view returns (uint256)",
         "function approve(address spender, uint256 value) returns (bool)",
-        "function transferFrom(address from, address to, uint value) returns (bool)"
+        "function transferFrom(address from, address to, uint value) returns (bool)",
+        "error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)"
     ],
     ERC721: [
         "event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)",
