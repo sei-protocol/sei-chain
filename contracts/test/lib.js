@@ -49,7 +49,7 @@ async function delay() {
     await sleep(1000)
 }
 
-async function fundAddress(addr, amount="1000000000000000000000") {
+async function fundAddress(addr, amount="10000000000000000000") {
     const result = await evmSend(addr, adminKeyName, amount)
     await delay()
     return result
