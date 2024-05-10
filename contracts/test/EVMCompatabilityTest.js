@@ -71,6 +71,7 @@ describe("EVM Test", function () {
     let testToken;
     let owner;
     let evmAddr;
+    let firstNonce;
 
     // The first contract address deployed from 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
     // should always be 0xbD5d765B226CaEA8507EE030565618dAFFD806e2 when sent with nonce=0
@@ -81,9 +82,11 @@ describe("EVM Test", function () {
       if(evmTester && testToken) {
         return
       }
-      let signers = await ethers.getSigners();
-      owner = signers[0];
+      const accounts = await setupSigners(await ethers.getSigners())
+      owner = accounts[0].signer;
       debug(`OWNER = ${owner.address}`)
+
+      firstNonce = await ethers.provider.getTransactionCount(owner.address)
 
       const TestToken = await ethers.getContractFactory("TestToken")
       testToken = await TestToken.deploy("TestToken", "TTK");
@@ -104,10 +107,14 @@ describe("EVM Test", function () {
         expect(await evmTester.getAddress()).to.be.properAddress;
         expect(await testToken.getAddress()).to.be.properAddress;
         expect(await evmTester.getAddress()).to.not.equal(await testToken.getAddress());
+      });
 
-        // The first contract address deployed from 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
-        // should always be 0xbD5d765B226CaEA8507EE030565618dAFFD806e2 when sent with nonce=0
-        expect(await testToken.getAddress()).to.equal(firstContractAddress);
+      it("Should have correct address", async function () {
+        if(firstNonce > 0) {
+          this.skip()
+        } else {
+          expect(await testToken.getAddress()).to.equal(firstContractAddress);
+        }
       });
 
       it("Should estimate gas for a contract deployment", async function () {
@@ -456,7 +463,6 @@ describe("EVM Test", function () {
         const feeData = await ethers.provider.getFeeData();
         const gasPrice = Number(feeData.gasPrice);
         const higherGasPrice = Number(gasPrice + 9)
-        console.log(`gasPrice = ${gasPrice}`)
 
         const zero = ethers.parseUnits('0', 'ether')
         const txResponse = await owner.sendTransaction({
@@ -505,8 +511,6 @@ describe("EVM Test", function () {
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
           for (const [name, maxPriorityFeePerGas, maxFeePerGas] of testCases) {
             it(`EIP-1559 test: ${name}`, async function() {
-              console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
-              console.log(`maxFeePerGas = ${maxFeePerGas}`)
               const balanceBefore = await ethers.provider.getBalance(owner);
               const zero = ethers.parseUnits('0', 'ether')
               const txResponse = await owner.sendTransaction({
@@ -520,7 +524,6 @@ describe("EVM Test", function () {
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
               const gasPrice = Number(receipt.gasPrice);
-              console.log(`gasPrice = ${gasPrice}`)
 
               const balanceAfter = await ethers.provider.getBalance(owner);
 
@@ -528,12 +531,9 @@ describe("EVM Test", function () {
                 Number(maxFeePerGas) - gasPrice,
                 Number(maxPriorityFeePerGas)
               );
-              console.log(`tip = ${tip}`)
               const effectiveGasPrice = tip + gasPrice;
-              console.log(`effectiveGasPrice = ${effectiveGasPrice}`)
 
               const diff = balanceBefore - balanceAfter;
-              console.log(`diff = ${diff}`)
               expect(diff).to.equal(21000 * effectiveGasPrice);
             });
           }
@@ -799,8 +799,8 @@ describe("EVM Test", function () {
               await txResponse.wait();
             }
             blockEnd = await ethers.provider.getBlockNumber();
-            console.log("blockStart = ", blockStart)
-            console.log("blockEnd = ", blockEnd)
+            debug("blockStart = ", blockStart)
+            debug("blockEnd = ", blockEnd)
           });
 
           it("Block range filter", async function () {
@@ -978,21 +978,19 @@ describe("EVM Test", function () {
         // deploy BoxV1
         const Box = await ethers.getContractFactory("Box");
         const val = 42;
-        console.log('Deploying Box...');
         const box = await upgrades.deployProxy(Box, [val], { initializer: 'store' });
         const boxReceipt = await box.waitForDeployment()
-        console.log("boxReceipt = ", JSON.stringify(boxReceipt))
         const boxAddr = await box.getAddress();
         const implementationAddress = await getImplementationAddress(ethers.provider, boxAddr);
-        console.log('Box Implementation address:', implementationAddress);
-        console.log('Box deployed to:', boxAddr)
+        debug('Box Implementation address:', implementationAddress);
+        debug('Box deployed to:', boxAddr)
 
         // make sure you can retrieve the value
         const retrievedValue = await box.retrieve();
         expect(retrievedValue).to.equal(val);
 
         // increment value
-        console.log("Incrementing value...")
+        debug("Incrementing value...")
         const resp = await box.boxIncr();
         await resp.wait();
 
@@ -1002,23 +1000,23 @@ describe("EVM Test", function () {
 
         // upgrade to BoxV2
         const BoxV2 = await ethers.getContractFactory('BoxV2');
-        console.log('Upgrading Box...');
+        debug('Upgrading Box...');
         const box2 = await upgrades.upgradeProxy(boxAddr, BoxV2, [val+1], { initializer: 'store' });
         await box2.deployTransaction.wait();
-        console.log('Box upgraded');
+        debug('Box upgraded');
         const boxV2Addr = await box2.getAddress();
         expect(boxV2Addr).to.equal(boxAddr); // should be same address as it should be the proxy
-        console.log('BoxV2 deployed to:', boxV2Addr);
+        debug('BoxV2 deployed to:', boxV2Addr);
         const boxV2 = await BoxV2.attach(boxV2Addr);
 
         // check that value is still the same
-        console.log("Calling boxV2 retrieve()...")
+        debug("Calling boxV2 retrieve()...")
         const retrievedValue2 = await boxV2.retrieve();
-        console.log("retrievedValue2 = ", retrievedValue2)
+        debug("retrievedValue2 = ", retrievedValue2)
         expect(retrievedValue2).to.equal(val+1);
 
         // use new function in boxV2 and increment value
-        console.log("Calling boxV2 boxV2Incr()...")
+        debug("Calling boxV2 boxV2Incr()...")
         const txResponse = await boxV2.boxV2Incr();
         await txResponse.wait();
 
@@ -1162,13 +1160,17 @@ describe("EVM Validations ", function() {
 })
 
 describe("EVM throughput", function(){
+  let accounts;
+  before(async function(){
+      accounts = await setupSigners(await hre.ethers.getSigners())
+      await fundAddress(accounts[0].evmAddress)
+  });
 
   it("send 100 transactions from one account", async function(){
     const wallet = generateWallet()
     const toAddress =await wallet.getAddress()
-    const accounts = await ethers.getSigners();
-    const sender = accounts[0]
-    const address = await sender.getAddress();
+    const sender = accounts[0].signer
+    const address = accounts[0].evmAddress;
     const txCount = 100;
 
     const nonce = await ethers.provider.getTransactionCount(address);
