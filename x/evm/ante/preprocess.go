@@ -65,6 +65,9 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	derived := msg.Derived
 	seiAddr := derived.SenderSeiAddr
 	evmAddr := derived.SenderEVMAddr
+	ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+		sdk.NewAttribute(evmtypes.AttributeKeyEvmAddress, evmAddr.Hex()),
+		sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, seiAddr.String())))
 	pubkey := derived.PubKey
 	isAssociateTx := derived.IsAssociate
 	_, isAssociated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
@@ -353,7 +356,10 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 	}
 	signers := sigTx.GetSigners()
 	for _, signer := range signers {
-		if _, associated := p.evmKeeper.GetEVMAddress(ctx, signer); associated {
+		if evmAddr, associated := p.evmKeeper.GetEVMAddress(ctx, signer); associated {
+			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeyEvmAddress, evmAddr.Hex()),
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		acc := p.accountKeeper.GetAccount(ctx, signer)
@@ -371,6 +377,9 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 			ctx.Logger().Error(fmt.Sprintf("failed to get EVM address from pubkey due to %s", err))
 			continue
 		}
+		ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+			sdk.NewAttribute(evmtypes.AttributeKeyEvmAddress, evmAddr.Hex()),
+			sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 		p.evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
 		if err := migrateBalance(ctx, p.evmKeeper, evmAddr, signer); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
