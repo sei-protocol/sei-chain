@@ -111,3 +111,20 @@ func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*ty
 		return nil, errors.ErrUnsupported
 	}
 }
+
+func (q Querier) BalanceSum(c context.Context, req *types.QueryBalanceSumRequest) (*types.QueryBalanceSumResponse, error) {
+	ctx := sdk.UnwrapSDKContext(c)
+	usei := sdk.ZeroInt()
+	q.bankKeeper.IterateAllBalances(ctx, func(address sdk.AccAddress, coin sdk.Coin) (stop bool) {
+		if coin.Denom == sdk.MustGetBaseDenom() {
+			usei = usei.Add(coin.Amount)
+		}
+		return false
+	})
+	wei := sdk.ZeroInt()
+	q.bankKeeper.IterateAllWeiBalances(ctx, func(aa sdk.AccAddress, i sdk.Int) bool {
+		wei = wei.Add(i)
+		return false
+	})
+	return &types.QueryBalanceSumResponse{Usei: &usei, Wei: &wei}, nil
+}

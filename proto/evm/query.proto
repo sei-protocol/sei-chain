@@ -3,6 +3,7 @@ package seiprotocol.seichain.evm;
 
 import "google/api/annotations.proto";
 import "evm/enums.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
@@ -22,6 +23,10 @@ service Query {
 
     rpc Pointer(QueryPointerRequest) returns (QueryPointerResponse) {
         option (google.api.http).get = "/sei-protocol/seichain/evm/pointer";
+    }
+
+    rpc BalanceSum(QueryBalanceSumRequest) returns (QueryBalanceSumResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/balance_sum";
     }
 }
 
@@ -61,4 +66,17 @@ message QueryPointerResponse {
     string pointer = 1;
     uint32 version = 2;
     bool exists = 3;
+}
+
+message QueryBalanceSumRequest {}
+
+message QueryBalanceSumResponse {
+    string usei = 1 [
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+        (gogoproto.jsontag)    = "usei"
+    ];
+    string wei = 2 [
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+        (gogoproto.jsontag)    = "wei"
+    ];
 }
