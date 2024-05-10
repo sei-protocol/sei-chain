@@ -198,7 +198,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	baseFeePerGas := t.keeper.GetBaseFee(t.ctxProvider(height))
 	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(t.ctxProvider(height)))
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
-	blockNumber := uint64(block.Block.Height)	
+	blockNumber := uint64(block.Block.Height)
 	blockTime := block.Block.Time
 	res := ethapi.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
 	return res, nil
