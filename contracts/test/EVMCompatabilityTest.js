@@ -71,6 +71,7 @@ describe("EVM Test", function () {
     let testToken;
     let owner;
     let evmAddr;
+    let firstNonce;
 
     // The first contract address deployed from 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
     // should always be 0xbD5d765B226CaEA8507EE030565618dAFFD806e2 when sent with nonce=0
@@ -84,6 +85,8 @@ describe("EVM Test", function () {
       let signers = await ethers.getSigners();
       owner = signers[0];
       debug(`OWNER = ${owner.address}`)
+
+      firstNonce = await ethers.provider.getTransactionCount(owner.address)
 
       const TestToken = await ethers.getContractFactory("TestToken")
       testToken = await TestToken.deploy("TestToken", "TTK");
@@ -104,10 +107,14 @@ describe("EVM Test", function () {
         expect(await evmTester.getAddress()).to.be.properAddress;
         expect(await testToken.getAddress()).to.be.properAddress;
         expect(await evmTester.getAddress()).to.not.equal(await testToken.getAddress());
+      });
 
-        // The first contract address deployed from 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
-        // should always be 0xbD5d765B226CaEA8507EE030565618dAFFD806e2 when sent with nonce=0
-        expect(await testToken.getAddress()).to.equal(firstContractAddress);
+      it("Should have correct address", async function () {
+        if(firstNonce > 0) {
+          this.skip()
+        } else {
+          expect(await testToken.getAddress()).to.equal(firstContractAddress);
+        }
       });
 
       it("Should estimate gas for a contract deployment", async function () {
@@ -1155,7 +1162,7 @@ describe("EVM Validations ", function() {
 
 })
 
-describe.only("EVM throughput", function(){
+describe("EVM throughput", function(){
   let accounts;
   before(async function(){
       accounts = await setupSigners(await hre.ethers.getSigners())
