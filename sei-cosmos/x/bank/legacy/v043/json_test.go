@@ -86,7 +86,8 @@ func TestMigrateJSON(t *testing.T) {
 			"amount": "10",
 			"denom": "foo"
 		}
-	]
+	],
+	"wei_balances": []
 }`
 
 	require.Equal(t, expected, string(indentedBz))

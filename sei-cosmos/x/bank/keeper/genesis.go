@@ -8,9 +8,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 )
 
-// this denom is only used within the context of import/export
-const GenesisWeiDenom = "genesis-wei"
-
 // InitGenesis initializes the bank module's state from a given genesis state.
 func (k BaseKeeper) InitGenesis(ctx sdk.Context, genState *types.GenesisState) {
 	k.SetParams(ctx, genState.Params)
@@ -22,19 +19,18 @@ func (k BaseKeeper) InitGenesis(ctx sdk.Context, genState *types.GenesisState) {
 	for _, balance := range genState.Balances {
 		addr := balance.GetAddress()
 		coins := balance.Coins
-		if amt := coins.AmountOf(GenesisWeiDenom); !amt.IsZero() {
-			if err := k.AddWei(ctx, addr, amt); err != nil {
-				panic(fmt.Errorf("error on setting wei %w", err))
-			}
-			coins = coins.Sub(sdk.NewCoins(sdk.NewCoin(GenesisWeiDenom, amt)))
-			totalWeiBalance = totalWeiBalance.Add(amt)
-		}
-
 		if err := k.initBalances(ctx, addr, coins); err != nil {
 			panic(fmt.Errorf("error on setting balances %w", err))
 		}
 
 		totalSupply = totalSupply.Add(coins...)
+	}
+	for _, weiBalance := range genState.WeiBalances {
+		addr := sdk.MustAccAddressFromBech32(weiBalance.Address)
+		if err := k.AddWei(ctx, addr, weiBalance.Amount); err != nil {
+			panic(fmt.Errorf("error on setting wei balance %w", err))
+		}
+		totalWeiBalance = totalWeiBalance.Add(weiBalance.Amount)
 	}
 	weiInUsei, weiRemainder := SplitUseiWeiAmount(totalWeiBalance)
 	if !weiRemainder.IsZero() {
@@ -68,19 +64,17 @@ func (k BaseKeeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 	if err != nil {
 		panic(fmt.Errorf("unable to fetch total supply %v", err))
 	}
-	balances := k.GetAccountsBalances(ctx)
-	balancesWithWei := make([]types.Balance, len(balances))
-	for i, balance := range balances {
-		if amt := k.GetWeiBalance(ctx, balance.GetAddress()); !amt.IsZero() {
-			balance.Coins = balance.Coins.Add(sdk.NewCoin(GenesisWeiDenom, amt))
-		}
-		balancesWithWei[i] = balance
-	}
+	weiBalances := []types.WeiBalance{}
+	k.IterateAllWeiBalances(ctx, func(aa sdk.AccAddress, i sdk.Int) bool {
+		weiBalances = append(weiBalances, types.WeiBalance{Address: aa.String(), Amount: i})
+		return false
+	})
 
 	return types.NewGenesisState(
 		k.GetParams(ctx),
-		balancesWithWei,
+		k.GetAccountsBalances(ctx),
 		totalSupply,
 		k.GetAllDenomMetaData(ctx),
+		weiBalances,
 	)
 }

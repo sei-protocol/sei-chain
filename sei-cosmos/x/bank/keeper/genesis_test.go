@@ -38,10 +38,14 @@ func (suite *IntegrationTestSuite) TestExportGenesis() {
 	suite.Require().Len(exportGenesis.Params.SendEnabled, 0)
 	suite.Require().Equal(types.DefaultParams().DefaultSendEnabled, exportGenesis.Params.DefaultSendEnabled)
 	suite.Require().Equal(totalSupply, exportGenesis.Supply)
-	expectedBalances[0].Coins = expectedBalances[0].Coins.Sub(sdk.NewCoins(sdk.NewCoin(sdk.MustGetBaseDenom(), sdk.OneInt()))).Add(sdk.NewCoin(keeper.GenesisWeiDenom, keeper.OneUseiInWei.Sub(sdk.OneInt())))
-	expectedBalances[1].Coins = expectedBalances[1].Coins.Add(sdk.NewCoin(keeper.GenesisWeiDenom, sdk.OneInt()))
+	expectedBalances[0].Coins = expectedBalances[0].Coins.Sub(sdk.NewCoins(sdk.NewCoin(sdk.MustGetBaseDenom(), sdk.OneInt())))
+	expectedWeiBalances := []types.WeiBalance{
+		{Amount: keeper.OneUseiInWei.Sub(sdk.OneInt()), Address: expectedBalances[0].Address},
+		{Amount: sdk.OneInt(), Address: expectedBalances[1].Address},
+	}
 	suite.Require().Equal(expectedBalances, exportGenesis.Balances)
 	suite.Require().Equal(expectedMetadata, exportGenesis.DenomMetadata)
+	suite.Require().Equal(expectedWeiBalances, exportGenesis.WeiBalances)
 }
 
 func (suite *IntegrationTestSuite) getTestBalancesAndSupply() ([]types.Balance, sdk.Coins) {
@@ -75,9 +79,13 @@ func (suite *IntegrationTestSuite) TestTotalSupply() {
 	// Prepare some test data.
 	defaultGenesis := types.DefaultGenesisState()
 	balances := []types.Balance{
-		{Coins: sdk.NewCoins(sdk.NewCoin("foocoin", sdk.NewInt(1)), sdk.NewCoin(keeper.GenesisWeiDenom, sdk.OneInt())), Address: "cosmos1f9xjhxm0plzrh9cskf4qee4pc2xwp0n0556gh0"},
+		{Coins: sdk.NewCoins(sdk.NewCoin("foocoin", sdk.NewInt(1))), Address: "cosmos1f9xjhxm0plzrh9cskf4qee4pc2xwp0n0556gh0"},
 		{Coins: sdk.NewCoins(sdk.NewCoin("barcoin", sdk.NewInt(1))), Address: "cosmos1t5u0jfg3ljsjrh2m9e47d4ny2hea7eehxrzdgd"},
-		{Coins: sdk.NewCoins(sdk.NewCoin("foocoin", sdk.NewInt(10)), sdk.NewCoin("barcoin", sdk.NewInt(20)), sdk.NewCoin(keeper.GenesisWeiDenom, keeper.OneUseiInWei.Sub(sdk.OneInt()))), Address: "cosmos1m3h30wlvsf8llruxtpukdvsy0km2kum8g38c8q"},
+		{Coins: sdk.NewCoins(sdk.NewCoin("foocoin", sdk.NewInt(10)), sdk.NewCoin("barcoin", sdk.NewInt(20))), Address: "cosmos1m3h30wlvsf8llruxtpukdvsy0km2kum8g38c8q"},
+	}
+	weiBalances := []types.WeiBalance{
+		{Amount: sdk.OneInt(), Address: "cosmos1f9xjhxm0plzrh9cskf4qee4pc2xwp0n0556gh0"},
+		{Amount: keeper.OneUseiInWei.Sub(sdk.OneInt()), Address: "cosmos1m3h30wlvsf8llruxtpukdvsy0km2kum8g38c8q"},
 	}
 	totalSupply := sdk.NewCoins(sdk.NewCoin("foocoin", sdk.NewInt(11)), sdk.NewCoin("barcoin", sdk.NewInt(21)), sdk.NewCoin(sdk.DefaultBondDenom, sdk.OneInt()))
 
@@ -90,17 +98,17 @@ func (suite *IntegrationTestSuite) TestTotalSupply() {
 	}{
 		{
 			"calculation NOT matching genesis Supply field",
-			types.NewGenesisState(defaultGenesis.Params, balances, sdk.NewCoins(sdk.NewCoin("wrongcoin", sdk.NewInt(1))), defaultGenesis.DenomMetadata),
+			types.NewGenesisState(defaultGenesis.Params, balances, sdk.NewCoins(sdk.NewCoin("wrongcoin", sdk.NewInt(1))), defaultGenesis.DenomMetadata, weiBalances),
 			nil, true, "genesis supply is incorrect, expected 1wrongcoin, got 21barcoin,11foocoin,1usei",
 		},
 		{
 			"calculation matches genesis Supply field",
-			types.NewGenesisState(defaultGenesis.Params, balances, totalSupply, defaultGenesis.DenomMetadata),
+			types.NewGenesisState(defaultGenesis.Params, balances, totalSupply, defaultGenesis.DenomMetadata, weiBalances),
 			totalSupply, false, "",
 		},
 		{
 			"calculation is correct, empty genesis Supply field",
-			types.NewGenesisState(defaultGenesis.Params, balances, nil, defaultGenesis.DenomMetadata),
+			types.NewGenesisState(defaultGenesis.Params, balances, nil, defaultGenesis.DenomMetadata, weiBalances),
 			totalSupply, false, "",
 		},
 	}
