@@ -4,125 +4,30 @@ const fs = require('fs');
 const path = require('path');
 
 const { expectRevert } = require('@openzeppelin/test-helpers');
+const {deployWasm, storeWasm, setupSigners, getAdmin, file, execute, isDocker, ABI} = require("./lib");
 
-describe("EVM Test", function () {
+
     describe("EVM Precompile Tester", function () {
-        describe("EVM Bank Precompile Tester", function () {
-            let contractAddress;
-            let erc20;
-            let owner;
-            let owner2;
-            let signer;
-            let signer2
-            before(async function() {
-                contractAddress = readDeploymentOutput('erc20_deploy_addr.txt');
-                console.log("ERC20 address is:");
-                console.log(contractAddress);
-                await sleep(1000);
 
-                // Create a signer
-                [signer, signer2] = await ethers.getSigners();
-                owner = await signer.getAddress();
-                owner2 = await signer2.getAddress();
+        let accounts;
+        let admin;
 
-                const contractABIPath = path.join(__dirname, '../../precompiles/common/erc20_abi.json');
-                const contractABI = require(contractABIPath);
+        before(async function () {
+            accounts = await setupSigners(await hre.ethers.getSigners());
+            admin = await getAdmin();
+        })
 
-                // Get a contract instance
-                erc20 = new ethers.Contract(contractAddress, contractABI, signer);
-
-                // force association on owner2
-                const tx1 = await signer.sendTransaction({
-                    to: owner2,
-                    value: 100000000000000
-                });
-                const receipt1 = await tx1.wait();
-                expect(receipt1.status).to.equal(1);
-                const tx2 = await signer2.sendTransaction({
-                    to: owner,
-                    value: 1
-                });
-                const receipt2 = await tx2.wait();
-                expect(receipt2.status).to.equal(1);
-            });
-
-            it("Transfer function", async function() {
-                const beforeBalance = await erc20.balanceOf(owner);
-                const tx = await erc20.transfer(owner2, 1);
-                const receipt = await tx.wait();
-                expect(receipt.status).to.equal(1);
-                const afterBalance = await erc20.balanceOf(owner);
-                const diff = beforeBalance - afterBalance;
-                expect(diff).to.equal(1);
-            });
-
-            it("Transfer function with insufficient balance fails", async function() {
-                const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
-                await expectRevert.unspecified(erc20.transfer(receiver, 10000));
-            });
-
-            it("No Approve and TransferFrom fails", async function() {
-                const receiver = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
-                const erc20AsOwner2 = erc20.connect(signer2);
-
-                await expectRevert.unspecified(erc20AsOwner2.transferFrom(owner, receiver, 100));
-            });
-
-            it("Approve and TransferFrom functions", async function() {
-                // lets have owner approve the transfer and have owner2 do the transferring
-                const approvalAmount = await erc20.allowance(owner, owner2);
-                expect(approvalAmount).to.equal(0);
-                const approveTx = await erc20.approve(owner2, 100);
-                const approveReceipt = await approveTx.wait();
-                expect(approveReceipt.status).to.equal(1);
-                expect(await erc20.allowance(owner, owner2)).to.equal(100);
-
-                const erc20AsOwner2 = erc20.connect(signer2);
-
-
-                // transfer from owner to owner2
-                const balanceBefore = await erc20.balanceOf(owner2);
-                const transferFromTx = await erc20AsOwner2.transferFrom(owner, owner2, 100);
-
-                // await sleep(3000);
-                const transferFromReceipt = await transferFromTx.wait();
-                expect(transferFromReceipt.status).to.equal(1);
-                const balanceAfter = await erc20.balanceOf(owner2);
-                const diff = balanceAfter - balanceBefore;
-                expect(diff).to.equal(100);
-            });
-
-            it("Balance of function", async function() {
-                const balance = await erc20.balanceOf(owner);
-                expect(balance).to.be.greaterThan(Number(0));
-            });
-
-            it("Name function", async function () {
-                const name = await erc20.name()
-                expect(name).to.equal('UATOM');
-            });
-
-            it("Symbol function", async function () {
-                const symbol = await erc20.symbol()
-                // expect symbol to be 'UATOM'
-                expect(symbol).to.equal('UATOM');
-            });
-        });
-
-        // TODO: Update when we add gov query precompiles
         describe("EVM Gov Precompile Tester", function () {
-            let govProposal;
-            // TODO: Import this
             const GovPrecompileContract = '0x0000000000000000000000000000000000001006';
-            before(async function() {
-                govProposal = readDeploymentOutput('gov_proposal_output.txt');
-                await sleep(1000);
+            let gov;
+            let govProposal;
 
-                // Create a proposal
-                const [signer, _] = await ethers.getSigners();
-                owner = await signer.getAddress();
+            before(async function () {
+                const govProposalResponse = JSON.parse(await execute(`seid tx gov submit-proposal param-change ../contracts/test/param_change_proposal.json --from admin --fees 20000usei -b block -y -o json`))
+                govProposal = govProposalResponse.logs[0].events[3].attributes[1].value;
 
-                const contractABIPath = path.join(__dirname, '../../precompiles/gov/abi.json');
+                const signer = accounts[0].signer
+                const contractABIPath = await file('../../precompiles/gov/abi.json');
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
                 gov = new ethers.Contract(GovPrecompileContract, contractABI, signer);
@@ -135,45 +40,42 @@ describe("EVM Test", function () {
                 })
                 const receipt = await deposit.wait();
                 expect(receipt.status).to.equal(1);
-                // TODO: Add gov query precompile here
             });
         });
 
         // TODO: Update when we add distribution query precompiles
         describe("EVM Distribution Precompile Tester", function () {
-            // TODO: Import this
             const DistributionPrecompileContract = '0x0000000000000000000000000000000000001007';
-            before(async function() {
-                const [signer, signer2] = await ethers.getSigners();
-                owner = await signer.getAddress();
-                owner2 = await signer2.getAddress();
-
-                const contractABIPath = path.join(__dirname, '../../precompiles/distribution/abi.json');
+            let distribution;
+            before(async function () {
+               const signer = accounts[0].signer;
+                const contractABIPath = await file('../../precompiles/distribution/abi.json');
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
                 distribution = new ethers.Contract(DistributionPrecompileContract, contractABI, signer);
             });
 
             it("Distribution set withdraw address", async function () {
-                const setWithdraw = await distribution.setWithdrawAddress(owner)
+                const setWithdraw = await distribution.setWithdrawAddress(accounts[0].evmAddress)
                 const receipt = await setWithdraw.wait();
                 expect(receipt.status).to.equal(1);
-                // TODO: Add distribution query precompile here
             });
         });
 
         // TODO: Update when we add staking query precompiles
         describe("EVM Staking Precompile Tester", function () {
             const StakingPrecompileContract = '0x0000000000000000000000000000000000001005';
-            before(async function() {
-                validatorAddr = readDeploymentOutput('validator_address.txt');
-                await sleep(1000);
-                const [signer, _] = await ethers.getSigners();
-                owner = await signer.getAddress();
+            let validatorAddr;
+            let signer;
+            let staking;
 
-                const contractABIPath = path.join(__dirname, '../../precompiles/staking/abi.json');
+            before(async function () {
+                validatorAddr = JSON.parse(await execute("seid q staking validators -o json")).validators[0].operator_address
+                signer = accounts[0].signer;
+
+                const contractABIPath = await file('../../precompiles/staking/abi.json');
                 const contractABI = require(contractABIPath);
-                // Get a contract instance
+
                 staking = new ethers.Contract(StakingPrecompileContract, contractABI, signer);
             });
 
@@ -190,20 +92,26 @@ describe("EVM Test", function () {
 
         describe("EVM Oracle Precompile Tester", function () {
             const OraclePrecompileContract = '0x0000000000000000000000000000000000001008';
+            let oracle;
+            let twapsJSON;
+            let exchangeRatesJSON;
+
             before(async function() {
-                const exchangeRatesContent = readDeploymentOutput('oracle_exchange_rates.json');
-                const twapsContent = readDeploymentOutput('oracle_twaps.json');
+                // this requires an oracle to run which does not happen outside of an integration test
+                if(!await isDocker()) {
+                    this.skip()
+                    return;
+                }
+                const exchangeRatesContent = await execute("seid q oracle exchange-rates -o json")
+                const twapsContent = await execute("seid q oracle twaps 3600 -o json")
 
                 exchangeRatesJSON = JSON.parse(exchangeRatesContent).denom_oracle_exchange_rate_pairs;
                 twapsJSON = JSON.parse(twapsContent).oracle_twaps;
 
-                const [signer, _] = await ethers.getSigners();
-                owner = await signer.getAddress();
-
-                const contractABIPath = path.join(__dirname, '../../precompiles/oracle/abi.json');
+                const contractABIPath = await file('../../precompiles/oracle/abi.json');
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
-                oracle = new ethers.Contract(OraclePrecompileContract, contractABI, signer);
+                oracle = new ethers.Contract(OraclePrecompileContract, contractABI, accounts[0].signer);
             });
 
             it("Oracle Exchange Rates", async function () {
@@ -234,86 +142,85 @@ describe("EVM Test", function () {
 
         describe("EVM Wasm Precompile Tester", function () {
             const WasmPrecompileContract = '0x0000000000000000000000000000000000001002';
-            before(async function() {
-                wasmContractAddress = readDeploymentOutput('wasm_contract_addr.txt');
-                wasmCodeID = parseInt(readDeploymentOutput('wasm_code_id.txt'));
+            let wasmCodeID;
+            let wasmContractAddress;
+            let wasmd;
+            let owner;
 
-                const [signer, _] = await ethers.getSigners();
-                owner = await signer.getAddress();
+            before(async function () {
+                const counterWasm = await file('../integration_test/contracts/counter_parallel.wasm');
+                wasmCodeID = await storeWasm(counterWasm);
 
-                const contractABIPath = path.join(__dirname, '../../precompiles/wasmd/abi.json');
+                const counterParallelWasm = await file('../integration_test/contracts/counter_parallel.wasm')
+                wasmContractAddress = await deployWasm(counterParallelWasm, accounts[0].seiAddress, "counter", {count: 0});
+                owner = accounts[0].signer;
+
+                const contractABIPath = await file('../../precompiles/wasmd/abi.json');
                 const contractABI = require(contractABIPath);
                 // Get a contract instance
-                wasmd = new ethers.Contract(WasmPrecompileContract, contractABI, signer);
+                wasmd = new ethers.Contract(WasmPrecompileContract, contractABI, owner);
             });
 
             it("Wasm Precompile Instantiate", async function () {
-                encoder = new TextEncoder();
+                const encoder = new TextEncoder();
 
-                queryCountMsg = {get_count: {}};
-                queryStr = JSON.stringify(queryCountMsg);
-                queryBz = encoder.encode(queryStr);
+                const instantiateMsg = {count: 2};
+                const instantiateStr = JSON.stringify(instantiateMsg);
+                const instantiateBz = encoder.encode(instantiateStr);
 
-                instantiateMsg = {count: 2};
-                instantiateStr = JSON.stringify(instantiateMsg);
-                instantiateBz = encoder.encode(instantiateStr);
+                const coins = [];
+                const coinsStr = JSON.stringify(coins);
+                const coinsBz = encoder.encode(coinsStr);
 
-                coins = [];
-                coinsStr = JSON.stringify(coins);
-                coinsBz = encoder.encode(coinsStr);
-
-                instantiate = await wasmd.instantiate(wasmCodeID, "", instantiateBz, "counter-contract", coinsBz);
+                const instantiate = await wasmd.instantiate(wasmCodeID, "", instantiateBz, "counter-contract", coinsBz);
                 const receipt = await instantiate.wait();
                 expect(receipt.status).to.equal(1);
-                // TODO: is there any way to get the instantiate results for contract address - or in events?
             });
 
             it("Wasm Precompile Execute", async function () {
-                expect(wasmContractAddress).to.not.be.empty;
-                encoder = new TextEncoder();
+                const encoder = new TextEncoder();
 
-                queryCountMsg = {get_count: {}};
-                queryStr = JSON.stringify(queryCountMsg);
-                queryBz = encoder.encode(queryStr);
-                initialCountBz = await wasmd.query(wasmContractAddress, queryBz);
-                initialCount = parseHexToJSON(initialCountBz)
+                const queryCountMsg = {get_count: {}};
+                const queryStr = JSON.stringify(queryCountMsg);
+                const queryBz = encoder.encode(queryStr);
+                const initialCountBz = await wasmd.query(wasmContractAddress, queryBz);
+                const initialCount = parseHexToJSON(initialCountBz)
 
-                incrementMsg = {increment: {}};
-                incrementStr = JSON.stringify(incrementMsg);
-                incrementBz = encoder.encode(incrementStr);
+                const incrementMsg = {increment: {}};
+                const incrementStr = JSON.stringify(incrementMsg);
+                const incrementBz = encoder.encode(incrementStr);
 
-                coins = [];
-                coinsStr = JSON.stringify(coins);
-                coinsBz = encoder.encode(coinsStr);
+                const coins = [];
+                const coinsStr = JSON.stringify(coins);
+                const coinsBz = encoder.encode(coinsStr);
 
-                execute = await wasmd.execute(wasmContractAddress, incrementBz, coinsBz);
-                const receipt = await execute.wait();
+                const response = await wasmd.execute(wasmContractAddress, incrementBz, coinsBz);
+                const receipt = await response.wait();
                 expect(receipt.status).to.equal(1);
 
-                finalCountBz = await wasmd.query(wasmContractAddress, queryBz);
-                finalCount = parseHexToJSON(finalCountBz)
+                const finalCountBz = await wasmd.query(wasmContractAddress, queryBz);
+                const finalCount = parseHexToJSON(finalCountBz)
                 expect(finalCount.count).to.equal(initialCount.count + 1);
             });
 
             it("Wasm Precompile Batch Execute", async function () {
-                expect(wasmContractAddress).to.not.be.empty;
-                encoder = new TextEncoder();
+                const encoder = new TextEncoder();
 
-                queryCountMsg = {get_count: {}};
-                queryStr = JSON.stringify(queryCountMsg);
-                queryBz = encoder.encode(queryStr);
-                initialCountBz = await wasmd.query(wasmContractAddress, queryBz);
-                initialCount = parseHexToJSON(initialCountBz)
+                const queryCountMsg = {get_count: {}};
+                const queryStr = JSON.stringify(queryCountMsg);
+                const queryBz = encoder.encode(queryStr);
+                const initialCountBz = await wasmd.query(wasmContractAddress, queryBz);
+                const initialCount = parseHexToJSON(initialCountBz)
 
-                incrementMsg = {increment: {}};
-                incrementStr = JSON.stringify(incrementMsg);
-                incrementBz = encoder.encode(incrementStr);
+                const incrementMsg = {increment: {}};
+                const incrementStr = JSON.stringify(incrementMsg);
+                const incrementBz = encoder.encode(incrementStr);
 
-                coins = [];
-                coinsStr = JSON.stringify(coins);
-                coinsBz = encoder.encode(coinsStr);
+                const coins = [];
+                const coinsStr = JSON.stringify(coins);
+                const coinsBz = encoder.encode(coinsStr);
 
-                executeBatch = [
+                const executeBatch = [
                     {
                         contractAddress: wasmContractAddress,
                         msg: incrementBz,
@@ -336,19 +243,19 @@ describe("EVM Test", function () {
                     },
                 ];
 
-                executeBatch = await wasmd.execute_batch(executeBatch);
-                const receipt = await executeBatch.wait();
+                const response = await wasmd.execute_batch(executeBatch);
+                const receipt = await response.wait();
                 expect(receipt.status).to.equal(1);
 
-                finalCountBz = await wasmd.query(wasmContractAddress, queryBz);
-                finalCount = parseHexToJSON(finalCountBz)
+                const finalCountBz = await wasmd.query(wasmContractAddress, queryBz);
+                const finalCount = parseHexToJSON(finalCountBz)
                 expect(finalCount.count).to.equal(initialCount.count + 4);
             });
 
         });
 
     });
-});
+
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
