@@ -505,8 +505,6 @@ describe("EVM Test", function () {
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
           for (const [name, maxPriorityFeePerGas, maxFeePerGas] of testCases) {
             it(`EIP-1559 test: ${name}`, async function() {
-              console.log(`maxPriorityFeePerGas = ${maxPriorityFeePerGas}`)
-              console.log(`maxFeePerGas = ${maxFeePerGas}`)
               const balanceBefore = await ethers.provider.getBalance(owner);
               const zero = ethers.parseUnits('0', 'ether')
               const txResponse = await owner.sendTransaction({
@@ -520,7 +518,6 @@ describe("EVM Test", function () {
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
               const gasPrice = Number(receipt.gasPrice);
-              console.log(`gasPrice = ${gasPrice}`)
 
               const balanceAfter = await ethers.provider.getBalance(owner);
 
@@ -528,12 +525,9 @@ describe("EVM Test", function () {
                 Number(maxFeePerGas) - gasPrice,
                 Number(maxPriorityFeePerGas)
               );
-              console.log(`tip = ${tip}`)
               const effectiveGasPrice = tip + gasPrice;
-              console.log(`effectiveGasPrice = ${effectiveGasPrice}`)
 
               const diff = balanceBefore - balanceAfter;
-              console.log(`diff = ${diff}`)
               expect(diff).to.equal(21000 * effectiveGasPrice);
             });
           }
@@ -1161,18 +1155,17 @@ describe("EVM Validations ", function() {
 
 })
 
-describe("EVM throughput", function(){
-
+describe.only("EVM throughput", function(){
+  let accounts;
   before(async function(){
-      await setupSigners(hre.ethers.getSigners())
+      accounts = await setupSigners(await hre.ethers.getSigners())
   });
 
   it("send 100 transactions from one account", async function(){
     const wallet = generateWallet()
     const toAddress =await wallet.getAddress()
-    const accounts = await ethers.getSigners();
-    const sender = accounts[0]
-    const address = await sender.getAddress();
+    const sender = accounts[0].signer
+    const address = accounts[0].evmAddress;
     const txCount = 100;
 
     const nonce = await ethers.provider.getTransactionCount(address);
