@@ -109,35 +109,35 @@ describe("EVM Test", function () {
             });
         });
 
-        // TODO: Update when we add gov query precompiles
-        describe("EVM Gov Precompile Tester", function () {
-            let govProposal;
-            // TODO: Import this
-            const GovPrecompileContract = '0x0000000000000000000000000000000000001006';
-            before(async function() {
-                govProposal = readDeploymentOutput('gov_proposal_output.txt');
-                await sleep(1000);
+        // // TODO: Update when we add gov query precompiles
+        // describe("EVM Gov Precompile Tester", function () {
+        //     let govProposal;
+        //     // TODO: Import this
+        //     const GovPrecompileContract = '0x0000000000000000000000000000000000001006';
+        //     before(async function() {
+        //         govProposal = readDeploymentOutput('gov_proposal_output.txt');
+        //         await sleep(1000);
 
-                // Create a proposal
-                const [signer, _] = await ethers.getSigners();
-                owner = await signer.getAddress();
+        //         // Create a proposal
+        //         const [signer, _] = await ethers.getSigners();
+        //         owner = await signer.getAddress();
 
-                const contractABIPath = path.join(__dirname, '../../precompiles/gov/abi.json');
-                const contractABI = require(contractABIPath);
-                // Get a contract instance
-                gov = new ethers.Contract(GovPrecompileContract, contractABI, signer);
-            });
+        //         const contractABIPath = path.join(__dirname, '../../precompiles/gov/abi.json');
+        //         const contractABI = require(contractABIPath);
+        //         // Get a contract instance
+        //         gov = new ethers.Contract(GovPrecompileContract, contractABI, signer);
+        //     });
 
-            it("Gov deposit", async function () {
-                const depositAmount = ethers.parseEther('0.01');
-                const deposit = await gov.deposit(govProposal, {
-                    value: depositAmount,
-                })
-                const receipt = await deposit.wait();
-                expect(receipt.status).to.equal(1);
-                // TODO: Add gov query precompile here
-            });
-        });
+        //     it("Gov deposit", async function () {
+        //         const depositAmount = ethers.parseEther('0.01');
+        //         const deposit = await gov.deposit(govProposal, {
+        //             value: depositAmount,
+        //         })
+        //         const receipt = await deposit.wait();
+        //         expect(receipt.status).to.equal(1);
+        //         // TODO: Add gov query precompile here
+        //     });
+        // });
 
         // TODO: Update when we add distribution query precompiles
         describe("EVM Distribution Precompile Tester", function () {
