@@ -1163,6 +1163,10 @@ describe("EVM Validations ", function() {
 
 describe("EVM throughput", function(){
 
+  before(async function(){
+      await setupSigners(hre.ethers.getSigners())
+  });
+
   it("send 100 transactions from one account", async function(){
     const wallet = generateWallet()
     const toAddress =await wallet.getAddress()
