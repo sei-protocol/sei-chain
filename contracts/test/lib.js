@@ -222,7 +222,6 @@ async function registerPointerForCw721(erc721Address, fees="20000usei", from=adm
         throw new Error("contract deployment failed")
     }
     return getEventAttribute(response, "pointer_registered", "pointer_address")
-
 }
 
 
@@ -283,35 +282,41 @@ async function executeWasm(contractAddress, msg, coins = "0usei") {
     return JSON.parse(output);
 }
 
-async function execute(command, interaction=`printf "12345678\\n"`){
+async function isDocker() {
     return new Promise((resolve, reject) => {
-        // Check if the Docker container 'sei-node-0' is running
         exec("docker ps --filter 'name=sei-node-0' --format '{{.Names}}'", (error, stdout, stderr) => {
             if (stdout.includes('sei-node-0')) {
-                // The container is running, modify the command to execute inside Docker
-                command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
-                const dockerCommand = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
-                execCommand(dockerCommand, resolve, reject);
+                resolve(true)
             } else {
-                // The container is not running, execute command normally
-                execCommand(command, resolve, reject);
+                resolve(false)
             }
         });
     });
 }
 
-function execCommand(command, resolve, reject) {
-    exec(command, (error, stdout, stderr) => {
-        if (error) {
-            reject(error);
-            return;
-        }
-        if (stderr) {
-            reject(new Error(stderr));
-            return;
-        }
-        resolve(stdout);
-    });
+async function execute(command, interaction=`printf "12345678\\n"`){
+    if (await isDocker()) {
+        command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
+        command = command.replace("/sei-protocol/sei-chain//sei-protocol/sei-chain/", "/sei-protocol/sei-chain/")
+        command = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
+    }
+    return await execCommand(command);
+}
+
+function execCommand(command) {
+    return new Promise((resolve, reject) => {
+        exec(command, (error, stdout, stderr) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            if (stderr) {
+                reject(new Error(stderr));
+                return;
+            }
+            resolve(stdout);
+        });
+    })
 }
 
 async function waitForReceipt(txHash) {
@@ -349,6 +354,7 @@ module.exports = {
     bankSend,
     evmSend,
     waitForReceipt,
+    isDocker,
     WASM,
     ABI,
 };

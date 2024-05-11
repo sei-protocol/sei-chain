@@ -11,6 +11,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
@@ -84,7 +85,7 @@ func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *u
 		GasFeeCap: new(big.Int).SetUint64(1000000000000),
 		GasTipCap: new(big.Int).SetUint64(1000000000000),
 		Gas:       21000,
-		ChainID:   big.NewInt(1),
+		ChainID:   big.NewInt(config.DefaultChainID),
 		To:        &to,
 		Value:     big.NewInt(1),
 		Nonce:     0,
