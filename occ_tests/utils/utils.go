@@ -35,6 +35,7 @@ import (
 	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	types2 "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
@@ -86,7 +87,7 @@ func NewSigner() TestAcct {
 
 	pvKeyHex := hex.EncodeToString(priv1.Bytes())
 	key, _ := crypto.HexToECDSA(pvKeyHex)
-	ethCfg := types2.DefaultChainConfig().EthereumConfig(big.NewInt(1))
+	ethCfg := types2.DefaultChainConfig().EthereumConfig(big.NewInt(config.DefaultChainID))
 	signer := ethtypes.MakeSigner(ethCfg, utils2.Big1, 1)
 	address := crypto.PubkeyToAddress(key.PublicKey)
 

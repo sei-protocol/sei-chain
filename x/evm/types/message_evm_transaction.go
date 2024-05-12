@@ -13,6 +13,7 @@ const TypeMsgEVMTransaction = "evm_transaction"
 var (
 	_ sdk.Msg                            = &MsgEVMTransaction{}
 	_ codectypes.UnpackInterfacesMessage = &MsgEVMTransaction{}
+	_ sdk.ResultDecorator                = &MsgEVMTransactionResponse{}
 )
 
 func NewMsgEVMTransaction(txData proto.Message) (*MsgEVMTransaction, error) {
@@ -76,4 +77,13 @@ func MustGetEVMTransactionMessage(tx sdk.Tx) *MsgEVMTransaction {
 		panic("not EVM message")
 	}
 	return msg
+}
+
+func (res *MsgEVMTransactionResponse) DecorateSdkResult(sdkRes *sdk.Result) {
+	if res == nil {
+		return
+	}
+	if res.VmError != "" {
+		sdkRes.EvmError = res.VmError
+	}
 }

@@ -130,9 +130,17 @@ func (p Precompile) GetName() string {
 }
 
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+	defer func() {
+		if err != nil {
+			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+		}
+	}()
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, 0, err
+	}
+	if method.Name != QueryMethod && !ctx.IsEVM() {
+		return nil, 0, errors.New("sei does not support CW->EVM->CW call pattern")
 	}
 	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
 	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultipler).TruncateInt().BigInt()
@@ -147,7 +155,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	case ExecuteMethod:
 		return p.execute(ctx, method, caller, callingContract, args, value, readOnly)
 	case ExecuteBatchMethod:
-		return p.execute_batch(ctx, method, caller, callingContract, args, value, readOnly)
+		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly)
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
 	}
@@ -251,7 +259,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	return
 }
 
-func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -314,7 +322,11 @@ func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller co
 			rerr = err
 			return
 		}
-		senderAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+		senderAddr, senderAssociated := p.evmKeeper.GetSeiAddress(ctx, caller)
+		if !senderAssociated {
+			rerr = fmt.Errorf("sender %s is not associated", caller.Hex())
+			return
+		}
 		msg := executeMsg.Msg
 		coinsBz := executeMsg.Coins
 		coins := sdk.NewCoins()

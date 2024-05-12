@@ -675,6 +675,9 @@ func New(
 			app.DistrKeeper,
 			app.OracleKeeper,
 			app.TransferKeeper,
+			app.IBCKeeper.ClientKeeper,
+			app.IBCKeeper.ConnectionKeeper,
+			app.IBCKeeper.ChannelKeeper,
 		); err != nil {
 			panic(err)
 		}
@@ -1744,7 +1747,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 			app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
 			return app.GetCheckCtx()
 		}
-		return ctx
+		return ctx.WithIsEVM(true)
 	}
 	if app.evmRPCConfig.HTTPEnabled {
 		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome)

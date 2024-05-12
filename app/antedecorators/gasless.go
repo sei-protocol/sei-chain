@@ -137,7 +137,7 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (
 }
 
 func dexPlaceOrdersIsGasless(_ *dextypes.MsgPlaceOrders) bool {
-	return true
+	return false
 }
 
 // WhitelistedGaslessCancellationAddrs TODO: migrate this into params state

@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"errors"
 	"math/big"
 	"testing"
 
@@ -28,7 +29,7 @@ func TestChainID(t *testing.T) {
 
 func TestAccounts(t *testing.T) {
 	homeDir := t.TempDir()
-	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir)
+	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
 	require.Nil(t, err)
@@ -64,42 +65,60 @@ func TestGasPrice(t *testing.T) {
 }
 
 func TestFeeHistory(t *testing.T) {
-	bodyByNumber := []interface{}{"0x1", "0x8", []interface{}{0.5}}
-	bodyByLatest := []interface{}{"0x1", "latest", []interface{}{0.5}}
-	bodyByEarliest := []interface{}{"0x1", "earliest", []interface{}{0.5}}
-	bodyOld := []interface{}{"0x1", "0x1", []interface{}{0.5}}
-	bodyFuture := []interface{}{"0x1", "0x9", []interface{}{0.5}}
-	expectedOldest := []string{"0x1", "0x1", "0x1", "0x1", "0x1"}
-	Ctx = Ctx.WithBlockHeight(1)
-	for i, body := range [][]interface{}{
-		bodyByNumber, bodyByLatest, bodyByEarliest, bodyOld, bodyFuture,
-	} {
-		resObj := sendRequestGood(t, "feeHistory", body...)
-		resObj = resObj["result"].(map[string]interface{})
-		require.Equal(t, expectedOldest[i], resObj["oldestBlock"].(string))
-		rewards := resObj["reward"].([]interface{})
-		require.Equal(t, 1, len(rewards))
-		reward := rewards[0].([]interface{})
-		require.Equal(t, 1, len(reward))
-		require.Equal(t, "0xa", reward[0].(string))
-		baseFeePerGas := resObj["baseFeePerGas"].([]interface{})
-		require.Equal(t, 1, len(baseFeePerGas))
-		require.Equal(t, "0x0", baseFeePerGas[0].(string))
-		gasUsedRatio := resObj["gasUsedRatio"].([]interface{})
-		require.Equal(t, 1, len(gasUsedRatio))
-		require.Equal(t, 0.5, gasUsedRatio[0].(float64))
+	type feeHistoryTestCase struct {
+		name              string
+		blockCount        interface{}
+		lastBlock         interface{} // Changed to interface{} to handle different types
+		rewardPercentiles interface{}
+		expectedOldest    string
+		expectedReward    string
+		expectedBaseFee   string
+		expectedGasUsed   float64
+		expectedError     error
 	}
 
-	// bad percentile
-	outOfRangeBody1 := []interface{}{"0x1", "0x8", []interface{}{-1}}
-	outOfRangeBody2 := []interface{}{"0x1", "0x8", []interface{}{101}}
-	outOfOrderBody := []interface{}{"0x1", "0x8", []interface{}{99, 1}}
-	for _, body := range [][]interface{}{outOfRangeBody1, outOfRangeBody2, outOfOrderBody} {
-		resObj := sendRequestGood(t, "feeHistory", body...)
-		errMap := resObj["error"].(map[string]interface{})
-		require.Equal(t, "invalid reward percentiles: must be ascending and between 0 and 100", errMap["message"].(string))
+	Ctx = Ctx.WithBlockHeight(1) // Simulate context with a specific block height
+
+	testCases := []feeHistoryTestCase{
+		{name: "Valid request by number", blockCount: 1, lastBlock: "0x8", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0xa", expectedBaseFee: "0x0", expectedGasUsed: 0.5},
+		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0xa", expectedBaseFee: "0x0", expectedGasUsed: 0.5},
+		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0xa", expectedBaseFee: "0x0", expectedGasUsed: 0.5},
+		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0xa", expectedBaseFee: "0x0", expectedGasUsed: 0.5},
+		{name: "Request on future block", blockCount: 1, lastBlock: "0x9", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0xa", expectedBaseFee: "0x0", expectedGasUsed: 0.5},
+		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1", expectedReward: "0xa", expectedBaseFee: "0x0", expectedGasUsed: 0.5},
+		{name: "Too many percentiles", blockCount: 10, lastBlock: "latest", rewardPercentiles: make([]interface{}, 101), expectedError: errors.New("rewardPercentiles length must be less than or equal to 100")},
+		{name: "Invalid percentiles order", blockCount: 10, lastBlock: "latest", rewardPercentiles: []interface{}{99, 1}, expectedError: errors.New("invalid reward percentiles: must be ascending and between 0 and 100")},
 	}
-	Ctx = Ctx.WithBlockHeight(8)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Mimic request sending and handle the response
+			resObj := sendRequestGood(t, "feeHistory", tc.blockCount, tc.lastBlock, tc.rewardPercentiles)
+			if tc.expectedError != nil {
+				errMap := resObj["error"].(map[string]interface{})
+				require.Equal(t, tc.expectedError.Error(), errMap["message"].(string))
+			} else {
+				_, errorExists := resObj["error"]
+				require.False(t, errorExists)
+
+				resObj = resObj["result"].(map[string]interface{})
+				require.Equal(t, tc.expectedOldest, resObj["oldestBlock"].(string))
+				rewards, ok := resObj["reward"].([]interface{})
+
+				require.True(t, ok, "Expected rewards to be a slice of interfaces")
+				require.Equal(t, 1, len(rewards), "Expected exactly one reward entry")
+				reward, ok := rewards[0].([]interface{})
+				require.True(t, ok, "Expected reward to be a slice of interfaces")
+				require.Equal(t, 1, len(reward), "Expected exactly one sub-item in reward")
+				require.Equal(t, tc.expectedReward, reward[0].(string), "Reward does not match expected value")
+
+				require.Equal(t, tc.expectedBaseFee, resObj["baseFeePerGas"].([]interface{})[0].(string))
+				require.Equal(t, tc.expectedGasUsed, resObj["gasUsedRatio"].([]interface{})[0].(float64))
+			}
+		})
+	}
+
+	Ctx = Ctx.WithBlockHeight(8) // Reset context to a new block height
 }
 
 func TestCalculatePercentiles(t *testing.T) {

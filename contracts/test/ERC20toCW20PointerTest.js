@@ -1,20 +1,6 @@
-const {setupSigners, deployErc20PointerForCw20, getAdmin, storeWasm, instantiateWasm} = require("./lib");
+const {setupSigners, deployErc20PointerForCw20, getAdmin, deployWasm, WASM, ABI, registerPointerForCw20
+} = require("./lib");
 const {expect} = require("chai");
-
-const CW20_BASE_WASM_LOCATION = "../contracts/wasm/cw20_base.wasm";
-
-const erc20Abi = [
-    "function name() view returns (string)",
-    "function symbol() view returns (string)",
-    "function decimals() view returns (uint8)",
-    "function totalSupply() view returns (uint256)",
-    "function balanceOf(address owner) view returns (uint256 balance)",
-    "function transfer(address to, uint amount) returns (bool)",
-    "function allowance(address owner, address spender) view returns (uint256)",
-    "function approve(address spender, uint256 value) returns (bool)",
-    "function transferFrom(address from, address to, uint value) returns (bool)"
-];
-
 
 describe("ERC20 to CW20 Pointer", function () {
     let accounts;
@@ -26,8 +12,7 @@ describe("ERC20 to CW20 Pointer", function () {
         accounts = await setupSigners(await hre.ethers.getSigners())
         admin = await getAdmin()
 
-        const codeId = await storeWasm(CW20_BASE_WASM_LOCATION)
-        cw20Address = await instantiateWasm(codeId, accounts[0].seiAddress, "cw20", {
+        cw20Address = await deployWasm(WASM.CW20, accounts[0].seiAddress, "cw20", {
             name: "Test",
             symbol: "TEST",
             decimals: 6,
@@ -43,8 +28,19 @@ describe("ERC20 to CW20 Pointer", function () {
 
         // deploy TestToken
         const pointerAddr = await deployErc20PointerForCw20(hre.ethers.provider, cw20Address)
-        const contract = new hre.ethers.Contract(pointerAddr, erc20Abi, hre.ethers.provider);
+        const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC20, hre.ethers.provider);
         pointer = contract.connect(accounts[0].signer)
+    })
+
+    describe("validation", function(){
+        it("should not allow a pointer to the pointer", async function(){
+            try {
+                await registerPointerForCw20(await pointer.getAddress())
+                expect.fail(`Expected to be prevented from creating a pointer`);
+            } catch(e){
+                expect(e.message).to.include("contract deployment failed");
+            }
+        })
     })
 
     describe("read", function(){
@@ -97,8 +93,19 @@ describe("ERC20 to CW20 Pointer", function () {
         });
 
         it("should fail transfer() if sender has insufficient balance", async function () {
-            let recipient = accounts[1];
+            const recipient = accounts[1];
             await expect(pointer.transfer(recipient.evmAddress, 20000000)).to.be.revertedWith("CosmWasm execute failed");
+        });
+
+        it("transfer to unassociated address should fail", async function() {
+            const unassociatedRecipient = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+            await expect(pointer.transfer(unassociatedRecipient, 1)).to.be.revertedWithoutReason;
+        });
+
+        it("transfer to contract address should succeed", async function() {
+            const contract = await pointer.getAddress();
+            const tx = await pointer.transfer(contract, 1);
+            await tx.wait();
         });
     });
 

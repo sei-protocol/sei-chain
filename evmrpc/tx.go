@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -26,20 +27,21 @@ const UnconfirmedTxQueryMaxPage = 20
 const UnconfirmedTxQueryPerPage = 30
 
 type TransactionAPI struct {
-	tmClient    rpcclient.Client
-	keeper      *keeper.Keeper
-	ctxProvider func(int64) sdk.Context
-	txConfig    client.TxConfig
-	homeDir     string
+	tmClient       rpcclient.Client
+	keeper         *keeper.Keeper
+	ctxProvider    func(int64) sdk.Context
+	txConfig       client.TxConfig
+	homeDir        string
+	connectionType ConnectionType
 }
 
-func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, homeDir string) *TransactionAPI {
-	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, homeDir: homeDir}
+func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, homeDir string, connectionType ConnectionType) *TransactionAPI {
+	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, homeDir: homeDir, connectionType: connectionType}
 }
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getTransactionReceipt", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionReceipt", t.connectionType, startTime, returnErr == nil)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -59,7 +61,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getVMError", startTime, true)
+	defer recordMetrics("eth_getVMError", t.connectionType, startTime, true)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		return "", err
@@ -67,9 +69,9 @@ func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr 
 	return receipt.VmError, nil
 }
 
-func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
+func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) (result *ethapi.RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getTransactionByBlockNumberAndIndex", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionByBlockNumberAndIndex", t.connectionType, startTime, returnErr == nil)
 	blockNumber, err := getBlockNumber(ctx, t.tmClient, blockNr)
 	if err != nil {
 		return nil, err
@@ -81,9 +83,9 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 	return t.getTransactionWithBlock(block, index)
 }
 
-func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) (result *RPCTransaction, returnErr error) {
+func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) (result *ethapi.RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getTransactionByBlockHashAndIndex", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, returnErr == nil)
 	block, err := blockByHash(ctx, t.tmClient, blockHash[:])
 	if err != nil {
 		return nil, err
@@ -91,9 +93,9 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	return t.getTransactionWithBlock(block, index)
 }
 
-func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *RPCTransaction, returnErr error) {
+func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *ethapi.RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getTransactionByHash", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionByHash", t.connectionType, startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
 	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
@@ -111,7 +113,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 				)
 				from, _ := ethtypes.Sender(signer, etx)
 				v, r, s := etx.RawSignatureValues()
-				res := RPCTransaction{
+				res := ethapi.RPCTransaction{
 					Type:     hexutil.Uint64(etx.Type()),
 					From:     from,
 					Gas:      hexutil.Uint64(etx.Gas()),
@@ -143,7 +145,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 
 func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getTransactionErrorByHash", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionErrorByHash", t.connectionType, startTime, returnErr == nil)
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -156,7 +158,7 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getTransactionCount", startTime, returnErr == nil)
+	defer recordMetrics("eth_getTransactionCount", t.connectionType, startTime, returnErr == nil)
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 
 	var pending bool
@@ -180,7 +182,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
-func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint) (*RPCTransaction, error) {
+func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint) (*ethapi.RPCTransaction, error) {
 	if int(index) >= len(block.Block.Txs) {
 		return nil, nil
 	}
@@ -192,13 +194,19 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	if err != nil {
 		return nil, err
 	}
-	res := hydrateTransaction(ethtx, big.NewInt(block.Block.Height), common.HexToHash(block.BlockID.Hash.String()), receipt)
-	return &res, nil
+	height := int64(receipt.BlockNumber)
+	baseFeePerGas := t.keeper.GetBaseFee(t.ctxProvider(height))
+	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(t.ctxProvider(height)))
+	blockHash := common.HexToHash(block.BlockID.Hash.String())
+	blockNumber := uint64(block.Block.Height)
+	blockTime := block.Block.Time
+	res := ethapi.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+	return res, nil
 }
 
 func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_sign", startTime, returnErr == nil)
+	defer recordMetrics("eth_sign", t.connectionType, startTime, returnErr == nil)
 	kb, err := getTestKeyring(t.homeDir)
 	if err != nil {
 		return nil, err
@@ -268,13 +276,13 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
+
 	fields := map[string]interface{}{
 		"blockHash":         bh,
 		"blockNumber":       hexutil.Uint64(receipt.BlockNumber),
 		"transactionHash":   common.HexToHash(receipt.TxHashHex),
 		"transactionIndex":  hexutil.Uint64(evmTxIndex),
 		"from":              common.HexToAddress(receipt.From),
-		"to":                common.HexToAddress(receipt.To),
 		"gasUsed":           hexutil.Uint64(receipt.GasUsed),
 		"cumulativeGasUsed": hexutil.Uint64(receipt.CumulativeGasUsed),
 		"logs":              logs,
@@ -283,10 +291,13 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 		"effectiveGasPrice": (*hexutil.Big)(big.NewInt(int64(receipt.EffectiveGasPrice))),
 		"status":            hexutil.Uint(receipt.Status),
 	}
-	if receipt.ContractAddress != "" {
+	if receipt.ContractAddress != "" && receipt.To == "" {
 		fields["contractAddress"] = common.HexToAddress(receipt.ContractAddress)
 	} else {
 		fields["contractAddress"] = nil
+	}
+	if receipt.To != "" {
+		fields["to"] = common.HexToAddress(receipt.To)
 	}
 	return fields, nil
 }

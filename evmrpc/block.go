@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -22,19 +23,20 @@ import (
 )
 
 type BlockAPI struct {
-	tmClient    rpcclient.Client
-	keeper      *keeper.Keeper
-	ctxProvider func(int64) sdk.Context
-	txConfig    client.TxConfig
+	tmClient       rpcclient.Client
+	keeper         *keeper.Keeper
+	ctxProvider    func(int64) sdk.Context
+	txConfig       client.TxConfig
+	connectionType ConnectionType
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig) *BlockAPI {
-	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig}
+func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, connectionType ConnectionType) *BlockAPI {
+	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, connectionType: connectionType}
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getBlockTransactionCountByNumber", startTime, returnErr == nil)
+	defer recordMetrics("eth_getBlockTransactionCountByNumber", a.connectionType, startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -48,7 +50,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getBlockTransactionCountByHash", startTime, returnErr == nil)
+	defer recordMetrics("eth_getBlockTransactionCountByHash", a.connectionType, startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
@@ -58,7 +60,7 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getBlockByHash", startTime, returnErr == nil)
+	defer recordMetrics("eth_getBlockByHash", a.connectionType, startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
@@ -72,7 +74,7 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getBlockByNumber", startTime, returnErr == nil)
+	defer recordMetrics("eth_getBlockByNumber", a.connectionType, startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -90,7 +92,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_getBlockReceipts", startTime, returnErr == nil)
+	defer recordMetrics("eth_getBlockReceipts", a.connectionType, startTime, returnErr == nil)
 	// Get height from params
 	heightPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
@@ -151,12 +153,15 @@ func EncodeTmBlock(
 ) (map[string]interface{}, error) {
 	number := big.NewInt(block.Block.Height)
 	blockhash := common.HexToHash(block.BlockID.Hash.String())
+	blockTime := block.Block.Time
 	lastHash := common.HexToHash(block.Block.LastBlockID.Hash.String())
 	appHash := common.HexToHash(block.Block.AppHash.String())
 	txHash := common.HexToHash(block.Block.DataHash.String())
 	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
 	miner := common.HexToAddress(block.Block.ProposerAddress.String())
+	baseFeePerGas := k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
 	gasLimit, gasWanted := int64(0), int64(0)
+	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
 	for i, txRes := range blockRes.TxsResults {
 		gasLimit += txRes.GasWanted
@@ -180,7 +185,8 @@ func EncodeTmBlock(
 					if err != nil {
 						continue
 					}
-					transactions = append(transactions, hydrateTransaction(ethtx, number, blockhash, receipt))
+					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+					transactions = append(transactions, newTx)
 				}
 			}
 		}
@@ -208,7 +214,7 @@ func EncodeTmBlock(
 		"size":             hexutil.Uint64(block.Block.Size()),
 		"uncles":           []common.Hash{}, // inapplicable to Sei
 		"transactions":     transactions,
-		"baseFeePerGas":    (*hexutil.Big)(k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()),
+		"baseFeePerGas":    (*hexutil.Big)(baseFeePerGas),
 	}
 	if fullTx {
 		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei

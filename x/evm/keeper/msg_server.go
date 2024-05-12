@@ -58,7 +58,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
-	stateDB.AddSurplus(msg.Derived.AnteSurplus)
 	tx, _ := msg.AsTransaction()
 	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
 	gp := server.GetGasPool()
@@ -85,8 +84,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
-		receipt, err := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)
-		if err != nil {
+		receipt, rerr := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)
+		if rerr != nil {
+			err = rerr
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 
 			telemetry.IncrCounterWithLabels(
@@ -206,7 +206,6 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
 	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
-	stateDB.SetEVM(evmInstance)
 	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
 	res, err := st.TransitionDb()
 	return res, err
@@ -241,6 +240,15 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 		receipt.Status = uint32(ethtypes.ReceiptStatusSuccessful)
 	} else {
 		receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
+	}
+
+	if perr := stateDB.GetPrecompileError(); perr != nil {
+		if receipt.Status > 0 {
+			ctx.Logger().Error(fmt.Sprintf("Transaction %s succeeded in execution but has precompile error %s", receipt.TxHashHex, perr.Error()))
+		} else {
+			// append precompile error to VM error
+			receipt.VmError = fmt.Sprintf("%s|%s", receipt.VmError, perr.Error())
+		}
 	}
 
 	receipt.From = origMsg.Derived.SenderEVMAddr.Hex()

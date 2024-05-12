@@ -40,6 +40,7 @@ func TestInstantiate(t *testing.T) {
 	testApp := app.Setup(false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
 	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
@@ -113,21 +114,27 @@ func TestInstantiate(t *testing.T) {
 	)
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
+	require.NotNil(t, statedb.GetPrecompileError())
 	require.Equal(t, uint64(0), g)
 
 	// bad inputs
 	badArgs, _ := instantiateMethod.Inputs.Pack(codeID, "not bech32", []byte("{}"), "test", amtsbz)
+	statedb.SetPrecompileError(nil)
 	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, badArgs...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
+	require.NotNil(t, statedb.GetPrecompileError())
 	badArgs, _ = instantiateMethod.Inputs.Pack(codeID, mockAddr.String(), []byte("{}"), "test", []byte("bad coins"))
+	statedb.SetPrecompileError(nil)
 	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, badArgs...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
+	require.NotNil(t, statedb.GetPrecompileError())
 }
 
 func TestExecute(t *testing.T) {
 	testApp := app.Setup(false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
 	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
@@ -156,6 +163,11 @@ func TestExecute(t *testing.T) {
 	}
 	suppliedGas := uint64(1000000)
 	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
+	// circular interop
+	statedb.WithCtx(statedb.Ctx().WithIsEVM(false))
+	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
+	require.Equal(t, "sei does not support CW->EVM->CW call pattern", err.Error())
+	statedb.WithCtx(statedb.Ctx().WithIsEVM(true))
 	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
 	require.Nil(t, err)
 	outputs, err := executeMethod.Outputs.Unpack(res)
@@ -192,30 +204,39 @@ func TestExecute(t *testing.T) {
 
 	// disallowed delegatecall
 	contractAddrDisallowed := common.BytesToAddress([]byte("contractB"))
+	statedb.SetPrecompileError(nil)
 	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.ExecuteID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
+	require.NotNil(t, statedb.GetPrecompileError())
 
 	// bad contract address
 	args, _ = executeMethod.Inputs.Pack(mockAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
+	statedb.SetPrecompileError(nil)
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
+	require.NotNil(t, statedb.GetPrecompileError())
 
 	// bad inputs
 	args, _ = executeMethod.Inputs.Pack("not bech32", []byte("{\"echo\":{\"message\":\"test msg\"}}"), amtsbz)
+	statedb.SetPrecompileError(nil)
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
+	require.NotNil(t, statedb.GetPrecompileError())
 	args, _ = executeMethod.Inputs.Pack(contractAddr.String(), []byte("{\"echo\":{\"message\":\"test msg\"}}"), []byte("bad coins"))
+	statedb.SetPrecompileError(nil)
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
+	require.NotNil(t, statedb.GetPrecompileError())
 }
 
 func TestQuery(t *testing.T) {
 	testApp := app.Setup(false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
 	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
@@ -265,6 +286,7 @@ func TestExecuteBatchOneMessage(t *testing.T) {
 	testApp := app.Setup(false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
 	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
@@ -366,6 +388,7 @@ func TestExecuteBatchMultipleMessages(t *testing.T) {
 	testApp := app.Setup(false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithIsEVM(true)
 	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
 	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
 	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)

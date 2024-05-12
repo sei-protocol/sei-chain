@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -12,11 +13,72 @@ import (
 func InitGenesis(ctx sdk.Context, k *keeper.Keeper, genState types.GenesisState) {
 	k.InitGenesis(ctx, genState)
 	k.SetParams(ctx, genState.Params)
+	for _, aa := range genState.AddressAssociations {
+		k.SetAddressMapping(ctx, sdk.MustAccAddressFromBech32(aa.SeiAddress), common.HexToAddress(aa.EthAddress))
+	}
+	for _, code := range genState.Codes {
+		k.SetCode(ctx, common.HexToAddress(code.Address), code.Code)
+	}
+	for _, state := range genState.States {
+		k.SetState(ctx, common.HexToAddress(state.Address), common.BytesToHash(state.Key), common.BytesToHash(state.Value))
+	}
+	for _, nonce := range genState.Nonces {
+		k.SetNonce(ctx, common.HexToAddress(nonce.Address), nonce.Nonce)
+	}
+	for _, serialized := range genState.Serialized {
+		k.PrefixStore(ctx, serialized.Prefix).Set(serialized.Key, serialized.Value)
+	}
 }
 
 func ExportGenesis(ctx sdk.Context, k *keeper.Keeper) *types.GenesisState {
 	genesis := types.DefaultGenesis()
 	genesis.Params = k.GetParams(ctx)
+	k.IterateSeiAddressMapping(ctx, func(evmAddr common.Address, seiAddr sdk.AccAddress) bool {
+		genesis.AddressAssociations = append(genesis.AddressAssociations, &types.AddressAssociation{
+			SeiAddress: seiAddr.String(),
+			EthAddress: evmAddr.Hex(),
+		})
+		return false
+	})
+	k.IterateAllCode(ctx, func(addr common.Address, code []byte) bool {
+		genesis.Codes = append(genesis.Codes, &types.Code{
+			Address: addr.Hex(),
+			Code:    code,
+		})
+		return false
+	})
+	k.IterateState(ctx, func(addr common.Address, key, val common.Hash) bool {
+		genesis.States = append(genesis.States, &types.ContractState{
+			Address: addr.Hex(),
+			Key:     key[:],
+			Value:   val[:],
+		})
+		return false
+	})
+	k.IterateAllNonces(ctx, func(addr common.Address, nonce uint64) bool {
+		genesis.Nonces = append(genesis.Nonces, &types.Nonce{
+			Address: addr.Hex(),
+			Nonce:   nonce,
+		})
+		return false
+	})
+	for _, prefix := range [][]byte{
+		types.ReceiptKeyPrefix,
+		types.BlockBloomPrefix,
+		types.TxHashesPrefix,
+		types.PointerRegistryPrefix,
+		types.PointerCWCodePrefix,
+		types.PointerReverseRegistryPrefix,
+	} {
+		k.IterateAll(ctx, prefix, func(key, val []byte) bool {
+			genesis.Serialized = append(genesis.Serialized, &types.Serialized{
+				Prefix: prefix,
+				Key:    key,
+				Value:  val,
+			})
+			return false
+		})
+	}
 
 	return genesis
 }

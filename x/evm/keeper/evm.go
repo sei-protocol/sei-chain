@@ -67,6 +67,9 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 }
 
 func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Address, val *sdk.Int, data []byte) (retdata []byte, reterr error) {
+	if ctx.IsEVM() {
+		return nil, errors.New("sei does not support EVM->CW->EVM call pattern")
+	}
 	if to == nil && len(data) > params.MaxInitCodeSize {
 		return nil, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
 	}
@@ -77,57 +80,40 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		}
 		value = val.BigInt()
 	}
-	evm := types.GetCtxEVM(ctx)
-	if evm == nil {
-		// This call was not part of an existing StateTransition, so it should trigger one
-		executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
-		stateDB := state.NewDBImpl(executionCtx, k, false)
-		gp := k.GetGasPool()
-		evmMsg := &core.Message{
-			Nonce:             stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
-			GasLimit:          k.getEvmGasLimitFromCtx(ctx),
-			GasPrice:          utils.Big0, // fees are already paid on the CW transaction
-			GasFeeCap:         utils.Big0,
-			GasTipCap:         utils.Big0,
-			To:                to,
-			Value:             value,
-			Data:              data,
-			SkipAccountChecks: false,
-			From:              from,
-		}
-		res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
-		if err != nil {
-			return nil, err
-		}
-		k.consumeEvmGas(ctx, res.UsedGas)
-		if res.Err != nil {
-			return nil, res.Err
-		}
-		surplus, err := stateDB.Finalize()
-		if err != nil {
-			return nil, err
-		}
-		k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{}, ethtypes.EmptyTxsHash, surplus)
-		return res.ReturnData, nil
+	// This call was not part of an existing StateTransition, so it should trigger one
+	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	stateDB := state.NewDBImpl(executionCtx, k, false)
+	gp := k.GetGasPool()
+	evmMsg := &core.Message{
+		Nonce:             stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
+		GasLimit:          k.getEvmGasLimitFromCtx(ctx),
+		GasPrice:          utils.Big0, // fees are already paid on the CW transaction
+		GasFeeCap:         utils.Big0,
+		GasTipCap:         utils.Big0,
+		To:                to,
+		Value:             value,
+		Data:              data,
+		SkipAccountChecks: false,
+		From:              from,
 	}
-	// This call is part of an existing StateTransition, so directly invoking `Call`
-	var f EVMCallFunc
-	if to == nil {
-		// contract creation
-		f = func(caller vm.ContractRef, _ *common.Address, input []byte, gas uint64, value *big.Int) ([]byte, uint64, error) {
-			ret, _, leftoverGas, err := evm.Create(caller, input, gas, value)
-			return ret, leftoverGas, err
-		}
-	} else {
-		f = func(caller vm.ContractRef, addr *common.Address, input []byte, gas uint64, value *big.Int) ([]byte, uint64, error) {
-			return evm.Call(caller, *addr, input, gas, value)
-		}
+	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
+	if err != nil {
+		return nil, err
 	}
-	return k.callEVM(ctx, from, to, val, data, f)
+	k.consumeEvmGas(ctx, res.UsedGas)
+	if res.Err != nil {
+		return nil, res.Err
+	}
+	surplus, err := stateDB.Finalize()
+	if err != nil {
+		return nil, err
+	}
+	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{}, ethtypes.EmptyTxsHash, surplus)
+	return res.ReturnData, nil
 }
 
 func (k *Keeper) StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, data []byte) ([]byte, error) {
-	evm, err := k.getOrCreateEVM(ctx, from)
+	evm, err := k.createReadOnlyEVM(ctx, from)
 	if err != nil {
 		return nil, err
 	}
@@ -151,13 +137,9 @@ func (k *Keeper) callEVM(ctx sdk.Context, from common.Address, to *common.Addres
 }
 
 // only used for StaticCalls
-func (k *Keeper) getOrCreateEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, error) {
-	evm := types.GetCtxEVM(ctx)
-	if evm != nil {
-		return evm, nil
-	}
+func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, error) {
 	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
-	stateDB := state.NewDBImpl(executionCtx, k, false)
+	stateDB := state.NewDBImpl(executionCtx, k, true)
 	gp := k.GetGasPool()
 	blockCtx, err := k.GetVMBlockContext(executionCtx, gp)
 	if err != nil {
@@ -165,9 +147,7 @@ func (k *Keeper) getOrCreateEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EVM, 
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
-	evm = vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
-	stateDB.SetEVM(evm)
-	return evm, nil
+	return vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}), nil
 }
 
 func (k *Keeper) getEvmGasLimitFromCtx(ctx sdk.Context) uint64 {

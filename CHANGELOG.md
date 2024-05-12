@@ -27,6 +27,26 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v5.2.0
+sei-chain
+* [#1621](https://github.com/sei-protocol/sei-chain/pull/1621) Add websocket metrics
+* [#1619](https://github.com/sei-protocol/sei-chain/pull/1619) Limit number of subscriptions
+* [#1618](https://github.com/sei-protocol/sei-chain/pull/1618) Fix contract deploy receipts
+* [#1615](https://github.com/sei-protocol/sei-chain/pull/1615) Optimize websocket newHead by reusing tendermint subscription
+* [#1609](https://github.com/sei-protocol/sei-chain/pull/1609) Add association logic to simulate endpoints
+* [#1605](https://github.com/sei-protocol/sei-chain/pull/1605) Disallow sr25519 addresses for evm functions
+* [#1606](https://github.com/sei-protocol/sei-chain/pull/1606) SKip evm antehandler on sr25519 signatures
+
+sei-cosmos:
+* [#495](https://github.com/sei-protocol/sei-cosmos/pull/495) Fix seid keys list by ignoring evm-addr for sr25519
+* [#493](https://github.com/sei-protocol/sei-cosmos/pull/493) Remove non-multiplier gas meter
+
+sei-tendermint:
+* [#235](https://github.com/sei-protocol/sei-tendermint/pull/235) Check removed including wrapped tx state
+
+sei-db:
+* [#63](https://github.com/sei-protocol/sei-db/pull/63) Fix edge case for iterating over tombstoned value
+
 ## v5.0.1
 sei-chain
 [#1577](https://github.com/sei-protocol/sei-chain/pull/1577) Re-enable Cancun
