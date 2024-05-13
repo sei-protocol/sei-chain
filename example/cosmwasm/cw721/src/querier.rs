@@ -1,6 +1,6 @@
 use cosmwasm_std::{QuerierWrapper, StdResult, Uint128};
 
-use crate::msg::{Route, EvmQuery, EvmQueryWrapper, ErcPayloadResponse, Erc721OwnerResponse, Erc721ApprovedResponse, Erc721IsApprovedForAllResponse, Erc721NameSymbolResponse, Erc721UriResponse, Erc721RoyaltyInfoResponse, SupportsInterfaceResponse};
+use crate::msg::{Route, EvmQuery, EvmQueryWrapper, ErcPayloadResponse, Erc721OwnerResponse, Erc721ApprovedResponse, Erc721IsApprovedForAllResponse, Erc721NameSymbolResponse, Erc721TotalSupplyResponse, Erc721UriResponse, Erc721RoyaltyInfoResponse, SupportsInterfaceResponse};
 
 pub struct EvmQuerier<'a> {
     querier: &'a QuerierWrapper<'a, EvmQueryWrapper>,
@@ -35,6 +35,16 @@ impl<'a> EvmQuerier<'a> {
         let request = EvmQueryWrapper {
             route: Route::Evm,
             query_data: EvmQuery::Erc721IsApprovedForAll { caller, contract_address, owner, operator },
+        }
+        .into();
+
+        self.querier.query(&request)
+    }
+
+    pub fn erc721_total_supply(&self, caller: String, contract_address: String) -> StdResult<Erc721TotalSupplyResponse> {
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc721TotalSupply { caller, contract_address },
         }
         .into();
 
