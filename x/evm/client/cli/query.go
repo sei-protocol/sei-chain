@@ -43,6 +43,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryERC20())
 	cmd.AddCommand(CmdQueryPayload())
 	cmd.AddCommand(CmdQueryPointer())
+	cmd.AddCommand(GetBalanceSumCmd())
 
 	return cmd
 }
@@ -305,6 +306,36 @@ func CmdQueryPointer() *cobra.Command {
 			res, err := queryClient.Pointer(context.Background(), &types.QueryPointerRequest{
 				PointerType: types.PointerType(types.PointerType_value[args[0]]), Pointee: args[1],
 			})
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func GetBalanceSumCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sum",
+		Short: "Query for total usei/wei balance sum",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			queryClient := types.NewQueryClient(clientCtx)
+			ctx := cmd.Context()
+
+			fmt.Printf("retrieving balance sum for height %d\n", clientCtx.Height)
+			req := types.QueryBalanceSumRequest{}
+			res, err := queryClient.BalanceSum(ctx, &req)
 			if err != nil {
 				return err
 			}
