@@ -205,15 +205,24 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		return
 	}
 
-	err = p.transferKeeper.SendTransfer(
-		ctx,
-		validatedArgs.port,
-		validatedArgs.channelID,
-		coin,
-		validatedArgs.senderSeiAddr,
-		validatedArgs.receiverAddressString,
-		height,
-		timeoutTimestamp)
+	msg := types.MsgTransfer{
+		SourcePort:       validatedArgs.port,
+		SourceChannel:    validatedArgs.channelID,
+		Token:            coin,
+		Sender:           validatedArgs.senderSeiAddr.String(),
+		Receiver:         validatedArgs.receiverAddressString,
+		TimeoutHeight:    height,
+		TimeoutTimestamp: timeoutTimestamp,
+		Memo:             "",
+	}
+
+	err = msg.ValidateBasic()
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	_, err = p.transferKeeper.Transfer(sdk.WrapSDKContext(ctx), &msg)
 
 	if err != nil {
 		rerr = err
@@ -281,20 +290,30 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 		return
 	}
 
-	err = p.transferKeeper.SendTransfer(
-		ctx,
-		validatedArgs.port,
-		validatedArgs.channelID,
-		coin,
-		validatedArgs.senderSeiAddr,
-		validatedArgs.receiverAddressString,
-		height,
-		timeoutTimestamp)
+	msg := types.MsgTransfer{
+		SourcePort:       validatedArgs.port,
+		SourceChannel:    validatedArgs.channelID,
+		Token:            coin,
+		Sender:           validatedArgs.senderSeiAddr.String(),
+		Receiver:         validatedArgs.receiverAddressString,
+		TimeoutHeight:    height,
+		TimeoutTimestamp: timeoutTimestamp,
+		Memo:             "",
+	}
+
+	err = msg.ValidateBasic()
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	_, err = p.transferKeeper.Transfer(sdk.WrapSDKContext(ctx), &msg)
 
 	if err != nil {
 		rerr = err
 		return
 	}
+
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	ret, rerr = method.Outputs.Pack(true)
 	return

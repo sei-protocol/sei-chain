@@ -1,7 +1,9 @@
 package ibc_test
 
 import (
+	"context"
 	"errors"
+	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 	"math/big"
 	"reflect"
@@ -22,16 +24,14 @@ import (
 
 type MockTransferKeeper struct{}
 
-func (tk *MockTransferKeeper) SendTransfer(ctx sdk.Context, sourcePort, sourceChannel string, token sdk.Coin,
-	sender sdk.AccAddress, receiver string, timeoutHeight clienttypes.Height, timeoutTimestamp uint64) error {
-	return nil
+func (tk *MockTransferKeeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
+	return nil, nil
 }
 
 type MockFailedTransferTransferKeeper struct{}
 
-func (tk *MockFailedTransferTransferKeeper) SendTransfer(ctx sdk.Context, sourcePort, sourceChannel string, token sdk.Coin,
-	sender sdk.AccAddress, receiver string, timeoutHeight clienttypes.Height, timeoutTimestamp uint64) error {
-	return errors.New("failed to send transfer")
+func (tk *MockFailedTransferTransferKeeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
+	return nil, errors.New("failed to send transfer")
 }
 
 func TestPrecompile_Run(t *testing.T) {
