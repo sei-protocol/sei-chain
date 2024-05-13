@@ -1,5 +1,5 @@
 use crate::error::ContractError;
-use crate::msg::{EvmMsg, EvmQueryWrapper, ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::msg::{EvmMsg, EvmQueryWrapper, InstantiateMsg};
 use crate::querier::{EvmQuerier, DEFAULT_LIMIT, MAX_LIMIT};
 use crate::state::ERC721_ADDRESS;
 #[cfg(not(feature = "library"))]
@@ -8,7 +8,7 @@ use cosmwasm_std::{
     DepsMut, Env, MessageInfo, Response, Uint128, Binary, Deps, StdResult, to_json_binary, Empty, StdError,
 };
 use cw2981_royalties::msg::{Cw2981QueryMsg, RoyaltiesInfoResponse, CheckRoyaltiesResponse};
-use cw2981_royalties::{Extension, Metadata};
+use cw2981_royalties::{ExecuteMsg, Extension, Metadata, QueryMsg};
 use cw721::{
     AllNftInfoResponse, Approval, ApprovalResponse, ApprovalsResponse, ContractInfoResponse,
     Cw721ReceiveMsg, NftInfoResponse, NumTokensResponse, OperatorResponse, OwnerOfResponse,
@@ -37,6 +37,7 @@ pub fn execute(
     msg: ExecuteMsg<Option<Metadata>, Empty>,
 ) -> Result<Response<EvmMsg>, ContractError> {
     match msg {
+<<<<<<< HEAD
         ExecuteMsg::TransferNft { recipient, token_id } => {
             execute_transfer_nft(deps, info, recipient, token_id)
         },
@@ -243,7 +244,18 @@ pub fn query(
         QueryMsg::AllTokens { start_after, limit } => {
             Ok(query_all_tokens(deps, env, start_after, limit)?)
         }
-        _ => Err(ContractError::NotSupported {}),
+        QueryMsg::AllOperators { .. } => Ok(to_json_binary(&query_all_operators()?)?),
+        QueryMsg::Minter { .. } => Ok(to_json_binary(&query_minter()?)?),
+        QueryMsg::Ownership { .. } => Ok(to_json_binary(&query_ownership()?)?),
+        QueryMsg::Extension { msg } => match msg {
+            Cw2981QueryMsg::RoyaltyInfo {
+                token_id,
+                sale_price,
+            } => Ok(to_json_binary(&query_royalty_info(
+                deps, env, token_id, sale_price,
+            )?)?),
+            Cw2981QueryMsg::CheckRoyalties {} => Ok(to_json_binary(&query_check_royalties()?)?),
+        },
     }
 }
 
@@ -361,7 +373,9 @@ pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumT
     let querier = EvmQuerier::new(&deps.querier);
     let res = querier
         .erc721_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?;
-    Ok(NumTokensResponse { count: res.supply })
+    Ok(NumTokensResponse {
+        count: Uint128::try_from(res.supply)?.u128().try_into().unwrap(),
+    })
 }
 
 pub fn query_contract_info(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<Binary> {
@@ -465,7 +479,7 @@ pub fn query_tokens(
 ) -> StdResult<Binary> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let num_tokens = query_num_tokens(deps, env)?.count;
+    let num_tokens = query_num_tokens(deps, env.clone())?.count;
     let start_after_id = Int256::from_str(&start_after.unwrap_or("-1".to_string()))?;
     let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
 
@@ -500,4 +514,16 @@ pub fn query_all_tokens(
     limit: Option<u32>,
 ) -> StdResult<Binary> {
     query_tokens(deps, env, "".to_string(), start_after, limit)
+}
+
+pub fn query_all_operators() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn query_minter() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn query_ownership() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
 }

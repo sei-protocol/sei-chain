@@ -1,6 +1,6 @@
+use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{CosmosMsg, CustomMsg, CustomQuery, Uint128, Uint256};
 use schemars::JsonSchema;
-use cosmwasm_schema::cw_serde;
 use serde::{Deserialize, Serialize};
 
 pub use cw721_base::{ExecuteMsg, QueryMsg};
