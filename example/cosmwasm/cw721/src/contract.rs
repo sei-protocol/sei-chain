@@ -516,6 +516,26 @@ pub fn query_all_tokens(
     query_tokens(deps, env, "".to_string(), start_after, limit)
 }
 
+pub fn query_royalty_info(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    token_id: String,
+    sale_price: Uint128,
+) -> StdResult<RoyaltiesInfoResponse> {
+    let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let res = querier.erc721_royalty_info(
+        env.clone().contract.address.into_string(),
+        erc_addr.clone(),
+        token_id,
+        sale_price,
+    )?;
+    Ok(RoyaltiesInfoResponse {
+        address: res.receiver,
+        royalty_amount: Uint128::from_str(&res.royalty_amount)?,
+    })
+}
+
 pub fn query_all_operators() -> Result<Response<EvmMsg>, ContractError> {
     Err(ContractError::NotSupported {})
 }
