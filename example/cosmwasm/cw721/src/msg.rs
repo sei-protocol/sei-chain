@@ -61,6 +61,10 @@ pub enum EvmQuery {
         to: String,
         approved: bool,
     },
+    Erc721TotalSupply {
+        caller: String,
+        contract_address: String,
+    },
     Erc721NameSymbol {
         caller: String,
         contract_address: String,
@@ -90,6 +94,11 @@ pub struct Erc721ApprovedResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc721IsApprovedForAllResponse {
     pub is_approved: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Erc721TotalSupplyResponse {
+    pub supply: Integer,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
