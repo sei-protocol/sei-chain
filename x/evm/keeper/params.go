@@ -46,7 +46,3 @@ func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 	return config.GetEVMChainID(ctx.ChainID())
 
 }
-
-func (k *Keeper) WhitelistedCwCodeHashesForDelegateCall(ctx sdk.Context) [][]byte {
-	return k.GetParams(ctx).WhitelistedCwCodeHashesForDelegateCall
-}
