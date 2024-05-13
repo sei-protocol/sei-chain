@@ -121,7 +121,7 @@ pub struct Erc721UriResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc721RoyaltyInfoResponse {
     pub receiver: String,
-    pub royalty_amount: Uint256,
+    pub royalty_amount: String,
 }
 
 // implement custom query

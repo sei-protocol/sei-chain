@@ -494,7 +494,7 @@ pub fn query_royalty_info(
     )?;
     Ok(RoyaltiesInfoResponse {
         address: res.receiver,
-        royalty_amount: res.royalty_amount.try_into()?,
+        royalty_amount: Uint128::from_str(&res.royalty_amount)?,
     })
 }
 
