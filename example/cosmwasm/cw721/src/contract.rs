@@ -1,15 +1,20 @@
+use crate::error::ContractError;
+use crate::msg::{EvmMsg, EvmQueryWrapper, ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::querier::{EvmQuerier, DEFAULT_LIMIT, MAX_LIMIT};
+use crate::state::ERC721_ADDRESS;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Empty, Uint128,
+    DepsMut, Env, MessageInfo, Response, Uint128, Binary, Deps, StdResult, to_json_binary, Empty, StdError,
 };
-use cw721::{Cw721ReceiveMsg, OwnerOfResponse, Approval, ApprovalResponse, ApprovalsResponse, OperatorResponse, ContractInfoResponse, NftInfoResponse, AllNftInfoResponse};
 use cw2981_royalties::msg::{Cw2981QueryMsg, RoyaltiesInfoResponse, CheckRoyaltiesResponse};
-use cw2981_royalties::Metadata as Cw2981Metadata;
-use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, ExecuteMsg, QueryMsg};
-use crate::querier::EvmQuerier;
-use crate::error::ContractError;
-use crate::state::ERC721_ADDRESS;
+use cw2981_royalties::{Extension, Metadata};
+use cw721::{
+    AllNftInfoResponse, Approval, ApprovalResponse, ApprovalsResponse, ContractInfoResponse,
+    Cw721ReceiveMsg, NftInfoResponse, NumTokensResponse, OperatorResponse, OwnerOfResponse,
+    TokensResponse,
+};
+use std::str::FromStr;
 
 const ERC2981_ID: &str = "0x2a55205a";
 
@@ -29,7 +34,7 @@ pub fn execute(
     deps: DepsMut<EvmQueryWrapper>,
     _env: Env,
     info: MessageInfo,
-    msg: ExecuteMsg<Option<Cw2981Metadata>, Empty>,
+    msg: ExecuteMsg<Option<Metadata>, Empty>,
 ) -> Result<Response<EvmMsg>, ContractError> {
     match msg {
         ExecuteMsg::TransferNft { recipient, token_id } => {
@@ -167,9 +172,18 @@ fn transfer_nft(
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
 
     let querier = EvmQuerier::new(&deps.querier);
-    let owner = querier.erc721_owner(info.sender.clone().into_string(), erc_addr.clone(), token_id.clone())?.owner;
+    let owner = querier
+        .erc721_owner(
+            info.sender.clone().into_string(),
+            erc_addr.clone(),
+            token_id.clone(),
+        )?
+        .owner;
     let payload = querier.erc721_transfer_payload(owner, recipient.clone(), token_id.clone())?;
-    let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+    let msg = EvmMsg::DelegateCallEvm {
+        to: erc_addr,
+        data: payload.encoded_payload,
+    };
     let res = Response::new()
         .add_attribute("sender", info.sender)
         .add_attribute("recipient", recipient)
@@ -180,17 +194,34 @@ fn transfer_nft(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg<Cw2981QueryMsg>) -> Result<Binary, ContractError> {
+pub fn query(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    msg: QueryMsg<Cw2981QueryMsg>,
+) -> Result<Binary, ContractError> {
     match msg {
-        QueryMsg::OwnerOf { token_id, include_expired: _ } => Ok(to_json_binary(&query_owner_of(deps, env, token_id)?)?),
-        QueryMsg::Approval { token_id, spender, include_expired: _ } => Ok(query_approval(deps, env, token_id, spender)?),
-        QueryMsg::Approvals { token_id, include_expired: _ } => Ok(query_approvals(deps, env, token_id)?),
-        QueryMsg::Operator { owner, operator, include_expired: _ } => Ok(query_operator(deps, env, owner, operator)?),
-        QueryMsg::NumTokens {} => Ok(query_num_tokens(deps, env)?),
+        QueryMsg::OwnerOf {
+            token_id,
+            include_expired: _,
+        } => Ok(to_json_binary(&query_owner_of(deps, env, token_id)?)?),
+        QueryMsg::Approval {
+            token_id,
+            spender,
+            include_expired: _,
+        } => Ok(query_approval(deps, env, token_id, spender)?),
+        QueryMsg::Approvals {
+            token_id,
+            include_expired: _,
+        } => Ok(query_approvals(deps, env, token_id)?),
+        QueryMsg::Operator {
+            owner,
+            operator,
+            include_expired: _,
+        } => Ok(query_operator(deps, env, owner, operator)?),
+        QueryMsg::NumTokens {} => Ok(to_json_binary(&query_num_tokens(deps, env)?)?),
         QueryMsg::ContractInfo {} => Ok(query_contract_info(deps, env)?),
         QueryMsg::NftInfo { token_id } => Ok(query_nft_info(deps, env, token_id)?),
         QueryMsg::AllNftInfo { token_id, include_expired: _ } => Ok(query_all_nft_info(deps, env, token_id)?),
-<<<<<<< HEAD
         QueryMsg::Extension { msg } => match msg {
             Cw2981QueryMsg::RoyaltyInfo {
                 token_id,
@@ -198,89 +229,189 @@ pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg<Cw2981QueryMsg
             } => Ok(to_json_binary(&query_royalty_info(deps, env, token_id, sale_price)?)?),
             Cw2981QueryMsg::CheckRoyalties {} => Ok(to_json_binary(&query_check_royalties(deps, env)?)?),
         },
-=======
-        QueryMsg::Tokens { token_id } => Ok(query_nft_info(deps, env, token_id)?),
-        QueryMsg::AllTokens { token_id, include_expired: _ } => Ok(query_all_nft_info(deps, env, token_id)?),
->>>>>>> 4c9c1f5b (POC - bring CW721 pointer contract up to spec)
-        _ => Err(ContractError::NotSupported {  }),
+        QueryMsg::Tokens {
+            owner,
+            start_after,
+            limit,
+        } => Ok(to_json_binary(&query_tokens(
+            deps,
+            env,
+            owner,
+            start_after,
+            limit,
+        )?)?),
+        QueryMsg::AllTokens { start_after, limit } => {
+            Ok(query_all_tokens(deps, env, start_after, limit)?)
+        }
+        _ => Err(ContractError::NotSupported {}),
     }
 }
 
-pub fn query_owner_of(deps: Deps<EvmQueryWrapper>, env: Env, token_id: String) -> StdResult<OwnerOfResponse> {
+pub fn query_owner_of(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    token_id: String,
+) -> StdResult<OwnerOfResponse> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let owner = querier.erc721_owner(env.clone().contract.address.into_string(), erc_addr.clone(), token_id.clone())?.owner;
-    let approved = querier.erc721_approved(env.clone().contract.address.into_string(), erc_addr.clone(), token_id.clone())?.approved;
+    let owner = querier
+        .erc721_owner(
+            env.clone().contract.address.into_string(),
+            erc_addr.clone(),
+            token_id.clone(),
+        )?
+        .owner;
+    let approved = querier
+        .erc721_approved(
+            env.clone().contract.address.into_string(),
+            erc_addr.clone(),
+            token_id.clone(),
+        )?
+        .approved;
     let mut approvals: Vec<Approval> = vec![];
     if !approved.is_empty() {
-        approvals.push(Approval{spender:approved, expires: cw721::Expiration::Never {}});
+        approvals.push(Approval {
+            spender: approved,
+            expires: cw721::Expiration::Never {},
+        });
     }
-    Ok(OwnerOfResponse{owner, approvals})
+    Ok(OwnerOfResponse { owner, approvals })
 }
 
-pub fn query_approval(deps: Deps<EvmQueryWrapper>, env: Env, token_id: String, spender: String) -> StdResult<Binary> {
+pub fn query_approval(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    token_id: String,
+    spender: String,
+) -> StdResult<Binary> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let approved = querier.erc721_approved(env.clone().contract.address.into_string(), erc_addr.clone(), token_id.clone())?.approved;
+    let approved = querier
+        .erc721_approved(
+            env.clone().contract.address.into_string(),
+            erc_addr.clone(),
+            token_id.clone(),
+        )?
+        .approved;
     if !approved.is_empty() && approved == spender {
-        return to_json_binary(&ApprovalResponse{approval: Approval{spender, expires: cw721::Expiration::Never {}}});
+        return to_json_binary(&ApprovalResponse {
+            approval: Approval {
+                spender,
+                expires: cw721::Expiration::Never {},
+            },
+        });
     }
-    Err(cosmwasm_std::StdError::NotFound { kind: "not approved".to_string() })
+    Err(StdError::not_found("not approved"))
 }
 
-pub fn query_approvals(deps: Deps<EvmQueryWrapper>, env: Env, token_id: String) -> StdResult<Binary> {
+pub fn query_approvals(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    token_id: String,
+) -> StdResult<Binary> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let approved = querier.erc721_approved(env.clone().contract.address.into_string(), erc_addr.clone(), token_id.clone())?.approved;
+    let approved = querier
+        .erc721_approved(
+            env.clone().contract.address.into_string(),
+            erc_addr.clone(),
+            token_id.clone(),
+        )?
+        .approved;
     if !approved.is_empty() {
-        return to_json_binary(&ApprovalsResponse{approvals: vec![Approval{spender: approved, expires: cw721::Expiration::Never {}}]});
+        return to_json_binary(&ApprovalsResponse {
+            approvals: vec![Approval {
+                spender: approved,
+                expires: cw721::Expiration::Never {},
+            }],
+        });
     }
-    to_json_binary(&ApprovalsResponse{approvals: vec![]})
+    to_json_binary(&ApprovalsResponse { approvals: vec![] })
 }
 
-pub fn query_operator(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, operator: String) -> StdResult<Binary> {
+pub fn query_operator(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    owner: String,
+    operator: String,
+) -> StdResult<Binary> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let is_approved = querier.erc721_is_approved_for_all(env.clone().contract.address.into_string(), erc_addr.clone(), owner.clone(), operator.clone())?.is_approved;
+    let is_approved = querier
+        .erc721_is_approved_for_all(
+            env.clone().contract.address.into_string(),
+            erc_addr.clone(),
+            owner.clone(),
+            operator.clone(),
+        )?
+        .is_approved;
     if is_approved {
-        return to_json_binary(&OperatorResponse{approval: Approval{spender: operator.clone(), expires: cw721::Expiration::Never {}}});
+        return to_json_binary(&OperatorResponse {
+            approval: Approval {
+                spender: operator.clone(),
+                expires: cw721::Expiration::Never {},
+            },
+        });
     }
-    Err(cosmwasm_std::StdError::NotFound { kind: "not approved".to_string() })
+    Err(StdError::not_found("not approved".to_string()))
 }
 
-pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<Binary> {
+pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumTokensResponse> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let res = querier.erc721_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?;
-    to_json_binary(&NumTokensResponse{count: res.supply})
+    let res = querier
+        .erc721_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?;
+    Ok(NumTokensResponse { count: res.supply })
 }
 
 pub fn query_contract_info(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<Binary> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let res = querier.erc721_name_symbol(env.clone().contract.address.into_string(), erc_addr.clone())?;
-    to_json_binary(&ContractInfoResponse{name: res.name, symbol: res.symbol})
-}
-
-pub fn query_nft_info(deps: Deps<EvmQueryWrapper>, env: Env, token_id: String) -> StdResult<Binary> {
-    let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
-    let querier = EvmQuerier::new(&deps.querier);
-    let res = querier.erc721_uri(env.clone().contract.address.into_string(), erc_addr.clone(), token_id.clone())?;
-    to_json_binary(&NftInfoResponse{
-        token_uri: Some(res.uri),
-        extension: &NftInfoExtension{
-            royalty_payment_address: "",
-            royalty_percentage: 0,
-        },
+    let res =
+        querier.erc721_name_symbol(env.clone().contract.address.into_string(), erc_addr.clone())?;
+    to_json_binary(&ContractInfoResponse {
+        name: res.name,
+        symbol: res.symbol,
     })
 }
 
-pub fn query_all_nft_info(deps: Deps<EvmQueryWrapper>, env: Env, token_id: String) -> StdResult<Binary> {
+pub fn query_nft_info(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    token_id: String,
+) -> StdResult<Binary> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let res = querier.erc721_uri(env.clone().contract.address.into_string(), erc_addr.clone(), token_id.clone())?;
-    let owner_of_res = query_owner_of(deps, env, token_id)?;
-    to_json_binary(&AllNftInfoResponse{access: owner_of_res, info: NftInfoResponse{token_uri: Some(res.uri), extension: ""}})
+    let res = querier.erc721_uri(
+        env.clone().contract.address.into_string(),
+        erc_addr.clone(),
+        token_id.clone(),
+    )?;
+    let royalty_info = query_royalty_info(deps, env, token_id, 100u128.into());
+    to_json_binary(&NftInfoResponse {
+        token_uri: Some(res.uri),
+        extension: Some(Metadata {
+            image: None,
+            image_data: None,
+            external_url: None,
+            description: None,
+            name: None,
+            attributes: None,
+            background_color: None,
+            animation_url: None,
+            youtube_url: None,
+            royalty_percentage: if let Ok(royalty_info) = &royalty_info {
+                Some(royalty_info.royalty_amount.u128() as u64)
+            } else {
+                None
+            },
+            royalty_payment_address: if let Ok(royalty_info) = royalty_info {
+                Some(royalty_info.address)
+            } else {
+                None
+            },
+        }),
+    })
 }
 
 pub fn query_royalty_info(
@@ -312,60 +443,61 @@ pub fn query_check_royalties(deps: Deps<EvmQueryWrapper>, env: Env,) -> StdResul
     })
 }
 
-pub fn query_tokens(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, start_after: String, limit: String) -> StdResult<Binary> {
-    let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
-    let querier = EvmQuerier::new(&deps.querier);
-    let total_supply = querier.erc721_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?.supply;
-    let start_after_id = match start_after.parse().unwrap_or(-1)
-    let mut limit_int = match limit.parse().unwrap_or(DefaultLimit)
-    if limit_int > MaxLimit {
-        limit_int = MaxLimit
-    }
-    let mut cur = 0
-    let mut counter = 0
-    let mut tokens: Vec<String> = vec![]
-    while counter < total_supply && tokens.len() < limit {
-        let cur_str = cur.to_string()
-        let t_owner = match querier.erc721_owner(env.clone().contract.address.into_string(), erc_addr.clone(), cur_str) {
-            Ok(res) => res.owner,
-            Err(e) => "",
-        }
-        if t_owner != "" {
-            counter += 1
-            if t_owner == owner && cur > start_after_id {
-                tokens.push(cur_str)
-            }
-        }
-        cur += 1
-    }
-    to_json_binary(&NftInfoResponse{tokens: tokens})
+pub fn query_all_nft_info(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    token_id: String,
+) -> StdResult<Binary> {
+    let owner_of_res = query_owner_of(deps, env.clone(), token_id.to_string())?;
+    let nft_info_res = query_nft_info(deps, env, token_id)?;
+    to_json_binary(&AllNftInfoResponse {
+        access: owner_of_res,
+        info: nft_info_res,
+    })
 }
 
-pub fn query_all_tokens(deps: Deps<EvmQueryWrapper>, env: Env, start_after: String, limit: String) -> StdResult<Binary> {
+pub fn query_tokens(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    owner: String,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<Binary> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let total_supply = querier.erc721_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?.supply;
-    let start_after_id = match start_after.parse().unwrap_or(-1)
-    let mut limit_int = match limit.parse().unwrap_or(DefaultLimit)
-    if limit_int > MaxLimit {
-        limit_int = MaxLimit
-    }
-    let mut cur = 0
-    let mut counter = 0
-    let mut tokens: Vec<String> = vec![]
-    while counter < total_supply && tokens.len() < limit {
-        let cur_str = cur.to_string()
-        let t_owner = match querier.erc721_owner(env.clone().contract.address.into_string(), erc_addr.clone(), cur_str) {
+    let num_tokens = query_num_tokens(deps, env)?.count;
+    let start_after_id = Int256::from_str(&start_after.unwrap_or("-1".to_string()))?;
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+
+    let mut cur = Int256::zero();
+    let mut counter = 0;
+    let mut tokens: Vec<String> = vec![];
+    while counter < num_tokens && tokens.len() < limit {
+        let cur_str = cur.to_string();
+        let t_owner = match querier.erc721_owner(
+            env.clone().contract.address.into_string(),
+            erc_addr.clone(),
+            cur_str.to_string(),
+        ) {
             Ok(res) => res.owner,
-            Err(e) => "",
-        }
+            Err(_) => "".to_string(),
+        };
         if t_owner != "" {
-            counter += 1
-            if cur > start_after_id {
+            counter += 1;
+            if (owner.is_empty() || t_owner == owner) && cur > start_after_id {
                 tokens.push(cur_str)
             }
         }
-        cur += 1
+        cur += Int256::one()
     }
-    to_json_binary(&NftInfoResponse{tokens: tokens})
+    to_json_binary(&TokensResponse { tokens })
+}
+
+pub fn query_all_tokens(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<Binary> {
+    query_tokens(deps, env, "".to_string(), start_after, limit)
 }
