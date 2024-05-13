@@ -283,7 +283,10 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	// Recompute transactions up to the target index. (only doing EVM at the moment, but should do both EVM + Cosmos)
 	signer := ethtypes.MakeSigner(b.ChainConfig(), block.Number(), block.Time())
 	for idx, tx := range block.Transactions() {
-		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
+		msg, err := core.TransactionToMessage(tx, signer, block.BaseFee())
+		if err != nil {
+			return nil, vm.BlockContext{}, nil, nil, err
+		}
 		txContext := core.NewEVMTxContext(msg)
 		blockContext, err := b.keeper.GetVMBlockContext(b.ctxProvider(prevBlockHeight), core.GasPool(b.RPCGasCap()))
 		if err != nil {
