@@ -1,6 +1,6 @@
+use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{CosmosMsg, CustomMsg, CustomQuery, Uint128, Uint256};
 use schemars::JsonSchema;
-use cosmwasm_schema::cw_serde;
 use serde::{Deserialize, Serialize};
 
 pub use cw721::{Cw721ExecuteMsg as ExecuteMsg, Cw721QueryMsg as QueryMsg};
@@ -104,7 +104,7 @@ pub struct Erc721IsApprovedForAllResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc721TotalSupplyResponse {
-    pub supply: Integer,
+    pub supply: Uint256,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

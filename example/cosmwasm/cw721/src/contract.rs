@@ -1,5 +1,5 @@
 use crate::error::ContractError;
-use crate::msg::{EvmMsg, EvmQueryWrapper, ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::msg::{EvmMsg, EvmQueryWrapper, InstantiateMsg};
 use crate::querier::{EvmQuerier, DEFAULT_LIMIT, MAX_LIMIT};
 use crate::state::ERC721_ADDRESS;
 #[cfg(not(feature = "library"))]
@@ -8,8 +8,8 @@ use cosmwasm_std::{
     to_json_binary, Binary, Deps, DepsMut, Env, Int256, MessageInfo, Response, StdError, StdResult,
     Uint128,
 };
-use cw2981_royalties::msg::RoyaltiesInfoResponse;
-use cw2981_royalties::{Extension, Metadata};
+use cw2981_royalties::msg::{Cw2981QueryMsg, RoyaltiesInfoResponse};
+use cw2981_royalties::{ExecuteMsg, Extension, Metadata, QueryMsg};
 use cw721::{
     AllNftInfoResponse, Approval, ApprovalResponse, ApprovalsResponse, ContractInfoResponse,
     Cw721ReceiveMsg, NftInfoResponse, NumTokensResponse, OperatorResponse, OwnerOfResponse,
@@ -59,7 +59,10 @@ pub fn execute(
             expires: _,
         } => execute_approve_all(deps, operator, true),
         ExecuteMsg::RevokeAll { operator } => execute_approve_all(deps, operator, false),
-        ExecuteMsg::Burn { token_id: _ } => execute_burn(),
+        ExecuteMsg::Burn { .. } => execute_burn(),
+        ExecuteMsg::Mint { .. } => execute_mint(),
+        ExecuteMsg::UpdateOwnership(_) => update_ownership(),
+        ExecuteMsg::Extension { .. } => execute_extension(),
     }
 }
 
@@ -137,6 +140,18 @@ pub fn execute_approve_all(
 }
 
 pub fn execute_burn() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn execute_mint() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn update_ownership() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn execute_extension() -> Result<Response<EvmMsg>, ContractError> {
     Err(ContractError::NotSupported {})
 }
 
@@ -220,7 +235,18 @@ pub fn query(
         QueryMsg::AllTokens { start_after, limit } => {
             Ok(query_all_tokens(deps, env, start_after, limit)?)
         }
-        _ => Err(ContractError::NotSupported {}),
+        QueryMsg::AllOperators { .. } => Ok(to_json_binary(&query_all_operators()?)?),
+        QueryMsg::Minter { .. } => Ok(to_json_binary(&query_minter()?)?),
+        QueryMsg::Ownership { .. } => Ok(to_json_binary(&query_ownership()?)?),
+        QueryMsg::Extension { msg } => match msg {
+            Cw2981QueryMsg::RoyaltyInfo {
+                token_id,
+                sale_price,
+            } => Ok(to_json_binary(&query_royalty_info(
+                deps, env, token_id, sale_price,
+            )?)?),
+            Cw2981QueryMsg::CheckRoyalties {} => Ok(to_json_binary(&query_check_royalties()?)?),
+        },
     }
 }
 
@@ -338,7 +364,9 @@ pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumT
     let querier = EvmQuerier::new(&deps.querier);
     let res = querier
         .erc721_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?;
-    Ok(NumTokensResponse { count: res.supply })
+    Ok(NumTokensResponse {
+        count: Uint128::try_from(res.supply)?.u128().try_into().unwrap(),
+    })
 }
 
 pub fn query_contract_info(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<Binary> {
@@ -413,7 +441,7 @@ pub fn query_tokens(
 ) -> StdResult<Binary> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let num_tokens = query_num_tokens(deps, env)?.count;
+    let num_tokens = query_num_tokens(deps, env.clone())?.count;
     let start_after_id = Int256::from_str(&start_after.unwrap_or("-1".to_string()))?;
     let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
 
@@ -468,4 +496,20 @@ pub fn query_royalty_info(
         address: res.receiver,
         royalty_amount: res.royalty_amount.try_into()?,
     })
+}
+
+pub fn query_all_operators() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn query_minter() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn query_ownership() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn query_check_royalties() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
 }

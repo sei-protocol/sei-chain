@@ -1,5 +1,4 @@
 use cosmwasm_std::{QuerierWrapper, StdResult, Uint128};
-use cw2981_royalties::msg::RoyaltiesInfoResponse;
 
 use crate::msg::{
     Erc721ApprovedResponse, Erc721IsApprovedForAllResponse, Erc721NameSymbolResponse,
