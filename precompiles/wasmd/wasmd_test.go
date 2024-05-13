@@ -384,6 +384,51 @@ func TestExecuteBatchOneMessage(t *testing.T) {
 	require.Equal(t, uint64(0), g)
 }
 
+func TestExecuteBatchValueImmutability(t *testing.T) {
+	testApp := app.Setup(false, false)
+	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithIsEVM(true)
+	testApp.EvmKeeper.SetAddressMapping(ctx, mockAddr, mockEVMAddr)
+	wasmKeeper := wasmkeeper.NewDefaultPermissionKeeper(testApp.WasmKeeper)
+	p, err := wasmd.NewPrecompile(&testApp.EvmKeeper, wasmKeeper, testApp.WasmKeeper, testApp.BankKeeper)
+	require.Nil(t, err)
+	code, err := os.ReadFile("../../example/cosmwasm/echo/artifacts/echo.wasm")
+	require.Nil(t, err)
+	codeID, err := wasmKeeper.Create(ctx, mockAddr, code, nil)
+	require.Nil(t, err)
+	contractAddr, _, err := wasmKeeper.Instantiate(ctx, codeID, mockAddr, mockAddr, []byte("{}"), "test", sdk.NewCoins())
+	require.Nil(t, err)
+
+	amts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000)))
+	testApp.BankKeeper.MintCoins(ctx, "evm", amts)
+	testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", mockAddr, amts)
+	testApp.BankKeeper.MintCoins(ctx, "evm", amts)
+	testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", mockAddr, amts)
+	amtsbz, err := amts.MarshalJSON()
+	require.Nil(t, err)
+	executeMethod, err := p.ABI.MethodById(p.ExecuteBatchID)
+	require.Nil(t, err)
+	executeMsg := wasmd.ExecuteMsg{
+		ContractAddress: contractAddr.String(),
+		Msg:             []byte("{\"echo\":{\"message\":\"test msg\"}}"),
+		Coins:           amtsbz,
+	}
+	args, err := executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsg})
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
+	evm := vm.EVM{
+		StateDB: statedb,
+	}
+	suppliedGas := uint64(1000000)
+	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
+	value := big.NewInt(1000_000_000_000_000)
+	valueCopy := new(big.Int).Set(value)
+	p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteBatchID, args...), suppliedGas, value, nil, false)
+
+	require.Equal(t, valueCopy, value)
+}
+
 func TestExecuteBatchMultipleMessages(t *testing.T) {
 	testApp := app.Setup(false, false)
 	mockAddr, mockEVMAddr := testkeeper.MockAddressPair()
