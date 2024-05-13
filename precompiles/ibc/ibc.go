@@ -113,7 +113,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	return p.Precompile.RequiredGas(input, p.IsTransaction(method.Name))
 }
 
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, _ *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
 	defer func() {
 		if err != nil {
 			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
@@ -160,7 +160,7 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		}
 	}()
 
-	if err := pcommon.ValidateArgsLength(args, 8); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 9); err != nil {
 		rerr = err
 		return
 	}
@@ -213,8 +213,9 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 		Receiver:         validatedArgs.receiverAddressString,
 		TimeoutHeight:    height,
 		TimeoutTimestamp: timeoutTimestamp,
-		Memo:             "",
 	}
+
+	msg = addMemo(args[8], msg)
 
 	err = msg.ValidateBasic()
 	if err != nil {
@@ -243,7 +244,7 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 		}
 	}()
 
-	if err := pcommon.ValidateArgsLength(args, 5); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 6); err != nil {
 		rerr = err
 		return
 	}
@@ -298,8 +299,9 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 		Receiver:         validatedArgs.receiverAddressString,
 		TimeoutHeight:    height,
 		TimeoutTimestamp: timeoutTimestamp,
-		Memo:             "",
 	}
+
+	msg = addMemo(args[5], msg)
 
 	err = msg.ValidateBasic()
 	if err != nil {
@@ -322,6 +324,8 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 func (Precompile) IsTransaction(method string) bool {
 	switch method {
 	case TransferMethod:
+		return true
+	case TransferWithDefaultTimeoutMethod:
 		return true
 	default:
 		return false
@@ -470,4 +474,13 @@ func (p Precompile) validateCommonArgs(ctx sdk.Context, args []interface{}, call
 		denom:                 denom,
 		amount:                amount,
 	}, nil
+}
+
+func addMemo(memoArg interface{}, transfer types.MsgTransfer) types.MsgTransfer {
+	memo := ""
+	if memoArg != nil {
+		memo = memoArg.(string)
+	}
+	transfer.Memo = memo
+	return transfer
 }
