@@ -17,7 +17,7 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-var EVMTestApp = app.Setup(false, true)
+var EVMTestApp = app.Setup(false, true, false)
 var mockKeeper *evmkeeper.Keeper
 var mockCtx sdk.Context
 var mtx = &sync.Mutex{}
@@ -51,7 +51,7 @@ func MockEVMKeeperWithPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
 }
 
 func MockEVMKeeper() (*evmkeeper.Keeper, sdk.Context) {
-	testApp := app.Setup(false, false)
+	testApp := app.Setup(false, false, false)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8).WithBlockTime(time.Now())
 	k := testApp.EvmKeeper
 	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())

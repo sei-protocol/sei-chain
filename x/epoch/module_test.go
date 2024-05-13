@@ -16,7 +16,7 @@ import (
 func TestBasic(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false, false)
+	app := app.Setup(false, false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,
@@ -38,7 +38,7 @@ func TestBasic(t *testing.T) {
 func TestExportGenesis(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false, false)
+	app := app.Setup(false, false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,
@@ -62,7 +62,7 @@ func hasEventType(ctx sdk.Context, eventType string) bool {
 func TestBeginBlock(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false, false)
+	app := app.Setup(false, false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,

@@ -48,7 +48,7 @@ var (
 )
 
 func TestApp() *app.App {
-	return app.Setup(false, false)
+	return app.Setup(false, false, false)
 }
 
 func DexKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {

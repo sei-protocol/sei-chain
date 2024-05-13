@@ -1126,7 +1126,8 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
-			app.WriteState()
+			cms := app.WriteState()
+			app.LightInvarianceChecks(cms)
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
 			return &resp, nil
@@ -1142,7 +1143,8 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
-	app.WriteState()
+	cms := app.WriteState()
+	app.LightInvarianceChecks(cms)
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
