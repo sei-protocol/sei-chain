@@ -104,7 +104,7 @@ pub struct Erc721IsApprovedForAllResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc721TotalSupplyResponse {
-    pub supply: Uint256,
+    pub supply: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -121,7 +121,7 @@ pub struct Erc721UriResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc721RoyaltyInfoResponse {
     pub receiver: String,
-    pub royalty_amount: String,
+    pub royalty_amount: Uint128,
 }
 
 // implement custom query

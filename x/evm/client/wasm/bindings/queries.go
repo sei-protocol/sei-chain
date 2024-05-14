@@ -116,10 +116,10 @@ type ERC721UriRequest struct {
 }
 
 type ERC721RoyaltyInfoRequest struct {
-	Caller          string `json:"caller"`
-	ContractAddress string `json:"contract_address"`
-	TokenID         string `json:"token_id"`
-	SalePrice       string `json:"sale_price"`
+	Caller          string   `json:"caller"`
+	ContractAddress string   `json:"contract_address"`
+	TokenID         string   `json:"token_id"`
+	SalePrice       *sdk.Int `json:"sale_price"`
 }
 
 type GetEvmAddressRequest struct {

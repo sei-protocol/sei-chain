@@ -365,7 +365,7 @@ pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumT
     let res = querier
         .erc721_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?;
     Ok(NumTokensResponse {
-        count: Uint128::try_from(res.supply)?.u128().try_into().unwrap(),
+        count: res.supply.u128() as u64,
     })
 }
 
@@ -494,7 +494,7 @@ pub fn query_royalty_info(
     )?;
     Ok(RoyaltiesInfoResponse {
         address: res.receiver,
-        royalty_amount: Uint128::from_str(&res.royalty_amount)?,
+        royalty_amount: res.royalty_amount,
     })
 }
 
