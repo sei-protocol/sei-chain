@@ -427,7 +427,6 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 					sourceChannel: "channel-0",
 					denom:         "",
 					amount:        big.NewInt(100),
-					memo:          "test memo",
 				},
 				suppliedGas: uint64(1000000),
 				value:       nil,

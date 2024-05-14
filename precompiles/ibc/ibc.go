@@ -315,7 +315,6 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 		rerr = err
 		return
 	}
-
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	ret, rerr = method.Outputs.Pack(true)
 	return
@@ -476,11 +475,11 @@ func (p Precompile) validateCommonArgs(ctx sdk.Context, args []interface{}, call
 	}, nil
 }
 
-func addMemo(memoArg interface{}, transfer types.MsgTransfer) types.MsgTransfer {
+func addMemo(memoArg interface{}, transferMsg types.MsgTransfer) types.MsgTransfer {
 	memo := ""
 	if memoArg != nil {
 		memo = memoArg.(string)
 	}
-	transfer.Memo = memo
-	return transfer
+	transferMsg.Memo = memo
+	return transferMsg
 }
