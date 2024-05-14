@@ -5,11 +5,12 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"strings"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
+
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 )
 
 const currentVersion uint16 = 1
