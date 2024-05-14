@@ -1,1 +1,1 @@
-94cdd9c3e85c26f7cec43c23bfb4b3b2b2d71a0a8d85c58df12ffec0741febc8  cwerc721.wasm
+d34f50997bd0ad45badcf8174b67900806021abca011cbba658517d5af5e5eca  cwerc721.wasm
