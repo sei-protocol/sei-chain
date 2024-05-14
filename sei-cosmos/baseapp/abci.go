@@ -324,8 +324,12 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 	return
 }
 
-func (app *BaseApp) WriteStateToCommitAndGetWorkingHash() []byte {
+func (app *BaseApp) WriteState() sdk.CommitMultiStore {
 	app.stateToCommit.ms.Write()
+	return app.cms
+}
+
+func (app *BaseApp) GetWorkingHash() []byte {
 	hash, err := app.cms.GetWorkingHash()
 	if err != nil {
 		// this should never happen
@@ -360,7 +364,8 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 	header := app.stateToCommit.ctx.BlockHeader()
 	retainHeight := app.GetBlockRetentionHeight(header.Height)
 
-	app.WriteStateToCommitAndGetWorkingHash()
+	app.WriteState()
+	app.GetWorkingHash()
 	app.cms.Commit(true)
 
 	// Reset the Check state to the latest committed.

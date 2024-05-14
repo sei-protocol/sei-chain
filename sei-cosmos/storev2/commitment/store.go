@@ -1,6 +1,7 @@
 package commitment
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 
@@ -201,6 +202,17 @@ func (st *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
 		res = append(res, string(iter.Key()))
+	}
+	return
+}
+
+func (st *Store) GetChangedPairs(prefix []byte) (res []*iavl.KVPair) {
+	// not sure if we can assume pairs are sorted or not, so be conservative
+	// here and iterate through everything
+	for _, p := range st.changeSet.Pairs {
+		if bytes.HasPrefix(p.Key, prefix) {
+			res = append(res, p)
+		}
 	}
 	return
 }
