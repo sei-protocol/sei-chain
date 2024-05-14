@@ -43,6 +43,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryERC20())
 	cmd.AddCommand(CmdQueryPayload())
 	cmd.AddCommand(CmdQueryPointer())
+	cmd.AddCommand(CmdQueryPointerVersion())
 
 	return cmd
 }
@@ -301,10 +302,40 @@ func CmdQueryPointer() *cobra.Command {
 				return err
 			}
 			queryClient := types.NewQueryClient(clientCtx)
+			ctx := cmd.Context()
 
-			res, err := queryClient.Pointer(context.Background(), &types.QueryPointerRequest{
+			res, err := queryClient.Pointer(ctx, &types.QueryPointerRequest{
 				PointerType: types.PointerType(types.PointerType_value[args[0]]), Pointee: args[1],
 			})
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdQueryPointerVersion() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pointer-version [type]",
+		Short: "Query for the current pointer version and stored code ID (if applicable)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			queryClient := types.NewQueryClient(clientCtx)
+			ctx := cmd.Context()
+
+			req := types.QueryPointerVersionRequest{PointerType: types.PointerType(types.PointerType_value[args[0]])}
+			res, err := queryClient.PointerVersion(ctx, &req)
 			if err != nil {
 				return err
 			}

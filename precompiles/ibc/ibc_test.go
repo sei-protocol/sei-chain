@@ -3,15 +3,15 @@ package ibc_test
 import (
 	"context"
 	"errors"
-	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 	"math/big"
 	"reflect"
 	"testing"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"

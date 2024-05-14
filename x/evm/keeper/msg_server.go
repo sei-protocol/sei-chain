@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -10,7 +9,6 @@ import (
 	"runtime/debug"
 
 	"github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
@@ -24,7 +22,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
-	artifactsutils "github.com/sei-protocol/sei-chain/x/evm/artifacts/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -289,19 +286,16 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 	if exists && existingVersion >= currentVersion {
 		return nil, fmt.Errorf("pointer %s already registered at version %d", existingPointer.String(), existingVersion)
 	}
-	store := server.PrefixStore(ctx, types.PointerCWCodePrefix)
 	payload := map[string]interface{}{}
 	switch msg.PointerType {
 	case types.PointerType_ERC20:
-		store = prefix.NewStore(store, types.PointerCW20ERC20Prefix)
 		payload["erc20_address"] = msg.ErcAddress
 	case types.PointerType_ERC721:
-		store = prefix.NewStore(store, types.PointerCW721ERC721Prefix)
 		payload["erc721_address"] = msg.ErcAddress
 	default:
 		panic("unknown pointer type")
 	}
-	codeID := binary.BigEndian.Uint64(store.Get(artifactsutils.GetVersionBz(currentVersion)))
+	codeID := server.GetStoredPointerCodeID(ctx, msg.PointerType)
 	bz, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
