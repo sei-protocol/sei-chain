@@ -439,7 +439,8 @@ func (h *EVMQueryHandler) HandleERC721TotalSupply(ctx sdk.Context, caller string
 	if err != nil {
 		return nil, err
 	}
-	response := bindings.ERC721TotalSupplyResponse{Supply: typed[0].(*big.Int)}
+	totalSupply := sdk.NewIntFromBigInt(typed[0].(*big.Int))
+	response := bindings.ERC721TotalSupplyResponse{Supply: &totalSupply}
 	return json.Marshal(response)
 }
 
@@ -543,7 +544,8 @@ func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string
 	if err != nil {
 		return nil, err
 	}
-	response := bindings.ERC721RoyaltyInfoResponse{Receiver: typed[0].(string), RoyaltyAmount: typed[1].(*big.Int)}
+	royaltyAmount := sdk.NewIntFromBigInt(typed[1].(*big.Int))
+	response := bindings.ERC721RoyaltyInfoResponse{Receiver: typed[0].(string), RoyaltyAmount: &royaltyAmount}
 	return json.Marshal(response)
 }
 
