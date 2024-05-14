@@ -173,7 +173,7 @@ func (h *EVMQueryHandler) HandleERC721Owner(ctx sdk.Context, caller string, cont
 	}
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
-		return nil, errors.New("invalid token ID for ERC20, must be a big Int")
+		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
 	}
 	bz, err := abi.Pack("ownerOf", t.BigInt())
 	if err != nil {
@@ -211,7 +211,7 @@ func (h *EVMQueryHandler) HandleERC721TransferPayload(ctx sdk.Context, from stri
 	}
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
-		return nil, errors.New("invalid token ID for ERC20, must be a big Int")
+		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
 	}
 	bz, err := abi.Pack("transferFrom", fromEvmAddr, toEvmAddr, t.BigInt())
 	if err != nil {
@@ -237,7 +237,7 @@ func (h *EVMQueryHandler) HandleERC721ApprovePayload(ctx sdk.Context, spender st
 	}
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
-		return nil, errors.New("invalid token ID for ERC20, must be a big Int")
+		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
 	}
 	bz, err := abi.Pack("approve", spenderEvmAddr, t.BigInt())
 	if err != nil {
@@ -360,7 +360,7 @@ func (h *EVMQueryHandler) HandleERC721Approved(ctx sdk.Context, caller string, c
 	}
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
-		return nil, errors.New("invalid token ID for ERC20, must be a big Int")
+		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
 	}
 	bz, err := abi.Pack("getApproved", t.BigInt())
 	if err != nil {
@@ -417,6 +417,32 @@ func (h *EVMQueryHandler) HandleERC721IsApprovedForAll(ctx sdk.Context, caller s
 	return json.Marshal(response)
 }
 
+func (h *EVMQueryHandler) HandleERC721TotalSupply(ctx sdk.Context, caller string, contractAddress string) ([]byte, error) {
+	callerAddr, err := sdk.AccAddressFromBech32(caller)
+	if err != nil {
+		return nil, err
+	}
+	contract := common.HexToAddress(contractAddress)
+	abi, err := cw721.Cw721MetaData.GetAbi()
+	if err != nil {
+		return nil, err
+	}
+	bz, err := abi.Pack("totalSupply")
+	if err != nil {
+		return nil, err
+	}
+	res, err := h.k.StaticCallEVM(ctx, callerAddr, &contract, bz)
+	if err != nil {
+		return nil, err
+	}
+	typed, err := abi.Unpack("totalSupply", res)
+	if err != nil {
+		return nil, err
+	}
+	response := bindings.ERC721TotalSupplyResponse{Supply: typed[0].(*big.Int)}
+	return json.Marshal(response)
+}
+
 func (h *EVMQueryHandler) HandleERC721NameSymbol(ctx sdk.Context, caller string, contractAddress string) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
@@ -464,7 +490,7 @@ func (h *EVMQueryHandler) HandleERC721Uri(ctx sdk.Context, caller string, contra
 	}
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
-		return nil, errors.New("invalid token ID for ERC20, must be a big Int")
+		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
 	}
 	contract := common.HexToAddress(contractAddress)
 	abi, err := cw721.Cw721MetaData.GetAbi()
@@ -484,6 +510,40 @@ func (h *EVMQueryHandler) HandleERC721Uri(ctx sdk.Context, caller string, contra
 		return nil, err
 	}
 	response := bindings.ERC721UriResponse{Uri: typed[0].(string)}
+	return json.Marshal(response)
+}
+
+func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string, contractAddress string, tokenId string, salePrice string) ([]byte, error) {
+	callerAddr, err := sdk.AccAddressFromBech32(caller)
+	if err != nil {
+		return nil, err
+	}
+	t, ok := sdk.NewIntFromString(tokenId)
+	if !ok {
+		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
+	}
+	price, ok := sdk.NewIntFromString(salePrice)
+	if !ok {
+		return nil, errors.New("invalid sale price for ERC721, must be a big Int")
+	}
+	contract := common.HexToAddress(contractAddress)
+	abi, err := cw721.Cw721MetaData.GetAbi()
+	if err != nil {
+		return nil, err
+	}
+	bz, err := abi.Pack("royaltyInfo", t.BigInt(), price.BigInt())
+	if err != nil {
+		return nil, err
+	}
+	res, err := h.k.StaticCallEVM(ctx, callerAddr, &contract, bz)
+	if err != nil {
+		return nil, err
+	}
+	typed, err := abi.Unpack("royaltyInfo", res)
+	if err != nil {
+		return nil, err
+	}
+	response := bindings.ERC721RoyaltyInfoResponse{Receiver: typed[0].(string), RoyaltyAmount: typed[1].(*big.Int)}
 	return json.Marshal(response)
 }
 
