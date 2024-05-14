@@ -33,7 +33,7 @@ type App struct {
 
 func NewTestApp() *App {
 	a := &App{
-		App:           app.Setup(false, false, false),
+		App:           app.Setup(false, false),
 		height:        1,
 		accToMnemonic: map[string]string{},
 		accToSeqDelta: map[string]uint64{},

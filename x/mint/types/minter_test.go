@@ -421,7 +421,7 @@ func TestRecordSuccessfulMint(t *testing.T) {
 		sdk.DefaultBondDenom,
 		1000,
 	)
-	app := app.Setup(false, false, false)
+	app := app.Setup(false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	currentTime := time.Now().UTC()
 

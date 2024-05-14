@@ -47,6 +47,9 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 				app.Logger().Error(fmt.Sprintf("failed to unmarshal balance: %s", err))
 				continue
 			}
+			if balance.Amount.IsNegative() {
+				panic(fmt.Sprintf("negative balance found for addr %s: %s", sdk.AccAddress(addr).String(), balance.String()))
+			}
 			useiPostTotal = useiPostTotal.Add(balance.Amount)
 		}
 		useiChangedAddr = append(useiChangedAddr, addr)
@@ -76,6 +79,9 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 				continue
 			}
 			weiPostTotal = weiPostTotal.Add(amt)
+			if amt.IsNegative() {
+				panic(fmt.Sprintf("negative wei balance found for addr %s: %s", sdk.AccAddress(p.Key[1:]).String(), amt.String()))
+			}
 		}
 		weiChangedAddrs = append(weiChangedAddrs, p.Key[1:])
 	}

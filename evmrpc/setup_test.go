@@ -395,7 +395,7 @@ var Ctx sdk.Context
 
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(false, false)
 	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 	EVMKeeper = &testApp.EvmKeeper
 	EVMKeeper.InitGenesis(Ctx, *evmtypes.DefaultGenesis())

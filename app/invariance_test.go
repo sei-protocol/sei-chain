@@ -178,5 +178,14 @@ func TestLightInvarianceChecks(t *testing.T) {
 		} else {
 			require.Panics(t, f)
 		}
+		safeClose(a)
 	}
+}
+
+// TODO: remove once snapshot manager can be closed gracefully in tests
+func safeClose(a *app.App) {
+	defer func() {
+		_ = recover()
+	}()
+	a.Close()
 }

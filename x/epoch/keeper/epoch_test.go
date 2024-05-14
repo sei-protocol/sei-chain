@@ -11,7 +11,7 @@ import (
 )
 
 func TestEpochKeeper(t *testing.T) {
-	app := app.Setup(false, false, false) // Your setup function here
+	app := app.Setup(false, false) // Your setup function here
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	// Define an epoch

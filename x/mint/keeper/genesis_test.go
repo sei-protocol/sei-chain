@@ -13,7 +13,7 @@ import (
 )
 
 func TestGenesis(t *testing.T) {
-	app := app.Setup(false, false, false)
+	app := app.Setup(false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	now := time.Now()

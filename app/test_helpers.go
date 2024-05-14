@@ -75,7 +75,12 @@ func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub crptotypes.PubKey, 
 }
 
 func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
-	appPtr := Setup(false, enableEVMCustomPrecompiles, useSc, baseAppOptions...)
+	var appPtr *App
+	if useSc {
+		appPtr = SetupWithSc(false, enableEVMCustomPrecompiles, baseAppOptions...)
+	} else {
+		appPtr = Setup(false, enableEVMCustomPrecompiles, baseAppOptions...)
+	}
 	ctx := appPtr.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, appPtr.MemState))
 	wrapper := &TestWrapper{
@@ -168,7 +173,7 @@ func (s *TestWrapper) EndBlock() {
 	s.App.EndBlocker(s.Ctx, reqEndBlock)
 }
 
-func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
+func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
@@ -184,7 +189,7 @@ func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, useSc bool, baseAppO
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		TestAppOpts{useSc},
+		TestAppOpts{},
 		EmptyWasmOpts,
 		EmptyACLOpts,
 		baseAppOptions...,
@@ -196,9 +201,52 @@ func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, useSc bool, baseAppO
 			panic(err)
 		}
 
-		if useSc {
-			defer func() { _ = recover() }()
+		_, err = res.InitChain(
+			context.Background(), &abci.RequestInitChain{
+				Validators:      []abci.ValidatorUpdate{},
+				ConsensusParams: simapp.DefaultConsensusParams,
+				AppStateBytes:   stateBytes,
+			},
+		)
+		if err != nil {
+			panic(err)
 		}
+	}
+
+	return res
+}
+
+func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
+	db := dbm.NewMemDB()
+	encodingConfig := MakeEncodingConfig()
+	cdc := encodingConfig.Marshaler
+	res = New(
+		log.NewNopLogger(),
+		db,
+		nil,
+		true,
+		map[int64]bool{},
+		DefaultNodeHome,
+		1,
+		enableEVMCustomPrecompiles,
+		config.TestConfig(),
+		encodingConfig,
+		wasm.EnableAllProposals,
+		TestAppOpts{true},
+		EmptyWasmOpts,
+		EmptyACLOpts,
+		baseAppOptions...,
+	)
+	if !isCheckTx {
+		genesisState := NewDefaultGenesisState(cdc)
+		stateBytes, err := json.MarshalIndent(genesisState, "", " ")
+		if err != nil {
+			panic(err)
+		}
+
+		// TODO: remove once init chain works with SC
+		defer func() { _ = recover() }()
+
 		_, err = res.InitChain(
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},

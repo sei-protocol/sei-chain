@@ -32,7 +32,7 @@ func TestItCreatesModuleAccountOnInitBlock(t *testing.T) {
 }
 
 func TestNewProposalHandler(t *testing.T) {
-	app := app.Setup(false, false, false)
+	app := app.Setup(false, false)
 
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	app.MintKeeper.SetParams(ctx, types.DefaultParams())

@@ -10,7 +10,7 @@ import (
 )
 
 func TestCheckVersion(t *testing.T) {
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(false, false)
 	k := &testApp.EvmKeeper
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
 	testApp.Commit(context.Background()) // bump store version to 1

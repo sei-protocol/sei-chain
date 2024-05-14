@@ -18,7 +18,7 @@ import (
 )
 
 func TestAddNative(t *testing.T) {
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(false, false)
 	p, err := pointer.NewPrecompile(&testApp.EvmKeeper, testApp.BankKeeper, testApp.WasmKeeper)
 	require.Nil(t, err)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
