@@ -10,23 +10,27 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func StoreCWPointerCode(ctx sdk.Context, k *keeper.Keeper) error {
-	erc20CodeID, err := k.WasmKeeper().Create(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), erc20.GetBin(), nil)
-	if err != nil {
-		panic(err)
+func StoreCWPointerCode(ctx sdk.Context, k *keeper.Keeper, store20 bool, store721 bool) error {
+	if store20 {
+		erc20CodeID, err := k.WasmKeeper().Create(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), erc20.GetBin(), nil)
+		if err != nil {
+			panic(err)
+		}
+		prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW20ERC20Prefix).Set(
+			artifactsutils.GetVersionBz(erc20.CurrentVersion),
+			artifactsutils.GetCodeIDBz(erc20CodeID),
+		)
 	}
-	prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW20ERC20Prefix).Set(
-		artifactsutils.GetVersionBz(erc20.CurrentVersion),
-		artifactsutils.GetCodeIDBz(erc20CodeID),
-	)
 
-	erc721CodeID, err := k.WasmKeeper().Create(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), erc721.GetBin(), nil)
-	if err != nil {
-		panic(err)
+	if store721 {
+		erc721CodeID, err := k.WasmKeeper().Create(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), erc721.GetBin(), nil)
+		if err != nil {
+			panic(err)
+		}
+		prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW721ERC721Prefix).Set(
+			artifactsutils.GetVersionBz(erc721.CurrentVersion),
+			artifactsutils.GetCodeIDBz(erc721CodeID),
+		)
 	}
-	prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW721ERC721Prefix).Set(
-		artifactsutils.GetVersionBz(erc721.CurrentVersion),
-		artifactsutils.GetCodeIDBz(erc721CodeID),
-	)
 	return nil
 }
