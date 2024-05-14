@@ -365,7 +365,7 @@ pub fn query_operator(
             },
         });
     }
-    Err(StdError::not_found("not approved".to_string()))
+    Err(StdError::not_found("operator not approved".to_string()))
 }
 
 pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumTokensResponse> {
@@ -374,7 +374,7 @@ pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumT
     let res = querier
         .erc721_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?;
     Ok(NumTokensResponse {
-        count: res.supply.u128() as u64,
+        count: res.supply as u64,
     })
 }
 
@@ -499,10 +499,10 @@ pub fn query_tokens(
         if t_owner != "" {
             counter += 1;
             if (owner.is_empty() || t_owner == owner) && cur > start_after_id {
-                tokens.push(cur_str)
+                tokens.push(cur_str);
             }
         }
-        cur += Int256::one()
+        cur += Int256::one();
     }
     Ok(TokensResponse { tokens })
 }
