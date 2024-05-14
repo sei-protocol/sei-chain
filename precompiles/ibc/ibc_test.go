@@ -1,16 +1,17 @@
 package ibc_test
 
 import (
+	"context"
 	"errors"
 	"math/big"
 	"reflect"
 	"testing"
 	"time"
 
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
@@ -23,16 +24,24 @@ import (
 
 type MockTransferKeeper struct{}
 
-func (tk *MockTransferKeeper) SendTransfer(ctx sdk.Context, sourcePort, sourceChannel string, token sdk.Coin,
-	sender sdk.AccAddress, receiver string, timeoutHeight clienttypes.Height, timeoutTimestamp uint64) error {
-	return nil
+func (tk *MockTransferKeeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
+	return nil, nil
+}
+
+type MockMemoTransferKeeper struct {
+	t        require.TestingT
+	wantMemo string
+}
+
+func (tk *MockMemoTransferKeeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
+	require.Equal(tk.t, tk.wantMemo, msg.Memo)
+	return nil, nil
 }
 
 type MockFailedTransferTransferKeeper struct{}
 
-func (tk *MockFailedTransferTransferKeeper) SendTransfer(ctx sdk.Context, sourcePort, sourceChannel string, token sdk.Coin,
-	sender sdk.AccAddress, receiver string, timeoutHeight clienttypes.Height, timeoutTimestamp uint64) error {
-	return errors.New("failed to send transfer")
+func (tk *MockFailedTransferTransferKeeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
+	return nil, errors.New("failed to send transfer")
 }
 
 func TestPrecompile_Run(t *testing.T) {
@@ -56,6 +65,7 @@ func TestPrecompile_Run(t *testing.T) {
 		revisionNumber   uint64
 		revisionHeight   uint64
 		timeoutTimestamp uint64
+		memo             string
 	}
 	type args struct {
 		caller          common.Address
@@ -207,6 +217,47 @@ func TestPrecompile_Run(t *testing.T) {
 			wantErr:    true,
 			wantErrMsg: "decoding bech32 failed: invalid bech32 string length 7",
 		},
+		{
+			name:   "memo is added to the transfer if passed",
+			fields: fields{transferKeeper: &MockMemoTransferKeeper{t: t, wantMemo: "test memo"}},
+			args: args{
+				caller:          senderEvmAddress,
+				callingContract: senderEvmAddress,
+				input: &input{
+					receiverAddr:  receiverAddress,
+					sourcePort:    "transfer",
+					sourceChannel: "channel-0",
+					denom:         "usei",
+					amount:        big.NewInt(100),
+					memo:          "test memo",
+				},
+				suppliedGas: uint64(1000000),
+				value:       nil,
+			},
+			wantBz:           packedTrue,
+			wantRemainingGas: 994319,
+			wantErr:          false,
+		},
+		{
+			name:   "memo is not added to the transfer if not passed",
+			fields: fields{transferKeeper: &MockMemoTransferKeeper{t: t, wantMemo: ""}},
+			args: args{
+				caller:          senderEvmAddress,
+				callingContract: senderEvmAddress,
+				input: &input{
+					receiverAddr:  receiverAddress,
+					sourcePort:    "transfer",
+					sourceChannel: "channel-0",
+					denom:         "usei",
+					amount:        big.NewInt(100),
+				},
+				suppliedGas: uint64(1000000),
+				value:       nil,
+			},
+			wantBz:           packedTrue,
+			wantRemainingGas: 994319,
+			wantErr:          false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -224,7 +275,8 @@ func TestPrecompile_Run(t *testing.T) {
 			require.Nil(t, err)
 			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverAddr,
 				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
-				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp)
+				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp,
+				tt.args.input.memo)
 			require.Nil(t, err)
 			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
 			if (err != nil) != tt.wantErr {
@@ -262,6 +314,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 		sourceChannel string
 		denom         string
 		amount        *big.Int
+		memo          string
 	}
 	type args struct {
 		caller          common.Address
@@ -402,7 +455,8 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 			transfer, err := p.ABI.MethodById(p.TransferWithDefaultTimeoutID)
 			require.Nil(t, err)
 			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverAddr,
-				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount)
+				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
+				tt.args.input.memo)
 			require.Nil(t, err)
 			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm,
 				tt.args.caller,
