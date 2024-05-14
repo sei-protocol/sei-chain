@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -251,10 +252,12 @@ func TestHandleERC721RoyaltyInfo(t *testing.T) {
 	require.Nil(t, err)
 	contractAddr := common.HexToAddress(receipt.ContractAddress)
 	h := wasm.NewEVMQueryHandler(k)
-	res2, err := h.HandleERC721RoyaltyInfo(ctx, addr1.String(), contractAddr.String(), "1", "100")
+	value := types.NewInt(100)
+	res2, err := h.HandleERC721RoyaltyInfo(ctx, addr1.String(), contractAddr.String(), "1", &value)
 	require.Nil(t, err)
 	require.NotEmpty(t, res2)
-	require.Equal(t, string(res2), "{\"receiver\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"royaltyAmount\":\"5\"}")
+	match, _ := regexp.MatchString(`{"receiver":"sei\w{39}","royalty_amount":"5"}`, string(res2))
+	require.True(t, match)
 }
 
 func TestGetAddress(t *testing.T) {

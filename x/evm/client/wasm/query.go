@@ -542,8 +542,14 @@ func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string
 	if err != nil {
 		return nil, err
 	}
+
+	typedReceiver := typed[0].(common.Address)
+	receiver := ""
+	if (typedReceiver != common.Address{}) {
+		receiver = h.k.GetSeiAddressOrDefault(ctx, typedReceiver).String()
+	}
 	royaltyAmount := sdk.NewIntFromBigInt(typed[1].(*big.Int))
-	response := bindings.ERC721RoyaltyInfoResponse{Receiver: typed[0].(string), RoyaltyAmount: &royaltyAmount}
+	response := bindings.ERC721RoyaltyInfoResponse{Receiver: receiver, RoyaltyAmount: &royaltyAmount}
 	return json.Marshal(response)
 }
 
