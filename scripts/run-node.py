@@ -223,8 +223,13 @@ def main():
     # install selected release
     install_release(version)
 
-    if enable_unsafe_reset:
-        subprocess.run("seid tendermint unsafe-reset-all", shell=True, check=True)
+    # unsafe-reset-all only if directory exists, and by config at top of script
+    if enable_unsafe_reset and os.path.exists(os.path.expanduser('~/.sei')):
+        try:
+            subprocess.run("seid tendermint unsafe-reset-all", shell=True, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to execute 'seid tendermint unsafe-reset-all': {e}")
+            sys.exit(1)
 
     # clean up previous data, init seid with given chain ID and moniker
     subprocess.run(f"rm -rf $HOME/.sei && seid init {moniker} --chain-id {chain_id}", shell=True, check=True)
