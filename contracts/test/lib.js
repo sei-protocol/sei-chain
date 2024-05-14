@@ -22,6 +22,7 @@ const ABI = {
         "function symbol() view returns (string)",
         "function totalSupply() view returns (uint256)",
         "function tokenURI(uint256 tokenId) view returns (string)",
+        "function royaltyInfo(uint256 tokenId, utin256 salePrice) view returns (address, uint256)",
         "function balanceOf(address owner) view returns (uint256 balance)",
         "function ownerOf(uint256 tokenId) view returns (address owner)",
         "function getApproved(uint256 tokenId) view returns (address operator)",

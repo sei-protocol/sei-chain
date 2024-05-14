@@ -423,7 +423,7 @@ pub fn query_all_nft_info(
     deps: Deps<EvmQueryWrapper>,
     env: Env,
     token_id: String,
-) -> StdResult<AllNftInfoResponse> {
+) -> StdResult<AllNftInfoResponse<Extension>> {
     let owner_of_res = query_owner_of(deps, env.clone(), token_id.to_string())?;
     let nft_info_res = query_nft_info(deps, env, token_id)?;
     Ok(AllNftInfoResponse {

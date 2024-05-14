@@ -83,7 +83,7 @@ contract ERC721 is IERC721 {
     }
 
     function totalSupply() external view returns (uint256) {
-        return _totalSupply
+        return _totalSupply;
     }
 
     function setApprovalForAll(address operator, bool approved) external {
@@ -160,9 +160,6 @@ contract ERC721 is IERC721 {
         );
     }
 
-    function totalSupply() external pure ()
-    }
-
     function _mint(address to, uint id) internal {
         require(to != address(0), "mint to zero address");
         require(_ownerOf[id] == address(0), "already minted");
@@ -235,8 +232,8 @@ contract MyNFT is ERC721 {
         _burn(id);
     }
 
-    function royaltyInfo(uint id, uint256 salePrice) external view returns (address receiver, uint256 royaltyAmount) {
-        receiver = "0xF7e92e7f41D5a3092d2F3F28f8F8Fd25a4Fa4b6D";
+    function royaltyInfo(uint, uint256 salePrice) external pure returns (address receiver, uint256 royaltyAmount) {
+        receiver = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
         royaltyAmount = (salePrice * 500) / 10_000;
     }
 }
