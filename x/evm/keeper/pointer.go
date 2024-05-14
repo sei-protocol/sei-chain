@@ -57,7 +57,7 @@ func (k *Keeper) DeleteERC20NativePointer(ctx sdk.Context, token string, version
 
 // ERC20 -> CW20
 func (k *Keeper) SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error {
-	return k.SetERC20CW20PointerWithVersion(ctx, cw20Address, addr, cw20.CurrentVersion)
+	return k.SetERC20CW20PointerWithVersion(ctx, cw20Address, addr, cw20.CurrentVersion(ctx))
 }
 
 // ERC20 -> CW20

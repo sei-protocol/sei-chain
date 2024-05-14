@@ -82,6 +82,9 @@ type Config struct {
 
 	// max number of concurrent NewHead subscriptions
 	MaxSubscriptionsNewHead uint64 `mapstructure:"max_subscriptions_new_head"`
+
+	// test api enables certain override apis for integration test situations
+	EnableTestAPI bool `mapstructure:"enable_test_api"`
 }
 
 var DefaultConfig = Config{
@@ -105,6 +108,7 @@ var DefaultConfig = Config{
 	MaxLogNoBlock:           10000,
 	MaxBlocksForLog:         2000,
 	MaxSubscriptionsNewHead: 10000,
+	EnableTestAPI:           false,
 }
 
 const (
@@ -128,6 +132,7 @@ const (
 	flagMaxLogNoBlock           = "evm.max_log_no_block"
 	flagMaxBlocksForLog         = "evm.max_blocks_for_log"
 	flagMaxSubscriptionsNewHead = "evm.max_subscriptions_new_head"
+	flagEnableTestAPI           = "evm.enable_test_api"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -230,6 +235,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxSubscriptionsNewHead); v != nil {
 		if cfg.MaxSubscriptionsNewHead, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagEnableTestAPI); v != nil {
+		if cfg.EnableTestAPI, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}

@@ -138,6 +138,32 @@ function getEventAttribute(response, type, attribute) {
     throw new Error("attribute not found")
 }
 
+async function testAPIEnabled(provider) {
+    try {
+        // noop operation to see if it throws
+        await incrementPointerVersion(provider, "cw20", 0)
+        return true;
+    } catch(e){
+        console.log(e)
+        return false;
+    }
+}
+
+async function incrementPointerVersion(provider, pointerType, offset) {
+    if(await isDocker()) {
+        // must update on all nodes
+        for(let i=0; i<4; i++) {
+            const resultStr = await execCommand(`docker exec sei-node-${i} curl -s -X POST http://localhost:8545 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"test_incrementPointerVersion","params":["${pointerType}", ${offset}],"id":1}'`)
+            const result = JSON.parse(resultStr)
+            if(result.error){
+                throw new Error(`failed to increment pointer version: ${result.error}`)
+            }
+        }
+    } else {
+       await provider.send("test_incrementPointerVersion", [pointerType, offset]);
+    }
+}
+
 async function createTokenFactoryTokenAndMint(name, amount, recipient) {
     const command = `seid tx tokenfactory create-denom ${name} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
@@ -393,6 +419,8 @@ module.exports = {
     evmSend,
     waitForReceipt,
     isDocker,
+    testAPIEnabled,
+    incrementPointerVersion,
     WASM,
     ABI,
 };

@@ -5,12 +5,26 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 )
 
-const CurrentVersion uint16 = 1
+const currentVersion uint16 = 1
+
+var versionOverride uint16
+
+// SetVersionWithOffset allows for overriding the version for integration test scenarios
+func SetVersionWithOffset(offset int16) {
+	// this allows for negative offsets to mock lower versions
+	versionOverride = uint16(int16(currentVersion) + offset)
+}
+
+func CurrentVersion(ctx sdk.Context) uint16 {
+	return config.GetVersionWthDefault(ctx, versionOverride, currentVersion)
+}
 
 //go:embed CW20ERC20Pointer.abi
 //go:embed CW20ERC20Pointer.bin
