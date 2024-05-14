@@ -101,7 +101,7 @@ type ERC721IsApprovedForAllRequest struct {
 	Operator        string `json:"operator"`
 }
 
-type ERC721TotalsupplyRequest struct {
+type ERC721TotalSupplyRequest struct {
 	Caller          string `json:"caller"`
 	ContractAddress string `json:"contract_address"`
 }
@@ -194,7 +194,7 @@ type ERC721UriResponse struct {
 }
 
 type ERC721RoyaltyInfoResponse struct {
-	Reciever      string   `json:"receiver"`
+	Receiver      string   `json:"receiver"`
 	RoyaltyAmount *sdk.Int `json:"royalty_amount"`
 }
 

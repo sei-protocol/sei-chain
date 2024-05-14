@@ -96,9 +96,9 @@ describe("CW721 to ERC721 Pointer", function () {
                     }
                 ]
             });
-            expect(result.data.token_uri).to.equal('https://sei.io/token/1');
-            expect(result.data.extension.royalty_percentage).to.equal(5);
-            expect(result.data.extension.royalty_payment_address).to.include("sei1");
+            expect(result.data.info.token_uri).to.equal('https://sei.io/token/1');
+            expect(result.data.info.extension.royalty_percentage).to.equal(5);
+            expect(result.data.info.extension.royalty_payment_address).to.include("sei1");
         });
 
     })

@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{CosmosMsg, CustomMsg, CustomQuery, Uint128, Uint256};
+use cosmwasm_std::{CosmosMsg, CustomMsg, CustomQuery, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
