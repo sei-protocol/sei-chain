@@ -41,6 +41,7 @@ type EVMKeeper interface {
 	GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool)
 	SetERC721CW721Pointer(ctx sdk.Context, cw721Address string, addr common.Address) error
 	GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool)
+	SetCode(ctx sdk.Context, addr common.Address, code []byte)
 }
 
 type AccountKeeper interface {

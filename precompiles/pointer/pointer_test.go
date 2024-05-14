@@ -82,4 +82,22 @@ func TestAddNative(t *testing.T) {
 	require.NotNil(t, err)
 	require.NotNil(t, statedb.GetPrecompileError())
 	require.Equal(t, uint64(0), g)
+
+	// upgrade to a newer version
+	// hacky way to get the existing version number to be below CurrentVersion
+	testApp.EvmKeeper.DeleteERC20NativePointer(statedb.Ctx(), "test", version)
+	testApp.EvmKeeper.SetERC20NativePointerWithVersion(statedb.Ctx(), "test", pointerAddr, version-1)
+	statedb = state.NewDBImpl(statedb.Ctx(), &testApp.EvmKeeper, true)
+	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
+	ret, g, err = p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil, nil, false)
+	require.Nil(t, err)
+	require.Equal(t, uint64(8987406), g)
+	outputs, err = m.Outputs.Unpack(ret)
+	require.Nil(t, err)
+	addr = outputs[0].(common.Address)
+	newAddr, version, exists := testApp.EvmKeeper.GetERC20NativePointer(statedb.Ctx(), "test")
+	require.True(t, exists)
+	require.Equal(t, addr, pointerAddr)
+	require.Equal(t, native.CurrentVersion, version)
+	require.Equal(t, newAddr, pointerAddr) // address should stay the same as before
 }

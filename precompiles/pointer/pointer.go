@@ -150,7 +150,14 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 	if value == nil {
 		value = utils.Big0
 	}
-	ret, contractAddr, remainingGas, err := evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
+	var contractAddr common.Address
+	if exists {
+		contractAddr = existingAddr
+		ret, remainingGas, err = evm.GetDeploymentCode(vm.AccountRef(caller), bin, suppliedGas, value, existingAddr)
+		p.evmKeeper.SetCode(ctx, contractAddr, ret)
+	} else {
+		ret, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
+	}
 	if err != nil {
 		return
 	}
@@ -204,7 +211,14 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	if value == nil {
 		value = utils.Big0
 	}
-	ret, contractAddr, remainingGas, err := evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
+	var contractAddr common.Address
+	if exists {
+		contractAddr = existingAddr
+		ret, remainingGas, err = evm.GetDeploymentCode(vm.AccountRef(caller), bin, suppliedGas, value, existingAddr)
+		p.evmKeeper.SetCode(ctx, contractAddr, ret)
+	} else {
+		ret, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
+	}
 	if err != nil {
 		return
 	}
@@ -258,7 +272,14 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	if value == nil {
 		value = utils.Big0
 	}
-	ret, contractAddr, remainingGas, err := evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
+	var contractAddr common.Address
+	if exists {
+		contractAddr = existingAddr
+		ret, remainingGas, err = evm.GetDeploymentCode(vm.AccountRef(caller), bin, suppliedGas, value, existingAddr)
+		p.evmKeeper.SetCode(ctx, contractAddr, ret)
+	} else {
+		ret, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
+	}
 	if err != nil {
 		return
 	}
