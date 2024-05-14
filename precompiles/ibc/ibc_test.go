@@ -239,7 +239,7 @@ func TestPrecompile_Run(t *testing.T) {
 			wantErr:          false,
 		},
 		{
-			name:   "memo is not added to the transfer if passed",
+			name:   "memo is not added to the transfer if not passed",
 			fields: fields{transferKeeper: &MockMemoTransferKeeper{t: t, wantMemo: ""}},
 			args: args{
 				caller:          senderEvmAddress,
