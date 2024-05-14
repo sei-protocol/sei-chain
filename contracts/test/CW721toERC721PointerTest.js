@@ -73,37 +73,32 @@ describe("CW721 to ERC721 Pointer", function () {
             });
         });
 
+        it("should retrieve number of circulating tokens", async function () {
+            const result = await queryWasm(pointer, "num_tokens", {});
+            expect(result).to.deep.equal({data:{count:3}});
+        });
+
         it("should retrieve contract information", async function () {
             const result = await queryWasm(pointer, "contract_info", {});
             expect(result).to.deep.equal({data:{name:"MyNFT",symbol:"MYNFT"}});
         });
 
-        it("should fetch NFT info based on token ID", async function () {
-            const result = await queryWasm(pointer, "nft_info", { token_id: "1" });
-            expect(result).to.deep.equal({ data: { token_uri: 'https://sei.io/token/1', extension: '' } });
-        });
-
         it("should fetch all information about an NFT", async function () {
             const result = await queryWasm(pointer, "all_nft_info", { token_id: "1" });
-            expect(result).to.deep.equal({
-                data: {
-                    access: {
-                        owner: accounts[0].seiAddress,
-                        approvals: [
-                            {
-                                spender: accounts[1].seiAddress,
-                                expires: {
-                                    never: {}
-                                }
-                            }
-                        ]
-                    },
-                    info: {
-                        token_uri: "https://sei.io/token/1",
-                        extension: ""
+            expect(result.data.access).to.deep.equal({
+                owner: accounts[0].seiAddress,
+                approvals: [
+                    {
+                        spender: accounts[1].seiAddress,
+                        expires: {
+                            never: {}
+                        }
                     }
-                }
+                ]
             });
+            expect(result.data.token_uri).to.equal('https://sei.io/token/1');
+            expect(result.data.extension.royalty_percentage).to.equal(5);
+            expect(result.data.extension.royalty_payment_address).to.include("sei1");
         });
 
     })
