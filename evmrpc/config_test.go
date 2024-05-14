@@ -29,6 +29,7 @@ type opts struct {
 	maxLogNoBlock           interface{}
 	maxBlocksForLog         interface{}
 	maxSubscriptionsNewHead interface{}
+	enableTestAPI           interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -92,6 +93,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_subscriptions_new_head" {
 		return o.maxSubscriptionsNewHead
 	}
+	if k == "evm.enable_test_api" {
+		return o.enableTestAPI
+	}
 	panic("unknown key")
 }
 
@@ -117,6 +121,7 @@ func TestReadConfig(t *testing.T) {
 		20000,
 		1000,
 		10000,
+		false,
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)
