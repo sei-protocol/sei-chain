@@ -2,11 +2,12 @@ package ibc_test
 
 import (
 	"errors"
-	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 	"math/big"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
@@ -95,7 +96,7 @@ func TestPrecompile_Run(t *testing.T) {
 			fields:           fields{transferKeeper: &MockTransferKeeper{}},
 			args:             commonArgs,
 			wantBz:           packedTrue,
-			wantRemainingGas: 994040,
+			wantRemainingGas: 994319,
 			wantErr:          false,
 		},
 		{
