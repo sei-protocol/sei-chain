@@ -516,7 +516,7 @@ func (h *EVMQueryHandler) HandleERC721Uri(ctx sdk.Context, caller string, contra
 	return json.Marshal(response)
 }
 
-func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string, contractAddress string, tokenId string, salePrice string) ([]byte, error) {
+func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string, contractAddress string, tokenId string, salePrice *sdk.Int) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
 		return nil, err
@@ -525,16 +525,12 @@ func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string
 	if !ok {
 		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
 	}
-	price, ok := sdk.NewIntFromString(salePrice)
-	if !ok {
-		return nil, errors.New("invalid sale price for ERC721, must be a big Int")
-	}
 	contract := common.HexToAddress(contractAddress)
 	abi, err := cw721.Cw721MetaData.GetAbi()
 	if err != nil {
 		return nil, err
 	}
-	bz, err := abi.Pack("royaltyInfo", t.BigInt(), price.BigInt())
+	bz, err := abi.Pack("royaltyInfo", t.BigInt(), salePrice.BigInt())
 	if err != nil {
 		return nil, err
 	}

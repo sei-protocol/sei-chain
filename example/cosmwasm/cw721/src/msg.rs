@@ -109,7 +109,7 @@ pub struct Erc721IsApprovedForAllResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc721TotalSupplyResponse {
-    pub supply: Uint256,
+    pub supply: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
