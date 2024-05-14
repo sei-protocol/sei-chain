@@ -205,7 +205,7 @@ describe("ERC20 to CW20 Pointer", function () {
         });
     }
 
-    describe("Original Pointer", function () {
+    describe("Pointer Functionality", function () {
         let pointer;
 
         before(async function () {
@@ -219,7 +219,7 @@ describe("ERC20 to CW20 Pointer", function () {
             account1: 3000000
         });
 
-        describe("Upgraded Pointer", function () {
+        describe("Pointer Upgrade", function () {
             let newPointer;
 
             before(async function () {
