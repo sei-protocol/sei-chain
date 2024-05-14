@@ -194,6 +194,22 @@ func TestHandleERC721IsApprovedForAll(t *testing.T) {
 	require.NotEmpty(t, res2)
 }
 
+func TestHandleERC721TotalSupply(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc721/DummyERC721.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC721TotalSupply(ctx, addr1.String(), contractAddr.String())
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	require.Equal(t, string(res2), "{\"supply\":\"101\"}")
+}
+
 func TestHandleERC721NameSymbol(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	privKey := testkeeper.MockPrivateKey()
@@ -223,6 +239,22 @@ func TestHandleERC721TokenURI(t *testing.T) {
 	res2, err := h.HandleERC721Uri(ctx, addr1.String(), contractAddr.String(), "1")
 	require.Nil(t, err)
 	require.NotEmpty(t, res2)
+}
+
+func TestHandleERC721RoyaltyInfo(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc721/DummyERC721.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC721RoyaltyInfo(ctx, addr1.String(), contractAddr.String(), "1", "100")
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	require.Equal(t, string(res2), "{\"receiver\":\"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\",\"royaltyAmount\":\"5\"}")
 }
 
 func TestGetAddress(t *testing.T) {
