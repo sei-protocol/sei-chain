@@ -2,6 +2,7 @@ package sc
 
 import (
 	"fmt"
+
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
