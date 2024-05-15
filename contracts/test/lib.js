@@ -12,7 +12,8 @@ const ABI = {
         "function transfer(address to, uint amount) returns (bool)",
         "function allowance(address owner, address spender) view returns (uint256)",
         "function approve(address spender, uint256 value) returns (bool)",
-        "function transferFrom(address from, address to, uint value) returns (bool)"
+        "function transferFrom(address from, address to, uint value) returns (bool)",
+        "error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)"
     ],
     ERC721: [
         "event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId)",
@@ -138,6 +139,51 @@ function getEventAttribute(response, type, attribute) {
     throw new Error("attribute not found")
 }
 
+async function testAPIEnabled(provider) {
+    try {
+        // noop operation to see if it throws
+        await incrementPointerVersion(provider, "cw20", 0)
+        return true;
+    } catch(e){
+        console.log(e)
+        return false;
+    }
+}
+
+async function incrementPointerVersion(provider, pointerType, offset) {
+    if(await isDocker()) {
+        // must update on all nodes
+        for(let i=0; i<4; i++) {
+            const resultStr = await execCommand(`docker exec sei-node-${i} curl -s -X POST http://localhost:8545 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"test_incrementPointerVersion","params":["${pointerType}", ${offset}],"id":1}'`)
+            const result = JSON.parse(resultStr)
+            if(result.error){
+                throw new Error(`failed to increment pointer version: ${result.error}`)
+            }
+        }
+    } else {
+       await provider.send("test_incrementPointerVersion", [pointerType, offset]);
+    }
+}
+
+async function createTokenFactoryTokenAndMint(name, amount, recipient) {
+    const command = `seid tx tokenfactory create-denom ${name} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    const output = await execute(command);
+    const response = JSON.parse(output)
+    const token_denom = getEventAttribute(response, "create_denom", "new_token_denom")
+    const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    await execute(mint_command);
+
+    const send_command = `seid tx bank send ${adminKeyName} ${recipient} ${amount}${token_denom} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    await execute(send_command);
+    return token_denom
+}
+
+async function getPointerForNative(name) {
+    const command = `seid query evm pointer NATIVE ${name} -o json`
+    const output = await execute(command);
+    return JSON.parse(output);
+}
+
 async function storeWasm(path) {
     const command = `seid tx wasm store ${path} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
@@ -167,6 +213,22 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
             return (await getPointerForCw20(cw20Address)).pointer
         } else if(receipt){
             throw new Error("contract deployment failed")
+        }
+        await sleep(500)
+        attempt++
+    }
+    throw new Error("contract deployment failed")
+}
+
+async function deployErc20PointerNative(provider, name) {
+    const command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=admin -b block`
+    const output = await execute(command);
+    const txHash = output.replace(/.*0x/, "0x").trim()
+    let attempt = 0;
+    while(attempt < 10) {
+        const receipt = await provider.getTransactionReceipt(txHash);
+        if(receipt) {
+            return (await getPointerForNative(name)).pointer
         }
         await sleep(500)
         attempt++
@@ -336,6 +398,7 @@ module.exports = {
     storeWasm,
     deployWasm,
     instantiateWasm,
+    createTokenFactoryTokenAndMint,
     execute,
     getSeiAddress,
     getEvmAddress,
@@ -345,6 +408,7 @@ module.exports = {
     setupSigners,
     deployEvmContract,
     deployErc20PointerForCw20,
+    deployErc20PointerNative,
     deployErc721PointerForCw721,
     registerPointerForCw20,
     registerPointerForCw721,
@@ -356,6 +420,8 @@ module.exports = {
     evmSend,
     waitForReceipt,
     isDocker,
+    testAPIEnabled,
+    incrementPointerVersion,
     WASM,
     ABI,
 };

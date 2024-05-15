@@ -141,11 +141,15 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 4, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, true, true)
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 5, func(ctx sdk.Context) error {
 		return migrations.FixTotalSupply(ctx, am.keeper)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 6, func(ctx sdk.Context) error {
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true)
 	})
 }
 
@@ -171,7 +175,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 6 }
+func (AppModule) ConsensusVersion() uint64 { return 7 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {

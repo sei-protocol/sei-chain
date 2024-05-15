@@ -3,7 +3,7 @@ use cosmwasm_std::{QuerierWrapper, StdResult, Uint128};
 use crate::msg::{
     Erc721ApprovedResponse, Erc721IsApprovedForAllResponse, Erc721NameSymbolResponse,
     Erc721OwnerResponse, Erc721RoyaltyInfoResponse, Erc721TotalSupplyResponse, Erc721UriResponse,
-    ErcPayloadResponse, EvmQuery, EvmQueryWrapper, Route,
+    ErcPayloadResponse, EvmQuery, EvmQueryWrapper, Route, SupportsInterfaceResponse,
 };
 
 pub const DEFAULT_LIMIT: u32 = 10;
@@ -194,6 +194,25 @@ impl<'a> EvmQuerier<'a> {
                 contract_address,
                 token_id,
                 sale_price,
+            },
+        }
+        .into();
+
+        self.querier.query(&request)
+    }
+
+    pub fn supports_interface(
+        &self,
+        caller: String,
+        contract_address: String,
+        interface_id: String,
+    ) -> StdResult<SupportsInterfaceResponse> {
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::SupportsInterface {
+                caller,
+                interface_id,
+                contract_address,
             },
         }
         .into();

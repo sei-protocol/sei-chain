@@ -1,5 +1,6 @@
 use crate::error::ContractError;
-use crate::msg::{CwErc721QueryMsg, EvmMsg, EvmQueryWrapper, InstantiateMsg};
+use crate::msg::CwErc721QueryMsg;
+use crate::msg::{EvmMsg, EvmQueryWrapper, InstantiateMsg};
 use crate::querier::{EvmQuerier, DEFAULT_LIMIT, MAX_LIMIT};
 use crate::state::ERC721_ADDRESS;
 #[cfg(not(feature = "library"))]
@@ -17,6 +18,8 @@ use cw721::{
 };
 use cw721_base::QueryMsg;
 use std::str::FromStr;
+
+const ERC2981_ID: &str = "0x2a55205a";
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -50,15 +53,15 @@ pub fn execute(
             spender,
             token_id,
             expires: _,
-        } => execute_approve(deps, info, spender, token_id, true),
-        ExecuteMsg::Revoke { spender, token_id } => {
-            execute_approve(deps, info, spender, token_id, false)
+        } => execute_approve(deps, info, spender, token_id),
+        ExecuteMsg::Revoke { token_id, .. } => {
+            execute_approve(deps, info, "".to_string(), token_id)
         }
         ExecuteMsg::ApproveAll {
             operator,
             expires: _,
-        } => execute_approve_all(deps, operator, true),
-        ExecuteMsg::RevokeAll { operator } => execute_approve_all(deps, operator, false),
+        } => execute_approve_all(deps, info, operator, true),
+        ExecuteMsg::RevokeAll { operator } => execute_approve_all(deps, info, operator, false),
         ExecuteMsg::Burn { .. } => execute_burn(),
         ExecuteMsg::Mint { .. } => execute_mint(),
         ExecuteMsg::UpdateOwnership(_) => update_ownership(),
@@ -108,23 +111,25 @@ pub fn execute_approve(
     info: MessageInfo,
     spender: String,
     token_id: String,
-    approved: bool,
 ) -> Result<Response<EvmMsg>, ContractError> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
 
     let querier = EvmQuerier::new(&deps.querier);
-    let payload = if approved {
-        querier.erc721_approve_payload(spender.clone(), token_id.clone())?
-    } else {
-        unimplemented!("revoke approval")
-    };
+    let payload = querier.erc721_approve_payload(spender.to_string(), token_id.to_string())?;
     let msg = EvmMsg::DelegateCallEvm {
         to: erc_addr,
         data: payload.encoded_payload,
     };
     let res = Response::new()
         .add_message(msg)
-        .add_attribute("action", if approved { "approve" } else { "revoke" })
+        .add_attribute(
+            "action",
+            if !spender.is_empty() {
+                "approve"
+            } else {
+                "revoke"
+            },
+        )
         .add_attribute("sender", info.sender)
         .add_attribute("spender", spender)
         .add_attribute("token_id", token_id);
@@ -134,6 +139,7 @@ pub fn execute_approve(
 
 pub fn execute_approve_all(
     deps: DepsMut<EvmQueryWrapper>,
+    info: MessageInfo,
     to: String,
     approved: bool,
 ) -> Result<Response<EvmMsg>, ContractError> {
@@ -154,7 +160,8 @@ pub fn execute_approve_all(
                 "revoke_all"
             },
         )
-        .add_attribute("to", to)
+        .add_attribute("operator", to)
+        .add_attribute("sender", info.sender)
         .add_attribute("approved", format!("{}", approved))
         .add_message(msg);
 
@@ -576,13 +583,15 @@ pub fn query_check_royalties(
     deps: Deps<EvmQueryWrapper>,
     env: Env,
 ) -> StdResult<CheckRoyaltiesResponse> {
-    let royalties_implemented = match query_royalty_info(deps, env, "1".to_string(), 100u128.into())
-    {
-        Ok(_) => true,
-        Err(_) => false,
-    };
+    let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let res = querier.supports_interface(
+        env.clone().contract.address.into_string(),
+        erc_addr.clone(),
+        ERC2981_ID.to_string(),
+    )?;
     Ok(CheckRoyaltiesResponse {
-        royalty_payments: royalties_implemented,
+        royalty_payments: res.supported,
     })
 }
 

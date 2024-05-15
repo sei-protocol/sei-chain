@@ -78,6 +78,11 @@ pub enum EvmQuery {
         token_id: String,
         sale_price: Uint128,
     },
+    SupportsInterface {
+        caller: String,
+        contract_address: String,
+        interface_id: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -120,6 +125,11 @@ pub struct Erc721UriResponse {
 pub struct Erc721RoyaltyInfoResponse {
     pub receiver: String,
     pub royalty_amount: Uint128,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct SupportsInterfaceResponse {
+    pub supported: bool,
 }
 
 // implement custom query

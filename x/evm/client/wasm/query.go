@@ -2,10 +2,12 @@ package wasm
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -566,4 +568,72 @@ func (h *EVMQueryHandler) HandleGetSeiAddress(ctx sdk.Context, evmAddr string) (
 	seiAddr, associated := h.k.GetSeiAddress(ctx, addr)
 	response := bindings.GetSeiAddressResponse{SeiAddress: seiAddr.String(), Associated: associated}
 	return json.Marshal(response)
+}
+
+func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string, contractAddress string, tokenId string, salePrice *sdk.Int) ([]byte, error) {
+	callerAddr, err := sdk.AccAddressFromBech32(caller)
+	if err != nil {
+		return nil, err
+	}
+	t, ok := sdk.NewIntFromString(tokenId)
+	if !ok {
+		return nil, errors.New("invalid token ID for ERC721, must be a big Int")
+	}
+	contract := common.HexToAddress(contractAddress)
+	abi, err := cw721.Cw721MetaData.GetAbi()
+	if err != nil {
+		return nil, err
+	}
+	bz, err := abi.Pack("royaltyInfo", t.BigInt(), salePrice.BigInt())
+	if err != nil {
+		return nil, err
+	}
+	res, err := h.k.StaticCallEVM(ctx, callerAddr, &contract, bz)
+	if err != nil {
+		return nil, err
+	}
+	typed, err := abi.Unpack("royaltyInfo", res)
+	if err != nil {
+		return nil, err
+	}
+
+	typedReceiver := typed[0].(common.Address)
+	receiver := ""
+	if (typedReceiver != common.Address{}) {
+		receiver = h.k.GetSeiAddressOrDefault(ctx, typedReceiver).String()
+	}
+	royaltyAmount := sdk.NewIntFromBigInt(typed[1].(*big.Int))
+	response := bindings.ERC721RoyaltyInfoResponse{Receiver: receiver, RoyaltyAmount: &royaltyAmount}
+	return json.Marshal(response)
+}
+
+func (h *EVMQueryHandler) HandleSupportsInterface(ctx sdk.Context, caller string, id string, contractAddress string) ([]byte, error) {
+	callerAddr, err := sdk.AccAddressFromBech32(caller)
+	if err != nil {
+		return nil, err
+	}
+	contract := common.HexToAddress(contractAddress)
+	abi, err := cw721.Cw721MetaData.GetAbi()
+	if err != nil {
+		return nil, err
+	}
+	aid := [4]byte{}
+	idbz, err := hex.DecodeString(strings.TrimPrefix(id, "0x"))
+	if err != nil {
+		return nil, err
+	}
+	copy(aid[:], idbz)
+	bz, err := abi.Pack("supportsInterface", aid)
+	if err != nil {
+		return nil, err
+	}
+	res, err := h.k.StaticCallEVM(ctx, callerAddr, &contract, bz)
+	if err != nil {
+		return nil, err
+	}
+	typed, err := abi.Unpack("supportsInterface", res)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(bindings.SupportsInterfaceResponse{Supported: typed[0].(bool)})
 }

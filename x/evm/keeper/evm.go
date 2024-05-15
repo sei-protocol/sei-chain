@@ -40,13 +40,16 @@ func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEV
 }
 
 func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgInternalEVMDelegateCall) (*sdk.Result, error) {
-	if !k.IsCWCodeHashWhitelistedForEVMDelegateCall(ctx, req.CodeHash) {
-		return nil, errors.New("code hash not authorized to make EVM delegate call")
-	}
 	var to *common.Address
 	if req.To != "" {
 		addr := common.HexToAddress(req.To)
 		to = &addr
+	} else {
+		return nil, errors.New("cannot use a CosmWasm contract to delegate-create an EVM contract")
+	}
+	addr, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(req.FromContract))))
+	if !exists || common.BytesToAddress(addr).Cmp(*to) != 0 {
+		return nil, errors.New("only pointer contract can make delegatecalls")
 	}
 	zeroInt := sdk.ZeroInt()
 	senderAddr, err := sdk.AccAddressFromBech32(req.Sender)
