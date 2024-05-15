@@ -86,7 +86,7 @@ contract CW721ERC721PointerTest is Test {
     MockAddr mockAddr;
 
     function setUp() public {
-        pointer = new CW721ERC721Pointer(MockCWContractAddress, "name", "symbol");
+        pointer = new CW721ERC721Pointer(MockCWContractAddress);
         mockWasmd = new MockWasmd();
         mockJson = new MockJson();
         mockAddr = new MockAddr();
