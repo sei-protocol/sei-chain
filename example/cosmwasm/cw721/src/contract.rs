@@ -1,4 +1,4 @@
-use crate::error::ContractError;
+use crate::error::CwErc721ContractError;
 use crate::msg::CwErc721QueryMsg;
 use crate::msg::{EvmMsg, EvmQueryWrapper, InstantiateMsg};
 use crate::querier::{EvmQuerier, DEFAULT_LIMIT, MAX_LIMIT};
@@ -27,7 +27,7 @@ pub fn instantiate(
     _env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
-) -> Result<Response, ContractError> {
+) -> Result<Response, CwErc721ContractError> {
     ERC721_ADDRESS.save(deps.storage, &msg.erc721_address)?;
     Ok(Response::default())
 }
@@ -38,7 +38,7 @@ pub fn execute(
     _env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
-) -> Result<Response<EvmMsg>, ContractError> {
+) -> Result<Response<EvmMsg>, CwErc721ContractError> {
     match msg {
         ExecuteMsg::TransferNft {
             recipient,
@@ -74,7 +74,7 @@ pub fn execute_transfer_nft(
     info: MessageInfo,
     recipient: String,
     token_id: String,
-) -> Result<Response<EvmMsg>, ContractError> {
+) -> Result<Response<EvmMsg>, CwErc721ContractError> {
     let mut res = transfer_nft(deps, &info, &recipient, &token_id)?;
     res = res
         .add_attribute("action", "transfer_nft")
@@ -90,7 +90,7 @@ pub fn execute_send_nft(
     recipient: String,
     token_id: String,
     msg: Binary,
-) -> Result<Response<EvmMsg>, ContractError> {
+) -> Result<Response<EvmMsg>, CwErc721ContractError> {
     let mut res = transfer_nft(deps, &info, &recipient, &token_id)?;
     let send = Cw721ReceiveMsg {
         sender: info.sender.to_string(),
@@ -111,7 +111,7 @@ pub fn execute_approve(
     info: MessageInfo,
     spender: String,
     token_id: String,
-) -> Result<Response<EvmMsg>, ContractError> {
+) -> Result<Response<EvmMsg>, CwErc721ContractError> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
 
     let querier = EvmQuerier::new(&deps.querier);
@@ -142,7 +142,7 @@ pub fn execute_approve_all(
     info: MessageInfo,
     to: String,
     approved: bool,
-) -> Result<Response<EvmMsg>, ContractError> {
+) -> Result<Response<EvmMsg>, CwErc721ContractError> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
 
     let querier = EvmQuerier::new(&deps.querier);
@@ -168,20 +168,20 @@ pub fn execute_approve_all(
     Ok(res)
 }
 
-pub fn execute_burn() -> Result<Response<EvmMsg>, ContractError> {
-    Err(ContractError::NotSupported {})
+pub fn execute_burn() -> Result<Response<EvmMsg>, CwErc721ContractError> {
+    Err(CwErc721ContractError::NotSupported {})
 }
 
-pub fn execute_mint() -> Result<Response<EvmMsg>, ContractError> {
-    Err(ContractError::NotSupported {})
+pub fn execute_mint() -> Result<Response<EvmMsg>, CwErc721ContractError> {
+    Err(CwErc721ContractError::NotSupported {})
 }
 
-pub fn update_ownership() -> Result<Response<EvmMsg>, ContractError> {
-    Err(ContractError::NotSupported {})
+pub fn update_ownership() -> Result<Response<EvmMsg>, CwErc721ContractError> {
+    Err(CwErc721ContractError::NotSupported {})
 }
 
-pub fn execute_extension() -> Result<Response<EvmMsg>, ContractError> {
-    Err(ContractError::NotSupported {})
+pub fn execute_extension() -> Result<Response<EvmMsg>, CwErc721ContractError> {
+    Err(CwErc721ContractError::NotSupported {})
 }
 
 fn transfer_nft(
@@ -189,7 +189,7 @@ fn transfer_nft(
     info: &MessageInfo,
     recipient: &str,
     token_id: &str,
-) -> Result<Response<EvmMsg>, ContractError> {
+) -> Result<Response<EvmMsg>, CwErc721ContractError> {
     deps.api.addr_validate(&recipient)?;
 
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
@@ -217,7 +217,7 @@ pub fn query(
     deps: Deps<EvmQueryWrapper>,
     env: Env,
     msg: QueryMsg<CwErc721QueryMsg>,
-) -> Result<Binary, ContractError> {
+) -> Result<Binary, CwErc721ContractError> {
     match msg {
         QueryMsg::OwnerOf {
             token_id,
@@ -408,33 +408,13 @@ pub fn query_operator(
 }
 
 pub fn query_all_operators(
-    deps: Deps<EvmQueryWrapper>,
-    env: Env,
-    owner: String,
-    start_after: Option<String>,
-    limit: Option<u32>,
-) -> StdResult<OperatorsResponse> {
-    let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
-    let querier = EvmQuerier::new(&deps.querier);
-    let tokens = query_tokens(deps, env.clone(), owner.to_string(), start_after, limit)
-        .unwrap_or(TokensResponse { tokens: vec![] })
-        .tokens;
-    let operators = tokens
-        .iter()
-        .map(|token_id| {
-            querier
-                .erc721_approved(
-                    env.clone().contract.address.into_string(),
-                    erc_addr.clone(),
-                    token_id.clone(),
-                )
-                .map(|res| Approval {
-                    spender: res.approved,
-                    expires: cw721::Expiration::Never {},
-                })
-        })
-        .collect::<StdResult<Vec<_>>>()?;
-    Ok(OperatorsResponse { operators })
+    _deps: Deps<EvmQueryWrapper>,
+    _env: Env,
+    _owner: String,
+    _start_after: Option<String>,
+    _limit: Option<u32>,
+) -> Result<OperatorsResponse, CwErc721ContractError> {
+    Err(CwErc721ContractError::NotSupported {})
 }
 
 pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumTokensResponse> {
@@ -595,10 +575,10 @@ pub fn query_check_royalties(
     })
 }
 
-pub fn query_minter() -> Result<Response<EvmMsg>, ContractError> {
-    Err(ContractError::NotSupported {})
+pub fn query_minter() -> Result<Response<EvmMsg>, CwErc721ContractError> {
+    Err(CwErc721ContractError::NotSupported {})
 }
 
-pub fn query_ownership() -> Result<Response<EvmMsg>, ContractError> {
-    Err(ContractError::NotSupported {})
+pub fn query_ownership() -> Result<Response<EvmMsg>, CwErc721ContractError> {
+    Err(CwErc721ContractError::NotSupported {})
 }
