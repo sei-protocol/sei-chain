@@ -157,23 +157,32 @@ func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, call
 }
 
 func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
+	err := p.validateInput(value, args, 1)
+	if err != nil {
 		return nil, err
 	}
 
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+	delegator, err := p.getDelegator(ctx, caller)
+	if err != nil {
 		return nil, err
 	}
-
-	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !found {
-		return nil, fmt.Errorf("delegator %s is not associated", caller.Hex())
-	}
-	_, err := p.withdraw(ctx, delegator, args[0].(string))
+	_, err = p.withdraw(ctx, delegator, args[0].(string))
 	if err != nil {
 		return nil, err
 	}
 	return method.Outputs.Pack(true)
+}
+
+func (p Precompile) validateInput(value *big.Int, args []interface{}, expectedArgsLength int) error {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, expectedArgsLength); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (p Precompile) withdraw(ctx sdk.Context, delegator sdk.AccAddress, validatorAddress string) (sdk.Coins, error) {
@@ -184,18 +193,24 @@ func (p Precompile) withdraw(ctx sdk.Context, delegator sdk.AccAddress, validato
 	return p.distrKeeper.WithdrawDelegationRewards(ctx, delegator, validator)
 }
 
-func (p Precompile) withdrawMultipleDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
-	}
-
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
-	}
-
+func (p Precompile) getDelegator(ctx sdk.Context, caller common.Address) (sdk.AccAddress, error) {
 	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
 		return nil, fmt.Errorf("delegator %s is not associated", caller.Hex())
+	}
+
+	return delegator, nil
+}
+
+func (p Precompile) withdrawMultipleDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+	err := p.validateInput(value, args, 1)
+	if err != nil {
+		return nil, err
+	}
+
+	delegator, err := p.getDelegator(ctx, caller)
+	if err != nil {
+		return nil, err
 	}
 	validators := args[0].([]string)
 	for _, valAddr := range validators {
