@@ -141,16 +141,17 @@ func TestWithdraw(t *testing.T) {
 	require.True(t, found)
 }
 
-func TestWithdraw2(t *testing.T) {
+func TestWithdrawMultipleDelegationRewards(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	distrParams := testApp.DistrKeeper.GetParams(ctx)
 	distrParams.WithdrawAddrEnabled = true
 	testApp.DistrKeeper.SetParams(ctx, distrParams)
 	k := &testApp.EvmKeeper
-	var validators []sdk.ValAddress
-	val1 := getValidator(t, ctx, testApp)
-	validators = append(validators, val1)
+	validators := []sdk.ValAddress{
+		getValidator(t, ctx, testApp),
+		getValidator(t, ctx, testApp),
+		getValidator(t, ctx, testApp)}
 
 	abi := staking.GetABI()
 	privKey := testkeeper.MockPrivateKey()
