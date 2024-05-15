@@ -13,6 +13,7 @@ import (
 )
 
 func TestMexcProvider_GetTickerPrices(t *testing.T) {
+	t.Skip("skipping until mexc websocket endpoint is restored")
 	p, err := NewMexcProvider(
 		context.TODO(),
 		zerolog.Nop(),
@@ -80,6 +81,7 @@ func TestMexcProvider_GetTickerPrices(t *testing.T) {
 }
 
 func TestMexcProvider_SubscribeCurrencyPairs(t *testing.T) {
+	t.Skip("skipping until mexc websocket endpoint is restored")
 	p, err := NewMexcProvider(
 		context.TODO(),
 		zerolog.Nop(),
