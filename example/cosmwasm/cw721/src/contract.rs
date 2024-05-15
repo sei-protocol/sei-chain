@@ -8,12 +8,12 @@ use cosmwasm_std::{
     to_json_binary, Binary, Deps, DepsMut, Env, Int256, MessageInfo, Response, StdError, StdResult,
     Uint128,
 };
-use cw2981_royalties::msg::{Cw2981QueryMsg, RoyaltiesInfoResponse};
+use cw2981_royalties::msg::{Cw2981QueryMsg, RoyaltiesInfoResponse, CheckRoyaltiesResponse};
 use cw2981_royalties::{ExecuteMsg, Extension, Metadata, QueryMsg};
 use cw721::{
     AllNftInfoResponse, Approval, ApprovalResponse, ApprovalsResponse, ContractInfoResponse,
-    Cw721ReceiveMsg, NftInfoResponse, NumTokensResponse, OperatorResponse, OwnerOfResponse,
-    TokensResponse,
+    Cw721ReceiveMsg, NftInfoResponse, NumTokensResponse, OperatorResponse, OperatorsResponse,
+    OwnerOfResponse, TokensResponse,
 };
 use std::str::FromStr;
 
@@ -216,6 +216,14 @@ pub fn query(
         } => Ok(to_json_binary(&query_operator(
             deps, env, owner, operator,
         )?)?),
+        QueryMsg::AllOperators {
+            owner,
+            include_expired: _,
+            start_after,
+            limit,
+        } => Ok(to_json_binary(&query_all_operators(
+            deps, env, owner, start_after, limit,
+        )?)?),
         QueryMsg::NumTokens {} => Ok(to_json_binary(&query_num_tokens(deps, env)?)?),
         QueryMsg::ContractInfo {} => Ok(to_json_binary(&query_contract_info(deps, env)?)?),
         QueryMsg::NftInfo { token_id } => Ok(to_json_binary(&query_nft_info(
@@ -242,9 +250,8 @@ pub fn query(
             start_after,
             limit,
         )?)?),
-        QueryMsg::AllOperators { .. } => Ok(to_json_binary(&query_all_operators()?)?),
-        QueryMsg::Minter { .. } => Ok(to_json_binary(&query_minter()?)?),
-        QueryMsg::Ownership { .. } => Ok(to_json_binary(&query_ownership()?)?),
+        QueryMsg::Minter {} => Ok(to_json_binary(&query_minter()?)?),
+        QueryMsg::Ownership {} => Ok(to_json_binary(&query_ownership()?)?),
         QueryMsg::Extension { msg } => match msg {
             Cw2981QueryMsg::RoyaltyInfo {
                 token_id,
@@ -252,7 +259,7 @@ pub fn query(
             } => Ok(to_json_binary(&query_royalty_info(
                 deps, env, token_id, sale_price,
             )?)?),
-            Cw2981QueryMsg::CheckRoyalties {} => Ok(to_json_binary(&query_check_royalties()?)?),
+            Cw2981QueryMsg::CheckRoyalties {} => Ok(to_json_binary(&query_check_royalties(deps, env)?)?),
         },
     }
 }
@@ -364,6 +371,18 @@ pub fn query_operator(
         });
     }
     Err(StdError::generic_err("operator not approved".to_string()))
+}
+
+pub fn query_all_operators(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    owner: String,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<OperatorsResponse> {
+    Ok(OperatorsResponse {
+        operators: vec![], // TODO
+    })
 }
 
 pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumTokensResponse> {
@@ -508,8 +527,22 @@ pub fn query_royalty_info(
     })
 }
 
-pub fn query_all_operators() -> Result<Response<EvmMsg>, ContractError> {
-    Err(ContractError::NotSupported {})
+pub fn query_check_royalties(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+) -> StdResult<CheckRoyaltiesResponse> {
+    let royalties_implemented = match query_royalty_info(
+        deps,
+        env,
+        "1".to_string(),
+        100u128.into(),
+    ) {
+        Ok(_) => true,
+        Err(_) => false,
+    };
+    Ok(CheckRoyaltiesResponse {
+        royalty_payments: royalties_implemented,
+    })
 }
 
 pub fn query_minter() -> Result<Response<EvmMsg>, ContractError> {
@@ -517,9 +550,5 @@ pub fn query_minter() -> Result<Response<EvmMsg>, ContractError> {
 }
 
 pub fn query_ownership() -> Result<Response<EvmMsg>, ContractError> {
-    Err(ContractError::NotSupported {})
-}
-
-pub fn query_check_royalties() -> Result<Response<EvmMsg>, ContractError> {
     Err(ContractError::NotSupported {})
 }
