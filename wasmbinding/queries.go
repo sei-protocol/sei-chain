@@ -257,9 +257,6 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.GetSeiAddress != nil:
 		c := parsedQuery.GetSeiAddress
 		return qp.evmHandler.HandleGetSeiAddress(ctx, c.EvmAddress)
-	case parsedQuery.ERC721RoyaltyInfo != nil:
-		c := parsedQuery.ERC721RoyaltyInfo
-		return qp.evmHandler.HandleERC721RoyaltyInfo(ctx, c.Caller, c.ContractAddress, c.TokenID, c.SalePrice)
 	case parsedQuery.SupportsInterface != nil:
 		c := parsedQuery.SupportsInterface
 		return qp.evmHandler.HandleSupportsInterface(ctx, c.Caller, c.InterfaceID, c.ContractAddress)
