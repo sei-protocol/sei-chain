@@ -364,14 +364,9 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 			initialStores = append(initialStores, key.Name())
 		}
 	}
-	if err := rs.scStore.Initialize(initialStores); err != nil {
-		return err
-	}
-	if version > 0 {
-		_, err := rs.scStore.LoadVersion(version, false)
-		if err != nil {
-			return nil
-		}
+	rs.scStore.Initialize(initialStores)
+	if _, err := rs.scStore.LoadVersion(version, false); err != nil {
+		return nil
 	}
 
 	var treeUpgrades []*proto.TreeNameUpgrade
