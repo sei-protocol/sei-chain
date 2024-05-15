@@ -101,6 +101,20 @@ describe("CW721 to ERC721 Pointer", function () {
             expect(result.data.info.extension.royalty_payment_address).to.include("sei1");
         });
 
+        it("should retrieve all minted NFT token ids", async function () {
+            const result = await queryWasm(pointer, "all_tokens", {});
+            expect(result).to.deep.equal({data:{tokens:["1","2","3"]}});
+        });
+
+        it("should retrieve list of 1 minted NFT token id after token id 1", async function () {
+            const result = await queryWasm(pointer, "all_tokens", { start_after: "1", limit: 1 });
+            expect(result).to.deep.equal({data:{tokens:["2"]}});
+        });
+
+        it("should retrieve list of NFT token ids owned by admin", async function () {
+            const result = await queryWasm(pointer, "tokens", { owner: admin.seiAddress });
+            expect(result).to.deep.equal({data:{tokens:["3"]}});
+        });
     })
 
     describe("execute operations", function () {
