@@ -218,9 +218,9 @@ pub fn query(
         )?)?),
         QueryMsg::NumTokens {} => Ok(to_json_binary(&query_num_tokens(deps, env)?)?),
         QueryMsg::ContractInfo {} => Ok(to_json_binary(&query_contract_info(deps, env)?)?),
-        QueryMsg::NftInfo { token_id } => {
-            Ok(to_json_binary(&query_nft_info(deps, env, token_id)?)?)
-        }
+        QueryMsg::NftInfo { token_id } => Ok(to_json_binary(&query_nft_info(
+            deps, env, token_id,
+        )?)?),
         QueryMsg::AllNftInfo {
             token_id,
             include_expired: _,
