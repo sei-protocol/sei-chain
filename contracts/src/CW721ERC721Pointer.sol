@@ -94,7 +94,7 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
 
     // 2981
     function royaltyInfo(uint256 tokenId, uint256 salePrice) public view override returns (address, uint256) {
-        bytes memory checkRoyaltyResponse = WasmdPrecompile.query(Cw721Address, bytes("{\"check_royalties\":{}}"));
+        bytes memory checkRoyaltyResponse = WasmdPrecompile.query(Cw721Address, bytes("{\"extension\":{\"msg\":{\"check_royalties\":{}}}}"));
         bytes memory isRoyaltyImplemented = JsonPrecompile.extractAsBytes(checkRoyaltyResponse, "royalty_payments");
         if (keccak256(isRoyaltyImplemented) != keccak256("true")) {
             revert("royalty info not implemented on the underlying CosmWasm contract");
@@ -102,9 +102,13 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
         string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
         string memory sPrice = _formatPayload("sale_price", _doubleQuotes(Strings.toString(salePrice)));
         string memory req = _curlyBrace(_formatPayload("royalty_info", _curlyBrace(_join(tId, sPrice, ","))));
-        bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
+        string memory fullReq = _curlyBrace(_formatPayload("extension", _curlyBrace(_formatPayload("msg", req))));
+        bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(fullReq));
         bytes memory addr = JsonPrecompile.extractAsBytes(response, "address");
         uint256 amt = JsonPrecompile.extractAsUint256(response, "royalty_amount");
+        if (addr.length == 0) {
+            return (address(0), amt);
+        }
         return (AddrPrecompile.getEvmAddr(string(addr)), amt);
     }
 

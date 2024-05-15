@@ -52,7 +52,7 @@ type Precompile struct {
 	AddCW721PointerID  []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, wasmdKeeper pcommon.WasmdViewKeeper) (*Precompile, error) {
+func ABI() (*ethabi.ABI, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
 		return nil, fmt.Errorf("error loading the pointer ABI %s", err)
@@ -62,9 +62,17 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, w
 	if err != nil {
 		return nil, err
 	}
+	return &newAbi, nil
+}
+
+func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, wasmdKeeper pcommon.WasmdViewKeeper) (*Precompile, error) {
+	newAbi, err := ABI()
+	if err != nil {
+		return nil, err
+	}
 
 	p := &Precompile{
-		Precompile:  pcommon.Precompile{ABI: newAbi},
+		Precompile:  pcommon.Precompile{ABI: *newAbi},
 		evmKeeper:   evmKeeper,
 		bankKeeper:  bankKeeper,
 		wasmdKeeper: wasmdKeeper,

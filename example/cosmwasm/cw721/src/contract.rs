@@ -287,7 +287,7 @@ pub fn query_royalty_info(
 pub fn query_check_royalties(deps: Deps<EvmQueryWrapper>, env: Env,) -> StdResult<CheckRoyaltiesResponse> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let res = querier.supports_interface(env.clone().contract.address.into_string(), ERC2981_ID.to_string(), erc_addr.clone())?;
+    let res = querier.supports_interface(env.clone().contract.address.into_string(),erc_addr.clone(), ERC2981_ID.to_string())?;
     Ok(CheckRoyaltiesResponse {
         royalty_payments: res.supported,
     })

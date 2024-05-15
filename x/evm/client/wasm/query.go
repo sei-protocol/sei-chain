@@ -2,10 +2,12 @@ package wasm
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -551,7 +553,13 @@ func (h *EVMQueryHandler) HandleSupportsInterface(ctx sdk.Context, caller string
 	if err != nil {
 		return nil, err
 	}
-	bz, err := abi.Pack("supportsInterface", common.Hex2Bytes(id))
+	aid := [4]byte{}
+	idbz, err := hex.DecodeString(strings.TrimPrefix(id, "0x"))
+	if err != nil {
+		return nil, err
+	}
+	copy(aid[:], idbz)
+	bz, err := abi.Pack("supportsInterface", aid)
 	if err != nil {
 		return nil, err
 	}
