@@ -118,13 +118,13 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
 
     // 721-Metadata
     function name() public view override returns (string memory) {
-        (string memory name,) = _queryContractInfo();
-        return name;
+        (string memory _name,) = _queryContractInfo();
+        return _name;
     }
 
     function symbol() public view override returns (string memory) {
-        (, string memory symbol) = _queryContractInfo();
-        return symbol;
+        (, string memory _symbol) = _queryContractInfo();
+        return _symbol;
     }
 
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
@@ -144,11 +144,11 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
         return JsonPrecompile.extractAsUint256(response, "count");
     }
 
-    function tokenOfOwnerByIndex(address owner, uint256 index) public view virtual returns (uint256) {
+    function tokenOfOwnerByIndex(address, uint256) public view virtual returns (uint256) {
         revert NotImplemented("tokenOfOwnerByIndex");
     }
 
-    function tokenByIndex(uint256 index) public view virtual returns (uint256) {
+    function tokenByIndex(uint256) public view virtual returns (uint256) {
         revert NotImplemented("tokenByIndex");
     }
 
@@ -199,10 +199,10 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
     function _queryContractInfo() internal view virtual returns (string memory, string memory) {
         string memory req = _curlyBrace(_formatPayload("contract_info", "{}"));
         bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
-        bytes memory name = JsonPrecompile.extractAsBytes(response, "name");
-        bytes memory symbol = JsonPrecompile.extractAsBytes(response, "symbol");
-        string memory nameStr = string(name);
-        string memory symbolStr = string(symbol);
+        bytes memory respName = JsonPrecompile.extractAsBytes(response, "name");
+        bytes memory respSymbol = JsonPrecompile.extractAsBytes(response, "symbol");
+        string memory nameStr = string(respName);
+        string memory symbolStr = string(respSymbol);
         return (nameStr, symbolStr);
     }
 
