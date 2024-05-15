@@ -122,10 +122,10 @@ contract CW721ERC721PointerTest is Test {
         bytes[] memory resp1 = new bytes[](2);
         bytes[] memory resp2 = new bytes[](2);
         bytes[] memory resp3 = new bytes[](0);
-        resp1[0] = bytes("a");
-        resp1[1] = bytes("b");
-        resp2[0] = bytes("c");
-        resp2[1] = bytes("d");
+        resp1[0] = bytes("\"a\"");
+        resp1[1] = bytes("\"b\"");
+        resp2[0] = bytes("\"c\"");
+        resp2[1] = bytes("\"d\"");
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
             abi.encodeWithSignature("extractAsBytesList(bytes,string)", bytes("{\"tokens\":[\"a\",\"b\"]}"), "tokens"),
