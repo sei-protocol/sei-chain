@@ -53,7 +53,7 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
         uint256 tokensLength = tokens.length;
         while (tokensLength > 0) {
             numTokens += tokensLength;
-            startAfter = _formatPayload("start_after", _doubleQuotes(string(tokens[tokensLength-1])));
+            startAfter = _formatPayload("start_after", string(tokens[tokensLength-1]));
             req = _curlyBrace(_formatPayload("tokens", _curlyBrace(_join(ownerAddr, startAfter, ","))));
             response = WasmdPrecompile.query(Cw721Address, bytes(req));
             tokens = JsonPrecompile.extractAsBytesList(response, "tokens");
