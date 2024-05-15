@@ -84,7 +84,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "sei",
-			Service:   NewSeiAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), sendAPI, ConnectionTypeHTTP),
+			Service:   NewAssociationAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), sendAPI, ConnectionTypeHTTP),
 		},
 		{
 			Namespace: "txpool",
