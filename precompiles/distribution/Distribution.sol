@@ -12,4 +12,6 @@ interface IDistr {
     function setWithdrawAddress(address withdrawAddr) external returns (bool success);
 
     function withdrawDelegationRewards(string memory validator) external returns (bool success);
+
+    function withdrawMultipleDelegationRewards(string[] memory validators) external returns (bool success);
 }

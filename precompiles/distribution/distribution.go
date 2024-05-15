@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	SetWithdrawAddressMethod        = "setWithdrawAddress"
-	WithdrawDelegationRewardsMethod = "withdrawDelegationRewards"
+	SetWithdrawAddressMethod                = "setWithdrawAddress"
+	WithdrawDelegationRewardsMethod         = "withdrawDelegationRewards"
+	WithdrawMultipleDelegationRewardsMethod = "withdrawMultipleDelegationRewards"
 )
 
 const (
@@ -50,8 +51,9 @@ type Precompile struct {
 	evmKeeper   pcommon.EVMKeeper
 	address     common.Address
 
-	SetWithdrawAddrID           []byte
-	WithdrawDelegationRewardsID []byte
+	SetWithdrawAddrID                   []byte
+	WithdrawDelegationRewardsID         []byte
+	WithdrawMultipleDelegationRewardsID []byte
 }
 
 func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
@@ -70,6 +72,8 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 			p.SetWithdrawAddrID = m.ID
 		case WithdrawDelegationRewardsMethod:
 			p.WithdrawDelegationRewardsID = m.ID
+		case WithdrawMultipleDelegationRewardsMethod:
+			p.WithdrawMultipleDelegationRewardsID = m.ID
 		}
 	}
 
@@ -123,6 +127,8 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 		return p.setWithdrawAddress(ctx, method, caller, args, value)
 	case WithdrawDelegationRewardsMethod:
 		return p.withdrawDelegationRewards(ctx, method, caller, args, value)
+	case WithdrawMultipleDelegationRewardsMethod:
+		return p.withdrawMultipleDelegationRewards(ctx, method, caller, args, value)
 	}
 	return
 }
@@ -158,18 +164,47 @@ func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Metho
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
+
 	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
 		return nil, fmt.Errorf("delegator %s is not associated", caller.Hex())
 	}
-	validator, err := sdk.ValAddressFromBech32(args[0].(string))
+	_, err := p.withdraw(ctx, delegator, args[0].(string))
 	if err != nil {
 		return nil, err
 	}
-	_, err = p.distrKeeper.WithdrawDelegationRewards(ctx, delegator, validator)
+	return method.Outputs.Pack(true)
+}
+
+func (p Precompile) withdraw(ctx sdk.Context, delegator sdk.AccAddress, validatorAddress string) (sdk.Coins, error) {
+	validator, err := sdk.ValAddressFromBech32(validatorAddress)
 	if err != nil {
 		return nil, err
 	}
+	return p.distrKeeper.WithdrawDelegationRewards(ctx, delegator, validator)
+}
+
+func (p Precompile) withdrawMultipleDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
+
+	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !found {
+		return nil, fmt.Errorf("delegator %s is not associated", caller.Hex())
+	}
+	validators := args[0].([]string)
+	for _, valAddr := range validators {
+		_, err := p.withdraw(ctx, delegator, valAddr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return method.Outputs.Pack(true)
 }
 
