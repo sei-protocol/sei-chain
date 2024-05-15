@@ -96,10 +96,30 @@ contract CW721ERC721PointerTest is Test {
     }
 
     function testName() public {
+        vm.mockCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"contract_info\":{}}")),
+            abi.encode("{\"name\":\"name\",\"symbol\":\"symbol\"}")
+        );
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsBytes(bytes,string)", bytes("{\"name\":\"name\",\"symbol\":\"symbol\"}"), "name"),
+            abi.encode(bytes("name"))
+        );
         assertEq(pointer.name(), "name");
     }
 
     function testSymbol() public {
+        vm.mockCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"contract_info\":{}}")),
+            abi.encode("{\"name\":\"name\",\"symbol\":\"symbol\"}")
+        );
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsBytes(bytes,string)", bytes("{\"name\":\"name\",\"symbol\":\"symbol\"}"), "symbol"),
+            abi.encode(bytes("symbol"))
+        );
         assertEq(pointer.symbol(), "symbol");
     }
 
