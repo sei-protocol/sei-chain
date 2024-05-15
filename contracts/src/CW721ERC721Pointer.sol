@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/token/common/ERC2981.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IWasmd} from "./precompiles/IWasmd.sol";
 import {IJson} from "./precompiles/IJson.sol";
 import {IAddr} from "./precompiles/IAddr.sol";
 
-contract CW721ERC721Pointer is ERC721 {
+contract CW721ERC721Pointer is ERC721,ERC2981 {
 
     address constant WASMD_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001002;
     address constant JSON_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001003;
@@ -24,6 +26,14 @@ contract CW721ERC721Pointer is ERC721 {
         JsonPrecompile = IJson(JSON_PRECOMPILE_ADDRESS);
         AddrPrecompile = IAddr(ADDR_PRECOMPILE_ADDRESS);
         Cw721Address = Cw721Address_;
+    }
+
+    function supportsInterface(bytes4 interfaceId) public pure override(ERC721, ERC2981) returns (bool) {
+        return
+            interfaceId == type(IERC2981).interfaceId ||
+            interfaceId == type(IERC165).interfaceId ||
+            interfaceId == type(IERC721).interfaceId ||
+            interfaceId == type(IERC721Metadata).interfaceId;
     }
 
     // Queries
@@ -80,6 +90,26 @@ contract CW721ERC721Pointer is ERC721 {
         bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
         bytes memory uri = JsonPrecompile.extractAsBytes(response, "token_uri");
         return string(uri);
+    }
+
+    // 2981
+    function royaltyInfo(uint256 tokenId, uint256 salePrice) public view override returns (address, uint256) {
+        bytes memory checkRoyaltyResponse = WasmdPrecompile.query(Cw721Address, bytes("{\"extension\":{\"msg\":{\"check_royalties\":{}}}}"));
+        bytes memory isRoyaltyImplemented = JsonPrecompile.extractAsBytes(checkRoyaltyResponse, "royalty_payments");
+        if (keccak256(isRoyaltyImplemented) != keccak256("true")) {
+            revert("royalty info not implemented on the underlying CosmWasm contract");
+        }
+        string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
+        string memory sPrice = _formatPayload("sale_price", _doubleQuotes(Strings.toString(salePrice)));
+        string memory req = _curlyBrace(_formatPayload("royalty_info", _curlyBrace(_join(tId, sPrice, ","))));
+        string memory fullReq = _curlyBrace(_formatPayload("extension", _curlyBrace(_formatPayload("msg", req))));
+        bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(fullReq));
+        bytes memory addr = JsonPrecompile.extractAsBytes(response, "address");
+        uint256 amt = JsonPrecompile.extractAsUint256(response, "royalty_amount");
+        if (addr.length == 0) {
+            return (address(0), amt);
+        }
+        return (AddrPrecompile.getEvmAddr(string(addr)), amt);
     }
 
     // Transactions
