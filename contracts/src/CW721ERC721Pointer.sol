@@ -24,7 +24,7 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
     error NotImplementedOnCosmwasmContract(string method);
     error NotImplemented(string method);
 
-    constructor(string memory Cw721Address_) ERC721("", "") {
+    constructor(string memory Cw721Address_, string memory name_, string memory symbol_) ERC721(name_, symbol_) {
         WasmdPrecompile = IWasmd(WASMD_PRECOMPILE_ADDRESS);
         JsonPrecompile = IJson(JSON_PRECOMPILE_ADDRESS);
         AddrPrecompile = IAddr(ADDR_PRECOMPILE_ADDRESS);
@@ -114,17 +114,6 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
             return (address(0), amt);
         }
         return (AddrPrecompile.getEvmAddr(string(addr)), amt);
-    }
-
-    // 721-Metadata
-    function name() public view override returns (string memory) {
-        (string memory _name,) = _queryContractInfo();
-        return _name;
-    }
-
-    function symbol() public view override returns (string memory) {
-        (, string memory _symbol) = _queryContractInfo();
-        return _symbol;
     }
 
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
