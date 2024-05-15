@@ -160,9 +160,8 @@ pub fn execute_approve_all(
                 "revoke_all"
             },
         )
-        .add_attribute("operator", to)
         .add_attribute("sender", info.sender)
-        .add_attribute("approved", format!("{}", approved))
+        .add_attribute("operator", to)
         .add_message(msg);
 
     Ok(res)
