@@ -149,7 +149,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 6, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, true, true)
 	})
 }
 

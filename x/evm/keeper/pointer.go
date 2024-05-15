@@ -146,6 +146,22 @@ func (k *Keeper) GetCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Addres
 	return
 }
 
+func (k *Keeper) DeleteCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Address, version uint16) {
+	addr, _, exists := k.GetCW20ERC20Pointer(ctx, erc20Address)
+	if exists {
+		k.deletePointerInfo(ctx, types.PointerCW20ERC20Key(erc20Address), version)
+		k.deletePointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(addr.String()))), version)
+	}
+}
+
+func (k *Keeper) DeleteCW721ERC721Pointer(ctx sdk.Context, erc721Address common.Address, version uint16) {
+	addr, _, exists := k.GetCW721ERC721Pointer(ctx, erc721Address)
+	if exists {
+		k.deletePointerInfo(ctx, types.PointerCW721ERC721Key(erc721Address), version)
+		k.deletePointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(addr.String()))), version)
+	}
+}
+
 func (k *Keeper) evmAddressIsPointer(ctx sdk.Context, addr common.Address) bool {
 	_, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(addr))
 	return exists
@@ -157,14 +173,18 @@ func (k *Keeper) cwAddressIsPointer(ctx sdk.Context, addr string) bool {
 }
 
 func (k *Keeper) SetCW721ERC721Pointer(ctx sdk.Context, erc721Address common.Address, addr string) error {
+	return k.SetCW721ERC721PointerWithVersion(ctx, erc721Address, addr, erc721.CurrentVersion)
+}
+
+func (k *Keeper) SetCW721ERC721PointerWithVersion(ctx sdk.Context, erc721Address common.Address, addr string, version uint16) error {
 	if k.evmAddressIsPointer(ctx, erc721Address) {
 		return ErrorPointerToPointerNotAllowed
 	}
-	err := k.setPointerInfo(ctx, types.PointerCW721ERC721Key(erc721Address), []byte(addr), erc721.CurrentVersion)
+	err := k.setPointerInfo(ctx, types.PointerCW721ERC721Key(erc721Address), []byte(addr), version)
 	if err != nil {
 		return err
 	}
-	return k.setPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(addr))), erc721Address[:], erc721.CurrentVersion)
+	return k.setPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(addr))), erc721Address[:], version)
 }
 
 func (k *Keeper) GetCW721ERC721Pointer(ctx sdk.Context, erc721Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {

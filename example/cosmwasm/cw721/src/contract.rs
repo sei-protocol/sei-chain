@@ -4,7 +4,7 @@ use cosmwasm_std::{
     DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary,
 };
 use cw721::{Cw721ReceiveMsg, OwnerOfResponse, Approval, ApprovalResponse, ApprovalsResponse, OperatorResponse, ContractInfoResponse, NftInfoResponse, AllNftInfoResponse};
-use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, ExecuteMsg, QueryMsg};
+use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, ExecuteMsg, QueryMsg, MigrateMsg};
 use crate::querier::EvmQuerier;
 use crate::error::ContractError;
 use crate::state::ERC721_ADDRESS;
@@ -17,6 +17,15 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     ERC721_ADDRESS.save(deps.storage, &msg.erc721_address)?;
+    Ok(Response::default())
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(
+    _deps: DepsMut,
+    _env: Env,
+    _msg: MigrateMsg,
+) -> Result<Response, ContractError> {
     Ok(Response::default())
 }
 
