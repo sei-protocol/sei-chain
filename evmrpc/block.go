@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -152,12 +153,15 @@ func EncodeTmBlock(
 ) (map[string]interface{}, error) {
 	number := big.NewInt(block.Block.Height)
 	blockhash := common.HexToHash(block.BlockID.Hash.String())
+	blockTime := block.Block.Time
 	lastHash := common.HexToHash(block.Block.LastBlockID.Hash.String())
 	appHash := common.HexToHash(block.Block.AppHash.String())
 	txHash := common.HexToHash(block.Block.DataHash.String())
 	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
 	miner := common.HexToAddress(block.Block.ProposerAddress.String())
+	baseFeePerGas := k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
 	gasLimit, gasWanted := int64(0), int64(0)
+	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
 	for i, txRes := range blockRes.TxsResults {
 		gasLimit += txRes.GasWanted
@@ -181,7 +185,8 @@ func EncodeTmBlock(
 					if err != nil {
 						continue
 					}
-					transactions = append(transactions, hydrateTransaction(ethtx, number, blockhash, receipt))
+					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+					transactions = append(transactions, newTx)
 				}
 			}
 		}
@@ -209,7 +214,7 @@ func EncodeTmBlock(
 		"size":             hexutil.Uint64(block.Block.Size()),
 		"uncles":           []common.Hash{}, // inapplicable to Sei
 		"transactions":     transactions,
-		"baseFeePerGas":    (*hexutil.Big)(k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()),
+		"baseFeePerGas":    (*hexutil.Big)(baseFeePerGas),
 	}
 	if fullTx {
 		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei

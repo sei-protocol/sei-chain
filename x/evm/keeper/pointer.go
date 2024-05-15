@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
+	artifactsutils "github.com/sei-protocol/sei-chain/x/evm/artifacts/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -56,7 +57,7 @@ func (k *Keeper) DeleteERC20NativePointer(ctx sdk.Context, token string, version
 
 // ERC20 -> CW20
 func (k *Keeper) SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error {
-	return k.SetERC20CW20PointerWithVersion(ctx, cw20Address, addr, cw20.CurrentVersion)
+	return k.SetERC20CW20PointerWithVersion(ctx, cw20Address, addr, cw20.CurrentVersion(ctx))
 }
 
 // ERC20 -> CW20
@@ -204,4 +205,24 @@ func (k *Keeper) deletePointerInfo(ctx sdk.Context, pref []byte, version uint16)
 	versionBz := make([]byte, 2)
 	binary.BigEndian.PutUint16(versionBz, version)
 	store.Delete(versionBz)
+}
+
+func (k *Keeper) GetStoredPointerCodeID(ctx sdk.Context, pointerType types.PointerType) uint64 {
+	store := k.PrefixStore(ctx, types.PointerCWCodePrefix)
+	var versionBz []byte
+	switch pointerType {
+	case types.PointerType_ERC20:
+		store = prefix.NewStore(store, types.PointerCW20ERC20Prefix)
+		versionBz = artifactsutils.GetVersionBz(erc20.CurrentVersion)
+	case types.PointerType_ERC721:
+		store = prefix.NewStore(store, types.PointerCW721ERC721Prefix)
+		versionBz = artifactsutils.GetVersionBz(erc721.CurrentVersion)
+	default:
+		return 0
+	}
+	bz := store.Get(versionBz)
+	if bz == nil {
+		return 0
+	}
+	return binary.BigEndian.Uint64(bz)
 }

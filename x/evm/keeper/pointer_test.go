@@ -31,6 +31,8 @@ type seiPointerTest struct {
 }
 
 func TestEVMtoCWPointers(t *testing.T) {
+	_, ctx := testkeeper.MockEVMKeeper()
+
 	tests := []seiPointerTest{
 		{
 			name: "ERC20NativePointer prevents pointer to cw20 pointer",
@@ -69,7 +71,7 @@ func TestEVMtoCWPointers(t *testing.T) {
 					cwGetter:   k.GetCW721ERC721Pointer,
 				}
 			},
-			version: cw20.CurrentVersion,
+			version: cw20.CurrentVersion(ctx),
 		},
 		{
 			name: "ERC20CW20Pointer prevents pointer to cw20 pointer",
@@ -82,7 +84,7 @@ func TestEVMtoCWPointers(t *testing.T) {
 					cwGetter:   k.GetCW20ERC20Pointer,
 				}
 			},
-			version: cw20.CurrentVersion,
+			version: cw20.CurrentVersion(ctx),
 		},
 		{
 			name: "ERC721CW721Pointer prevents pointer to cw721 pointer",

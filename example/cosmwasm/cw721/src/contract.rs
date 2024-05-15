@@ -35,16 +35,16 @@ pub fn execute(
             execute_send_nft(deps, info, contract, token_id, msg)
         },
         ExecuteMsg::Approve { spender, token_id, expires: _ } => {
-            execute_approve(deps, spender, token_id)
+            execute_approve(deps, info, spender, token_id, true)
         },
-        ExecuteMsg::Revoke { spender: _, token_id } => {
-            execute_approve(deps, "".to_string(), token_id)
+        ExecuteMsg::Revoke { spender, token_id } => {
+            execute_approve(deps, info, spender, token_id, false)
         },
         ExecuteMsg::ApproveAll { operator, expires: _ } => {
-            execute_approve_all(deps, operator, true)
+            execute_approve_all(deps, info, operator, true)
         },
         ExecuteMsg::RevokeAll { operator } => {
-            execute_approve_all(deps, operator, false)
+            execute_approve_all(deps, info, operator, false)
         },
         ExecuteMsg::Burn { token_id: _ } => { execute_burn() }
     }
@@ -82,17 +82,27 @@ pub fn execute_send_nft(
 
 pub fn execute_approve(
     deps: DepsMut<EvmQueryWrapper>,
+    info: MessageInfo,
     spender: String,
     token_id: String,
+    approved: bool,
 ) -> Result<Response<EvmMsg>, ContractError> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
 
     let querier = EvmQuerier::new(&deps.querier);
-    let payload = querier.erc721_approve_payload(spender.clone(), token_id.clone())?;
+    let mut payload_spender = spender.clone();
+    let mut action = "approve";
+    if !approved {
+        payload_spender = "".to_string();
+        action = "revoke";
+    }
+    let payload = querier.erc721_approve_payload(payload_spender, token_id.clone())?;
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
     let res = Response::new()
-        .add_attribute("action", "approve")
+        .add_attribute("action", action)
         .add_attribute("token_id", token_id)
+        .add_attribute("sender", info.sender)
+        .add_attribute("spender", spender.clone())
         .add_message(msg);
 
     Ok(res)
@@ -100,6 +110,7 @@ pub fn execute_approve(
 
 pub fn execute_approve_all(
     deps: DepsMut<EvmQueryWrapper>,
+    info: MessageInfo,
     to: String,
     approved: bool,
 ) -> Result<Response<EvmMsg>, ContractError> {
@@ -108,9 +119,14 @@ pub fn execute_approve_all(
     let querier = EvmQuerier::new(&deps.querier);
     let payload = querier.erc721_set_approval_all_payload(to.clone(), approved)?;
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+    let mut action = "approve_all";
+    if !approved {
+        action = "revoke_all";
+    }
     let res = Response::new()
-        .add_attribute("action", "approve_all")
-        .add_attribute("to", to)
+        .add_attribute("action", action)
+        .add_attribute("operator", to)
+        .add_attribute("sender", info.sender)
         .add_attribute("approved", format!("{}", approved))
         .add_message(msg);
 
@@ -136,8 +152,8 @@ fn transfer_nft(
     let payload = querier.erc721_transfer_payload(owner, recipient.clone(), token_id.clone())?;
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
     let res = Response::new()
-        .add_attribute("from", info.sender)
-        .add_attribute("to", recipient)
+        .add_attribute("sender", info.sender)
+        .add_attribute("recipient", recipient)
         .add_attribute("token_id", token_id)
         .add_message(msg);
 

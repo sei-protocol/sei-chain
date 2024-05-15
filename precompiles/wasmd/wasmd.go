@@ -304,6 +304,13 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 		rerr = errors.New("sum of coin amounts must equal value specified")
 		return
 	}
+	// Copy to avoid modifying the original value
+	var valueCopy *big.Int
+	if value != nil {
+		valueCopy = new(big.Int).Set(value)
+	} else {
+		valueCopy = value
+	}
 	for i := 0; i < len(executeMsgs); i++ {
 		executeMsg := ExecuteMsg(executeMsgs[i])
 
@@ -335,7 +342,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 			return
 		}
 		useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
-		if value != nil && !useiAmt.IsZero() {
+		if valueCopy != nil && !useiAmt.IsZero() {
 			// process coin amount from the value provided
 			useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
 			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
@@ -343,8 +350,8 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 				rerr = err
 				return
 			}
-			value.Sub(value, useiAmtAsWei)
-			if value.Sign() == -1 {
+			valueCopy.Sub(valueCopy, useiAmtAsWei)
+			if valueCopy.Sign() == -1 {
 				rerr = errors.New("insufficient value provided for payment")
 				return
 			}
@@ -373,7 +380,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 		}
 		responses = append(responses, res)
 	}
-	if value != nil && value.Sign() != 0 {
+	if valueCopy != nil && valueCopy.Sign() != 0 {
 		rerr = errors.New("value remaining after execution, must match provided amounts exactly")
 		return
 	}

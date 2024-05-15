@@ -115,14 +115,12 @@ jobs:
           {
             name: "EVM Module",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/evm_module/hardhat_test.yaml",
               "./integration_test/evm_module/scripts/evm_tests.sh",
             ]
           },
           {
             name: "EVM Interoperability",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/evm_module/hardhat_test.yaml",
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
             ]
           },

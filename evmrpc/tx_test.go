@@ -117,7 +117,7 @@ func TestGetTransaction(t *testing.T) {
 		resObj = resObj["result"].(map[string]interface{})
 		require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["blockHash"].(string))
 		require.Equal(t, "0x8", resObj["blockNumber"].(string))
-		require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["from"].(string))
+		require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", resObj["from"].(string))
 		require.Equal(t, "0x3e8", resObj["gas"].(string))
 		require.Equal(t, "0xa", resObj["gasPrice"].(string))
 		require.Equal(t, "0xa", resObj["maxFeePerGas"].(string))

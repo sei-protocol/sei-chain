@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -31,12 +32,12 @@ func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 }
 
 // For now, we put all unconfirmed txs in pending and none in queued
-func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]map[string]*RPCTransaction, returnErr error) {
+func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]map[string]*ethapi.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("sei_content", t.connectionType, startTime, returnErr == nil)
-	content := map[string]map[string]map[string]*RPCTransaction{
-		"pending": make(map[string]map[string]*RPCTransaction),
-		"queued":  make(map[string]map[string]*RPCTransaction),
+	content := map[string]map[string]map[string]*ethapi.RPCTransaction{
+		"pending": make(map[string]map[string]*ethapi.RPCTransaction),
+		"queued":  make(map[string]map[string]*ethapi.RPCTransaction),
 	}
 
 	total := t.txPoolConfig.maxNumTxs
@@ -63,14 +64,15 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 		}
 
 		nonce := ethTx.Nonce()
-		res := hydratePendingTransaction(ethTx)
+		chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx))
+		res := ethapi.NewRPCPendingTransaction(ethTx, nil, chainConfig)
 		nonceStr := strconv.FormatUint(nonce, 10)
 		if content["pending"][fromAddr.String()] == nil {
-			content["pending"][fromAddr.String()] = map[string]*RPCTransaction{
-				nonceStr: &res,
+			content["pending"][fromAddr.String()] = map[string]*ethapi.RPCTransaction{
+				nonceStr: res,
 			}
 		} else {
-			content["pending"][fromAddr.String()][nonceStr] = &res
+			content["pending"][fromAddr.String()][nonceStr] = res
 		}
 	}
 	return content, nil
