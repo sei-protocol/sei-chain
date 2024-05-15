@@ -1,4 +1,4 @@
-use cosmwasm_schema::cw_serde;
+use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{CosmosMsg, CustomMsg, CustomQuery, Uint128};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -152,3 +152,40 @@ pub enum EvmMsg {
         data: String, // base64 encoded
     },
 }
+
+#[cw_serde]
+#[derive(QueryResponses)]
+pub enum CwErc721QueryMsg {
+    #[returns(String)]
+    EvmAddress {},
+
+    // cw2981
+    /// Should be called on sale to see if royalties are owed
+    /// by the marketplace selling the NFT, if CheckRoyalties
+    /// returns true
+    /// See https://eips.ethereum.org/EIPS/eip-2981
+    #[returns(cw2981_royalties::msg::RoyaltiesInfoResponse)]
+    RoyaltyInfo {
+        token_id: String,
+        // the denom of this sale must also be the denom returned by RoyaltiesInfoResponse
+        // this was originally implemented as a Coin
+        // however that would mean you couldn't buy using CW20s
+        // as CW20 is just mapping of addr -> balance
+        sale_price: Uint128,
+    },
+    /// Called against contract to determine if this NFT
+    /// implements royalties. Should return a boolean as part of
+    /// CheckRoyaltiesResponse - default can simply be true
+    /// if royalties are implemented at token level
+    /// (i.e. always check on sale)
+    #[returns(cw2981_royalties::msg::CheckRoyaltiesResponse)]
+    CheckRoyalties {},
+}
+
+impl Default for CwErc721QueryMsg {
+    fn default() -> Self {
+        CwErc721QueryMsg::EvmAddress {}
+    }
+}
+
+impl CustomMsg for CwErc721QueryMsg {}

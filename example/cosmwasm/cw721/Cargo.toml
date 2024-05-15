@@ -17,6 +17,8 @@ library = []
 cosmwasm-schema = "1.5.0"
 cosmwasm-std = { version = "1.5.5", features = ["staking", "stargate"] }
 cw-storage-plus = "1.2.0"
+cw721 = "0.18.0"
+cw721-base = { version = "0.18.0", features = ["library"] }
 cw2981-royalties = "0.18.0"
 cw721 = "0.18.0"
 cw721-base = "0.18.0"
