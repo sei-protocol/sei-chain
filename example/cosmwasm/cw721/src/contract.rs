@@ -1,13 +1,17 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary,
+    DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Empty, Uint128,
 };
 use cw721::{Cw721ReceiveMsg, OwnerOfResponse, Approval, ApprovalResponse, ApprovalsResponse, OperatorResponse, ContractInfoResponse, NftInfoResponse, AllNftInfoResponse};
+use cw2981_royalties::msg::{Cw2981QueryMsg, RoyaltiesInfoResponse, CheckRoyaltiesResponse};
+use cw2981_royalties::Metadata as Cw2981Metadata;
 use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, ExecuteMsg, QueryMsg};
 use crate::querier::EvmQuerier;
 use crate::error::ContractError;
 use crate::state::ERC721_ADDRESS;
+
+const ERC2981_ID: &str = "0x2a55205a";
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -25,7 +29,7 @@ pub fn execute(
     deps: DepsMut<EvmQueryWrapper>,
     _env: Env,
     info: MessageInfo,
-    msg: ExecuteMsg,
+    msg: ExecuteMsg<Option<Cw2981Metadata>, Empty>,
 ) -> Result<Response<EvmMsg>, ContractError> {
     match msg {
         ExecuteMsg::TransferNft { recipient, token_id } => {
@@ -35,18 +39,21 @@ pub fn execute(
             execute_send_nft(deps, info, contract, token_id, msg)
         },
         ExecuteMsg::Approve { spender, token_id, expires: _ } => {
-            execute_approve(deps, spender, token_id)
+            execute_approve(deps, info, spender, token_id, true)
         },
-        ExecuteMsg::Revoke { spender: _, token_id } => {
-            execute_approve(deps, "".to_string(), token_id)
+        ExecuteMsg::Revoke { spender, token_id } => {
+            execute_approve(deps, info, spender, token_id, false)
         },
         ExecuteMsg::ApproveAll { operator, expires: _ } => {
-            execute_approve_all(deps, operator, true)
+            execute_approve_all(deps, info, operator, true)
         },
         ExecuteMsg::RevokeAll { operator } => {
-            execute_approve_all(deps, operator, false)
+            execute_approve_all(deps, info, operator, false)
         },
-        ExecuteMsg::Burn { token_id: _ } => { execute_burn() }
+        ExecuteMsg::Burn { token_id: _ } => { execute_burn() },
+        ExecuteMsg::Mint { .. } => execute_mint(),
+        ExecuteMsg::UpdateOwnership(_) => update_ownership(),
+        ExecuteMsg::Extension { .. } => execute_extension(),
     }
 }
 
@@ -82,17 +89,27 @@ pub fn execute_send_nft(
 
 pub fn execute_approve(
     deps: DepsMut<EvmQueryWrapper>,
+    info: MessageInfo,
     spender: String,
     token_id: String,
+    approved: bool,
 ) -> Result<Response<EvmMsg>, ContractError> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
 
     let querier = EvmQuerier::new(&deps.querier);
-    let payload = querier.erc721_approve_payload(spender.clone(), token_id.clone())?;
+    let mut payload_spender = spender.clone();
+    let mut action = "approve";
+    if !approved {
+        payload_spender = "".to_string();
+        action = "revoke";
+    }
+    let payload = querier.erc721_approve_payload(payload_spender, token_id.clone())?;
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
     let res = Response::new()
-        .add_attribute("action", "approve")
+        .add_attribute("action", action)
         .add_attribute("token_id", token_id)
+        .add_attribute("sender", info.sender)
+        .add_attribute("spender", spender.clone())
         .add_message(msg);
 
     Ok(res)
@@ -100,6 +117,7 @@ pub fn execute_approve(
 
 pub fn execute_approve_all(
     deps: DepsMut<EvmQueryWrapper>,
+    info: MessageInfo,
     to: String,
     approved: bool,
 ) -> Result<Response<EvmMsg>, ContractError> {
@@ -108,9 +126,14 @@ pub fn execute_approve_all(
     let querier = EvmQuerier::new(&deps.querier);
     let payload = querier.erc721_set_approval_all_payload(to.clone(), approved)?;
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+    let mut action = "approve_all";
+    if !approved {
+        action = "revoke_all";
+    }
     let res = Response::new()
-        .add_attribute("action", "approve_all")
-        .add_attribute("to", to)
+        .add_attribute("action", action)
+        .add_attribute("operator", to)
+        .add_attribute("sender", info.sender)
         .add_attribute("approved", format!("{}", approved))
         .add_message(msg);
 
@@ -118,6 +141,18 @@ pub fn execute_approve_all(
 }
 
 pub fn execute_burn() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn execute_mint() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn update_ownership() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn execute_extension() -> Result<Response<EvmMsg>, ContractError> {
     Err(ContractError::NotSupported {})
 }
 
@@ -136,8 +171,8 @@ fn transfer_nft(
     let payload = querier.erc721_transfer_payload(owner, recipient.clone(), token_id.clone())?;
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
     let res = Response::new()
-        .add_attribute("from", info.sender)
-        .add_attribute("to", recipient)
+        .add_attribute("sender", info.sender)
+        .add_attribute("recipient", recipient)
         .add_attribute("token_id", token_id)
         .add_message(msg);
 
@@ -145,7 +180,7 @@ fn transfer_nft(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg) -> Result<Binary, ContractError> {
+pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg<Cw2981QueryMsg>) -> Result<Binary, ContractError> {
     match msg {
         QueryMsg::OwnerOf { token_id, include_expired: _ } => Ok(to_json_binary(&query_owner_of(deps, env, token_id)?)?),
         QueryMsg::Approval { token_id, spender, include_expired: _ } => Ok(query_approval(deps, env, token_id, spender)?),
@@ -154,6 +189,13 @@ pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg) -> Result<Bin
         QueryMsg::ContractInfo {} => Ok(query_contract_info(deps, env)?),
         QueryMsg::NftInfo { token_id } => Ok(query_nft_info(deps, env, token_id)?),
         QueryMsg::AllNftInfo { token_id, include_expired: _ } => Ok(query_all_nft_info(deps, env, token_id)?),
+        QueryMsg::Extension { msg } => match msg {
+            Cw2981QueryMsg::RoyaltyInfo {
+                token_id,
+                sale_price,
+            } => Ok(to_json_binary(&query_royalty_info(deps, env, token_id, sale_price)?)?),
+            Cw2981QueryMsg::CheckRoyalties {} => Ok(to_json_binary(&query_check_royalties(deps, env)?)?),
+        },
         _ => Err(ContractError::NotSupported {  }),
     }
 }
@@ -220,4 +262,33 @@ pub fn query_all_nft_info(deps: Deps<EvmQueryWrapper>, env: Env, token_id: Strin
     let res = querier.erc721_uri(env.clone().contract.address.into_string(), erc_addr.clone(), token_id.clone())?;
     let owner_of_res = query_owner_of(deps, env, token_id)?;
     to_json_binary(&AllNftInfoResponse{access: owner_of_res, info: NftInfoResponse{token_uri: Some(res.uri), extension: ""}})
+}
+
+pub fn query_royalty_info(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    token_id: String,
+    sale_price: Uint128,
+) -> StdResult<RoyaltiesInfoResponse> {
+    let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let res = querier.erc721_royalty_info(
+        env.clone().contract.address.into_string(),
+        erc_addr.clone(),
+        token_id,
+        sale_price,
+    )?;
+    Ok(RoyaltiesInfoResponse {
+        address: res.receiver,
+        royalty_amount: res.royalty_amount,
+    })
+}
+
+pub fn query_check_royalties(deps: Deps<EvmQueryWrapper>, env: Env,) -> StdResult<CheckRoyaltiesResponse> {
+    let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let res = querier.supports_interface(env.clone().contract.address.into_string(),erc_addr.clone(), ERC2981_ID.to_string())?;
+    Ok(CheckRoyaltiesResponse {
+        royalty_payments: res.supported,
+    })
 }

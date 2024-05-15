@@ -137,6 +137,7 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
         return string(uri);
     }
 
+    // 721-Enumerable
     function totalSupply() public view virtual returns (uint256) {
         string memory req = _curlyBrace(_formatPayload("num_tokens", "{}"));
         bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));

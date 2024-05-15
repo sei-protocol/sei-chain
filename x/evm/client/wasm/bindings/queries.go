@@ -22,6 +22,8 @@ type SeiEVMQuery struct {
 	ERC721Uri                   *ERC721UriRequest                   `json:"erc721_uri,omitempty"`
 	GetEvmAddress               *GetEvmAddressRequest               `json:"get_evm_address,omitempty"`
 	GetSeiAddress               *GetSeiAddressRequest               `json:"get_sei_address,omitempty"`
+	ERC721RoyaltyInfo           *ERC721RoyaltyInfoRequest           `json:"erc721_royalty_info,omitempty"`
+	SupportsInterface           *SupportsInterfaceRequest           `json:"supports_interface,omitempty"`
 }
 
 type StaticCallRequest struct {
@@ -116,6 +118,19 @@ type GetSeiAddressRequest struct {
 	EvmAddress string `json:"evm_address"`
 }
 
+type ERC721RoyaltyInfoRequest struct {
+	Caller          string   `json:"caller"`
+	ContractAddress string   `json:"contract_address"`
+	TokenID         string   `json:"token_id"`
+	SalePrice       *sdk.Int `json:"sale_price"`
+}
+
+type SupportsInterfaceRequest struct {
+	Caller          string `json:"caller"`
+	ContractAddress string `json:"contract_address"`
+	InterfaceID     string `json:"interface_id"`
+}
+
 type StaticCallResponse struct {
 	EncodedData string `json:"encoded_data"`
 }
@@ -168,4 +183,13 @@ type GetEvmAddressResponse struct {
 type GetSeiAddressResponse struct {
 	SeiAddress string `json:"sei_address"`
 	Associated bool   `json:"associated"`
+}
+
+type ERC721RoyaltyInfoResponse struct {
+	Receiver      string   `json:"receiver"`
+	RoyaltyAmount *sdk.Int `json:"royalty_amount"`
+}
+
+type SupportsInterfaceResponse struct {
+	Supported bool `json:"supported"`
 }

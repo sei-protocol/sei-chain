@@ -43,19 +43,27 @@ type Precompile struct {
 	ExtractAsUint256ID   []byte
 }
 
-func NewPrecompile() (*Precompile, error) {
+func ABI() (*abi.ABI, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
-		return nil, fmt.Errorf("error loading the staking ABI %s", err)
+		return nil, fmt.Errorf("error loading the json ABI %s", err)
 	}
 
 	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
 	if err != nil {
 		return nil, err
 	}
+	return &newAbi, nil
+}
+
+func NewPrecompile() (*Precompile, error) {
+	newAbi, err := ABI()
+	if err != nil {
+		return nil, err
+	}
 
 	p := &Precompile{
-		Precompile: pcommon.Precompile{ABI: newAbi},
+		Precompile: pcommon.Precompile{ABI: *newAbi},
 		address:    common.HexToAddress(JSONAddress),
 	}
 
