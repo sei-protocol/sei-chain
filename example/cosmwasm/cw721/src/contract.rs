@@ -8,7 +8,7 @@ use cosmwasm_std::{
     to_json_binary, Binary, Deps, DepsMut, Env, Int256, MessageInfo, Response, StdError, StdResult,
     Uint128,
 };
-use cw2981_royalties::msg::{Cw2981QueryMsg, RoyaltiesInfoResponse, CheckRoyaltiesResponse};
+use cw2981_royalties::msg::{CheckRoyaltiesResponse, Cw2981QueryMsg, RoyaltiesInfoResponse};
 use cw2981_royalties::{ExecuteMsg, Extension, Metadata, QueryMsg};
 use cw721::{
     AllNftInfoResponse, Approval, ApprovalResponse, ApprovalsResponse, ContractInfoResponse,
@@ -239,7 +239,11 @@ pub fn query(
             start_after,
             limit,
         } => Ok(to_json_binary(&query_all_operators(
-            deps, env, owner, start_after, limit,
+            deps,
+            env,
+            owner,
+            start_after,
+            limit,
         )?)?),
         QueryMsg::NumTokens {} => Ok(to_json_binary(&query_num_tokens(deps, env)?)?),
         QueryMsg::ContractInfo {} => Ok(to_json_binary(&query_contract_info(deps, env)?)?),
@@ -276,7 +280,9 @@ pub fn query(
             } => Ok(to_json_binary(&query_royalty_info(
                 deps, env, token_id, sale_price,
             )?)?),
-            Cw2981QueryMsg::CheckRoyalties {} => Ok(to_json_binary(&query_check_royalties(deps, env)?)?),
+            Cw2981QueryMsg::CheckRoyalties {} => {
+                Ok(to_json_binary(&query_check_royalties(deps, env)?)?)
+            }
         },
     }
 }
@@ -397,9 +403,27 @@ pub fn query_all_operators(
     start_after: Option<String>,
     limit: Option<u32>,
 ) -> StdResult<OperatorsResponse> {
-    Ok(OperatorsResponse {
-        operators: vec![], // TODO
-    })
+    let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let tokens = query_tokens(deps, env.clone(), owner.to_string(), start_after, limit)
+        .unwrap_or(TokensResponse { tokens: vec![] })
+        .tokens;
+    let operators = tokens
+        .iter()
+        .map(|token_id| {
+            querier
+                .erc721_approved(
+                    env.clone().contract.address.into_string(),
+                    erc_addr.clone(),
+                    token_id.clone(),
+                )
+                .map(|res| Approval {
+                    spender: res.approved,
+                    expires: cw721::Expiration::Never {},
+                })
+        })
+        .collect::<StdResult<Vec<_>>>()?;
+    Ok(OperatorsResponse { operators })
 }
 
 pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumTokensResponse> {
@@ -548,12 +572,8 @@ pub fn query_check_royalties(
     deps: Deps<EvmQueryWrapper>,
     env: Env,
 ) -> StdResult<CheckRoyaltiesResponse> {
-    let royalties_implemented = match query_royalty_info(
-        deps,
-        env,
-        "1".to_string(),
-        100u128.into(),
-    ) {
+    let royalties_implemented = match query_royalty_info(deps, env, "1".to_string(), 100u128.into())
+    {
         Ok(_) => true,
         Err(_) => false,
     };
