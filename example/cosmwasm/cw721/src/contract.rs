@@ -209,7 +209,9 @@ pub fn query(
             token_id,
             spender,
             include_expired: _,
-        } => Ok(to_json_binary(&query_approval(deps, env, token_id, spender)?)?),
+        } => Ok(to_json_binary(&query_approval(
+            deps, env, token_id, spender,
+        )?)?),
         QueryMsg::Approvals {
             token_id,
             include_expired: _,
@@ -218,7 +220,9 @@ pub fn query(
             owner,
             operator,
             include_expired: _,
-        } => Ok(to_json_binary(&query_operator(deps, env, owner, operator)?)?),
+        } => Ok(to_json_binary(&query_operator(
+            deps, env, owner, operator,
+        )?)?),
         QueryMsg::NumTokens {} => Ok(to_json_binary(&query_num_tokens(deps, env)?)?),
         QueryMsg::ContractInfo {} => Ok(query_contract_info(deps, env)?),
         QueryMsg::NftInfo { token_id } => Ok(query_nft_info(deps, env, token_id)?),
@@ -230,6 +234,14 @@ pub fn query(
             } => Ok(to_json_binary(&query_royalty_info(deps, env, token_id, sale_price)?)?),
             Cw2981QueryMsg::CheckRoyalties {} => Ok(to_json_binary(&query_check_royalties(deps, env)?)?),
         },
+        QueryMsg::ContractInfo {} => Ok(to_json_binary(&query_contract_info(deps, env)?)?),
+        QueryMsg::NftInfo { token_id } => {
+            Ok(to_json_binary(&query_nft_info(deps, env, token_id)?)?)
+        }
+        QueryMsg::AllNftInfo {
+            token_id,
+            include_expired: _,
+        } => Ok(to_json_binary(&query_all_nft_info(deps, env, token_id)?)?),
         QueryMsg::Tokens {
             owner,
             start_after,
@@ -241,9 +253,12 @@ pub fn query(
             start_after,
             limit,
         )?)?),
-        QueryMsg::AllTokens { start_after, limit } => {
-            Ok(to_json_binary(&query_all_tokens(deps, env, start_after, limit)?)?)
-        },
+        QueryMsg::AllTokens { start_after, limit } => Ok(to_json_binary(&query_all_tokens(
+            deps,
+            env,
+            start_after,
+            limit,
+        )?)?),
         QueryMsg::AllOperators { .. } => Ok(to_json_binary(&query_all_operators()?)?),
         QueryMsg::Minter { .. } => Ok(to_json_binary(&query_minter()?)?),
         QueryMsg::Ownership { .. } => Ok(to_json_binary(&query_ownership()?)?),
@@ -313,7 +328,7 @@ pub fn query_approval(
             },
         });
     }
-    Err(StdError::not_found("not approved"))
+    Err(StdError::generic_err("not approved"))
 }
 
 pub fn query_approvals(
@@ -365,7 +380,7 @@ pub fn query_operator(
             },
         });
     }
-    Err(StdError::not_found("operator not approved".to_string()))
+    Err(StdError::generic_err("operator not approved".to_string()))
 }
 
 pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumTokensResponse> {
@@ -374,11 +389,14 @@ pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumT
     let res = querier
         .erc721_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?;
     Ok(NumTokensResponse {
-        count: res.supply as u64,
+        count: res.supply.u128() as u64,
     })
 }
 
-pub fn query_contract_info(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<ContractInfoResponse> {
+pub fn query_contract_info(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+) -> StdResult<ContractInfoResponse> {
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
     let res =
