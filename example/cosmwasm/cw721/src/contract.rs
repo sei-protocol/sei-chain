@@ -1,5 +1,5 @@
 use crate::error::ContractError;
-use crate::msg::{EvmMsg, EvmQueryWrapper, InstantiateMsg};
+use crate::msg::{CwErc721QueryMsg, EvmMsg, EvmQueryWrapper, InstantiateMsg};
 use crate::querier::{EvmQuerier, DEFAULT_LIMIT, MAX_LIMIT};
 use crate::state::ERC721_ADDRESS;
 #[cfg(not(feature = "library"))]
@@ -8,13 +8,14 @@ use cosmwasm_std::{
     to_json_binary, Binary, Deps, DepsMut, Env, Int256, MessageInfo, Response, StdError, StdResult,
     Uint128,
 };
-use cw2981_royalties::msg::{CheckRoyaltiesResponse, Cw2981QueryMsg, RoyaltiesInfoResponse};
-use cw2981_royalties::{ExecuteMsg, Extension, Metadata, QueryMsg};
+use cw2981_royalties::msg::{CheckRoyaltiesResponse, RoyaltiesInfoResponse};
+use cw2981_royalties::{ExecuteMsg, Extension, Metadata};
 use cw721::{
     AllNftInfoResponse, Approval, ApprovalResponse, ApprovalsResponse, ContractInfoResponse,
     Cw721ReceiveMsg, NftInfoResponse, NumTokensResponse, OperatorResponse, OperatorsResponse,
     OwnerOfResponse, TokensResponse,
 };
+use cw721_base::QueryMsg;
 use std::str::FromStr;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -208,7 +209,7 @@ fn transfer_nft(
 pub fn query(
     deps: Deps<EvmQueryWrapper>,
     env: Env,
-    msg: QueryMsg,
+    msg: QueryMsg<CwErc721QueryMsg>,
 ) -> Result<Binary, ContractError> {
     match msg {
         QueryMsg::OwnerOf {
@@ -274,13 +275,16 @@ pub fn query(
         QueryMsg::Minter {} => Ok(to_json_binary(&query_minter()?)?),
         QueryMsg::Ownership {} => Ok(to_json_binary(&query_ownership()?)?),
         QueryMsg::Extension { msg } => match msg {
-            Cw2981QueryMsg::RoyaltyInfo {
+            CwErc721QueryMsg::EvmAddress {} => {
+                Ok(to_json_binary(&ERC721_ADDRESS.load(deps.storage)?)?)
+            }
+            CwErc721QueryMsg::RoyaltyInfo {
                 token_id,
                 sale_price,
             } => Ok(to_json_binary(&query_royalty_info(
                 deps, env, token_id, sale_price,
             )?)?),
-            Cw2981QueryMsg::CheckRoyalties {} => {
+            CwErc721QueryMsg::CheckRoyalties {} => {
                 Ok(to_json_binary(&query_check_royalties(deps, env)?)?)
             }
         },
