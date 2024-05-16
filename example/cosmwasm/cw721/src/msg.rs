@@ -1,6 +1,6 @@
-use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{CosmosMsg, CustomMsg, CustomQuery, Uint128};
 use schemars::JsonSchema;
+use cosmwasm_schema::{cw_serde, QueryResponses};
 use serde::{Deserialize, Serialize};
 
 pub use cw721_base::{ExecuteMsg, QueryMsg};
@@ -61,10 +61,6 @@ pub enum EvmQuery {
         to: String,
         approved: bool,
     },
-    Erc721TotalSupply {
-        caller: String,
-        contract_address: String,
-    },
     Erc721NameSymbol {
         caller: String,
         contract_address: String,
@@ -84,6 +80,10 @@ pub enum EvmQuery {
         caller: String,
         contract_address: String,
         interface_id: String,
+    },
+    Erc721TotalSupply {
+        caller: String,
+        contract_address: String,
     },
 }
 
@@ -108,11 +108,6 @@ pub struct Erc721IsApprovedForAllResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct Erc721TotalSupplyResponse {
-    pub supply: Uint128,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc721NameSymbolResponse {
     pub name: String,
     pub symbol: String,
@@ -132,6 +127,11 @@ pub struct Erc721RoyaltyInfoResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct SupportsInterfaceResponse {
     pub supported: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Erc721TotalSupplyResponse {
+    pub supply: Uint128,
 }
 
 // implement custom query
