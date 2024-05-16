@@ -109,15 +109,39 @@ contract CW721ERC721PointerTest is Test {
             abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\"}}")),
             abi.encode("{\"tokens\":[\"a\",\"b\"]}")
         );
-        bytes[] memory response = new bytes[](2);
-        response[0] = bytes("a");
-        response[1] = bytes("b");
+        vm.mockCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"start_after\":\"b\"}}")),
+            abi.encode("{\"tokens\":[\"c\",\"d\"]}")
+        );
+        vm.mockCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"start_after\":\"d\"}}")),
+            abi.encode("{\"tokens\":[]}")
+        );
+        bytes[] memory resp1 = new bytes[](2);
+        bytes[] memory resp2 = new bytes[](2);
+        bytes[] memory resp3 = new bytes[](0);
+        resp1[0] = bytes("\"a\"");
+        resp1[1] = bytes("\"b\"");
+        resp2[0] = bytes("\"c\"");
+        resp2[1] = bytes("\"d\"");
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
             abi.encodeWithSignature("extractAsBytesList(bytes,string)", bytes("{\"tokens\":[\"a\",\"b\"]}"), "tokens"),
-            abi.encode(response)
+            abi.encode(resp1)
         );
-        assertEq(pointer.balanceOf(MockCallerEVMAddr), 2);
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsBytesList(bytes,string)", bytes("{\"tokens\":[\"c\",\"d\"]}"), "tokens"),
+            abi.encode(resp2)
+        );
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsBytesList(bytes,string)", bytes("{\"tokens\":[]}"), "tokens"),
+            abi.encode(resp3)
+        );
+        assertEq(pointer.balanceOf(MockCallerEVMAddr), 4);
     }
 
     function testOwnerOf() public {
