@@ -96,12 +96,17 @@ service Query {
 	rpc GetMarketSummary(QueryGetMarketSummaryRequest) returns (QueryGetMarketSummaryResponse) {
 		option (google.api.http).get = "/sei-protocol/seichain/dex/get_market_summary/{contractAddr}/{priceDenom}/{assetDenom}/{lookbackInSeconds}";
 	}
-	
+
 	rpc GetOrderSimulation(QueryOrderSimulationRequest) returns (QueryOrderSimulationResponse) {}
 
 	rpc GetMatchResult(QueryGetMatchResultRequest) returns (QueryGetMatchResultResponse) {}
 
 	rpc GetOrderCount(QueryGetOrderCountRequest) returns (QueryGetOrderCountResponse) {}
+
+	// List all dex contract info
+	rpc ListAllContractInfo(QueryListAllContractInfoRequest) returns (QueryListAllContractInfoResponse) {
+		option (google.api.http).get = "/sei-protocol/seichain/dex/list_all_contract_info";
+	}
 
 // this line is used by starport scaffolding # 2
 }
@@ -246,6 +251,12 @@ message QueryRegisteredContractRequest {
 
 message QueryRegisteredContractResponse {
 	ContractInfoV2 contract_info = 1;
+}
+
+message QueryListAllContractInfoRequest {}
+
+message QueryListAllContractInfoResponse {
+	repeated ContractInfoV2 contract_infos = 1;
 }
 
 message QueryGetOrdersRequest{
