@@ -2,9 +2,6 @@ use cosmwasm_std::{QuerierWrapper, StdResult, Uint128};
 
 use crate::msg::{Route, EvmQuery, EvmQueryWrapper, ErcPayloadResponse, Erc721OwnerResponse, Erc721ApprovedResponse, Erc721IsApprovedForAllResponse, Erc721NameSymbolResponse, Erc721UriResponse, Erc721RoyaltyInfoResponse, SupportsInterfaceResponse, Erc721TotalSupplyResponse};
 
-pub const DEFAULT_LIMIT: u32 = 10;
-pub const MAX_LIMIT: u32 = 30;
-
 pub struct EvmQuerier<'a> {
     querier: &'a QuerierWrapper<'a, EvmQueryWrapper>,
 }

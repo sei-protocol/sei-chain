@@ -1,16 +1,15 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Empty, Uint128, Int256,
+    DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Empty, Uint128,
 };
 use cw721::{Cw721ReceiveMsg, OwnerOfResponse, Approval, ApprovalResponse, ApprovalsResponse, OperatorResponse, ContractInfoResponse, NftInfoResponse, AllNftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
 use cw2981_royalties::msg::{RoyaltiesInfoResponse, CheckRoyaltiesResponse};
 use cw2981_royalties::{Metadata as Cw2981Metadata, Extension as Cw2981Extension};
 use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, ExecuteMsg, QueryMsg, CwErc721QueryMsg};
-use crate::querier::{EvmQuerier, DEFAULT_LIMIT, MAX_LIMIT};
+use crate::querier::EvmQuerier;
 use crate::error::ContractError;
 use crate::state::ERC721_ADDRESS;
-use std::str::FromStr;
 
 const ERC2981_ID: &str = "0x2a55205a";
 
@@ -254,7 +253,7 @@ pub fn query_approval(deps: Deps<EvmQueryWrapper>, env: Env, token_id: String, s
     if !approved.is_empty() && approved == spender {
         return to_json_binary(&ApprovalResponse{approval: Approval{spender, expires: cw721::Expiration::Never {}}});
     }
-    Err(cosmwasm_std::StdError::NotFound { kind: "not approved".to_string() })
+    Err(cosmwasm_std::StdError::not_found("approval".to_string()))
 }
 
 pub fn query_approvals(deps: Deps<EvmQueryWrapper>, env: Env, token_id: String) -> StdResult<Binary> {
@@ -274,7 +273,7 @@ pub fn query_operator(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, oper
     if is_approved {
         return to_json_binary(&OperatorResponse{approval: Approval{spender: operator.clone(), expires: cw721::Expiration::Never {}}});
     }
-    Err(cosmwasm_std::StdError::NotFound { kind: "not approved".to_string() })
+    Err(cosmwasm_std::StdError::not_found("approval".to_string()))
 }
 
 pub fn query_contract_info(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<Binary> {
@@ -337,40 +336,13 @@ pub fn query_all_nft_info(
 }
 
 pub fn query_tokens(
-    deps: Deps<EvmQueryWrapper>,
-    env: Env,
-    owner: String,
-    start_after: Option<String>,
-    limit: Option<u32>,
-) -> StdResult<TokensResponse> {
-    let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
-    let querier = EvmQuerier::new(&deps.querier);
-    let num_tokens = query_num_tokens(deps, env.clone())?.count;
-    let start_after_id = Int256::from_str(&start_after.unwrap_or("-1".to_string()))?;
-    let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
-
-    let mut cur = Int256::zero();
-    let mut counter = 0;
-    let mut tokens: Vec<String> = vec![];
-    while counter < num_tokens && tokens.len() < limit {
-        let cur_str = cur.to_string();
-        let t_owner = match querier.erc721_owner(
-            env.clone().contract.address.into_string(),
-            erc_addr.clone(),
-            cur_str.to_string(),
-        ) {
-            Ok(res) => res.owner,
-            Err(_) => "".to_string(),
-        };
-        if t_owner != "" {
-            counter += 1;
-            if (owner.is_empty() || t_owner == owner) && cur > start_after_id {
-                tokens.push(cur_str);
-            }
-        }
-        cur += Int256::one();
-    }
-    Ok(TokensResponse { tokens })
+    _deps: Deps<EvmQueryWrapper>,
+    _env: Env,
+    _owner: String,
+    _start_after: Option<String>,
+    _limit: Option<u32>,
+) -> Result<TokensResponse, ContractError> {
+    Err(ContractError::NotSupported {})
 }
 
 pub fn query_all_tokens(
@@ -378,7 +350,7 @@ pub fn query_all_tokens(
     env: Env,
     start_after: Option<String>,
     limit: Option<u32>,
-) -> StdResult<TokensResponse> {
+) -> Result<TokensResponse, ContractError> {
     query_tokens(deps, env, "".to_string(), start_after, limit)
 }
 
