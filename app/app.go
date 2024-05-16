@@ -1651,7 +1651,7 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 
 // LoadHeight loads a particular height
 func (app *App) LoadHeight(height int64) error {
-	return app.LoadVersionWithoutInit(height)
+	return app.LoadVersion(height)
 }
 
 // ModuleAccountAddrs returns all the app's module account addresses.
