@@ -106,17 +106,17 @@ contract CW721ERC721PointerTest is Test {
     function testBalanceOf() public {
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"limit\":1000,\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\"}}")),
             abi.encode("{\"tokens\":[\"a\",\"b\"]}")
         );
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"start_after\":\"b\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"limit\":1000,\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"start_after\":\"b\"}}")),
             abi.encode("{\"tokens\":[\"c\",\"d\"]}")
         );
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"start_after\":\"d\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"limit\":1000,\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"start_after\":\"d\"}}")),
             abi.encode("{\"tokens\":[]}")
         );
         bytes[] memory resp1 = new bytes[](2);

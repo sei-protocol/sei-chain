@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.4;
+pragma solidity ^0.8.12;
 
 import "@openzeppelin/contracts/token/common/ERC2981.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -46,18 +46,26 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
         }
         uint256 numTokens = 0;
         string memory startAfter;
-        string memory ownerAddr = _formatPayload("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(owner)));
-        string memory req = _curlyBrace(_formatPayload("tokens", _curlyBrace(ownerAddr)));
+        string memory qb = string.concat(
+            string.concat("\"limit\":1000,\"owner\":\"", AddrPrecompile.getSeiAddr(owner)),
+            "\""
+        );
+        bytes32 terminator = keccak256("{\"tokens\":[]}");
+
+        bytes[] memory tokens;
+        uint256 tokensLength;
+        string memory req = string.concat(string.concat("{\"tokens\":{", qb), "}}");
         bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
-        bytes[] memory tokens = JsonPrecompile.extractAsBytesList(response, "tokens");
-        uint256 tokensLength = tokens.length;
-        while (tokensLength > 0) {
-            numTokens += tokensLength;
-            startAfter = _formatPayload("start_after", string(tokens[tokensLength-1]));
-            req = _curlyBrace(_formatPayload("tokens", _curlyBrace(_join(ownerAddr, startAfter, ","))));
-            response = WasmdPrecompile.query(Cw721Address, bytes(req));
+        while (keccak256(response) != terminator) {
             tokens = JsonPrecompile.extractAsBytesList(response, "tokens");
             tokensLength = tokens.length;
+            numTokens += tokensLength;
+            startAfter = string.concat(",\"start_after\":", string(tokens[tokensLength-1]));
+            req = string.concat(
+                string.concat("{\"tokens\":{", string.concat(qb, startAfter)),
+                "}}"
+            );
+            response = WasmdPrecompile.query(Cw721Address, bytes(req));
         }
         return numTokens;
     }
