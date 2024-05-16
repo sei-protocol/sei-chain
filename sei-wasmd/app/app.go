@@ -521,6 +521,7 @@ func NewWasmApp(
 	app.wasmKeeper = wasm.NewKeeper(
 		appCodec,
 		keys[wasm.StoreKey],
+		app.paramsKeeper,
 		app.getSubspace(wasm.ModuleName),
 		app.accountKeeper,
 		app.bankKeeper,

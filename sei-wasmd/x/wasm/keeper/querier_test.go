@@ -184,6 +184,7 @@ func TestQuerySmartContractPanics(t *testing.T) {
 		},
 	}
 	for msg, spec := range specs {
+		ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, DefaultInstanceCost)).WithLogger(log.TestingLogger())
 		t.Run(msg, func(t *testing.T) {
 			keepers.WasmKeeper.wasmVM = &wasmtesting.MockWasmer{QueryFn: func(checksum wasmvm.Checksum, env wasmvmtypes.Env, queryMsg []byte, store wasmvm.KVStore, goapi wasmvm.GoAPI, querier wasmvm.Querier, gasMeter wasmvm.GasMeter, gasLimit uint64, deserCost wasmvmtypes.UFraction) ([]byte, uint64, error) {
 				spec.doInContract()
@@ -541,7 +542,7 @@ func TestQueryContractInfo(t *testing.T) {
 	govtypes.RegisterInterfaces(keepers.EncodingConfig.InterfaceRegistry)
 
 	k := keepers.WasmKeeper
-	querier := NewGrpcQuerier(k.cdc, k.storeKey, k, k.queryGasLimit)
+	querier := NewGrpcQuerier(k.cdc, k.storeKey, k, k.queryGasLimit, k.paramsKeeper)
 	myExtension := func(info *types.ContractInfo) {
 		// abuse gov proposal as a random protobuf extension with an Any type
 		myExt, err := govtypes.NewProposal(&govtypes.TextProposal{Title: "foo", Description: "bar"}, 1, anyDate, anyDate, false)

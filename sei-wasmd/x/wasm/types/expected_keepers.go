@@ -7,6 +7,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 	"github.com/cosmos/cosmos-sdk/x/distribution/types"
+	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
@@ -97,6 +98,10 @@ type CapabilityKeeper interface {
 	GetCapability(ctx sdk.Context, name string) (*capabilitytypes.Capability, bool)
 	ClaimCapability(ctx sdk.Context, cap *capabilitytypes.Capability, name string) error
 	AuthenticateCapability(ctx sdk.Context, capability *capabilitytypes.Capability, name string) bool
+}
+
+type ParamsKeeper interface {
+	GetCosmosGasParams(ctx sdk.Context) paramstypes.CosmosGasParams
 }
 
 // ICS20TransferPortSource is a subset of the ibc transfer keeper.

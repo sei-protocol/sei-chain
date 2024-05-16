@@ -374,6 +374,7 @@ func createTestInput(
 	keeper := NewKeeper(
 		appCodec,
 		keys[types.StoreKey],
+		paramsKeeper,
 		subspace(types.ModuleName),
 		accountKeeper,
 		bankKeeper,
@@ -402,7 +403,7 @@ func createTestInput(
 	)
 	am.RegisterServices(module.NewConfigurator(appCodec, msgRouter, querier))
 	types.RegisterMsgServer(msgRouter, NewMsgServerImpl(NewDefaultPermissionKeeper(keeper)))
-	types.RegisterQueryServer(querier, NewGrpcQuerier(appCodec, keys[types.ModuleName], keeper, keeper.queryGasLimit))
+	types.RegisterQueryServer(querier, NewGrpcQuerier(appCodec, keys[types.ModuleName], keeper, keeper.queryGasLimit, paramsKeeper))
 
 	govRouter := govtypes.NewRouter().
 		AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
