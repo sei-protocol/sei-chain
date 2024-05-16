@@ -51,6 +51,9 @@ contract ERC721 is IERC721 {
         bool approved
     );
 
+    // Keeps track of current token supply
+    uint256 internal _totalSupply = 0;
+
     // Mapping from token ID to owner address
     mapping(uint => address) internal _ownerOf;
 
@@ -77,6 +80,10 @@ contract ERC721 is IERC721 {
     function balanceOf(address owner) external view returns (uint) {
         require(owner != address(0), "owner = zero address");
         return _balanceOf[owner];
+    }
+
+    function totalSupply() external view returns (uint256) {
+        return _totalSupply;
     }
 
     function setApprovalForAll(address operator, bool approved) external {
@@ -158,6 +165,7 @@ contract ERC721 is IERC721 {
         require(_ownerOf[id] == address(0), "already minted");
 
         _balanceOf[to]++;
+        _totalSupply++;
         _ownerOf[id] = to;
 
         emit Transfer(address(0), to, id);
@@ -168,6 +176,7 @@ contract ERC721 is IERC721 {
         require(owner != address(0), "not minted");
 
         _balanceOf[owner] -= 1;
+        _totalSupply--;
 
         delete _ownerOf[id];
         delete _approvals[id];
@@ -221,5 +230,10 @@ contract MyNFT is ERC721 {
     function burn(uint id) external {
         require(msg.sender == _ownerOf[id], "not owner");
         _burn(id);
+    }
+
+    function royaltyInfo(uint, uint256 salePrice) external pure returns (address receiver, uint256 royaltyAmount) {
+        receiver = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+        royaltyAmount = (salePrice * 500) / 10_000;
     }
 }

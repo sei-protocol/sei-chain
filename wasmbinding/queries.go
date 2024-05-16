@@ -239,21 +239,24 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case parsedQuery.ERC721IsApprovedForAll != nil:
 		c := parsedQuery.ERC721IsApprovedForAll
 		return qp.evmHandler.HandleERC721IsApprovedForAll(ctx, c.Caller, c.ContractAddress, c.Owner, c.Operator)
+	case parsedQuery.ERC721TotalSupply != nil:
+		c := parsedQuery.ERC721TotalSupply
+		return qp.evmHandler.HandleERC721TotalSupply(ctx, c.Caller, c.ContractAddress)
 	case parsedQuery.ERC721NameSymbol != nil:
 		c := parsedQuery.ERC721NameSymbol
 		return qp.evmHandler.HandleERC721NameSymbol(ctx, c.Caller, c.ContractAddress)
 	case parsedQuery.ERC721Uri != nil:
 		c := parsedQuery.ERC721Uri
 		return qp.evmHandler.HandleERC721Uri(ctx, c.Caller, c.ContractAddress, c.TokenID)
+	case parsedQuery.ERC721RoyaltyInfo != nil:
+		c := parsedQuery.ERC721RoyaltyInfo
+		return qp.evmHandler.HandleERC721RoyaltyInfo(ctx, c.Caller, c.ContractAddress, c.TokenID, c.SalePrice)
 	case parsedQuery.GetEvmAddress != nil:
 		c := parsedQuery.GetEvmAddress
 		return qp.evmHandler.HandleGetEvmAddress(ctx, c.SeiAddress)
 	case parsedQuery.GetSeiAddress != nil:
 		c := parsedQuery.GetSeiAddress
 		return qp.evmHandler.HandleGetSeiAddress(ctx, c.EvmAddress)
-	case parsedQuery.ERC721RoyaltyInfo != nil:
-		c := parsedQuery.ERC721RoyaltyInfo
-		return qp.evmHandler.HandleERC721RoyaltyInfo(ctx, c.Caller, c.ContractAddress, c.TokenID, c.SalePrice)
 	case parsedQuery.SupportsInterface != nil:
 		c := parsedQuery.SupportsInterface
 		return qp.evmHandler.HandleSupportsInterface(ctx, c.Caller, c.InterfaceID, c.ContractAddress)
