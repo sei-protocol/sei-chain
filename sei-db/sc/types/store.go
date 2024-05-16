@@ -7,7 +7,7 @@ import (
 )
 
 type Committer interface {
-	Initialize(initialStores []string) error
+	Initialize(initialStores []string)
 
 	Commit() (int64, error)
 
