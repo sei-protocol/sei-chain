@@ -57,12 +57,21 @@ contract DummyERC721 is IERC721 {
         return 50;
     }
 
+    function totalSupply() public view returns (uint256 supply) {
+        supply = 101;
+    }
+
     function ownerOf(uint256 tokenId) public view override returns (address owner) {
         return randomAddress;
     }
 
     function tokenURI(uint256 tokenId) public view returns (string memory) {
         return "https://example.com";
+    }
+
+    function royaltyInfo(uint256 tokenId, uint256 salePrice) external view returns (address receiver, uint256 royaltyAmount) {
+        receiver = randomAddress;
+        royaltyAmount = (salePrice * 500) / 10_000;
     }
 
     function transferFrom(address from, address to, uint256 tokenId) public override {}

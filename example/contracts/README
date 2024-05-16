@@ -11,7 +11,7 @@ make devtools
 
 # Compile sol
 solc --bin -o example/contracts/simplestorage example/contracts/simplestorage/SimpleStorage.sol
-solc @openzeppelin=contracts/lib/openzeppelin-contracts --bin -o x/evm/artifacts contracts/src/CW721ERC721Wrapper.sol
+solc @openzeppelin=contracts/lib/openzeppelin-contracts --bin -o x/evm/artifacts/cw721 contracts/src/CW721ERC721Pointer.sol
 
 # Generate ABI in Go
 solc --abi -o example/contracts/simplestorage example/contracts/simplestorage/SimpleStorage.sol

@@ -1,6 +1,9 @@
-use cosmwasm_std::{QuerierWrapper, StdResult};
+use cosmwasm_std::{QuerierWrapper, StdResult, Uint128};
 
-use crate::msg::{Route, EvmQuery, EvmQueryWrapper, ErcPayloadResponse, Erc721OwnerResponse, Erc721ApprovedResponse, Erc721IsApprovedForAllResponse, Erc721NameSymbolResponse, Erc721UriResponse};
+use crate::msg::{Route, EvmQuery, EvmQueryWrapper, ErcPayloadResponse, Erc721OwnerResponse, Erc721ApprovedResponse, Erc721IsApprovedForAllResponse, Erc721NameSymbolResponse, Erc721UriResponse, Erc721RoyaltyInfoResponse, SupportsInterfaceResponse, Erc721TotalSupplyResponse};
+
+pub const DEFAULT_LIMIT: u32 = 10;
+pub const MAX_LIMIT: u32 = 30;
 
 pub struct EvmQuerier<'a> {
     querier: &'a QuerierWrapper<'a, EvmQueryWrapper>,
@@ -92,6 +95,59 @@ impl<'a> EvmQuerier<'a> {
         let request = EvmQueryWrapper {
             route: Route::Evm,
             query_data: EvmQuery::Erc721SetApprovalAllPayload { to, approved, },
+        }
+        .into();
+
+        self.querier.query(&request)
+    }
+
+    pub fn erc721_royalty_info(
+        &self,
+        caller: String,
+        contract_address: String,
+        token_id: String,
+        sale_price: Uint128,
+    ) -> StdResult<Erc721RoyaltyInfoResponse> {
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc721RoyaltyInfo {
+                caller,
+                contract_address,
+                token_id,
+                sale_price,
+            },
+        }
+        .into();
+
+        self.querier.query(&request)
+    }
+
+    pub fn supports_interface(
+        &self,
+        caller: String,
+        contract_address: String,
+        interface_id: String,
+    ) -> StdResult<SupportsInterfaceResponse> {
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::SupportsInterface { caller, interface_id, contract_address, },
+        }
+        .into();
+
+        self.querier.query(&request)
+    }
+
+    pub fn erc721_total_supply(
+        &self,
+        caller: String,
+        contract_address: String,
+    ) -> StdResult<Erc721TotalSupplyResponse> {
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc721TotalSupply {
+                caller,
+                contract_address,
+            },
         }
         .into();
 

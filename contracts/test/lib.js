@@ -23,6 +23,7 @@ const ABI = {
         "function symbol() view returns (string)",
         "function totalSupply() view returns (uint256)",
         "function tokenURI(uint256 tokenId) view returns (string)",
+        "function royaltyInfo(uint256 tokenId, uint256 salePrice) view returns (address, uint256)",
         "function balanceOf(address owner) view returns (uint256 balance)",
         "function ownerOf(uint256 tokenId) view returns (address owner)",
         "function getApproved(uint256 tokenId) view returns (address operator)",
@@ -48,6 +49,10 @@ function sleep(ms) {
 
 async function delay() {
     await sleep(1000)
+}
+
+async function getCosmosTx(provider, evmTxHash) {
+    return await provider.send("sei_getCosmosTx", [evmTxHash])
 }
 
 async function fundAddress(addr, amount="10000000000000000000") {
@@ -418,6 +423,7 @@ module.exports = {
     bankSend,
     evmSend,
     waitForReceipt,
+    getCosmosTx,
     isDocker,
     testAPIEnabled,
     incrementPointerVersion,
