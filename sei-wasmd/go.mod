@@ -2,8 +2,6 @@ module github.com/CosmWasm/wasmd
 
 go 1.21
 
-toolchain go1.22.1
-
 require (
 	github.com/CosmWasm/wasmvm v1.5.2
 	github.com/armon/go-metrics v0.4.1
