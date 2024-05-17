@@ -229,10 +229,6 @@ var (
 		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
-<<<<<<< HEAD
-		dexmoduletypes.ModuleName:      {authtypes.Burner},
-=======
->>>>>>> 2030f677 (Remove dex usages and register module removal upgrade)
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
