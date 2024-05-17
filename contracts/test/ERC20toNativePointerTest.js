@@ -1,7 +1,6 @@
 const {setupSigners, deployErc20PointerNative, getAdmin, createTokenFactoryTokenAndMint, ABI} = require("./lib");
 const {expect} = require("chai");
-
-const { expectRevert } = require('@openzeppelin/test-helpers');
+const {expectRevert} = require('@openzeppelin/test-helpers');
 require("@nomicfoundation/hardhat-chai-matchers");
 
 describe("ERC20 to Native Pointer", function () {
@@ -49,9 +48,10 @@ describe("ERC20 to Native Pointer", function () {
         });
 
         it("get allowance", async function () {
-            expect(await pointer.allowance(accounts[0].evmAddress, accounts[1].evmAddress)).to.equal(0);
+            await expect(pointer.allowance(accounts[0].evmAddress, accounts[1].evmAddress))
+                .to.be.revertedWith("NativeSeiTokensERC20: allowance is not implemented for native pointers");
         });
-    })
+    });
 
     describe("transfer()", function () {
         it("should transfer", async function () {
@@ -79,85 +79,20 @@ describe("ERC20 to Native Pointer", function () {
     });
 
     describe("approve()", function () {
-        it("should approve", async function () {
+        it("should fail approve", async function () {
             const owner = accounts[0].evmAddress;
             const spender = accounts[1].evmAddress;
-            const tx = await pointer.approve(spender, 50);
-            await tx.wait();
-            const allowance = await pointer.allowance(owner, spender);
-            expect(Number(allowance)).to.equal(50);
-        });
-
-        it("should lower approval", async function () {
-            const owner = accounts[0].evmAddress;
-            const spender = accounts[1].evmAddress;
-            const tx = await pointer.approve(spender, 0);
-            await tx.wait();
-            const allowance = await pointer.allowance(owner, spender);
-            expect(Number(allowance)).to.equal(0);
+            await expect(pointer.approve(spender, 50)).to.be.revertedWith("NativeSeiTokensERC20: approve is not implemented for native pointers");
         });
     });
-
 
     describe("transferFrom()", function () {
-        it("should transferFrom", async function () {
+        it("should fail transferFrom", async function () {
             const recipient = admin;
             const owner = accounts[0];
             const spender = accounts[1];
-            const amountToTransfer = 10;
-
-            // capture balances before
-            const recipientBalanceBefore = await pointer.balanceOf(recipient.evmAddress);
-            const ownerBalanceBefore = await pointer.balanceOf(owner.evmAddress);
-            expect(Number(ownerBalanceBefore)).to.be.greaterThanOrEqual(amountToTransfer);
-
-            // approve the amount
-            const tx = await pointer.approve(spender.evmAddress, amountToTransfer);
-            await tx.wait();
-            const allowanceBefore = await pointer.allowance(owner.evmAddress, spender.evmAddress);
-            expect(Number(allowanceBefore)).to.be.greaterThanOrEqual(amountToTransfer);
-
-            // transfer
-            const tfTx = await pointer.connect(spender.signer).transferFrom(owner.evmAddress, recipient.evmAddress, amountToTransfer);
-            const receipt = await tfTx.wait();
-
-            // capture balances after
-            const recipientBalanceAfter = await pointer.balanceOf(recipient.evmAddress);
-            const ownerBalanceAfter = await pointer.balanceOf(owner.evmAddress);
-
-            // check balance diff to ensure transfer went through
-            const diff = recipientBalanceAfter - recipientBalanceBefore;
-            expect(diff).to.equal(amountToTransfer);
-
-            // check balanceOf sender (deployerAddr) to ensure it went down
-            const diff2 = ownerBalanceBefore - ownerBalanceAfter;
-            expect(diff2).to.equal(amountToTransfer);
-
-            // check that allowance has gone down by amountToTransfer
-            const allowanceAfter = await pointer.allowance(owner.evmAddress, spender.evmAddress);
-            expect(Number(allowanceBefore) - Number(allowanceAfter)).to.equal(amountToTransfer);
-        });
-
-        it("should fail transferFrom() if sender has insufficient balance", async function () {
-            const recipient = admin;
-            const owner = accounts[0];
-            const spender = accounts[1];
-
-            const tx = await pointer.approve(spender.evmAddress, 999999999);
-            await tx.wait();
-            // TODO: determine why we aren't able to extract the error message
-            await expectRevert.unspecified(pointer.connect(spender.signer).transferFrom(owner.evmAddress, recipient.evmAddress, 999999999));
-        });
-
-        it("should fail transferFrom() if allowance is too low", async function () {
-            const recipient = admin;
-            const owner = accounts[0];
-            const spender = accounts[1];
-
-            const tx = await pointer.approve(spender.evmAddress, 10);
-            await tx.wait();
-
-            await expect(pointer.connect(spender.signer).transferFrom(owner.evmAddress, recipient.evmAddress, 20)).to.be.revertedWithCustomError(pointer, "ERC20InsufficientAllowance");
+            await expect(pointer.connect(spender.signer).transferFrom(owner.evmAddress, recipient.evmAddress, 10))
+                .to.be.revertedWith("NativeSeiTokensERC20: transferFrom is not implemented for native pointers");
         });
     });
-})
+});
