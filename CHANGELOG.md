@@ -27,6 +27,22 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v5.4.0
+sei-chain
+* [#1671](https://github.com/sei-protocol/sei-chain/pull/1671) Update and fixes to ERC721 contract
+* [#1672](https://github.com/sei-protocol/sei-chain/pull/1672) Add sei_getCosmosTx endpoint
+* [#1669](https://github.com/sei-protocol/sei-chain/pull/1669) Add ERC/CW 2981 in pointe
+* [#1668](https://github.com/sei-protocol/sei-chain/pull/1673) Bring CW721 pointer contract up to spec
+* [#1662](https://github.com/sei-protocol/sei-chain/pull/1662) Add memo support to ibc compiles
+* [#1661](https://github.com/sei-protocol/sei-chain/pull/1661) Do not modify original value passed in executeBatch call
+
+sei-cosmos
+*[#505](https://github.com/sei-protocol/sei-cosmos/pull/505) Fix export genesis for historical height
+*[#506](https://github.com/sei-protocol/sei-cosmos/pull/506) Allow reading pairs in changeset before flush
+
+sei-wasmd
+*[#50](https://github.com/sei-protocol/sei-wasmd/pull/50) Changes to fix runtime gas and add paramsKeeper to wasmKeeper for query gas multiplier
+
 ## v5.2.0
 sei-chain
 * [#1621](https://github.com/sei-protocol/sei-chain/pull/1621) Add websocket metrics
