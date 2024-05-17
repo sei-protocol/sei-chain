@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	"github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/stretchr/testify/require"
 )
@@ -126,7 +127,19 @@ func TestGetContractGasLimit(t *testing.T) {
 	})
 	gasLimit, err := keeper.GetContractGasLimit(ctx, contractAddr)
 	require.Nil(t, err)
-	require.Equal(t, uint64(10000000), gasLimit)
+	// verify that cap is applied in the event of excess rent present
+	require.Equal(t, dexkeeper.ContractMaxSudoGas, gasLimit)
+
+	keeper.SetContract(ctx, &types.ContractInfoV2{
+		Creator:      keepertest.TestAccount,
+		ContractAddr: "sei1suhgf5svhu4usrurvxzlgn54ksxmn8gljarjtxqnapv8kjnp4nrsgshtdj",
+		CodeId:       1,
+		RentBalance:  20000,
+	})
+	gasLimit, err = keeper.GetContractGasLimit(ctx, contractAddr)
+	require.Nil(t, err)
+	// verify that cap is applied in the event of excess rent present
+	require.Equal(t, uint64(200000), gasLimit)
 
 	params := keeper.GetParams(ctx)
 	params.SudoCallGasPrice = sdk.NewDecWithPrec(1, 1) // 0.1
@@ -139,8 +152,8 @@ func TestGetContractGasLimit(t *testing.T) {
 	})
 	gasLimit, err = keeper.GetContractGasLimit(ctx, contractAddr)
 	require.Nil(t, err)
-	// max uint64 / 0.1 would cause overflow so we cap it at max
-	require.Equal(t, uint64(math.MaxUint64), gasLimit)
+	// max uint64 / 0.1 would cause overflow so we cap it at max allowed sudo gas
+	require.Equal(t, dexkeeper.ContractMaxSudoGas, gasLimit)
 }
 
 func TestGetRentsForContracts(t *testing.T) {
