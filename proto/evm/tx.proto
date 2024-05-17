@@ -12,6 +12,7 @@ service Msg {
   rpc EVMTransaction(MsgEVMTransaction) returns (MsgEVMTransactionResponse);
   rpc Send(MsgSend) returns (MsgSendResponse);
   rpc RegisterPointer(MsgRegisterPointer) returns (MsgRegisterPointerResponse);
+  rpc AssociateContractAddress(MsgAssociateContractAddress) returns (MsgAssociateContractAddressResponse);
 }
 
 message MsgEVMTransaction {
@@ -65,3 +66,10 @@ message MsgRegisterPointer {
 message MsgRegisterPointerResponse {
   string pointer_address = 1;
 }
+
+message MsgAssociateContractAddress {
+  string sender = 1;
+  string address = 2;
+}
+
+message MsgAssociateContractAddressResponse {}

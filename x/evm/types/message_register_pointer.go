@@ -9,7 +9,7 @@ import (
 const TypeMsgRegisterPointer = "evm_register_pointer"
 
 var (
-	_ sdk.Msg = &MsgSend{}
+	_ sdk.Msg = &MsgRegisterPointer{}
 )
 
 func NewMsgRegisterERC20Pointer(sender sdk.AccAddress, ercAddress common.Address) *MsgRegisterPointer {
