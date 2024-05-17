@@ -56,7 +56,7 @@ func TestAddNative(t *testing.T) {
 	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
 	ret, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil, nil, false)
 	require.Nil(t, err)
-	require.Equal(t, uint64(8907806), g)
+	require.Equal(t, uint64(9382747), g)
 	outputs, err := m.Outputs.Unpack(ret)
 	require.Nil(t, err)
 	addr := outputs[0].(common.Address)
