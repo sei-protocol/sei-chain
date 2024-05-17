@@ -15,6 +15,7 @@ import (
 )
 
 const ContractPrefixKey = "x-wasm-contract"
+const ContractMaxSudoGas uint64 = 1000000
 
 func (k Keeper) SetContract(ctx sdk.Context, contract *types.ContractInfoV2) error {
 	store := prefix.NewStore(
@@ -71,9 +72,14 @@ func (k Keeper) GetContractGasLimit(ctx sdk.Context, contractAddr sdk.AccAddress
 	}
 	gasDec := sdk.NewDecFromBigInt(new(big.Int).SetUint64(rentBalance)).Quo(gasPrice)
 	if gasDec.GT(sdk.NewDecFromBigInt(new(big.Int).SetUint64(math.MaxUint64))) {
-		return math.MaxUint64, nil
+		return ContractMaxSudoGas, nil
 	}
-	return gasDec.TruncateInt().Uint64(), nil // round down
+	gasLimit := gasDec.TruncateInt().Uint64()
+	if gasLimit > ContractMaxSudoGas {
+		// prevent excessive gas expenditure in a single contract call
+		return ContractMaxSudoGas, nil
+	}
+	return gasLimit, nil
 }
 
 func (k Keeper) GetAllContractInfo(ctx sdk.Context) []types.ContractInfoV2 {
