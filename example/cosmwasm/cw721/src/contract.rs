@@ -64,8 +64,11 @@ pub fn execute_transfer_nft(
     recipient: String,
     token_id: String,
 ) -> Result<Response<EvmMsg>, ContractError> {
-    let mut res = transfer_nft(deps, info, recipient, token_id)?;
-    res = res.add_attribute("action", "transfer_nft");
+    let mut res = transfer_nft(deps, &info, &recipient, &token_id)?;
+    res = res.add_attribute("action", "transfer_nft")
+        .add_attribute("sender", info.sender)
+        .add_attribute("recipient", recipient)
+        .add_attribute("token_id", token_id);
     Ok(res)
 }
 
@@ -76,15 +79,18 @@ pub fn execute_send_nft(
     token_id: String,
     msg: Binary,
 ) -> Result<Response<EvmMsg>, ContractError> {
-    let mut res = transfer_nft(deps, info.clone(), recipient.clone(), token_id.clone())?;
+    let mut res = transfer_nft(deps, &info, &recipient, &token_id)?;
     let send = Cw721ReceiveMsg {
         sender: info.sender.to_string(),
-        token_id: token_id.clone(),
+        token_id: token_id.to_string(),
         msg,
     };
     res = res
         .add_message(send.into_cosmos_msg(recipient.clone())?)
-        .add_attribute("action", "send_nft");
+        .add_attribute("action", "send_nft")
+        .add_attribute("sender", info.sender)
+        .add_attribute("recipient", recipient)
+        .add_attribute("token_id", token_id);
     Ok(res)
 }
 
@@ -159,23 +165,19 @@ pub fn execute_extension() -> Result<Response<EvmMsg>, ContractError> {
 
 fn transfer_nft(
     deps: DepsMut<EvmQueryWrapper>,
-    info: MessageInfo,
-    recipient: String,
-    token_id: String,
+    info: &MessageInfo,
+    recipient: &str,
+    token_id: &str,
 ) -> Result<Response<EvmMsg>, ContractError> {
-    deps.api.addr_validate(&recipient)?;
+    deps.api.addr_validate(recipient)?;
 
     let erc_addr = ERC721_ADDRESS.load(deps.storage)?;
 
     let querier = EvmQuerier::new(&deps.querier);
-    let owner = querier.erc721_owner(info.sender.clone().into_string(), erc_addr.clone(), token_id.clone())?.owner;
-    let payload = querier.erc721_transfer_payload(owner, recipient.clone(), token_id.clone())?;
+    let owner = querier.erc721_owner(info.sender.to_string(), erc_addr.to_string(), token_id.to_string())?.owner;
+    let payload = querier.erc721_transfer_payload(owner, recipient.to_string(), token_id.to_string())?;
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
-    let res = Response::new()
-        .add_attribute("sender", info.sender)
-        .add_attribute("recipient", recipient)
-        .add_attribute("token_id", token_id)
-        .add_message(msg);
+    let res = Response::new().add_message(msg);
 
     Ok(res)
 }
