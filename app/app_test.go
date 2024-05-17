@@ -20,7 +20,6 @@ import (
 	"github.com/k0kubun/pp/v3"
 	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -129,25 +128,6 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		Validator:     validator,
 	}
 
-	contractRegisterMsg := &dextypes.MsgRegisterContract{
-		Creator: account,
-		Contract: &dextypes.ContractInfoV2{
-			CodeId:            1,
-			ContractAddr:      "sei1dc34p57spmhguak2ns88u3vxmt73gnu3c0j6phqv5ukfytklkqjsgepv26",
-			NeedOrderMatching: true,
-		},
-	}
-
-	contractUnregisterMsg := &dextypes.MsgUnregisterContract{
-		Creator:      account,
-		ContractAddr: "sei1dc34p57spmhguak2ns88u3vxmt73gnu3c0j6phqv5ukfytklkqjsgepv26",
-	}
-
-	contractUnsuspendMsg := &dextypes.MsgUnsuspendContract{
-		Creator:      account,
-		ContractAddr: "sei1dc34p57spmhguak2ns88u3vxmt73gnu3c0j6phqv5ukfytklkqjsgepv26",
-	}
-
 	otherMsg := &stakingtypes.MsgDelegate{
 		DelegatorAddress: account,
 		ValidatorAddress: validator,
@@ -167,21 +147,6 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
 	require.NoError(t, err)
 
-	err = contractRegisterBuilder.SetMsgs(contractRegisterMsg)
-	require.NoError(t, err)
-	contractRegisterTx, err := txEncoder(contractRegisterBuilder.GetTx())
-	require.NoError(t, err)
-
-	err = contractUnregisterBuilder.SetMsgs(contractUnregisterMsg)
-	require.NoError(t, err)
-	contractUnregisterTx, err := txEncoder(contractUnregisterBuilder.GetTx())
-	require.NoError(t, err)
-
-	err = contractUnsuspendBuilder.SetMsgs(contractUnsuspendMsg)
-	require.NoError(t, err)
-	contractSuspendTx, err := txEncoder(contractUnsuspendBuilder.GetTx())
-	require.NoError(t, err)
-
 	err = otherTxBuilder.SetMsgs(otherMsg)
 	require.NoError(t, err)
 	otherTx, err := txEncoder(otherTxBuilder.GetTx())
@@ -195,9 +160,6 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 
 	txs := [][]byte{
 		oracleTx,
-		contractRegisterTx,
-		contractUnregisterTx,
-		contractSuspendTx,
 		otherTx,
 		mixedTx,
 	}
@@ -211,7 +173,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 	}
 
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs, typedTxs)
-	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
+	require.Equal(t, [][]byte{oracleTx}, prioritizedTxs)
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
 	require.Equal(t, []int{0, 1, 2, 3}, prioIdxs)
 	require.Equal(t, []int{4, 5}, otherIdxs)
@@ -221,10 +183,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 	diffOrderTxs := [][]byte{
 		oracleTx,
 		otherTx,
-		contractRegisterTx,
-		contractUnregisterTx,
 		mixedTx,
-		contractSuspendTx,
 	}
 	differOrderTypedTxs := []sdk.Tx{
 		oracleTxBuilder.GetTx(),
@@ -236,7 +195,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 	}
 
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs = testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, diffOrderTxs, differOrderTypedTxs)
-	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
+	require.Equal(t, [][]byte{oracleTx}, prioritizedTxs)
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
 	require.Equal(t, []int{0, 2, 3, 5}, prioIdxs)
 	require.Equal(t, []int{1, 4}, otherIdxs)

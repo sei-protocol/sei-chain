@@ -22,7 +22,6 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -64,7 +63,6 @@ type TestWrapper struct {
 func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
 	appPtr := Setup(false, enableEVMCustomPrecompiles, baseAppOptions...)
 	ctx := appPtr.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
-	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, appPtr.MemState))
 	wrapper := &TestWrapper{
 		App: appPtr,
 		Ctx: ctx,

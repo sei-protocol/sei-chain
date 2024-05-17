@@ -10,7 +10,6 @@ import (
 
 const (
 	OracleRoute       = "oracle"
-	DexRoute          = "dex"
 	EpochRoute        = "epoch"
 	TokenFactoryRoute = "tokenfactory"
 	EVMRoute          = "evm"
@@ -32,8 +31,6 @@ func CustomQuerier(qp *QueryPlugin) func(ctx sdk.Context, request json.RawMessag
 		switch contractQuery.Route {
 		case OracleRoute:
 			return qp.HandleOracleQuery(ctx, contractQuery.QueryData)
-		case DexRoute:
-			return qp.HandleDexQuery(ctx, contractQuery.QueryData)
 		case EpochRoute:
 			return qp.HandleEpochQuery(ctx, contractQuery.QueryData)
 		case TokenFactoryRoute:

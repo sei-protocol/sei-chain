@@ -8,11 +8,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	"github.com/sei-protocol/sei-chain/x/dex/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/crypto/secp256k1"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -150,40 +148,11 @@ func TestOracleVoteGasless(t *testing.T) {
 	require.True(t, gasless)
 }
 
-func TestDexCancelOrderGasless(t *testing.T) {
-	addr1 := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
-	addr2 := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
-
-	antedecorators.WhitelistedGaslessCancellationAddrs = []sdk.AccAddress{
-		addr2,
-	}
-
-	cancelMsg1 := types.MsgCancelOrders{
-		Creator: addr1.String(),
-	}
-	cancelMsg2 := types.MsgCancelOrders{
-		Creator: addr2.String(),
-	}
-	// not whitelisted
-	// reset gasless
-	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil).WithIsCheckTx(true), &cancelMsg1, oraclekeeper.Keeper{})
-	require.NoError(t, err)
-	require.False(t, gasless)
-
-	// whitelisted
-	// reset gasless
-	gasless = true
-	err = CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil).WithIsCheckTx(true), &cancelMsg2, oraclekeeper.Keeper{})
-	require.NoError(t, err)
-	require.True(t, gasless)
-}
-
 func TestNonGaslessMsg(t *testing.T) {
 	// this needs to be updated if its changed from constant true
 	// reset gasless
 	gasless = true
-	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil).WithIsCheckTx(true), &types.MsgRegisterContract{}, oraclekeeper.Keeper{})
+	err := CallGaslessDecoratorWithMsg(sdk.NewContext(nil, tmproto.Header{}, false, nil).WithIsCheckTx(true), &oracletypes.MsgDelegateFeedConsent{}, oraclekeeper.Keeper{})
 	require.NoError(t, err)
 	require.False(t, gasless)
 }

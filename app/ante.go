@@ -14,9 +14,6 @@ import (
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/app/antedecorators/depdecorators"
-	"github.com/sei-protocol/sei-chain/x/dex"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
-	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle"
@@ -32,11 +29,9 @@ type HandlerOptions struct {
 	WasmConfig          *wasmtypes.WasmConfig
 	WasmKeeper          *wasm.Keeper
 	OracleKeeper        *oraclekeeper.Keeper
-	DexKeeper           *dexkeeper.Keeper
 	AccessControlKeeper *aclkeeper.Keeper
 	EVMKeeper           *evmkeeper.Keeper
 	TXCounterStoreKey   sdk.StoreKey
-	CheckTxMemState     *dexcache.MemState
 	LatestCtxGetter     func() sdk.Context
 
 	TracingInfo *tracing.Info
@@ -69,9 +64,6 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	}
 	if options.TracingInfo == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "tracing info is required for ante builder")
-	}
-	if options.CheckTxMemState == nil {
-		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "checktx memstate is required for ante builder")
 	}
 	if options.EVMKeeper == nil {
 		return nil, nil, sdkerrors.Wrap(sdkerrors.ErrLogic, "evm keeper is required for ante builder")
@@ -109,8 +101,6 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMAddressDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper())),
 		sdk.DefaultWrappedAnteDecorator(antedecorators.NewAuthzNestedMessageDecorator()),
 		sdk.DefaultWrappedAnteDecorator(ibcante.NewAnteDecorator(options.IBCKeeper)),
-		sdk.DefaultWrappedAnteDecorator(dex.NewTickSizeMultipleDecorator(*options.DexKeeper)),
-		dex.NewCheckDexGasDecorator(*options.DexKeeper, options.CheckTxMemState),
 		antedecorators.NewACLWasmDependencyDecorator(*options.AccessControlKeeper, *options.WasmKeeper),
 	}
 
