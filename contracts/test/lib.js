@@ -349,6 +349,12 @@ async function executeWasm(contractAddress, msg, coins = "0usei") {
     return JSON.parse(output);
 }
 
+async function associateWasm(contractAddress) {
+    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+    const output = await execute(command);
+    return JSON.parse(output);
+}
+
 async function isDocker() {
     return new Promise((resolve, reject) => {
         exec("docker ps --filter 'name=sei-node-0' --format '{{.Names}}'", (error, stdout, stderr) => {
@@ -427,6 +433,7 @@ module.exports = {
     isDocker,
     testAPIEnabled,
     incrementPointerVersion,
+    associateWasm,
     WASM,
     ABI,
 };
