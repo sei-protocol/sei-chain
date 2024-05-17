@@ -60,10 +60,7 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, 
 	if gasConsumed > 0 {
 		sdkCtx.GasMeter().ConsumeGas(gasConsumed, "sudo")
 	}
-	// TODO: also delete this commented code
-	// if hasErrInstantiatingWasmModuleDueToCPUFeature(err) {
-	// 	panic(utils.DecorateHardFailError(err))
-	// }
+
 	return data, gasConsumed, err
 }
 
@@ -81,14 +78,6 @@ func sudoWithoutOutOfGasPanic(ctx sdk.Context, k *keeper.Keeper, contractAddress
 		return k.WasmKeeper.Sudo(ctx, contractAddress, wasmMsg)
 	}, LogAfter, fmt.Sprintf("wasm_sudo_%s", logName))
 }
-
-// TODO: delete this commented code
-// func hasErrInstantiatingWasmModuleDueToCPUFeature(err error) bool {
-// 	if err == nil {
-// 		return false
-// 	}
-// 	return strings.Contains(err.Error(), ErrWasmModuleInstCPUFeatureLiteral)
-// }
 
 func CallContractSudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddr string, msg interface{}, gasAllowance uint64) ([]byte, error) {
 	contractAddress, err := sdk.AccAddressFromBech32(contractAddr)
