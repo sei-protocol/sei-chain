@@ -29,11 +29,25 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 	for _, p := range balanceChangePairs {
 		if len(p.Key) < 2 {
 			// invalid key; ignore
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "invalid_changed_key"}, 1, []metrics.Label{
+				{
+					Name:  "type",
+					Value: "sei",
+				},
+			})
+			app.Logger().Error(fmt.Sprintf("invalid changed pair key for usei: %X", p.Key))
 			continue
 		}
 		addrLen := int(p.Key[1])
 		if len(p.Key) < addrLen+2 {
 			// invalid key length; ignore
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "invalid_changed_key"}, 1, []metrics.Label{
+				{
+					Name:  "type",
+					Value: "sei",
+				},
+			})
+			app.Logger().Error(fmt.Sprintf("invalid changed pair key for usei: %X", p.Key))
 			continue
 		}
 		addr := p.Key[2 : addrLen+2]
@@ -44,6 +58,15 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 		if !p.Delete {
 			var balance sdk.Coin
 			if err := balance.Unmarshal(p.Value); err != nil {
+				metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+					{
+						Name:  "type",
+						Value: "usei",
+					}, {
+						Name:  "step",
+						Value: "post_block",
+					},
+				})
 				app.Logger().Error(fmt.Sprintf("failed to unmarshal balance: %s", err))
 				continue
 			}
@@ -63,6 +86,15 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 		}
 		var balance sdk.Coin
 		if err := balance.Unmarshal(val); err != nil {
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+				{
+					Name:  "type",
+					Value: "usei",
+				}, {
+					Name:  "step",
+					Value: "pre_block",
+				},
+			})
 			app.Logger().Error(fmt.Sprintf("failed to unmarshal preblock balance: %s", err))
 			continue
 		}
@@ -73,8 +105,27 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 	weiChangedAddrs := []sdk.AccAddress{}
 	for _, p := range weiChangePairs {
 		var amt sdk.Int
+		if len(p.Key) < 1 {
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "invalid_changed_key"}, 1, []metrics.Label{
+				{
+					Name:  "type",
+					Value: "wei",
+				},
+			})
+			app.Logger().Error(fmt.Sprintf("invalid changed pair key: %X", p.Key))
+			continue
+		}
 		if !p.Delete {
 			if err := amt.Unmarshal(p.Value); err != nil {
+				metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+					{
+						Name:  "type",
+						Value: "wei",
+					}, {
+						Name:  "step",
+						Value: "post_block",
+					},
+				})
 				app.Logger().Error(fmt.Sprintf("failed to unmarshal wei balance: %s", err))
 				continue
 			}
@@ -94,6 +145,15 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 		}
 		var amt sdk.Int
 		if err := amt.Unmarshal(val); err != nil {
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+				{
+					Name:  "type",
+					Value: "wei",
+				}, {
+					Name:  "step",
+					Value: "pre_block",
+				},
+			})
 			app.Logger().Error(fmt.Sprintf("failed to unmarshal preblock wei balance: %s", err))
 			continue
 		}
@@ -105,6 +165,15 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 	if bz := ckv.Get(append(banktypes.SupplyKey, []byte(sdk.MustGetBaseDenom())...)); bz != nil {
 		var amt sdk.Int
 		if err := amt.Unmarshal(bz); err != nil {
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+				{
+					Name:  "type",
+					Value: "total_supply",
+				}, {
+					Name:  "step",
+					Value: "pre_block",
+				},
+			})
 			app.Logger().Error(fmt.Sprintf("failed to unmarshal pre total supply: %s", err))
 			return
 		}
@@ -117,6 +186,15 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 			} else {
 				var amt sdk.Int
 				if err := amt.Unmarshal(p.Value); err != nil {
+					metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+						{
+							Name:  "type",
+							Value: "total_supply",
+						}, {
+							Name:  "step",
+							Value: "post_block",
+						},
+					})
 					app.Logger().Error(fmt.Sprintf("failed to unmarshal total supply: %s", err))
 				} else {
 					supplyChanged = amt.Sub(preTotalSupply)
