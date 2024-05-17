@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IBank} from "./precompiles/IBank.sol";
@@ -9,25 +9,19 @@ contract NativeSeiTokensERC20 is ERC20 {
     address constant BANK_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001001;
 
     string public denom;
-    string public nname;
-    string public ssymbol;
-    uint8 public ddecimals;
     IBank public BankPrecompile;
 
-    constructor(string memory denom_, string memory name_, string memory symbol_, uint8 decimals_) ERC20("", "") {
+    constructor(string memory denom_) ERC20("", "") {
         BankPrecompile = IBank(BANK_PRECOMPILE_ADDRESS);
         denom = denom_;
-        nname = name_;
-        ssymbol = symbol_;
-        ddecimals = decimals_;
     }
 
     function name() public view override returns (string memory) {
-        return nname;
+        return BankPrecompile.name(denom);
     }
 
     function symbol() public view override returns (string memory) {
-        return ssymbol;
+        return BankPrecompile.symbol(denom);
     }
 
     function balanceOf(address account) public view override returns (uint256) {
@@ -35,11 +29,26 @@ contract NativeSeiTokensERC20 is ERC20 {
     }
 
     function decimals() public view override returns (uint8) {
-        return ddecimals;
+        return BankPrecompile.decimals(denom);
     }
 
     function totalSupply() public view override returns (uint256) {
         return BankPrecompile.supply(denom);
+    }
+
+    function approve(address, uint256) public pure override returns (bool) {
+        require(false, "NativeSeiTokensERC20: approve is not implemented for native pointers");
+        return false;
+    }
+
+    function transferFrom(address, address, uint256) public pure override returns (bool) {
+        require(false, "NativeSeiTokensERC20: transferFrom is not implemented for native pointers");
+        return false;
+    }
+
+    function allowance(address, address) public pure override returns (uint256) {
+        require(false, "NativeSeiTokensERC20: allowance is not implemented for native pointers");
+        return 0;
     }
 
     function _update(address from, address to, uint256 value) internal override {
