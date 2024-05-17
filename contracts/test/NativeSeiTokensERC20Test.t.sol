@@ -93,51 +93,9 @@ contract NativeSeiTokensERC20Test is Test {
         assertEq(seiERC20.balanceOf(bob), 1000 + 123);
     }
 
-    function testApprovals() public {
-        // Alice approves Bob to spend 200 tokens on her behalf
-        vm.expectEmit();
-        emit Approval(alice, bob, 200);
-
-        vm.startPrank(alice);
-        bool approvalSuccess = seiERC20.approve(bob, 200);
-        vm.stopPrank();
-
-        assertEq(approvalSuccess, true);
-        assertEq(seiERC20.allowance(alice, bob), 200);
-    }
-
-    function testTransferFrom() public {
-        // expect fail because no approval was given
-        vm.startPrank(bob);
-        vm.expectRevert("ERC20: insufficient allowance");
-        seiERC20.transferFrom(alice, bob, 150);
-        vm.stopPrank();
-
-        // alice to approve bob to spend tokens on her behalf
-        vm.startPrank(alice);
-        seiERC20.approve(bob, 200);
-        vm.stopPrank();
-
-        vm.startPrank(bob);
-        vm.expectEmit();
-        emit Transfer(alice, bob, 150);
-        bool transferFromSuccess = seiERC20.transferFrom(alice, bob, 150);
-        vm.stopPrank();
-
-        assertEq(transferFromSuccess, true);
-        assertEq(seiERC20.balanceOf(alice), 1000 - 150);
-        assertEq(seiERC20.balanceOf(bob), 1000 + 150);
-        assertEq(seiERC20.allowance(alice, bob), 50); // Remaining allowance after the transfer
-    }
-
     function testApproveNotImplemented() public {
         vm.expectRevert("NativeSeiTokensERC20: approve is not implemented for native pointers");
         seiERC20.approve(alice, 123);
-    }
-
-    function testTransferNotImplemented() public {
-        vm.expectRevert("NativeSeiTokensERC20: transfer is not implemented for native pointers");
-        seiERC20.transfer(bob, 123);
     }
 
     function testTransferFromNotImplemented() public {
