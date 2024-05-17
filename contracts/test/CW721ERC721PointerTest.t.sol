@@ -106,17 +106,17 @@ contract CW721ERC721PointerTest is Test {
     function testBalanceOf() public {
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"limit\":1000,\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\"}}")),
             abi.encode("{\"tokens\":[\"a\",\"b\"]}")
         );
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"start_after\":\"b\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"limit\":1000,\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"start_after\":\"b\"}}")),
             abi.encode("{\"tokens\":[\"c\",\"d\"]}")
         );
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"start_after\":\"d\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"tokens\":{\"limit\":1000,\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"start_after\":\"d\"}}")),
             abi.encode("{\"tokens\":[]}")
         );
         bytes[] memory resp1 = new bytes[](2);
@@ -156,6 +156,20 @@ contract CW721ERC721PointerTest is Test {
             abi.encode(bytes("sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw"))
         );
         assertEq(pointer.ownerOf(1), 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
+    }
+
+    function testTotalSupply() public {
+        vm.mockCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"num_tokens\":{}}")),
+            abi.encode("{\"count\":100}")
+        );
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"count\":100}"), "count"),
+            abi.encode(100)
+        );
+        assertEq(pointer.totalSupply(), 100);
     }
 
     function testGetApproved() public {
