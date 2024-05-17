@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cosmossdk.io/errors"
+	"github.com/armon/go-metrics"
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/mem"
@@ -751,15 +752,39 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		return err
 	}
 	defer exporter.Close()
+	keySizePerStore := map[string]int64{}
+	valueSizePerStore := map[string]int64{}
+	numKeysPerStore := map[string]int64{}
+	currentStoreName := ""
 	for {
 		item, err := exporter.Next()
 		if err != nil {
 			if err == commonerrors.ErrorExportDone {
+				for k, v := range keySizePerStore {
+					telemetry.SetGaugeWithLabels(
+						[]string{"iavl", "store", "total_key_keys"},
+						float32(v),
+						[]metrics.Label{telemetry.NewLabel("store_name", k)},
+					)
+				}
+				for k, v := range valueSizePerStore {
+					telemetry.SetGaugeWithLabels(
+						[]string{"iavl", "store", "total_value_bytes"},
+						float32(v),
+						[]metrics.Label{telemetry.NewLabel("store_name", k)},
+					)
+				}
+				for k, v := range numKeysPerStore {
+					telemetry.SetGaugeWithLabels(
+						[]string{"iavl", "store", "total_num_keys"},
+						float32(v),
+						[]metrics.Label{telemetry.NewLabel("store_name", k)},
+					)
+				}
 				break
 			}
 			return err
 		}
-
 		switch item := item.(type) {
 		case *sctypes.SnapshotNode:
 			if err := protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
@@ -774,6 +799,9 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			}); err != nil {
 				return err
 			}
+			keySizePerStore[currentStoreName] += int64(len(item.Key))
+			valueSizePerStore[currentStoreName] += int64(len(item.Value))
+			numKeysPerStore[currentStoreName] += 1
 		case string:
 			if err := protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
 				Item: &snapshottypes.SnapshotItem_Store{
@@ -784,6 +812,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			}); err != nil {
 				return err
 			}
+			currentStoreName = item
 		default:
 			return fmt.Errorf("unknown item type %T", item)
 		}

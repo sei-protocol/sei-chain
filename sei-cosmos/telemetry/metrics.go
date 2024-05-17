@@ -122,18 +122,6 @@ func (m *Metrics) setupPrometheus(cfg Config) (*metricsprom.PrometheusSink, erro
 				Name: []string{"cosmos", "upgrade", "plan", "height"},
 				Help: "Next upgrade height",
 			},
-			{
-				Name: []string{"iavl", "store", "total_num_keys"},
-				Help: "Total Number of keys per IAVL store module",
-			},
-			{
-				Name: []string{"iavl", "store", "total_key_bytes"},
-				Help: "Total yes per IAVL store module",
-			},
-			{
-				Name: []string{"iavl", "store", "total_value_bytes"},
-				Help: "Total Number of value bytes per IAVL store module",
-			},
 		},
 		CounterDefinitions: []metricsprom.CounterDefinition{
 			{
