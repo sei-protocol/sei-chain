@@ -171,7 +171,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
 	require.Equal(t, []int{0}, prioIdxs)
 	require.Equal(t, []int{1, 2}, otherIdxs)
-	require.Equal(t, 4, len(prioritizedTypedTxs))
+	require.Equal(t, 1, len(prioritizedTypedTxs))
 	require.Equal(t, 2, len(otherTypedTxs))
 
 	diffOrderTxs := [][]byte{
@@ -190,7 +190,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
 	require.Equal(t, []int{1}, prioIdxs)
 	require.Equal(t, []int{0, 2}, otherIdxs)
-	require.Equal(t, 4, len(prioritizedTypedTxs))
+	require.Equal(t, 1, len(prioritizedTypedTxs))
 	require.Equal(t, 2, len(otherTypedTxs))
 }
 
