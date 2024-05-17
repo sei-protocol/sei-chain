@@ -3,7 +3,7 @@ const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
 const { ethers, upgrades } = require('hardhat');
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress} = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, getCosmosTx} = require("./lib")
 const axios = require("axios");
 
 function sleep(ms) {
@@ -315,7 +315,10 @@ describe("EVM Test", function () {
       it("Should set the string correctly and emit an event", async function () {
         await delay()
         const txResponse = await evmTester.setStringVar("test");
-        await txResponse.wait();  // Wait for the transaction to be mined
+        const receipt = await txResponse.wait();  // Wait for the transaction to be mined
+
+        const cosmosTx = await getCosmosTx(ethers.provider, receipt.hash)
+        expect(cosmosTx.length).to.be.equal(64)
 
         await expect(txResponse)
             .to.emit(evmTester, 'StringSet')

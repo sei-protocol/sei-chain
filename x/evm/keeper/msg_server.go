@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -322,4 +323,23 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 		panic("unknown pointer type")
 	}
 	return &types.MsgRegisterPointerResponse{PointerAddress: pointerAddr.String()}, err
+}
+
+func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *types.MsgAssociateContractAddress) (*types.MsgAssociateContractAddressResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	addr := sdk.MustAccAddressFromBech32(msg.Address) // already validated
+	// check if address is for a contract
+	if server.wasmViewKeeper.GetContractInfo(ctx, addr) == nil {
+		return nil, errors.New("no wasm contract found at the given address")
+	}
+	evmAddr := common.BytesToAddress(addr)
+	existingEvmAddr, ok := server.GetEVMAddress(ctx, addr)
+	if ok {
+		if existingEvmAddr.Cmp(evmAddr) != 0 {
+			ctx.Logger().Error(fmt.Sprintf("unexpected associated EVM address %s exists for contract %s: expecting %s", existingEvmAddr.Hex(), addr.String(), evmAddr.Hex()))
+		}
+		return nil, errors.New("contract already has an associated address")
+	}
+	server.SetAddressMapping(ctx, addr, evmAddr)
+	return &types.MsgAssociateContractAddressResponse{}, nil
 }

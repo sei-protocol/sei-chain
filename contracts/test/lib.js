@@ -23,6 +23,7 @@ const ABI = {
         "function symbol() view returns (string)",
         "function totalSupply() view returns (uint256)",
         "function tokenURI(uint256 tokenId) view returns (string)",
+        "function royaltyInfo(uint256 tokenId, uint256 salePrice) view returns (address, uint256)",
         "function balanceOf(address owner) view returns (uint256 balance)",
         "function ownerOf(uint256 tokenId) view returns (address owner)",
         "function getApproved(uint256 tokenId) view returns (address operator)",
@@ -48,6 +49,10 @@ function sleep(ms) {
 
 async function delay() {
     await sleep(1000)
+}
+
+async function getCosmosTx(provider, evmTxHash) {
+    return await provider.send("sei_getCosmosTx", [evmTxHash])
 }
 
 async function fundAddress(addr, amount="10000000000000000000") {
@@ -344,6 +349,12 @@ async function executeWasm(contractAddress, msg, coins = "0usei") {
     return JSON.parse(output);
 }
 
+async function associateWasm(contractAddress) {
+    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+    const output = await execute(command);
+    return JSON.parse(output);
+}
+
 async function isDocker() {
     return new Promise((resolve, reject) => {
         exec("docker ps --filter 'name=sei-node-0' --format '{{.Names}}'", (error, stdout, stderr) => {
@@ -418,9 +429,11 @@ module.exports = {
     bankSend,
     evmSend,
     waitForReceipt,
+    getCosmosTx,
     isDocker,
     testAPIEnabled,
     incrementPointerVersion,
+    associateWasm,
     WASM,
     ABI,
 };

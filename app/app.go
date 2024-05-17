@@ -570,6 +570,7 @@ func New(
 	app.WasmKeeper = wasm.NewKeeper(
 		appCodec,
 		keys[wasm.StoreKey],
+		app.ParamsKeeper,
 		app.GetSubspace(wasm.ModuleName),
 		app.AccountKeeper,
 		app.BankKeeper,
@@ -589,7 +590,7 @@ func New(
 
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
 		app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper,
-		app.TransferKeeper, wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper))
+		app.TransferKeeper, wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
 	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))

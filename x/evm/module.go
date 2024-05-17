@@ -227,6 +227,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 				TxHashHex:        deferredInfo.TxHash.Hex(),
 				TransactionIndex: uint32(deferredInfo.TxIndx),
 				VmError:          deferredInfo.Error,
+				BlockNumber:      uint64(ctx.BlockHeight()),
 			})
 			continue
 		}

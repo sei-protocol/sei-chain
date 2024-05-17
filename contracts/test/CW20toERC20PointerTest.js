@@ -1,4 +1,4 @@
-const {getAdmin, queryWasm, executeWasm, deployEvmContract, setupSigners, deployErc20PointerForCw20, deployWasm, WASM,
+const {getAdmin, queryWasm, executeWasm, associateWasm, deployEvmContract, setupSigners, deployErc20PointerForCw20, deployWasm, WASM,
     registerPointerForCw20
 } = require("./lib")
 const { expect } = require("chai");
@@ -102,6 +102,7 @@ describe("CW20 to ERC20 Pointer", function () {
         });
 
         it("transfer to contract address should succeed", async function() {
+            await associateWasm(cw20Pointer);
             const respBefore = await queryWasm(cw20Pointer, "balance", {address: admin.seiAddress})
             const balanceBefore = respBefore.data.balance;
 
