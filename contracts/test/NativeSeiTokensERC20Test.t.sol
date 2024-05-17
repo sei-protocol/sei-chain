@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.20;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {NativeSeiTokensERC20} from "../src/NativeSeiTokensERC20.sol";
@@ -109,7 +109,7 @@ contract NativeSeiTokensERC20Test is Test {
     function testTransferFrom() public {
         // expect fail because no approval was given
         vm.startPrank(bob);
-        vm.expectRevert();
+        vm.expectRevert("ERC20: insufficient allowance");
         seiERC20.transferFrom(alice, bob, 150);
         vm.stopPrank();
 
@@ -128,5 +128,25 @@ contract NativeSeiTokensERC20Test is Test {
         assertEq(seiERC20.balanceOf(alice), 1000 - 150);
         assertEq(seiERC20.balanceOf(bob), 1000 + 150);
         assertEq(seiERC20.allowance(alice, bob), 50); // Remaining allowance after the transfer
+    }
+
+    function testApproveNotImplemented() public {
+        vm.expectRevert("NativeSeiTokensERC20: approve is not implemented for native pointers");
+        seiERC20.approve(alice, 123);
+    }
+
+    function testTransferNotImplemented() public {
+        vm.expectRevert("NativeSeiTokensERC20: transfer is not implemented for native pointers");
+        seiERC20.transfer(bob, 123);
+    }
+
+    function testTransferFromNotImplemented() public {
+        vm.expectRevert("NativeSeiTokensERC20: transferFrom is not implemented for native pointers");
+        seiERC20.transferFrom(alice, bob, 123);
+    }
+
+    function testAllowanceNotImplemented() public {
+        vm.expectRevert("NativeSeiTokensERC20: allowance is not implemented for native pointers");
+        seiERC20.allowance(alice, bob);
     }
 }
