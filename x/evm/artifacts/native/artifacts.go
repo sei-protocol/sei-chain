@@ -10,7 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 )
 
-const CurrentVersion uint16 = 1
+const CurrentVersion uint16 = 2
 
 //go:embed NativeSeiTokensERC20.abi
 //go:embed NativeSeiTokensERC20.bin
