@@ -20,7 +20,7 @@ for package in dependencies:
 
 # advanced user configs
 moniker = "pynode"  # optional custom moniker for the node
-trust_height_delta = 40000  # negative height offset for state sync
+trust_height_delta = 20000  # negative height offset for state sync
 enable_unsafe_reset = True  # wipe database and keys before setup
 version_override = False  # override version fetching. if true, specify version(s) below
 
