@@ -20,6 +20,8 @@ const (
 
 	ReceiptStoreKey = "receipt"
 
+	TStoreKey = "transient_evm"
+
 	// QuerierRoute is the querier route for auth
 	QuerierRoute = ModuleName
 )
