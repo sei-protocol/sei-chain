@@ -49,6 +49,7 @@ $ %s debug dump-iavl 12345
 	return cmd
 }
 
+//nolint:gosec
 func dumpIavlCmdHandler(cmd *cobra.Command, args []string) error {
 	var err error
 	home, err := os.UserHomeDir()
