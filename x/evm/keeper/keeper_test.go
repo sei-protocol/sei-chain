@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"math"
 	"sync"
 	"testing"
@@ -198,7 +199,9 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 }
 
 func TestDeferredInfo(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	a := keeper.EVMTestApp
+	k := a.EvmKeeper
+	ctx := a.GetContextForDeliverTx([]byte{})
 	ctx = ctx.WithTxIndex(1)
 	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{1, 2, 3}, common.Hash{4, 5, 6}, sdk.NewInt(1))
 	ctx = ctx.WithTxIndex(2)
@@ -208,16 +211,17 @@ func TestDeferredInfo(t *testing.T) {
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 1}})
 	infoList := k.GetEVMTxDeferredInfo(ctx)
 	require.Equal(t, 2, len(infoList))
-	require.Equal(t, 1, infoList[0].TxIndx)
-	require.Equal(t, ethtypes.Bloom{1, 2, 3}, infoList[0].TxBloom)
-	require.Equal(t, common.Hash{4, 5, 6}, infoList[0].TxHash)
+	require.Equal(t, uint32(1), infoList[0].TxIndex)
+	require.Equal(t, ethtypes.Bloom{1, 2, 3}, ethtypes.BytesToBloom(infoList[0].TxBloom))
+	require.Equal(t, common.Hash{4, 5, 6}, common.BytesToHash(infoList[0].TxHash))
 	require.Equal(t, sdk.NewInt(1), infoList[0].Surplus)
-	require.Equal(t, 2, infoList[1].TxIndx)
-	require.Equal(t, ethtypes.Bloom{7, 8}, infoList[1].TxBloom)
-	require.Equal(t, common.Hash{9, 0}, infoList[1].TxHash)
+	require.Equal(t, uint32(2), infoList[1].TxIndex)
+	require.Equal(t, ethtypes.Bloom{7, 8}, ethtypes.BytesToBloom(infoList[1].TxBloom))
+	require.Equal(t, common.Hash{9, 0}, common.BytesToHash(infoList[1].TxHash))
 	require.Equal(t, sdk.NewInt(1), infoList[1].Surplus)
 	// test clear tx deferred info
-	k.ClearEVMTxDeferredInfo()
+	a.SetDeliverStateToCommit()
+	a.Commit(context.Background()) // commit would clear transient stores
 	infoList = k.GetEVMTxDeferredInfo(ctx)
 	require.Empty(t, len(infoList))
 }

@@ -8,7 +8,7 @@ import (
 )
 
 func (k *Keeper) AddAnteSurplus(ctx sdk.Context, txHash common.Hash, surplus sdk.Int) error {
-	store := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.AnteSurplusPrefix)
+	store := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.AnteSurplusPrefix)
 	bz, err := surplus.Marshal()
 	if err != nil {
 		return err
@@ -18,7 +18,7 @@ func (k *Keeper) AddAnteSurplus(ctx sdk.Context, txHash common.Hash, surplus sdk
 }
 
 func (k *Keeper) GetAnteSurplusSum(ctx sdk.Context) sdk.Int {
-	iter := prefix.NewStore(ctx.KVStore(k.memStoreKey), types.AnteSurplusPrefix).Iterator(nil, nil)
+	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.AnteSurplusPrefix).Iterator(nil, nil)
 	defer iter.Close()
 	res := sdk.ZeroInt()
 	for ; iter.Valid(); iter.Next() {
@@ -27,8 +27,4 @@ func (k *Keeper) GetAnteSurplusSum(ctx sdk.Context) sdk.Int {
 		res = res.Add(surplus)
 	}
 	return res
-}
-
-func (k *Keeper) DeleteAllAnteSurplus(ctx sdk.Context) {
-	_ = prefix.NewStore(ctx.KVStore(k.memStoreKey), types.AnteSurplusPrefix).DeleteAll(nil, nil)
 }
