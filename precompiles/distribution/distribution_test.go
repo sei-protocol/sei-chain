@@ -135,6 +135,7 @@ func TestWithdraw(t *testing.T) {
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
+	require.Equal(t, uint64(68682), res.GasUsed)
 
 	// reinitialized
 	d, found = testApp.StakingKeeper.GetDelegation(ctx, seiAddr, val)
@@ -287,6 +288,7 @@ func setWithdrawAddressAndWithdraw(
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), r)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
+	require.Equal(t, uint64(152848), res.GasUsed)
 
 	// reinitialized
 	for _, val := range vals {
