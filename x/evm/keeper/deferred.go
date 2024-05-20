@@ -13,23 +13,34 @@ import (
 
 func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []*types.DeferredInfo) {
 	store := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix)
-	iter := store.Iterator(nil, nil)
-	defer iter.Close()
-	for ; iter.Valid(); iter.Next() {
-		key := binary.BigEndian.Uint64(iter.Key())
-		if key >= uint64(len(k.txResults)) {
-			ctx.Logger().Error(fmt.Sprintf("getting invalid tx index in EVM deferred info: %d, num of txs: %d", key, len(k.txResults)))
+	for txIdx, msg := range k.msgs {
+		if msg == nil {
 			continue
 		}
-		val := &types.DeferredInfo{}
-		if err := val.Unmarshal(iter.Value()); err != nil {
-			// unable to unmarshal deferred info is serious, because it could cause
-			// balance surplus to be mishandled and thus affect total supply
-			panic(err)
-		}
-		// cast is safe here because of the check above
-		if k.txResults[int(key)].Code == 0 || val.Error != "" {
-			res = append(res, val)
+		txRes := k.txResults[txIdx]
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, uint64(txIdx))
+		val := store.Get(key)
+		if val == nil {
+			// this means the transaction got reverted during execution, either in ante handler
+			// or due to a panic in msg server
+			etx, _ := msg.AsTransaction()
+			if txRes.Code == 0 {
+				ctx.Logger().Error(fmt.Sprintf("transaction %s has code 0 but no deferred info", etx.Hash().Hex()))
+			}
+			res = append(res, &types.DeferredInfo{
+				TxIndex: uint32(txIdx),
+				TxHash:  etx.Hash().Bytes(),
+				Error:   txRes.Log,
+			})
+		} else {
+			info := &types.DeferredInfo{}
+			if err := info.Unmarshal(val); err != nil {
+				// unable to unmarshal deferred info is serious, because it could cause
+				// balance surplus to be mishandled and thus affect total supply
+				panic(err)
+			}
+			res = append(res, info)
 		}
 	}
 	return
@@ -49,23 +60,6 @@ func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom
 		// unable to marshal deferred info is serious, because it could cause
 		// balance surplus to be mishandled and thus affect total supply
 		panic(err)
-	}
-	prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix).Set(key, bz)
-}
-
-func (k *Keeper) AppendErrorToEvmTxDeferredInfo(ctx sdk.Context, txHash common.Hash, err string) {
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, uint64(ctx.TxIndex()))
-	val := &types.DeferredInfo{
-		TxIndex: uint32(ctx.TxIndex()),
-		TxHash:  txHash[:],
-		Error:   err,
-	}
-	bz, e := val.Marshal()
-	if e != nil {
-		// unable to marshal deferred info is serious, because it could cause
-		// balance surplus to be mishandled and thus affect total supply
-		panic(e)
 	}
 	prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix).Set(key, bz)
 }

@@ -186,7 +186,8 @@ func (AppModule) ConsensusVersion() uint64 { return 8 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
-	// clear tx responses from last block
+	// clear tx/tx responses from last block
+	am.keeper.SetMsgs([]*types.MsgEVMTransaction{})
 	am.keeper.SetTxResults([]*abci.ExecTxResult{})
 	// mock beacon root if replaying
 	if am.keeper.EthReplayConfig.Enabled {

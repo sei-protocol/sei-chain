@@ -48,6 +48,7 @@ type Keeper struct {
 	Paramstore paramtypes.Subspace
 
 	txResults []*abci.ExecTxResult
+	msgs      []*types.MsgEVMTransaction
 
 	bankKeeper     bankkeeper.Keeper
 	accountKeeper  *authkeeper.AccountKeeper
@@ -354,6 +355,10 @@ func (k *Keeper) RemovePendingNonce(key tmtypes.TxKey) {
 
 func (k *Keeper) SetTxResults(txResults []*abci.ExecTxResult) {
 	k.txResults = txResults
+}
+
+func (k *Keeper) SetMsgs(msgs []*types.MsgEVMTransaction) {
+	k.msgs = msgs
 }
 
 // Test use only
