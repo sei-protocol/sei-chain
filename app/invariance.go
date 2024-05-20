@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
+	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/storev2/commitment"
+	"github.com/spf13/cast"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -13,9 +15,38 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 )
 
-func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
+type LightInvarianceConfig struct {
+	SupplyEnabled bool `mapstructure:"supply_enabled"`
+}
+
+var DefaultLightInvarianceConfig = LightInvarianceConfig{
+	SupplyEnabled: false,
+}
+
+const (
+	flagSupplyEnabled = "light_invariance.supply_enabled"
+)
+
+func ReadLightInvarianceConfig(opts servertypes.AppOptions) (LightInvarianceConfig, error) {
+	cfg := DefaultLightInvarianceConfig // copy
+	var err error
+	if v := opts.Get(flagSupplyEnabled); v != nil {
+		if cfg.SupplyEnabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	return cfg, nil
+}
+
+func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore, config LightInvarianceConfig) {
+	if config.SupplyEnabled {
+		app.LightInvarianceTotalSupply(cms)
+	}
+}
+
+func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	defer metrics.MeasureSince(
-		[]string{"sei", "lightinvariance", "milliseconds"},
+		[]string{"sei", "lightinvariance_supply", "milliseconds"},
 		time.Now().UTC(),
 	)
 	ckv, ok := cms.GetStore(app.BankKeeper.GetStoreKey()).(*commitment.Store)
@@ -29,7 +60,7 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 	for _, p := range balanceChangePairs {
 		if len(p.Key) < 2 {
 			// invalid key; ignore
-			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "invalid_changed_key"}, 1, []metrics.Label{
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "invalid_changed_key"}, 1, []metrics.Label{
 				{
 					Name:  "type",
 					Value: "sei",
@@ -41,7 +72,7 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 		addrLen := int(p.Key[1])
 		if len(p.Key) < addrLen+2 {
 			// invalid key length; ignore
-			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "invalid_changed_key"}, 1, []metrics.Label{
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "invalid_changed_key"}, 1, []metrics.Label{
 				{
 					Name:  "type",
 					Value: "sei",
@@ -58,7 +89,7 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 		if !p.Delete {
 			var balance sdk.Coin
 			if err := balance.Unmarshal(p.Value); err != nil {
-				metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+				metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{
 					{
 						Name:  "type",
 						Value: "usei",
@@ -86,7 +117,7 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 		}
 		var balance sdk.Coin
 		if err := balance.Unmarshal(val); err != nil {
-			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{
 				{
 					Name:  "type",
 					Value: "usei",
@@ -106,7 +137,7 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 	for _, p := range weiChangePairs {
 		var amt sdk.Int
 		if len(p.Key) < 1 {
-			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "invalid_changed_key"}, 1, []metrics.Label{
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "invalid_changed_key"}, 1, []metrics.Label{
 				{
 					Name:  "type",
 					Value: "wei",
@@ -117,7 +148,7 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 		}
 		if !p.Delete {
 			if err := amt.Unmarshal(p.Value); err != nil {
-				metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+				metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{
 					{
 						Name:  "type",
 						Value: "wei",
@@ -145,7 +176,7 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 		}
 		var amt sdk.Int
 		if err := amt.Unmarshal(val); err != nil {
-			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{
 				{
 					Name:  "type",
 					Value: "wei",
@@ -165,7 +196,7 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 	if bz := ckv.Get(append(banktypes.SupplyKey, []byte(sdk.MustGetBaseDenom())...)); bz != nil {
 		var amt sdk.Int
 		if err := amt.Unmarshal(bz); err != nil {
-			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+			metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{
 				{
 					Name:  "type",
 					Value: "total_supply",
@@ -186,7 +217,7 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 			} else {
 				var amt sdk.Int
 				if err := amt.Unmarshal(p.Value); err != nil {
-					metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance", "unmarshal_failure"}, 1, []metrics.Label{
+					metrics.IncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{
 						{
 							Name:  "type",
 							Value: "total_supply",
@@ -212,4 +243,5 @@ func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
 	if !useiDiff.IsZero() {
 		panic(fmt.Sprintf("unexpected usei balance total found! Pre-block usei total %s wei total %s total supply %s, post-block usei total %s wei total %s total supply %s", useiPreTotal, weiPreTotal, preTotalSupply, useiPostTotal, weiPostTotal, preTotalSupply.Add(supplyChanged)))
 	}
+	app.Logger().Info("successfully verified supply light invariance")
 }
