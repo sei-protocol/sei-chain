@@ -3,7 +3,6 @@ package aclmapping
 import (
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	aclbankmapping "github.com/sei-protocol/sei-chain/aclmapping/bank"
-	acldexmapping "github.com/sei-protocol/sei-chain/aclmapping/dex"
 	aclevmmapping "github.com/sei-protocol/sei-chain/aclmapping/evm"
 	acloraclemapping "github.com/sei-protocol/sei-chain/aclmapping/oracle"
 	acltokenfactorymapping "github.com/sei-protocol/sei-chain/aclmapping/tokenfactory"
@@ -21,7 +20,6 @@ func (customDepGen CustomDependencyGenerator) GetCustomDependencyGenerators(evmK
 	dependencyGeneratorMap := make(aclkeeper.DependencyGeneratorMap)
 	wasmDependencyGenerators := aclwasmmapping.NewWasmDependencyGenerator()
 
-	dependencyGeneratorMap = dependencyGeneratorMap.Merge(acldexmapping.GetDexDependencyGenerators())
 	dependencyGeneratorMap = dependencyGeneratorMap.Merge(aclbankmapping.GetBankDepedencyGenerator())
 	dependencyGeneratorMap = dependencyGeneratorMap.Merge(acltokenfactorymapping.GetTokenFactoryDependencyGenerators())
 	dependencyGeneratorMap = dependencyGeneratorMap.Merge(wasmDependencyGenerators.GetWasmDependencyGenerators())

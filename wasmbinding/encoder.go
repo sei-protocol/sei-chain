@@ -7,14 +7,11 @@ import (
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 )
 
 type SeiWasmMessage struct {
-	PlaceOrders     json.RawMessage `json:"place_orders,omitempty"`
-	CancelOrders    json.RawMessage `json:"cancel_orders,omitempty"`
 	CreateDenom     json.RawMessage `json:"create_denom,omitempty"`
 	MintTokens      json.RawMessage `json:"mint_tokens,omitempty"`
 	BurnTokens      json.RawMessage `json:"burn_tokens,omitempty"`
@@ -30,10 +27,6 @@ func CustomEncoder(sender sdk.AccAddress, msg json.RawMessage, info wasmvmtypes.
 		return []sdk.Msg{}, sdkerrors.Wrap(err, "Error parsing Sei Wasm Message")
 	}
 	switch {
-	case parsedMessage.PlaceOrders != nil:
-		return dexwasm.EncodeDexPlaceOrders(parsedMessage.PlaceOrders, sender)
-	case parsedMessage.CancelOrders != nil:
-		return dexwasm.EncodeDexCancelOrders(parsedMessage.CancelOrders, sender)
 	case parsedMessage.CreateDenom != nil:
 		return tokenfactorywasm.EncodeTokenFactoryCreateDenom(parsedMessage.CreateDenom, sender)
 	case parsedMessage.MintTokens != nil:

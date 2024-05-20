@@ -11,8 +11,6 @@ import (
 	feegranttypes "github.com/cosmos/cosmos-sdk/x/feegrant"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
-	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -28,40 +26,6 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 		aclsdktypes.ResourceType_ANY: aclsdktypes.EmptyPrefix,
 		aclsdktypes.ResourceType_KV:  aclsdktypes.EmptyPrefix,
 		aclsdktypes.ResourceType_Mem: aclsdktypes.EmptyPrefix,
-	},
-	dextypes.StoreKey: {
-		aclsdktypes.ResourceType_KV_DEX:                    aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_DexMem:                    aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_KV_DEX_CONTRACT_LONGBOOK:  dextypes.KeyPrefix(dextypes.LongBookKey),
-		aclsdktypes.ResourceType_KV_DEX_CONTRACT_SHORTBOOK: dextypes.KeyPrefix(dextypes.ShortBookKey),
-		// pricedenom and assetdenoms are the prefixes
-		aclsdktypes.ResourceType_KV_DEX_PAIR_PREFIX:           aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_KV_DEX_TWAP:                  dextypes.KeyPrefix(dextypes.TwapKey),
-		aclsdktypes.ResourceType_KV_DEX_PRICE:                 dextypes.KeyPrefix(dextypes.PriceKey),
-		aclsdktypes.ResourceType_KV_DEX_SETTLEMENT_ENTRY:      dextypes.KeyPrefix(dextypes.SettlementEntryKey),
-		aclsdktypes.ResourceType_KV_DEX_REGISTERED_PAIR:       dextypes.KeyPrefix(dextypes.RegisteredPairKey),
-		aclsdktypes.ResourceType_KV_DEX_ORDER:                 dextypes.KeyPrefix(dextypes.OrderKey),
-		aclsdktypes.ResourceType_KV_DEX_CANCEL:                dextypes.KeyPrefix(dextypes.CancelKey),
-		aclsdktypes.ResourceType_KV_DEX_ACCOUNT_ACTIVE_ORDERS: dextypes.KeyPrefix(dextypes.AccountActiveOrdersKey),
-		aclsdktypes.ResourceType_KV_DEX_ASSET_LIST:            dextypes.KeyPrefix(dextypes.AssetListKey),
-		aclsdktypes.ResourceType_KV_DEX_NEXT_ORDER_ID:         dextypes.KeyPrefix(dextypes.NextOrderIDKey),
-		aclsdktypes.ResourceType_KV_DEX_NEXT_SETTLEMENT_ID:    dextypes.KeyPrefix(dextypes.NextSettlementIDKey),
-		aclsdktypes.ResourceType_KV_DEX_MATCH_RESULT:          dextypes.KeyPrefix(dextypes.MatchResultKey),
-		aclsdktypes.ResourceType_KV_DEX_CONTRACT:              dextypes.KeyPrefix(dexkeeper.ContractPrefixKey),
-		aclsdktypes.ResourceType_KV_DEX_ORDER_BOOK:            dextypes.KeyPrefix(dextypes.NextOrderIDKey),
-		aclsdktypes.ResourceType_KV_DEX_LONG_ORDER_COUNT:      dextypes.KeyPrefix(dextypes.LongOrderCountKey),
-		aclsdktypes.ResourceType_KV_DEX_SHORT_ORDER_COUNT:     dextypes.KeyPrefix(dextypes.ShortOrderCountKey),
-		// SETTLEMENT keys are prefixed with account and order id
-		aclsdktypes.ResourceType_KV_DEX_SETTLEMENT_ORDER_ID: aclsdktypes.EmptyPrefix,
-		aclsdktypes.ResourceType_KV_DEX_SETTLEMENT:          aclsdktypes.EmptyPrefix,
-	},
-	dextypes.MemStoreKey: {
-		// mem
-		aclsdktypes.ResourceType_KV_DEX_MEM_ORDER:                dextypes.KeyPrefix(dextypes.MemOrderKey),
-		aclsdktypes.ResourceType_KV_DEX_MEM_CANCEL:               dextypes.KeyPrefix(dextypes.MemCancelKey),
-		aclsdktypes.ResourceType_KV_DEX_MEM_DEPOSIT:              dextypes.KeyPrefix(dextypes.MemDepositKey),
-		aclsdktypes.ResourceType_KV_DEX_MEM_CONTRACTS_TO_PROCESS: dextypes.KeyPrefix(dextypes.MemContractsToProcess),
-		aclsdktypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS: dextypes.KeyPrefix(dextypes.MemDownstreamContracts),
 	},
 	banktypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_BANK:             aclsdktypes.EmptyPrefix,
@@ -173,40 +137,6 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 // ResourceTypeToStoreKeyMap this maps between resource types and their respective storekey
 var ResourceTypeToStoreKeyMap = aclsdktypes.ResourceTypeToStoreKeyMap{
 	// ANY, KV, and MEM are intentionally excluded because they don't map to a specific store key
-
-	// ~~~~ DEX Resource Types ~~~~
-	aclsdktypes.ResourceType_KV_DEX:                    dextypes.StoreKey,
-	aclsdktypes.ResourceType_DexMem:                    dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_CONTRACT_LONGBOOK:  dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_CONTRACT_SHORTBOOK: dextypes.StoreKey,
-	// pricedenom and assetdenoms are the prefixes
-	aclsdktypes.ResourceType_KV_DEX_PAIR_PREFIX:           dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_TWAP:                  dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_PRICE:                 dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_SETTLEMENT_ENTRY:      dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_REGISTERED_PAIR:       dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_ORDER:                 dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_CANCEL:                dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_ACCOUNT_ACTIVE_ORDERS: dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_ASSET_LIST:            dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_NEXT_ORDER_ID:         dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_NEXT_SETTLEMENT_ID:    dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_MATCH_RESULT:          dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_CONTRACT:              dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_ORDER_BOOK:            dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_LONG_ORDER_COUNT:      dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_SHORT_ORDER_COUNT:     dextypes.StoreKey,
-	// SETTLEMENT keys are prefixed with account and order id
-	aclsdktypes.ResourceType_KV_DEX_SETTLEMENT_ORDER_ID: dextypes.StoreKey,
-	aclsdktypes.ResourceType_KV_DEX_SETTLEMENT:          dextypes.StoreKey,
-
-	// ~~~~ DEX MEM Resource Types ~~~~
-	aclsdktypes.ResourceType_KV_DEX_MEM_ORDER:                dextypes.MemStoreKey,
-	aclsdktypes.ResourceType_KV_DEX_MEM_CANCEL:               dextypes.MemStoreKey,
-	aclsdktypes.ResourceType_KV_DEX_MEM_DEPOSIT:              dextypes.MemStoreKey,
-	aclsdktypes.ResourceType_KV_DEX_MEM_CONTRACTS_TO_PROCESS: dextypes.MemStoreKey,
-	aclsdktypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS: dextypes.MemStoreKey,
-
 	// ~~~~ BANK Resource Types ~~~~
 	aclsdktypes.ResourceType_KV_BANK:             banktypes.StoreKey,
 	aclsdktypes.ResourceType_KV_BANK_BALANCES:    banktypes.StoreKey,
