@@ -12,7 +12,11 @@ import (
 )
 
 func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []*types.DeferredInfo) {
+<<<<<<< HEAD
 	store := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix)
+=======
+	store := prefix.NewStore(ctx.TransientStore(k.tStoreKey), types.DeferredInfoPrefix)
+>>>>>>> 888db563 (handle error cases)
 	for txIdx, msg := range k.msgs {
 		if msg == nil {
 			continue
