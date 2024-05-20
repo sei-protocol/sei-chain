@@ -27,6 +27,9 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v5.5.2
+sei-chain
+* [#1685](https://github.com/sei-protocol/sei-chain/pull/1685) Add EVM support to v5.5.2
 ## v5.4.0
 sei-chain
 * [#1671](https://github.com/sei-protocol/sei-chain/pull/1671) Update and fixes to ERC721 contract
