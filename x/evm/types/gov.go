@@ -24,6 +24,9 @@ func init() {
 	govtypes.RegisterProposalType(ProposalTypeAddERCNativePointer)
 	govtypes.RegisterProposalType(ProposalTypeAddERCCW20Pointer)
 	govtypes.RegisterProposalType(ProposalTypeAddERCCW721Pointer)
+	govtypes.RegisterProposalType(ProposalTypeAddCWERC20Pointer)
+	govtypes.RegisterProposalType(ProposalTypeAddCWERC721Pointer)
+
 	// for marshal and unmarshal
 	govtypes.RegisterProposalTypeCodec(&AddERCNativePointerProposal{}, "evm/AddERCNativePointerProposal")
 	govtypes.RegisterProposalTypeCodec(&AddERCCW20PointerProposal{}, "evm/AddERCCW20PointerProposal")
