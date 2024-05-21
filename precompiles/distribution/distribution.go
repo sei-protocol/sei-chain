@@ -5,9 +5,10 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/sei-protocol/sei-chain/utils"
-	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
