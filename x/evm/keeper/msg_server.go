@@ -343,3 +343,7 @@ func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *typ
 	server.SetAddressMapping(ctx, addr, evmAddr)
 	return &types.MsgAssociateContractAddressResponse{}, nil
 }
+
+func (server msgServer) Associate(context.Context, *types.MsgAssociate) (*types.MsgAssociateResponse, error) {
+	return &types.MsgAssociateResponse{}, nil
+}
