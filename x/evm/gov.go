@@ -44,3 +44,27 @@ func HandleAddERCCW721PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *type
 	}
 	return k.SetERC721CW721PointerWithVersion(ctx, p.Pointee, common.HexToAddress(p.Pointer), uint16(p.Version))
 }
+
+func HandleAddCWERC20PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *types.AddCWERC20PointerProposal) error {
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc20"),
+		sdk.NewAttribute(types.AttributeKeyPointerAddress, p.Pointer), sdk.NewAttribute(types.AttributeKeyPointee, p.Pointee),
+		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", p.Version))))
+	if p.Pointer == "" {
+		k.DeleteCW20ERC20Pointer(ctx, common.HexToAddress(p.Pointee), uint16(p.Version))
+		return nil
+	}
+	return k.SetCW20ERC20PointerWithVersion(ctx, common.HexToAddress(p.Pointee), p.Pointer, uint16(p.Version))
+}
+
+func HandleAddCWERC721PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *types.AddCWERC721PointerProposal) error {
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc721"),
+		sdk.NewAttribute(types.AttributeKeyPointerAddress, p.Pointer), sdk.NewAttribute(types.AttributeKeyPointee, p.Pointee),
+		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", p.Version))))
+	if p.Pointer == "" {
+		k.DeleteCW721ERC721Pointer(ctx, common.HexToAddress(p.Pointee), uint16(p.Version))
+		return nil
+	}
+	return k.SetCW721ERC721PointerWithVersion(ctx, common.HexToAddress(p.Pointee), p.Pointer, uint16(p.Version))
+}
