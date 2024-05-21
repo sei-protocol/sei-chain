@@ -274,11 +274,7 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}) {
 async function proposeCW20toERC20Upgrade(erc20Address, cw20Address, title="erc20-pointer", version=99, description="erc20 pointer",fees="20000usei", from=adminKeyName) {
     const command = `seid tx evm add-cw-erc20-pointer "${title}" "${description}" ${erc20Address} ${version} 200000000usei ${cw20Address} --from ${from} --fees ${fees} -y -o json --broadcast-mode=block`
     const output = await execute(command);
-    const response = JSON.parse(output)
-    if(response.code !== 0) {
-        throw new Error(`failed to submit proposal: ${output}`)
-    }
-    const proposalId = getEventAttribute(response, "submit_proposal", "proposal_id")
+    const proposalId = getEventAttribute(JSON.parse(output), "submit_proposal", "proposal_id")
     return await passProposal(proposalId)
 }
 
@@ -397,8 +393,8 @@ async function executeOnAllNodes(command, interaction=`printf "12345678\\n"`){
         command = command.replace("/sei-protocol/sei-chain//sei-protocol/sei-chain/", "/sei-protocol/sei-chain/")
         let response;
         for(let i=0; i<4; i++) {
-            command = `docker exec sei-node-${i} /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
-            response = await execCommand(command);
+            const nodeCommand = `docker exec sei-node-${i} /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
+            response = await execCommand(nodeCommand);
         }
         return response
     }

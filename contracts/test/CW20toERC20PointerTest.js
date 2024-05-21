@@ -186,7 +186,8 @@ describe("CW20 to ERC20 Pointer", function () {
             });
         });
 
-        // This does not yet pass, so skip
+        // The original pointer does not work now (expected)
+        // test is configured to skip until original pointer works (unimplemented)
         describe.skip("Original Pointer after Upgrade", function(){
             // Original pointer
             testPointer(() => pointer, {
