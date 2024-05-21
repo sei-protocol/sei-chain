@@ -279,7 +279,11 @@ async function proposeCW20toERC20Upgrade(erc20Address, cw20Address, title="erc20
 }
 
 async function passProposal(proposalId,  desposit="200000000usei", fees="20000usei", from=adminKeyName) {
-    await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from ${from} -b block -y --fees ${fees}`)
+    if(await isDocker()) {
+        await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b block -y --fees ${fees}`)
+    } else {
+        await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b block -y --fees ${fees}`)
+    }
     for(let i=0; i<100; i++) {
         const proposal = await execute(`seid q gov proposal ${proposalId} -o json`)
         const status = JSON.parse(proposal).status

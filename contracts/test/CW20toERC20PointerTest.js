@@ -76,7 +76,6 @@ describe("CW20 to ERC20 Pointer", function () {
 
                 it("should return balance", async function(){
                     const result = await queryWasm(pointer, "balance", {address: accounts[0].seiAddress});
-                    console.log("Balance:", result);
                     expect(result).to.deep.equal({ data: { balance: balances[0].toString() } });
                 });
 
