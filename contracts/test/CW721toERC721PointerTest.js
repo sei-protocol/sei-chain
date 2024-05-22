@@ -1,5 +1,5 @@
 const {setupSigners, deployEvmContract, getAdmin, deployWasm, executeWasm, queryWasm, deployErc20PointerForCw20,
-    deployErc721PointerForCw721, WASM, registerPointerForCw721
+    deployErc721PointerForCw721, WASM, registerPointerForERC721
 } = require("./lib");
 const {expect} = require("chai");
 
@@ -14,7 +14,7 @@ describe("CW721 to ERC721 Pointer", function () {
         erc721 = await deployEvmContract("MyNFT")
         admin = await getAdmin()
 
-        pointer = await registerPointerForCw721(await erc721.getAddress())
+        pointer = await registerPointerForERC721(await erc721.getAddress())
 
         await (await erc721.mint(accounts[0].evmAddress, 1)).wait()
         await (await erc721.mint(accounts[1].evmAddress, 2)).wait()
