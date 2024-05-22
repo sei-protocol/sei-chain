@@ -173,3 +173,109 @@ func NewAddERCCW721PointerProposalTxCmd() *cobra.Command {
 
 	return cmd
 }
+
+func NewAddCWERC20PointerProposalTxCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add-cw-erc20-pointer title description erc20address version deposit [pointer address]",
+		Args:  cobra.RangeArgs(5, 6),
+		Short: "Submit an add CW-ERC20 pointer proposal",
+		Long: strings.TrimSpace(`
+			Submit a proposal to register an CW pointer contract address for a ERC20 token.
+			Not specifying the pointer address means a proposal that deletes the existing pointer.
+		`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			version, err := strconv.ParseUint(args[3], 10, 16)
+			if err != nil {
+				return err
+			}
+			deposit, err := sdk.ParseCoinsNormalized(args[4])
+			if err != nil {
+				return err
+			}
+			var pointer string
+			if len(args) == 6 {
+				pointer = args[5]
+			}
+
+			// Convert proposal to RegisterPairsProposal Type
+			from := clientCtx.GetFromAddress()
+
+			content := types.AddCWERC20PointerProposal{
+				Title:       args[0],
+				Description: args[1],
+				Pointee:     args[2],
+				Version:     uint32(version),
+				Pointer:     pointer,
+			}
+
+			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, from)
+			if err != nil {
+				return err
+			}
+
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func NewAddCWERC721PointerProposalTxCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add-cw-erc721-pointer title description erc721address version deposit [pointer address]",
+		Args:  cobra.RangeArgs(5, 6),
+		Short: "Submit an add CW-ERC721 pointer proposal",
+		Long: strings.TrimSpace(`
+			Submit a proposal to register an CW pointer contract address for a ERC721 token.
+			Not specifying the pointer address means a proposal that deletes the existing pointer.
+		`),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			version, err := strconv.ParseUint(args[3], 10, 16)
+			if err != nil {
+				return err
+			}
+			deposit, err := sdk.ParseCoinsNormalized(args[4])
+			if err != nil {
+				return err
+			}
+			var pointer string
+			if len(args) == 6 {
+				pointer = args[5]
+			}
+
+			// Convert proposal to RegisterPairsProposal Type
+			from := clientCtx.GetFromAddress()
+
+			content := types.AddCWERC721PointerProposal{
+				Title:       args[0],
+				Description: args[1],
+				Pointee:     args[2],
+				Version:     uint32(version),
+				Pointer:     pointer,
+			}
+
+			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, from)
+			if err != nil {
+				return err
+			}
+
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
