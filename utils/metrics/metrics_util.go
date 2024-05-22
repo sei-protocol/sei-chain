@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"math/big"
 	"strconv"
 	"time"
 
@@ -314,5 +315,21 @@ func IncrConsumerEventCount(msgType string) {
 		[]string{"sei", "loadtest", "consume", "count"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
+	)
+}
+
+// Gauge for gas price paid for transactions
+// Metric Name:
+//
+// sei_effective_gas_price
+func GaugeGasPricePaid(gasPrice *big.Int, blockNum uint64, txHash string, isCosmos bool) {
+	telemetry.SetGaugeWithLabels(
+		[]string{"sei", "effective", "gas", "price"},
+		float32(gasPrice.Uint64()),
+		[]metrics.Label{
+			telemetry.NewLabel("block_num", strconv.FormatUint(blockNum, 10)),
+			telemetry.NewLabel("tx_hash", txHash),
+			telemetry.NewLabel("is_cosmos", strconv.FormatBool(isCosmos)),
+		},
 	)
 }
