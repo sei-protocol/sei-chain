@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
+	"runtime"
 
 	"math/big"
 	"math/rand"
@@ -33,6 +34,12 @@ type EvmTxClient struct {
 	mtx            sync.RWMutex
 	privateKey     *ecdsa.PrivateKey
 	evmAddresses   *EVMAddresses
+
+	// eip-1559 base fee poller
+	baseFeePollerStop chan struct{}
+	baseFeePollerWg   sync.WaitGroup
+	curBaseFee        *big.Int
+	baseFeeMu         sync.RWMutex
 }
 
 func NewEvmTxClient(
@@ -73,6 +80,15 @@ func NewEvmTxClient(
 	}
 	txClient.nonce.Store(nextNonce)
 	txClient.accountAddress = fromAddress
+
+	// Launch persistent goroutine to continuously poll for base fee on a time interval
+	go txClient.PollBaseFee()
+	// Set finalizer to stop the base fee poller when txClient is garbage collected
+	runtime.SetFinalizer(txClient, func(txc *txClient) {
+		close(txc.baseFeePollerStop)
+		txc.baseFeePollerWg.Wait() // Wait for goroutine to finish
+		fmt.Println("Finalizer executed: base fee poller stopped")
+	})
 	return txClient
 }
 
@@ -162,14 +178,57 @@ func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
 	}
+
+	priorityFee := big.NewInt(2000000000) // 2 gwei, source: https://archive.ph/gOO0q#selection-1341.40-1341.164
+	maxFee, err := txClient.GetMaxFee(priorityFee)
+	if err != nil {
+		fmt.Errorf("Failed to get max fee, err: %v, defaulting to legacy txs", err)
+		auth.GasPrice = txClient.gasPrice
+	} else {
+		auth.GasFeeCap = maxFee
+		auth.GasTipCap = priorityFee
+	}
 	auth.Nonce = big.NewInt(int64(txClient.nextNonce()))
 	auth.Value = big.NewInt(0)
 	auth.GasLimit = uint64(21000)
-	auth.GasPrice = txClient.gasPrice
 	auth.Context = context.Background()
 	auth.From = txClient.accountAddress
 	auth.NoSend = true
 	return auth
+}
+
+// Max Fee = (2 * baseFee) + priorityFee
+// source: https://archive.ph/gOO0q#selection-1499.0-1573.61
+func (txClient *EvmTxClient) GetMaxFee(priorityFee *big.Int) (*big.Int, error) {
+	txClient.baseFeeMu.RLock()
+	defer txClient.baseFeeMu.RUnlock()
+	if txClient.curBaseFee == nil {
+		return nil, fmt.Errorf("base fee not available")
+	}
+	return new(big.Int).Add(new(big.Int).Mul(big.NewInt(2), txClient.curBaseFee), priorityFee), nil
+}
+
+func (txClient *EvmTxClient) PollBaseFee() (*big.Int, error) {
+	defer txClient.baseFeePollerWg.Done()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-txClient.baseFeePollerStop:
+			fmt.Println("Base fee poller stopped")
+		case <-ticker.C:
+			// pull most recent base fee
+			block, err := GetNextEthClient(txClient.ethClients).BlockByNumber(context.Background(), nil)
+			if err != nil {
+				fmt.Println("Failed to get block", err)
+				continue
+			}
+			txClient.baseFeeMu.Lock()
+			txClient.curBaseFee = block.BaseFee()
+			txClient.baseFeeMu.Unlock()
+		}
+	}
 }
 
 func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transaction {
