@@ -12,6 +12,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -157,4 +158,11 @@ func TestCalculatePercentiles(t *testing.T) {
 	require.Equal(t, big.NewInt(3), result[0].ToInt())
 	require.Equal(t, big.NewInt(3), result[1].ToInt())
 	require.Equal(t, big.NewInt(10), result[2].ToInt())
+}
+
+func TestMaxPriorityFeePerGas(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	// Mimic request sending and handle the response
+	resObj := sendRequestGood(t, "maxPriorityFeePerGas")
+	assert.Equal(t, "0xa", resObj["result"])
 }
