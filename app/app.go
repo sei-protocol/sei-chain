@@ -1786,7 +1786,7 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 			// such tx will not be processed and thus won't consume gas. Skipping
 			continue
 		}
-		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper)
+		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
 			ctx.Logger().Error("error checking if tx is gasless", "error", err)
 			continue
