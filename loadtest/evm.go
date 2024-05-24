@@ -39,7 +39,7 @@ type EvmTxClient struct {
 	privateKey     *ecdsa.PrivateKey
 	evmAddresses   *EVMAddresses
 
-	// eip-1559 base fee poller
+	// eip-1559
 	baseFeePollerStop chan struct{}
 	baseFeePollerWg   sync.WaitGroup
 	curGasPrice       *big.Int
@@ -102,16 +102,12 @@ func NewEvmTxClient(
 func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transaction {
 	switch msgType {
 	case EVM:
-		fmt.Println("Generating Send Funds Tx")
 		return txClient.GenerateSendFundsTx()
 	case ERC20:
-		fmt.Println("Generating ERC20 Transfer Tx")
 		return txClient.GenerateERC20TransferTx()
 	case ERC721:
-		fmt.Println("Generating ERC721 Mint Tx")
 		return txClient.GenerateERC721Mint()
 	case UNIV2:
-		fmt.Println("Generating UniV2 Swap Tx")
 		return txClient.GenerateUniV2SwapTx()
 	default:
 		panic("invalid message type")
@@ -134,7 +130,6 @@ func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
 		useEip1559 = false
 	}
 	if !useEip1559 {
-		fmt.Println("Using legacy txs")
 		tx = ethtypes.NewTx(&ethtypes.LegacyTx{
 			Nonce:    txClient.nextNonce(),
 			GasPrice: txClient.gasPrice,
@@ -143,7 +138,6 @@ func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
 			Value:    randomValue(),
 		})
 	} else {
-		fmt.Println("Using EIP-1559 txs")
 		dynamicTx := &ethtypes.DynamicFeeTx{
 			ChainID:   txClient.chainId,
 			Nonce:     txClient.nextNonce(),
@@ -207,7 +201,6 @@ func (txClient *EvmTxClient) GenerateERC721Mint() *ethtypes.Transaction {
 }
 
 func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
-	fmt.Println("In getTransactOpts")
 	auth, err := bind.NewKeyedTransactorWithChainID(txClient.privateKey, txClient.chainId)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
@@ -219,10 +212,8 @@ func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 		useEip1559 = false
 	}
 	if !useEip1559 {
-		fmt.Println("Using legacy txs")
 		auth.GasPrice = txClient.gasPrice
 	} else {
-		fmt.Println("Using EIP-1559 txs")
 		auth.GasFeeCap = maxFee
 		auth.GasTipCap = DefaultPriorityFee
 	}
@@ -263,7 +254,6 @@ func (txClient *EvmTxClient) PollGasPrice() {
 				fmt.Println("Failed to get gas price", err)
 				continue
 			}
-			fmt.Println("Pulled gas price of ", gasPrice)
 			txClient.gasPriceMu.Lock()
 			txClient.curGasPrice = gasPrice
 			txClient.gasPriceMu.Unlock()
@@ -272,7 +262,6 @@ func (txClient *EvmTxClient) PollGasPrice() {
 }
 
 func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transaction {
-	fmt.Println("Signing tx with with address = ", txClient.accountAddress.String())
 	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewLondonSigner(txClient.chainId), txClient.privateKey)
 	if err != nil {
 		// this should not happen
