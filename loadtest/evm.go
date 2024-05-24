@@ -141,7 +141,7 @@ func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
 		dynamicTx := &ethtypes.DynamicFeeTx{
 			ChainID:   txClient.chainId,
 			Nonce:     txClient.nextNonce(),
-			GasTipCap: big.NewInt(2000000000), // 2 gwei, source: https://archive.ph/gOO0q#selection-1341.40-1341.164
+			GasTipCap: DefaultPriorityFee,
 			GasFeeCap: maxFee,
 			Gas:       uint64(21000),
 			To:        &txClient.accountAddress,
