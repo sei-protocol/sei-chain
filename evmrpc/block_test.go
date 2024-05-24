@@ -176,6 +176,12 @@ func TestEncodeBankMsg(t *testing.T) {
 				}(),
 			},
 		},
+		ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxBytes: 100000000,
+				MaxGas:   200000000,
+			},
+		},
 	}
 	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, k, Decoder, true)
 	require.Nil(t, err)
