@@ -5,9 +5,7 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/storev2/commitment"
-	"github.com/spf13/cast"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -15,33 +13,8 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 )
 
-type LightInvarianceConfig struct {
-	SupplyEnabled bool `mapstructure:"supply_enabled"`
-}
-
-var DefaultLightInvarianceConfig = LightInvarianceConfig{
-	SupplyEnabled: false,
-}
-
-const (
-	flagSupplyEnabled = "light_invariance.supply_enabled"
-)
-
-func ReadLightInvarianceConfig(opts servertypes.AppOptions) (LightInvarianceConfig, error) {
-	cfg := DefaultLightInvarianceConfig // copy
-	var err error
-	if v := opts.Get(flagSupplyEnabled); v != nil {
-		if cfg.SupplyEnabled, err = cast.ToBoolE(v); err != nil {
-			return cfg, err
-		}
-	}
-	return cfg, nil
-}
-
-func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore, config LightInvarianceConfig) {
-	if config.SupplyEnabled {
-		app.LightInvarianceTotalSupply(cms)
-	}
+func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore) {
+	app.LightInvarianceTotalSupply(cms)
 }
 
 func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
