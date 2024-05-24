@@ -1,0 +1,1 @@
+64e02d4e121693160aa8b9f08594807a98d24d64be1b84015c564cc59d0b6652  ./target/wasm32-unknown-unknown/release/cwerc1155.wasm

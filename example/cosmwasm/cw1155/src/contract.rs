@@ -1,0 +1,471 @@
+#[cfg(not(feature = "library"))]
+use cosmwasm_std::entry_point;
+use cosmwasm_std::{DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Empty, Uint128, Int256, StdError};
+use cw721::{Cw721ReceiveMsg, OwnerOfResponse, Approval, ApprovalResponse, ApprovalsResponse, OperatorResponse, ContractInfoResponse, NftInfoResponse, AllNftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
+use cw2981_royalties::msg::{RoyaltiesInfoResponse, CheckRoyaltiesResponse};
+use cw2981_royalties::{Metadata as Cw2981Metadata, Extension as Cw2981Extension};
+use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, CwErc1155QueryMsg, QueryMsg};
+use crate::querier::{EvmQuerier, DEFAULT_LIMIT, MAX_LIMIT};
+use crate::error::ContractError;
+use crate::state::ERC1155_ADDRESS;
+use std::str::FromStr;
+use cw1155::{BalanceResponse, Cw1155BatchReceiveMsg, Cw1155QueryMsg, Cw1155ReceiveMsg, TokenAmount};
+use cw1155_royalties::Cw1155RoyaltiesExecuteMsg;
+
+const ERC2981_ID: &str = "0x2a55205a";
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn instantiate(
+    deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    msg: InstantiateMsg,
+) -> Result<Response, ContractError> {
+    ERC1155_ADDRESS.save(deps.storage, &msg.erc1155_address)?;
+    Ok(Response::default())
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn execute(
+    deps: DepsMut<EvmQueryWrapper>,
+    _env: Env,
+    info: MessageInfo,
+    msg: Cw1155RoyaltiesExecuteMsg,
+) -> Result<Response<EvmMsg>, ContractError> {
+    match msg {
+        Cw1155RoyaltiesExecuteMsg::Send { from, to, token_id , amount, msg } => {
+                execute_send_single(deps, info, from, to, token_id, amount, msg)
+        },
+        Cw1155RoyaltiesExecuteMsg::SendBatch { from, to, batch, msg } => {
+            execute_send_batch(deps, info, from, to, batch, msg)
+        }
+        Cw1155RoyaltiesExecuteMsg::Approve { spender, token_id, amount, expires: _ } => {
+            execute_approve(deps, info, spender, token_id, true)
+        },
+        Cw1155RoyaltiesExecuteMsg::Revoke { spender, token_id, amount } => {
+            execute_approve(deps, info, spender, token_id, false)
+        },
+        Cw1155RoyaltiesExecuteMsg::ApproveAll { operator, expires: _ } => {
+            execute_approve_all(deps, info, operator, true)
+        },
+        Cw1155RoyaltiesExecuteMsg::RevokeAll { operator } => {
+            execute_approve_all(deps, info, operator, false)
+        },
+        Cw1155RoyaltiesExecuteMsg::Burn { .. } => { execute_burn() },
+        Cw1155RoyaltiesExecuteMsg::BurnBatch { .. } => { execute_burn_batch() },
+        Cw1155RoyaltiesExecuteMsg::Mint { .. } => execute_mint(),
+        Cw1155RoyaltiesExecuteMsg::MintBatch { .. } => execute_mint_batch(),
+        Cw1155RoyaltiesExecuteMsg::UpdateOwnership(_) => update_ownership(),
+        Cw1155RoyaltiesExecuteMsg::Extension { .. } => execute_extension(),
+    }
+}
+
+pub fn execute_send_single(
+    deps: DepsMut<EvmQueryWrapper>,
+    info: MessageInfo,
+    from: Option<String>,
+    recipient: String,
+    token_id: String,
+    amount: Uint128,
+    msg: Option<Binary>,
+) -> Result<Response<EvmMsg>, ContractError> {
+    // validate recipient
+    let recipient = deps.api.addr_validate(&recipient)?;
+
+    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+
+    let querier = EvmQuerier::new(&deps.querier);
+    let payload = querier.erc1155_transfer_single_payload(from.clone().unwrap_or_else(|| info.sender.to_string()), recipient.to_string(), token_id.to_string(), amount)?;
+    let delegate_msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+
+    let mut res = Response::new().add_message(delegate_msg);
+
+    if let Some(msg) = msg {
+        let send = Cw1155ReceiveMsg {
+            operator: info.sender.to_string(),
+            from,
+            token_id: token_id.to_string(),
+            amount,
+            msg,
+        };
+        res = res
+            .add_message(send.into_cosmos_msg(recipient.to_string())?)
+            .add_attribute("action", "send_single");
+    } else {
+        res = res.add_attribute("action", "transfer_single")
+    }
+
+    res = res.add_attribute("sender", info.sender)
+        .add_attribute("recipient", recipient)
+        .add_attribute("token_id", token_id)
+        .add_attribute("amount", amount);
+    Ok(res)
+}
+
+pub fn execute_send_batch(
+    deps: DepsMut<EvmQueryWrapper>,
+    info: MessageInfo,
+    from: Option<String>,
+    recipient: String,
+    batch: Vec<TokenAmount>,
+    msg: Option<Binary>,
+) -> Result<Response<EvmMsg>, ContractError> {
+    // validate recipient
+    let recipient = deps.api.addr_validate(&recipient)?;
+
+    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+
+    let token_ids = batch.to_vec().into_iter().map(|t| t.token_id).collect::<Vec<_>>();
+    let amounts = batch.to_vec().into_iter().map(|t| t.amount).collect::<Vec<_>>();
+
+    let querier = EvmQuerier::new(&deps.querier);
+    let payload = querier.erc1155_transfer_batch_payload(from.clone().unwrap_or_else(|| info.sender.to_string()), recipient.to_string(), token_ids.to_vec(), amounts.to_vec())?;
+    let delegate_msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+
+    let mut res = Response::new().add_message(delegate_msg);
+
+    if let Some(msg) = msg {
+        let send = Cw1155BatchReceiveMsg {
+            operator: info.sender.to_string(),
+            from,
+            batch,
+            msg,
+        };
+        res = res
+            .add_message(send.into_cosmos_msg(recipient.to_string())?)
+            .add_attribute("action", "send_batch");
+    } else {
+        res = res.add_attribute("action", "transfer_batch")
+    }
+
+    res = res.add_attribute("sender", info.sender)
+        .add_attribute("recipient", recipient)
+        .add_attribute("token_ids", token_ids.join(","))
+        .add_attribute("amounts", amounts.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(","));
+    Ok(res)
+}
+
+pub fn execute_approve(
+    deps: DepsMut<EvmQueryWrapper>,
+    info: MessageInfo,
+    spender: String,
+    token_id: String,
+    approved: bool,
+) -> Result<Response<EvmMsg>, ContractError> {
+    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+
+    let querier = EvmQuerier::new(&deps.querier);
+    let mut payload_spender = spender.clone();
+    let mut action = "approve";
+    if !approved {
+        payload_spender = "".to_string();
+        action = "revoke";
+    }
+    let payload = querier.erc1155_approve_payload(payload_spender, token_id.clone())?;
+    let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+    let res = Response::new()
+        .add_attribute("action", action)
+        .add_attribute("token_id", token_id)
+        .add_attribute("sender", info.sender)
+        .add_attribute("spender", spender.clone())
+        .add_message(msg);
+
+    Ok(res)
+}
+
+pub fn execute_approve_all(
+    deps: DepsMut<EvmQueryWrapper>,
+    info: MessageInfo,
+    to: String,
+    approved: bool,
+) -> Result<Response<EvmMsg>, ContractError> {
+    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+
+    let querier = EvmQuerier::new(&deps.querier);
+    let payload = querier.erc1155_set_approval_all_payload(to.clone(), approved)?;
+    let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+    let mut action = "approve_all";
+    if !approved {
+        action = "revoke_all";
+    }
+    let res = Response::new()
+        .add_attribute("action", action)
+        .add_attribute("operator", to)
+        .add_attribute("sender", info.sender)
+        .add_attribute("approved", format!("{}", approved))
+        .add_message(msg);
+
+    Ok(res)
+}
+
+pub fn execute_burn() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn execute_burn_batch() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn execute_mint() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn execute_mint_batch() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn update_ownership() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn execute_extension() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg) -> Result<Binary, ContractError> {
+    match msg {
+        QueryMsg::BalanceOf { owner, token_id } => to_json_binary(&query_balance_of(deps, env, owner, token_id)?),
+        QueryMsg::BalanceOfBatch { .. } => {
+            todo!()
+        },
+        QueryMsg::TokenApprovals { .. } => {
+            todo!()
+        },
+        QueryMsg::AllBalances { .. } => {
+            todo!()
+        },
+        QueryMsg::IsApprovedForAll { owner, operator } => to_json_binary(&query_is_approved_for_all(deps, env, owner, operator)?),
+        QueryMsg::ApprovalsForAll {
+            owner,
+            include_expired: _,
+            start_after,
+            limit,
+        } => to_json_binary(&query_all_operators(
+            deps,
+            env,
+            owner,
+            start_after,
+            limit,
+        )?),
+        QueryMsg::NumTokens { token_id } => {
+            todo!()
+        },
+        QueryMsg::Tokens {
+            owner,
+            start_after,
+            limit,
+        } => to_json_binary(&query_tokens(
+            deps,
+            env,
+            owner,
+            start_after,
+            limit,
+        )?),
+        QueryMsg::AllTokens { start_after, limit } => to_json_binary(&query_all_tokens(
+            deps,
+            env,
+            start_after,
+            limit,
+        )?),
+        QueryMsg::Minter {} => to_json_binary(&query_minter()?),
+        QueryMsg::Ownership {} => to_json_binary(&query_ownership()?),
+        QueryMsg::ContractInfo {} => to_json_binary(&query_contract_info(deps, env)?),
+        QueryMsg::TokenInfo { token_id } => to_json_binary(&query_nft_info(deps, env, token_id)?),
+        QueryMsg::AllTokenInfo { start_after, limit } => {
+            todo!()
+            // to_json_binary(&query_all_nft_info(deps, env, token_id)?)
+        },
+        QueryMsg::Extension { msg } => match msg {
+            CwErc1155QueryMsg::EvmAddress {} => {
+                to_json_binary(&ERC1155_ADDRESS.load(deps.storage)?)
+            }
+            CwErc1155QueryMsg::RoyaltyInfo {
+                token_id,
+                sale_price,
+            } => to_json_binary(&query_royalty_info(deps, env, token_id, sale_price)?),
+            CwErc1155QueryMsg::CheckRoyalties {} => to_json_binary(&query_check_royalties(deps, env)?),
+        },
+    }.map_err(Into::into)
+}
+
+pub fn query_balance_of(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, token_id: String) -> StdResult<BalanceResponse> {
+    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let balance = Uint128::from_str(&querier.erc1155_balance_of(env.clone().contract.address.into_string(), erc_addr.clone(), owner, token_id.clone())?.amount)?;
+    Ok(BalanceResponse{ balance })
+}
+pub fn query_is_approved_for_all(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, operator: String) -> StdResult<OperatorResponse> {
+    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let is_approved = querier.erc1155_is_approved_for_all(env.clone().contract.address.into_string(), erc_addr.clone(), owner.clone(), operator.clone())?.is_approved;
+    if is_approved {
+        return Ok(OperatorResponse{approval: Approval{spender: operator.clone(), expires: cw721::Expiration::Never {}}});
+    }
+    Err(StdError::not_found("approval"))
+}
+
+pub fn query_contract_info(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<ContractInfoResponse> {
+    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let res = querier.erc1155_name_symbol(env.clone().contract.address.into_string(), erc_addr.clone())?;
+    Ok(ContractInfoResponse{name: res.name, symbol: res.symbol})
+}
+
+pub fn query_nft_info(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    token_id: String,
+) -> StdResult<NftInfoResponse<Cw2981Extension>> {
+    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let res = querier.erc1155_uri(
+        env.clone().contract.address.into_string(),
+        erc_addr.clone(),
+        token_id.clone(),
+    )?;
+    let royalty_info = query_royalty_info(deps, env, token_id, 100u128.into());
+    Ok(NftInfoResponse {
+        token_uri: Some(res.uri),
+        extension: Some(Cw2981Metadata {
+            image: None,
+            image_data: None,
+            external_url: None,
+            description: None,
+            name: None,
+            attributes: None,
+            background_color: None,
+            animation_url: None,
+            youtube_url: None,
+            royalty_percentage: if let Ok(royalty_info) = &royalty_info {
+                Some(royalty_info.royalty_amount.u128() as u64)
+            } else {
+                None
+            },
+            royalty_payment_address: if let Ok(royalty_info) = royalty_info {
+                Some(royalty_info.address)
+            } else {
+                None
+            },
+        }),
+    })
+}
+
+pub fn query_all_nft_info(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    token_id: String,
+) -> StdResult<AllNftInfoResponse<Cw2981Extension>> {
+    todo!()
+    // let owner_of_res = query_balance_of(deps, env.clone(), token_id.to_string())?;
+    // let nft_info_res = query_nft_info(deps, env, token_id)?;
+    // Ok(AllNftInfoResponse {
+    //     access: owner_of_res,
+    //     info: nft_info_res,
+    // })
+}
+
+pub fn query_tokens(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    owner: String,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<TokensResponse> {
+    todo!()
+    // let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+    // let querier = EvmQuerier::new(&deps.querier);
+    // let num_tokens = query_num_tokens(deps, env.clone())?.count;
+    // let start_after_id = Int256::from_str(&start_after.unwrap_or("-1".to_string()))?;
+    // let limit = limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT) as usize;
+    //
+    // let mut cur = Int256::zero();
+    // let mut counter = 0;
+    // let mut tokens: Vec<String> = vec![];
+    // while counter < num_tokens && tokens.len() < limit {
+    //     let cur_str = cur.to_string();
+    //     let t_owner = match querier.erc1155_balance_of(
+    //         env.clone().contract.address.into_string(),
+    //         erc_addr.clone(),
+    //         cur_str.to_string(),
+    //     ) {
+    //         Ok(res) => res.amount,
+    //         Err(_) => "".to_string(),
+    //     };
+    //     if t_owner != "" {
+    //         counter += 1;
+    //         if (owner.is_empty() || t_owner == owner) && cur > start_after_id {
+    //             tokens.push(cur_str);
+    //         }
+    //     }
+    //     cur += Int256::one();
+    // }
+    // Ok(TokensResponse { tokens })
+}
+
+pub fn query_all_tokens(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<TokensResponse> {
+    query_tokens(deps, env, "".to_string(), start_after, limit)
+}
+
+pub fn query_royalty_info(
+    deps: Deps<EvmQueryWrapper>,
+    env: Env,
+    token_id: String,
+    sale_price: Uint128,
+) -> StdResult<RoyaltiesInfoResponse> {
+    todo!()
+    // let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+    // let querier = EvmQuerier::new(&deps.querier);
+    // let res = querier.erc1155_royalty_info(
+    //     env.clone().contract.address.into_string(),
+    //     erc_addr.clone(),
+    //     token_id,
+    //     sale_price,
+    // )?;
+    // Ok(RoyaltiesInfoResponse {
+    //     address: res.receiver,
+    //     royalty_amount: res.royalty_amount,
+    // })
+}
+
+pub fn query_check_royalties(deps: Deps<EvmQueryWrapper>, env: Env,) -> StdResult<CheckRoyaltiesResponse> {
+    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let res = querier.supports_interface(env.clone().contract.address.into_string(),erc_addr.clone(), ERC2981_ID.to_string())?;
+    Ok(CheckRoyaltiesResponse {
+        royalty_payments: res.supported,
+    })
+}
+
+pub fn query_minter() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn query_ownership() -> Result<Response<EvmMsg>, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn query_all_operators(
+    _deps: Deps<EvmQueryWrapper>,
+    _env: Env,
+    _owner: String,
+    _start_after: Option<String>,
+    _limit: Option<u32>,
+) -> Result<OperatorsResponse, ContractError> {
+    Err(ContractError::NotSupported {})
+}
+
+pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumTokensResponse> {
+    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+    let querier = EvmQuerier::new(&deps.querier);
+    let res = querier
+        .erc1155_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?;
+    Ok(NumTokensResponse {
+        count: res.supply.u128() as u64,
+    })
+}
