@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -128,6 +129,12 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	}
 	blockRes := &coretypes.ResultBlockResults{
 		TxsResults: []*abci.ExecTxResult{},
+		ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxBytes: 100000000,
+				MaxGas:   200000000,
+			},
+		},
 	}
 
 	// Call EncodeTmBlock with empty transactions
