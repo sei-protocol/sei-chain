@@ -65,6 +65,7 @@ func NewSignerClient(nodeURI string) *SignerClient {
 
 func (sc *SignerClient) GetTestAccountsKeys(maxAccounts int) []cryptotypes.PrivKey {
 	userHomeDir, _ := os.UserHomeDir()
+	fmt.Println("userHomeDir: ", userHomeDir)
 	files, _ := os.ReadDir(filepath.Join(userHomeDir, "test_accounts"))
 	var testAccountsKeys = make([]cryptotypes.PrivKey, int(math.Min(float64(len(files)), float64(maxAccounts))))
 	var wg sync.WaitGroup

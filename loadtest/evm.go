@@ -25,6 +25,10 @@ import (
 	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/univ2_swapper"
 )
 
+var (
+	DefaultPriorityFee = big.NewInt(2000000000) // 2 gwei, source: https://archive.ph/gOO0q#selection-1341.40-1341.164
+)
+
 type EvmTxClient struct {
 	accountAddress common.Address
 	nonce          atomic.Uint64
@@ -84,7 +88,7 @@ func NewEvmTxClient(
 	// Launch persistent goroutine to continuously poll for base fee on a time interval
 	go txClient.PollBaseFee()
 	// Set finalizer to stop the base fee poller when txClient is garbage collected
-	runtime.SetFinalizer(txClient, func(txc *txClient) {
+	runtime.SetFinalizer(txClient, func(txc *EvmTxClient) {
 		close(txc.baseFeePollerStop)
 		txc.baseFeePollerWg.Wait() // Wait for goroutine to finish
 		fmt.Println("Finalizer executed: base fee poller stopped")
@@ -95,12 +99,16 @@ func NewEvmTxClient(
 func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transaction {
 	switch msgType {
 	case EVM:
+		fmt.Println("Generating Send Funds Tx")
 		return txClient.GenerateSendFundsTx()
 	case ERC20:
+		fmt.Println("Generating ERC20 Transfer Tx")
 		return txClient.GenerateERC20TransferTx()
 	case ERC721:
+		fmt.Println("Generating ERC721 Mint Tx")
 		return txClient.GenerateERC721Mint()
 	case UNIV2:
+		fmt.Println("Generating UniV2 Swap Tx")
 		return txClient.GenerateUniV2SwapTx()
 	default:
 		panic("invalid message type")
@@ -115,13 +123,30 @@ func randomValue() *big.Int {
 //
 //nolint:staticcheck
 func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
-	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
-		Nonce:    txClient.nextNonce(),
-		GasPrice: txClient.gasPrice,
-		Gas:      uint64(21000),
-		To:       &txClient.accountAddress,
-		Value:    randomValue(),
-	})
+	maxFee, err := txClient.GetMaxFee(DefaultPriorityFee)
+	var tx *ethtypes.Transaction
+	if err != nil {
+		fmt.Errorf("Failed to get max fee, err: %v, defaulting to legacy txs", err)
+		tx = ethtypes.NewTx(&ethtypes.LegacyTx{
+			Nonce:    txClient.nextNonce(),
+			GasPrice: txClient.gasPrice,
+			Gas:      uint64(21000),
+			To:       &txClient.accountAddress,
+			Value:    randomValue(),
+		})
+	} else {
+		dynamicTx := &ethtypes.DynamicFeeTx{
+			ChainID:   txClient.chainId,
+			Nonce:     txClient.nextNonce(),
+			GasTipCap: big.NewInt(2000000000), // 2 gwei, source: https://archive.ph/gOO0q#selection-1341.40-1341.164
+			GasFeeCap: maxFee,
+			Gas:       uint64(21000),
+			To:        &txClient.accountAddress,
+			Value:     randomValue(),
+		}
+		tx = ethtypes.NewTx(dynamicTx)
+		fmt.Printf("generated dynamic tx for send funds, tx = %+v\n", dynamicTx)
+	}
 	return txClient.sign(tx)
 }
 
@@ -174,19 +199,20 @@ func (txClient *EvmTxClient) GenerateERC721Mint() *ethtypes.Transaction {
 }
 
 func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
+	fmt.Println("In getTransactOpts")
 	auth, err := bind.NewKeyedTransactorWithChainID(txClient.privateKey, txClient.chainId)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
 	}
 
-	priorityFee := big.NewInt(2000000000) // 2 gwei, source: https://archive.ph/gOO0q#selection-1341.40-1341.164
-	maxFee, err := txClient.GetMaxFee(priorityFee)
+	maxFee, err := txClient.GetMaxFee(DefaultPriorityFee)
 	if err != nil {
 		fmt.Errorf("Failed to get max fee, err: %v, defaulting to legacy txs", err)
 		auth.GasPrice = txClient.gasPrice
 	} else {
+		fmt.Println("Setting max fee to ", maxFee, " and priority fee to ", DefaultPriorityFee)
 		auth.GasFeeCap = maxFee
-		auth.GasTipCap = priorityFee
+		auth.GasTipCap = DefaultPriorityFee
 	}
 	auth.Nonce = big.NewInt(int64(txClient.nextNonce()))
 	auth.Value = big.NewInt(0)
@@ -218,21 +244,35 @@ func (txClient *EvmTxClient) PollBaseFee() (*big.Int, error) {
 		case <-txClient.baseFeePollerStop:
 			fmt.Println("Base fee poller stopped")
 		case <-ticker.C:
-			// pull most recent base fee
-			block, err := GetNextEthClient(txClient.ethClients).BlockByNumber(context.Background(), nil)
+			gasPrice, err := GetNextEthClient(txClient.ethClients).SuggestGasPrice(context.Background())
 			if err != nil {
-				fmt.Println("Failed to get block", err)
+				fmt.Println("Failed to get gas price", err)
 				continue
 			}
+			fmt.Println("Pulled gas price of ", gasPrice)
+			// // pull most recent base fee
+			// block, err := GetNextEthClient(txClient.ethClients).BlockByNumber(context.Background(), nil)
+			// if err != nil {
+			// 	fmt.Println("Failed to get block", err)
+			// 	continue
+			// }
+			// fmt.Println("Pulled a base fee of ", block.BaseFee())
 			txClient.baseFeeMu.Lock()
-			txClient.curBaseFee = block.BaseFee()
+			// fmt.Println("Pulled a base fee of ", block.BaseFee())
+			// // take the max of 1gwei and the base fee
+			// if txClient.curBaseFee == nil || txClient.curBaseFee.Cmp(big.NewInt(1000000000)) == -1 {
+			// 	txClient.curBaseFee = big.NewInt(1000000000)
+			// }
+			txClient.curBaseFee = gasPrice
+			fmt.Println("Set base fee to ", txClient.curBaseFee)
 			txClient.baseFeeMu.Unlock()
 		}
 	}
 }
 
 func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transaction {
-	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), txClient.privateKey)
+	fmt.Println("Signing tx with with address = ", txClient.accountAddress.String())
+	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewLondonSigner(txClient.chainId), txClient.privateKey)
 	if err != nil {
 		// this should not happen
 		panic(err)
