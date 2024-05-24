@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 	"io"
 	"math/big"
 	"net"
@@ -264,6 +265,12 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 				}(),
 				GasWanted: 10,
 				GasUsed:   5,
+			},
+		},
+		ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxBytes: 100000000,
+				MaxGas:   200000000,
 			},
 		},
 	}, nil
@@ -548,6 +555,7 @@ func generateTxData() {
 	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(1000000)))
 	balanceAmts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(1000)))
 	debugTraceAmts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(100000)))
+
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
 	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(unassociatedAddr[:]), balanceAmts)
 	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(debugTraceAddr[:]), debugTraceAmts)

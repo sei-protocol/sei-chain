@@ -160,11 +160,12 @@ func EncodeTmBlock(
 	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
 	miner := common.HexToAddress(block.Block.ProposerAddress.String())
 	baseFeePerGas := k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
-	gasLimit, gasWanted := int64(0), int64(0)
+	var gasWanted int64
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
+
 	for i, txRes := range blockRes.TxsResults {
-		gasLimit += txRes.GasWanted
+
 		gasWanted += txRes.GasUsed
 		decoded, err := txDecoder(block.Block.Txs[i])
 		if err != nil {
@@ -194,6 +195,8 @@ func EncodeTmBlock(
 	if len(transactions) == 0 {
 		txHash = ethtypes.EmptyTxsHash
 	}
+
+	gasLimit := blockRes.ConsensusParamUpdates.Block.MaxGas
 	result := map[string]interface{}{
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,

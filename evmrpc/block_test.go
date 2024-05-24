@@ -70,7 +70,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	resObj = resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x0", resObj["difficulty"])
 	require.Equal(t, "0x", resObj["extraData"])
-	require.Equal(t, "0xa", resObj["gasLimit"])
+	require.Equal(t, "0xbebc200", resObj["gasLimit"])
 	require.Equal(t, "0x5", resObj["gasUsed"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["hash"])
 	// see setup_tests.go, which have one transaction for block 0x8 (latest)
