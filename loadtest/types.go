@@ -71,6 +71,7 @@ type Config struct {
 	SeiTesterAddress   string                `json:"sei_tester_address"`
 	PostTxEvmQueries   PostTxEvmQueries      `json:"post_tx_evm_queries"`
 	Ticks              uint64                `json:"ticks"`
+	EvmUseEip1559Txs   bool				     `json:"evm_use_eip1559_txs"` // setting this to true could make gas go up to infinity
 
 	// These are dynamically set at startup
 	EVMAddresses *EVMAddresses

@@ -42,8 +42,9 @@ type EvmTxClient struct {
 	// eip-1559 base fee poller
 	baseFeePollerStop chan struct{}
 	baseFeePollerWg   sync.WaitGroup
-	curBaseFee        *big.Int
-	baseFeeMu         sync.RWMutex
+	curGasPrice       *big.Int
+	gasPriceMu        sync.RWMutex
+	useEip1559        bool
 }
 
 func NewEvmTxClient(
@@ -52,6 +53,7 @@ func NewEvmTxClient(
 	gasPrice *big.Int,
 	ethClients []*ethclient.Client,
 	evmAddresses *EVMAddresses,
+	useEip1559 bool,
 ) *EvmTxClient {
 	if evmAddresses == nil {
 		evmAddresses = &EVMAddresses{}
@@ -84,9 +86,10 @@ func NewEvmTxClient(
 	}
 	txClient.nonce.Store(nextNonce)
 	txClient.accountAddress = fromAddress
+	txClient.useEip1559 = useEip1559
 
 	// Launch persistent goroutine to continuously poll for base fee on a time interval
-	go txClient.PollBaseFee()
+	go txClient.PollGasPrice()
 	// Set finalizer to stop the base fee poller when txClient is garbage collected
 	runtime.SetFinalizer(txClient, func(txc *EvmTxClient) {
 		close(txc.baseFeePollerStop)
@@ -123,10 +126,15 @@ func randomValue() *big.Int {
 //
 //nolint:staticcheck
 func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
+	useEip1559 := txClient.useEip1559
 	maxFee, err := txClient.GetMaxFee(DefaultPriorityFee)
 	var tx *ethtypes.Transaction
 	if err != nil {
-		fmt.Errorf("Failed to get max fee, err: %v, defaulting to legacy txs", err)
+		fmt.Printf("Failed to get max fee, err: %v, defaulting to legacy txs\n", err)
+		useEip1559 = false
+	}
+	if !useEip1559 {
+		fmt.Println("Using legacy txs")
 		tx = ethtypes.NewTx(&ethtypes.LegacyTx{
 			Nonce:    txClient.nextNonce(),
 			GasPrice: txClient.gasPrice,
@@ -135,6 +143,7 @@ func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
 			Value:    randomValue(),
 		})
 	} else {
+		fmt.Println("Using EIP-1559 txs")
 		dynamicTx := &ethtypes.DynamicFeeTx{
 			ChainID:   txClient.chainId,
 			Nonce:     txClient.nextNonce(),
@@ -145,7 +154,6 @@ func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
 			Value:     randomValue(),
 		}
 		tx = ethtypes.NewTx(dynamicTx)
-		fmt.Printf("generated dynamic tx for send funds, tx = %+v\n", dynamicTx)
 	}
 	return txClient.sign(tx)
 }
@@ -204,13 +212,17 @@ func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
 	}
-
+	useEip1559 := txClient.useEip1559
 	maxFee, err := txClient.GetMaxFee(DefaultPriorityFee)
 	if err != nil {
-		fmt.Errorf("Failed to get max fee, err: %v, defaulting to legacy txs", err)
+		fmt.Printf("Failed to get max fee, err: %v, defaulting to legacy txs\n", err)
+		useEip1559 = false
+	}
+	if !useEip1559 {
+		fmt.Println("Using legacy txs")
 		auth.GasPrice = txClient.gasPrice
 	} else {
-		fmt.Println("Setting max fee to ", maxFee, " and priority fee to ", DefaultPriorityFee)
+		fmt.Println("Using EIP-1559 txs")
 		auth.GasFeeCap = maxFee
 		auth.GasTipCap = DefaultPriorityFee
 	}
@@ -224,17 +236,18 @@ func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 }
 
 // Max Fee = (2 * baseFee) + priorityFee
+// However, since we don't really have a base fee, we use gas price instead which is dynamic
 // source: https://archive.ph/gOO0q#selection-1499.0-1573.61
 func (txClient *EvmTxClient) GetMaxFee(priorityFee *big.Int) (*big.Int, error) {
-	txClient.baseFeeMu.RLock()
-	defer txClient.baseFeeMu.RUnlock()
-	if txClient.curBaseFee == nil {
-		return nil, fmt.Errorf("base fee not available")
+	txClient.gasPriceMu.RLock()
+	defer txClient.gasPriceMu.RUnlock()
+	if txClient.curGasPrice == nil {
+		return nil, fmt.Errorf("gas price not available")
 	}
-	return new(big.Int).Add(new(big.Int).Mul(big.NewInt(2), txClient.curBaseFee), priorityFee), nil
+	return new(big.Int).Add(new(big.Int).Mul(big.NewInt(2), txClient.curGasPrice), priorityFee), nil
 }
 
-func (txClient *EvmTxClient) PollBaseFee() (*big.Int, error) {
+func (txClient *EvmTxClient) PollGasPrice() {
 	defer txClient.baseFeePollerWg.Done()
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -243,6 +256,7 @@ func (txClient *EvmTxClient) PollBaseFee() (*big.Int, error) {
 		select {
 		case <-txClient.baseFeePollerStop:
 			fmt.Println("Base fee poller stopped")
+			break
 		case <-ticker.C:
 			gasPrice, err := GetNextEthClient(txClient.ethClients).SuggestGasPrice(context.Background())
 			if err != nil {
@@ -250,22 +264,9 @@ func (txClient *EvmTxClient) PollBaseFee() (*big.Int, error) {
 				continue
 			}
 			fmt.Println("Pulled gas price of ", gasPrice)
-			// // pull most recent base fee
-			// block, err := GetNextEthClient(txClient.ethClients).BlockByNumber(context.Background(), nil)
-			// if err != nil {
-			// 	fmt.Println("Failed to get block", err)
-			// 	continue
-			// }
-			// fmt.Println("Pulled a base fee of ", block.BaseFee())
-			txClient.baseFeeMu.Lock()
-			// fmt.Println("Pulled a base fee of ", block.BaseFee())
-			// // take the max of 1gwei and the base fee
-			// if txClient.curBaseFee == nil || txClient.curBaseFee.Cmp(big.NewInt(1000000000)) == -1 {
-			// 	txClient.curBaseFee = big.NewInt(1000000000)
-			// }
-			txClient.curBaseFee = gasPrice
-			fmt.Println("Set base fee to ", txClient.curBaseFee)
-			txClient.baseFeeMu.Unlock()
+			txClient.gasPriceMu.Lock()
+			txClient.curGasPrice = gasPrice
+			txClient.gasPriceMu.Unlock()
 		}
 	}
 }

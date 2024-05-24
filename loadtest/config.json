@@ -49,8 +49,10 @@
         }
     },
     "message_types": [
+      "erc20",
       "evm"
     ],
+    "evm_use_eip1559_txs": true,
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {
