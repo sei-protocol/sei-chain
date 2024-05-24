@@ -160,13 +160,12 @@ func EncodeTmBlock(
 	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
 	miner := common.HexToAddress(block.Block.ProposerAddress.String())
 	baseFeePerGas := k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
-	var gasWanted int64
+	var blockGasUsed int64
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
 
 	for i, txRes := range blockRes.TxsResults {
-
-		gasWanted += txRes.GasUsed
+		blockGasUsed += txRes.GasUsed
 		decoded, err := txDecoder(block.Block.Txs[i])
 		if err != nil {
 			return nil, errors.New("failed to decode transaction")
@@ -210,7 +209,7 @@ func EncodeTmBlock(
 		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
 		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
 		"gasLimit":         hexutil.Uint64(gasLimit),
-		"gasUsed":          hexutil.Uint64(gasWanted),
+		"gasUsed":          hexutil.Uint64(blockGasUsed),
 		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()),
 		"transactionsRoot": txHash,
 		"receiptsRoot":     resultHash,
