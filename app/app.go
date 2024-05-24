@@ -1006,7 +1006,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
 
-	if upgradeInfo.Name == "v5.1.0" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	if (upgradeInfo.Name == "v5.1.0" || upgradeInfo.Name == "v5.5.2") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
 			Added: []string{evmtypes.StoreKey},
 		}
@@ -1786,7 +1786,7 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 			// such tx will not be processed and thus won't consume gas. Skipping
 			continue
 		}
-		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper)
+		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
 			ctx.Logger().Error("error checking if tx is gasless", "error", err)
 			continue
