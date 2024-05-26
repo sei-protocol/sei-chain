@@ -1,8 +1,8 @@
 FROM ubuntu:latest
 RUN apt-get update && \
-    apt-get install -y make git wget build-essential  jq python3 curl vim
-RUN wget https://go.dev/dl/go1.20.6.linux-amd64.tar.gz
-RUN tar -xvf go1.20.6.linux-amd64.tar.gz
+    apt-get install -y make git wget build-essential jq python3 curl vim uuid-runtime
+RUN wget https://go.dev/dl/go1.21.4.linux-amd64.tar.gz
+RUN tar -xvf go1.21.4.linux-amd64.tar.gz
 RUN mv go /usr/local/
 SHELL ["/bin/bash", "-c"]
 
