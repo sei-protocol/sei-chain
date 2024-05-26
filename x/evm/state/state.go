@@ -97,7 +97,7 @@ func (s *DBImpl) Snapshot() int {
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
 	s.tempStatesHist = append(s.tempStatesHist, s.tempStateCurrent)
-	s.tempStateCurrent = NewTemporaryState()
+	s.tempStateCurrent = NewTemporaryState(s.tempStateCurrent.transientAccessLists.Copy())
 	return len(s.snapshottedCtxs) - 1
 }
 
