@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
@@ -51,12 +49,4 @@ func TestGetAddressOrDefault(t *testing.T) {
 	require.True(t, bytes.Equal(seiAddr, defaultEvmAddr[:]))
 	defaultSeiAddr := k.GetSeiAddressOrDefault(ctx, evmAddr)
 	require.True(t, bytes.Equal(defaultSeiAddr, evmAddr[:]))
-}
-
-func TestGetEVMAddressForCW(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
-	cwAddr := wasmkeeper.BuildContractAddress(123, 456)
-	cwEvmAddr, associated := k.GetEVMAddress(ctx, cwAddr)
-	require.True(t, associated)
-	require.Equal(t, common.BytesToAddress(cwAddr), cwEvmAddr)
 }

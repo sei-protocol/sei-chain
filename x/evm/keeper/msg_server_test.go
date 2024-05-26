@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"math/big"
@@ -11,6 +12,7 @@ import (
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -18,6 +20,8 @@ import (
 	"github.com/sei-protocol/sei-chain/example/contracts/sendall"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
@@ -670,4 +674,93 @@ func TestEvmError(t *testing.T) {
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.EvmTxInfo.TxHash))
 	require.Nil(t, err)
 	require.Equal(t, receipt.VmError, res.EvmTxInfo.VmError)
+}
+
+func TestAssociateContractAddress(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	msgServer := keeper.NewMsgServerImpl(k)
+	dummySeiAddr, dummyEvmAddr := testkeeper.MockAddressPair()
+	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      dummySeiAddr.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  dummyEvmAddr.Hex(),
+	})
+	require.Nil(t, err)
+	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
+		Sender:  dummySeiAddr.String(),
+		Address: res.PointerAddress,
+	})
+	require.Nil(t, err)
+	associatedEvmAddr, found := k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(res.PointerAddress))
+	require.True(t, found)
+	require.Equal(t, common.BytesToAddress(sdk.MustAccAddressFromBech32(res.PointerAddress)), associatedEvmAddr)
+	associatedSeiAddr, found := k.GetSeiAddress(ctx, associatedEvmAddr)
+	require.True(t, found)
+	require.Equal(t, res.PointerAddress, associatedSeiAddr.String())
+	// setting for an associated address would fail
+	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
+		Sender:  dummySeiAddr.String(),
+		Address: res.PointerAddress,
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "contract already has an associated address")
+	// setting for a non-contract would fail
+	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
+		Sender:  dummySeiAddr.String(),
+		Address: dummySeiAddr.String(),
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "no wasm contract found at the given address")
+}
+
+func TestAssociate(t *testing.T) {
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithChainID("sei-test").WithBlockHeight(1)
+	ctx = ctx.WithContext(
+		context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, &dexcache.MemState{}),
+	)
+	privKey := testkeeper.MockPrivateKey()
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	acc := testkeeper.EVMTestApp.AccountKeeper.NewAccountWithAddress(ctx, seiAddr)
+	testkeeper.EVMTestApp.AccountKeeper.SetAccount(ctx, acc)
+	msg := types.NewMsgAssociate(seiAddr, "test")
+	tb := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	tb.SetMsgs(msg)
+	tb.SetSignatures(signing.SignatureV2{
+		PubKey: privKey.PubKey(),
+		Data: &signing.SingleSignatureData{
+			SignMode:  testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
+			Signature: nil,
+		},
+		Sequence: acc.GetSequence(),
+	})
+	signerData := authsigning.SignerData{
+		ChainID:       "sei-test",
+		AccountNumber: acc.GetAccountNumber(),
+		Sequence:      acc.GetSequence(),
+	}
+	signBytes, err := testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().GetSignBytes(testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(), signerData, tb.GetTx())
+	require.Nil(t, err)
+	sig, err := privKey.Sign(signBytes)
+	require.Nil(t, err)
+	sigs := make([]signing.SignatureV2, 1)
+	sigs[0] = signing.SignatureV2{
+		PubKey: privKey.PubKey(),
+		Data: &signing.SingleSignatureData{
+			SignMode:  testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
+			Signature: sig,
+		},
+		Sequence: acc.GetSequence(),
+	}
+	require.Nil(t, tb.SetSignatures(sigs...))
+	sdktx := tb.GetTx()
+	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(sdktx)
+	require.Nil(t, err)
+
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
+	require.NotEqual(t, uint32(0), res.Code) // not enough balance
+
+	require.Nil(t, testkeeper.EVMTestApp.BankKeeper.AddWei(ctx, sdk.AccAddress(evmAddr[:]), sdk.OneInt()))
+
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
+	require.Equal(t, uint32(0), res.Code)
 }

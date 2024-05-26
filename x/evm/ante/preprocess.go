@@ -365,16 +365,22 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		acc := p.accountKeeper.GetAccount(ctx, signer)
 		if acc.GetPubKey() == nil {
 			ctx.Logger().Error(fmt.Sprintf("missing pubkey for %s", signer.String()))
+			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes(), btcec.S256())
 		if err != nil {
 			ctx.Logger().Debug(fmt.Sprintf("failed to parse pubkey for %s, likely due to the fact that it isn't on secp256k1 curve", acc.GetPubKey()), "err", err)
+			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		evmAddr, err := pubkeyToEVMAddress(pk.SerializeUncompressed())
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to get EVM address from pubkey due to %s", err))
+			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
@@ -384,6 +390,12 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		if err := migrateBalance(ctx, p.evmKeeper, evmAddr, signer); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
 			return ctx, err
+		}
+		if evmtypes.IsTxMsgAssociate(tx) {
+			// check if there is non-zero balance
+			if !p.evmKeeper.BankKeeper().GetBalance(ctx, signer, sdk.MustGetBaseDenom()).IsPositive() && !p.evmKeeper.BankKeeper().GetWeiBalance(ctx, signer).IsPositive() {
+				return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
+			}
 		}
 	}
 	return next(ctx, tx, simulate)

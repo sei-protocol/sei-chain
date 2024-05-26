@@ -52,6 +52,7 @@ type Keeper struct {
 	stakingKeeper  *stakingkeeper.Keeper
 	transferKeeper ibctransferkeeper.Keeper
 	wasmKeeper     *wasmkeeper.PermissionedKeeper
+	wasmViewKeeper *wasmkeeper.Keeper
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
@@ -115,7 +116,7 @@ func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethty
 func NewKeeper(
 	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, paramstore paramtypes.Subspace,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
-	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper) *Keeper {
+	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -128,6 +129,7 @@ func NewKeeper(
 		stakingKeeper:                stakingKeeper,
 		transferKeeper:               transferKeeper,
 		wasmKeeper:                   wasmKeeper,
+		wasmViewKeeper:               wasmViewKeeper,
 		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},

@@ -36,12 +36,15 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 		&AddERCNativePointerProposal{},
 		&AddERCCW20PointerProposal{},
 		&AddERCCW721PointerProposal{},
+		&AddCWERC20PointerProposal{},
+		&AddCWERC721PointerProposal{},
 	)
 	registry.RegisterImplementations(
 		(*sdk.Msg)(nil),
 		&MsgEVMTransaction{},
 		&MsgSend{},
 		&MsgRegisterPointer{},
+		&MsgAssociateContractAddress{},
 	)
 	registry.RegisterInterface(
 		"seiprotocol.seichain.evm.TxData",
