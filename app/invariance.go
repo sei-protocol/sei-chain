@@ -20,7 +20,7 @@ type LightInvarianceConfig struct {
 }
 
 var DefaultLightInvarianceConfig = LightInvarianceConfig{
-	SupplyEnabled: false,
+	SupplyEnabled: true,
 }
 
 const (
