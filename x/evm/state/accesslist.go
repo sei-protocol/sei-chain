@@ -1,8 +1,6 @@
 package state
 
 import (
-	"encoding/json"
-
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -11,8 +9,23 @@ import (
 // Forked from go-ethereum, except journaling logic which is unnecessary with cacheKV
 
 type accessList struct {
-	Addresses map[common.Address]int     `json:"addresses"`
-	Slots     []map[common.Hash]struct{} `json:"slots"`
+	Addresses map[common.Address]int
+	Slots     []map[common.Hash]struct{}
+}
+
+// deep copy so that changes to a new snapshot won't affect older ones
+func (al *accessList) Copy() *accessList {
+	newAl := &accessList{Addresses: make(map[common.Address]int, len(al.Addresses)), Slots: make([]map[common.Hash]struct{}, 0, len(al.Slots))}
+	for a, i := range al.Addresses {
+		newAl.Addresses[a] = i
+	}
+	for i, slot := range al.Slots {
+		newAl.Slots = append(newAl.Slots, make(map[common.Hash]struct{}, len(slot)))
+		for h := range slot {
+			newAl.Slots[i][h] = struct{}{}
+		}
+	}
+	return newAl
 }
 
 func (s *DBImpl) AddressInAccessList(addr common.Address) bool {
@@ -86,21 +99,9 @@ func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *
 }
 
 func (s *DBImpl) getAccessList() *accessList {
-	bz, found := s.getTransientModule(AccessListKey)
-	al := accessList{Addresses: make(map[common.Address]int)}
-	if !found || bz == nil {
-		return &al
-	}
-	if err := json.Unmarshal(bz, &al); err != nil {
-		panic(err)
-	}
-	return &al
+	return s.tempStateCurrent.transientAccessLists
 }
 
 func (s *DBImpl) saveAccessList(al *accessList) {
-	albz, err := json.Marshal(al)
-	if err != nil {
-		panic(err)
-	}
-	s.tempStateCurrent.transientModuleStates[string(AccessListKey)] = albz
+	s.tempStateCurrent.transientAccessLists = al
 }
