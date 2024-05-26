@@ -1,7 +1,6 @@
 package ante
 
 import (
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -115,10 +114,9 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
 	gp := txData.EffectiveGasPrice(utils.Big0)
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
-		fmt.Println("JEREMYDEBUG: gp NOT in checkTx", gp)
+		ethTx := ethtypes.NewTx(txData.AsEthereumData())
+		metrics.GaugeEvmEffectiveGasPrice(gp, uint64(ctx.BlockHeight()), ethTx.Hash())
 	}
-	ethTx := ethtypes.NewTx(txData.AsEthereumData())
-	metrics.GaugeGasPricePaid(gp, uint64(ctx.BlockHeight()), ethTx.Hash().Hex(), false)
 	priority := sdk.NewDecFromBigInt(gp).Quo(fc.evmKeeper.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if priority.Cmp(big.NewInt(antedecorators.MaxPriority)) > 0 {
 		priority = big.NewInt(antedecorators.MaxPriority)
