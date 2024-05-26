@@ -329,7 +329,7 @@ func GaugeEvmEffectiveGasPrice(gasPrice *big.Int, blockNum uint64, txHash common
 		float32(gasPrice.Uint64()),
 		[]metrics.Label{
 			telemetry.NewLabel("block_num", strconv.FormatUint(blockNum, 10)),
-			telemetry.NewLabel("tx_hash", txHash),
+			telemetry.NewLabel("tx_hash", txHash.Hex()),
 		},
 	)
 }
