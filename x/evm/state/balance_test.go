@@ -98,16 +98,14 @@ func TestSurplus(t *testing.T) {
 	db := state.NewDBImpl(ctx, k, false)
 	db.AddBalance(evmAddr, big.NewInt(1_000_000_000_001), tracing.BalanceChangeUnspecified)
 	_, err := db.Finalize()
-	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "negative surplus value")
+	require.Nil(t, err)
 
 	// test negative usei surplus positive wei surplus (negative total)
 	db = state.NewDBImpl(ctx, k, false)
 	db.AddBalance(evmAddr, big.NewInt(1_000_000_000_000), tracing.BalanceChangeUnspecified)
 	db.SubBalance(evmAddr, big.NewInt(1), tracing.BalanceChangeUnspecified)
 	_, err = db.Finalize()
-	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "negative surplus value")
+	require.Nil(t, err)
 
 	// test negative usei surplus positive wei surplus (positive total)
 	db = state.NewDBImpl(ctx, k, false)
@@ -124,8 +122,7 @@ func TestSurplus(t *testing.T) {
 	db.AddBalance(evmAddr, big.NewInt(2), tracing.BalanceChangeUnspecified)
 	db.AddBalance(evmAddr, big.NewInt(999_999_999_999), tracing.BalanceChangeUnspecified)
 	_, err = db.Finalize()
-	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "negative surplus value")
+	require.Nil(t, err)
 
 	// test positive usei surplus negative wei surplus (positive total)
 	db = state.NewDBImpl(ctx, k, false)

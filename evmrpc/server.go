@@ -6,6 +6,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/rpc"
+	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/tendermint/tendermint/libs/log"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -42,6 +43,8 @@ func NewEVMHTTPServer(
 	}
 	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
 	sendAPI := NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, ConnectionTypeHTTP)
+	ctx := ctxProvider(LatestCtxHeight)
+
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -96,6 +99,17 @@ func NewEVMHTTPServer(
 			Service:   NewDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, ConnectionTypeHTTP),
 		},
 	}
+	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
+	if config.EnableTestAPI && !evmCfg.IsLiveChainID(ctx) {
+		logger.Info("Enabling Test EVM APIs")
+		apis = append(apis, rpc.API{
+			Namespace: "test",
+			Service:   NewTestAPI(),
+		})
+	} else {
+		logger.Info("Disabling Test EVM APIs", "liveChainID", evmCfg.IsLiveChainID(ctx), "enableTestAPI", config.EnableTestAPI)
+	}
+
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
 		CorsAllowedOrigins: strings.Split(config.CORSOrigins, ","),
 		Vhosts:             []string{"*"},

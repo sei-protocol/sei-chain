@@ -19,10 +19,12 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
+	PrecompileName   = "pointer"
 	AddNativePointer = "addNativePointer"
 	AddCW20Pointer   = "addCW20Pointer"
 	AddCW721Pointer  = "addCW721Pointer"
@@ -50,7 +52,7 @@ type Precompile struct {
 	AddCW721PointerID  []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, wasmdKeeper pcommon.WasmdViewKeeper) (*Precompile, error) {
+func ABI() (*ethabi.ABI, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
 		return nil, fmt.Errorf("error loading the pointer ABI %s", err)
@@ -60,9 +62,17 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, w
 	if err != nil {
 		return nil, err
 	}
+	return &newAbi, nil
+}
+
+func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, wasmdKeeper pcommon.WasmdViewKeeper) (*Precompile, error) {
+	newAbi, err := ABI()
+	if err != nil {
+		return nil, err
+	}
 
 	p := &Precompile{
-		Precompile:  pcommon.Precompile{ABI: newAbi},
+		Precompile:  pcommon.Precompile{ABI: *newAbi},
 		evmKeeper:   evmKeeper,
 		bankKeeper:  bankKeeper,
 		wasmdKeeper: wasmdKeeper,
@@ -94,10 +104,15 @@ func (p Precompile) Address() common.Address {
 }
 
 func (p Precompile) GetName() string {
-	return "pointer"
+	return PrecompileName
 }
 
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+	defer func() {
+		if err != nil {
+			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+		}
+	}()
 	if readOnly {
 		return nil, 0, errors.New("cannot call pointer precompile from staticcall")
 	}
@@ -127,6 +142,9 @@ func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.In
 }
 
 func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, 0, err
 	}
@@ -181,13 +199,16 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 }
 
 func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, 0, err
 	}
 	cwAddr := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC20CW20Pointer(ctx, cwAddr)
-	if exists && existingVersion >= cw20.CurrentVersion {
-		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw20.CurrentVersion)
+	if exists && existingVersion >= cw20.CurrentVersion(ctx) {
+		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw20.CurrentVersion(ctx))
 	}
 	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
 	if err != nil {
@@ -226,12 +247,15 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw20"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
-		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", cw20.CurrentVersion))))
+		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", cw20.CurrentVersion(ctx)))))
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }
 
 func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, 0, err
 	}

@@ -30,6 +30,7 @@ type opts struct {
 	maxLogNoBlock           interface{}
 	maxBlocksForLog         interface{}
 	maxSubscriptionsNewHead interface{}
+	enableTestAPI           interface{}
 	liveEVMTracer           interface{}
 }
 
@@ -94,6 +95,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_subscriptions_new_head" {
 		return o.maxSubscriptionsNewHead
 	}
+	if k == "evm.enable_test_api" {
+		return o.enableTestAPI
+	}
 	if k == "evm.live_evm_tracer" {
 		return o.liveEVMTracer
 	}
@@ -122,6 +126,7 @@ func TestReadConfig(t *testing.T) {
 		20000,
 		1000,
 		10000,
+		false,
 		"",
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)

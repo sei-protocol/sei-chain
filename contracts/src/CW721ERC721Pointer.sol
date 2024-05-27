@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.12;
 
+import "@openzeppelin/contracts/token/common/ERC2981.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IWasmd} from "./precompiles/IWasmd.sol";
 import {IJson} from "./precompiles/IJson.sol";
 import {IAddr} from "./precompiles/IAddr.sol";
 
-contract CW721ERC721Pointer is ERC721 {
+contract CW721ERC721Pointer is ERC721,ERC2981 {
 
     address constant WASMD_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001002;
     address constant JSON_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001003;
@@ -19,6 +21,9 @@ contract CW721ERC721Pointer is ERC721 {
     IJson public JsonPrecompile;
     IAddr public AddrPrecompile;
 
+    error NotImplementedOnCosmwasmContract(string method);
+    error NotImplemented(string method);
+
     constructor(string memory Cw721Address_, string memory name_, string memory symbol_) ERC721(name_, symbol_) {
         WasmdPrecompile = IWasmd(WASMD_PRECOMPILE_ADDRESS);
         JsonPrecompile = IJson(JSON_PRECOMPILE_ADDRESS);
@@ -26,16 +31,43 @@ contract CW721ERC721Pointer is ERC721 {
         Cw721Address = Cw721Address_;
     }
 
+    function supportsInterface(bytes4 interfaceId) public pure override(ERC721, ERC2981) returns (bool) {
+        return
+            interfaceId == type(IERC2981).interfaceId ||
+            interfaceId == type(IERC165).interfaceId ||
+            interfaceId == type(IERC721).interfaceId ||
+            interfaceId == type(IERC721Metadata).interfaceId;
+    }
+
     // Queries
     function balanceOf(address owner) public view override returns (uint256) {
         if (owner == address(0)) {
             revert ERC721InvalidOwner(address(0));
         }
-        string memory ownerAddr = _formatPayload("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(owner)));
-        string memory req = _curlyBrace(_formatPayload("tokens", _curlyBrace(ownerAddr)));
+        uint256 numTokens = 0;
+        string memory startAfter;
+        string memory qb = string.concat(
+            string.concat("\"limit\":1000,\"owner\":\"", AddrPrecompile.getSeiAddr(owner)),
+            "\""
+        );
+        bytes32 terminator = keccak256("{\"tokens\":[]}");
+
+        bytes[] memory tokens;
+        uint256 tokensLength;
+        string memory req = string.concat(string.concat("{\"tokens\":{", qb), "}}");
         bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
-        bytes[] memory tokens = JsonPrecompile.extractAsBytesList(response, "tokens");
-        return tokens.length;
+        while (keccak256(response) != terminator) {
+            tokens = JsonPrecompile.extractAsBytesList(response, "tokens");
+            tokensLength = tokens.length;
+            numTokens += tokensLength;
+            startAfter = string.concat(",\"start_after\":", string(tokens[tokensLength-1]));
+            req = string.concat(
+                string.concat("{\"tokens\":{", string.concat(qb, startAfter)),
+                "}}"
+            );
+            response = WasmdPrecompile.query(Cw721Address, bytes(req));
+        }
+        return numTokens;
     }
 
     function ownerOf(uint256 tokenId) public view override returns (address) {
@@ -72,6 +104,26 @@ contract CW721ERC721Pointer is ERC721 {
         return false;
     }
 
+    // 2981
+    function royaltyInfo(uint256 tokenId, uint256 salePrice) public view override returns (address, uint256) {
+        bytes memory checkRoyaltyResponse = WasmdPrecompile.query(Cw721Address, bytes("{\"extension\":{\"msg\":{\"check_royalties\":{}}}}"));
+        bytes memory isRoyaltyImplemented = JsonPrecompile.extractAsBytes(checkRoyaltyResponse, "royalty_payments");
+        if (keccak256(isRoyaltyImplemented) != keccak256("true")) {
+            revert NotImplementedOnCosmwasmContract("royalty_info");
+        }
+        string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
+        string memory sPrice = _formatPayload("sale_price", _doubleQuotes(Strings.toString(salePrice)));
+        string memory req = _curlyBrace(_formatPayload("royalty_info", _curlyBrace(_join(tId, sPrice, ","))));
+        string memory fullReq = _curlyBrace(_formatPayload("extension", _curlyBrace(_formatPayload("msg", req))));
+        bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(fullReq));
+        bytes memory addr = JsonPrecompile.extractAsBytes(response, "address");
+        uint256 amt = JsonPrecompile.extractAsUint256(response, "royalty_amount");
+        if (addr.length == 0) {
+            return (address(0), amt);
+        }
+        return (AddrPrecompile.getEvmAddr(string(addr)), amt);
+    }
+
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         // revert if token isn't owned
         ownerOf(tokenId);
@@ -80,6 +132,20 @@ contract CW721ERC721Pointer is ERC721 {
         bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
         bytes memory uri = JsonPrecompile.extractAsBytes(response, "token_uri");
         return string(uri);
+    }
+
+    // 721-Enumerable
+    function totalSupply() public view virtual returns (uint256) {
+        bytes memory response = WasmdPrecompile.query(Cw721Address, bytes("{\"num_tokens\":{}}"));
+        return JsonPrecompile.extractAsUint256(response, "count");
+    }
+
+    function tokenOfOwnerByIndex(address, uint256) public view virtual returns (uint256) {
+        revert NotImplemented("tokenOfOwnerByIndex");
+    }
+
+    function tokenByIndex(uint256) public view virtual returns (uint256) {
+        revert NotImplemented("tokenByIndex");
     }
 
     // Transactions
@@ -124,6 +190,16 @@ contract CW721ERC721Pointer is ERC721 {
         );
         require(success, "CosmWasm execute failed");
         return ret;
+    }
+
+    function _queryContractInfo() internal view virtual returns (string memory, string memory) {
+        string memory req = _curlyBrace(_formatPayload("contract_info", "{}"));
+        bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
+        bytes memory respName = JsonPrecompile.extractAsBytes(response, "name");
+        bytes memory respSymbol = JsonPrecompile.extractAsBytes(response, "symbol");
+        string memory nameStr = string(respName);
+        string memory symbolStr = string(respSymbol);
+        return (nameStr, symbolStr);
     }
 
     function _formatPayload(string memory key, string memory value) internal pure returns (string memory) {

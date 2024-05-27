@@ -14,4 +14,8 @@ contract SimpleStorage {
     function get() public view returns (uint256) {
         return storedData;
     }
+
+    function bad() public pure {
+        revert();
+    }
 }

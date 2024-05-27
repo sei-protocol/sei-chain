@@ -8,13 +8,13 @@ IPointer constant POINTER_CONTRACT = IPointer(POINTER_PRECOMPILE_ADDRESS);
 interface IPointer {
     function addNativePointer(
         string memory token
-    ) payable external returns (address ret);
+    ) external returns (address ret);
 
     function addCW20Pointer(
         string memory cwAddr
-    ) payable external returns (address ret);
+    ) external returns (address ret);
 
     function addCW721Pointer(
         string memory cwAddr
-    ) payable external returns (address ret);
+    ) external returns (address ret);
 }

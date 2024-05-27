@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
 const (
@@ -83,6 +84,11 @@ func (p Precompile) GetName() string {
 }
 
 func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input []byte, _ *big.Int, _ bool) (ret []byte, err error) {
+	defer func() {
+		if err != nil {
+			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+		}
+	}()
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err
