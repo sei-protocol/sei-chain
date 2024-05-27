@@ -17,8 +17,8 @@ import (
 
 func NewAddERCNativePointerProposalTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add-erc-native-pointer title description token version deposit [pointer address]",
-		Args:  cobra.RangeArgs(5, 6),
+		Use:   "add-erc-native-pointer title description token version deposit expedited [pointer address]",
+		Args:  cobra.RangeArgs(6, 7),
 		Short: "Submit an add ERC-native pointer proposal",
 		Long: strings.TrimSpace(`
 			Submit a proposal to register an ERC pointer contract address for a native token.
@@ -38,9 +38,13 @@ func NewAddERCNativePointerProposalTxCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			expedited, err := strconv.ParseBool(args[5])
+			if err != nil {
+				return err
+			}
 			var pointer string
-			if len(args) == 6 {
-				pointer = args[5]
+			if len(args) == 7 {
+				pointer = args[6]
 			}
 
 			// Convert proposal to RegisterPairsProposal Type
@@ -54,7 +58,7 @@ func NewAddERCNativePointerProposalTxCmd() *cobra.Command {
 				Pointer:     pointer,
 			}
 
-			msg, err := govtypes.NewMsgSubmitProposalWithExpedite(&content, deposit, from, true)
+			msg, err := govtypes.NewMsgSubmitProposalWithExpedite(&content, deposit, from, expedited)
 			if err != nil {
 				return err
 			}
