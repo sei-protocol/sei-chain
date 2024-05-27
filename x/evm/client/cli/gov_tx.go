@@ -54,7 +54,7 @@ func NewAddERCNativePointerProposalTxCmd() *cobra.Command {
 				Pointer:     pointer,
 			}
 
-			msg, err := govtypes.NewMsgSubmitProposal(&content, deposit, from)
+			msg, err := govtypes.NewMsgSubmitProposalWithExpedite(&content, deposit, from, true)
 			if err != nil {
 				return err
 			}
