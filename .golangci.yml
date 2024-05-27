@@ -9,7 +9,6 @@ linters:
   disable-all: true
   enable:
     - bodyclose
-    - deadcode
     # - depguard ## see https://github.com/golangci/golangci-lint/issues/3906
     - dogsled
     - exportloopref

@@ -42,7 +42,7 @@ func TestPointerView(t *testing.T) {
 	outputs, err = m.Outputs.Unpack(ret)
 	require.Nil(t, err)
 	require.Equal(t, pointer, outputs[0].(common.Address))
-	require.Equal(t, cw20.CurrentVersion, outputs[1].(uint16))
+	require.Equal(t, cw20.CurrentVersion(ctx), outputs[1].(uint16))
 	require.True(t, outputs[2].(bool))
 	ret, err = p.GetCW20(ctx, m, []interface{}{"test2"})
 	require.Nil(t, err)

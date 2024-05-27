@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
 const (
@@ -42,19 +43,27 @@ type Precompile struct {
 	ExtractAsUint256ID   []byte
 }
 
-func NewPrecompile() (*Precompile, error) {
+func ABI() (*abi.ABI, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
-		return nil, fmt.Errorf("error loading the staking ABI %s", err)
+		return nil, fmt.Errorf("error loading the json ABI %s", err)
 	}
 
 	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
 	if err != nil {
 		return nil, err
 	}
+	return &newAbi, nil
+}
+
+func NewPrecompile() (*Precompile, error) {
+	newAbi, err := ABI()
+	if err != nil {
+		return nil, err
+	}
 
 	p := &Precompile{
-		Precompile: pcommon.Precompile{ABI: newAbi},
+		Precompile: pcommon.Precompile{ABI: *newAbi},
 		address:    common.HexToAddress(JSONAddress),
 	}
 
@@ -93,6 +102,11 @@ func (p Precompile) GetName() string {
 }
 
 func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input []byte, value *big.Int, _ bool) (bz []byte, err error) {
+	defer func() {
+		if err != nil {
+			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+		}
+	}()
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err

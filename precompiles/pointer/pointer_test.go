@@ -36,6 +36,7 @@ func TestAddNative(t *testing.T) {
 	evm := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
 	_, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
+	require.NotNil(t, statedb.GetPrecompileError())
 	require.Equal(t, uint64(0), g)
 	_, _, exists := testApp.EvmKeeper.GetERC20NativePointer(statedb.Ctx(), "test")
 	require.False(t, exists)
@@ -79,5 +80,6 @@ func TestAddNative(t *testing.T) {
 	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
 	_, g, err = p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil, nil, false)
 	require.NotNil(t, err)
+	require.NotNil(t, statedb.GetPrecompileError())
 	require.Equal(t, uint64(0), g)
 }

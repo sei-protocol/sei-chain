@@ -1,8 +1,11 @@
 package ante
 
 import (
+	"math/big"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -35,6 +38,25 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	ctx = ctx.WithEVMNonce(txNonce)
 	ctx = ctx.WithEVMSenderAddress(evmAddr.Hex())
 	ctx = ctx.WithEVMTxHash(ethTx.Hash().Hex())
+
+	chainID := svd.evmKeeper.ChainID(ctx)
+	txChainID := ethTx.ChainId()
+
+	// validate chain ID on the transaction
+	switch ethTx.Type() {
+	case ethtypes.LegacyTxType:
+		// legacy either can have a zero or correct chain ID
+		if txChainID.Cmp(big.NewInt(0)) != 0 && txChainID.Cmp(chainID) != 0 {
+			ctx.Logger().Error("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
+			return ctx, sdkerrors.ErrInvalidChainID
+		}
+	default:
+		// after legacy, all transactions must have the correct chain ID
+		if txChainID.Cmp(chainID) != 0 {
+			ctx.Logger().Error("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
+			return ctx, sdkerrors.ErrInvalidChainID
+		}
+	}
 
 	if ctx.IsCheckTx() {
 		if txNonce < nextNonce {

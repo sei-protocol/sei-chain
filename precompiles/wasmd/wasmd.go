@@ -130,9 +130,17 @@ func (p Precompile) GetName() string {
 }
 
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, logger *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+	defer func() {
+		if err != nil {
+			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+		}
+	}()
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, 0, err
+	}
+	if method.Name != QueryMethod && !ctx.IsEVM() {
+		return nil, 0, errors.New("sei does not support CW->EVM->CW call pattern")
 	}
 	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
 	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultipler).TruncateInt().BigInt()
@@ -151,7 +159,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	case ExecuteMethod:
 		return p.execute(ctx, method, caller, callingContract, args, value, readOnly)
 	case ExecuteBatchMethod:
-		return p.execute_batch(ctx, method, caller, callingContract, args, value, readOnly)
+		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly)
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
 	}
@@ -255,7 +263,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	return
 }
 
-func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -300,6 +308,13 @@ func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller co
 		rerr = errors.New("sum of coin amounts must equal value specified")
 		return
 	}
+	// Copy to avoid modifying the original value
+	var valueCopy *big.Int
+	if value != nil {
+		valueCopy = new(big.Int).Set(value)
+	} else {
+		valueCopy = value
+	}
 	for i := 0; i < len(executeMsgs); i++ {
 		executeMsg := ExecuteMsg(executeMsgs[i])
 
@@ -318,7 +333,11 @@ func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller co
 			rerr = err
 			return
 		}
-		senderAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+		senderAddr, senderAssociated := p.evmKeeper.GetSeiAddress(ctx, caller)
+		if !senderAssociated {
+			rerr = fmt.Errorf("sender %s is not associated", caller.Hex())
+			return
+		}
 		msg := executeMsg.Msg
 		coinsBz := executeMsg.Coins
 		coins := sdk.NewCoins()
@@ -327,7 +346,7 @@ func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller co
 			return
 		}
 		useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
-		if value != nil && !useiAmt.IsZero() {
+		if valueCopy != nil && !useiAmt.IsZero() {
 			// process coin amount from the value provided
 			useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
 			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
@@ -335,8 +354,8 @@ func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller co
 				rerr = err
 				return
 			}
-			value.Sub(value, useiAmtAsWei)
-			if value.Sign() == -1 {
+			valueCopy.Sub(valueCopy, useiAmtAsWei)
+			if valueCopy.Sign() == -1 {
 				rerr = errors.New("insufficient value provided for payment")
 				return
 			}
@@ -365,7 +384,7 @@ func (p Precompile) execute_batch(ctx sdk.Context, method *abi.Method, caller co
 		}
 		responses = append(responses, res)
 	}
-	if value != nil && value.Sign() != 0 {
+	if valueCopy != nil && valueCopy.Sign() != 0 {
 		rerr = errors.New("value remaining after execution, must match provided amounts exactly")
 		return
 	}

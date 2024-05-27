@@ -91,8 +91,12 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
-	usei := s.k.BankKeeper().SpendableCoins(s.ctx, s.getSeiAddress(evmAddr)).AmountOf(s.k.GetBaseDenom(s.ctx))
-	wei := s.k.BankKeeper().GetWeiBalance(s.ctx, s.getSeiAddress(evmAddr))
+	seiAddr := s.getSeiAddress(evmAddr)
+	denom := s.k.GetBaseDenom(s.ctx)
+	allUsei := s.k.BankKeeper().GetBalance(s.ctx, seiAddr, denom).Amount
+	lockedUsei := s.k.BankKeeper().LockedCoins(s.ctx, seiAddr).AmountOf(denom) // LockedCoins doesn't use iterators
+	usei := allUsei.Sub(lockedUsei)
+	wei := s.k.BankKeeper().GetWeiBalance(s.ctx, seiAddr)
 	return usei.Mul(SdkUseiToSweiMultiplier).Add(wei).BigInt()
 }
 

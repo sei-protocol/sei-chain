@@ -142,7 +142,19 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 4, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, true, true)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 5, func(ctx sdk.Context) error {
+		return migrations.FixTotalSupply(ctx, am.keeper)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 6, func(ctx sdk.Context) error {
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 7, func(ctx sdk.Context) error {
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true)
 	})
 }
 
@@ -168,7 +180,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 5 }
+func (AppModule) ConsensusVersion() uint64 { return 8 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
@@ -220,13 +232,14 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	}
 
 	denom := am.keeper.GetBaseDenom(ctx)
-	surplus := utils.Sdk0
+	surplus := am.keeper.GetAnteSurplusSum(ctx)
 	for _, deferredInfo := range evmTxDeferredInfoList {
 		if deferredInfo.Error != "" && deferredInfo.TxHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
 			_ = am.keeper.SetReceipt(ctx, deferredInfo.TxHash, &types.Receipt{
 				TxHashHex:        deferredInfo.TxHash.Hex(),
 				TransactionIndex: uint32(deferredInfo.TxIndx),
 				VmError:          deferredInfo.Error,
+				BlockNumber:      uint64(ctx.BlockHeight()),
 			})
 			continue
 		}
@@ -246,24 +259,27 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		surplus = surplus.Add(deferredInfo.Surplus)
 	}
 
-	surplusUsei, surplusWei := state.SplitUseiWeiAmount(surplus.BigInt())
-	if surplusUsei.GT(sdk.ZeroInt()) {
-		if err := am.keeper.BankKeeper().AddCoins(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(am.keeper.GetBaseDenom(ctx), surplusUsei)), true); err != nil {
-			ctx.Logger().Error("failed to send usei surplus of %s to EVM module account", surplusUsei)
+	if surplus.IsPositive() {
+		surplusUsei, surplusWei := state.SplitUseiWeiAmount(surplus.BigInt())
+		if surplusUsei.GT(sdk.ZeroInt()) {
+			if err := am.keeper.BankKeeper().AddCoins(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(am.keeper.GetBaseDenom(ctx), surplusUsei)), true); err != nil {
+				ctx.Logger().Error("failed to send usei surplus of %s to EVM module account", surplusUsei)
+			}
 		}
-	}
-	if surplusWei.GT(sdk.ZeroInt()) {
-		if err := am.keeper.BankKeeper().AddWei(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), surplusWei); err != nil {
-			ctx.Logger().Error("failed to send wei surplus of %s to EVM module account", surplusWei)
+		if surplusWei.GT(sdk.ZeroInt()) {
+			if err := am.keeper.BankKeeper().AddWei(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), surplusWei); err != nil {
+				ctx.Logger().Error("failed to send wei surplus of %s to EVM module account", surplusWei)
+			}
 		}
-	}
 
-	if evmHooks != nil && evmHooks.OnBalanceChange != nil && (surplusUsei.GT(sdk.ZeroInt()) || surplusWei.GT(sdk.ZeroInt())) {
-		evmModuleAddress := am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName)
-		tracers.TraceBlockReward(ctx, evmHooks, am.keeper.BankKeeper(), evmModuleAddress, am.keeper.GetEVMAddressOrDefault(ctx, evmModuleAddress), surplusUsei, surplusWei)
+		if evmHooks != nil && evmHooks.OnBalanceChange != nil && (surplusUsei.GT(sdk.ZeroInt()) || surplusWei.GT(sdk.ZeroInt())) {
+			evmModuleAddress := am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName)
+			tracers.TraceBlockReward(ctx, evmHooks, am.keeper.BankKeeper(), evmModuleAddress, am.keeper.GetEVMAddressOrDefault(ctx, evmModuleAddress), surplusUsei, surplusWei)
+		}
 	}
 
 	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Filter(utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }), func(h common.Hash) bool { return h.Cmp(ethtypes.EmptyTxsHash) != 0 }))
 	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) ethtypes.Bloom { return i.TxBloom }))
+	am.keeper.DeleteAllAnteSurplus(ctx)
 	return []abci.ValidatorUpdate{}
 }

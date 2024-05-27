@@ -1,15 +1,12 @@
 package state
 
 import (
-	"fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Initialized for each transaction individually
@@ -22,6 +19,9 @@ type DBImpl struct {
 	// If err is not nil at the end of the execution, the transaction will be rolled
 	// back.
 	err error
+	// whenever this is set, the same error would also cause EVM to revert, which is
+	// why we don't put it in `tempState`, since we still want to be able to access it later.
+	precompileErr error
 
 	// a temporary address that collects fees for this particular transaction so that there is
 	// no single bottleneck for fee collection. Its account state and balance will be deleted
@@ -72,10 +72,8 @@ func (s *DBImpl) SetLogger(logger *tracing.Hooks) {
 	s.logger = logger
 }
 
-func (s *DBImpl) SetEVM(evm *vm.EVM) {
-	s.ctx = types.SetCtxEVM(s.ctx, evm)
-	s.snapshottedCtxs = utils.Map(s.snapshottedCtxs, func(ctx sdk.Context) sdk.Context { return types.SetCtxEVM(ctx, evm) })
-}
+// for interface compliance
+func (s *DBImpl) SetEVM(evm *vm.EVM) {}
 
 // AddPreimage records a SHA3 preimage seen by the VM.
 // AddPreimage performs a no-op since the EnablePreimageRecording flag is disabled
@@ -112,9 +110,6 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	for _, ts := range s.tempStatesHist {
 		surplus = surplus.Add(ts.surplus)
 	}
-	if surplus.IsNegative() {
-		err = fmt.Errorf("negative surplus value: %s", surplus.String())
-	}
 	return
 }
 
@@ -143,6 +138,7 @@ func (s *DBImpl) Copy() vm.StateDB {
 		coinbaseEvmAddress: s.coinbaseEvmAddress,
 		simulation:         s.simulation,
 		err:                s.err,
+		precompileErr:      s.precompileErr,
 		logger:             s.logger,
 	}
 }
@@ -169,6 +165,14 @@ func (s *DBImpl) TxIndex() int {
 
 func (s *DBImpl) Preimages() map[common.Hash][]byte {
 	return map[common.Hash][]byte{}
+}
+
+func (s *DBImpl) SetPrecompileError(err error) {
+	s.precompileErr = err
+}
+
+func (s *DBImpl) GetPrecompileError() error {
+	return s.precompileErr
 }
 
 // ** TEST ONLY FUNCTIONS **//

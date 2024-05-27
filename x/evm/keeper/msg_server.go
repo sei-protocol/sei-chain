@@ -2,15 +2,14 @@ package keeper
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"runtime/debug"
 
 	"github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
@@ -24,7 +23,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
-	artifactsutils "github.com/sei-protocol/sei-chain/x/evm/artifacts/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtracers "github.com/sei-protocol/sei-chain/x/evm/tracers"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -59,7 +57,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
-	stateDB.AddSurplus(msg.Derived.AnteSurplus)
 	tx, _ := msg.AsTransaction()
 	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
 	gp := server.GetGasPool()
@@ -86,8 +83,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
-		receipt, err := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)
-		if err != nil {
+		receipt, rerr := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)
+		if rerr != nil {
+			err = rerr
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 
 			telemetry.IncrCounterWithLabels(
@@ -312,6 +310,15 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 		receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
 	}
 
+	if perr := stateDB.GetPrecompileError(); perr != nil {
+		if receipt.Status > 0 {
+			ctx.Logger().Error(fmt.Sprintf("Transaction %s succeeded in execution but has precompile error %s", receipt.TxHashHex, perr.Error()))
+		} else {
+			// append precompile error to VM error
+			receipt.VmError = fmt.Sprintf("%s|%s", receipt.VmError, perr.Error())
+		}
+	}
+
 	receipt.From = origMsg.Derived.SenderEVMAddr.Hex()
 
 	return receipt, server.SetReceipt(ctx, tx.Hash(), receipt)
@@ -350,19 +357,16 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 	if exists && existingVersion >= currentVersion {
 		return nil, fmt.Errorf("pointer %s already registered at version %d", existingPointer.String(), existingVersion)
 	}
-	store := server.PrefixStore(ctx, types.PointerCWCodePrefix)
 	payload := map[string]interface{}{}
 	switch msg.PointerType {
 	case types.PointerType_ERC20:
-		store = prefix.NewStore(store, types.PointerCW20ERC20Prefix)
 		payload["erc20_address"] = msg.ErcAddress
 	case types.PointerType_ERC721:
-		store = prefix.NewStore(store, types.PointerCW721ERC721Prefix)
 		payload["erc721_address"] = msg.ErcAddress
 	default:
 		panic("unknown pointer type")
 	}
-	codeID := binary.BigEndian.Uint64(store.Get(artifactsutils.GetVersionBz(currentVersion)))
+	codeID := server.GetStoredPointerCodeID(ctx, msg.PointerType)
 	bz, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -389,6 +393,25 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 		panic("unknown pointer type")
 	}
 	return &types.MsgRegisterPointerResponse{PointerAddress: pointerAddr.String()}, err
+}
+
+func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *types.MsgAssociateContractAddress) (*types.MsgAssociateContractAddressResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	addr := sdk.MustAccAddressFromBech32(msg.Address) // already validated
+	// check if address is for a contract
+	if server.wasmViewKeeper.GetContractInfo(ctx, addr) == nil {
+		return nil, errors.New("no wasm contract found at the given address")
+	}
+	evmAddr := common.BytesToAddress(addr)
+	existingEvmAddr, ok := server.GetEVMAddress(ctx, addr)
+	if ok {
+		if existingEvmAddr.Cmp(evmAddr) != 0 {
+			ctx.Logger().Error(fmt.Sprintf("unexpected associated EVM address %s exists for contract %s: expecting %s", existingEvmAddr.Hex(), addr.String(), evmAddr.Hex()))
+		}
+		return nil, errors.New("contract already has an associated address")
+	}
+	server.SetAddressMapping(ctx, addr, evmAddr)
+	return &types.MsgAssociateContractAddressResponse{}, nil
 }
 
 func getEthReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, res *core.ExecutionResult, stateDB *state.DBImpl) *ethtypes.Receipt {

@@ -43,6 +43,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryERC20())
 	cmd.AddCommand(CmdQueryPayload())
 	cmd.AddCommand(CmdQueryPointer())
+	cmd.AddCommand(CmdQueryPointerVersion())
 
 	return cmd
 }
@@ -53,7 +54,10 @@ func CmdQuerySeiAddress() *cobra.Command {
 		Short: "gets sei address (sei...) by EVM address (0x...) if account has association set",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 
 			queryClient := types.NewQueryClient(clientCtx)
 
@@ -77,8 +81,10 @@ func CmdQueryEVMAddress() *cobra.Command {
 		Short: "gets evm address (0x...) by Sei address (sei...) if account has association set",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
-
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			queryClient := types.NewQueryClient(clientCtx)
 
 			res, err := queryClient.EVMAddressBySeiAddress(context.Background(), &types.QueryEVMAddressBySeiAddressRequest{SeiAddress: args[0]})
@@ -101,7 +107,10 @@ func CmdQueryERC20() *cobra.Command {
 		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			queryClient := types.NewQueryClient(clientCtx)
 			abi, err := native.NativeMetaData.GetAbi()
 			if err != nil {
@@ -160,8 +169,10 @@ func CmdQueryPayload() *cobra.Command {
 		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
-
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			dat, err := os.ReadFile(args[0])
 			if err != nil {
 				return err
@@ -191,8 +202,10 @@ func CmdQueryERC20Payload() *cobra.Command {
 		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
-
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			abi, err := cw20.Cw20MetaData.GetAbi()
 			if err != nil {
 				return err
@@ -200,14 +213,23 @@ func CmdQueryERC20Payload() *cobra.Command {
 			var bz []byte
 			switch args[0] {
 			case "transfer":
+				if len(args) != 3 {
+					return errors.New("expected usage: `seid tx evm erc20-payload transfer [to] [amount]`")
+				}
 				to := common.HexToAddress(args[1])
 				amt, _ := sdk.NewIntFromString(args[2])
 				bz, err = abi.Pack(args[0], to, amt.BigInt())
 			case "approve":
+				if len(args) != 3 {
+					return errors.New("expected usage: `seid tx evm erc20-payload approve [spender] [amount]`")
+				}
 				spender := common.HexToAddress(args[1])
 				amt, _ := sdk.NewIntFromString(args[2])
 				bz, err = abi.Pack(args[0], spender, amt.BigInt())
 			case "transferFrom":
+				if len(args) != 4 {
+					return errors.New("expected usage: `seid tx evm erc20-payload transferFrom [from] [to] [amount]`")
+				}
 				from := common.HexToAddress(args[1])
 				to := common.HexToAddress(args[2])
 				amt, _ := sdk.NewIntFromString(args[3])
@@ -232,8 +254,10 @@ func CmdQueryERC721Payload() *cobra.Command {
 		Short: "get hex payload for the given inputs",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
-
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			abi, err := cw721.Cw721MetaData.GetAbi()
 			if err != nil {
 				return err
@@ -273,13 +297,45 @@ func CmdQueryPointer() *cobra.Command {
 		Short: "get pointer address of the specified type (one of [NATIVE, CW20, CW721, ERC20, ERC721]) and pointee",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx := client.GetClientContextFromCmd(cmd)
-
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
 			queryClient := types.NewQueryClient(clientCtx)
+			ctx := cmd.Context()
 
-			res, err := queryClient.Pointer(context.Background(), &types.QueryPointerRequest{
+			res, err := queryClient.Pointer(ctx, &types.QueryPointerRequest{
 				PointerType: types.PointerType(types.PointerType_value[args[0]]), Pointee: args[1],
 			})
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdQueryPointerVersion() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pointer-version [type]",
+		Short: "Query for the current pointer version and stored code ID (if applicable)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			queryClient := types.NewQueryClient(clientCtx)
+			ctx := cmd.Context()
+
+			req := types.QueryPointerVersionRequest{PointerType: types.PointerType(types.PointerType_value[args[0]])}
+			res, err := queryClient.PointerVersion(ctx, &req)
 			if err != nil {
 				return err
 			}

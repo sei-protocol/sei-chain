@@ -49,13 +49,13 @@ func TestModuleExportGenesis(t *testing.T) {
 	module := evm.NewAppModule(nil, k)
 	jsonMsg := module.ExportGenesis(ctx, types.ModuleCdc)
 	jsonStr := string(jsonMsg)
-	assert.Equal(t, "{\"params\":{\"priority_normalizer\":\"1.000000000000000000\",\"base_fee_per_gas\":\"0.000000000000000000\",\"minimum_fee_per_gas\":\"1000000000.000000000000000000\",\"whitelisted_cw_code_hashes_for_delegate_call\":[\"ol1416zS7kfMOcIk4WL+ebU+a75u0qVujAqGWT6+YQI=\",\"lM3Zw+hcJvfOxDwjv7SzsrLXGgqNhcWN8S/+wHQf68g=\"]},\"address_associations\":[]}", jsonStr)
+	assert.Equal(t, "{\"params\":{\"priority_normalizer\":\"1.000000000000000000\",\"base_fee_per_gas\":\"0.000000000000000000\",\"minimum_fee_per_gas\":\"1000000000.000000000000000000\",\"whitelisted_cw_code_hashes_for_delegate_call\":[]},\"address_associations\":[{\"sei_address\":\"sei17xpfvakm2amg962yls6f84z3kell8c5la4jkdu\",\"eth_address\":\"0x27F7B8B8B5A4e71E8E9aA671f4e4031E3773303F\"}],\"codes\":[],\"states\":[],\"nonces\":[],\"serialized\":[{\"prefix\":\"Fg==\",\"key\":\"AwAB\",\"value\":\"AAAAAAAAAAM=\"},{\"prefix\":\"Fg==\",\"key\":\"BAAF\",\"value\":\"AAAAAAAAAAQ=\"}]}", jsonStr)
 }
 
 func TestConsensusVersion(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
-	assert.Equal(t, uint64(5), module.ConsensusVersion())
+	assert.Equal(t, uint64(8), module.ConsensusVersion())
 }
 
 func TestABCI(t *testing.T) {
@@ -78,7 +78,7 @@ func TestABCI(t *testing.T) {
 	surplus, err := s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroInt(), surplus)
-	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{}, surplus)
+	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{4}, surplus)
 	// 3rd tx
 	s = state.NewDBImpl(ctx.WithTxIndex(3), k, false)
 	s.SubBalance(evmAddr2, big.NewInt(5000000000000), ethtracing.BalanceChangeUnspecified)
@@ -86,7 +86,7 @@ func TestABCI(t *testing.T) {
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroInt(), surplus)
-	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(3), ethtypes.Bloom{}, common.Hash{}, surplus)
+	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(3), ethtypes.Bloom{}, common.Hash{3}, surplus)
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 0}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
 	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
@@ -104,7 +104,7 @@ func TestABCI(t *testing.T) {
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.NewInt(1000000000000), surplus)
-	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{}, surplus)
+	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{2}, surplus)
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
 	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
@@ -122,9 +122,13 @@ func TestABCI(t *testing.T) {
 	m.EndBlock(ctx, abci.RequestEndBlock{})
 	receipt, err := k.GetReceipt(ctx, common.Hash{1})
 	require.Nil(t, err)
+	require.Equal(t, receipt.BlockNumber, uint64(ctx.BlockHeight()))
 	require.Equal(t, receipt.VmError, "test error")
 
 	// fourth block with locked tokens in coinbase address
+	balanceChanges = make([]evmBalanceChange, 0)
+	ctx = addTestBalanceChangeTracerToCtx(ctx, &balanceChanges)
+
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
 	coinbase := state.GetCoinbaseAddress(2)
 	vms := vesting.NewMsgServerImpl(*k.AccountKeeper(), k.BankKeeper())
@@ -147,6 +151,24 @@ func TestABCI(t *testing.T) {
 	m.EndBlock(ctx, abci.RequestEndBlock{}) // should not crash
 	require.Equal(t, sdk.OneInt(), k.BankKeeper().GetBalance(ctx, coinbase, "usei").Amount)
 	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().SpendableCoins(ctx, coinbase).AmountOf("usei"))
+
+	require.Equal(t, 1, len(balanceChanges))
+	require.Equal(t, []evmBalanceChange{
+		{"2000000000000", "3000000000000", ethtracing.BalanceIncreaseRewardTransactionFee},
+	}, balanceChanges, "balance changes do not match, actual are:\n\n%s", balanceChangesValues(balanceChanges))
+}
+
+func TestAnteSurplus(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	m := evm.NewAppModule(nil, k)
+	// first block
+	m.BeginBlock(ctx, abci.RequestBeginBlock{})
+	k.AddAnteSurplus(ctx, common.BytesToHash([]byte("1234")), sdk.NewInt(1_000_000_000_001))
+	m.EndBlock(ctx, abci.RequestEndBlock{})
+	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
+	require.Equal(t, uint64(1), k.BankKeeper().GetWeiBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName)).Uint64())
+	// ante surplus should be cleared
+	require.Equal(t, uint64(0), k.GetAnteSurplusSum(ctx).Uint64())
 }
 
 func addTestBalanceChangeTracerToCtx(ctx sdk.Context, balanceChanges *[]evmBalanceChange) sdk.Context {
