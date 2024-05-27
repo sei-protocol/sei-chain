@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { expectRevert } = require('@openzeppelin/test-helpers');
-const {deployWasm, storeWasm, setupSigners, getAdmin, execute, isDocker, ABI} = require("./lib");
+const { setupSigners, getAdmin, deployWasm, storeWasm, execute, isDocker, ABI, createTokenFactoryTokenAndMint, getSeiBalance} = require("./lib");
 
 
 describe("EVM Precompile Tester", function () {
@@ -146,6 +146,8 @@ describe("EVM Precompile Tester", function () {
         let wasmContractAddress;
         let wasmd;
         let owner;
+        let denom;
+        let admin;
 
         before(async function () {
             const counterWasm = '../integration_test/contracts/counter_parallel.wasm';
@@ -159,6 +161,11 @@ describe("EVM Precompile Tester", function () {
             const contractABI = require(contractABIPath);
             // Get a contract instance
             wasmd = new ethers.Contract(WasmPrecompileContract, contractABI, owner);
+
+            accounts = await setupSigners(await hre.ethers.getSigners())
+            admin = await getAdmin()
+            const random_num = Math.floor(Math.random() * 10000)
+            denom = await createTokenFactoryTokenAndMint(`native-pointer-test-${random_num}`, 1000, accounts[0].seiAddress);
         });
 
         it("Wasm Precompile Instantiate", async function () {
@@ -250,6 +257,111 @@ describe("EVM Precompile Tester", function () {
             const finalCountBz = await wasmd.query(wasmContractAddress, queryBz);
             const finalCount = parseHexToJSON(finalCountBz)
             expect(finalCount.count).to.equal(initialCount.count + 4);
+        });
+
+        it("Wasm Precompile Send Coins", async function () {
+            const encoder = new TextEncoder();
+
+            const incrementMsg = {increment: {}};
+            const incrementStr = JSON.stringify(incrementMsg);
+            const incrementBz = encoder.encode(incrementStr);
+
+            const coins = [
+                {
+                    denom: denom,
+                    amount: "10",
+                },
+                {
+                    denom: "usei",
+                    amount: "1000000",
+                },
+            ];
+            const coinsStr = JSON.stringify(coins);
+            const coinsBz = encoder.encode(coinsStr);
+
+            const oldBalance = await getSeiBalance(wasmContractAddress);
+            const oldTokenBalance = await getSeiBalance(wasmContractAddress, denom);
+
+            const oldUserTokenBalance = await getSeiBalance(accounts[0].seiAddress, denom);
+
+            const response = await wasmd.execute(wasmContractAddress, incrementBz, coinsBz, {value: ethers.parseUnits('1.0', 18)});
+            const receipt = await response.wait();
+            expect(receipt.status).to.equal(1);
+
+            // usei assertions
+            const useiBalance = await getSeiBalance(wasmContractAddress);
+            expect(useiBalance).to.equal(oldBalance + 1000000);
+
+            // token assertions
+            const contractTokenBalance = await getSeiBalance(wasmContractAddress, denom);
+            expect(contractTokenBalance).to.equal(oldTokenBalance + 10);
+            const userTokenBalance = await getSeiBalance(accounts[0].seiAddress, denom);
+            expect(userTokenBalance).to.equal(oldUserTokenBalance - 10);
+
+        });
+
+        it("Wasm Precompile Batch Execute Send Coins", async function () {
+            const encoder = new TextEncoder();
+
+            const incrementMsg = {increment: {}};
+            const incrementStr = JSON.stringify(incrementMsg);
+            const incrementBz = encoder.encode(incrementStr);
+
+            const coins = [
+                {
+                    denom: denom,
+                    amount: "10",
+                },
+                {
+                    denom: "usei",
+                    amount: "1000000",
+                },
+            ];
+            const coinsStr = JSON.stringify(coins);
+            const coinsBz = encoder.encode(coinsStr);
+
+            const oldBalance = await getSeiBalance(wasmContractAddress);
+            const oldTokenBalance = await getSeiBalance(wasmContractAddress, denom);
+
+            const oldUserTokenBalance = await getSeiBalance(accounts[0].seiAddress, denom);
+
+            const executeBatch = [
+                {
+                    contractAddress: wasmContractAddress,
+                    msg: incrementBz,
+                    coins: coinsBz,
+                },
+                {
+                    contractAddress: wasmContractAddress,
+                    msg: incrementBz,
+                    coins: coinsBz,
+                },
+                {
+                    contractAddress: wasmContractAddress,
+                    msg: incrementBz,
+                    coins: coinsBz,
+                },
+                {
+                    contractAddress: wasmContractAddress,
+                    msg: incrementBz,
+                    coins: coinsBz,
+                },
+            ];
+
+            const response = await wasmd.execute_batch(executeBatch, {value: ethers.parseUnits('4.0', 18)});
+            const receipt = await response.wait();
+            expect(receipt.status).to.equal(1);
+
+            // usei assertions
+            const useiBalance = await getSeiBalance(wasmContractAddress);
+            expect(useiBalance).to.equal(oldBalance + 4000000);
+
+            // token assertions
+            const contractTokenBalance = await getSeiBalance(wasmContractAddress, denom);
+            expect(contractTokenBalance).to.equal(oldTokenBalance + 40);
+            const userTokenBalance = await getSeiBalance(accounts[0].seiAddress, denom);
+            expect(userTokenBalance).to.equal(oldUserTokenBalance - 40);
+
         });
 
     });
