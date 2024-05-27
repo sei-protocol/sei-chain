@@ -46,7 +46,7 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 		snapshottedCtxs:    []sdk.Context{},
 		coinbaseAddress:    GetCoinbaseAddress(ctx.TxIndex()),
 		simulation:         simulation,
-		tempStateCurrent:   NewTemporaryState(&accessList{Addresses: make(map[common.Address]int), Slots: []map[common.Hash]struct{}{}}),
+		tempStateCurrent:   NewTemporaryState(),
 		coinbaseEvmAddress: feeCollector,
 	}
 	s.Snapshot() // take an initial snapshot for GetCommitted
@@ -131,7 +131,7 @@ func (s *DBImpl) Copy() vm.StateDB {
 	return &DBImpl{
 		ctx:                newCtx,
 		snapshottedCtxs:    append(s.snapshottedCtxs, s.ctx),
-		tempStateCurrent:   NewTemporaryState(s.tempStateCurrent.transientAccessLists.Copy()),
+		tempStateCurrent:   NewTemporaryState(),
 		tempStatesHist:     append(s.tempStatesHist, s.tempStateCurrent),
 		k:                  s.k,
 		coinbaseAddress:    s.coinbaseAddress,
@@ -199,17 +199,15 @@ type TemporaryState struct {
 	transientStates       map[string]map[string]common.Hash
 	transientAccounts     map[string][]byte
 	transientModuleStates map[string][]byte
-	transientAccessLists  *accessList
 	surplus               sdk.Int // in wei
 }
 
-func NewTemporaryState(al *accessList) *TemporaryState {
+func NewTemporaryState() *TemporaryState {
 	return &TemporaryState{
 		logs:                  []*ethtypes.Log{},
 		transientStates:       make(map[string]map[string]common.Hash),
 		transientAccounts:     make(map[string][]byte),
 		transientModuleStates: make(map[string][]byte),
-		transientAccessLists:  al,
 		surplus:               utils.Sdk0,
 	}
 }
