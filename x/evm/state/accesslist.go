@@ -6,6 +6,9 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
+// all custom precompiles have an address greater than or equal to this address
+var CustomPrecompileStartingAddr = common.HexToAddress("0x0000000000000000000000000000000000001001")
+
 // Forked from go-ethereum, except journaling logic which is unnecessary with cacheKV
 
 type accessList struct {
@@ -13,41 +16,46 @@ type accessList struct {
 	Slots     []map[common.Hash]struct{}
 }
 
-// deep copy so that changes to a new snapshot won't affect older ones
-func (al *accessList) Copy() *accessList {
-	newAl := &accessList{Addresses: make(map[common.Address]int, len(al.Addresses)), Slots: make([]map[common.Hash]struct{}, 0, len(al.Slots))}
-	for a, i := range al.Addresses {
-		newAl.Addresses[a] = i
-	}
-	for i, slot := range al.Slots {
-		newAl.Slots = append(newAl.Slots, make(map[common.Hash]struct{}, len(slot)))
-		for h := range slot {
-			newAl.Slots[i][h] = struct{}{}
-		}
-	}
-	return newAl
-}
-
 func (s *DBImpl) AddressInAccessList(addr common.Address) bool {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
-	_, ok := s.getAccessList().Addresses[addr]
-	return ok
+	_, ok := s.getCurrentAccessList().Addresses[addr]
+	if ok {
+		return true
+	}
+	for _, ts := range s.tempStatesHist {
+		if _, ok := ts.transientAccessLists.Addresses[addr]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *DBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (addressOk bool, slotOk bool) {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
-	al := s.getAccessList()
-	idx, ok := al.Addresses[addr]
-	if ok && idx != -1 {
+	al := s.getCurrentAccessList()
+	idx, addrOk := al.Addresses[addr]
+	if addrOk && idx != -1 {
 		_, slotOk := al.Slots[idx][slot]
-		return ok, slotOk
+		if slotOk {
+			return true, true
+		}
 	}
-	return ok, false
+	for _, ts := range s.tempStatesHist {
+		idx, ok := ts.transientAccessLists.Addresses[addr]
+		addrOk = addrOk || ok
+		if ok && idx != -1 {
+			_, slotOk := ts.transientAccessLists.Slots[idx][slot]
+			if slotOk {
+				return true, true
+			}
+		}
+	}
+	return addrOk, false
 }
 
 func (s *DBImpl) AddAddressToAccessList(addr common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
-	al := s.getAccessList()
+	al := s.getCurrentAccessList()
 	defer s.saveAccessList(al)
 	if _, present := al.Addresses[addr]; present {
 		return
@@ -57,7 +65,7 @@ func (s *DBImpl) AddAddressToAccessList(addr common.Address) {
 
 func (s *DBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
-	al := s.getAccessList()
+	al := s.getCurrentAccessList()
 	defer s.saveAccessList(al)
 	idx, addrPresent := al.Addresses[addr]
 	if !addrPresent || idx == -1 {
@@ -87,6 +95,10 @@ func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *
 		// If it's a create-tx, the destination will be added inside evm.create
 	}
 	for _, addr := range precompiles {
+		// skip any custom precompile
+		if addr.Cmp(CustomPrecompileStartingAddr) >= 0 {
+			continue
+		}
 		s.AddAddressToAccessList(addr)
 	}
 	for _, el := range txAccesses {
@@ -98,7 +110,7 @@ func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *
 	s.AddAddressToAccessList(coinbase)
 }
 
-func (s *DBImpl) getAccessList() *accessList {
+func (s *DBImpl) getCurrentAccessList() *accessList {
 	return s.tempStateCurrent.transientAccessLists
 }
 
