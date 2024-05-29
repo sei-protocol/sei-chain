@@ -14,6 +14,7 @@ type EVMKeeper interface {
 	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress
 	BankKeeper() bankkeeper.Keeper
 	GetBaseDenom(sdk.Context) string
+	InitAccount(sdk.Context, common.Address)
 	DeleteAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
 	GetCode(sdk.Context, common.Address) []byte
 	SetCode(sdk.Context, common.Address, []byte)
