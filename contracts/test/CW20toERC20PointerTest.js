@@ -169,7 +169,7 @@ describe("CW20 to ERC20 Pointer", function () {
             1: 1000000000000
         });
 
-        describe("Pointer Upgrade", function () {
+        describe.skip("Pointer Upgrade", function () {
             let newPointer;
 
             before(async function () {

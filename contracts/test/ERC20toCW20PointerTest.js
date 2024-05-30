@@ -3,6 +3,7 @@ const {
     incrementPointerVersion
 } = require("./lib");
 const { expect } = require("chai");
+const BigNumber = require('bignumber.js');
 
 describe("ERC20 to CW20 Pointer", function () {
     let accounts;
@@ -120,6 +121,25 @@ describe("ERC20 to CW20 Pointer", function () {
             });
 
             describe("approve()", function () {
+                it("large uints should function properly", async function() {
+                    const owner = accounts[0].evmAddress;
+                    const spender = accounts[1].evmAddress;
+                    const maxUint128 = new BigNumber("0xffffffffffffffffffffffffffffffff", 16);
+                    const tx = await pointer.approve(spender, maxUint128.toFixed());
+                    await tx.wait();
+                    const allowance = await pointer.allowance(owner, spender);
+                    expect(allowance).to.equal(maxUint128.toFixed());
+
+                    const maxUint128Plus1 = maxUint128.plus(1);
+                    console.log("maxUint128Plus1", maxUint128Plus1.toFixed());
+                    try {
+                        await pointer.approve(spender, maxUint128Plus1.toFixed());
+                        expect.fail("Expected to fail");
+                    } catch (e) {
+                        expect(e.message).to.include("CosmWasm execute failed");
+                    }
+                });
+
                 it("should approve", async function () {
                     const owner = accounts[0].evmAddress;
                     const spender = accounts[1].evmAddress;
