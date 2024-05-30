@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -55,6 +56,10 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	s.k.InitAccount(s.ctx, evmAddr)
+	if s.k.BankKeeper().BlockedAddr(s.k.GetSeiAddress(s.ctx, evmAddr)) {
+		s.err = errors.New("account may not receive funds")
+		return
+	}
 
 	if amt.Sign() == 0 {
 		return
