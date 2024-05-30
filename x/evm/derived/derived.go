@@ -2,7 +2,6 @@ package derived
 
 import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -15,7 +14,6 @@ const (
 
 type Derived struct {
 	SenderEVMAddr common.Address
-	SenderSeiAddr sdk.AccAddress
 	PubKey        *secp256k1.PubKey
 	Version       SignerVersion
 }

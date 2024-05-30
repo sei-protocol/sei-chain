@@ -10,10 +10,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
 const instantiateMsg = `{"whitelist": ["sei1h9yjz89tl0dl6zu65dpxcqnxfhq60wxx8s5kag"],
@@ -76,6 +78,15 @@ func EVMTransferConflicting(tCtx *utils.TestContext, count int) []*utils.TestMes
 		msgs = append(msgs, evmTransfer(testAcct, tCtx.TestAccounts[0].EvmAddress, "EVMTransferConflicting"))
 	}
 	return msgs
+}
+
+func FundEVMSigner(tCtx *utils.TestContext, msg *utils.TestMessage) {
+	if !msg.IsEVM {
+		return
+	}
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
+	tCtx.TestApp.BankKeeper.MintCoins(tCtx.Ctx, minttypes.ModuleName, amounts)
+	tCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(tCtx.Ctx, minttypes.ModuleName, sdk.AccAddress(msg.EVMSigner.EvmAddress[:]), amounts)
 }
 
 // EVMTransferNonConflicting generates a list of EVM transfer messages that do not conflict with each other

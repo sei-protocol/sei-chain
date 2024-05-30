@@ -30,7 +30,7 @@ func (k *Keeper) SetCode(ctx sdk.Context, addr common.Address, code []byte) {
 	h := crypto.Keccak256Hash(code)
 	k.PrefixStore(ctx, types.CodeHashKeyPrefix).Set(addr[:], h[:])
 	// no need to set address mapping anymore because direct casting will always be used
-	// k.SetAddressMapping(ctx, k.GetSeiAddress(ctx, addr), addr)
+	k.InitAccount(ctx, addr)
 }
 
 func (k *Keeper) GetCodeHash(ctx sdk.Context, addr common.Address) common.Hash {

@@ -60,7 +60,8 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	suite.preprocessor = ante.NewEVMPreprocessDecorator(&suite.App.EvmKeeper, &suite.App.AccountKeeper)
 	amt := sdk.NewCoins(sdk.NewCoin(suite.App.EvmKeeper.GetBaseDenom(suite.Ctx), sdk.NewInt(1000000)))
 	suite.App.EvmKeeper.BankKeeper().MintCoins(suite.Ctx, types.ModuleName, amt)
-	suite.App.EvmKeeper.BankKeeper().SendCoinsFromModuleToAccount(suite.Ctx, types.ModuleName, sdk.AccAddress(pk.PubKey().Address()), amt)
+	_, senderEvmAddr := testkeeper.PrivateKeyToAddresses(pk)
+	suite.App.EvmKeeper.BankKeeper().SendCoinsFromModuleToAccount(suite.Ctx, types.ModuleName, sdk.AccAddress(senderEvmAddr[:]), amt)
 
 	msgValidator := sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap)
 	suite.Ctx = suite.Ctx.WithMsgValidator(msgValidator)

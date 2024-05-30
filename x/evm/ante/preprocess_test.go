@@ -25,7 +25,7 @@ func TestPreprocessAnteHandler(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
 	privKey := testkeeper.MockPrivateKey()
-	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	require.Nil(t, k.BankKeeper().AddCoins(ctx, sdk.AccAddress(evmAddr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100))), true))
 	require.Nil(t, k.BankKeeper().AddWei(ctx, sdk.AccAddress(evmAddr[:]), sdk.NewInt(10)))
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
@@ -55,11 +55,8 @@ func TestPreprocessAnteHandler(t *testing.T) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	require.Equal(t, sdk.AccAddress(privKey.PubKey().Address()), sdk.AccAddress(msg.Derived.SenderSeiAddr))
-	require.Equal(t, sdk.NewInt(100), k.BankKeeper().GetBalance(ctx, seiAddr, "usei").Amount)
-	require.Equal(t, sdk.NewInt(10), k.BankKeeper().GetWeiBalance(ctx, seiAddr))
-	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount)
-	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetWeiBalance(ctx, sdk.AccAddress(evmAddr[:])))
+	require.Equal(t, sdk.NewInt(100), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount)
+	require.Equal(t, sdk.NewInt(10), k.BankKeeper().GetWeiBalance(ctx, sdk.AccAddress(evmAddr[:])))
 }
 
 func TestPreprocessAnteHandlerUnprotected(t *testing.T) {
@@ -109,12 +106,11 @@ func TestAnteDeps(t *testing.T) {
 	msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{GasLimit: 100})
 	msg.Derived = &derived.Derived{
 		SenderEVMAddr: common.BytesToAddress([]byte("senderevm")),
-		SenderSeiAddr: []byte("sendersei"),
 		PubKey:        &secp256k1.PubKey{Key: []byte("pubkey")},
 	}
 	deps, err := handler.AnteDeps(nil, mockTx{msgs: []sdk.Msg{msg}}, 0, func(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int) ([]sdkacltypes.AccessOperation, error) {
 		return txDeps, nil
 	})
 	require.Nil(t, err)
-	require.Equal(t, 12, len(deps))
+	require.Equal(t, 6, len(deps))
 }

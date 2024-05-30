@@ -60,7 +60,7 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 
 	derived := msg.Derived
 	evmAddr := derived.SenderEVMAddr
-	seiAddr := derived.SenderSeiAddr
+	seiAddr := p.evmKeeper.GetSeiAddress(ctx, evmAddr)
 	if !p.accountKeeper.HasAccount(ctx, seiAddr) {
 		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, seiAddr))
 	}
@@ -116,13 +116,12 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	} else {
 		txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
 	}
-	evmAddr, seiAddr, seiPubkey, err := getAddresses(V, R, S, txHash)
+	evmAddr, seiPubkey, err := getAddresses(V, R, S, txHash)
 	if err != nil {
 		return err
 	}
 	msgEVMTransaction.Derived = &derived.Derived{
 		SenderEVMAddr: evmAddr,
-		SenderSeiAddr: seiAddr,
 		PubKey:        &secp256k1.PubKey{Key: seiPubkey.Bytes()},
 		Version:       version,
 	}
@@ -132,41 +131,17 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 func (p *EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	return next(append(txDeps, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_EVM_S2E,
-		IdentifierTemplate: hex.EncodeToString(evmtypes.SeiAddressToEVMAddressKey(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_EVM_S2E,
-		IdentifierTemplate: hex.EncodeToString(evmtypes.SeiAddressToEVMAddressKey(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_WRITE,
 		ResourceType:       sdkacltypes.ResourceType_KV_EVM_E2S,
 		IdentifierTemplate: hex.EncodeToString(evmtypes.EVMAddressToSeiAddressKey(msg.Derived.SenderEVMAddr)),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_READ,
 		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderEVMAddr[:])),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_WRITE,
 		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderEVMAddr[:])),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderSeiAddr)),
 	}, sdkacltypes.AccessOperation{
 		AccessType:         sdkacltypes.AccessType_READ,
 		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
@@ -182,17 +157,17 @@ func (p *EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, 
 	}), tx, txIndex)
 }
 
-func getAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
+func getAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, cryptotypes.PubKey, error) {
 	pubkey, err := recoverPubkey(data, R, S, V, true)
 	if err != nil {
-		return common.Address{}, sdk.AccAddress{}, nil, err
+		return common.Address{}, nil, err
 	}
 	evmAddr, err := pubkeyToEVMAddress(pubkey)
 	if err != nil {
-		return common.Address{}, sdk.AccAddress{}, nil, err
+		return common.Address{}, nil, err
 	}
 	seiPubkey := pubkeyBytesToSeiPubKey(pubkey)
-	return evmAddr, evmAddr.Bytes(), &seiPubkey, nil
+	return evmAddr, &seiPubkey, nil
 }
 
 // first half of go-ethereum/core/types/transaction_signing.go:recoverPlain

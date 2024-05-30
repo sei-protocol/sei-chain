@@ -39,7 +39,7 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 	}
 	ops := []sdkacltypes.AccessOperation{}
 	ops = appendRWBalanceOps(ops, state.GetCoinbaseAddress(ctx.TxIndex()))
-	sender := evmMsg.Derived.SenderSeiAddr
+	sender := evmKeeper.GetSeiAddress(ctx, evmMsg.Derived.SenderEVMAddr)
 	ops = appendRWBalanceOps(ops, sender)
 	ops = append(ops,
 		sdkacltypes.AccessOperation{
@@ -107,7 +107,7 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_EVM_S2E,
-			IdentifierTemplate: hex.EncodeToString(evmtypes.SeiAddressToEVMAddressKey(evmMsg.Derived.SenderSeiAddr)),
+			IdentifierTemplate: hex.EncodeToString(evmtypes.SeiAddressToEVMAddressKey(sender)),
 		},
 		{
 			AccessType:         sdkacltypes.AccessType_READ,
