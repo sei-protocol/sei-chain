@@ -1,10 +1,10 @@
 package state
 
 import (
-	"errors"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -56,8 +56,10 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	s.k.InitAccount(s.ctx, evmAddr)
-	if s.k.BankKeeper().BlockedAddr(s.k.GetSeiAddress(s.ctx, evmAddr)) {
-		s.err = errors.New("account may not receive funds")
+	seiAddr := s.k.GetSeiAddress(s.ctx, evmAddr)
+
+	if s.k.BankKeeper().BlockedAddr(seiAddr) {
+		s.err = sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", seiAddr)
 		return
 	}
 
