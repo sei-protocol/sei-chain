@@ -173,10 +173,10 @@ func EncodeTmBlock(
 		for _, msg := range decoded.GetMsgs() {
 			switch m := msg.(type) {
 			case *types.MsgEVMTransaction:
-				if m.IsAssociateTx() {
+				ethtx, txdata := m.AsTransaction()
+				if ethtx == nil && txdata == nil {
 					continue
 				}
-				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
 				if !fullTx {
 					transactions = append(transactions, hash)

@@ -231,7 +231,7 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 		return nil
 	}
 	evmTx, ok := decoded.GetMsgs()[0].(*types.MsgEVMTransaction)
-	if !ok || evmTx.IsAssociateTx() {
+	if !ok {
 		return nil
 	}
 	ethtx, _ := evmTx.AsTransaction()

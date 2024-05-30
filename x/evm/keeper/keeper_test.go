@@ -47,7 +47,7 @@ func TestGetChainID(t *testing.T) {
 func TestGetVMBlockContext(t *testing.T) {
 	k, ctx := keeper.MockEVMKeeper()
 	moduleAddr := k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
-	evmAddr, _ := k.GetEVMAddress(ctx, moduleAddr)
+	evmAddr := k.GetEVMAddress(ctx, moduleAddr)
 	k.DeleteAddressMapping(ctx, moduleAddr, evmAddr)
 	_, err := k.GetVMBlockContext(ctx, 0)
 	require.NotNil(t, err)

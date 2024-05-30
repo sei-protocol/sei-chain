@@ -131,7 +131,7 @@ func (s *DBImpl) getSeiAddress(evmAddr common.Address) sdk.AccAddress {
 	if s.coinbaseEvmAddress.Cmp(evmAddr) == 0 {
 		return s.coinbaseAddress
 	}
-	return s.k.GetSeiAddressOrDefault(s.ctx, evmAddr)
+	return s.k.GetSeiAddress(s.ctx, evmAddr)
 }
 
 func (s *DBImpl) send(from sdk.AccAddress, to sdk.AccAddress, amt *big.Int) {

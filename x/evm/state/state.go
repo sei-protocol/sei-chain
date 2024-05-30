@@ -64,10 +64,9 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 // still available even after self destruction in the same tx)
 func (s *DBImpl) SelfDestruct(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
-	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
-		// remove the association
-		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
-	}
+	seiAddr := s.k.GetSeiAddress(s.ctx, acc)
+	// only relevant for legacy code which has association stored; will no-op otherwise
+	s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
 
 	s.SubBalance(acc, s.GetBalance(acc), tracing.BalanceDecreaseSelfdestruct)
 

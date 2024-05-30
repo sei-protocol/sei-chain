@@ -70,7 +70,7 @@ func TestInstantiate(t *testing.T) {
 	evm := vm.EVM{
 		StateDB: statedb,
 	}
-	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
+	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddress(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
 	suppliedGas := uint64(1000000)
 	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.InstantiateID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
 	require.Nil(t, err)
@@ -162,7 +162,7 @@ func TestExecute(t *testing.T) {
 		StateDB: statedb,
 	}
 	suppliedGas := uint64(1000000)
-	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
+	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddress(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
 	// circular interop
 	statedb.WithCtx(statedb.Ctx().WithIsEVM(false))
 	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
@@ -319,7 +319,7 @@ func TestExecuteBatchOneMessage(t *testing.T) {
 		StateDB: statedb,
 	}
 	suppliedGas := uint64(1000000)
-	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
+	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddress(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
 	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteBatchID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
 	require.Nil(t, err)
 	outputs, err := executeMethod.Outputs.Unpack(res)
@@ -421,7 +421,7 @@ func TestExecuteBatchValueImmutability(t *testing.T) {
 		StateDB: statedb,
 	}
 	suppliedGas := uint64(1000000)
-	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
+	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddress(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
 	value := big.NewInt(1000_000_000_000_000)
 	valueCopy := new(big.Int).Set(value)
 	p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteBatchID, args...), suppliedGas, value, nil, false)
@@ -464,7 +464,7 @@ func TestExecuteBatchMultipleMessages(t *testing.T) {
 		StateDB: statedb,
 	}
 	suppliedGas := uint64(1000000)
-	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
+	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddress(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
 	require.Nil(t, err)
 	args, err := executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithCoinsAmt, executeMsgWithCoinsAmt, executeMsgWithCoinsAmt})
 	require.Nil(t, err)
@@ -491,7 +491,7 @@ func TestExecuteBatchMultipleMessages(t *testing.T) {
 	evm = vm.EVM{
 		StateDB: statedb,
 	}
-	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
+	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddress(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
 	require.Nil(t, err)
 	args, err = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithNoCoins, executeMsgWithCoinsAmt, executeMsgWithNoCoins})
 	require.Nil(t, err)
@@ -530,7 +530,7 @@ func TestExecuteBatchMultipleMessages(t *testing.T) {
 	evm = vm.EVM{
 		StateDB: statedb,
 	}
-	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
+	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddress(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
 	require.Nil(t, err)
 	args, err = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithCoinsAmt, executeMsgBadContract, executeMsgWithCoinsAmt})
 	require.Nil(t, err)
@@ -548,7 +548,7 @@ func TestExecuteBatchMultipleMessages(t *testing.T) {
 	evm = vm.EVM{
 		StateDB: statedb,
 	}
-	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
+	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddress(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
 	require.Nil(t, err)
 	args, _ = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithCoinsAmt, executeMsgBadInputs, executeMsgWithCoinsAmt})
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteBatchID, args...), suppliedGas, big.NewInt(3000_000_000_000_000), nil, false)
@@ -563,7 +563,7 @@ func TestExecuteBatchMultipleMessages(t *testing.T) {
 	evm = vm.EVM{
 		StateDB: statedb,
 	}
-	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
+	err = testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddress(ctx, common.HexToAddress(wasmd.WasmdAddress)), largeAmts)
 	require.Nil(t, err)
 	args, _ = executeMethod.Inputs.Pack([]wasmd.ExecuteMsg{executeMsgWithCoinsAmt, executeMsgBadInputCoins, executeMsgWithCoinsAmt})
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteBatchID, args...), suppliedGas, big.NewInt(3000_000_000_000_000), nil, false)

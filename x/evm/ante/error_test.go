@@ -85,16 +85,6 @@ func TestAnteErrorHandler_Handle(t *testing.T) {
 			},
 		},
 		{
-			name:         "error should not append error to deferred info if associate tx",
-			handlerErr:   testErr,
-			txResultCode: code.CodeTypeUnknownError,
-			tx:           &ethtx.AssociateTx{},
-			assertions: func(t *testing.T, ctx sdk.Context, k *keeper.Keeper, err error) {
-				require.ErrorIs(t, err, testErr)
-				require.Len(t, k.GetEVMTxDeferredInfo(ctx), 0)
-			},
-		},
-		{
 			name:         "error should not append error if data of tx cannot be decoded (not an evm message)",
 			handlerErr:   testErr,
 			txResultCode: code.CodeTypeUnknownError,

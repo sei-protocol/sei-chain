@@ -33,10 +33,6 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrInvalidMessageType
 	}
-	if evmMsg.IsAssociateTx() {
-		// msg server will be noop for AssociateTx; all work are done in ante
-		return []sdkacltypes.AccessOperation{*acltypes.CommitAccessOp()}, nil
-	}
 
 	if err := ante.Preprocess(ctx, evmMsg); err != nil {
 		return []sdkacltypes.AccessOperation{}, err
@@ -56,7 +52,7 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 	tx, _ := evmMsg.AsTransaction()
 	toAddress := tx.To()
 	if toAddress != nil {
-		seiAddress := evmKeeper.GetSeiAddressOrDefault(ctx, *toAddress)
+		seiAddress := evmKeeper.GetSeiAddress(ctx, *toAddress)
 		ops = appendRWBalanceOps(ops, seiAddress)
 		ops = append(ops, sdkacltypes.AccessOperation{
 			AccessType:         sdkacltypes.AccessType_READ,

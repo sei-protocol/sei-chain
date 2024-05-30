@@ -28,46 +28,30 @@ func (k *Keeper) DeleteAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress
 }
 
 func (k *Keeper) InitAccount(ctx sdk.Context, addr common.Address) {
-	seiAddress, _ := k.GetSeiAddress(ctx, addr)
+	seiAddress := k.GetSeiAddress(ctx, addr)
 	if !k.accountKeeper.HasAccount(ctx, seiAddress) {
 		k.accountKeeper.SetAccount(ctx, k.accountKeeper.NewAccountWithAddress(ctx, seiAddress))
 	}
 }
 
-func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (common.Address, bool) {
+func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) common.Address {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.SeiAddressToEVMAddressKey(seiAddress))
 	addr := common.Address{}
 	if bz == nil {
-		return common.BytesToAddress(seiAddress), true
+		return common.BytesToAddress(seiAddress)
 	}
 	copy(addr[:], bz)
-	return addr, true
+	return addr
 }
 
-func (k *Keeper) GetEVMAddressOrDefault(ctx sdk.Context, seiAddress sdk.AccAddress) common.Address {
-	addr, ok := k.GetEVMAddress(ctx, seiAddress)
-	if ok {
-		return addr
-	}
-	return common.BytesToAddress(seiAddress)
-}
-
-func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (sdk.AccAddress, bool) {
+func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.EVMAddressToSeiAddressKey(evmAddress))
 	if bz == nil {
-		return evmAddress.Bytes(), true
+		return evmAddress.Bytes()
 	}
-	return bz, true
-}
-
-func (k *Keeper) GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress {
-	addr, ok := k.GetSeiAddress(ctx, evmAddress)
-	if ok {
-		return addr
-	}
-	return sdk.AccAddress(evmAddress[:])
+	return bz
 }
 
 func (k *Keeper) IterateSeiAddressMapping(ctx sdk.Context, cb func(evmAddr common.Address, seiAddr sdk.AccAddress) bool) {

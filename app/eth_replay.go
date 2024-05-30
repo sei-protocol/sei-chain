@@ -125,12 +125,12 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 
 	for addr, genesisAccount := range a.EvmKeeper.BlockTest.Json.Pre {
 		usei, wei := state.SplitUseiWeiAmount(genesisAccount.Balance)
-		seiAddr := a.EvmKeeper.GetSeiAddressOrDefault(a.GetContextForDeliverTx([]byte{}), addr)
+		seiAddr := a.EvmKeeper.GetSeiAddress(a.GetContextForDeliverTx([]byte{}), addr)
 		err := a.EvmKeeper.BankKeeper().AddCoins(a.GetContextForDeliverTx([]byte{}), seiAddr, sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
 		if err != nil {
 			panic(err)
 		}
-		err = a.EvmKeeper.BankKeeper().AddWei(a.GetContextForDeliverTx([]byte{}), a.EvmKeeper.GetSeiAddressOrDefault(a.GetContextForDeliverTx([]byte{}), addr), wei)
+		err = a.EvmKeeper.BankKeeper().AddWei(a.GetContextForDeliverTx([]byte{}), a.EvmKeeper.GetSeiAddress(a.GetContextForDeliverTx([]byte{}), addr), wei)
 		if err != nil {
 			panic(err)
 		}
@@ -160,7 +160,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		binary.BigEndian.PutUint64(hash, uint64(h))
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
-			ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
+			ProposerAddress:   a.EvmKeeper.GetSeiAddress(a.GetCheckCtx(), b.Coinbase()),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
 			Height:            h,
 			Hash:              hash,
