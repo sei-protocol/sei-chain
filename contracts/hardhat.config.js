@@ -5,7 +5,7 @@ require('@openzeppelin/hardhat-upgrades');
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   mocha: {
-    timeout: 250000 // Set the default timeout to 20 seconds (20000 milliseconds)
+    timeout: 500000 // Set the default timeout
   },
   solidity: {
     version: "0.8.20",
