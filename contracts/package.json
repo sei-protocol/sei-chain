@@ -18,7 +18,7 @@
     "@openzeppelin/hardhat-upgrades": "^3.0.2",
     "@openzeppelin/test-helpers": "^0.5.16",
     "dotenv": "^16.3.1",
-    "ethers": "^6.12.1",
+    "ethers": "^6.11.1",
     "hardhat": "^2.20.1"
   },
   "dependencies": {
