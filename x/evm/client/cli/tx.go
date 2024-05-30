@@ -69,7 +69,7 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(NewAddCWERC20PointerProposalTxCmd())
 	cmd.AddCommand(NewAddCWERC721PointerProposalTxCmd())
 	cmd.AddCommand(AssociateContractAddressCmd())
-	cmd.AddCommand(NativeAssociateCmd())
+	cmd.AddCommand(SendCastSeiAddrTxCmd())
 
 	return cmd
 }

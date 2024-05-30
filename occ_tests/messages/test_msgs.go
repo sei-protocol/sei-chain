@@ -85,8 +85,8 @@ func FundEVMSigner(tCtx *utils.TestContext, msg *utils.TestMessage) {
 		return
 	}
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
-	tCtx.TestApp.BankKeeper.MintCoins(tCtx.Ctx, minttypes.ModuleName, amounts)
-	tCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(tCtx.Ctx, minttypes.ModuleName, sdk.AccAddress(msg.EVMSigner.EvmAddress[:]), amounts)
+	_ = tCtx.TestApp.BankKeeper.MintCoins(tCtx.Ctx, minttypes.ModuleName, amounts)
+	_ = tCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(tCtx.Ctx, minttypes.ModuleName, sdk.AccAddress(msg.EVMSigner.EvmAddress[:]), amounts)
 }
 
 // EVMTransferNonConflicting generates a list of EVM transfer messages that do not conflict with each other

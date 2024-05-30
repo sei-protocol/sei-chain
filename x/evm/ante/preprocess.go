@@ -12,6 +12,7 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -61,6 +62,9 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	derived := msg.Derived
 	evmAddr := derived.SenderEVMAddr
 	seiAddr := p.evmKeeper.GetSeiAddress(ctx, evmAddr)
+	ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+		sdk.NewAttribute(evmtypes.AttributeKeyEvmAddress, evmAddr.Hex()),
+		sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, seiAddr.String())))
 	if !p.accountKeeper.HasAccount(ctx, seiAddr) {
 		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, seiAddr))
 	}
@@ -236,6 +240,15 @@ func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersi
 	}
 }
 
+type EVMAddressDecorator struct {
+	evmKeeper     *evmkeeper.Keeper
+	accountKeeper *accountkeeper.AccountKeeper
+}
+
+func NewEVMAddressDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accountkeeper.AccountKeeper) *EVMAddressDecorator {
+	return &EVMAddressDecorator{evmKeeper: evmKeeper, accountKeeper: accountKeeper}
+}
+
 // only used in simulation for historical txs
 func migrateBalance(ctx sdk.Context, evmKeeper *evmkeeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) error {
 	castAddr := sdk.AccAddress(evmAddr[:])
@@ -253,4 +266,19 @@ func migrateBalance(ctx sdk.Context, evmKeeper *evmkeeper.Keeper, evmAddr common
 	}
 	evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
 	return nil
+}
+
+//nolint:revive
+func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+	sigTx, ok := tx.(authsigning.SigVerifiableTx)
+	if !ok {
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "invalid tx type")
+	}
+	signers := sigTx.GetSigners()
+	for _, signer := range signers {
+		ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+			sdk.NewAttribute(evmtypes.AttributeKeyEvmAddress, p.evmKeeper.GetEVMAddress(ctx, signer).Hex()),
+			sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
+	}
+	return next(ctx, tx, simulate)
 }
