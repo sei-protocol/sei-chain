@@ -11,3 +11,7 @@ echo "Starting the seid process for node $NODE_ID with invariant check interval=
 seid start --chain-id sei --inv-check-period ${INVARIANT_CHECK_INTERVAL} > "$LOG_DIR/seid-$NODE_ID.log" 2>&1 &
 echo "Node $NODE_ID seid is started now"
 echo "Done" >> build/generated/launch.complete
+
+sleep 5
+
+printf "12345678\n" | seid tx evm send-to-cast-sei-addr admin 500000000000000000000usei -y --fees=300000usei --broadcast-mode=block

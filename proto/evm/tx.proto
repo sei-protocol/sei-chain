@@ -13,7 +13,6 @@ service Msg {
   rpc Send(MsgSend) returns (MsgSendResponse);
   rpc RegisterPointer(MsgRegisterPointer) returns (MsgRegisterPointerResponse);
   rpc AssociateContractAddress(MsgAssociateContractAddress) returns (MsgAssociateContractAddressResponse);
-  rpc Associate(MsgAssociate) returns (MsgAssociateResponse);
 }
 
 message MsgEVMTransaction {
@@ -74,10 +73,3 @@ message MsgAssociateContractAddress {
 }
 
 message MsgAssociateContractAddressResponse {}
-
-message MsgAssociate {
-  string sender = 1;
-  string custom_message = 2;
-}
-
-message MsgAssociateResponse {}

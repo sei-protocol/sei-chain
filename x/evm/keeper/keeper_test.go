@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -42,15 +41,6 @@ func TestGetChainID(t *testing.T) {
 
 	ctx = ctx.WithChainID("arctic-1")
 	require.Equal(t, int64(713715), k.ChainID(ctx).Int64())
-}
-
-func TestGetVMBlockContext(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
-	moduleAddr := k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
-	evmAddr := k.GetEVMAddress(ctx, moduleAddr)
-	k.DeleteAddressMapping(ctx, moduleAddr, evmAddr)
-	_, err := k.GetVMBlockContext(ctx, 0)
-	require.NotNil(t, err)
 }
 
 func TestGetHashFn(t *testing.T) {
