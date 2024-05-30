@@ -19,21 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIsAssociate(t *testing.T) {
-	tx, err := types.NewMsgEVMTransaction(&ethtx.AssociateTx{})
-	require.Nil(t, err)
-	require.True(t, tx.IsAssociateTx())
-}
-
-func TestIsNotAssociate(t *testing.T) {
-	tx, err := types.NewMsgEVMTransaction(nil)
-	require.Error(t, err)
-
-	tx, err = types.NewMsgEVMTransaction(&ethtx.AccessTuple{})
-	require.Nil(t, err)
-	require.False(t, tx.IsAssociateTx())
-}
-
 func TestAsTransaction(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	chainID := k.ChainID(ctx)

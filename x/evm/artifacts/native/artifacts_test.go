@@ -72,9 +72,10 @@ func TestSimple(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), receipt.Status)
-	k.SetERC20NativePointer(ctx, "test", common.HexToAddress(receipt.ContractAddress))
-	_, found := k.GetSeiAddress(ctx, common.HexToAddress(receipt.ContractAddress))
-	require.True(t, found)
+	contractEvmAddr := common.HexToAddress(receipt.ContractAddress)
+	k.SetERC20NativePointer(ctx, "test", contractEvmAddr)
+	contractSeiAddr := k.GetSeiAddress(ctx, contractEvmAddr)
+	require.Equal(t, sdk.AccAddress(contractEvmAddr[:]), contractSeiAddr)
 
 	// send transaction to the contract
 	contractAddr := common.HexToAddress(receipt.ContractAddress)

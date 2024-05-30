@@ -1,9 +1,10 @@
 package keeper_test
 
 import (
-	"bytes"
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
@@ -11,16 +12,14 @@ import (
 func TestSetGetAddressMapping(t *testing.T) {
 	k, ctx := keeper.MockEVMKeeper()
 	seiAddr, evmAddr := keeper.MockAddressPair()
-	_, ok := k.GetEVMAddress(ctx, seiAddr)
-	require.False(t, ok)
-	_, ok = k.GetSeiAddress(ctx, evmAddr)
-	require.False(t, ok)
+	eaddr := k.GetEVMAddress(ctx, seiAddr)
+	require.Equal(t, common.BytesToAddress(seiAddr), eaddr)
+	saddr := k.GetSeiAddress(ctx, evmAddr)
+	require.Equal(t, sdk.AccAddress(evmAddr[:]), saddr)
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	foundEVM, ok := k.GetEVMAddress(ctx, seiAddr)
-	require.True(t, ok)
+	foundEVM := k.GetEVMAddress(ctx, seiAddr)
 	require.Equal(t, evmAddr, foundEVM)
-	foundSei, ok := k.GetSeiAddress(ctx, evmAddr)
-	require.True(t, ok)
+	foundSei := k.GetSeiAddress(ctx, evmAddr)
 	require.Equal(t, seiAddr, foundSei)
 	require.Equal(t, seiAddr, k.AccountKeeper().GetAccount(ctx, seiAddr).GetAddress())
 }
@@ -29,24 +28,13 @@ func TestDeleteAddressMapping(t *testing.T) {
 	k, ctx := keeper.MockEVMKeeper()
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	foundEVM, ok := k.GetEVMAddress(ctx, seiAddr)
-	require.True(t, ok)
+	foundEVM := k.GetEVMAddress(ctx, seiAddr)
 	require.Equal(t, evmAddr, foundEVM)
-	foundSei, ok := k.GetSeiAddress(ctx, evmAddr)
-	require.True(t, ok)
+	foundSei := k.GetSeiAddress(ctx, evmAddr)
 	require.Equal(t, seiAddr, foundSei)
 	k.DeleteAddressMapping(ctx, seiAddr, evmAddr)
-	_, ok = k.GetEVMAddress(ctx, seiAddr)
-	require.False(t, ok)
-	_, ok = k.GetSeiAddress(ctx, evmAddr)
-	require.False(t, ok)
-}
-
-func TestGetAddressOrDefault(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
-	seiAddr, evmAddr := keeper.MockAddressPair()
-	defaultEvmAddr := k.GetEVMAddressOrDefault(ctx, seiAddr)
-	require.True(t, bytes.Equal(seiAddr, defaultEvmAddr[:]))
-	defaultSeiAddr := k.GetSeiAddressOrDefault(ctx, evmAddr)
-	require.True(t, bytes.Equal(defaultSeiAddr, evmAddr[:]))
+	eaddr := k.GetEVMAddress(ctx, seiAddr)
+	require.Equal(t, common.BytesToAddress(seiAddr), eaddr)
+	saddr := k.GetSeiAddress(ctx, evmAddr)
+	require.Equal(t, sdk.AccAddress(evmAddr[:]), saddr)
 }

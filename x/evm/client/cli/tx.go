@@ -34,7 +34,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/wsei"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 const (
@@ -55,7 +54,6 @@ func GetTxCmd() *cobra.Command {
 		RunE:                       client.ValidateCmd,
 	}
 
-	cmd.AddCommand(CmdAssociateAddress())
 	cmd.AddCommand(CmdSend())
 	cmd.AddCommand(CmdDeployContract())
 	cmd.AddCommand(CmdCallContract())
@@ -72,91 +70,6 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(NewAddCWERC721PointerProposalTxCmd())
 	cmd.AddCommand(AssociateContractAddressCmd())
 	cmd.AddCommand(NativeAssociateCmd())
-
-	return cmd
-}
-
-func CmdAssociateAddress() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "associate-address [optional priv key hex] --rpc=<url> --from=<sender>",
-		Short: "associate EVM and Sei address for the sender",
-		Long:  "",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			clientCtx, err := client.GetClientTxContext(cmd)
-			if err != nil {
-				return err
-			}
-			var privHex string
-			if len(args) == 1 {
-				privHex = args[0]
-			} else {
-				txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
-				kb := txf.Keybase()
-				info, err := kb.Key(clientCtx.GetFromName())
-				if err != nil {
-					return err
-				}
-				localInfo, ok := info.(keyring.LocalInfo)
-				if !ok {
-					return errors.New("can only associate address for local keys")
-				}
-				if localInfo.GetAlgo() != hd.Secp256k1Type {
-					return errors.New("can only use addresses using secp256k1")
-				}
-				priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
-				if err != nil {
-					return err
-				}
-				privHex = hex.EncodeToString(priv.Bytes())
-			}
-
-			emptyHash := crypto.Keccak256Hash([]byte{})
-			key, err := crypto.HexToECDSA(privHex)
-			if err != nil {
-				return err
-			}
-			sig, err := crypto.Sign(emptyHash[:], key)
-			if err != nil {
-				return err
-			}
-			R, S, _, err := ethtx.DecodeSignature(sig)
-			if err != nil {
-				return err
-			}
-			V := big.NewInt(int64(sig[64]))
-			txData := evmrpc.AssociateRequest{V: hex.EncodeToString(V.Bytes()), R: hex.EncodeToString(R.Bytes()), S: hex.EncodeToString(S.Bytes())}
-			bz, err := json.Marshal(txData)
-			if err != nil {
-				return err
-			}
-			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_associate\",\"params\":[%s],\"id\":\"associate_addr\"}", string(bz))
-			rpc, err := cmd.Flags().GetString(FlagRPC)
-			if err != nil {
-				return err
-			}
-			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
-			if err != nil {
-				return err
-			}
-			req.Header.Set("Content-Type", "application/json")
-			res, err := http.DefaultClient.Do(req)
-			if err != nil {
-				return err
-			}
-			defer res.Body.Close()
-			resBody, err := io.ReadAll(res.Body)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Response: %s\n", string(resBody))
-
-			return nil
-		},
-	}
-
-	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
-	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
 }

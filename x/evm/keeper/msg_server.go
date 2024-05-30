@@ -40,10 +40,6 @@ func NewMsgServerImpl(keeper *Keeper) types.MsgServer {
 var _ types.MsgServer = msgServer{}
 
 func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
-	if msg.IsAssociateTx() {
-		// no-op in msg server for associate tx; all the work have been done in ante handler
-		return &types.MsgEVMTransactionResponse{}, nil
-	}
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	// EVM has a special case here, mainly because for an EVM transaction the gas limit is set on EVM payload level, not on top-level GasWanted field
 	// as normal transactions (because existing eth client can't). As a result EVM has its own dedicated ante handler chain. The full sequence is:
@@ -256,7 +252,7 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	recipient := server.GetSeiAddressOrDefault(ctx, common.HexToAddress(msg.ToAddress))
+	recipient := server.GetSeiAddress(ctx, common.HexToAddress(msg.ToAddress))
 	_, err := bankkeeper.NewMsgServerImpl(server.BankKeeper()).Send(goCtx, &banktypes.MsgSend{
 		FromAddress: msg.FromAddress,
 		ToAddress:   recipient.String(),
@@ -333,11 +329,10 @@ func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *typ
 		return nil, errors.New("no wasm contract found at the given address")
 	}
 	evmAddr := common.BytesToAddress(addr)
-	existingEvmAddr, ok := server.GetEVMAddress(ctx, addr)
-	if ok {
-		if existingEvmAddr.Cmp(evmAddr) != 0 {
-			ctx.Logger().Error(fmt.Sprintf("unexpected associated EVM address %s exists for contract %s: expecting %s", existingEvmAddr.Hex(), addr.String(), evmAddr.Hex()))
-		}
+	existingSeiAddr := server.GetSeiAddress(ctx, evmAddr)
+	if existingSeiAddr.Equals(addr) {
+		// if contract address hasn't been associated, `existingSeiAddr` would be a truncated version of `addr` because `common.BytesToAddress`
+		// shaves the number of bytes down from 32 to 20
 		return nil, errors.New("contract already has an associated address")
 	}
 	server.SetAddressMapping(ctx, addr, evmAddr)

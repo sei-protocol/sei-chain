@@ -395,18 +395,6 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Equal(t, uint64(100000), addr2Balance)
 }
 
-func TestEVMAssociateTx(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
-	req, err := types.NewMsgEVMTransaction(&ethtx.AssociateTx{})
-	require.Nil(t, err)
-	msgServer := keeper.NewMsgServerImpl(k)
-
-	ante.Preprocess(ctx, req)
-	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
-	require.Nil(t, err)
-	require.Equal(t, types.MsgEVMTransactionResponse{}, *res)
-}
-
 func TestEVMBlockEnv(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	code, err := os.ReadFile("../../../example/contracts/echo/Echo.bin")
@@ -691,11 +679,9 @@ func TestAssociateContractAddress(t *testing.T) {
 		Address: res.PointerAddress,
 	})
 	require.Nil(t, err)
-	associatedEvmAddr, found := k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(res.PointerAddress))
-	require.True(t, found)
+	associatedEvmAddr := k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(res.PointerAddress))
 	require.Equal(t, common.BytesToAddress(sdk.MustAccAddressFromBech32(res.PointerAddress)), associatedEvmAddr)
-	associatedSeiAddr, found := k.GetSeiAddress(ctx, associatedEvmAddr)
-	require.True(t, found)
+	associatedSeiAddr := k.GetSeiAddress(ctx, associatedEvmAddr)
 	require.Equal(t, res.PointerAddress, associatedSeiAddr.String())
 	// setting for an associated address would fail
 	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{

@@ -11,7 +11,6 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -132,10 +131,6 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, e
 			if err != nil || !isGasless {
 				return false, err
 			}
-		case *evmtypes.MsgAssociate:
-			if !evmAssociateIsGasless(m, ctx, evmKeeper) {
-				return false, nil
-			}
 		default:
 			return false, nil
 		}
@@ -196,11 +191,4 @@ func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.
 	}
 	// otherwise we allow it
 	return true, nil
-}
-
-func evmAssociateIsGasless(msg *evmtypes.MsgAssociate, ctx sdk.Context, keeper *evmkeeper.Keeper) bool {
-	// not gasless if already associated
-	seiAddr := sdk.MustAccAddressFromBech32(msg.Sender)
-	_, associated := keeper.GetEVMAddress(ctx, seiAddr)
-	return !associated
 }

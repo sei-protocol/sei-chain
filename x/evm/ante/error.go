@@ -7,7 +7,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type AnteErrorHandler struct {
@@ -29,9 +28,6 @@ func (a *AnteErrorHandler) Handle(ctx sdk.Context, tx sdk.Tx, simulate bool) (ne
 		txData, unpackerr := types.UnpackTxData(msg.Data)
 		if unpackerr != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to unpack message data %X", msg.Data.Value))
-			return
-		}
-		if _, ok := txData.(*ethtx.AssociateTx); ok {
 			return
 		}
 		a.k.AppendErrorToEvmTxDeferredInfo(ctx, ethtypes.NewTx(txData.AsEthereumData()).Hash(), err.Error())

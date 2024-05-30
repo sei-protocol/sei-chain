@@ -33,10 +33,7 @@ func (q Querier) SeiAddressByEVMAddress(c context.Context, req *types.QuerySeiAd
 		return nil, sdkerrors.ErrInvalidRequest
 	}
 	evmAddr := common.HexToAddress(req.EvmAddress)
-	addr, found := q.Keeper.GetSeiAddress(ctx, evmAddr)
-	if !found {
-		return &types.QuerySeiAddressByEVMAddressResponse{Associated: false}, nil
-	}
+	addr := q.Keeper.GetSeiAddress(ctx, evmAddr)
 
 	return &types.QuerySeiAddressByEVMAddressResponse{SeiAddress: addr.String(), Associated: true}, nil
 }
@@ -50,10 +47,7 @@ func (q Querier) EVMAddressBySeiAddress(c context.Context, req *types.QueryEVMAd
 	if err != nil {
 		return nil, err
 	}
-	addr, found := q.Keeper.GetEVMAddress(ctx, seiAddr)
-	if !found {
-		return &types.QueryEVMAddressBySeiAddressResponse{Associated: false}, nil
-	}
+	addr := q.Keeper.GetEVMAddress(ctx, seiAddr)
 
 	return &types.QueryEVMAddressBySeiAddressResponse{EvmAddress: addr.Hex(), Associated: true}, nil
 }

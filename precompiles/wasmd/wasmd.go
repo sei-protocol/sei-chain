@@ -190,11 +190,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
 	codeID := args[0].(uint64)
-	creatorAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !found {
-		rerr = fmt.Errorf("creator %s is not associated", caller.Hex())
-		return
-	}
+	creatorAddr := p.evmKeeper.GetSeiAddress(ctx, caller)
 	var adminAddr sdk.AccAddress
 	adminAddrStr := args[1].(string)
 	if len(adminAddrStr) > 0 {
@@ -237,7 +233,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
 	if value != nil && !useiAmt.IsZero() {
 		useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, useiAmtAsWei, p.bankKeeper)
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddress(ctx, p.address), creatorAddr, useiAmtAsWei, p.bankKeeper)
 		if err != nil {
 			rerr = err
 			return
@@ -329,11 +325,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 			rerr = err
 			return
 		}
-		senderAddr, senderAssociated := p.evmKeeper.GetSeiAddress(ctx, caller)
-		if !senderAssociated {
-			rerr = fmt.Errorf("sender %s is not associated", caller.Hex())
-			return
-		}
+		senderAddr := p.evmKeeper.GetSeiAddress(ctx, caller)
 		msg := executeMsg.Msg
 		coinsBz := executeMsg.Coins
 		coins := sdk.NewCoins()
@@ -345,7 +337,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 		if valueCopy != nil && !useiAmt.IsZero() {
 			// process coin amount from the value provided
 			useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
+			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddress(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
 			if err != nil {
 				rerr = err
 				return
@@ -422,11 +414,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		rerr = err
 		return
 	}
-	senderAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !found {
-		rerr = fmt.Errorf("sender %s is not associated", caller.Hex())
-		return
-	}
+	senderAddr := p.evmKeeper.GetSeiAddress(ctx, caller)
 	msg := args[1].([]byte)
 	coins := sdk.NewCoins()
 	coinsBz := args[2].([]byte)
@@ -456,7 +444,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 	useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
 	if value != nil && !useiAmt.IsZero() {
 		useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddress(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
 		if err != nil {
 			rerr = err
 			return
