@@ -271,7 +271,31 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}) {
     return getEventAttribute(response, "instantiate", "_contract_address");
 }
 
-async function registerPointerForCw20(erc20Address, fees="20000usei", from=adminKeyName) {
+async function proposeCW20toERC20Upgrade(erc20Address, cw20Address, title="erc20-pointer", version=99, description="erc20 pointer",fees="20000usei", from=adminKeyName) {
+    const command = `seid tx evm add-cw-erc20-pointer "${title}" "${description}" ${erc20Address} ${version} 200000000usei ${cw20Address} --from ${from} --fees ${fees} -y -o json --broadcast-mode=block`
+    const output = await execute(command);
+    const proposalId = getEventAttribute(JSON.parse(output), "submit_proposal", "proposal_id")
+    return await passProposal(proposalId)
+}
+
+async function passProposal(proposalId,  desposit="200000000usei", fees="20000usei", from=adminKeyName) {
+    if(await isDocker()) {
+        await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b block -y --fees ${fees}`)
+    } else {
+        await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b block -y --fees ${fees}`)
+    }
+    for(let i=0; i<100; i++) {
+        const proposal = await execute(`seid q gov proposal ${proposalId} -o json`)
+        const status = JSON.parse(proposal).status
+        if(status === "PROPOSAL_STATUS_PASSED") {
+            return proposalId
+        }
+        await delay()
+    }
+    throw new Error("could not pass proposal "+proposalId)
+}
+
+async function registerPointerForERC20(erc20Address, fees="20000usei", from=adminKeyName) {
     const command = `seid tx evm register-cw-pointer ERC20 ${erc20Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
@@ -281,7 +305,7 @@ async function registerPointerForCw20(erc20Address, fees="20000usei", from=admin
     return getEventAttribute(response, "pointer_registered", "pointer_address")
 }
 
-async function registerPointerForCw721(erc721Address, fees="20000usei", from=adminKeyName) {
+async function registerPointerForERC721(erc721Address, fees="20000usei", from=adminKeyName) {
     const command = `seid tx evm register-cw-pointer ERC721 ${erc721Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
@@ -367,6 +391,20 @@ async function isDocker() {
     });
 }
 
+async function executeOnAllNodes(command, interaction=`printf "12345678\\n"`){
+    if (await isDocker()) {
+        command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
+        command = command.replace("/sei-protocol/sei-chain//sei-protocol/sei-chain/", "/sei-protocol/sei-chain/")
+        let response;
+        for(let i=0; i<4; i++) {
+            const nodeCommand = `docker exec sei-node-${i} /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
+            response = await execCommand(nodeCommand);
+        }
+        return response
+    }
+    return await execCommand(command);
+}
+
 async function execute(command, interaction=`printf "12345678\\n"`){
     if (await isDocker()) {
         command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
@@ -420,8 +458,9 @@ module.exports = {
     deployErc20PointerForCw20,
     deployErc20PointerNative,
     deployErc721PointerForCw721,
-    registerPointerForCw20,
-    registerPointerForCw721,
+    registerPointerForERC20,
+    registerPointerForERC721,
+    proposeCW20toERC20Upgrade,
     importKey,
     getNativeAccount,
     associateKey,
