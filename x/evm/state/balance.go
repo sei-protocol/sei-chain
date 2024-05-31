@@ -11,7 +11,6 @@ import (
 
 func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
-	s.k.InitAccount(s.ctx, evmAddr)
 
 	if amt.Sign() == 0 {
 		return
@@ -54,7 +53,6 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
-	s.k.InitAccount(s.ctx, evmAddr)
 
 	if amt.Sign() == 0 {
 		return

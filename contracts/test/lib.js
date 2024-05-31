@@ -97,7 +97,6 @@ async function importKey(name, keyfile) {
 }
 
 async function getNativeAccount(keyName) {
-    await associateKey(adminKeyName)
     const seiAddress = await getKeySeiAddress(keyName)
     await fundSeiAddress(seiAddress)
     await delay()
@@ -109,21 +108,11 @@ async function getNativeAccount(keyName) {
 }
 
 async function getAdmin() {
-    await associateKey(adminKeyName)
     return await getNativeAccount(adminKeyName)
 }
 
 async function getKeySeiAddress(name) {
     return (await execute(`seid keys show ${name} -a`)).trim()
-}
-
-async function associateKey(keyName) {
-    try {
-        await execute(`seid tx evm associate-address --from ${keyName} -b block`)
-        await delay()
-    }catch(e){
-        console.log("skipping associate")
-    }
 }
 
 function getEventAttribute(response, type, attribute) {
@@ -463,7 +452,6 @@ module.exports = {
     proposeCW20toERC20Upgrade,
     importKey,
     getNativeAccount,
-    associateKey,
     delay,
     bankSend,
     evmSend,

@@ -68,6 +68,12 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	if !p.accountKeeper.HasAccount(ctx, seiAddr) {
 		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, seiAddr))
 	}
+	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
+		if err := acc.SetPubKey(derived.PubKey); err != nil {
+			return ctx, err
+		}
+		p.accountKeeper.SetAccount(ctx, acc)
+	}
 	if p.evmKeeper.EthReplayConfig.Enabled {
 		p.evmKeeper.PrepareReplayedAddr(ctx, evmAddr)
 	}
