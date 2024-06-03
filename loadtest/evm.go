@@ -185,12 +185,7 @@ func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
 	}
-	useEip1559 := txClient.useEip1559
-	if err != nil {
-		fmt.Printf("Failed to get max fee, err: %v, defaulting to legacy txs\n", err)
-		useEip1559 = false
-	}
-	if !useEip1559 {
+	if !txClient.useEip1559 {
 		auth.GasPrice = txClient.gasPrice
 	} else {
 		auth.GasFeeCap = DefaultMaxFee
