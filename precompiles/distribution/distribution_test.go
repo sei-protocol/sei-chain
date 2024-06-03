@@ -542,3 +542,118 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 		})
 	}
 }
+
+func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
+	_, notAssociatedCallerEvmAddress := testkeeper.MockAddressPair()
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+
+	type fields struct {
+		Precompile                          pcommon.Precompile
+		distrKeeper                         pcommon.DistributionKeeper
+		evmKeeper                           pcommon.EVMKeeper
+		address                             common.Address
+		SetWithdrawAddrID                   []byte
+		WithdrawDelegationRewardsID         []byte
+		WithdrawMultipleDelegationRewardsID []byte
+	}
+	type args struct {
+		evm             *vm.EVM
+		addressToSet    common.Address
+		caller          common.Address
+		callingContract common.Address
+		suppliedGas     uint64
+		value           *big.Int
+	}
+	tests := []struct {
+		name             string
+		fields           fields
+		args             args
+		wantRet          []byte
+		wantRemainingGas uint64
+		wantErr          bool
+		wantErrMsg       string
+	}{
+		{
+			name:   "fails if value is being sent",
+			fields: fields{},
+			args: args{
+				addressToSet: notAssociatedCallerEvmAddress,
+				value:        big.NewInt(10),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "sending funds to a non-payable function",
+		},
+		{
+			name:   "fails if delegator is not passed",
+			fields: fields{},
+			args: args{
+				addressToSet: notAssociatedCallerEvmAddress,
+				suppliedGas:  uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "delegator 0x0000000000000000000000000000000000000000 is not associated",
+		},
+		{
+			name:   "fails if delegator is not associated",
+			fields: fields{},
+			args: args{
+				addressToSet: notAssociatedCallerEvmAddress,
+				caller:       notAssociatedCallerEvmAddress,
+				suppliedGas:  uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       fmt.Sprintf("delegator %s is not associated", notAssociatedCallerEvmAddress.String()),
+		},
+		{
+			name:   "fails if address is invalid",
+			fields: fields{},
+			args: args{
+				addressToSet: common.Address{},
+				caller:       callerEvmAddress,
+				suppliedGas:  uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "invalid addr",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB:   stateDb,
+				TxContext: vm.TxContext{Origin: callerEvmAddress},
+			}
+			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
+			setAddress, err := p.ABI.MethodById(p.SetWithdrawAddrID)
+			require.Nil(t, err)
+			inputs, err := setAddress.Inputs.Pack(tt.args.addressToSet)
+			require.Nil(t, err)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.SetWithdrawAddrID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+			if gotRemainingGas != tt.wantRemainingGas {
+				t.Errorf("RunAndCalculateGas() gotRemainingGas = %v, want %v", gotRemainingGas, tt.wantRemainingGas)
+			}
+		})
+	}
+}
