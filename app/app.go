@@ -372,8 +372,9 @@ type App struct {
 
 	HardForkManager *upgrades.HardForkManager
 
-	encodingConfig appparams.EncodingConfig
-	evmRPCConfig   evmrpc.Config
+	encodingConfig        appparams.EncodingConfig
+	evmRPCConfig          evmrpc.Config
+	lightInvarianceConfig LightInvarianceConfig
 }
 
 // New returns a reference to an initialized blockchain app
@@ -617,6 +618,11 @@ func New(
 		}
 		app.EvmKeeper.EthClient = ethclient.NewClient(rpcclient)
 	}
+	lightInvarianceConfig, err := ReadLightInvarianceConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading light invariance config due to %s", err))
+	}
+	app.lightInvarianceConfig = lightInvarianceConfig
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
@@ -1126,7 +1132,8 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
-			app.WriteState()
+			cms := app.WriteState()
+			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
 			return &resp, nil
@@ -1142,7 +1149,8 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
-	app.WriteState()
+	cms := app.WriteState()
+	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil

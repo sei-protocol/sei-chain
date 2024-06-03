@@ -3,6 +3,7 @@ const {
     incrementPointerVersion
 } = require("./lib");
 const { expect } = require("chai");
+const BigNumber = require('bignumber.js');
 
 describe("ERC20 to CW20 Pointer", function () {
     let accounts;
@@ -136,6 +137,30 @@ describe("ERC20 to CW20 Pointer", function () {
                     await tx.wait();
                     const allowance = await pointer.allowance(owner, spender);
                     expect(Number(allowance)).to.equal(0);
+                });
+
+                it("approvals above uint128 max int should work", async function() {
+                    const owner = accounts[0].evmAddress;
+                    const spender = accounts[1].evmAddress;
+                    const maxUint128 = new BigNumber("0xffffffffffffffffffffffffffffffff", 16);
+                    const tx = await pointer.approve(spender, maxUint128.toFixed());
+                    await tx.wait();
+                    const allowance = await pointer.allowance(owner, spender);
+                    expect(allowance).to.equal(maxUint128.toFixed());
+
+                    // approving uint128 max int + 1 should work but only approve uint128
+                    const maxUint128Plus1 = maxUint128.plus(1);
+                    const tx128plus1 = await pointer.approve(spender, maxUint128Plus1.toFixed());
+                    await tx128plus1.wait();
+                    const allowance128plus1 = await pointer.allowance(owner, spender);
+                    expect(allowance128plus1).to.equal(maxUint128.toFixed());
+
+                    // approving uint256 should also work but only approve uint128
+                    const maxUint256 = new BigNumber("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16);
+                    const tx256 = await pointer.approve(spender, maxUint256.toFixed());
+                    await tx256.wait();
+                    const allowance256 = await pointer.allowance(owner, spender);
+                    expect(allowance256).to.equal(maxUint128.toFixed());
                 });
             });
 
