@@ -169,7 +169,11 @@ describe("CW20 to ERC20 Pointer", function () {
             1: 1000000000000
         });
 
-        describe("Pointer Upgrade", function () {
+        // Pointer version is going to be coupled with seid version going forward (as in,
+        // given a seid version, it's impossible to have multiple versions of pointer).
+        // We need to recreate the equivalent of the following test once we have a framework
+        // for simulating chain-level upgrade.
+        describe.skip("Pointer Upgrade", function () {
             let newPointer;
 
             before(async function () {
