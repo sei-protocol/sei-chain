@@ -410,6 +410,15 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 			wantErr:          true,
 			wantErrMsg:       fmt.Sprintf("delegator %s is not associated", notAssociatedCallerEvmAddress.String()),
 		},
+		{
+			name:             "fails if no args passed",
+			fields:           fields{},
+			args:             args{},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "{ReadFlat}",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -509,6 +518,15 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			wantRemainingGas: 0,
 			wantErr:          true,
 			wantErrMsg:       fmt.Sprintf("delegator %s is not associated", notAssociatedCallerEvmAddress.String()),
+		},
+		{
+			name:             "fails if no args passed",
+			fields:           fields{},
+			args:             args{},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "{ReadFlat}",
 		},
 	}
 	for _, tt := range tests {
@@ -622,6 +640,15 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			wantRemainingGas: 0,
 			wantErr:          true,
 			wantErrMsg:       "invalid addr",
+		},
+		{
+			name:             "fails if no args passed",
+			fields:           fields{},
+			args:             args{},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "{ReadFlat}",
 		},
 	}
 	for _, tt := range tests {
