@@ -684,3 +684,54 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 		})
 	}
 }
+
+func TestPrecompile_IsTransaction(t *testing.T) {
+	type fields struct {
+		Precompile                          pcommon.Precompile
+		distrKeeper                         pcommon.DistributionKeeper
+		evmKeeper                           pcommon.EVMKeeper
+		address                             common.Address
+		SetWithdrawAddrID                   []byte
+		WithdrawDelegationRewardsID         []byte
+		WithdrawMultipleDelegationRewardsID []byte
+	}
+	type args struct {
+		method string
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   bool
+	}{
+		{
+			name:   "fails if method is not a transaction",
+			fields: fields{},
+			args: args{
+				method: "notATransaction",
+			},
+			want: false,
+		},
+		{
+			name:   "succeeds if method is a transaction",
+			fields: fields{},
+			args: args{
+				method: "setWithdrawAddress",
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr := distribution.Precompile{
+				Precompile:                          tt.fields.Precompile,
+				SetWithdrawAddrID:                   tt.fields.SetWithdrawAddrID,
+				WithdrawDelegationRewardsID:         tt.fields.WithdrawDelegationRewardsID,
+				WithdrawMultipleDelegationRewardsID: tt.fields.WithdrawMultipleDelegationRewardsID,
+			}
+			if got := pr.IsTransaction(tt.args.method); got != tt.want {
+				t.Errorf("IsTransaction() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
