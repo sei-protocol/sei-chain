@@ -2,7 +2,12 @@ package distribution_test
 
 import (
 	"encoding/hex"
+	"fmt"
+	"github.com/ethereum/go-ethereum/core/vm"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"math/big"
+	"reflect"
 	"testing"
 	"time"
 
@@ -336,4 +341,104 @@ func setupValidator(t *testing.T, ctx sdk.Context, a *app.App, bondStatus stakin
 	a.SlashingKeeper.SetValidatorSigningInfo(ctx, consAddr, signingInfo)
 
 	return valAddr
+}
+
+func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
+	_, notAssociatedCallerEvmAddress := testkeeper.MockAddressPair()
+	validatorAddress := "seivaloper1reedlc9w8p7jrpqfky4c5k90nea4p6dhk5yqgd"
+
+	type fields struct {
+		Precompile                          pcommon.Precompile
+		distrKeeper                         pcommon.DistributionKeeper
+		evmKeeper                           pcommon.EVMKeeper
+		address                             common.Address
+		SetWithdrawAddrID                   []byte
+		WithdrawDelegationRewardsID         []byte
+		WithdrawMultipleDelegationRewardsID []byte
+	}
+	type args struct {
+		evm             *vm.EVM
+		caller          common.Address
+		callingContract common.Address
+		validator       string
+		suppliedGas     uint64
+		value           *big.Int
+	}
+	tests := []struct {
+		name             string
+		fields           fields
+		args             args
+		wantRet          []byte
+		wantRemainingGas uint64
+		wantErr          bool
+		wantErrMsg       string
+	}{
+		{
+			name:   "fails if value is being sent",
+			fields: fields{},
+			args: args{
+				validator: validatorAddress,
+				value:     big.NewInt(10),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "sending funds to a non-payable function",
+		},
+		{
+			name:   "fails if delegator is not passed",
+			fields: fields{},
+			args: args{
+				validator:   validatorAddress,
+				suppliedGas: uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "delegator 0x0000000000000000000000000000000000000000 is not associated",
+		},
+		{
+			name:   "fails if delegator is not associated",
+			fields: fields{},
+			args: args{
+				caller:      notAssociatedCallerEvmAddress,
+				validator:   validatorAddress,
+				suppliedGas: uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       fmt.Sprintf("delegator %s is not associated", notAssociatedCallerEvmAddress.String()),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB: stateDb,
+			}
+			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
+			withdraw, err := p.ABI.MethodById(p.WithdrawDelegationRewardsID)
+			require.Nil(t, err)
+			inputs, err := withdraw.Inputs.Pack(tt.args.validator)
+			require.Nil(t, err)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.WithdrawDelegationRewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			}
+			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+			if gotRemainingGas != tt.wantRemainingGas {
+				t.Errorf("RunAndCalculateGas() gotRemainingGas = %v, want %v", gotRemainingGas, tt.wantRemainingGas)
+			}
+		})
+	}
 }
