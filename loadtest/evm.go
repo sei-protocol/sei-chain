@@ -24,6 +24,11 @@ import (
 	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/univ2_swapper"
 )
 
+var (
+	DefaultPriorityFee = big.NewInt(1000000000) // 1gwei
+	DefaultMaxFee      = big.NewInt(1000000000) // 1gwei
+)
+
 type EvmTxClient struct {
 	accountAddress common.Address
 	nonce          atomic.Uint64
@@ -33,6 +38,7 @@ type EvmTxClient struct {
 	mtx            sync.RWMutex
 	privateKey     *ecdsa.PrivateKey
 	evmAddresses   *EVMAddresses
+	useEip1559     bool
 }
 
 func NewEvmTxClient(
@@ -41,6 +47,7 @@ func NewEvmTxClient(
 	gasPrice *big.Int,
 	ethClients []*ethclient.Client,
 	evmAddresses *EVMAddresses,
+	useEip1559 bool,
 ) *EvmTxClient {
 	if evmAddresses == nil {
 		evmAddresses = &EVMAddresses{}
@@ -73,6 +80,8 @@ func NewEvmTxClient(
 	}
 	txClient.nonce.Store(nextNonce)
 	txClient.accountAddress = fromAddress
+	txClient.useEip1559 = useEip1559
+
 	return txClient
 }
 
@@ -99,13 +108,27 @@ func randomValue() *big.Int {
 //
 //nolint:staticcheck
 func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
-	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
-		Nonce:    txClient.nextNonce(),
-		GasPrice: txClient.gasPrice,
-		Gas:      uint64(21000),
-		To:       &txClient.accountAddress,
-		Value:    randomValue(),
-	})
+	var tx *ethtypes.Transaction
+	if !txClient.useEip1559 {
+		tx = ethtypes.NewTx(&ethtypes.LegacyTx{
+			Nonce:    txClient.nextNonce(),
+			GasPrice: txClient.gasPrice,
+			Gas:      uint64(21000),
+			To:       &txClient.accountAddress,
+			Value:    randomValue(),
+		})
+	} else {
+		dynamicTx := &ethtypes.DynamicFeeTx{
+			ChainID:   txClient.chainId,
+			Nonce:     txClient.nextNonce(),
+			GasTipCap: DefaultPriorityFee,
+			GasFeeCap: DefaultMaxFee,
+			Gas:       uint64(21000),
+			To:        &txClient.accountAddress,
+			Value:     randomValue(),
+		}
+		tx = ethtypes.NewTx(dynamicTx)
+	}
 	return txClient.sign(tx)
 }
 
@@ -162,10 +185,15 @@ func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
 	}
+	if !txClient.useEip1559 {
+		auth.GasPrice = txClient.gasPrice
+	} else {
+		auth.GasFeeCap = DefaultMaxFee
+		auth.GasTipCap = DefaultPriorityFee
+	}
 	auth.Nonce = big.NewInt(int64(txClient.nextNonce()))
 	auth.Value = big.NewInt(0)
 	auth.GasLimit = uint64(21000)
-	auth.GasPrice = txClient.gasPrice
 	auth.Context = context.Background()
 	auth.From = txClient.accountAddress
 	auth.NoSend = true
@@ -173,7 +201,7 @@ func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 }
 
 func (txClient *EvmTxClient) sign(tx *ethtypes.Transaction) *ethtypes.Transaction {
-	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewEIP155Signer(txClient.chainId), txClient.privateKey)
+	signedTx, err := ethtypes.SignTx(tx, ethtypes.NewLondonSigner(txClient.chainId), txClient.privateKey)
 	if err != nil {
 		// this should not happen
 		panic(err)

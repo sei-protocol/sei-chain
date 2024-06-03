@@ -1,66 +1,14 @@
-## Foundry
+## Running hardhat tests locally
+ * start up a local instance of sei: `./scripts/initialize_local_chain.sh`
+ * run a hardhat tests:
+    * `cd contracts`
+    * `npx hardhat test --network seilocal test/ERC20toCW20PointerTest.js`
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+## Compile and build contracts with Foundry
+ * run: `forge install` and `forge build`
+ * This will generate binaries and abis in the `contracts/out/` directory
 
-Foundry consists of:
-
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
-
-## Documentation
-
-https://book.getfoundry.sh/
-
-## Usage
-
-### Build
-
-```shell
-$ forge build
-```
-
-### Test
-
-```shell
-$ forge test
-```
-
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+## Updating Pointer contracts across codebase
+ * Follow instructions above to compile and build the contracts
+ * copy the binary under the corresponding `bytecode:object` into `x/evm/contracts` `.bin` file
+ * restart seid
