@@ -320,6 +320,12 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 			TxHash:        resCtx.EVMTxHash(),
 			VmError:       result.EvmError,
 		}
+		// TODO: populate error data for EVM err
+		if result.EvmError != "" {
+			evmErr := sdkerrors.Wrap(sdkerrors.ErrEVMVMError, result.EvmError)
+			res.Codespace, res.Code, res.Log = sdkerrors.ABCIInfo(evmErr, app.trace)
+			resultStr = "failed"
+		}
 	}
 	return
 }
