@@ -49,3 +49,9 @@ func TestGetCosmosTx(t *testing.T) {
 	fmt.Println(body)
 	require.Equal(t, body["result"], "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14")
 }
+
+func TestGetEvmTx(t *testing.T) {
+	body := sendRequestGoodWithNamespace(t, "sei", "getEvmTx", "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14")
+	fmt.Println(body)
+	require.Equal(t, body["result"], "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e")
+}

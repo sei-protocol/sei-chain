@@ -3,7 +3,7 @@ const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
 const { ethers, upgrades } = require('hardhat');
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress, getCosmosTx} = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, getCosmosTx, getEvmTx} = require("./lib")
 const axios = require("axios");
 
 function sleep(ms) {
@@ -319,6 +319,9 @@ describe("EVM Test", function () {
 
         const cosmosTx = await getCosmosTx(ethers.provider, receipt.hash)
         expect(cosmosTx.length).to.be.equal(64)
+
+        const evmTx = await getEvmTx(ethers.provider, cosmosTx)
+        expect(evmTx).to.be.equal(receipt.hash)
 
         await expect(txResponse)
             .to.emit(evmTester, 'StringSet')

@@ -55,6 +55,10 @@ async function getCosmosTx(provider, evmTxHash) {
     return await provider.send("sei_getCosmosTx", [evmTxHash])
 }
 
+async function getEvmTx(provider, cosmosTxHash) {
+    return await provider.send("sei_getEvmTx", [cosmosTxHash])
+}
+
 async function fundAddress(addr, amount="10000000000000000000") {
     const result = await evmSend(addr, adminKeyName, amount)
     await delay()
@@ -469,6 +473,7 @@ module.exports = {
     evmSend,
     waitForReceipt,
     getCosmosTx,
+    getEvmTx,
     isDocker,
     testAPIEnabled,
     incrementPointerVersion,
