@@ -10,7 +10,6 @@ import (
 
 	metrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
-	"github.com/ethereum/go-ethereum/common"
 )
 
 // Measures the time taken to execute a sudo msg
@@ -326,7 +325,7 @@ func IncrConsumerEventCount(msgType string) {
 // Metric Name:
 //
 // sei_evm_effective_gas_price
-func GaugeEvmEffectiveGasPrice(gasPrice *big.Int, blockNum uint64, txHash common.Hash) {
+func GaugeEvmEffectiveGasPrice(gasPrice *big.Int, blockNum uint64) {
 	addBlockGaugeMetric(
 		blockNum,
 		[]string{"sei", "evm", "effective", "gas", "price"},
