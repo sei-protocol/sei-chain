@@ -30,6 +30,7 @@ type Context struct {
 	headerHash       tmbytes.HexBytes
 	chainID          string
 	txBytes          []byte
+	txSum            [32]byte
 	logger           log.Logger
 	voteInfo         []abci.VoteInfo
 	gasMeter         GasMeter
@@ -89,6 +90,10 @@ func (c Context) ChainID() string {
 
 func (c Context) TxBytes() []byte {
 	return c.txBytes
+}
+
+func (c Context) TxSum() [32]byte {
+	return c.txSum
 }
 
 func (c Context) Logger() log.Logger {
@@ -291,6 +296,11 @@ func (c Context) WithChainID(chainID string) Context {
 // WithTxBytes returns a Context with an updated txBytes.
 func (c Context) WithTxBytes(txBytes []byte) Context {
 	c.txBytes = txBytes
+	return c
+}
+
+func (c Context) WithTxSum(txSum [32]byte) Context {
+	c.txSum = txSum
 	return c
 }
 
