@@ -321,85 +321,17 @@ func IncrConsumerEventCount(msgType string) {
 	)
 }
 
+func AddHistogramMetric(key []string, value float32) {
+	metrics.AddSample(key, value)
+}
+
 // Gauge for gas price paid for transactions
 // Metric Name:
 //
 // sei_evm_effective_gas_price
-func GaugeEvmEffectiveGasPrice(gasPrice *big.Int, blockNum uint64) {
-	addBlockGaugeMetric(
-		blockNum,
+func HistogramEvmEffectiveGasPrice(gasPrice *big.Int) {
+	AddHistogramMetric(
 		[]string{"sei", "evm", "effective", "gas", "price"},
 		float32(gasPrice.Uint64()),
-		[]metrics.Label{
-			telemetry.NewLabel("block_num", strconv.FormatUint(blockNum, 10)),
-		},
 	)
-}
-
-type PerBlockMetric struct {
-	blockNum uint64
-	keys     []string
-	vals     []float32
-	labels   []metrics.Label
-	mu       sync.Mutex
-}
-
-type PerBlockMetrics struct {
-	keyToMetric map[string]*PerBlockMetric
-}
-
-var perBlockMetrics *PerBlockMetrics
-
-func init() {
-	if perBlockMetrics == nil {
-		perBlockMetrics = &PerBlockMetrics{
-			keyToMetric: make(map[string]*PerBlockMetric),
-		}
-	}
-}
-
-func SetupBlockMetric(keys []string, labels []metrics.Label, bn uint64) {
-	key := strings.Join(keys, "_")
-	if _, ok := perBlockMetrics.keyToMetric[key]; !ok {
-		perBlockMetrics.keyToMetric[key] = &PerBlockMetric{
-			blockNum: bn,
-			keys:     keys,
-			labels:   labels,
-			vals:     make([]float32, 0),
-		}
-	}
-}
-
-func addBlockGaugeMetric(blockNumber uint64, keys []string, val float32, labels []metrics.Label) {
-	SetupBlockMetric(keys, labels, blockNumber)
-	key := strings.Join(keys, "_")
-	blockMetric := perBlockMetrics.keyToMetric[key]
-	blockMetric.mu.Lock()
-	defer blockMetric.mu.Unlock()
-	oldBlockNum := blockNumber
-	if _, ok := perBlockMetrics.keyToMetric[key]; ok {
-		oldBlockNum = perBlockMetrics.keyToMetric[key].blockNum
-	}
-	blockMetric.blockNum = blockNumber
-	blockMetric.labels = labels
-	if oldBlockNum != blockNumber {
-		flushGaugeMetric(key, blockMetric)
-		blockMetric.vals = make([]float32, 0)
-	}
-	blockMetric.vals = append(blockMetric.vals, val)
-}
-
-func flushGaugeMetric(key string, metric *PerBlockMetric) {
-	if len(metric.vals) == 0 {
-		return
-	}
-	if key == "sei_evm_effective_gas_price" {
-		slices.Sort(metric.vals)
-		median := metric.vals[len(metric.vals)/2]
-		telemetry.SetGaugeWithLabels(
-			metric.keys,
-			median,
-			metric.labels,
-		)
-	}
 }

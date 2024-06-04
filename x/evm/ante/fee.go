@@ -113,7 +113,7 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
 	gp := txData.EffectiveGasPrice(utils.Big0)
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
-		metrics.GaugeEvmEffectiveGasPrice(gp, uint64(ctx.BlockHeight()))
+		metrics.HistogramEvmEffectiveGasPrice(gp)
 	}
 	priority := sdk.NewDecFromBigInt(gp).Quo(fc.evmKeeper.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if priority.Cmp(big.NewInt(antedecorators.MaxPriority)) > 0 {
