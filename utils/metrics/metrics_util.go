@@ -2,10 +2,7 @@ package metrics
 
 import (
 	"math/big"
-	"slices"
 	"strconv"
-	"strings"
-	"sync"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
