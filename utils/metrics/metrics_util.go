@@ -378,11 +378,11 @@ func addBlockGaugeMetric(blockNumber uint64, keys []string, val float32, labels 
 	defer blockMetric.mu.Unlock()
 	oldBlockNum := blockNumber
 	if _, ok := perBlockMetrics.keyToMetric[key]; ok {
-		oldBlockNum = uint64(perBlockMetrics.keyToMetric[key].blockNum)
+		oldBlockNum = perBlockMetrics.keyToMetric[key].blockNum
 	}
 	blockMetric.blockNum = blockNumber
 	blockMetric.labels = labels
-	if uint64(oldBlockNum) != blockNumber {
+	if oldBlockNum != blockNumber {
 		flushGaugeMetric(key, blockMetric)
 		blockMetric.vals = make([]float32, 0)
 	}
