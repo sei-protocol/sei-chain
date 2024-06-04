@@ -98,7 +98,8 @@ describe("CW20 to ERC20 Pointer", function () {
                     const respBefore = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
                     const balanceBefore = respBefore.data.balance;
 
-                    await executeWasm(pointer,  { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
+                    const res = await executeWasm(pointer,  { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
+                    console.log(res);
                     const respAfter = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
                     const balanceAfter = respAfter.data.balance;
 
