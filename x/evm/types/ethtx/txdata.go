@@ -14,7 +14,6 @@ var (
 	_ TxData = &AccessListTx{}
 	_ TxData = &DynamicFeeTx{}
 	_ TxData = &BlobTx{}
-	_ TxData = &AssociateTx{}
 )
 
 // Unfortunately `TxData` interface in go-ethereum/core/types defines its functions

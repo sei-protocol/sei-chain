@@ -33,7 +33,7 @@ func TestExportImportGenesis(t *testing.T) {
 	assert.Equal(t, types.DefaultParams().MinimumFeePerGas, param.MinimumFeePerGas)
 	assert.Equal(t, types.DefaultParams().WhitelistedCwCodeHashesForDelegateCall, param.WhitelistedCwCodeHashesForDelegateCall)
 	evm.InitGenesis(origctx, keeper, *genesis)
-	require.Equal(t, evmAddr, keeper.GetEVMAddressOrDefault(origctx, seiAddr))
+	require.Equal(t, evmAddr, keeper.GetEVMAddress(origctx, seiAddr))
 	require.Equal(t, keeper.GetCode(ctx, codeAddr), keeper.GetCode(origctx, codeAddr))
 	require.Equal(t, keeper.GetCodeHash(ctx, codeAddr), keeper.GetCodeHash(origctx, codeAddr))
 	require.Equal(t, keeper.GetCodeSize(ctx, codeAddr), keeper.GetCodeSize(origctx, codeAddr))

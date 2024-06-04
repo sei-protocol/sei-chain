@@ -12,7 +12,7 @@ func TestGetFeeCollectorAddress(t *testing.T) {
 	k, ctx := keepertest.MockEVMKeeper()
 	addr, err := k.GetFeeCollectorAddress(ctx)
 	require.Nil(t, err)
-	expected := k.GetEVMAddressOrDefault(ctx, k.AccountKeeper().GetModuleAddress("fee_collector"))
+	expected := k.GetEVMAddress(ctx, k.AccountKeeper().GetModuleAddress("fee_collector"))
 	require.Equal(t, expected.Hex(), addr.Hex())
 }
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"errors"
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -138,10 +137,7 @@ func (p Precompile) vote(ctx sdk.Context, method *abi.Method, caller common.Addr
 	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
 		return nil, err
 	}
-	voter, found := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !found {
-		return nil, fmt.Errorf("voter %s is not associated", caller.Hex())
-	}
+	voter := p.evmKeeper.GetSeiAddress(ctx, caller)
 	proposalID := args[0].(uint64)
 	voteOption := args[1].(int32)
 	err := p.govKeeper.AddVote(ctx, proposalID, voter, govtypes.NewNonSplitVoteOption(govtypes.VoteOption(voteOption)))
@@ -155,15 +151,12 @@ func (p Precompile) deposit(ctx sdk.Context, method *abi.Method, caller common.A
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
-	depositor, found := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !found {
-		return nil, fmt.Errorf("depositor %s is not associated", caller.Hex())
-	}
+	depositor := p.evmKeeper.GetSeiAddress(ctx, caller)
 	proposalID := args[0].(uint64)
 	if value == nil || value.Sign() == 0 {
 		return nil, errors.New("set `value` field to non-zero to deposit fund")
 	}
-	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), depositor, value, p.bankKeeper)
+	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddress(ctx, p.address), depositor, value, p.bankKeeper)
 	if err != nil {
 		return nil, err
 	}

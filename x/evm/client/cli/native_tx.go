@@ -7,7 +7,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
@@ -41,6 +43,54 @@ func NativeSendTxCmd() *cobra.Command {
 			msg := &types.MsgSend{
 				FromAddress: clientCtx.GetFromAddress().String(),
 				ToAddress:   args[1],
+				Amount:      coins,
+			}
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
+
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func SendCastSeiAddrTxCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use: "send-to-cast-sei-addr [from_key_or_address] [amount]",
+		Short: `Send funds from one account to the direct cast of its EVM address.
+		Note, the '--from' flag is ignored as it is implied from [from_key_or_address].
+		When using '--dry-run' a key name cannot be used, only a bech32 address.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = cmd.Flags().Set(flags.FlagFrom, args[0])
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			coins, err := sdk.ParseCoinsNormalized(args[1])
+			if err != nil {
+				return err
+			}
+
+			key, err := getPrivateKey(cmd)
+			if err != nil {
+				return err
+			}
+			testmsg := crypto.Keccak256([]byte("foo"))
+			sig, _ := crypto.Sign(testmsg, key)
+
+			recoveredPub, _ := crypto.Ecrecover(testmsg, sig)
+			pubKey, _ := crypto.UnmarshalPubkey(recoveredPub)
+			evmAddr := crypto.PubkeyToAddress(*pubKey)
+
+			msg := &banktypes.MsgSend{
+				FromAddress: clientCtx.GetFromAddress().String(),
+				ToAddress:   sdk.AccAddress(evmAddr[:]).String(),
 				Amount:      coins,
 			}
 			if err := msg.ValidateBasic(); err != nil {
@@ -165,31 +215,6 @@ func AssociateContractAddressCmd() *cobra.Command {
 				return err
 			}
 			msg := types.NewMsgAssociateContractAddress(clientCtx.GetFromAddress(), addr)
-			if err := msg.ValidateBasic(); err != nil {
-				return err
-			}
-
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
-		},
-	}
-
-	flags.AddTxFlagsToCmd(cmd)
-
-	return cmd
-}
-
-func NativeAssociateCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "native-associate [custom msg]",
-		Short: `Set address association for the sender.`,
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, err := client.GetClientTxContext(cmd)
-			if err != nil {
-				return err
-			}
-
-			msg := types.NewMsgAssociate(clientCtx.GetFromAddress(), args[0])
 			if err := msg.ValidateBasic(); err != nil {
 				return err
 			}

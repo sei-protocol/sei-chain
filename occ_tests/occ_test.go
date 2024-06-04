@@ -105,7 +105,7 @@ func TestParallelTransactions(t *testing.T) {
 		name    string
 		runs    int
 		shuffle bool
-		before  func(tCtx *utils.TestContext)
+		before  func(tCtx *utils.TestContext, txs []*utils.TestMessage)
 		txs     func(tCtx *utils.TestContext) []*utils.TestMessage
 	}{
 		{
@@ -143,6 +143,11 @@ func TestParallelTransactions(t *testing.T) {
 					messages.EVMTransferNonConflicting(tCtx, 10),
 				)
 			},
+			before: func(tCtx *utils.TestContext, txs []*utils.TestMessage) {
+				for _, tx := range txs {
+					messages.FundEVMSigner(tCtx, tx)
+				}
+			},
 		},
 		{
 			name: "Test evm transfers conflicting",
@@ -151,6 +156,11 @@ func TestParallelTransactions(t *testing.T) {
 				return utils.JoinMsgs(
 					messages.EVMTransferConflicting(tCtx, 10),
 				)
+			},
+			before: func(tCtx *utils.TestContext, txs []*utils.TestMessage) {
+				for _, tx := range txs {
+					messages.FundEVMSigner(tCtx, tx)
+				}
 			},
 		},
 		{
@@ -165,6 +175,11 @@ func TestParallelTransactions(t *testing.T) {
 					messages.EVMTransferConflicting(tCtx, 10),
 					messages.EVMTransferNonConflicting(tCtx, 10),
 				)
+			},
+			before: func(tCtx *utils.TestContext, txs []*utils.TestMessage) {
+				for _, tx := range txs {
+					messages.FundEVMSigner(tCtx, tx)
+				}
 			},
 		},
 	}
@@ -183,7 +198,7 @@ func TestParallelTransactions(t *testing.T) {
 			}
 
 			if tt.before != nil {
-				tt.before(sCtx)
+				tt.before(sCtx, txs)
 			}
 
 			sEvts, sResults, _, sErr := utils.RunWithoutOCC(sCtx, txs)
@@ -193,7 +208,7 @@ func TestParallelTransactions(t *testing.T) {
 			for i := 0; i < tt.runs; i++ {
 				pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers, true)
 				if tt.before != nil {
-					tt.before(pCtx)
+					tt.before(pCtx, txs)
 				}
 				pEvts, pResults, _, pErr := utils.RunWithOCC(pCtx, txs)
 				require.NoError(t, pErr, tt.name)

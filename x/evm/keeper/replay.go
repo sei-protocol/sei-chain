@@ -13,8 +13,8 @@ import (
 )
 
 func (k *Keeper) VerifyBalance(ctx sdk.Context, addr common.Address) {
-	useiBalance := k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr), "usei").Amount
-	weiBalance := k.bankKeeper.GetWeiBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr))
+	useiBalance := k.BankKeeper().GetBalance(ctx, k.GetSeiAddress(ctx, addr), "usei").Amount
+	weiBalance := k.bankKeeper.GetWeiBalance(ctx, k.GetSeiAddress(ctx, addr))
 	totalSeiBalance := useiBalance.Mul(sdk.NewInt(1_000_000_000_000)).Add(weiBalance).BigInt()
 	ethBalance, err := k.EthClient.BalanceAt(ctx.Context(), addr, big.NewInt(k.GetReplayInitialHeight(ctx)+ctx.BlockHeight()))
 	if err != nil {
@@ -78,8 +78,8 @@ func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData
 	if !bytes.Equal(code, k.GetCode(ctx, addr)) {
 		panic(fmt.Sprintf("code mismatch for address %s", addr))
 	}
-	useiBalance := k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr), "usei").Amount
-	weiBalance := k.bankKeeper.GetWeiBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr))
+	useiBalance := k.BankKeeper().GetBalance(ctx, k.GetSeiAddress(ctx, addr), "usei").Amount
+	weiBalance := k.bankKeeper.GetWeiBalance(ctx, k.GetSeiAddress(ctx, addr))
 	totalSeiBalance := useiBalance.Mul(sdk.NewInt(1_000_000_000_000)).Add(weiBalance).BigInt()
 	if balance.Cmp(totalSeiBalance) != 0 {
 		panic(fmt.Sprintf("balance mismatch for address %s: expected %s, got %s", addr.Hex(), balance, totalSeiBalance))

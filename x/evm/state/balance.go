@@ -11,6 +11,7 @@ import (
 
 func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
+
 	if amt.Sign() == 0 {
 		return
 	}
@@ -52,6 +53,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
+
 	if amt.Sign() == 0 {
 		return
 	}
@@ -127,7 +129,7 @@ func (s *DBImpl) getSeiAddress(evmAddr common.Address) sdk.AccAddress {
 	if s.coinbaseEvmAddress.Cmp(evmAddr) == 0 {
 		return s.coinbaseAddress
 	}
-	return s.k.GetSeiAddressOrDefault(s.ctx, evmAddr)
+	return s.k.GetSeiAddress(s.ctx, evmAddr)
 }
 
 func (s *DBImpl) send(from sdk.AccAddress, to sdk.AccAddress, amt *big.Int) {

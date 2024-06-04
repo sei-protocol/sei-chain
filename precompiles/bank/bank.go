@@ -218,10 +218,7 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, errors.New("set `value` field to non-zero to send")
 	}
 
-	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !ok {
-		return nil, errors.New("invalid addr")
-	}
+	senderSeiAddr := p.evmKeeper.GetSeiAddress(ctx, caller)
 
 	receiverAddr, ok := (args[0]).(string)
 	if !ok || receiverAddr == "" {
@@ -233,7 +230,7 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, err
 	}
 
-	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderSeiAddr, value, p.bankKeeper)
+	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddress(ctx, p.address), senderSeiAddr, value, p.bankKeeper)
 	if err != nil {
 		return nil, err
 	}
@@ -357,11 +354,7 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")
 	}
-	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, addr)
-	if !found {
-		return nil, fmt.Errorf("EVM address %s is not associated", addr.Hex())
-	}
-	return seiAddr, nil
+	return p.evmKeeper.GetSeiAddress(ctx, addr), nil
 }
 
 func (Precompile) IsTransaction(method string) bool {

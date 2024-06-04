@@ -122,11 +122,7 @@ func (p Precompile) getSeiAddr(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, err
 	}
 
-	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, args[0].(common.Address))
-	if !found {
-		return nil, fmt.Errorf("EVM address %s is not associated", args[0].(common.Address).Hex())
-	}
-	return method.Outputs.Pack(seiAddr.String())
+	return method.Outputs.Pack(p.evmKeeper.GetSeiAddress(ctx, args[0].(common.Address)).String())
 }
 
 func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
@@ -143,11 +139,7 @@ func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, err
 	}
 
-	evmAddr, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
-	if !found {
-		return nil, fmt.Errorf("sei address %s is not associated", args[0].(string))
-	}
-	return method.Outputs.Pack(evmAddr)
+	return method.Outputs.Pack(p.evmKeeper.GetEVMAddress(ctx, seiAddr))
 }
 
 func (Precompile) IsTransaction(string) bool {

@@ -10,10 +10,10 @@ import (
 type EVMKeeper interface {
 	PrefixStore(sdk.Context, []byte) sdk.KVStore
 	PurgePrefix(sdk.Context, []byte)
-	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
-	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress
+	GetSeiAddress(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress
 	BankKeeper() bankkeeper.Keeper
 	GetBaseDenom(sdk.Context) string
+	InitAccount(sdk.Context, common.Address)
 	DeleteAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
 	GetCode(sdk.Context, common.Address) []byte
 	SetCode(sdk.Context, common.Address, []byte)

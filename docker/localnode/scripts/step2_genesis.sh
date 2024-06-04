@@ -46,6 +46,9 @@ override_genesis '.app_state["gov"]["tally_params"]["threshold"]="0.5"'
 override_genesis '.app_state["gov"]["tally_params"]["expedited_quorum"]="0.9"'
 override_genesis '.app_state["gov"]["tally_params"]["expedited_threshold"]="0.9"'
 
+# evm config
+override_genesis '.app_state["evm"]["address_associations"]=[{"sei_address":"sei1m9qugvk4h66p6hunfajfg96ysc48zeq4m0d82c","eth_address":"0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52"},{"sei_address":"sei1cjzphr67dug28rw9ueewrqllmxlqe5f0awulvy","eth_address":"0x70997970C51812dc3A010C7d01b50e0d17dc79C8"}]'
+
 # add genesis accounts for each node
 while read account; do
   echo "Adding: $account"

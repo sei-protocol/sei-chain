@@ -32,7 +32,7 @@ func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEV
 	if err != nil {
 		return nil, err
 	}
-	ret, err := k.CallEVM(ctx, k.GetEVMAddressOrDefault(ctx, senderAddr), to, req.Value, req.Data)
+	ret, err := k.CallEVM(ctx, k.GetEVMAddress(ctx, senderAddr), to, req.Value, req.Data)
 	if err != nil {
 		return nil, err
 	}
@@ -58,10 +58,7 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	}
 	// delegatecall caller must be associated; otherwise any state change on EVM contract will be lost
 	// after they asssociate.
-	senderEvmAddr, found := k.GetEVMAddress(ctx, senderAddr)
-	if !found {
-		return nil, fmt.Errorf("sender %s is not associated", req.Sender)
-	}
+	senderEvmAddr := k.GetEVMAddress(ctx, senderAddr)
 	ret, err := k.CallEVM(ctx, senderEvmAddr, to, &zeroInt, req.Data)
 	if err != nil {
 		return nil, err
@@ -120,7 +117,7 @@ func (k *Keeper) StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.
 	if err != nil {
 		return nil, err
 	}
-	return k.callEVM(ctx, k.GetEVMAddressOrDefault(ctx, from), to, nil, data, func(caller vm.ContractRef, addr *common.Address, input []byte, gas uint64, _ *big.Int) ([]byte, uint64, error) {
+	return k.callEVM(ctx, k.GetEVMAddress(ctx, from), to, nil, data, func(caller vm.ContractRef, addr *common.Address, input []byte, gas uint64, _ *big.Int) ([]byte, uint64, error) {
 		return evm.StaticCall(caller, *addr, input, gas)
 	})
 }
@@ -149,7 +146,7 @@ func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EV
 		return nil, err
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
-	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
+	txCtx := vm.TxContext{Origin: k.GetEVMAddress(ctx, from)}
 	return vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}), nil
 }
 

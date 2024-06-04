@@ -16,15 +16,6 @@ message AccessTuple {
     ];
   }
 
-  message AssociateTx {
-    option (gogoproto.goproto_getters) = false;
-    // signature values
-    bytes v = 1;
-    bytes r = 2;
-    bytes s = 3;
-    string custom_message = 4;
-  }
-
 message LegacyTx {
     option (gogoproto.goproto_getters) = false;
 

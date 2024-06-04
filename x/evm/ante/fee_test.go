@@ -81,7 +81,7 @@ func TestEVMFeeCheckDecorator(t *testing.T) {
 	amt := typedTx.Cost()
 	coinsAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewIntFromBigInt(amt).Quo(sdk.NewIntFromBigInt(state.UseiToSweiMultiplier)).Add(sdk.OneInt())))
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, coinsAmt)
-	seiAddr := sdk.AccAddress(msg.Derived.SenderSeiAddr)
+	seiAddr := k.GetSeiAddress(ctx, msg.Derived.SenderEVMAddr)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, coinsAmt)
 
 	// should succeed now that the sender has enough funds

@@ -215,9 +215,9 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		if err != nil {
 			panic(err)
 		}
-		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, block.Header_.Coinbase)
+		coinbase = am.keeper.GetSeiAddress(ctx, block.Header_.Coinbase)
 	} else if am.keeper.EthReplayConfig.Enabled {
-		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, am.keeper.ReplayBlock.Header_.Coinbase)
+		coinbase = am.keeper.GetSeiAddress(ctx, am.keeper.ReplayBlock.Header_.Coinbase)
 		am.keeper.SetReplayedHeight(ctx)
 	} else {
 		coinbase = am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)

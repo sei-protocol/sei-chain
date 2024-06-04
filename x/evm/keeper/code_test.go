@@ -23,7 +23,7 @@ func TestCode(t *testing.T) {
 	require.Equal(t, crypto.Keccak256Hash(code), k.GetCodeHash(ctx, addr))
 	require.Equal(t, code, k.GetCode(ctx, addr))
 	require.Equal(t, 5, k.GetCodeSize(ctx, addr))
-	require.Equal(t, sdk.AccAddress(addr[:]), k.AccountKeeper().GetAccount(ctx, k.GetSeiAddressOrDefault(ctx, addr)).GetAddress())
+	require.Equal(t, sdk.AccAddress(addr[:]), k.AccountKeeper().GetAccount(ctx, k.GetSeiAddress(ctx, addr)).GetAddress())
 }
 
 func TestNilCode(t *testing.T) {

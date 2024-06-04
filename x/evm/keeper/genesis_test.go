@@ -12,7 +12,6 @@ import (
 func TestInitGenesis(t *testing.T) {
 	k, ctx := keepertest.MockEVMKeeper() // this would call `InitGenesis`
 	// coinbase address must be associated
-	coinbaseSeiAddr, associated := k.GetSeiAddress(ctx, keeper.GetCoinbaseAddress())
-	require.True(t, associated)
+	coinbaseSeiAddr := k.GetSeiAddress(ctx, keeper.GetCoinbaseAddress())
 	require.True(t, bytes.Equal(coinbaseSeiAddr, k.AccountKeeper().GetModuleAddress("fee_collector")))
 }

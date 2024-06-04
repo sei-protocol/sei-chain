@@ -58,16 +58,6 @@ func (msg *MsgEVMTransaction) UnpackInterfaces(unpacker codectypes.AnyUnpacker) 
 	return unpacker.UnpackAny(msg.Data, new(ethtx.TxData))
 }
 
-func (msg *MsgEVMTransaction) IsAssociateTx() bool {
-	txData, err := UnpackTxData(msg.Data)
-	if err != nil {
-		// should never happen
-		panic(err)
-	}
-	_, ok := txData.(*ethtx.AssociateTx)
-	return ok
-}
-
 func MustGetEVMTransactionMessage(tx sdk.Tx) *MsgEVMTransaction {
 	if len(tx.GetMsgs()) != 1 {
 		panic("EVM transaction must have exactly 1 message")

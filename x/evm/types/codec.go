@@ -53,7 +53,6 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 		&ethtx.AccessListTx{},
 		&ethtx.LegacyTx{},
 		&ethtx.BlobTx{},
-		&ethtx.AssociateTx{},
 	)
 
 	msgservice.RegisterMsgServiceDesc(registry, &_Msg_serviceDesc)
@@ -99,11 +98,6 @@ func UnpackTxData(any *codectypes.Any) (ethtx.TxData, error) {
 		if proto.Unmarshal(any.Value, &btx) == nil {
 			// value is a blob tx
 			return &btx, nil
-		}
-		astx := ethtx.AssociateTx{}
-		if proto.Unmarshal(any.Value, &astx) == nil {
-			// value is an associate tx
-			return &astx, nil
 		}
 		return nil, fmt.Errorf("cannot unpack Any into TxData %T", any)
 	}

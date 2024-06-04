@@ -344,11 +344,7 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")
 	}
-	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, addr)
-	if !found {
-		return nil, fmt.Errorf("EVM address %s is not associated", addr.Hex())
-	}
-	return seiAddr, nil
+	return p.evmKeeper.GetSeiAddress(ctx, addr), nil
 }
 
 func (p Precompile) getChannelConnection(ctx sdk.Context, port string, channelID string) (*connectiontypes.ConnectionEnd, error) {
@@ -422,10 +418,7 @@ type ValidatedArgs struct {
 }
 
 func (p Precompile) validateCommonArgs(ctx sdk.Context, args []interface{}, caller common.Address) (*ValidatedArgs, error) {
-	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
-	if !ok {
-		return nil, errors.New("caller is not a valid SEI address")
-	}
+	senderSeiAddr := p.evmKeeper.GetSeiAddress(ctx, caller)
 
 	receiverAddressString, ok := args[0].(string)
 	if !ok {

@@ -99,9 +99,10 @@ describe("ERC20 to CW20 Pointer", function () {
             await expect(pointer.transfer(recipient.evmAddress, 20000000)).to.be.revertedWith("CosmWasm execute failed");
         });
 
-        it("transfer to unassociated address should fail", async function() {
+        it("transfer to unassociated address should succeed", async function() {
             const unassociatedRecipient = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
-            await expect(pointer.transfer(unassociatedRecipient, 1)).to.be.revertedWithoutReason;
+            const tx = await pointer.transfer(unassociatedRecipient, 1);
+            await tx.wait();
         });
 
         it("transfer to contract address should succeed", async function() {
