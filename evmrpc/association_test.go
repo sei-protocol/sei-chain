@@ -31,27 +31,27 @@ func TestAssocation(t *testing.T) {
 	}
 
 	body := sendRequestGoodWithNamespace(t, "sei", "associate", txArgs)
-	require.Equal(t, body["result"], nil)
+	require.Equal(t, nil, body["result"])
 }
 
 func TestGetSeiAddress(t *testing.T) {
 	body := sendRequestGoodWithNamespace(t, "sei", "getSeiAddress", "0x1df809C639027b465B931BD63Ce71c8E5834D9d6")
-	require.Equal(t, body["result"], "sei1mf0llhmqane5w2y8uynmghmk2w4mh0xll9seym")
+	require.Equal(t, "sei1mf0llhmqane5w2y8uynmghmk2w4mh0xll9seym", body["result"])
 }
 
 func TestGetEvmAddress(t *testing.T) {
 	body := sendRequestGoodWithNamespace(t, "sei", "getEVMAddress", "sei1mf0llhmqane5w2y8uynmghmk2w4mh0xll9seym")
-	require.Equal(t, body["result"], "0x1df809C639027b465B931BD63Ce71c8E5834D9d6")
+	require.Equal(t, "0x1df809C639027b465B931BD63Ce71c8E5834D9d6", body["result"])
 }
 
 func TestGetCosmosTx(t *testing.T) {
 	body := sendRequestGoodWithNamespace(t, "sei", "getCosmosTx", "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e")
 	fmt.Println(body)
-	require.Equal(t, body["result"], "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14")
+	require.Equal(t, "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14", body["result"])
 }
 
 func TestGetEvmTx(t *testing.T) {
 	body := sendRequestGoodWithNamespace(t, "sei", "getEvmTx", "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14")
 	fmt.Println(body)
-	require.Equal(t, body["result"], "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e")
+	require.Equal(t, "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e", body["result"])
 }

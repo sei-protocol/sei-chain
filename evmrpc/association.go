@@ -168,6 +168,7 @@ func (t *AssociationAPI) GetEvmTx(ctx context.Context, cosmosHash string) (resul
 	if err != nil {
 		return "", fmt.Errorf("failed to decode cosmosHash: %w", err)
 	}
+
 	txResponse, err := t.tmClient.Tx(ctx, hashBytes, false)
 	if err != nil {
 		return "", err
