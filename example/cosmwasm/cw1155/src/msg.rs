@@ -53,13 +53,13 @@ pub enum EvmQuery {
     Erc1155BalanceOf {
         caller: String,
         contract_address: String,
-        owner: String,
+        account: String,
         token_id: String,
     },
     Erc1155BalanceOfBatch {
         caller: String,
         contract_address: String,
-        owner: String,
+        accounts: Vec<String>,
         token_ids: Vec<String>,
     },
     // todo - is this implemented in erc1155?

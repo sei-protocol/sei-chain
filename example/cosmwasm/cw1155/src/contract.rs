@@ -9,7 +9,7 @@ use crate::querier::{EvmQuerier};
 use crate::error::ContractError;
 use crate::state::ERC1155_ADDRESS;
 use std::str::FromStr;
-use cw1155::{ApproveAllEvent, BalanceResponse, Cw1155BatchReceiveMsg, Cw1155ReceiveMsg, RevokeAllEvent, TokenAmount, TransferEvent};
+use cw1155::{ApproveAllEvent, BalanceResponse, Cw1155BatchReceiveMsg, Cw1155ReceiveMsg, OwnerToken, RevokeAllEvent, TokenAmount, TransferEvent};
 use cw1155_royalties::Cw1155RoyaltiesExecuteMsg;
 
 const ERC2981_ID: &str = "0x2a55205a";
@@ -213,9 +213,9 @@ pub fn execute_extension() -> Result<Response<EvmMsg>, ContractError> {
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg) -> Result<Binary, ContractError> {
     match msg {
-        QueryMsg::BalanceOf { owner, token_id } => to_json_binary(&query_balance_of(deps, env, owner, token_id)?),
-        QueryMsg::BalanceOfBatch { owner, token_ids } => {
-            to_json_binary(&query_balance_of_batch(deps, env, owner, token_ids)?)
+        QueryMsg::BalanceOf(OwnerToken { owner, token_id }) => to_json_binary(&query_balance_of(deps, env, owner, token_id)?),
+        QueryMsg::BalanceOfBatch(batch) => {
+            to_json_binary(&query_balance_of_batch(deps, env, batch)?)
         },
         QueryMsg::TokenApprovals { .. } => {
             // todo - is this implemented in erc1155?
@@ -290,10 +290,10 @@ pub fn query_balance_of(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, to
     Ok(BalanceResponse{ balance })
 }
 
-pub fn query_balance_of_batch(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, token_ids: Vec<String>) -> StdResult<BalanceResponse> {
+pub fn query_balance_of_batch(deps: Deps<EvmQueryWrapper>, env: Env, batch: Vec<OwnerToken>) -> StdResult<BalanceResponse> {
     let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let balance = Uint128::from_str(&querier.erc1155_balance_of_batch(env.clone().contract.address.into_string(), erc_addr, owner, token_ids)?.amount)?;
+    let balance = Uint128::from_str(&querier.erc1155_balance_of_batch(env.clone().contract.address.into_string(), erc_addr, batch)?.amount)?;
     Ok(BalanceResponse{ balance })
 }
 

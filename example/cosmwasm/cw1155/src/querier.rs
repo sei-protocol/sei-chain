@@ -1,4 +1,5 @@
 use cosmwasm_std::{QuerierWrapper, StdResult, Uint128};
+use cw1155::OwnerToken;
 
 use crate::msg::{Route, EvmQuery, EvmQueryWrapper, ErcPayloadResponse, Erc1155BalanceOfResponse, Erc1155ApprovedResponse, Erc1155IsApprovedForAllResponse, Erc1155NameSymbolResponse, Erc1155UriResponse, Erc1155RoyaltyInfoResponse, SupportsInterfaceResponse, Erc1155TotalSupplyResponse};
 
@@ -14,20 +15,25 @@ impl<'a> EvmQuerier<'a> {
         EvmQuerier { querier }
     }
 
-    pub fn erc1155_balance_of(&self, caller: String, contract_address: String, owner: String, token_id: String) -> StdResult<Erc1155BalanceOfResponse> {
+    pub fn erc1155_balance_of(&self, caller: String, contract_address: String, account: String, token_id: String) -> StdResult<Erc1155BalanceOfResponse> {
         let request = EvmQueryWrapper {
             route: Route::Evm,
-            query_data: EvmQuery::Erc1155BalanceOf { caller, contract_address, owner, token_id },
+            query_data: EvmQuery::Erc1155BalanceOf { caller, contract_address, account, token_id },
         }
             .into();
 
         self.querier.query(&request)
     }
 
-    pub fn erc1155_balance_of_batch(&self, caller: String, contract_address: String, owner: String, token_ids: Vec<String>) -> StdResult<Erc1155BalanceOfResponse> {
+    pub fn erc1155_balance_of_batch(&self, caller: String, contract_address: String, batch: Vec<OwnerToken>) -> StdResult<Erc1155BalanceOfResponse> {
         let request = EvmQueryWrapper {
             route: Route::Evm,
-            query_data: EvmQuery::Erc1155BalanceOfBatch { caller, contract_address, owner, token_ids },
+            query_data: EvmQuery::Erc1155BalanceOfBatch {
+                caller,
+                contract_address,
+                accounts: batch.iter().map(|ot| ot.owner.to_string()).collect(),
+                token_ids: batch.iter().map(|ot| ot.token_id.to_string()).collect()
+            },
         }
             .into();
 

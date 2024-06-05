@@ -282,14 +282,14 @@ dependencies = [
 [[package]]
 name = "cw1155"
 version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08#cfa0c084023c3cef6d9be4ae510a6ae77c963aaf"
+source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6#3751bf6b4059ed573f7a1c883ee41ce92c7e07e6"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
  "cw-ownable",
  "cw-utils 1.0.3",
  "cw2 1.1.2",
- "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08)",
+ "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6)",
  "schemars",
  "serde",
  "thiserror",
@@ -298,7 +298,7 @@ dependencies = [
 [[package]]
 name = "cw1155-base"
 version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08#cfa0c084023c3cef6d9be4ae510a6ae77c963aaf"
+source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6#3751bf6b4059ed573f7a1c883ee41ce92c7e07e6"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -307,8 +307,8 @@ dependencies = [
  "cw-utils 1.0.3",
  "cw1155",
  "cw2 1.1.2",
- "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08)",
- "cw721-base 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08)",
+ "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6)",
+ "cw721-base 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6)",
  "schemars",
  "serde",
 ]
@@ -316,13 +316,13 @@ dependencies = [
 [[package]]
 name = "cw1155-royalties"
 version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08#cfa0c084023c3cef6d9be4ae510a6ae77c963aaf"
+source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6#3751bf6b4059ed573f7a1c883ee41ce92c7e07e6"
 dependencies = [
  "cosmwasm-std",
  "cw1155",
  "cw1155-base",
  "cw2 1.1.2",
- "cw2981-royalties 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08)",
+ "cw2981-royalties 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6)",
  "schemars",
  "serde",
  "thiserror",
@@ -375,13 +375,13 @@ dependencies = [
 [[package]]
 name = "cw2981-royalties"
 version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08#cfa0c084023c3cef6d9be4ae510a6ae77c963aaf"
+source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6#3751bf6b4059ed573f7a1c883ee41ce92c7e07e6"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
  "cw2 1.1.2",
- "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08)",
- "cw721-base 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08)",
+ "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6)",
+ "cw721-base 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6)",
  "schemars",
  "serde",
  "thiserror",
@@ -416,7 +416,7 @@ dependencies = [
 [[package]]
 name = "cw721"
 version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08#cfa0c084023c3cef6d9be4ae510a6ae77c963aaf"
+source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6#3751bf6b4059ed573f7a1c883ee41ce92c7e07e6"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -464,7 +464,7 @@ dependencies = [
 [[package]]
 name = "cw721-base"
 version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08#cfa0c084023c3cef6d9be4ae510a6ae77c963aaf"
+source = "git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6#3751bf6b4059ed573f7a1c883ee41ce92c7e07e6"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -472,7 +472,7 @@ dependencies = [
  "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
  "cw2 1.1.2",
- "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=cfa0c08)",
+ "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts_ALPAC-4.git?rev=3751bf6)",
  "cw721-base 0.16.0",
  "schemars",
  "serde",
