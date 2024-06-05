@@ -1,15 +1,15 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Empty, Uint128, Int256, StdError};
-use cw721::{Cw721ReceiveMsg, OwnerOfResponse, Approval, ApprovalResponse, ApprovalsResponse, OperatorResponse, ContractInfoResponse, NftInfoResponse, AllNftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
+use cosmwasm_std::{DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Uint128, StdError};
+use cw721::{Approval, OperatorResponse, ContractInfoResponse, NftInfoResponse, AllNftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
 use cw2981_royalties::msg::{RoyaltiesInfoResponse, CheckRoyaltiesResponse};
 use cw2981_royalties::{Metadata as Cw2981Metadata, Extension as Cw2981Extension};
 use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, CwErc1155QueryMsg, QueryMsg};
-use crate::querier::{EvmQuerier, DEFAULT_LIMIT, MAX_LIMIT};
+use crate::querier::{EvmQuerier};
 use crate::error::ContractError;
 use crate::state::ERC1155_ADDRESS;
 use std::str::FromStr;
-use cw1155::{BalanceResponse, Cw1155BatchReceiveMsg, Cw1155QueryMsg, Cw1155ReceiveMsg, TokenAmount};
+use cw1155::{ApproveAllEvent, BalanceResponse, Cw1155BatchReceiveMsg, Cw1155ReceiveMsg, RevokeAllEvent, TokenAmount, TransferEvent};
 use cw1155_royalties::Cw1155RoyaltiesExecuteMsg;
 
 const ERC2981_ID: &str = "0x2a55205a";
@@ -88,17 +88,10 @@ pub fn execute_send_single(
             amount,
             msg,
         };
-        res = res
-            .add_message(send.into_cosmos_msg(recipient.to_string())?)
-            .add_attribute("action", "send_single");
-    } else {
-        res = res.add_attribute("action", "transfer_single")
+        res = res.add_message(send.into_cosmos_msg(recipient.to_string())?)
     }
 
-    res = res.add_attribute("sender", info.sender)
-        .add_attribute("recipient", recipient)
-        .add_attribute("token_id", token_id)
-        .add_attribute("amount", amount);
+    res = res.add_event(TransferEvent::new(&info.sender, &recipient, vec![TokenAmount{ token_id, amount }]).into());
     Ok(res)
 }
 
@@ -128,20 +121,13 @@ pub fn execute_send_batch(
         let send = Cw1155BatchReceiveMsg {
             operator: info.sender.to_string(),
             from,
-            batch,
+            batch: batch.to_vec(),
             msg,
         };
-        res = res
-            .add_message(send.into_cosmos_msg(recipient.to_string())?)
-            .add_attribute("action", "send_batch");
-    } else {
-        res = res.add_attribute("action", "transfer_batch")
+        res = res.add_message(send.into_cosmos_msg(recipient.to_string())?);
     }
 
-    res = res.add_attribute("sender", info.sender)
-        .add_attribute("recipient", recipient)
-        .add_attribute("token_ids", token_ids.join(","))
-        .add_attribute("amounts", amounts.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(","));
+    res = res.add_event(TransferEvent::new(&info.sender, &recipient, batch).into());
     Ok(res)
 }
 
@@ -152,25 +138,27 @@ pub fn execute_approve(
     token_id: String,
     approved: bool,
 ) -> Result<Response<EvmMsg>, ContractError> {
-    let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
-
-    let querier = EvmQuerier::new(&deps.querier);
-    let mut payload_spender = spender.clone();
-    let mut action = "approve";
-    if !approved {
-        payload_spender = "".to_string();
-        action = "revoke";
-    }
-    let payload = querier.erc1155_approve_payload(payload_spender, token_id.clone())?;
-    let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
-    let res = Response::new()
-        .add_attribute("action", action)
-        .add_attribute("token_id", token_id)
-        .add_attribute("sender", info.sender)
-        .add_attribute("spender", spender.clone())
-        .add_message(msg);
-
-    Ok(res)
+    // todo - is this implemented in erc1155?
+    todo!()
+    // let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
+    //
+    // let querier = EvmQuerier::new(&deps.querier);
+    // let mut payload_spender = spender.clone();
+    // let mut action = "approve";
+    // if !approved {
+    //     payload_spender = "".to_string();
+    //     action = "revoke";
+    // }
+    // let payload = querier.erc1155_approve_payload(payload_spender, token_id.clone())?;
+    // let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
+    // let res = Response::new()
+    //     .add_attribute("action", action)
+    //     .add_attribute("token_id", token_id)
+    //     .add_attribute("sender", info.sender)
+    //     .add_attribute("spender", spender.clone())
+    //     .add_message(msg);
+    //
+    // Ok(res)
 }
 
 pub fn execute_approve_all(
@@ -183,17 +171,17 @@ pub fn execute_approve_all(
 
     let querier = EvmQuerier::new(&deps.querier);
     let payload = querier.erc1155_set_approval_all_payload(to.clone(), approved)?;
+
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
-    let mut action = "approve_all";
-    if !approved {
-        action = "revoke_all";
-    }
+    let event = if approved {
+        ApproveAllEvent::new(&info.sender, &deps.api.addr_validate(&to)?).into()
+    } else {
+        RevokeAllEvent::new(&info.sender, &deps.api.addr_validate(&to)?).into()
+    };
+
     let res = Response::new()
-        .add_attribute("action", action)
-        .add_attribute("operator", to)
-        .add_attribute("sender", info.sender)
-        .add_attribute("approved", format!("{}", approved))
-        .add_message(msg);
+        .add_message(msg)
+        .add_event(event);
 
     Ok(res)
 }
