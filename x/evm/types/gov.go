@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	ProposalTypeAddERCNativePointer = "AddERCNativePointer"
-	ProposalTypeAddERCCW20Pointer   = "AddERCCW20Pointer"
-	ProposalTypeAddERCCW721Pointer  = "AddERCCW721Pointer"
-	ProposalTypeAddCWERC20Pointer   = "AddCWERC20Pointer"
-	ProposalTypeAddCWERC721Pointer  = "AddCWERC721Pointer"
+	ProposalTypeAddERCNativePointer   = "AddERCNativePointer"
+	ProposalTypeAddERCCW20Pointer     = "AddERCCW20Pointer"
+	ProposalTypeAddERCCW721Pointer    = "AddERCCW721Pointer"
+	ProposalTypeAddCWERC20Pointer     = "AddCWERC20Pointer"
+	ProposalTypeAddCWERC721Pointer    = "AddCWERC721Pointer"
+	ProposalTypeAddERCNativePointerV2 = "AddERCNativePointerV2"
 )
 
 func init() {
@@ -26,6 +27,7 @@ func init() {
 	govtypes.RegisterProposalType(ProposalTypeAddERCCW721Pointer)
 	govtypes.RegisterProposalType(ProposalTypeAddCWERC20Pointer)
 	govtypes.RegisterProposalType(ProposalTypeAddCWERC721Pointer)
+	govtypes.RegisterProposalType(ProposalTypeAddERCNativePointerV2)
 
 	// for marshal and unmarshal
 	govtypes.RegisterProposalTypeCodec(&AddERCNativePointerProposal{}, "evm/AddERCNativePointerProposal")
@@ -33,6 +35,7 @@ func init() {
 	govtypes.RegisterProposalTypeCodec(&AddERCCW721PointerProposal{}, "evm/AddERCCW721PointerProposal")
 	govtypes.RegisterProposalTypeCodec(&AddCWERC20PointerProposal{}, "evm/AddCWERC20PointerProposal")
 	govtypes.RegisterProposalTypeCodec(&AddCWERC721PointerProposal{}, "evm/AddCWERC721PointerProposal")
+	govtypes.RegisterProposalTypeCodec(&AddERCNativePointerProposalV2{}, "evm/AddCWERC721PointerProposalV2")
 }
 
 func (p *AddERCNativePointerProposal) GetTitle() string { return p.Title }
@@ -220,5 +223,36 @@ func (p AddCWERC721PointerProposal) String() string {
   Pointer:     %s
   Version:     %d
 `, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
+	return b.String()
+}
+
+func (p *AddERCNativePointerProposalV2) GetTitle() string { return p.Title }
+
+func (p *AddERCNativePointerProposalV2) GetDescription() string { return p.Description }
+
+func (p *AddERCNativePointerProposalV2) ProposalRoute() string { return RouterKey }
+
+func (p *AddERCNativePointerProposalV2) ProposalType() string {
+	return ProposalTypeAddERCNativePointerV2
+}
+
+func (p *AddERCNativePointerProposalV2) ValidateBasic() error {
+	if p.Decimals > math.MaxUint8 {
+		return errors.New("pointer version must be <= 255")
+	}
+
+	return govtypes.ValidateAbstract(p)
+}
+
+func (p AddERCNativePointerProposalV2) String() string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`Add ERC native pointer Proposal V2:
+  Title:       %s
+  Description: %s
+  Token:       %s
+  Name:        %s
+  Symbol:      %s
+  Decimals:    %d
+`, p.Title, p.Description, p.Token, p.Name, p.Symbol, p.Decimals))
 	return b.String()
 }
