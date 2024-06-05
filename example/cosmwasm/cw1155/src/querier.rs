@@ -19,12 +19,23 @@ impl<'a> EvmQuerier<'a> {
             route: Route::Evm,
             query_data: EvmQuery::Erc1155BalanceOf { caller, contract_address, owner, token_id },
         }
-        .into();
+            .into();
+
+        self.querier.query(&request)
+    }
+
+    pub fn erc1155_balance_of_batch(&self, caller: String, contract_address: String, owner: String, token_ids: Vec<String>) -> StdResult<Erc1155BalanceOfResponse> {
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc1155BalanceOfBatch { caller, contract_address, owner, token_ids },
+        }
+            .into();
 
         self.querier.query(&request)
     }
 
     pub fn erc1155_approved(&self, caller: String, contract_address: String, token_id: String) -> StdResult<Erc1155ApprovedResponse> {
+        // todo - is this implemented in erc1155?
         todo!()
         // let request = EvmQueryWrapper {
         //     route: Route::Evm,
@@ -36,36 +47,33 @@ impl<'a> EvmQuerier<'a> {
     }
 
     pub fn erc1155_is_approved_for_all(&self, caller: String, contract_address: String, owner: String, operator: String) -> StdResult<Erc1155IsApprovedForAllResponse> {
-        todo!()
-        // let request = EvmQueryWrapper {
-        //     route: Route::Evm,
-        //     query_data: EvmQuery::Erc1155IsApprovedForAll { caller, contract_address, owner, operator },
-        // }
-        // .into();
-        //
-        // self.querier.query(&request)
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc1155IsApprovedForAll { caller, contract_address, owner, operator },
+        }
+        .into();
+
+        self.querier.query(&request)
     }
 
     pub fn erc1155_name_symbol(&self, caller: String, contract_address: String) -> StdResult<Erc1155NameSymbolResponse> {
-        todo!()
-        // let request = EvmQueryWrapper {
-        //     route: Route::Evm,
-        //     query_data: EvmQuery::Erc1155NameSymbol { caller, contract_address },
-        // }
-        // .into();
-        //
-        // self.querier.query(&request)
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc1155NameSymbol { caller, contract_address },
+        }
+        .into();
+
+        self.querier.query(&request)
     }
 
     pub fn erc1155_uri(&self, caller: String, contract_address: String, token_id: String,) -> StdResult<Erc1155UriResponse> {
-        todo!()
-        // let request = EvmQueryWrapper {
-        //     route: Route::Evm,
-        //     query_data: EvmQuery::Erc1155Uri { caller, contract_address, token_id },
-        // }
-        // .into();
-        //
-        // self.querier.query(&request)
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc1155Uri { caller, contract_address, token_id },
+        }
+        .into();
+
+        self.querier.query(&request)
     }
 
     // returns base64-encoded bytes
@@ -96,6 +104,7 @@ impl<'a> EvmQuerier<'a> {
 
     // returns base64-encoded bytes
     pub fn erc1155_approve_payload(&self, spender: String, token_id: String) -> StdResult<ErcPayloadResponse> {
+        // todo - is this implemented in erc1155?
         todo!()
         // let request = EvmQueryWrapper {
         //     route: Route::Evm,
@@ -110,14 +119,13 @@ impl<'a> EvmQuerier<'a> {
 
     // returns base64-encoded bytes
     pub fn erc1155_set_approval_all_payload(&self, to: String, approved: bool) -> StdResult<ErcPayloadResponse> {
-        todo!()
-        // let request = EvmQueryWrapper {
-        //     route: Route::Evm,
-        //     query_data: EvmQuery::Erc1155SetApprovalAllPayload { to, approved, },
-        // }
-        // .into();
-        //
-        // self.querier.query(&request)
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc1155SetApprovalAllPayload { to, approved, },
+        }
+        .into();
+
+        self.querier.query(&request)
     }
 
     pub fn erc1155_royalty_info(
@@ -127,19 +135,18 @@ impl<'a> EvmQuerier<'a> {
         token_id: String,
         sale_price: Uint128,
     ) -> StdResult<Erc1155RoyaltyInfoResponse> {
-        todo!()
-        // let request = EvmQueryWrapper {
-        //     route: Route::Evm,
-        //     query_data: EvmQuery::Erc1155RoyaltyInfo {
-        //         caller,
-        //         contract_address,
-        //         token_id,
-        //         sale_price,
-        //     },
-        // }
-        // .into();
-        //
-        // self.querier.query(&request)
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc1155RoyaltyInfo {
+                caller,
+                contract_address,
+                token_id,
+                sale_price,
+            },
+        }
+        .into();
+
+        self.querier.query(&request)
     }
 
     pub fn supports_interface(
@@ -162,16 +169,15 @@ impl<'a> EvmQuerier<'a> {
         caller: String,
         contract_address: String,
     ) -> StdResult<Erc1155TotalSupplyResponse> {
-        todo!()
-        // let request = EvmQueryWrapper {
-        //     route: Route::Evm,
-        //     query_data: EvmQuery::Erc1155TotalSupply {
-        //         caller,
-        //         contract_address,
-        //     },
-        // }
-        // .into();
-        //
-        // self.querier.query(&request)
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data: EvmQuery::Erc1155TotalSupply {
+                caller,
+                contract_address,
+            },
+        }
+        .into();
+
+        self.querier.query(&request)
     }
 }
