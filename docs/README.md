@@ -25,7 +25,7 @@ Then, to generate the OpenAPI docs, run the following command:
 ```bash
 ignite generate openapi
 ```
-Updated swagger/openapi yml file will be available in the `docs/swagger/swagger.yml` directory.
+Updated swagger/openapi yml file will be available in the `docs/swagger-ui/swagger.yml` directory.
 
 To view the rendered OpenAPI docs, try the [Swagger UI](https://editor-next.swagger.io/) 
 
