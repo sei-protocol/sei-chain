@@ -63,6 +63,7 @@
       "evm",
       "univ2"
     ],
+    "evm_use_eip1559_txs": true,
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {

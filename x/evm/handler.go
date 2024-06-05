@@ -50,6 +50,8 @@ func NewProposalHandler(k keeper.Keeper) govtypes.Handler {
 			return HandleAddCWERC20PointerProposal(ctx, &k, c)
 		case *types.AddCWERC721PointerProposal:
 			return HandleAddCWERC721PointerProposal(ctx, &k, c)
+		case *types.AddERCNativePointerProposalV2:
+			return HandleAddERCNativePointerProposalV2(ctx, &k, c)
 		default:
 			return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized evm proposal content type: %T", c)
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -111,6 +112,9 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 // CalculatePriority returns a priority based on the effective gas price of the transaction
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
 	gp := txData.EffectiveGasPrice(utils.Big0)
+	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
+		metrics.HistogramEvmEffectiveGasPrice(gp)
+	}
 	priority := sdk.NewDecFromBigInt(gp).Quo(fc.evmKeeper.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if priority.Cmp(big.NewInt(antedecorators.MaxPriority)) > 0 {
 		priority = big.NewInt(antedecorators.MaxPriority)

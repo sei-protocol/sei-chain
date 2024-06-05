@@ -53,6 +53,9 @@ const DebugTraceMockHeight = 101
 var DebugTraceHashHex = "0x1234567890123456789023456789012345678901234567890123456789000004"
 var DebugTraceBlockHash = "BE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B"
 
+var TestCosmosTxHash = "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14"
+var TestEvmTxHash = "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"
+
 var EncodingConfig = app.MakeEncodingConfig()
 var TxConfig = EncodingConfig.TxConfig
 var Encoder = TxConfig.TxEncoder()
@@ -354,6 +357,10 @@ func buildSingleResultEvent(data interface{}, more bool, cursor string, event st
 
 func (c *MockClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.ResultBroadcastTx, error) {
 	return &coretypes.ResultBroadcastTx{Code: 0, Hash: []byte("0x123")}, nil
+}
+
+func (c *MockClient) Tx(context.Context, bytes.HexBytes, bool) (*coretypes.ResultTx, error) {
+	return &coretypes.ResultTx{Hash: bytes.HexBytes(TestCosmosTxHash), Height: MockHeight, TxResult: abci.ExecTxResult{EvmTxInfo: &abci.EvmTxInfo{TxHash: TestEvmTxHash}}}, nil
 }
 
 func (c *MockClient) UnconfirmedTxs(ctx context.Context, page, perPage *int) (*coretypes.ResultUnconfirmedTxs, error) {
