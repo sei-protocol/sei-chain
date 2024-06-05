@@ -6,7 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
+	"github.com/rakyll/statik/fs"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -159,6 +162,9 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmclient "github.com/CosmWasm/wasmd/x/wasm/client"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+
+	// unnamed import of statik for openapi/swagger UI support
+	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -1725,7 +1731,7 @@ func (app *App) GetSubspace(moduleName string) paramstypes.Subspace {
 
 // RegisterAPIRoutes registers all application module routes with the provided
 // API server.
-func (app *App) RegisterAPIRoutes(apiSvr *api.Server, _ config.APIConfig) {
+func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig) {
 	clientCtx := apiSvr.ClientCtx
 	rpc.RegisterRoutes(clientCtx, apiSvr.Router)
 	// Register legacy tx routes.
@@ -1738,6 +1744,12 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, _ config.APIConfig) {
 	// Register legacy and grpc-gateway routes for all modules.
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
 	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+
+	// register swagger API from root so that other applications can override easily
+	if apiConfig.Swagger {
+		RegisterSwaggerAPI(apiSvr.Router)
+	}
+
 }
 
 // RegisterTxService implements the Application.RegisterTxService method.
@@ -1779,6 +1791,17 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 			panic(err)
 		}
 	}
+}
+
+// RegisterSwaggerAPI registers swagger route with API Server
+func RegisterSwaggerAPI(rtr *mux.Router) {
+	statikFS, err := fs.NewWithNamespace("swagger")
+	if err != nil {
+		panic(err)
+	}
+
+	staticServer := http.FileServer(statikFS)
+	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
 }
 
 func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
