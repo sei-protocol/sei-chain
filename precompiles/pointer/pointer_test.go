@@ -89,7 +89,7 @@ func TestAddNative(t *testing.T) {
 	testApp.EvmKeeper.SetERC20NativePointerWithVersion(statedb.Ctx(), "test", pointerAddr, version-1)
 	statedb = state.NewDBImpl(statedb.Ctx(), &testApp.EvmKeeper, true)
 	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
-	ret, g, err = p.RunAndCalculateGas(evm, caller, caller, append(p.AddNativePointerID, args...), suppliedGas, nil, nil, false)
+	ret, g, err = p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false)
 	require.Nil(t, err)
 	require.Equal(t, uint64(8987406), g)
 	outputs, err = m.Outputs.Unpack(ret)

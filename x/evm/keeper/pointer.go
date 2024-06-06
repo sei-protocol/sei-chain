@@ -18,6 +18,9 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+type PointerGetter func(sdk.Context, string) (common.Address, uint16, bool)
+type PointerSetter func(sdk.Context, string, common.Address) error
+
 var ErrorPointerToPointerNotAllowed = sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "cannot create a pointer to a pointer")
 
 // ERC20 -> Native Token

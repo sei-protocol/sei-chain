@@ -15,10 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -117,10 +113,6 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 		return nil, 0, err
 	}
 	token := args[0].(string)
-	existingAddr, existingVersion, exists := p.evmKeeper.GetERC20NativePointer(ctx, token)
-	if exists && existingVersion >= native.CurrentVersion {
-		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, native.CurrentVersion)
-	}
 	metadata, metadataExists := p.bankKeeper.GetDenomMetaData(ctx, token)
 	if !metadataExists {
 		return nil, 0, fmt.Errorf("denom %s does not have metadata stored and thus can only have its pointer set through gov proposal", token)
@@ -138,37 +130,10 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 			}
 		}
 	}
-	constructorArguments := []interface{}{
-		token, name, symbol, decimals,
-	}
-
-	packedArgs, err := native.GetParsedABI().Pack("", constructorArguments...)
+	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCNativePointer(ctx, evm, suppliedGas, token, utils.ERCMetadata{Name: name, Symbol: symbol, Decimals: decimals})
 	if err != nil {
-		panic(err)
+		return nil, 0, err
 	}
-	bin := append(native.GetBin(), packedArgs...)
-	if value == nil {
-		value = utils.Big0
-	}
-	var contractAddr common.Address
-	if exists {
-		contractAddr = existingAddr
-		ret, remainingGas, err = evm.GetDeploymentCode(vm.AccountRef(caller), bin, suppliedGas, value, existingAddr)
-		p.evmKeeper.SetCode(ctx, contractAddr, ret)
-	} else {
-		ret, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
-	}
-	if err != nil {
-		return
-	}
-	err = p.evmKeeper.SetERC20NativePointer(ctx, token, contractAddr)
-	if err != nil {
-		return
-	}
-	ctx.EventManager().EmitEvent(sdk.NewEvent(
-		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "native"),
-		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, token),
-		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", native.CurrentVersion))))
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }
@@ -181,10 +146,6 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 		return nil, 0, err
 	}
 	cwAddr := args[0].(string)
-	existingAddr, existingVersion, exists := p.evmKeeper.GetERC20CW20Pointer(ctx, cwAddr)
-	if exists && existingVersion >= cw20.CurrentVersion(ctx) {
-		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw20.CurrentVersion(ctx))
-	}
 	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
 	if err != nil {
 		return nil, 0, err
@@ -199,37 +160,10 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	}
 	name := formattedRes["name"].(string)
 	symbol := formattedRes["symbol"].(string)
-	constructorArguments := []interface{}{
-		cwAddr, name, symbol,
-	}
-
-	packedArgs, err := cw20.GetParsedABI().Pack("", constructorArguments...)
+	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCCW20Pointer(ctx, evm, suppliedGas, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
 	if err != nil {
-		panic(err)
+		return nil, 0, err
 	}
-	bin := append(cw20.GetBin(), packedArgs...)
-	if value == nil {
-		value = utils.Big0
-	}
-	var contractAddr common.Address
-	if exists {
-		contractAddr = existingAddr
-		ret, remainingGas, err = evm.GetDeploymentCode(vm.AccountRef(caller), bin, suppliedGas, value, existingAddr)
-		p.evmKeeper.SetCode(ctx, contractAddr, ret)
-	} else {
-		ret, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
-	}
-	if err != nil {
-		return
-	}
-	err = p.evmKeeper.SetERC20CW20Pointer(ctx, cwAddr, contractAddr)
-	if err != nil {
-		return
-	}
-	ctx.EventManager().EmitEvent(sdk.NewEvent(
-		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw20"),
-		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
-		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", cw20.CurrentVersion(ctx)))))
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }
@@ -242,10 +176,6 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 		return nil, 0, err
 	}
 	cwAddr := args[0].(string)
-	existingAddr, existingVersion, exists := p.evmKeeper.GetERC721CW721Pointer(ctx, cwAddr)
-	if exists && existingVersion >= cw721.CurrentVersion {
-		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw721.CurrentVersion)
-	}
 	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
 	if err != nil {
 		return nil, 0, err
@@ -260,37 +190,10 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	}
 	name := formattedRes["name"].(string)
 	symbol := formattedRes["symbol"].(string)
-	constructorArguments := []interface{}{
-		cwAddr, name, symbol,
-	}
-
-	packedArgs, err := cw721.GetParsedABI().Pack("", constructorArguments...)
+	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCCW721Pointer(ctx, evm, suppliedGas, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
 	if err != nil {
-		panic(err)
+		return nil, 0, err
 	}
-	bin := append(cw721.GetBin(), packedArgs...)
-	if value == nil {
-		value = utils.Big0
-	}
-	var contractAddr common.Address
-	if exists {
-		contractAddr = existingAddr
-		ret, remainingGas, err = evm.GetDeploymentCode(vm.AccountRef(caller), bin, suppliedGas, value, existingAddr)
-		p.evmKeeper.SetCode(ctx, contractAddr, ret)
-	} else {
-		ret, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
-	}
-	if err != nil {
-		return
-	}
-	err = p.evmKeeper.SetERC721CW721Pointer(ctx, cwAddr, contractAddr)
-	if err != nil {
-		return
-	}
-	ctx.EventManager().EmitEvent(sdk.NewEvent(
-		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw721"),
-		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
-		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", cw721.CurrentVersion))))
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }
