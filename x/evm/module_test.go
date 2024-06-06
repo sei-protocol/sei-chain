@@ -1,6 +1,8 @@
 package evm_test
 
 import (
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"math"
 	"math/big"
 	"testing"
@@ -149,4 +151,13 @@ func TestAnteSurplus(t *testing.T) {
 	require.Equal(t, uint64(1), k.BankKeeper().GetWeiBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName)).Uint64())
 	// ante surplus should be cleared
 	require.Equal(t, uint64(0), k.GetAnteSurplusSum(ctx).Uint64())
+}
+
+// This test is just to make sure that the routes can be added without crashing
+func TestRoutesAddition(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	m := evm.NewAppModule(nil, k)
+	mux := runtime.NewServeMux()
+	m.RegisterGRPCGatewayRoutes(client.Context{}, mux)
+	require.NotNil(t, m)
 }
