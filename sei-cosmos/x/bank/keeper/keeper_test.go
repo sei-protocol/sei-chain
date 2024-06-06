@@ -813,6 +813,96 @@ func (suite *IntegrationTestSuite) TestMsgSendEvents() {
 	suite.Require().Equal(abci.Event(event2), events[9])
 }
 
+func (suite *IntegrationTestSuite) TestMsgSendCoinsAndWeiEvents() {
+	app, ctx := suite.app, suite.ctx
+	addr := sdk.AccAddress([]byte("addr1_______________"))
+	addr2 := sdk.AccAddress([]byte("addr2_______________"))
+	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr)
+
+	app.AccountKeeper.SetAccount(ctx, acc)
+	newCoins := sdk.NewCoins(sdk.NewInt64Coin(sdk.MustGetBaseDenom(), 50))
+	sendCoins := sdk.NewCoins(sdk.NewInt64Coin(sdk.MustGetBaseDenom(), 40))
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr, newCoins))
+
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+
+	suite.Require().NoError(app.BankKeeper.SendCoinsAndWei(ctx, addr, addr2, sendCoins.AmountOf(sdk.MustGetBaseDenom()), sdk.NewInt(100)))
+	event1 := sdk.Event{
+		Type:       types.EventTypeTransfer,
+		Attributes: []abci.EventAttribute{},
+	}
+	event1.Attributes = append(
+		event1.Attributes,
+		abci.EventAttribute{Key: []byte(types.AttributeKeyRecipient), Value: []byte(addr2.String())},
+	)
+	event1.Attributes = append(
+		event1.Attributes,
+		abci.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
+	)
+	event1.Attributes = append(
+		event1.Attributes,
+		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte(sendCoins.String())},
+	)
+
+	event2 := sdk.Event{
+		Type:       sdk.EventTypeMessage,
+		Attributes: []abci.EventAttribute{},
+	}
+	event2.Attributes = append(
+		event2.Attributes,
+		abci.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
+	)
+
+	weiEvent := sdk.Event{
+		Type:       types.EventTypeWeiSpent,
+		Attributes: []abci.EventAttribute{},
+	}
+
+	weiEvent.Attributes = append(
+		weiEvent.Attributes,
+		abci.EventAttribute{Key: []byte(types.AttributeKeySpender), Value: []byte(addr.String())},
+		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte("100")},
+	)
+
+	weiEvent2 := sdk.Event{
+		Type:       types.EventTypeWeiReceived,
+		Attributes: []abci.EventAttribute{},
+	}
+
+	weiEvent2.Attributes = append(
+		weiEvent2.Attributes,
+		abci.EventAttribute{Key: []byte(types.AttributeKeyReceiver), Value: []byte(addr2.String())},
+		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte("100")},
+	)
+
+	weiTransfer := sdk.Event{
+		Type:       types.EventTypeWeiTransfer,
+		Attributes: []abci.EventAttribute{},
+	}
+
+	weiTransfer.Attributes = append(
+		weiTransfer.Attributes,
+		abci.EventAttribute{Key: []byte(types.AttributeKeyRecipient), Value: []byte(addr2.String())},
+		abci.EventAttribute{Key: []byte(types.AttributeKeySender), Value: []byte(addr.String())},
+		abci.EventAttribute{Key: []byte(sdk.AttributeKeyAmount), Value: []byte("100")},
+	)
+
+	// events are shifted due to the funding account events
+	events := ctx.EventManager().ABCIEvents()
+	suite.Require().Equal(7, len(events))
+	suite.Require().Equal(abci.Event(weiTransfer), events[2])
+	suite.Require().Equal(abci.Event(event1), events[5])
+	suite.Require().Equal(abci.Event(event2), events[6])
+	suite.Require().Equal(abci.Event(weiEvent), events[0])
+	suite.Require().Equal(abci.Event(weiEvent2), events[1])
+
+	// verify no wei add and sub events are emitted when the amount is zero
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	suite.Require().NoError(app.BankKeeper.SendCoinsAndWei(ctx, addr2, addr, sendCoins.AmountOf(sdk.MustGetBaseDenom()), sdk.ZeroInt()))
+	events = ctx.EventManager().ABCIEvents()
+	suite.Require().Equal(5, len(events))
+}
+
 func (suite *IntegrationTestSuite) TestMsgMultiSendEvents() {
 	app, ctx := suite.app, suite.ctx
 
