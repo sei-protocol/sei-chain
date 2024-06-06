@@ -156,8 +156,9 @@ func TestAnteSurplus(t *testing.T) {
 // This test is just to make sure that the routes can be added without crashing
 func TestRoutesAddition(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
-	m := evm.NewAppModule(nil, k)
+	appModule := evm.NewAppModule(nil, k)
 	mux := runtime.NewServeMux()
-	m.RegisterGRPCGatewayRoutes(client.Context{}, mux)
-	require.NotNil(t, m)
+	appModule.RegisterGRPCGatewayRoutes(client.Context{}, mux)
+
+	require.NotNil(t, appModule)
 }
