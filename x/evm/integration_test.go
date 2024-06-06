@@ -103,7 +103,7 @@ func TestERC2981PointerToCW2981(t *testing.T) {
 	data, err = abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
-		Nonce:    2,
+		Nonce:    1,
 		GasPrice: big.NewInt(1000000000),
 		Gas:      1000000,
 		To:       &pointerAddr,

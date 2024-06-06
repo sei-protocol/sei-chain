@@ -26,14 +26,17 @@ func MigrateERCNativePointers(ctx sdk.Context, k *keeper.Keeper) error {
 		addr := common.BytesToAddress(iter.Value())
 		oName, err := k.QueryERCSingleOutput(ctx, "native", addr, "name")
 		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed name query: %s", token, err))
 			continue
 		}
 		oSymbol, err := k.QueryERCSingleOutput(ctx, "native", addr, "symbol")
 		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed symbol query: %s", token, err))
 			continue
 		}
-		oDecimals, err := k.QueryERCSingleOutput(ctx, "native", addr, "oDecimals")
+		oDecimals, err := k.QueryERCSingleOutput(ctx, "native", addr, "decimals")
 		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed decimal query: %s", token, err))
 			continue
 		}
 		_ = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
@@ -63,10 +66,12 @@ func MigrateERCCW20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 		addr := common.BytesToAddress(iter.Value())
 		oName, err := k.QueryERCSingleOutput(ctx, "cw20", addr, "name")
 		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed name query: %s", cwAddr, err))
 			continue
 		}
 		oSymbol, err := k.QueryERCSingleOutput(ctx, "cw20", addr, "symbol")
 		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed symbol query: %s", cwAddr, err))
 			continue
 		}
 		_ = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
@@ -95,10 +100,12 @@ func MigrateERCCW721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 		addr := common.BytesToAddress(iter.Value())
 		oName, err := k.QueryERCSingleOutput(ctx, "cw721", addr, "name")
 		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed name query: %s", cwAddr, err))
 			continue
 		}
 		oSymbol, err := k.QueryERCSingleOutput(ctx, "cw721", addr, "symbol")
 		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Failed to upgrade pointer for %s due to failed symbol query: %s", cwAddr, err))
 			continue
 		}
 		_ = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {

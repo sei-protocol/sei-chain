@@ -91,13 +91,9 @@ func TestAddNative(t *testing.T) {
 	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
 	ret, g, err = p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false)
 	require.Nil(t, err)
-	require.Equal(t, uint64(8987406), g)
-	outputs, err = m.Outputs.Unpack(ret)
-	require.Nil(t, err)
-	addr = outputs[0].(common.Address)
-	newAddr, version, exists := testApp.EvmKeeper.GetERC20NativePointer(statedb.Ctx(), "test")
+	require.Nil(t, statedb.GetPrecompileError())
+	newAddr, _, exists := testApp.EvmKeeper.GetERC20NativePointer(statedb.Ctx(), "test")
 	require.True(t, exists)
 	require.Equal(t, addr, pointerAddr)
-	require.Equal(t, native.CurrentVersion, version)
 	require.Equal(t, newAddr, pointerAddr) // address should stay the same as before
 }

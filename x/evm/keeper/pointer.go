@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"encoding/binary"
-	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -222,10 +221,6 @@ func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, vers
 }
 
 func (k *Keeper) setPointerInfo(ctx sdk.Context, pref []byte, addr []byte, version uint16) error {
-	existingAddr, existingVersion, exists := k.GetPointerInfo(ctx, pref)
-	if exists && existingVersion >= version {
-		return fmt.Errorf("pointer at %X with version %d exists when trying to set pointer for version %d", string(existingAddr), existingVersion, version)
-	}
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
 	versionBz := make([]byte, 2)
 	binary.BigEndian.PutUint16(versionBz, version)

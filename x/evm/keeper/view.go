@@ -17,7 +17,7 @@ func (k *Keeper) QueryERCSingleOutput(ctx sdk.Context, typ string, addr common.A
 		ctx.Logger().Error(fmt.Sprintf("Error calling %s for %s due to %s, skipping", addr.Hex(), query, err))
 		return nil, err
 	}
-	o, _ := artifacts.GetParsedABI(typ).Unpack("name", r)
+	o, _ := artifacts.GetParsedABI(typ).Unpack(query, r)
 	if len(o) != 1 {
 		ctx.Logger().Error(fmt.Sprintf("Getting %d outputs when %s for %s, skipping", len(o), addr.Hex(), query))
 		return nil, err
