@@ -1,0 +1,83 @@
+syntax = "proto3";
+package seiprotocol.seichain.evm;
+
+import "google/protobuf/any.proto";
+import "gogoproto/gogo.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "evm/enums.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
+
+service Msg {
+  rpc EVMTransaction(MsgEVMTransaction) returns (MsgEVMTransactionResponse);
+  rpc Send(MsgSend) returns (MsgSendResponse);
+  rpc RegisterPointer(MsgRegisterPointer) returns (MsgRegisterPointerResponse);
+  rpc AssociateContractAddress(MsgAssociateContractAddress) returns (MsgAssociateContractAddressResponse);
+  rpc Associate(MsgAssociate) returns (MsgAssociateResponse);
+}
+
+message MsgEVMTransaction {
+  google.protobuf.Any data = 1;
+  bytes derived = 2 [(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/x/evm/derived.Derived"];
+}
+
+message MsgEVMTransactionResponse {
+  uint64 gas_used = 1;
+  string vm_error = 2;
+  bytes return_data = 3;
+  string hash = 4;
+}
+
+message MsgInternalEVMCall {
+  string sender = 1;
+  string value = 2 [
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int"
+  ];
+  string to = 3;
+  bytes data = 4;
+}
+
+message MsgInternalEVMCallResponse {}
+
+message MsgInternalEVMDelegateCall {
+  string sender = 1;
+  bytes codeHash = 2;
+  string to = 3;
+  bytes data = 4;
+  string fromContract = 5;
+}
+
+message MsgInternalEVMDelegateCallResponse {}
+
+message MsgSend {
+  string   from_address                    = 1;
+  string   to_address                      = 2;
+  repeated cosmos.base.v1beta1.Coin amount = 3
+      [(gogoproto.nullable) = false, (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"];
+}
+
+message MsgSendResponse {}
+
+message MsgRegisterPointer {
+  string sender = 1;
+  PointerType pointer_type = 2;
+  string erc_address = 3;
+}
+
+message MsgRegisterPointerResponse {
+  string pointer_address = 1;
+}
+
+message MsgAssociateContractAddress {
+  string sender = 1;
+  string address = 2;
+}
+
+message MsgAssociateContractAddressResponse {}
+
+message MsgAssociate {
+  string sender = 1;
+  string custom_message = 2;
+}
+
+message MsgAssociateResponse {}

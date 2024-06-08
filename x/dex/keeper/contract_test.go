@@ -308,7 +308,7 @@ func TestGetContractWithoutGasCharge(t *testing.T) {
 		RentBalance:  1000000,
 	})
 	// regular gas meter case
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(10000))
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, 10000))
 	contract, err := keeper.GetContractWithoutGasCharge(ctx, keepertest.TestContract)
 	require.Nil(t, err)
 	require.Equal(t, keepertest.TestContract, contract.ContractAddr)
@@ -316,7 +316,7 @@ func TestGetContractWithoutGasCharge(t *testing.T) {
 	require.Equal(t, uint64(10000), ctx.GasMeter().Limit())
 
 	// regular gas meter out of gas case
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1))
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, 1))
 	contract, err = keeper.GetContractWithoutGasCharge(ctx, keepertest.TestContract)
 	require.Nil(t, err)
 	require.Equal(t, keepertest.TestContract, contract.ContractAddr)
@@ -324,7 +324,7 @@ func TestGetContractWithoutGasCharge(t *testing.T) {
 	require.Equal(t, uint64(1), ctx.GasMeter().Limit())
 
 	// infinite gas meter case
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	contract, err = keeper.GetContractWithoutGasCharge(ctx, keepertest.TestContract)
 	require.Nil(t, err)
 	require.Equal(t, keepertest.TestContract, contract.ContractAddr)

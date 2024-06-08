@@ -3,16 +3,26 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gorilla/mux"
+	"github.com/rakyll/statik/fs"
+
+	"github.com/ethereum/go-ethereum/ethclient"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/precompiles"
+	"go.opentelemetry.io/otel/trace"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
@@ -112,6 +122,14 @@ import (
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+
+	"github.com/sei-protocol/sei-chain/x/evm"
+	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
+	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/querier"
+	"github.com/sei-protocol/sei-chain/x/evm/replay"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -145,6 +163,9 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmclient "github.com/CosmWasm/wasmd/x/wasm/client"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+
+	// unnamed import of statik for openapi/swagger UI support
+	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -192,6 +213,7 @@ var (
 		transfer.AppModuleBasic{},
 		vesting.AppModuleBasic{},
 		oraclemodule.AppModuleBasic{},
+		evm.AppModuleBasic{},
 		wasm.AppModuleBasic{},
 		dexmodule.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
@@ -211,6 +233,7 @@ var (
 		ibctransfertypes.ModuleName:    {authtypes.Minter, authtypes.Burner},
 		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
+		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		dexmoduletypes.ModuleName:      nil,
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
@@ -240,6 +263,8 @@ var (
 	EmittedSeidVersionMetric = false
 	// EmptyAclmOpts defines a type alias for a list of wasm options.
 	EmptyACLOpts []aclkeeper.Option
+	// EnableOCC allows tests to override default OCC enablement behavior
+	EnableOCC = true
 )
 
 var (
@@ -315,6 +340,7 @@ type App struct {
 	FeeGrantKeeper      feegrantkeeper.Keeper
 	WasmKeeper          wasm.Keeper
 	OracleKeeper        oraclekeeper.Keeper
+	EvmKeeper           evmkeeper.Keeper
 
 	// make scoped keepers public for test purposes
 	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
@@ -352,6 +378,10 @@ type App struct {
 	MemState                *dexcache.MemState
 
 	HardForkManager *upgrades.HardForkManager
+
+	encodingConfig        appparams.EncodingConfig
+	evmRPCConfig          evmrpc.Config
+	lightInvarianceConfig LightInvarianceConfig
 }
 
 // New returns a reference to an initialized blockchain app
@@ -363,6 +393,7 @@ func New(
 	skipUpgradeHeights map[int64]bool,
 	homePath string,
 	invCheckPeriod uint,
+	enableCustomEVMPrecompiles bool,
 	tmConfig *tmcfg.Config,
 	encodingConfig appparams.EncodingConfig,
 	enabledProposals []wasm.ProposalType,
@@ -385,14 +416,15 @@ func New(
 		acltypes.StoreKey, authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
-		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey, wasm.StoreKey,
+		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
+		evmtypes.StoreKey, wasm.StoreKey,
 		dexmoduletypes.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey, banktypes.DeferredCacheStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey, banktypes.DeferredCacheStoreKey, evmtypes.MemStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
 		BaseApp:           bApp,
@@ -406,6 +438,7 @@ func New(
 		txDecoder:         encodingConfig.TxConfig.TxDecoder(),
 		versionInfo:       version.NewInfo(),
 		metricCounter:     &map[string]float32{},
+		encodingConfig:    encodingConfig,
 	}
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
@@ -486,7 +519,7 @@ func New(
 	app.EvidenceKeeper = *evidenceKeeper
 
 	app.OracleKeeper = oraclekeeper.NewKeeper(
-		appCodec, keys[oracletypes.StoreKey], app.GetSubspace(oracletypes.ModuleName),
+		appCodec, keys[oracletypes.StoreKey], memKeys[oracletypes.MemStoreKey], app.GetSubspace(oracletypes.ModuleName),
 		app.AccountKeeper, app.BankKeeper, app.DistrKeeper, &stakingKeeper, distrtypes.ModuleName,
 	)
 
@@ -521,16 +554,6 @@ func New(
 		app.DistrKeeper,
 	)
 
-	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
-	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators()))
-	app.AccessControlKeeper = aclkeeper.NewKeeper(
-		appCodec,
-		app.keys[acltypes.StoreKey],
-		app.GetSubspace(acltypes.ModuleName),
-		app.AccountKeeper,
-		app.StakingKeeper,
-		aclOpts...,
-	)
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
@@ -548,12 +571,14 @@ func New(
 			appCodec,
 			app.TransferKeeper,
 			app.AccessControlKeeper,
+			&app.EvmKeeper,
 		),
 		wasmOpts...,
 	)
 	app.WasmKeeper = wasm.NewKeeper(
 		appCodec,
 		keys[wasm.StoreKey],
+		app.ParamsKeeper,
 		app.GetSubspace(wasm.ModuleName),
 		app.AccountKeeper,
 		app.BankKeeper,
@@ -570,6 +595,54 @@ func New(
 		supportedFeatures,
 		wasmOpts...,
 	)
+
+	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
+		app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper,
+		app.TransferKeeper, wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
+	evmQueryConfig, err := querier.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading evm query config due to %s", err))
+	}
+	app.EvmKeeper.QueryConfig = &evmQueryConfig
+	ethReplayConfig, err := replay.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading eth replay config due to %s", err))
+	}
+	app.EvmKeeper.EthReplayConfig = ethReplayConfig
+	ethBlockTestConfig, err := blocktest.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading eth block test config due to %s", err))
+	}
+	app.EvmKeeper.EthBlockTestConfig = ethBlockTestConfig
+	if ethReplayConfig.Enabled {
+		rpcclient, err := ethrpc.Dial(ethReplayConfig.EthRPC)
+		if err != nil {
+			panic(fmt.Sprintf("error dialing %s due to %s", ethReplayConfig.EthRPC, err))
+		}
+		app.EvmKeeper.EthClient = ethclient.NewClient(rpcclient)
+	}
+	lightInvarianceConfig, err := ReadLightInvarianceConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading light invariance config due to %s", err))
+	}
+	app.lightInvarianceConfig = lightInvarianceConfig
+
+	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
+	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
+	aclOpts = append(aclOpts, aclkeeper.WithDependencyGeneratorMappings(customDependencyGenerators.GetCustomDependencyGenerators(app.EvmKeeper)))
+	app.AccessControlKeeper = aclkeeper.NewKeeper(
+		appCodec,
+		app.keys[acltypes.StoreKey],
+		app.GetSubspace(acltypes.ModuleName),
+		app.AccountKeeper,
+		app.StakingKeeper,
+		aclOpts...,
+	)
+
 	app.DexKeeper.SetWasmKeeper(&app.WasmKeeper)
 	dexModule := dexmodule.NewAppModule(appCodec, app.DexKeeper, app.AccountKeeper, app.BankKeeper, app.WasmKeeper, app.GetBaseApp().TracingInfo)
 	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
@@ -584,7 +657,8 @@ func New(
 		AddRoute(dexmoduletypes.RouterKey, dexmodule.NewProposalHandler(app.DexKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
-		AddRoute(acltypes.ModuleName, aclmodule.NewProposalHandler(app.AccessControlKeeper))
+		AddRoute(acltypes.ModuleName, aclmodule.NewProposalHandler(app.AccessControlKeeper)).
+		AddRoute(evmtypes.RouterKey, evm.NewProposalHandler(app.EvmKeeper))
 	if len(enabledProposals) != 0 {
 		govRouter.AddRoute(wasm.RouterKey, wasm.NewWasmProposalHandler(app.WasmKeeper, enabledProposals))
 	}
@@ -602,6 +676,26 @@ func New(
 	ibcRouter.AddRoute(wasm.ModuleName, wasm.NewIBCHandler(app.WasmKeeper, app.IBCKeeper.ChannelKeeper))
 	// this line is used by starport scaffolding # ibc/app/router
 	app.IBCKeeper.SetRouter(ibcRouter)
+
+	if enableCustomEVMPrecompiles {
+		if err := precompiles.InitializePrecompiles(
+			false,
+			&app.EvmKeeper,
+			app.BankKeeper,
+			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
+			app.WasmKeeper,
+			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
+			app.GovKeeper,
+			app.DistrKeeper,
+			app.OracleKeeper,
+			app.TransferKeeper,
+			app.IBCKeeper.ClientKeeper,
+			app.IBCKeeper.ConnectionKeeper,
+			app.IBCKeeper.ChannelKeeper,
+		); err != nil {
+			panic(err)
+		}
+	}
 
 	/****  Module Options ****/
 
@@ -635,6 +729,7 @@ func New(
 		params.NewAppModule(app.ParamsKeeper),
 		oraclemodule.NewAppModule(appCodec, app.OracleKeeper, app.AccountKeeper, app.BankKeeper),
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
+		evm.NewAppModule(appCodec, &app.EvmKeeper),
 		transferModule,
 		dexModule,
 		epochModule,
@@ -669,6 +764,7 @@ func New(
 		ibctransfertypes.ModuleName,
 		oracletypes.ModuleName,
 		dexmoduletypes.ModuleName,
+		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
 		acltypes.ModuleName,
@@ -700,6 +796,7 @@ func New(
 		oracletypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		dexmoduletypes.ModuleName,
+		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
 		acltypes.ModuleName,
@@ -734,6 +831,7 @@ func New(
 		tokenfactorytypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		wasm.ModuleName,
+		evmtypes.ModuleName,
 		acltypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/initGenesis
 	)
@@ -806,9 +904,13 @@ func New(
 			WasmKeeper:          &app.WasmKeeper,
 			OracleKeeper:        &app.OracleKeeper,
 			DexKeeper:           &app.DexKeeper,
+			EVMKeeper:           &app.EvmKeeper,
 			TracingInfo:         app.GetBaseApp().TracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 			CheckTxMemState:     app.CheckTxMemState,
+			LatestCtxGetter: func() sdk.Context {
+				return app.GetCheckCtx()
+			},
 		},
 	)
 	if err != nil {
@@ -916,6 +1018,15 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
+
+	if (upgradeInfo.Name == "v5.1.0" || upgradeInfo.Name == "v5.5.2") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Added: []string{evmtypes.StoreKey},
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
 }
 
 // AppName returns the name of the App
@@ -974,6 +1085,7 @@ func (app *App) ClearOptimisticProcessingInfo() {
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
+
 	if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
 		return &abci.ResponseProcessProposal{
@@ -1024,7 +1136,12 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		if !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
 			metrics.IncrementOptimisticProcessingCounter(true)
 			app.SetProcessProposalStateToCommit()
-			appHash := app.WriteStateToCommitAndGetWorkingHash()
+			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
+				return &abci.ResponseFinalizeBlock{}, nil
+			}
+			cms := app.WriteState()
+			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
 			return &resp, nil
 		}
@@ -1032,18 +1149,24 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
 	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
+
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
 	app.SetDeliverStateToCommit()
-	appHash := app.WriteStateToCommitAndGetWorkingHash()
+	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
+		return &abci.ResponseFinalizeBlock{}, nil
+	}
+	cms := app.WriteState()
+	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
 }
 
-func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResult {
+func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) *abci.ExecTxResult {
 	deliverTxResp := app.DeliverTx(ctx, abci.RequestDeliverTx{
 		Tx: tx,
-	})
+	}, typedTx, sha256.Sum256(tx))
 
 	metrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)
 	metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted)
@@ -1057,15 +1180,18 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte) *abci.ExecTxResu
 		GasUsed:   deliverTxResp.GasUsed,
 		Events:    deliverTxResp.Events,
 		Codespace: deliverTxResp.Codespace,
+		EvmTxInfo: deliverTxResp.EvmTxInfo,
 	}
 }
 
-func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte) []*abci.ExecTxResult {
+func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) []*abci.ExecTxResult {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
 
 	txResults := []*abci.ExecTxResult{}
-	for _, tx := range txs {
-		txResults = append(txResults, app.DeliverTxWithResult(ctx, tx))
+	for i, tx := range txs {
+		ctx = ctx.WithTxIndex(absoluteTxIndices[i])
+		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+		txResults = append(txResults, res)
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 	return txResults
@@ -1100,10 +1226,15 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 	return ctx.WithMultiStore(msCache), msCache
 }
 
+// TODO: (occ) this is the roughly analogous to the execution + validation tasks for OCC, but this one performs validation in isolation
+// rather than comparing against a multi-version store
+// The validation happens immediately after execution all part of DeliverTx (which is a path that goes through sei-cosmos to runTx eventually)
 func (app *App) ProcessTxConcurrent(
 	ctx sdk.Context,
 	txIndex int,
+	absoluateTxIndex int,
 	txBytes []byte,
+	typedTx sdk.Tx,
 	wg *sync.WaitGroup,
 	resultChan chan<- ChannelResult,
 	txCompletionSignalingMap acltypes.MessageCompletionSignalMapping,
@@ -1118,27 +1249,31 @@ func (app *App) ProcessTxConcurrent(
 	ctx = ctx.WithMsgValidator(
 		sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap),
 	)
-	ctx = ctx.WithTxIndex(txIndex)
+	ctx = ctx.WithTxIndex(absoluateTxIndex)
 
 	// Deliver the transaction and store the result in the channel
-	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes)}
+	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes, typedTx)}
 	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
 type ProcessBlockConcurrentFunction func(
 	ctx sdk.Context,
 	txs [][]byte,
+	typedTxs []sdk.Tx,
 	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
 	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
 	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
+	absoluteTxIndices []int,
 ) ([]*abci.ExecTxResult, bool)
 
 func (app *App) ProcessBlockConcurrent(
 	ctx sdk.Context,
 	txs [][]byte,
+	typedTxs []sdk.Tx,
 	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
 	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
 	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
+	absoluteTxIndices []int,
 ) ([]*abci.ExecTxResult, bool) {
 	defer metrics.BlockProcessLatency(time.Now(), metrics.CONCURRENT)
 
@@ -1156,7 +1291,9 @@ func (app *App) ProcessBlockConcurrent(
 		go app.ProcessTxConcurrent(
 			ctx,
 			txIndex,
+			absoluteTxIndices[txIndex],
 			txBytes,
+			typedTxs[txIndex],
 			&waitGroup,
 			resultChan,
 			completionSignalingMap[txIndex],
@@ -1200,8 +1337,10 @@ func (app *App) ProcessBlockConcurrent(
 func (app *App) ProcessTxs(
 	ctx sdk.Context,
 	txs [][]byte,
+	typedTxs []sdk.Tx,
 	dependencyDag *acltypes.Dag,
 	processBlockConcurrentFunction ProcessBlockConcurrentFunction,
+	absoluteTxIndices []int,
 ) ([]*abci.ExecTxResult, sdk.Context) {
 	// Only run concurrently if no error
 	// Branch off the current context and pass a cached context to the concurrent delivered TXs that are shared.
@@ -1209,16 +1348,15 @@ func (app *App) ProcessTxs(
 	// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
 	// deterministic ordering between validators in the case of concurrent deliverTXs
 	processBlockCtx, processBlockCache := app.CacheContext(ctx)
-	blockGasMeterConsumed := uint64(0)
-	if processBlockCtx.BlockGasMeter() != nil {
-		blockGasMeterConsumed = processBlockCtx.BlockGasMeter().GasConsumed()
-	}
+	// TODO: (occ) replaced with scheduler sending tasks to workers such as execution and validation
 	concurrentResults, ok := processBlockConcurrentFunction(
 		processBlockCtx,
 		txs,
+		typedTxs,
 		dependencyDag.CompletionSignalingMap,
 		dependencyDag.BlockingSignalsMap,
 		dependencyDag.TxMsgAccessOpMapping,
+		absoluteTxIndices,
 	)
 	oldDexMemState := dexutils.GetMemState(ctx.Context()).DeepCopy()
 	if ok {
@@ -1236,30 +1374,30 @@ func (app *App) ProcessTxs(
 
 	dexMemState := dexutils.GetMemState(ctx.Context())
 	dexMemState.Clear(ctx)
-	dexMemState.ClearContractToDependencies()
+	dexMemState.ClearContractToDependencies(ctx)
 
-	if ctx.BlockGasMeter() != nil {
-		ctx.BlockGasMeter().RefundGas(ctx.BlockGasMeter().GasConsumed()-blockGasMeterConsumed, "concurrent failure rollback")
-	}
-
-	txResults := app.ProcessBlockSynchronous(ctx, txs)
+	txResults := app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
 	processBlockCache.Write()
 	return txResults, ctx
 }
 
-func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioritizedTxs, otherTxs [][]byte, prioritizedIndices, otherIndices []int) {
+func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []sdk.Tx) (
+	prioritizedTxs, otherTxs [][]byte,
+	prioritizedTypedTxs, otherTypedTxs []sdk.Tx,
+	prioritizedIndices, otherIndices []int,
+) {
 	for idx, tx := range txs {
-		decodedTx, err := app.txDecoder(tx)
-		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Error decoding tx for partitioning: %v", err))
-			// if theres an issue decoding, add it to `otherTxs` for normal processing and continue
+		if typedTxs[idx] == nil {
 			otherTxs = append(otherTxs, tx)
+			otherTypedTxs = append(otherTypedTxs, nil)
+			otherIndices = append(otherIndices, idx)
 			continue
 		}
+
 		prioritized := false
 		// if all messages are prioritized, we want to add to prioritizedTxs
 	msgLoop:
-		for _, msg := range decodedTx.GetMsgs() {
+		for _, msg := range typedTxs[idx].GetMsgs() {
 			switch msg.(type) {
 			case *oracletypes.MsgAggregateExchangeRateVote:
 				prioritized = true
@@ -1276,38 +1414,108 @@ func (app *App) PartitionPrioritizedTxs(ctx sdk.Context, txs [][]byte) (prioriti
 		}
 		if prioritized {
 			prioritizedTxs = append(prioritizedTxs, tx)
+			prioritizedTypedTxs = append(prioritizedTypedTxs, typedTxs[idx])
 			prioritizedIndices = append(prioritizedIndices, idx)
 		} else {
 			otherTxs = append(otherTxs, tx)
+			otherTypedTxs = append(otherTypedTxs, typedTxs[idx])
 			otherIndices = append(otherIndices, idx)
 		}
 
 	}
-	return prioritizedTxs, otherTxs, prioritizedIndices, otherIndices
+	return prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices
 }
 
-func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte) ([]*abci.ExecTxResult, sdk.Context) {
-	var txResults []*abci.ExecTxResult
+// ExecuteTxsConcurrently calls the appropriate function for processing transacitons
+func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+	// TODO after OCC release, remove this check and call ProcessTXsWithOCC directly
+	if ctx.IsOCCEnabled() {
+		return app.ProcessTXsWithOCC(ctx, txs, typedTxs, absoluteTxIndices)
+	}
+	results := app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
+	return results, ctx
+}
 
-	dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.txDecoder, app.GetAnteDepGenerator(), txs)
-
-	switch err {
-	case nil:
-		txResults, ctx = app.ProcessTxs(ctx, txs, dependencyDag, app.ProcessBlockConcurrent)
-	case acltypes.ErrGovMsgInBlock:
-		ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
-		txResults = app.ProcessBlockSynchronous(ctx, txs)
-		metrics.IncrDagBuildErrorCounter(metrics.GovMsgInBlock)
-	default:
-		ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
-		txResults = app.ProcessBlockSynchronous(ctx, txs)
-		metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
+// ProcessTXsWithOCC runs the transactions concurrently via OCC
+func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+	entries := make([]*sdk.DeliverTxEntry, len(txs))
+	var span trace.Span
+	if app.TracingEnabled {
+		_, span = app.TracingInfo.Start("GenerateEstimatedWritesets")
+	}
+	wg := sync.WaitGroup{}
+	for txIndex, tx := range txs {
+		wg.Add(1)
+		go func(txIndex int, tx []byte) {
+			defer wg.Done()
+			deliverTxEntry := &sdk.DeliverTxEntry{
+				Request:       abci.RequestDeliverTx{Tx: tx},
+				SdkTx:         typedTxs[txIndex],
+				Checksum:      sha256.Sum256(tx),
+				AbsoluteIndex: absoluteTxIndices[txIndex],
+			}
+			// get prefill estimate
+			estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, typedTxs[txIndex])
+			// if no error, then we assign the mapped writesets for prefill estimate
+			if err == nil {
+				deliverTxEntry.EstimatedWritesets = estimatedWritesets
+			}
+			entries[txIndex] = deliverTxEntry
+		}(txIndex, tx)
 	}
 
-	return txResults, ctx
+	wg.Wait()
+
+	if app.TracingEnabled {
+		span.End()
+	}
+
+	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
+
+	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
+	for _, r := range batchResult.Results {
+		metrics.IncrTxProcessTypeCounter(metrics.OCC_CONCURRENT)
+		metrics.IncrGasCounter("gas_used", r.Response.GasUsed)
+		metrics.IncrGasCounter("gas_wanted", r.Response.GasWanted)
+		execResults = append(execResults, &abci.ExecTxResult{
+			Code:      r.Response.Code,
+			Data:      r.Response.Data,
+			Log:       r.Response.Log,
+			Info:      r.Response.Info,
+			GasWanted: r.Response.GasWanted,
+			GasUsed:   r.Response.GasUsed,
+			Events:    r.Response.Events,
+			Codespace: r.Response.Codespace,
+			EvmTxInfo: r.Response.EvmTxInfo,
+		})
+	}
+
+	return execResults, ctx
+}
+
+// BuildDependenciesAndRunTxs deprecated, use ProcessTXsWithOCC instead
+// Deprecated: this will be removed after OCC releases
+func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+	// dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), typedTxs)
+
+	// switch err {
+	// case nil:
+	// 	txResults, ctx = app.ProcessTxs(ctx, txs, typedTxs, dependencyDag, app.ProcessBlockConcurrent, absoluteTxIndices)
+	// case acltypes.ErrGovMsgInBlock:
+	// 	ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
+	// 	txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
+	// 	metrics.IncrDagBuildErrorCounter(metrics.GovMsgInBlock)
+	// default:
+	// 	ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
+	// 	txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
+	// 	metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
+	// }
+
+	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
 
@@ -1333,15 +1541,16 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			ProposerAddress: ctx.BlockHeader().ProposerAddress,
 		},
 	}
-
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 
 	txResults := make([]*abci.ExecTxResult, len(txs))
-	prioritizedTxs, otherTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs)
+	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
+
+	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
 
 	// run the prioritized txs
-	prioritizedResults, ctx := app.BuildDependenciesAndRunTxs(ctx, prioritizedTxs)
+	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
 	}
@@ -1353,10 +1562,11 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
 
-	otherResults, ctx := app.BuildDependenciesAndRunTxs(ctx, otherTxs)
+	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 	}
+	app.EvmKeeper.SetTxResults(txResults)
 
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
@@ -1368,6 +1578,35 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	events = append(events, endBlockResp.Events...)
 	return events, txResults, endBlockResp, nil
+}
+
+func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []sdk.Tx {
+	typedTxs := make([]sdk.Tx, len(txs))
+	wg := sync.WaitGroup{}
+	for i, tx := range txs {
+		wg.Add(1)
+		go func(idx int, encodedTx []byte) {
+			defer wg.Done()
+			typedTx, err := app.txDecoder(encodedTx)
+			// get txkey from tx
+			if err != nil {
+				ctx.Logger().Error(fmt.Sprintf("error decoding transaction at index %d due to %s", idx, err))
+				typedTxs[idx] = nil
+			} else {
+				if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
+					msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
+					if err := evmante.Preprocess(ctx, msg); err != nil {
+						ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
+						typedTxs[idx] = nil
+						return
+					}
+				}
+				typedTxs[idx] = typedTx
+			}
+		}(i, tx)
+	}
+	wg.Wait()
+	return typedTxs
 }
 
 func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*abci.ExecTxResult) sdk.Context {
@@ -1393,6 +1632,9 @@ func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*ab
 }
 
 func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
+	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
+		return abci.ResponseFinalizeBlock{}
+	}
 	return abci.ResponseFinalizeBlock{
 		Events:    events,
 		TxResults: txResults,
@@ -1425,7 +1667,7 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 
 // LoadHeight loads a particular height
 func (app *App) LoadHeight(height int64) error {
-	return app.LoadVersion(height)
+	return app.LoadVersionWithoutInit(height)
 }
 
 // ModuleAccountAddrs returns all the app's module account addresses.
@@ -1490,7 +1732,7 @@ func (app *App) GetSubspace(moduleName string) paramstypes.Subspace {
 
 // RegisterAPIRoutes registers all application module routes with the provided
 // API server.
-func (app *App) RegisterAPIRoutes(apiSvr *api.Server, _ config.APIConfig) {
+func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig) {
 	clientCtx := apiSvr.ClientCtx
 	rpc.RegisterRoutes(clientCtx, apiSvr.Router)
 	// Register legacy tx routes.
@@ -1503,6 +1745,12 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, _ config.APIConfig) {
 	// Register legacy and grpc-gateway routes for all modules.
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
 	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+
+	// register swagger API from root so that other applications can override easily
+	if apiConfig.Swagger {
+		RegisterSwaggerAPI(apiSvr.Router)
+	}
+
 }
 
 // RegisterTxService implements the Application.RegisterTxService method.
@@ -1513,6 +1761,48 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+
+	ctxProvider := func(i int64) sdk.Context {
+		if i == evmrpc.LatestCtxHeight {
+			return app.GetCheckCtx()
+		}
+		ctx, err := app.CreateQueryContext(i, false)
+		if err != nil {
+			app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
+			return app.GetCheckCtx()
+		}
+		return ctx.WithIsEVM(true)
+	}
+	if app.evmRPCConfig.HTTPEnabled {
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
+		if err != nil {
+			panic(err)
+		}
+		if err := evmHTTPServer.Start(); err != nil {
+			panic(err)
+		}
+	}
+
+	if app.evmRPCConfig.WSEnabled {
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
+		if err != nil {
+			panic(err)
+		}
+		if err := evmWSServer.Start(); err != nil {
+			panic(err)
+		}
+	}
+}
+
+// RegisterSwaggerAPI registers swagger route with API Server
+func RegisterSwaggerAPI(rtr *mux.Router) {
+	statikFS, err := fs.NewWithNamespace("swagger")
+	if err != nil {
+		panic(err)
+	}
+
+	staticServer := http.FileServer(statikFS)
+	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
 }
 
 func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
@@ -1528,7 +1818,7 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 			// such tx will not be processed and thus won't consume gas. Skipping
 			continue
 		}
-		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper)
+		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
 			ctx.Logger().Error("error checking if tx is gasless", "error", err)
 			continue
@@ -1543,6 +1833,10 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		}
 	}
 	return true
+}
+
+func (app *App) GetTxConfig() client.TxConfig {
+	return app.encodingConfig.TxConfig
 }
 
 // GetMaccPerms returns a copy of the module account permissions
@@ -1571,6 +1865,7 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(ibchost.ModuleName)
 	paramsKeeper.Subspace(oracletypes.ModuleName)
 	paramsKeeper.Subspace(wasm.ModuleName)
+	paramsKeeper.Subspace(evmtypes.ModuleName)
 	paramsKeeper.Subspace(dexmoduletypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)

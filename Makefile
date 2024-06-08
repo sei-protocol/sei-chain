@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 
-VERSION := $(shell echo $(shell git describe --tags) | sed 's/^v//')
+VERSION := $(shell echo $(shell git describe --tags))
 COMMIT := $(shell git log -1 --format='%H')
 
 BUILDDIR ?= $(CURDIR)/build
@@ -98,6 +98,8 @@ build-price-feeder:
 clean:
 	rm -rf ./build
 
+build-loadtest:
+	go build -o build/loadtest ./loadtest/
 
 
 ###############################################################################

@@ -1,0 +1,29 @@
+[profile.default]
+# Foundry Configuration File
+# Default definitions: https://github.com/gakonst/foundry/blob/b7917fa8491aedda4dd6db53fbb206ea233cd531/config/src/lib.rs#L782
+# See more config options at: https://github.com/gakonst/foundry/tree/master/config
+
+# The Default Profile
+# Sets the concrete solc version to use
+# This overrides the `auto_detect_solc` value
+solc_version = '0.8.20'
+auto_detect_solc = false
+# Increase optimizer_runs
+optimizer = true
+optimizer_runs = 1_000
+# Fuzz more than the default 256
+fuzz_runs = 1_000
+# Configure remappings
+remappings = [
+  "@ds=lib/ds-test/src/",
+  "@std=lib/forge-std/src/",
+  "@solmate=lib/solmate/src/",
+  "@clones=lib/clones-with-immutable-args/src/",
+  "@openzeppelin=lib/openzeppelin-contracts/contracts/"
+]
+
+src = "src"
+out = "out"
+libs = ["lib"]
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

@@ -1,32 +1,46 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"math/big"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
-
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/std"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/cosmos/cosmos-sdk/std"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"golang.org/x/sync/semaphore"
+	"golang.org/x/time/rate"
+
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
 var TestConfig EncodingConfig
@@ -35,7 +49,23 @@ const (
 	VortexData = "{\"position_effect\":\"Open\",\"leverage\":\"1\"}"
 )
 
-var FromMili = sdk.NewDec(1000000)
+var (
+	FromMili                  = sdk.NewDec(1000000)
+	producedCountPerMsgType   = make(map[string]*int64)
+	sentCountPerMsgType       = make(map[string]*int64)
+	prevSentCounterPerMsgType = make(map[string]*int64)
+
+	BlockHeightsWithTxs = []int{}
+	EvmTxHashes         = []common.Hash{}
+)
+
+type BlockData struct {
+	Txs []string `json:"txs"`
+}
+
+type BlockHeader struct {
+	Time string `json:"time"`
+}
 
 func init() {
 	cdc := codec.NewLegacyAmino()
@@ -52,61 +82,227 @@ func init() {
 	std.RegisterInterfaces(TestConfig.InterfaceRegistry)
 	app.ModuleBasics.RegisterLegacyAminoCodec(TestConfig.Amino)
 	app.ModuleBasics.RegisterInterfaces(TestConfig.InterfaceRegistry)
+	// Add this so that we don't end up getting disconnected for EVM client
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = 100
 }
 
-func run(config Config) {
+// deployEvmContract executes a bash script and returns its output as a string.
+//
+//nolint:gosec
+func deployEvmContract(scriptPath string, config *Config) (common.Address, error) {
+	cmd := exec.Command(scriptPath, config.EVMRpcEndpoint())
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err != nil {
+		return common.Address{}, err
+	}
+	return common.HexToAddress(out.String()), nil
+}
+
+func deployEvmContracts(config *Config) {
+	config.EVMAddresses = &EVMAddresses{}
+	if config.ContainsAnyMessageTypes(ERC20) {
+		fmt.Println("Deploying ERC20 contract")
+		erc20, err := deployEvmContract("loadtest/contracts/deploy_erc20.sh", config)
+		if err != nil {
+			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
+			panic(err)
+		}
+		config.EVMAddresses.ERC20 = erc20
+	}
+	if config.ContainsAnyMessageTypes(ERC721) {
+		fmt.Println("Deploying ERC721 contract")
+		erc721, err := deployEvmContract("loadtest/contracts/deploy_erc721.sh", config)
+		if err != nil {
+			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
+			panic(err)
+		}
+		config.EVMAddresses.ERC721 = erc721
+	}
+}
+
+//nolint:gosec
+func deployUniswapContracts(client *LoadTestClient, config *Config) {
+	config.EVMAddresses = &EVMAddresses{}
+	if config.ContainsAnyMessageTypes(UNIV2) {
+		fmt.Println("Deploying Uniswap contracts")
+		cmd := exec.Command("loadtest/contracts/deploy_univ2.sh", config.EVMRpcEndpoint())
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		err := cmd.Run()
+		fmt.Println("script output: ", out.String())
+		if err != nil {
+			panic("deploy_univ2.sh failed with error: " + err.Error())
+		}
+		UniV2SwapperRe := regexp.MustCompile(`Swapper Address: "(\w+)"`)
+		match := UniV2SwapperRe.FindStringSubmatch(out.String())
+		uniV2SwapperAddress := common.HexToAddress(match[1])
+		fmt.Println("Found UniV2Swapper Address: ", uniV2SwapperAddress.String())
+		for _, txClient := range client.EvmTxClients {
+			txClient.evmAddresses.UniV2Swapper = uniV2SwapperAddress
+		}
+	}
+}
+
+func run(config *Config) {
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
-	go metricsServer.StartMetricsClient(config)
-	sleepDuration := time.Duration(config.LoadInterval) * time.Second
+	go metricsServer.StartMetricsClient(*config)
 
-	if config.Constant {
-		fmt.Printf("Running in constant mode with interval=%d\n", config.LoadInterval)
-		for {
-			fmt.Printf("Sleeping for %f seconds before next run...\n", sleepDuration.Seconds())
-			time.Sleep(sleepDuration)
-			runOnce(config)
-		}
-	} else {
-		runOnce(config)
-		fmt.Print("Sleeping for 60 seconds for metrics to be scraped...\n")
-		time.Sleep(time.Duration(60))
-	}
+	client := NewLoadTestClient(*config)
+	client.SetValidators()
+	deployEvmContracts(config)
+	deployUniswapContracts(client, config)
+	startLoadtestWorkers(client, *config)
+	runEvmQueries(*config)
 }
 
-func runOnce(config Config) {
-	client := NewLoadTestClient(config)
-	client.SetValidators()
-
-	if config.TxsPerBlock < config.MsgsPerTx {
-		panic("Must have more TxsPerBlock than MsgsPerTx")
-	}
-
+// starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
+// workers continue running. If config.Constant is false, then we will gather load test results in a file
+func startLoadtestWorkers(client *LoadTestClient, config Config) {
+	fmt.Printf("Starting loadtest workers\n")
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
-	fmt.Printf("%s - Starting block prepare\n", time.Now().Format("2006-01-02T15:04:05"))
-	workgroups, sendersList := client.BuildTxs()
+	// Catch OS signals for graceful shutdown
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 
-	go client.SendTxs(workgroups, sendersList)
+	var blockHeights []int
+	var blockTimes []string
+	var startHeight = getLastHeight(config.BlockchainEndpoint)
+	keys := client.AccountKeys
 
-	// Waits until SendTx is done processing before proceeding to write and validate TXs
-	client.GatherTxHashes()
+	// Create producers and consumers
+	fmt.Printf("Starting loadtest producers and consumers\n")
+	txQueues := make([]chan SignedTx, len(keys))
+	for i := range txQueues {
+		txQueues[i] = make(chan SignedTx, 10)
+	}
+	done := make(chan struct{})
+	producerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
+	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
+	var wg sync.WaitGroup
+	for i := 0; i < len(keys); i++ {
+		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, producedCountPerMsgType)
+		go client.SendTxs(txQueues[i], i, done, sentCountPerMsgType, consumerSemaphore, &wg)
+	}
 
-	// Records the resulting TxHash to file
-	client.WriteTxHashToFile()
-	fmt.Printf("%s - Finished\n", time.Now().Format("2006-01-02T15:04:05"))
+	// Statistics reporting goroutine
+	ticker := time.NewTicker(10 * time.Second)
+	ticks := 0
+	go func() {
+		start := time.Now()
+		for {
+			select {
+			case <-ticker.C:
+				currHeight := getLastHeight(config.BlockchainEndpoint)
+				for i := startHeight; i <= currHeight; i++ {
+					txCnt, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
+					if err != nil {
+						fmt.Printf("Encountered error scraping data: %s\n", err)
+						return
+					}
+					blockHeights = append(blockHeights, i)
+					blockTimes = append(blockTimes, blockTime)
+					if txCnt > 0 {
+						BlockHeightsWithTxs = append(BlockHeightsWithTxs, i)
+					}
+				}
 
-	// Validate Tx will close the connection when it's done
-	go client.ValidateTxs()
+				printStats(start, producedCountPerMsgType, sentCountPerMsgType, prevSentCounterPerMsgType, blockHeights, blockTimes)
+				startHeight = currHeight
+				blockHeights, blockTimes = nil, nil
+				start = time.Now()
+
+				for msgType := range sentCountPerMsgType {
+					count := atomic.LoadInt64(sentCountPerMsgType[msgType])
+					atomic.StoreInt64(prevSentCounterPerMsgType[msgType], count)
+				}
+				ticks++
+				if config.Ticks > 0 && ticks >= int(config.Ticks) {
+					close(done)
+				}
+			case <-done:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+
+	// Wait for a termination signal
+	if config.Ticks == 0 {
+		<-signals
+		fmt.Println("SIGINT received, shutting down producers and consumers...")
+		close(done)
+	}
+
+	fmt.Println("Waiting for wait groups...")
+
+	wg.Wait()
+	fmt.Println("Closing channels...")
+	for i := range txQueues {
+		close(txQueues[i])
+	}
+}
+
+func printStats(
+	startTime time.Time,
+	producedCountPerMsgType map[string]*int64,
+	sentCountPerMsgType map[string]*int64,
+	prevSentPerCounterPerMsgType map[string]*int64,
+	blockHeights []int,
+	blockTimes []string,
+) {
+	elapsed := time.Since(startTime)
+
+	totalSent := int64(0)
+	totalProduced := int64(0)
+	//nolint:gosec
+	for msg_type := range sentCountPerMsgType {
+		totalSent += atomic.LoadInt64(sentCountPerMsgType[msg_type])
+	}
+	//nolint:gosec
+	for msg_type := range producedCountPerMsgType {
+		totalProduced += atomic.LoadInt64(producedCountPerMsgType[msg_type])
+	}
+
+	var totalTps float64 = 0
+	for msgType := range sentCountPerMsgType {
+		sentCount := atomic.LoadInt64(sentCountPerMsgType[msgType])
+		prevTotalSent := atomic.LoadInt64(prevSentPerCounterPerMsgType[msgType])
+		//nolint:gosec
+		tps := float64(sentCount-prevTotalSent) / elapsed.Seconds()
+		totalTps += tps
+		defer metrics.SetThroughputMetricByType("tps", float32(tps), msgType)
+	}
+
+	var totalDuration time.Duration
+	var prevTime time.Time
+	for i, blockTimeStr := range blockTimes {
+		blockTime, _ := time.Parse(time.RFC3339Nano, blockTimeStr)
+		if i > 0 {
+			duration := blockTime.Sub(prevTime)
+			totalDuration += duration
+		}
+		prevTime = blockTime
+	}
+	if len(blockTimes)-1 < 1 {
+
+		fmt.Printf("Unable to calculate stats, not enough data. Skipping...\n")
+	} else {
+		avgDuration := totalDuration.Milliseconds() / int64(len(blockTimes)-1)
+		fmt.Printf("High Level - Time Elapsed: %v, Produced: %d, Sent: %d, TPS: %f, Avg Block Time: %d ms\nBlock Heights %v\n\n", elapsed, totalProduced, totalSent, totalTps, avgDuration, blockHeights)
+	}
 }
 
 // Generate a random message, only generate one admin message per block to prevent acc seq errors
 func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
-	rand.Seed(time.Now().UnixNano())
-	messageType := messageTypes[rand.Intn(len(messageTypes))]
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	messageType := messageTypes[r.Intn(len(messageTypes))]
 	for c.generatedAdminMessageForBlock && c.isAdminMessageMapping[messageType] {
-		messageType = messageTypes[rand.Intn(len(messageTypes))]
+		messageType = messageTypes[r.Intn(len(messageTypes))]
 	}
 
 	if c.isAdminMessageMapping[messageType] {
@@ -115,27 +311,25 @@ func (c *LoadTestClient) getRandomMessageType(messageTypes []string) string {
 	return messageType
 }
 
-func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey, msgPerTx uint64) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
+func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string) ([]sdk.Msg, bool, cryptotypes.PrivKey, uint64, int64) {
 	var msgs []sdk.Msg
-	messageTypes := strings.Split(config.MessageType, ",")
-	messageType := c.getRandomMessageType(messageTypes)
-	fmt.Printf("Message type: %s\n", messageType)
-
-	defer IncrTxMessageType(messageType)
-
+	config := c.LoadTestConfig
+	msgPerTx := config.MsgsPerTx
 	signer := key
 
-	defaultMessageTypeConfig := c.LoadTestConfig.PerMessageConfigs["default"]
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	defaultMessageTypeConfig := config.PerMessageConfigs["default"]
 	gas := defaultMessageTypeConfig.Gas
 	fee := defaultMessageTypeConfig.Fee
 
-	messageTypeConfig, ok := c.LoadTestConfig.PerMessageConfigs[messageType]
+	messageTypeConfig, ok := config.PerMessageConfigs[msgType]
 	if ok {
 		gas = messageTypeConfig.Gas
 		fee = messageTypeConfig.Fee
 	}
 
-	switch messageType {
+	switch msgType {
 	case Vortex:
 		price := config.PriceDistr.Sample()
 		quantity := config.QuantityDistr.Sample()
@@ -169,6 +363,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	case Bank:
 		msgs = []sdk.Msg{}
 		for i := 0; i < int(msgPerTx); i++ {
+
 			msgs = append(msgs, &banktypes.MsgSend{
 				FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
 				ToAddress:   sdk.AccAddress(key.PubKey().Address()).String(),
@@ -195,7 +390,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 	case CollectRewards:
 		adminKey := c.SignerClient.GetAdminKey()
 		delegatorAddr := sdk.AccAddress(adminKey.PubKey().Address())
-		operatorAddress := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
+		operatorAddress := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
 		randomValidatorAddr, err := sdk.ValAddressFromBech32(operatorAddress)
 		if err != nil {
 			panic(err.Error())
@@ -225,9 +420,10 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		}}
 	case Staking:
 		delegatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
-		chosenValidator := c.Validators[rand.Intn(len(c.Validators))].OperatorAddress
+		chosenValidator := c.Validators[r.Intn(len(c.Validators))].OperatorAddress
 		// Randomly pick someone to redelegate / unbond from
 		srcAddr := ""
+		c.mtx.RLock()
 		for k := range c.DelegationMap[delegatorAddr] {
 			if k == chosenValidator {
 				continue
@@ -235,11 +431,12 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			srcAddr = k
 			break
 		}
+		c.mtx.RUnlock()
 		msgs = []sdk.Msg{c.generateStakingMsg(delegatorAddr, chosenValidator, srcAddr)}
 	case Tokenfactory:
 		denomCreatorAddr := sdk.AccAddress(key.PubKey().Address()).String()
 		// No denoms, let's mint
-		randNum := rand.Float64()
+		randNum := r.Float64()
 		denom, ok := c.TokenFactoryDenomOwner[denomCreatorAddr]
 		switch {
 		case !ok || randNum <= 0.33:
@@ -263,7 +460,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		}
 	case FailureBankMalformed:
 		var denom string
-		if rand.Float64() < 0.5 {
+		if r.Float64() < 0.5 {
 			denom = "unknown"
 		} else {
 			denom = "other"
@@ -308,7 +505,7 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 		contract := config.ContractDistr.Sample()
 		orderPlacements := generateDexOrderPlacements(config, key, msgPerTx, price, quantity)
 		var amountUsei int64
-		if rand.Float64() < 0.5 {
+		if r.Float64() < 0.5 {
 			amountUsei = 10000 * price.Mul(quantity).Ceil().RoundInt64()
 		} else {
 			amountUsei = 0
@@ -323,19 +520,66 @@ func (c *LoadTestClient) generateMessage(config Config, key cryptotypes.PrivKey,
 			ContractAddr: contract,
 			Funds:        amount,
 		}}
-
+	case WasmOccIteratorWrite:
+		// generate some values for indices 1-100
+		indices := []int{}
+		for i := 0; i < 100; i++ {
+			indices = append(indices, i)
+		}
+		rand.Shuffle(100, func(i, j int) {
+			indices[i], indices[j] = indices[j], indices[i]
+		})
+		values := [][]uint64{}
+		num_values := rand.Int()%100 + 1
+		for x := 0; x < num_values; x++ {
+			values = append(values, []uint64{uint64(indices[x]), rand.Uint64() % 12345})
+		}
+		contract := config.SeiTesterAddress
+		msgData := WasmIteratorWriteMsg{
+			Values: values,
+		}
+		jsonData, err := json.Marshal(msgData)
+		if err != nil {
+			panic(err)
+		}
+		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_iterator_write\":%s}", jsonData))),
+		}}
+	case WasmOccIteratorRange:
+		contract := config.SeiTesterAddress
+		start := rand.Uint32() % 100
+		end := rand.Uint32() % 100
+		if start > end {
+			start, end = end, start
+		}
+		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_iterator_range\":{\"start\": %d, \"end\": %d}}", start, end))),
+		}}
+	case WasmOccParallelWrite:
+		contract := config.SeiTesterAddress
+		// generate random value
+		value := rand.Uint64()
+		msgs = []sdk.Msg{&wasmtypes.MsgExecuteContract{
+			Sender:   sdk.AccAddress(key.PubKey().Address()).String(),
+			Contract: contract,
+			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_parallelism\":{\"value\": %d}}", value))),
+		}}
 	default:
-		fmt.Printf("Unrecognized message type %s", config.MessageType)
+		fmt.Printf("Unrecognized message type %s", msgType)
 	}
 
-	if strings.Contains(config.MessageType, "failure") {
+	if strings.Contains(msgType, "failure") {
 		return msgs, true, signer, gas, int64(fee)
 	}
 	return msgs, false, signer, gas, int64(fee)
 }
 
 func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
-	if config.MessageType == "failure_bank_malformed" {
+	if len(config.MessageTypes) == 1 && config.MessageTypes[0] == "failure_bank_malformed" {
 		orderType = -1
 	} else {
 		msgType := config.MsgTypeDistr.SampleDexMsgs()
@@ -354,8 +598,9 @@ func sampleDexOrderType(config Config) (orderType dextypes.OrderType) {
 func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx uint64, price sdk.Dec, quantity sdk.Dec) (orderPlacements []*dextypes.Order) {
 	orderType := sampleDexOrderType(config)
 
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	var direction dextypes.PositionDirection
-	if rand.Float64() < 0.5 {
+	if r.Float64() < 0.5 {
 		direction = dextypes.PositionDirection_LONG
 	} else {
 		direction = dextypes.PositionDirection_SHORT
@@ -378,18 +623,9 @@ func generateDexOrderPlacements(config Config, key cryptotypes.PrivKey, msgPerTx
 	return orderPlacements
 }
 
-func generateOracleMessage(key cryptotypes.PrivKey) sdk.Msg {
-	valAddr := sdk.ValAddress(key.PubKey().Address()).String()
-	addr := sdk.AccAddress(key.PubKey().Address()).String()
-	msg := &oracletypes.MsgAggregateExchangeRateVote{
-		ExchangeRates: "1usei,2uatom",
-		Feeder:        addr,
-		Validator:     valAddr,
-	}
-	return msg
-}
-
 func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
 	// Randomly unbond, redelegate or delegate
 	// However, if there are no delegations, do so first
 	var msg sdk.Msg
@@ -432,9 +668,10 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 	var msgs []sdk.Msg
 	contract := config.WasmMsgTypes.Vortex.ContractAddr
 
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	// Randomly select Position Direction
 	var direction dextypes.PositionDirection
-	if rand.Float64() < 0.5 {
+	if r.Float64() < 0.5 {
 		direction = dextypes.PositionDirection_LONG
 	} else {
 		direction = dextypes.PositionDirection_SHORT
@@ -491,8 +728,9 @@ func (c *LoadTestClient) generateVortexOrder(config Config, key cryptotypes.Priv
 	return msgs
 }
 
+// nolint
 func getLastHeight(blockchainEndpoint string) int {
-	out, err := exec.Command("curl", blockchainEndpoint).Output()
+	out, err := exec.Command("curl", blockchainEndpoint+"/blockchain").Output()
 	if err != nil {
 		panic(err)
 	}
@@ -505,6 +743,104 @@ func getLastHeight(blockchainEndpoint string) int {
 		panic(err)
 	}
 	return height
+}
+
+func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, error) {
+
+	resp, err := http.Get(blockchainEndpoint + "/block?height=" + height)
+	if err != nil {
+		fmt.Printf("Error query block data: %s\n", err)
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("Error reading block data: %s\n", err)
+		return 0, "", err
+	}
+
+	var blockResponse struct {
+		Block struct {
+			Header BlockHeader `json:"header"`
+			Data   BlockData   `json:"data"`
+		} `json:"block"`
+	}
+	err = json.Unmarshal(body, &blockResponse)
+	if err != nil {
+		fmt.Printf("Error reading block data: %s\n", err)
+		return 0, "", err
+	}
+
+	return len(blockResponse.Block.Data.Txs), blockResponse.Block.Header.Time, nil
+}
+
+func runEvmQueries(config Config) {
+	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
+	if len(ethEndpoints) == 0 {
+		return
+	}
+	ethClients := make([]*ethclient.Client, len(ethEndpoints))
+	for i, endpoint := range ethEndpoints {
+		client, err := ethclient.Dial(endpoint)
+		if err != nil {
+			fmt.Printf("Failed to connect to endpoint %s with error %s", endpoint, err.Error())
+		}
+		ethClients[i] = client
+	}
+	wg := sync.WaitGroup{}
+	start := time.Now()
+	for i := 0; i < config.PostTxEvmQueries.BlockByNumber; i++ {
+		wg.Add(1)
+		i := i
+		go func() {
+			defer func() { wg.Done() }()
+			height := int64(BlockHeightsWithTxs[i%len(BlockHeightsWithTxs)])
+			_, err := ethClients[i%len(ethClients)].BlockByNumber(context.Background(), big.NewInt(height))
+			if err != nil {
+				fmt.Printf("Failed to get full block of height %d due to %s\n", height, err)
+			}
+		}()
+	}
+	wg.Wait()
+	fmt.Printf("Querying %d blocks in parallel took %fs\n", config.PostTxEvmQueries.BlockByNumber, time.Since(start).Seconds())
+
+	wg = sync.WaitGroup{}
+	start = time.Now()
+	for i := 0; i < config.PostTxEvmQueries.Receipt; i++ {
+		wg.Add(1)
+		i := i
+		go func() {
+			defer func() { wg.Done() }()
+			hash := EvmTxHashes[i%len(EvmTxHashes)]
+			_, err := ethClients[i%len(ethClients)].TransactionReceipt(context.Background(), hash)
+			if err != nil {
+				fmt.Printf("Failed to get receipt of tx %s due to %s\n", hash.Hex(), err)
+			}
+		}()
+	}
+	wg.Wait()
+	fmt.Printf("Querying %d receipts in parallel took %fs\n", config.PostTxEvmQueries.Receipt, time.Since(start).Seconds())
+
+	if config.EVMAddresses.ERC20.Cmp(common.Address{}) != 0 {
+		wg = sync.WaitGroup{}
+		start = time.Now()
+		for i := 0; i < config.PostTxEvmQueries.Filters; i++ {
+			wg.Add(1)
+			i := i
+			go func() {
+				defer func() { wg.Done() }()
+				_, err := ethClients[i%len(ethClients)].FilterLogs(context.Background(), ethereum.FilterQuery{
+					Addresses: []common.Address{config.EVMAddresses.ERC20},
+				})
+				if err != nil {
+					fmt.Printf("Failed to get logs due to %s\n", err)
+				}
+			}()
+		}
+		wg.Wait()
+		fmt.Printf("Querying %d filter logs in parallel took %fs\n", config.PostTxEvmQueries.Filters, time.Since(start).Seconds())
+	}
 }
 
 func GetDefaultConfigFilePath() string {
@@ -527,5 +863,5 @@ func main() {
 
 	config := ReadConfig(*configFilePath)
 	fmt.Printf("Using config file: %s\n", *configFilePath)
-	run(config)
+	run(&config)
 }

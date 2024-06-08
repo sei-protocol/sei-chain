@@ -2,9 +2,15 @@ FROM ubuntu:latest
 RUN apt-get update && \
     apt-get install -y make git wget build-essential jq python3 curl vim uuid-runtime
 RUN rm -rf build/generated
-RUN wget https://go.dev/dl/go1.20.6.linux-amd64.tar.gz
-RUN tar -xvf go1.20.6.linux-amd64.tar.gz
+RUN wget https://go.dev/dl/go1.21.4.linux-amd64.tar.gz
+RUN tar -xvf go1.21.4.linux-amd64.tar.gz
 RUN mv go /usr/local/
+RUN curl -L https://foundry.paradigm.xyz | bash
+RUN /root/.foundry/bin/foundryup
+RUN curl -sL https://deb.nodesource.com/setup_16.x | bash
+RUN apt-get install -y nodejs
+RUN mkdir -p /root/.config && \
+    chmod -R 777 /root/.config
 SHELL ["/bin/bash", "-c"]
 
 

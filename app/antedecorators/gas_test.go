@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/stretchr/testify/require"
@@ -14,18 +15,18 @@ import (
 )
 
 func TestMultiplierGasSetter(t *testing.T) {
-	testApp := app.Setup(false)
+	testApp := app.Setup(false, false)
 	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
 	require.NoError(t, err)
-	otherContractAddr, err := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
-	require.NoError(t, err)
 	ctx := testApp.NewContext(false, types.Header{}).WithBlockHeight(2)
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, *paramtypes.DefaultCosmosGasParams())
+	testApp.ParamsKeeper.SetFeesParams(ctx, paramtypes.DefaultGenesis().GetFeesParams())
 	testMsg := wasmtypes.MsgExecuteContract{
 		Contract: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
 		Msg:      []byte("{\"xyz\":{}}"),
 	}
 	testTx := app.NewTestTx([]sdk.Msg{&testMsg})
-	// discounted mapping
+
 	testApp.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
 		ContractAddress: contractAddr.String(),
 		BaseAccessOps: []*accesscontrol.WasmAccessOperation{
@@ -41,212 +42,32 @@ func TestMultiplierGasSetter(t *testing.T) {
 			},
 		},
 	})
-	// other contract not discounted
-	testApp.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
-		ContractAddress: otherContractAddr.String(),
-		BaseAccessOps: []*accesscontrol.WasmAccessOperation{
-			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV,
-					IdentifierTemplate: "*",
-				},
-			},
-			{
-				Operation: acltypes.CommitAccessOp(),
-			},
-		},
-	})
 
-	gasMeterSetter := antedecorators.GetGasMeterSetter(testApp.AccessControlKeeper)
+	// Test with 1/2 cosmos gas multiplier
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, paramtypes.CosmosGasParams{CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 2})
+	gasMeterSetter := antedecorators.GetGasMeterSetter(testApp.ParamsKeeper)
 	ctxWithGasMeter := gasMeterSetter(false, ctx, 1000, testTx)
 	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
 	require.Equal(t, uint64(1), ctxWithGasMeter.GasMeter().GasConsumed())
 
-	otherTestMsg := wasmtypes.MsgExecuteContract{
-		Contract: "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m",
-		Msg:      []byte("{\"xyz\":{}}"),
-	}
-	testTx2 := app.NewTestTx([]sdk.Msg{&testMsg, &otherTestMsg})
-	ctxWithGasMeter = gasMeterSetter(false, ctx, 1000, testTx2)
-	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
-	// should still not give discount because of other contract being non-discounted
-	require.Equal(t, uint64(2), ctxWithGasMeter.GasMeter().GasConsumed())
-
-	// not discounted mapping
-	testApp.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
-		ContractAddress: contractAddr.String(),
-		BaseAccessOps: []*accesscontrol.WasmAccessOperation{
-			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV,
-					IdentifierTemplate: "*",
-				},
-			},
-			{
-				Operation: acltypes.CommitAccessOp(),
-			},
-		},
-	})
+	// Test with 1/4 cosmos gas multiplier
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, paramtypes.CosmosGasParams{CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 4})
 	ctxWithGasMeter = gasMeterSetter(false, ctx, 1000, testTx)
-	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
-	require.Equal(t, uint64(2), ctxWithGasMeter.GasMeter().GasConsumed())
-}
+	ctxWithGasMeter.GasMeter().ConsumeGas(100, "")
+	require.Equal(t, uint64(25), ctxWithGasMeter.GasMeter().GasConsumed())
 
-func TestMultiplierGasSetterWithWasmReference(t *testing.T) {
-	testApp := app.Setup(false)
-	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
-	referredContractAddr, err := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
-	require.NoError(t, err)
-	ctx := testApp.NewContext(false, types.Header{}).WithBlockHeight(2)
-	testMsg := wasmtypes.MsgExecuteContract{
-		Contract: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
-		Msg:      []byte("{\"xyz\":{}}"),
-	}
-	testTx := app.NewTestTx([]sdk.Msg{&testMsg})
-	// discounted mapping
-	testApp.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
-		ContractAddress: contractAddr.String(),
-		BaseAccessOps: []*accesscontrol.WasmAccessOperation{
-			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV,
-					IdentifierTemplate: "something",
-				},
-			},
-			{
-				Operation: acltypes.CommitAccessOp(),
-			},
-		},
-		BaseContractReferences: []*accesscontrol.WasmContractReference{
-			{
-				ContractAddress: referredContractAddr.String(),
-				MessageType:     accesscontrol.WasmMessageSubtype_EXECUTE,
-				MessageName:     "abc",
-			},
-		},
-	})
-	testApp.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
-		ContractAddress: referredContractAddr.String(),
-		BaseAccessOps: []*accesscontrol.WasmAccessOperation{
-			{
-				Operation: acltypes.CommitAccessOp(),
-			},
-		},
-		ExecuteAccessOps: []*accesscontrol.WasmAccessOperations{
-			{
-				MessageName: "abc",
-				WasmOperations: []*accesscontrol.WasmAccessOperation{
-					{
-						Operation: &accesscontrol.AccessOperation{
-							AccessType:         accesscontrol.AccessType_WRITE,
-							ResourceType:       accesscontrol.ResourceType_KV,
-							IdentifierTemplate: "something else",
-						},
-					},
-				},
-			},
-		},
-	})
-	gasMeterSetter := antedecorators.GetGasMeterSetter(testApp.AccessControlKeeper)
-	ctxWithGasMeter := gasMeterSetter(false, ctx, 1000, testTx)
-	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
-	require.Equal(t, uint64(1), ctxWithGasMeter.GasMeter().GasConsumed())
-	// not discounted mapping
-	testApp.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
-		ContractAddress: referredContractAddr.String(),
-		BaseAccessOps: []*accesscontrol.WasmAccessOperation{
-			{
-				Operation: acltypes.CommitAccessOp(),
-			},
-		},
-		ExecuteAccessOps: []*accesscontrol.WasmAccessOperations{
-			{
-				MessageName: "abc",
-				WasmOperations: []*accesscontrol.WasmAccessOperation{
-					{
-						Operation: &accesscontrol.AccessOperation{
-							AccessType:         accesscontrol.AccessType_WRITE,
-							ResourceType:       accesscontrol.ResourceType_KV,
-							IdentifierTemplate: "*",
-						},
-					},
-				},
-			},
-		},
-	})
-	ctxWithGasMeter = gasMeterSetter(false, ctx, 1000, testTx)
-	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
-	require.Equal(t, uint64(2), ctxWithGasMeter.GasMeter().GasConsumed())
-}
+	// Test over gas limit even with 1/4 gas multiplier
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, paramtypes.CosmosGasParams{CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 4})
+	ctxWithGasMeter = gasMeterSetter(false, ctx, 20, testTx)
+	require.Panics(t, func() { ctxWithGasMeter.GasMeter().ConsumeGas(100, "") })
+	require.Equal(t, true, ctxWithGasMeter.GasMeter().IsOutOfGas())
 
-func TestMultiplierGasSetterWithWasmReferenceCycle(t *testing.T) {
-	testApp := app.Setup(false)
-	contractAddr, err := sdk.AccAddressFromBech32("sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw")
-	referredContractAddr, err := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
-	require.NoError(t, err)
-	ctx := testApp.NewContext(false, types.Header{}).WithBlockHeight(2)
-	testMsg := wasmtypes.MsgExecuteContract{
-		Contract: "sei1y3pxq5dp900czh0mkudhjdqjq5m8cpmmps8yjw",
-		Msg:      []byte("{\"xyz\":{}}"),
-	}
-	testTx := app.NewTestTx([]sdk.Msg{&testMsg})
+	// Simulation mode has infinite gas meter with multiplier
+	testApp.ParamsKeeper.SetCosmosGasParams(ctx, paramtypes.CosmosGasParams{CosmosGasMultiplierNumerator: 1, CosmosGasMultiplierDenominator: 4})
+	// Gas limit is effectively ignored in simulation
+	ctxWithGasMeter = gasMeterSetter(true, ctx, 20, testTx)
+	require.NotPanics(t, func() { ctxWithGasMeter.GasMeter().ConsumeGas(100, "") })
+	require.Equal(t, uint64(25), ctxWithGasMeter.GasMeter().GasConsumed())
+	require.Equal(t, false, ctxWithGasMeter.GasMeter().IsOutOfGas())
 
-	testApp.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
-		ContractAddress: contractAddr.String(),
-		BaseAccessOps: []*accesscontrol.WasmAccessOperation{
-			{
-				Operation: &accesscontrol.AccessOperation{
-					AccessType:         accesscontrol.AccessType_READ,
-					ResourceType:       accesscontrol.ResourceType_KV,
-					IdentifierTemplate: "something",
-				},
-			},
-			{
-				Operation: acltypes.CommitAccessOp(),
-			},
-		},
-		BaseContractReferences: []*accesscontrol.WasmContractReference{
-			{
-				ContractAddress: referredContractAddr.String(),
-				MessageType:     accesscontrol.WasmMessageSubtype_EXECUTE,
-				MessageName:     "abc",
-			},
-		},
-	})
-	testApp.AccessControlKeeper.SetWasmDependencyMapping(ctx, accesscontrol.WasmDependencyMapping{
-		ContractAddress: referredContractAddr.String(),
-		BaseAccessOps: []*accesscontrol.WasmAccessOperation{
-			{
-				Operation: acltypes.CommitAccessOp(),
-			},
-		},
-		ExecuteAccessOps: []*accesscontrol.WasmAccessOperations{
-			{
-				MessageName: "abc",
-				WasmOperations: []*accesscontrol.WasmAccessOperation{
-					{
-						Operation: &accesscontrol.AccessOperation{
-							AccessType:         accesscontrol.AccessType_WRITE,
-							ResourceType:       accesscontrol.ResourceType_KV,
-							IdentifierTemplate: "something else",
-						},
-					},
-				},
-			},
-		},
-		BaseContractReferences: []*accesscontrol.WasmContractReference{
-			{
-				ContractAddress: contractAddr.String(),
-				MessageType:     accesscontrol.WasmMessageSubtype_EXECUTE,
-				MessageName:     "xyz",
-			},
-		},
-	})
-	gasMeterSetter := antedecorators.GetGasMeterSetter(testApp.AccessControlKeeper)
-	ctxWithGasMeter := gasMeterSetter(false, ctx, 1000, testTx)
-	ctxWithGasMeter.GasMeter().ConsumeGas(2, "")
-	require.Equal(t, uint64(2), ctxWithGasMeter.GasMeter().GasConsumed())
 }

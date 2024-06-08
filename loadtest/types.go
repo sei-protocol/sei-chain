@@ -3,16 +3,23 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
 	Bank                 string = "bank"
+	EVM                  string = "evm"
+	ERC20                string = "erc20"
+	ERC721               string = "erc721"
 	CollectRewards       string = "collect_rewards"
 	DistributeRewards    string = "distribute_rewards"
 	FailureBankMalformed string = "failure_bank_malformed"
@@ -25,20 +32,34 @@ const (
 	Limit                string = "limit"
 	Market               string = "market"
 	WasmMintNft          string = "wasm_mint_nft"
+	UNIV2                string = "univ2"
 	Vortex               string = "vortex"
 	WasmInstantiate      string = "wasm_instantiate"
+	WasmOccIteratorWrite string = "wasm_occ_iterator_write"
+	WasmOccIteratorRange string = "wasm_occ_iterator_range"
+	WasmOccParallelWrite string = "wasm_occ_parallel_write"
 )
+
+type WasmIteratorWriteMsg struct {
+	Values [][]uint64 `json:"values"`
+}
+
+type EVMAddresses struct {
+	ERC20        common.Address
+	ERC721       common.Address
+	UniV2Swapper common.Address
+}
 
 type Config struct {
 	ChainID            string                `json:"chain_id"`
 	GrpcEndpoints      string                `json:"grpc_endpoints"`
+	EvmRpcEndpoints    string                `json:"evm_rpc_endpoints"`
 	BlockchainEndpoint string                `json:"blockchain_endpoint"`
 	NodeURI            string                `json:"node_uri"`
-	TxsPerBlock        uint64                `json:"txs_per_block"`
+	TargetTps          uint64                `json:"target_tps"`
+	MaxAccounts        uint64                `json:"max_accounts"`
 	MsgsPerTx          uint64                `json:"msgs_per_tx"`
-	Rounds             uint64                `json:"rounds"`
-	MessageType        string                `json:"message_type"`
-	RunOracle          bool                  `json:"run_oracle"`
+	MessageTypes       []string              `json:"message_types"`
 	PriceDistr         NumericDistribution   `json:"price_distribution"`
 	QuantityDistr      NumericDistribution   `json:"quantity_distribution"`
 	MsgTypeDistr       MsgTypeDistribution   `json:"message_type_distribution"`
@@ -46,9 +67,30 @@ type Config struct {
 	ContractDistr      ContractDistributions `json:"contract_distribution"`
 	PerMessageConfigs  MessageConfigs        `json:"message_configs"`
 	MetricsPort        uint64                `json:"metrics_port"`
-	Constant           bool                  `json:"constant"`
-	LoadInterval       int64                 `json:"loadtest_interval"`
 	TLS                bool                  `json:"tls"`
+	SeiTesterAddress   string                `json:"sei_tester_address"`
+	PostTxEvmQueries   PostTxEvmQueries      `json:"post_tx_evm_queries"`
+	Ticks              uint64                `json:"ticks"`
+	EvmUseEip1559Txs   bool                  `json:"evm_use_eip1559_txs"` // setting this to true could make gas go up to infinity
+
+	// These are dynamically set at startup
+	EVMAddresses *EVMAddresses
+}
+
+func (c *Config) EVMRpcEndpoint() string {
+	endpoints := strings.Split(c.EvmRpcEndpoints, ",")
+	return endpoints[0]
+}
+
+func (c *Config) ContainsAnyMessageTypes(types ...string) bool {
+	for _, t := range types {
+		for _, mt := range c.MessageTypes {
+			if mt == t {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type EncodingConfig struct {
@@ -170,4 +212,16 @@ type VortexContract struct {
 type WasmInstantiateType struct {
 	CodeID  uint64 `json:"code_id"`
 	Payload string `json:"payload"`
+}
+
+type PostTxEvmQueries struct {
+	BlockByNumber int `json:"block_by_number"`
+	Receipt       int `json:"receipt"`
+	Filters       int `json:"filters"`
+}
+
+type SignedTx struct {
+	TxBytes []byte
+	EvmTx   *ethtypes.Transaction
+	MsgType string
 }

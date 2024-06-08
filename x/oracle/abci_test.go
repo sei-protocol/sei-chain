@@ -639,3 +639,36 @@ func makeAggregateVote(t *testing.T, input keeper.TestInput, h sdk.Handler, heig
 	_, err := h(input.Ctx.WithBlockHeight(height), voteMsg)
 	require.NoError(t, err)
 }
+
+func TestEndWindowClearExcessFeeds(t *testing.T) {
+	input, _ := setup(t)
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
+	input.OracleKeeper.SetParams(input.Ctx, params)
+
+	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, randomExchangeRate)
+	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, randomExchangeRate)
+
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+
+	earlyCtx := sdk.WrapSDKContext(input.Ctx)
+	earlyQuerier := keeper.NewQuerier(input.OracleKeeper)
+
+	response, err := earlyQuerier.Actives(earlyCtx, &types.QueryActivesRequest{})
+	require.NoError(t, err)
+	require.Equal(t, 2, len(response.Actives))
+
+	votePeriodsPerWindow := sdk.NewDec(int64(input.OracleKeeper.SlashWindow(input.Ctx))).QuoInt64(int64(input.OracleKeeper.VotePeriod(input.Ctx))).TruncateInt64()
+
+	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+
+	ctx := sdk.WrapSDKContext(input.Ctx)
+	querier := keeper.NewQuerier(input.OracleKeeper)
+
+	response2, err := querier.Actives(ctx, &types.QueryActivesRequest{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(response2.Actives))
+}

@@ -261,3 +261,8 @@ ss-prune-interval = 60
 # ImportNumWorkers defines the concurrency for state sync import
 # defaults to 1
 ss-import-num-workers = 1
+
+[evm]
+
+# EnableTestAPI enables the EVM test API
+enable_test_api = true

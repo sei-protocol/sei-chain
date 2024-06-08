@@ -33,11 +33,12 @@ override_genesis ".app_state[\"mint\"][\"params\"][\"token_release_schedule\"]=[
 override_genesis '.app_state["auth"]["accounts"]=[]'
 override_genesis '.app_state["bank"]["balances"]=[]'
 override_genesis '.app_state["genutil"]["gen_txs"]=[]'
+override_genesis '.app_state["bank"]["denom_metadata"]=[{"denom_units":[{"denom":"UATOM","exponent":6,"aliases":["UATOM"]}],"base":"uatom","display":"uatom","name":"UATOM","symbol":"UATOM"}]'
 
 # gov parameters
 override_genesis '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="usei"'
 override_genesis '.app_state["gov"]["deposit_params"]["min_expedited_deposit"][0]["denom"]="usei"'
-override_genesis '.app_state["gov"]["deposit_params"]["max_deposit_period"]="30s"'
+override_genesis '.app_state["gov"]["deposit_params"]["max_deposit_period"]="100s"'
 override_genesis '.app_state["gov"]["voting_params"]["voting_period"]="30s"'
 override_genesis '.app_state["gov"]["voting_params"]["expedited_voting_period"]="15s"'
 override_genesis '.app_state["gov"]["tally_params"]["quorum"]="0.5"'
@@ -48,11 +49,11 @@ override_genesis '.app_state["gov"]["tally_params"]["expedited_threshold"]="0.9"
 # add genesis accounts for each node
 while read account; do
   echo "Adding: $account"
-  seid add-genesis-account "$account" 1000000000000000000000usei
+  seid add-genesis-account "$account" 1000000000000000000000usei,1000000000000000000000uusdc,1000000000000000000000uatom
 done <build/generated/genesis_accounts.txt
 
 # add funds to admin account
-printf "12345678\n" | seid add-genesis-account admin 1000000000000000000000usei
+printf "12345678\n" | seid add-genesis-account admin 1000000000000000000000usei,1000000000000000000000uusdc,1000000000000000000000uatom
 
 mkdir -p ~/exported_keys
 cp -r build/generated/gentx/* ~/.sei/config/gentx

@@ -46,7 +46,7 @@ func sudo(sdkCtx sdk.Context, k *keeper.Keeper, contractAddress sdk.AccAddress, 
 	if err != nil {
 		return nil, 0, err
 	}
-	tmpCtx := sdkCtx.WithGasMeter(sdk.NewGasMeter(gasLimit))
+	tmpCtx := sdkCtx.WithGasMeter(sdk.NewGasMeterWithMultiplier(sdkCtx, gasLimit))
 	data, err := sudoWithoutOutOfGasPanic(tmpCtx, k, contractAddress, wasmMsg, msgType)
 	gasConsumed := tmpCtx.GasMeter().GasConsumed()
 	sdkCtx.EventManager().EmitEvent(

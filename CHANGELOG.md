@@ -27,6 +27,115 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v5.5.2
+sei-chain
+* [#1685](https://github.com/sei-protocol/sei-chain/pull/1685) Add EVM support to v5.5.2
+## v5.4.0
+sei-chain
+* [#1671](https://github.com/sei-protocol/sei-chain/pull/1671) Update and fixes to ERC721 contract
+* [#1672](https://github.com/sei-protocol/sei-chain/pull/1672) Add sei_getCosmosTx endpoint
+* [#1669](https://github.com/sei-protocol/sei-chain/pull/1669) Add ERC/CW 2981 in pointe
+* [#1668](https://github.com/sei-protocol/sei-chain/pull/1673) Bring CW721 pointer contract up to spec
+* [#1662](https://github.com/sei-protocol/sei-chain/pull/1662) Add memo support to ibc compiles
+* [#1661](https://github.com/sei-protocol/sei-chain/pull/1661) Do not modify original value passed in executeBatch call
+
+sei-cosmos
+*[#505](https://github.com/sei-protocol/sei-cosmos/pull/505) Fix export genesis for historical height
+*[#506](https://github.com/sei-protocol/sei-cosmos/pull/506) Allow reading pairs in changeset before flush
+
+sei-wasmd
+*[#50](https://github.com/sei-protocol/sei-wasmd/pull/50) Changes to fix runtime gas and add paramsKeeper to wasmKeeper for query gas multiplier
+
+## v5.2.0
+sei-chain
+* [#1621](https://github.com/sei-protocol/sei-chain/pull/1621) Add websocket metrics
+* [#1619](https://github.com/sei-protocol/sei-chain/pull/1619) Limit number of subscriptions
+* [#1618](https://github.com/sei-protocol/sei-chain/pull/1618) Fix contract deploy receipts
+* [#1615](https://github.com/sei-protocol/sei-chain/pull/1615) Optimize websocket newHead by reusing tendermint subscription
+* [#1609](https://github.com/sei-protocol/sei-chain/pull/1609) Add association logic to simulate endpoints
+* [#1605](https://github.com/sei-protocol/sei-chain/pull/1605) Disallow sr25519 addresses for evm functions
+* [#1606](https://github.com/sei-protocol/sei-chain/pull/1606) SKip evm antehandler on sr25519 signatures
+
+sei-cosmos:
+* [#495](https://github.com/sei-protocol/sei-cosmos/pull/495) Fix seid keys list by ignoring evm-addr for sr25519
+* [#493](https://github.com/sei-protocol/sei-cosmos/pull/493) Remove non-multiplier gas meter
+
+sei-tendermint:
+* [#235](https://github.com/sei-protocol/sei-tendermint/pull/235) Check removed including wrapped tx state
+
+sei-db:
+* [#63](https://github.com/sei-protocol/sei-db/pull/63) Fix edge case for iterating over tombstoned value
+
+## v5.0.1
+sei-chain
+[#1577](https://github.com/sei-protocol/sei-chain/pull/1577) Re-enable Cancun
+
+## v5.0.0
+sei-chain:
+[Compare v3.9.0...v5.0.0](https://github.com/sei-protocol/sei-chain/compare/v3.9.0...008ff68)
+
+sei-cosmos:
+[Compare v0.2.84...v0.3.1](https://github.com/sei-protocol/sei-cosmos/compare/v0.2.83...v0.3.1)
+
+sei-tendermint:
+[Compare v0.2.40...v0.3.0](https://github.com/sei-protocol/sei-tendermint/compare/v0.2.40...v0.3.0)
+
+
+## v3.9.0
+sei-chain:
+* [#1565](https://github.com/sei-protocol/sei-chain/pull/1565) Cosmos Gas Multiplier Params
+* [#1444](https://github.com/sei-protocol/sei-chain/pull/1444) Adding tokenfactory denom metadata endpoint
+
+sei-cosmos:
+* [#489](https://github.com/sei-protocol/sei-cosmos/pull/489) Cosmos Gas Multiplier Params
+* [#477](https://github.com/sei-protocol/sei-cosmos/pull/477) [OCC] if synchronous, reset non-pending
+
+sei-tendermint:
+* [211](https://github.com/sei-protocol/sei-tendermint/pull/211) Replay events during restart to avoid tx missing
+
+sei-db:
+* [#62](https://github.com/sei-protocol/sei-db/pull/62) Set CreateIfMissing to false when copyExisting
+
+sei-wasmd:
+* [45](https://github.com/sei-protocol/sei-wasmd/pull/45) Update LimitSimulationGasDecorator with custom Gas Meter Setter
+* [44](https://github.com/sei-protocol/sei-wasmd/pull/44) Bump wasmvm to v1.5.2
+
+## v3.8.0
+sei-tendermint:
+* [209](https://github.com/sei-protocol/sei-tendermint/pull/209) Use write-lock in (*TxPriorityQueue).ReapMax funcs
+
+sei-db:
+* [#61](https://github.com/sei-protocol/sei-db/pull/61) LoadVersion should open DB with read only
+
+sei-wasmd:
+* [41](https://github.com/sei-protocol/sei-wasmd/pull/42) Bump wasmd version
+
+## v3.7.0
+sei-chain:
+* [#1283](https://github.com/sei-protocol/sei-chain/pull/1283) Update synchronous execution to set tx indices properly
+* [#1325](https://github.com/sei-protocol/sei-chain/pull/1325) Oracle price feeder ignore error for vote already exist
+
+sei-cosmos:
+* [#401](https://github.com/sei-protocol/sei-cosmos/pull/401) Ensure Panic Recovery in Prepare & Process Handlers
+* [#404](https://github.com/sei-protocol/sei-cosmos/pull/404) No longer disable dynamic dep generation
+* [#411](https://github.com/sei-protocol/sei-cosmos/pull/411) Fix concurrent map access for seidb
+* [#424](https://github.com/sei-protocol/sei-cosmos/pull/424) Fix SS apply changeset version off by 1
+
+## v3.6.1
+sei-chain:
+* [#1204](https://github.com/sei-protocol/sei-chain/pull/1204) Cleanup removed oracle feeds
+* [#1196](https://github.com/sei-protocol/sei-chain/pull/1196) Add panic handler in dex endblock
+* [#1170](https://github.com/sei-protocol/sei-chain/pull/1170) Integrate SeiDB into Sei Chain
+
+sei-cosmos:
+* [#391](https://github.com/sei-protocol/sei-cosmos/pull/391) Fix potential memory leak due to emitting events
+* [#388](https://github.com/sei-protocol/sei-cosmos/pull/388) Improve cachekv write performance
+* [#385](https://github.com/sei-protocol/sei-cosmos/pull/385) Add params to disable seqno
+* [#373](https://github.com/sei-protocol/sei-cosmos/pull/373) Add root multistore v2 for SeiDB
+
+sei-tendermint:
+* [#175](https://github.com/sei-protocol/sei-tendermint/pull/175) Fix self remediation bug for block sync
+
 ## v3.5.0
 sei-chain:
 * [#1164](https://github.com/sei-protocol/sei-chain/pull/1164) Bump wasmd

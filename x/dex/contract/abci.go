@@ -52,7 +52,7 @@ func EndBlockerAtomic(ctx sdk.Context, keeper *keeper.Keeper, validContractsInfo
 	env := newEnv(ctx, validContractsInfo, keeper)
 	cachedCtx, msCached := cacheContext(ctx, env)
 	memStateCopy := dexutils.GetMemState(cachedCtx.Context()).DeepCopy()
-	contractsToProcess := memStateCopy.GetContractToProcess().ToOrderedSlice(datastructures.StringComparator)
+	contractsToProcess := memStateCopy.GetContractToProcessOrderedSlice(cachedCtx)
 	preRunRents := keeper.GetRentsForContracts(cachedCtx, contractsToProcess)
 
 	handleDeposits(spanCtx, cachedCtx, env, keeper, tracer)
@@ -162,7 +162,7 @@ func decorateContextForContract(ctx sdk.Context, contractInfo types.ContractInfo
 	whitelistedStore := multi.NewStore(ctx.MultiStore(), GetWhitelistMap(contractInfo.ContractAddr))
 	newEventManager := sdk.NewEventManager()
 	return ctx.WithContext(goCtx).WithMultiStore(whitelistedStore).WithEventManager(newEventManager).WithGasMeter(
-		seisync.NewGasWrapper(sdk.NewInfiniteGasMeter()),
+		seisync.NewGasWrapper(sdk.NewInfiniteGasMeterWithMultiplier(ctx)),
 	)
 }
 
@@ -173,7 +173,7 @@ func handleDeposits(spanCtx context.Context, ctx sdk.Context, env *environment, 
 	defer telemetry.MeasureSince(time.Now(), "dex", "handle_deposits")
 	keeperWrapper := dexkeeperabci.KeeperWrapper{Keeper: keeper}
 	for _, contract := range env.validContractsInfo {
-		if !dexutils.GetMemState(ctx.Context()).GetContractToProcess().Contains(contract.ContractAddr) {
+		if !dexutils.GetMemState(ctx.Context()).ContractsToProcessContains(ctx, contract.ContractAddr) {
 			continue
 		}
 		if !contract.NeedOrderMatching {
@@ -211,7 +211,7 @@ func handleUnfulfilledMarketOrders(ctx context.Context, sdkCtx sdk.Context, env 
 	// Cancel unfilled market orders
 	defer telemetry.MeasureSince(time.Now(), "dex", "handle_unfulfilled_market_orders")
 	for _, contract := range env.validContractsInfo {
-		if !dexutils.GetMemState(sdkCtx.Context()).GetContractToProcess().Contains(contract.ContractAddr) {
+		if !dexutils.GetMemState(sdkCtx.Context()).ContractsToProcessContains(sdkCtx, contract.ContractAddr) {
 			return
 		}
 		if contract.NeedOrderMatching {
@@ -253,7 +253,7 @@ func OrderMatchingRunnable(ctx context.Context, sdkContext sdk.Context, env *env
 			}
 		}
 	}()
-	if !dexutils.GetMemState(sdkContext.Context()).GetContractToProcess().Contains(contractInfo.ContractAddr) {
+	if !dexutils.GetMemState(sdkContext.Context()).ContractsToProcessContains(sdkContext, contractInfo.ContractAddr) {
 		return
 	}
 	if !contractInfo.NeedOrderMatching {

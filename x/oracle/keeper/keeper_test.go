@@ -84,6 +84,18 @@ func TestExchangeRate(t *testing.T) {
 	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, handler)
 
 	require.Equal(t, 2, numExchangeRates)
+
+	// eth removed
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroSeiDenom)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+	// should remove eth
+	input.OracleKeeper.RemoveExcessFeeds(input.Ctx)
+
+	numExchangeRates = 0
+	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, handler)
+	require.Equal(t, 1, numExchangeRates)
+
 }
 
 func TestIterateSeiExchangeRates(t *testing.T) {
@@ -680,4 +692,139 @@ func TestCalculateTwaps(t *testing.T) {
 	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 0)
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
+}
+
+func TestCalculateTwapsWithUnsupportedDenom(t *testing.T) {
+	input := CreateTestInput(t)
+
+	_, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.Error(t, err)
+	require.Equal(t, types.ErrNoTwapData, err)
+
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(40),
+				LastUpdate:   sdk.NewInt(1800),
+			}),
+		}, 1200),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(10),
+				LastUpdate:   sdk.NewInt(3600),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(20),
+				LastUpdate:   sdk.NewInt(3600),
+			}),
+		}, 3600),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(20),
+				LastUpdate:   sdk.NewInt(4500),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(40),
+				LastUpdate:   sdk.NewInt(4500),
+			}),
+		}, 4500),
+	}
+	for _, snap := range priceSnapshots {
+		input.OracleKeeper.SetPriceSnapshot(input.Ctx, snap)
+	}
+	// eth removed
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(5400, 0))
+	twaps, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap := twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(3600), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(35), atomTwap.Twap)
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6000, 0))
+
+	// we still expect the out of range data point from 1200 to be kept for calculating TWAP for the full interval
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(30),
+			LastUpdate:   sdk.NewInt(6000),
+		}),
+	}, 6000))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6600, 0))
+
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap = twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(3600), atomTwap.LookbackSeconds)
+
+	expectedTwap, _ := sdk.NewDecFromStr("33.333333333333333333")
+	require.Equal(t, expectedTwap, atomTwap.Twap)
+
+	// test with shorter lookback
+	// microeth is not in this one because it's not in the snapshot used for TWAP calculation
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 300)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap = twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(300), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(30), atomTwap.Twap)
+
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(20),
+			LastUpdate:   sdk.NewInt(6000),
+		}),
+	}, 6600))
+
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(20),
+			LastUpdate:   sdk.NewInt(6900),
+		}),
+	}, 6900))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6900, 0))
+
+	// the older interval weight should be appropriately shorted to the start of the lookback interval,
+	// so the TWAP should be 25 instead of 26.666 because the 20 and 30 are weighted 50-50 instead of 33.3-66.6
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 600)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap = twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(600), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(25), atomTwap.Twap)
+
+	// test error when lookback too large
+	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3700)
+	require.Error(t, err)
+	require.Equal(t, types.ErrInvalidTwapLookback, err)
+
+	// test error when lookback is 0
+	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 0)
+	require.Error(t, err)
+	require.Equal(t, types.ErrInvalidTwapLookback, err)
+}
+
+func TestSpamPreventionCounter(t *testing.T) {
+	input := CreateTestInput(t)
+
+	// verify value == -1 when not set
+	require.Equal(t, int64(-1), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
+
+	input.Ctx = input.Ctx.WithBlockHeight(3)
+
+	input.OracleKeeper.SetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0]))
+	// verify counter value correct when set
+	require.Equal(t, int64(3), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
+	// verify value == -1 for a different address
+	require.Equal(t, int64(-1), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[1])))
 }

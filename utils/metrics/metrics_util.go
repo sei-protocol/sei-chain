@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"math/big"
 	"strconv"
 	"time"
 
@@ -120,6 +121,19 @@ func MeasureDeliverTxDuration(start time.Time) {
 	)
 }
 
+// Measures the time taken to execute a batch tx
+// Metric Names:
+//
+//	sei_deliver_batch_tx_duration_miliseconds
+//	sei_deliver_batch_tx_duration_miliseconds_count
+//	sei_deliver_batch_tx_duration_miliseconds_sum
+func MeasureDeliverBatchTxDuration(start time.Time) {
+	metrics.MeasureSince(
+		[]string{"sei", "deliver", "batch", "tx", "milliseconds"},
+		start.UTC(),
+	)
+}
+
 // sei_oracle_vote_penalty_count
 func SetOracleVotePenaltyCount(count uint64, valAddr string, penaltyType string) {
 	metrics.SetGaugeWithLabels(
@@ -151,6 +165,18 @@ func SetThroughputMetric(metricName string, value float32) {
 	)
 }
 
+// Measures number of new websocket connects
+// Metric Name:
+//
+//	sei_websocket_connect
+func IncWebsocketConnects() {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "websocket", "connect"},
+		1,
+		nil,
+	)
+}
+
 // Measures number of times a denom's price is updated
 // Metric Name:
 //
@@ -160,6 +186,18 @@ func IncrPriceUpdateDenom(denom string) {
 		[]string{"sei", "oracle", "price", "update"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("denom", denom)},
+	)
+}
+
+// Measures throughput per message type
+// Metric Name:
+//
+//	sei_throughput_<metric_name>
+func SetThroughputMetricByType(metricName string, value float32, msgType string) {
+	telemetry.SetGaugeWithLabels(
+		[]string{"sei", "loadtest", "tps", metricName},
+		value,
+		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
 	)
 }
 
@@ -220,5 +258,77 @@ func IncrementOptimisticProcessingCounter(enabled bool) {
 		[]string{"sei", "optimistic", "processing", "counter"},
 		float32(1),
 		[]metrics.Label{telemetry.NewLabel("enabled", strconv.FormatBool(enabled))},
+	)
+}
+
+// Measures RPC endpoint request throughput
+// Metric Name:
+//
+//	sei_rpc_request_counter
+func IncrementRpcRequestCounter(endpoint string, connectionType string, success bool) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "rpc", "request", "counter"},
+		float32(1),
+		[]metrics.Label{
+			telemetry.NewLabel("endpoint", endpoint),
+			telemetry.NewLabel("connection", connectionType),
+			telemetry.NewLabel("success", strconv.FormatBool(success)),
+		},
+	)
+}
+
+// Measures the RPC request latency in milliseconds
+// Metric Name:
+//
+//	sei_rpc_request_latency_ms
+func MeasureRpcRequestLatency(endpoint string, connectionType string, startTime time.Time) {
+	metrics.MeasureSinceWithLabels(
+		[]string{"sei", "rpc", "request", "latency_ms"},
+		startTime.UTC(),
+		[]metrics.Label{
+			telemetry.NewLabel("endpoint", endpoint),
+			telemetry.NewLabel("connection", connectionType),
+		},
+	)
+}
+
+// IncrProducerEventCount increments the counter for events produced.
+// This metric counts the number of events produced by the system.
+// Metric Name:
+//
+//	sei_loadtest_produce_count
+func IncrProducerEventCount(msgType string) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "loadtest", "produce", "count"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
+	)
+}
+
+// IncrConsumerEventCount increments the counter for events consumed.
+// This metric counts the number of events consumed by the system.
+// Metric Name:
+//
+//	sei_loadtest_consume_count
+func IncrConsumerEventCount(msgType string) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "loadtest", "consume", "count"},
+		1,
+		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
+	)
+}
+
+func AddHistogramMetric(key []string, value float32) {
+	metrics.AddSample(key, value)
+}
+
+// Gauge for gas price paid for transactions
+// Metric Name:
+//
+// sei_evm_effective_gas_price
+func HistogramEvmEffectiveGasPrice(gasPrice *big.Int) {
+	AddHistogramMetric(
+		[]string{"sei", "evm", "effective", "gas", "price"},
+		float32(gasPrice.Uint64()),
 	)
 }

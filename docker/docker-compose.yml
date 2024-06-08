@@ -8,6 +8,7 @@ services:
     ports:
       - "26656-26658:26656-26658"
       - "9090-9091:9090-9091"
+      - "8545-8546:8545-8546"
     environment:
       - ID=0
       - CLUSTER_SIZE=4
@@ -20,6 +21,7 @@ services:
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
+      - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
     networks:
       localnet:
@@ -44,6 +46,7 @@ services:
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
+      - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
     networks:
       localnet:
@@ -68,6 +71,7 @@ services:
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
+      - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
     networks:
       localnet:
@@ -92,6 +96,7 @@ services:
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
+      - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
     networks:
       localnet:

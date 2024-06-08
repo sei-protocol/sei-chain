@@ -2,7 +2,15 @@ package app_test
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/server/api"
+	cosmosConfig "github.com/cosmos/cosmos-sdk/server/config"
+	"github.com/gorilla/mux"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"math/big"
+	"reflect"
 	"testing"
 	"time"
 
@@ -12,9 +20,16 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/k0kubun/pp/v3"
 	"github.com/sei-protocol/sei-chain/app"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -27,7 +42,7 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 
 	for i := 1; i <= 10; i++ {
-		testWrapper := app.NewTestWrapper(t, tm, valPub)
+		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
 		testWrapper.App.Commit(context.Background())
 		data := res.AppHash
@@ -109,7 +124,7 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 	account := sdk.AccAddress(valPub.Address()).String()
 	validator := sdk.ValAddress(valPub.Address()).String()
@@ -192,12 +207,22 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		otherTx,
 		mixedTx,
 	}
+	typedTxs := []sdk.Tx{
+		oracleTxBuilder.GetTx(),
+		contractRegisterBuilder.GetTx(),
+		contractUnregisterBuilder.GetTx(),
+		contractUnsuspendBuilder.GetTx(),
+		otherTxBuilder.GetTx(),
+		mixedTxBuilder.GetTx(),
+	}
 
-	prioritizedTxs, otherTxs, prioIdxs, otherIdxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs)
+	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs, typedTxs)
 	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
 	require.Equal(t, []int{0, 1, 2, 3}, prioIdxs)
 	require.Equal(t, []int{4, 5}, otherIdxs)
+	require.Equal(t, 4, len(prioritizedTypedTxs))
+	require.Equal(t, 2, len(otherTypedTxs))
 
 	diffOrderTxs := [][]byte{
 		oracleTx,
@@ -207,12 +232,22 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		mixedTx,
 		contractSuspendTx,
 	}
+	differOrderTypedTxs := []sdk.Tx{
+		oracleTxBuilder.GetTx(),
+		otherTxBuilder.GetTx(),
+		contractRegisterBuilder.GetTx(),
+		contractUnregisterBuilder.GetTx(),
+		mixedTxBuilder.GetTx(),
+		contractUnsuspendBuilder.GetTx(),
+	}
 
-	prioritizedTxs, otherTxs, prioIdxs, otherIdxs = testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, diffOrderTxs)
+	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs = testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, diffOrderTxs, differOrderTypedTxs)
 	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
 	require.Equal(t, []int{0, 2, 3, 5}, prioIdxs)
 	require.Equal(t, []int{1, 4}, otherIdxs)
+	require.Equal(t, 4, len(prioritizedTypedTxs))
+	require.Equal(t, 2, len(otherTypedTxs))
 }
 
 func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
@@ -220,7 +255,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	valPub := secp256k1.GenPrivKey().PubKey()
 	secondAcc := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 	account := sdk.AccAddress(valPub.Address()).String()
 	account2 := sdk.AccAddress(secondAcc.Address()).String()
@@ -267,8 +302,6 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	_, txResults, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
 			1,
-		).WithBlockGasMeter(
-			sdk.NewInfiniteGasMeter(),
 		),
 		txs,
 		req,
@@ -291,8 +324,6 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	_, txResults2, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
 			1,
-		).WithBlockGasMeter(
-			sdk.NewInfiniteGasMeter(),
 		),
 		diffOrderTxs,
 		req,
@@ -310,7 +341,7 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	ap := testWrapper.App
 	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
 		Block: &types.BlockParams{MaxGas: 10},
@@ -327,4 +358,123 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	res, err := ap.ProcessProposalHandler(ctx, &badProposal)
 	require.Nil(t, err)
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
+}
+
+func TestDecodeTransactionsConcurrently(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	to := new(common.Address)
+	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
+	txData := ethtypes.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(10),
+		Gas:      1000,
+		To:       to,
+		Value:    big.NewInt(1000),
+		Data:     []byte("abc"),
+	}
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(big.NewInt(config.DefaultChainID))
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), uint64(123))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	ethtxdata, _ := ethtx.NewTxDataFromTx(tx)
+	if err != nil {
+		return
+	}
+	msg, _ := evmtypes.NewMsgEVMTransaction(ethtxdata)
+	txBuilder := testWrapper.App.GetTxConfig().NewTxBuilder()
+	txBuilder.SetMsgs(msg)
+	evmtxbz, _ := testWrapper.App.GetTxConfig().TxEncoder()(txBuilder.GetTx())
+
+	bankMsg := &banktypes.MsgSend{
+		FromAddress: "",
+		ToAddress:   "",
+		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 2)),
+	}
+
+	bankTxBuilder := testWrapper.App.GetTxConfig().NewTxBuilder()
+	bankTxBuilder.SetMsgs(bankMsg)
+	bankTxBuilder.SetGasLimit(200000)
+	bankTxBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 20000)))
+	banktxbz, _ := testWrapper.App.GetTxConfig().TxEncoder()(bankTxBuilder.GetTx())
+
+	invalidbz := []byte("abc")
+
+	typedTxs := testWrapper.App.DecodeTransactionsConcurrently(testWrapper.Ctx, [][]byte{evmtxbz, invalidbz, banktxbz})
+	require.NotNil(t, typedTxs[0])
+	require.NotNil(t, typedTxs[0].GetMsgs()[0].(*evmtypes.MsgEVMTransaction).Derived)
+	require.Nil(t, typedTxs[1])
+	require.NotNil(t, typedTxs[2])
+}
+
+func TestApp_RegisterAPIRoutes(t *testing.T) {
+	type args struct {
+		apiSvr    *api.Server
+		apiConfig cosmosConfig.APIConfig
+	}
+	tests := []struct {
+		name        string
+		args        args
+		wantSwagger bool
+	}{
+		{
+			name: "swagger added to the router if configured",
+			args: args{
+				apiSvr: &api.Server{
+					ClientCtx:         client.Context{},
+					Router:            &mux.Router{},
+					GRPCGatewayRouter: runtime.NewServeMux(),
+				},
+				apiConfig: cosmosConfig.APIConfig{
+					Swagger: true,
+				},
+			},
+			wantSwagger: true,
+		},
+		{
+			name: "swagger not added to the router if not configured",
+			args: args{
+				apiSvr: &api.Server{
+					ClientCtx:         client.Context{},
+					Router:            &mux.Router{},
+					GRPCGatewayRouter: runtime.NewServeMux(),
+				},
+				apiConfig: cosmosConfig.APIConfig{},
+			},
+			wantSwagger: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			seiApp := &app.App{}
+			seiApp.RegisterAPIRoutes(tt.args.apiSvr, tt.args.apiConfig)
+			routes := tt.args.apiSvr.Router
+			gotSwagger := isSwaggerRouteAdded(routes)
+
+			if !reflect.DeepEqual(gotSwagger, tt.wantSwagger) {
+				t.Errorf("Run() gotSwagger = %v, want %v", gotSwagger, tt.wantSwagger)
+			}
+		})
+
+	}
+}
+
+func isSwaggerRouteAdded(router *mux.Router) bool {
+	var isAdded bool
+	err := router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+		pathTemplate, err := route.GetPathTemplate()
+		if err == nil && pathTemplate == "/swagger/" {
+			isAdded = true
+		}
+		return nil
+	})
+	if err != nil {
+		return false
+	}
+	return isAdded
 }

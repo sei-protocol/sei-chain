@@ -205,16 +205,13 @@ query_gas_limit = 300000
 # Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
 lru_size = 0
 
-###############################################################################
+#############################################################################
 ###                             SeiDB Configuration                       ###
-###############################################################################
+#############################################################################
 
 [state-commit]
-
 # Enable defines if the state-commit (memiavl) should be enabled to override existing IAVL db backend.
 sc-enable = true
-
-sc-directory = ""
 
 # ZeroCopy defines if memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
 # the zero-copied slices must not be retained beyond current block's execution.
@@ -244,8 +241,6 @@ sc-cache-size = 1000
 # In order to use state-store, you need to make sure to enable state-commit at the same time
 ss-enable = true
 
-ss-db-directory = ""
-
 # DBBackend defines the backend database used for state-store.
 # Supported backends: pebbledb, rocksdb, sqlite
 # defaults to pebbledb (recommended)
@@ -268,3 +263,8 @@ ss-prune-interval = 60
 # ImportNumWorkers defines the concurrency for state sync import
 # defaults to 1
 ss-import-num-workers = 1
+
+[evm]
+
+# EnableTestAPI enables the EVM test API
+enable_test_api = true

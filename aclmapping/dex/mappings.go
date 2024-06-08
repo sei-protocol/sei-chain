@@ -45,6 +45,7 @@ func GetLongShortOrderBookOps(contractAddr string, priceDenom string, assetDenom
 }
 
 func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, _ sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
+	// TODO: read + write downstream, write contracts to process
 	placeOrdersMsg, ok := msg.(*dextypes.MsgPlaceOrders)
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrPlaceOrdersGenerator
@@ -97,6 +98,22 @@ func DexPlaceOrdersDependencyGenerator(keeper aclkeeper.Keeper, _ sdk.Context, m
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_ORDER,
 			IdentifierTemplate: hex.EncodeToString(dextypes.MemOrderPrefix(contractAddr)),
+		},
+
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS,
+			IdentifierTemplate: hex.EncodeToString(dextypes.MemDownstreamContractsKey(contractAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS,
+			IdentifierTemplate: hex.EncodeToString(dextypes.MemDownstreamContractsKey(contractAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_CONTRACTS_TO_PROCESS,
+			IdentifierTemplate: hex.EncodeToString(dextypes.MemContractsToProcessKey(contractAddr)),
 		},
 
 		// Checks balance of sender
@@ -182,6 +199,21 @@ func DexCancelOrdersDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, msg s
 			AccessType:         sdkacltypes.AccessType_READ,
 			ResourceType:       sdkacltypes.ResourceType_KV_DEX_CONTRACT,
 			IdentifierTemplate: hex.EncodeToString([]byte(dexkeeper.ContractPrefixKey)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS,
+			IdentifierTemplate: hex.EncodeToString(dextypes.MemDownstreamContractsKey(contractAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_DOWNSTREAM_CONTRACTS,
+			IdentifierTemplate: hex.EncodeToString(dextypes.MemDownstreamContractsKey(contractAddr)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_DEX_MEM_CONTRACTS_TO_PROCESS,
+			IdentifierTemplate: hex.EncodeToString(dextypes.MemContractsToProcessKey(contractAddr)),
 		},
 	}
 

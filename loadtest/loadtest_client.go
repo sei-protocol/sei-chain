@@ -2,37 +2,38 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"golang.org/x/exp/slices"
+	"golang.org/x/time/rate"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	typestx "github.com/cosmos/cosmos-sdk/types/tx"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-
-	"crypto/tls"
-
-	"github.com/k0kubun/pp/v3"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 )
 
 type LoadTestClient struct {
 	LoadTestConfig     Config
 	TestConfig         EncodingConfig
+	AccountKeys        []cryptotypes.PrivKey
 	TxClients          []typestx.ServiceClient
-	TxHashFile         *os.File
+	EvmTxClients       []*EvmTxClient
 	SignerClient       *SignerClient
 	ChainID            string
-	TxHashList         []string
-	TxResponseChan     chan *string
-	TxHashListMutex    *sync.Mutex
 	GrpcConns          []*grpc.ClientConn
 	StakingQueryClient stakingtypes.QueryClient
 	// Staking specific variables
@@ -45,55 +46,47 @@ type LoadTestClient struct {
 	generatedAdminMessageForBlock bool
 	// Messages that has to be sent from the admin account
 	isAdminMessageMapping map[string]bool
+	mtx                   *sync.RWMutex
 }
 
 func NewLoadTestClient(config Config) *LoadTestClient {
-	var dialOptions []grpc.DialOption
-
-	// NOTE: Will likely need to whitelist node from elb rate limits - add ip to producer ip set
-	if config.TLS {
-		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
-	} else {
-		dialOptions = append(dialOptions, grpc.WithInsecure())
-	}
-	endpoints := strings.Split(config.GrpcEndpoints, ",")
-	TxClients := make([]typestx.ServiceClient, len(endpoints))
-	GrpcConns := make([]*grpc.ClientConn, len(endpoints))
-	for i, endpoint := range endpoints {
-		grpcConn, _ := grpc.Dial(
-			endpoint,
-			dialOptions...)
-		TxClients[i] = typestx.NewServiceClient(grpcConn)
-		GrpcConns[i] = grpcConn
+	signerClient := NewSignerClient(config.NodeURI)
+	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts))
+	txClients, grpcConns := BuildGrpcClients(&config)
+	var evmTxClients []*EvmTxClient
+	if config.EvmRpcEndpoints != "" {
+		if config.ContainsAnyMessageTypes(EVM, ERC20, ERC721, UNIV2) {
+			evmTxClients = BuildEvmTxClients(&config, keys)
+		}
 	}
 
-	// setup output files
-	userHomeDir, _ := os.UserHomeDir()
-	_ = os.Mkdir(filepath.Join(userHomeDir, "outputs"), os.ModePerm)
-	filename := filepath.Join(userHomeDir, "outputs", "test_tx_hash")
-	_ = os.Remove(filename)
-	outputFile, _ := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	// Fill message type maps with empty values
+	for _, messageType := range config.MessageTypes {
+		producedCountPerMsgType[messageType] = new(int64)
+		sentCountPerMsgType[messageType] = new(int64)
+		prevSentCounterPerMsgType[messageType] = new(int64)
+	}
+
 	return &LoadTestClient{
 		LoadTestConfig:                config,
+		AccountKeys:                   keys,
 		TestConfig:                    TestConfig,
-		TxClients:                     TxClients,
-		TxHashFile:                    outputFile,
-		SignerClient:                  NewSignerClient(config.NodeURI),
+		TxClients:                     txClients,
+		EvmTxClients:                  evmTxClients,
+		SignerClient:                  signerClient,
 		ChainID:                       config.ChainID,
-		TxHashList:                    []string{},
-		TxResponseChan:                make(chan *string),
-		TxHashListMutex:               &sync.Mutex{},
-		GrpcConns:                     GrpcConns,
-		StakingQueryClient:            stakingtypes.NewQueryClient(GrpcConns[0]),
+		GrpcConns:                     grpcConns,
+		StakingQueryClient:            stakingtypes.NewQueryClient(grpcConns[0]),
 		DelegationMap:                 map[string]map[string]int{},
 		TokenFactoryDenomOwner:        map[string]string{},
 		generatedAdminMessageForBlock: false,
 		isAdminMessageMapping:         map[string]bool{CollectRewards: true, DistributeRewards: true},
+		mtx:                           &sync.RWMutex{},
 	}
 }
 
 func (c *LoadTestClient) SetValidators() {
-	if strings.Contains(c.LoadTestConfig.MessageType, "staking") {
+	if slices.Contains(c.LoadTestConfig.MessageTypes, "staking") {
 		resp, err := c.StakingQueryClient.Validators(context.Background(), &stakingtypes.QueryValidatorsRequest{})
 		if err != nil {
 			panic(err)
@@ -102,203 +95,199 @@ func (c *LoadTestClient) SetValidators() {
 	}
 }
 
+// BuildGrpcClients build a list of grpc clients
+func BuildGrpcClients(config *Config) ([]typestx.ServiceClient, []*grpc.ClientConn) {
+	grpcEndpoints := strings.Split(config.GrpcEndpoints, ",")
+	txClients := make([]typestx.ServiceClient, len(grpcEndpoints))
+	grpcConns := make([]*grpc.ClientConn, len(grpcEndpoints))
+	var dialOptions []grpc.DialOption
+	dialOptions = append(dialOptions, grpc.WithDefaultCallOptions(
+		grpc.MaxCallRecvMsgSize(20*1024*1024),
+		grpc.MaxCallSendMsgSize(20*1024*1024)),
+	)
+	dialOptions = append(dialOptions, grpc.WithBlock())
+	if config.TLS {
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
+	} else {
+		dialOptions = append(dialOptions, grpc.WithInsecure())
+	}
+	for i, endpoint := range grpcEndpoints {
+		grpcConn, _ := grpc.Dial(
+			endpoint,
+			dialOptions...)
+		txClients[i] = typestx.NewServiceClient(grpcConn)
+		grpcConns[i] = grpcConn
+		// spin up goroutine for monitoring and reconnect purposes
+		go func() {
+			for {
+				state := grpcConn.GetState()
+				if state == connectivity.TransientFailure || state == connectivity.Shutdown {
+					fmt.Println("GRPC Connection lost, attempting to reconnect...")
+					for {
+						if grpcConn.WaitForStateChange(context.Background(), state) {
+							break
+						}
+						time.Sleep(10 * time.Second)
+					}
+				}
+				time.Sleep(10 * time.Second)
+			}
+		}()
+	}
+	return txClients, grpcConns
+}
+
+// BuildEvmTxClients build a list of EvmTxClients with a list of go-ethereum client
+func BuildEvmTxClients(config *Config, keys []cryptotypes.PrivKey) []*EvmTxClient {
+	clients := make([]*EvmTxClient, len(keys))
+	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
+	if len(ethEndpoints) == 0 {
+		return clients
+	}
+	ethClients := make([]*ethclient.Client, len(ethEndpoints))
+	for i, endpoint := range ethEndpoints {
+		client, err := ethclient.Dial(endpoint)
+		if err != nil {
+			fmt.Printf("Failed to connect to endpoint %s with error %s", endpoint, err.Error())
+		}
+		ethClients[i] = client
+	}
+	// Get chainId
+	chainID, err := ethClients[0].NetworkID(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get chain ID: %v \n", err))
+	}
+	// Get gas price
+	gasPrice, err := ethClients[0].SuggestGasPrice(context.Background())
+	if err != nil {
+		panic(fmt.Sprintf("Failed to suggest gas price: %v\n", err))
+	}
+	// Build one client per key
+	for i, key := range keys {
+		clients[i] = NewEvmTxClient(key, chainID, gasPrice, ethClients, config.EVMAddresses, config.EvmUseEip1559Txs)
+	}
+	return clients
+}
+
 func (c *LoadTestClient) Close() {
 	for _, grpcConn := range c.GrpcConns {
 		_ = grpcConn.Close()
 	}
 }
 
-func (c *LoadTestClient) AppendTxHash(txHash string) {
-	c.TxResponseChan <- &txHash
-}
-
-func (c *LoadTestClient) WriteTxHashToFile() {
-	fmt.Printf("Writing Tx Hashes to: %s \n", c.TxHashFile.Name())
-	file := c.TxHashFile
-	for _, txHash := range c.TxHashList {
-		txHashLine := fmt.Sprintf("%s\n", txHash)
-		if _, err := file.WriteString(txHashLine); err != nil {
-			panic(err)
-		}
-	}
-}
-
-func (c *LoadTestClient) BuildTxs() (workgroups []*sync.WaitGroup, sendersList [][]func()) {
+func (c *LoadTestClient) BuildTxs(
+	txQueue chan SignedTx,
+	keyIndex int,
+	wg *sync.WaitGroup,
+	done <-chan struct{},
+	rateLimiter *rate.Limiter,
+	producedCountPerMsgType map[string]*int64,
+) {
+	wg.Add(1)
+	defer wg.Done()
 	config := c.LoadTestConfig
-	numberOfAccounts := config.TxsPerBlock / config.MsgsPerTx * 2 // * 2 because we need two sets of accounts
-	activeAccounts := []int{}
-	inactiveAccounts := []int{}
-
-	for i := 0; i < int(numberOfAccounts); i++ {
-		if i%2 == 0 {
-			activeAccounts = append(activeAccounts, i)
-		} else {
-			inactiveAccounts = append(inactiveAccounts, i)
-		}
-	}
-
-	valKeys := c.SignerClient.GetValKeys()
-
-	for i := 0; i < int(config.Rounds); i++ {
-		fmt.Printf("Preparing %d-th round\n", i)
-
-		wg := &sync.WaitGroup{}
-		var senders []func()
-		workgroups = append(workgroups, wg)
-		c.generatedAdminMessageForBlock = false
-		for j, account := range activeAccounts {
-			accountIdentifier := fmt.Sprint(account)
-			accountKeyPath := c.SignerClient.GetTestAccountKeyPath(uint64(account))
-			key := c.SignerClient.GetKey(accountIdentifier, "test", accountKeyPath)
-
-			msgs, failureExpected, signer, gas, fee := c.generateMessage(config, key, config.MsgsPerTx)
-			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-			_ = txBuilder.SetMsgs(msgs...)
-			seqDelta := uint64(i / 2)
-			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-			if j == len(activeAccounts)-1 {
-				mode = typestx.BroadcastMode_BROADCAST_MODE_BLOCK
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			if !rateLimiter.Allow() {
+				continue
 			}
-			// Note: There is a potential race condition here with seqnos
-			// in which a later seqno is delievered before an earlier seqno
-			// In practice, we haven't run into this issue so we'll leave this
-			// as is.
-			sender := SendTx(signer, &txBuilder, mode, seqDelta, failureExpected, *c, gas, fee)
-			wg.Add(1)
-			senders = append(senders, func() {
-				defer wg.Done()
-				sender()
-			})
+			// Generate a message type first
+			messageType := c.getRandomMessageType(config.MessageTypes)
+			metrics.IncrProducerEventCount(messageType)
+			var signedTx SignedTx
+			// Sign EVM and Cosmos TX differently
+			switch messageType {
+			case EVM, ERC20, ERC721, UNIV2:
+				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType), MsgType: messageType}
+				EvmTxHashes = append(EvmTxHashes, signedTx.EvmTx.Hash())
+			default:
+				msgTypeCount := atomic.LoadInt64(producedCountPerMsgType[messageType])
+				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, msgTypeCount), MsgType: messageType}
+			}
+
+			select {
+			case txQueue <- signedTx:
+				atomic.AddInt64(producedCountPerMsgType[messageType], 1)
+			case <-done:
+				return
+			}
 		}
-
-		senders = append(senders, c.GenerateOracleSenders(i, config, valKeys, wg)...)
-
-		sendersList = append(sendersList, senders)
-		inactiveAccounts, activeAccounts = activeAccounts, inactiveAccounts
-	}
-
-	return workgroups, sendersList
-}
-
-func (c *LoadTestClient) GenerateOracleSenders(i int, config Config, valKeys []cryptotypes.PrivKey, waitGroup *sync.WaitGroup) []func() {
-	senders := []func(){}
-	if config.RunOracle && i%2 == 0 {
-		for _, valKey := range valKeys {
-			// generate oracle tx
-			msg := generateOracleMessage(valKey)
-			txBuilder := TestConfig.TxConfig.NewTxBuilder()
-			_ = txBuilder.SetMsgs(msg)
-			seqDelta := uint64(i / 2)
-			mode := typestx.BroadcastMode_BROADCAST_MODE_SYNC
-			sender := SendTx(valKey, &txBuilder, mode, seqDelta, false, *c, 30000, 100000)
-			waitGroup.Add(1)
-			senders = append(senders, func() {
-				defer waitGroup.Done()
-				sender()
-			})
-		}
-	}
-	return senders
-}
-
-func (c *LoadTestClient) SendTxs(workgroups []*sync.WaitGroup, sendersList [][]func()) {
-	defer close(c.TxResponseChan)
-
-	lastHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
-	for i := 0; i < int(c.LoadTestConfig.Rounds); i++ {
-		newHeight := getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
-		for newHeight == lastHeight {
-			time.Sleep(10 * time.Millisecond)
-			newHeight = getLastHeight(c.LoadTestConfig.BlockchainEndpoint)
-		}
-		fmt.Printf("Sending %d-th block\n", i)
-		senders := sendersList[i]
-		wg := workgroups[i]
-		for _, sender := range senders {
-			go sender()
-		}
-		wg.Wait()
-		lastHeight = newHeight
 	}
 }
 
-func (c *LoadTestClient) GatherTxHashes() {
-	for txHash := range c.TxResponseChan {
-		c.TxHashList = append(c.TxHashList, *txHash)
-	}
-	fmt.Printf("Transactions Sent=%d\n", len(c.TxHashList))
+func (c *LoadTestClient) generateSignedEvmTx(keyIndex int, msgType string) *ethtypes.Transaction {
+	return c.EvmTxClients[keyIndex].GetTxForMsgType(msgType)
 }
 
-func (c *LoadTestClient) ValidateTxs() {
-	defer c.Close()
-	numTxs := len(c.TxHashList)
-	resultChan := make(chan *types.TxResponse, numTxs)
-	var waitGroup sync.WaitGroup
+func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, msgTypeCount int64) []byte {
+	key := c.AccountKeys[keyIndex]
+	msgs, _, _, gas, fee := c.generateMessage(key, msgType)
+	txBuilder := TestConfig.TxConfig.NewTxBuilder()
+	_ = txBuilder.SetMsgs(msgs...)
+	txBuilder.SetGasLimit(gas)
+	txBuilder.SetFeeAmount([]types.Coin{
+		types.NewCoin("usei", types.NewInt(fee)),
+	})
+	// Use random seqno to get around txs that might already be seen in mempool
+	c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(msgTypeCount))
+	txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
+	return txBytes
+}
 
-	if numTxs == 0 {
-		return
-	}
-
-	for _, txHash := range c.TxHashList {
-		waitGroup.Add(1)
-		go func(txHash string) {
-			defer waitGroup.Done()
-			resultChan <- c.GetTxResponse(txHash)
-		}(txHash)
-	}
-
-	go func() {
-		waitGroup.Wait()
-		close(resultChan)
-	}()
-
-	fmt.Printf("Validating %d Transactions... \n", len(c.TxHashList))
-	waitGroup.Wait()
-
-	notCommittedTxs := 0
-	responseCodeMap := map[int]int{}
-	responseStringMap := map[string]int{}
-	for result := range resultChan {
-		// If the result is nil then that means the transaction was not committed
-		if result == nil {
-			notCommittedTxs++
-			continue
+func (c *LoadTestClient) SendTxs(
+	txQueue chan SignedTx,
+	keyIndex int,
+	done <-chan struct{},
+	sentCountPerMsgType map[string]*int64,
+	semaphore *semaphore.Weighted,
+	wg *sync.WaitGroup,
+) {
+	wg.Add(1)
+	defer wg.Done()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for {
+		select {
+		case <-done:
+			return
+		case tx, ok := <-txQueue:
+			atomic.AddInt64(sentCountPerMsgType[tx.MsgType], 1)
+			metrics.IncrConsumerEventCount(tx.MsgType)
+			if !ok {
+				fmt.Printf("Stopping consumers\n")
+				return
+			}
+			// Acquire a semaphore
+			if err := semaphore.Acquire(ctx, 1); err != nil {
+				fmt.Printf("Failed to acquire semaphore: %v", err)
+				break
+			}
+			if tx.TxBytes != nil && len(tx.TxBytes) > 0 {
+				// Send Cosmos Transactions
+				if SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c) {
+					atomic.AddInt64(producedCountPerMsgType[tx.MsgType], 1)
+				}
+			} else if tx.EvmTx != nil {
+				// Send EVM Transactions
+				c.EvmTxClients[keyIndex].SendEvmTx(tx.EvmTx, func() {
+					atomic.AddInt64(producedCountPerMsgType[tx.MsgType], 1)
+				})
+			}
+			// Release the semaphore
+			semaphore.Release(1)
 		}
-		code := result.Code
-		codeString := "ok"
-		if code != 0 {
-			codespace := result.Codespace
-			err := sdkerrors.ABCIError(codespace, code, fmt.Sprintf("Error code=%d ", code))
-			codeString = err.Error()
-		}
-		responseStringMap[codeString]++
-		responseCodeMap[int(code)]++
-	}
-
-	fmt.Printf("Transactions not committed: %d\n", notCommittedTxs)
-	pp.Printf("Response Code Mapping: \n %s \n", responseStringMap)
-	IncrTxNotCommitted(notCommittedTxs)
-	for reason, count := range responseStringMap {
-		IncrTxProcessCode(reason, count)
 	}
 }
 
-func (c *LoadTestClient) GetTxResponse(hash string) *types.TxResponse {
-	grpcRes, err := c.GetTxClient().GetTx(
-		context.Background(),
-		&typestx.GetTxRequest{
-			Hash: hash,
-		},
-	)
-	fmt.Printf("Validated: %s\n", hash)
-	if err != nil {
-		fmt.Println(err)
-		return nil
-	}
-	return grpcRes.TxResponse
-}
-
+//nolint:staticcheck
 func (c *LoadTestClient) GetTxClient() typestx.ServiceClient {
+	numClients := len(c.TxClients)
+	if numClients <= 0 {
+		panic("There's no Tx client available, make sure your connection are valid")
+	}
 	rand.Seed(time.Now().Unix())
 	return c.TxClients[rand.Int()%len(c.TxClients)]
 }

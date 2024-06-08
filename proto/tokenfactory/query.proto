@@ -3,6 +3,7 @@ package seiprotocol.seichain.tokenfactory;
 
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "cosmos/bank/v1beta1/bank.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "tokenfactory/authorityMetadata.proto"; 
 import "tokenfactory/params.proto"; 
@@ -23,6 +24,12 @@ service Query {
       returns (QueryDenomAuthorityMetadataResponse) {
     option (google.api.http).get =
         "/sei-protocol/seichain/tokenfactory/denoms/{denom}/authority_metadata";
+  }
+
+  // DenomsMetadata defines a gRPC query method for fetching
+  //  DenomMetadata for a particular denom.
+  rpc DenomMetadata(QueryDenomMetadataRequest) returns (QueryDenomMetadataResponse) {
+    option (google.api.http).get = "/sei-protocol/seichain/tokenfactory/denoms/metadata";
   }
 
   // DenomsFromCreator defines a gRPC query method for fetching all
@@ -69,4 +76,17 @@ message QueryDenomsFromCreatorRequest {
 // DenomsFromCreator gRPC query.
 message QueryDenomsFromCreatorResponse {
   repeated string denoms = 1 [ (gogoproto.moretags) = "yaml:\"denoms\"" ];
+}
+
+// QueryDenomMetadataRequest is the request type for the DenomMetadata gRPC method.
+message QueryDenomMetadataRequest {
+  // denom is the coin denom to query the metadata for.
+  string denom = 1;
+}
+
+// QueryDenomMetadataResponse is the response type for the Query/DenomMetadata gRPC
+// method.
+message QueryDenomMetadataResponse {
+  // metadata describes and provides all the client information for the requested token.
+  cosmos.bank.v1beta1.Metadata metadata = 1 [(gogoproto.nullable) = false];
 }
