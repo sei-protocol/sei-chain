@@ -1,4 +1,5 @@
-const { exec } = require("child_process"); // Importing exec from child_process
+const { exec } = require("child_process");
+const {ethers} = require("hardhat"); // Importing exec from child_process
 
 const adminKeyName = "admin"
 
@@ -334,6 +335,10 @@ async function getEvmAddress(seiAddress) {
     return response.evm_address
 }
 
+function generateWallet() {
+    const wallet = ethers.Wallet.createRandom();
+    return wallet.connect(ethers.provider);
+}
 
 async function deployEvmContract(name, args=[]) {
     const Contract = await ethers.getContractFactory(name);
@@ -478,6 +483,7 @@ module.exports = {
     testAPIEnabled,
     incrementPointerVersion,
     associateWasm,
+    generateWallet,
     WASM,
     ABI,
 };
