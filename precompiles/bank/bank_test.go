@@ -150,6 +150,15 @@ func TestRun(t *testing.T) {
 	var expectedEvts sdk.Events = []sdk.Event{
 		// gas is sent from sender
 		banktypes.NewCoinSpentEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200000)))),
+		// wei events
+		banktypes.NewWeiSpentEvent(senderAddr, sdk.NewInt(100)),
+		banktypes.NewWeiReceivedEvent(seiAddr, sdk.NewInt(100)),
+		sdk.NewEvent(
+			banktypes.EventTypeWeiTransfer,
+			sdk.NewAttribute(banktypes.AttributeKeyRecipient, seiAddr.String()),
+			sdk.NewAttribute(banktypes.AttributeKeySender, senderAddr.String()),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, sdk.NewInt(100).String()),
+		),
 		// sender sends coin to the receiver
 		banktypes.NewCoinSpentEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))),
 		banktypes.NewCoinReceivedEvent(seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))),
