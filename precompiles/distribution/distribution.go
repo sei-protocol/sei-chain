@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -174,7 +175,7 @@ func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, call
 	}
 	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		rerr = fmt.Errorf("delegator %s is not associated", caller.Hex())
+		rerr = types.NewAssociationMissingErr(caller.Hex())
 		return
 	}
 	withdrawAddr, err := p.accAddressFromArg(ctx, args[0])
@@ -245,7 +246,7 @@ func (p Precompile) withdraw(ctx sdk.Context, delegator sdk.AccAddress, validato
 func (p Precompile) getDelegator(ctx sdk.Context, caller common.Address) (sdk.AccAddress, error) {
 	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, fmt.Errorf("delegator %s is not associated", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 
 	return delegator, nil

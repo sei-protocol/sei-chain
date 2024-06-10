@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"errors"
-	"fmt"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -147,7 +147,7 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 	// there is no good way to merge delegations if it becomes associated)
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, fmt.Errorf("delegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	validatorBech32 := args[0].(string)
 	if value == nil || value.Sign() == 0 {
@@ -178,7 +178,7 @@ func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller commo
 	}
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, fmt.Errorf("redelegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	srcValidatorBech32 := args[0].(string)
 	dstValidatorBech32 := args[1].(string)
@@ -205,7 +205,7 @@ func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller commo
 	}
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, fmt.Errorf("undelegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	validatorBech32 := args[0].(string)
 	amount := args[1].(*big.Int)

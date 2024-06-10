@@ -7,21 +7,20 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
-
-	"github.com/cosmos/cosmos-sdk/types/bech32"
-
-	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/bech32"
+	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -346,7 +345,7 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 	}
 	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, addr)
 	if !found {
-		return nil, fmt.Errorf("EVM address %s is not associated", addr.Hex())
+		return nil, evmtypes.NewAssociationMissingErr(addr.Hex())
 	}
 	return seiAddr, nil
 }

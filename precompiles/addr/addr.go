@@ -124,6 +124,7 @@ func (p Precompile) getSeiAddr(ctx sdk.Context, method *abi.Method, args []inter
 
 	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, args[0].(common.Address))
 	if !found {
+		// not emitting metric here because it's the lookup endpoint
 		return nil, fmt.Errorf("EVM address %s is not associated", args[0].(common.Address).Hex())
 	}
 	return method.Outputs.Pack(seiAddr.String())
@@ -145,6 +146,7 @@ func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []inter
 
 	evmAddr, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
 	if !found {
+		// not emitting metric here because it's the lookup endpoint
 		return nil, fmt.Errorf("sei address %s is not associated", args[0].(string))
 	}
 	return method.Outputs.Pack(evmAddr)

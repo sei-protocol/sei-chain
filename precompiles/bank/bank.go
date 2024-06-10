@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -359,7 +360,7 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 	}
 	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, addr)
 	if !found {
-		return nil, fmt.Errorf("EVM address %s is not associated", addr.Hex())
+		return nil, types.NewAssociationMissingErr(addr.Hex())
 	}
 	return seiAddr, nil
 }

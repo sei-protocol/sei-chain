@@ -302,7 +302,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		if !associated {
 			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)
 			if !associatedNow {
-				return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("address %s is not associated in the latest height", msg.From.Hex())
+				return nil, vm.BlockContext{}, nil, nil, types.NewAssociationMissingErr(msg.From.Hex())
 			}
 			if err := ante.NewEVMPreprocessDecorator(b.keeper, b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
 				return nil, vm.BlockContext{}, nil, nil, err
@@ -339,7 +339,7 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 		if !associated {
 			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)
 			if !associatedNow {
-				return nil, emptyRelease, fmt.Errorf("address %s is not associated in the latest height", msg.From.Hex())
+				return nil, emptyRelease, types.NewAssociationMissingErr(msg.From.Hex())
 			}
 			if err := ante.NewEVMPreprocessDecorator(b.keeper, b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
 				return nil, emptyRelease, err

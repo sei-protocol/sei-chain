@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"errors"
-	"fmt"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -140,7 +140,7 @@ func (p Precompile) vote(ctx sdk.Context, method *abi.Method, caller common.Addr
 	}
 	voter, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, fmt.Errorf("voter %s is not associated", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	proposalID := args[0].(uint64)
 	voteOption := args[1].(int32)
@@ -157,7 +157,7 @@ func (p Precompile) deposit(ctx sdk.Context, method *abi.Method, caller common.A
 	}
 	depositor, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, fmt.Errorf("depositor %s is not associated", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	proposalID := args[0].(uint64)
 	if value == nil || value.Sign() == 0 {

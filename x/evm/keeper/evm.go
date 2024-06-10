@@ -60,7 +60,7 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	// after they asssociate.
 	senderEvmAddr, found := k.GetEVMAddress(ctx, senderAddr)
 	if !found {
-		return nil, fmt.Errorf("sender %s is not associated", req.Sender)
+		return nil, types.NewAssociationMissingErr(req.Sender)
 	}
 	ret, err := k.CallEVM(ctx, senderEvmAddr, to, &zeroInt, req.Data)
 	if err != nil {

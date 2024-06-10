@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
@@ -192,7 +193,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	codeID := args[0].(uint64)
 	creatorAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		rerr = fmt.Errorf("creator %s is not associated", caller.Hex())
+		rerr = types.NewAssociationMissingErr(caller.Hex())
 		return
 	}
 	var adminAddr sdk.AccAddress
@@ -331,7 +332,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 		}
 		senderAddr, senderAssociated := p.evmKeeper.GetSeiAddress(ctx, caller)
 		if !senderAssociated {
-			rerr = fmt.Errorf("sender %s is not associated", caller.Hex())
+			rerr = types.NewAssociationMissingErr(caller.Hex())
 			return
 		}
 		msg := executeMsg.Msg
@@ -424,7 +425,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 	}
 	senderAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		rerr = fmt.Errorf("sender %s is not associated", caller.Hex())
+		rerr = types.NewAssociationMissingErr(caller.Hex())
 		return
 	}
 	msg := args[1].([]byte)
