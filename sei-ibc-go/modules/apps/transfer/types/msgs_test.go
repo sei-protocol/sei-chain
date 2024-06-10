@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
@@ -62,8 +63,20 @@ func TestMsgTransferGetSignBytes(t *testing.T) {
 	})
 }
 
+// GenerateString generates a random string of the given length in bytes
+func GenerateString(length uint) string {
+	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	bytes := make([]byte, length)
+	for i := range bytes {
+		bytes[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(bytes)
+}
+
 // TestMsgTransferValidation tests ValidateBasic for MsgTransfer
 func TestMsgTransferValidation(t *testing.T) {
+	largeMemoTransfer := NewMsgTransfer(validPort, validChannel, coin, addr1, addr2, timeoutHeight, 0)
+	largeMemoTransfer.Memo = GenerateString(MaximumMemoLength + 1)
 	testCases := []struct {
 		name    string
 		msg     *MsgTransfer
@@ -77,6 +90,7 @@ func TestMsgTransferValidation(t *testing.T) {
 		{"port id contains non-alpha", NewMsgTransfer(invalidPort, validChannel, coin, addr1, addr2, timeoutHeight, 0), false},
 		{"too short channel id", NewMsgTransfer(validPort, invalidShortChannel, coin, addr1, addr2, timeoutHeight, 0), false},
 		{"too long channel id", NewMsgTransfer(validPort, invalidLongChannel, coin, addr1, addr2, timeoutHeight, 0), false},
+		{"too long memo", largeMemoTransfer, false},
 		{"channel id contains non-alpha", NewMsgTransfer(validPort, invalidChannel, coin, addr1, addr2, timeoutHeight, 0), false},
 		{"invalid denom", NewMsgTransfer(validPort, validChannel, invalidDenomCoin, addr1, addr2, timeoutHeight, 0), false},
 		{"zero coin", NewMsgTransfer(validPort, validChannel, zeroCoin, addr1, addr2, timeoutHeight, 0), false},

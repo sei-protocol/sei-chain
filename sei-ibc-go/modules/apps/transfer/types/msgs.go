@@ -12,7 +12,8 @@ import (
 
 // msg types
 const (
-	TypeMsgTransfer = "transfer"
+	TypeMsgTransfer   = "transfer"
+	MaximumMemoLength = 32768 // maximum length of the memo in bytes (value chosen arbitrarily)
 )
 
 // NewMsgTransfer creates a new MsgTransfer instance
@@ -68,6 +69,9 @@ func (msg MsgTransfer) ValidateBasic() error {
 	}
 	if strings.TrimSpace(msg.Receiver) == "" {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "missing recipient address")
+	}
+	if len(msg.Memo) > MaximumMemoLength {
+		return sdkerrors.Wrapf(ErrInvalidMemo, "memo must not exceed %d bytes", MaximumMemoLength)
 	}
 	return ValidateIBCDenom(msg.Token.Denom)
 }
