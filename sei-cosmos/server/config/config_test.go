@@ -36,3 +36,8 @@ func TestOCCEnabled(t *testing.T) {
 	cfg.BaseConfig.OccEnabled = true
 	require.True(t, cfg.OccEnabled)
 }
+
+func TestDefaultSwaggerConfig(t *testing.T) {
+	cfg := DefaultConfig()
+	require.True(t, cfg.API.Swagger)
+}

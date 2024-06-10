@@ -259,7 +259,7 @@ func DefaultConfig() *Config {
 		},
 		API: APIConfig{
 			Enable:             false,
-			Swagger:            false,
+			Swagger:            true,
 			Address:            "tcp://0.0.0.0:1317",
 			MaxOpenConnections: 1000,
 			RPCReadTimeout:     10,
