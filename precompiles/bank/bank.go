@@ -187,7 +187,6 @@ func (p Precompile) send(ctx sdk.Context, caller common.Address, method *abi.Met
 		// short circuit
 		return method.Outputs.Pack(true)
 	}
-	// TODO: it's possible to extend evm module's balance to handle non-usei tokens as well
 	senderSeiAddr, err := p.accAddressFromArg(ctx, args[0])
 	if err != nil {
 		return nil, err
