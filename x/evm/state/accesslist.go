@@ -56,7 +56,6 @@ func (s *DBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (addres
 func (s *DBImpl) AddAddressToAccessList(addr common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 	al := s.getCurrentAccessList()
-	defer s.saveAccessList(al)
 	if _, present := al.Addresses[addr]; present {
 		return
 	}
@@ -66,7 +65,6 @@ func (s *DBImpl) AddAddressToAccessList(addr common.Address) {
 func (s *DBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 	al := s.getCurrentAccessList()
-	defer s.saveAccessList(al)
 	idx, addrPresent := al.Addresses[addr]
 	if !addrPresent || idx == -1 {
 		// Address not present, or addr present but no slots there
@@ -112,8 +110,4 @@ func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *
 
 func (s *DBImpl) getCurrentAccessList() *accessList {
 	return s.tempStateCurrent.transientAccessLists
-}
-
-func (s *DBImpl) saveAccessList(al *accessList) {
-	// s.tempStateCurrent.transientAccessLists = al
 }

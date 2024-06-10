@@ -61,6 +61,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	gp := server.GetGasPool()
 
 	defer func() {
+		defer stateDB.Cleanup()
 		if pe := recover(); pe != nil {
 			stateDB.Cleanup()
 			if !strings.Contains(fmt.Sprintf("%s", pe), occtypes.ErrReadEstimate.Error()) {
