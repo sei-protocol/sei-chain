@@ -62,7 +62,8 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 	defer func() {
 		if pe := recover(); pe != nil {
-			// there is not supposed to be any panic
+			stateDB.Cleanup()
+			// there is not supposed to be any panic (except from OCC)
 			debug.PrintStack()
 			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
 			telemetry.IncrCounter(1, types.ModuleName, "panics")

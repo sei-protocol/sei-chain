@@ -115,5 +115,5 @@ func (s *DBImpl) getCurrentAccessList() *accessList {
 }
 
 func (s *DBImpl) saveAccessList(al *accessList) {
-	s.tempStateCurrent.transientAccessLists = al
+	// s.tempStateCurrent.transientAccessLists = al
 }
