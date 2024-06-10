@@ -62,6 +62,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 	defer func() {
 		if pe := recover(); pe != nil {
+			stateDB.Cleanup()
 			if !strings.Contains(fmt.Sprintf("%s", pe), occtypes.ErrReadEstimate.Error()) {
 				debug.PrintStack()
 				ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
