@@ -223,6 +223,96 @@ func TestRun(t *testing.T) {
 	require.NotNil(t, err)
 }
 
+func TestSendForUnlinkedReceiver(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	// Setup sender addresses and environment
+	privKey := testkeeper.MockPrivateKey()
+	// testPrivHex := hex.EncodeToString(privKey.Bytes())
+	senderAddr, senderEVMAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
+	err := k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("ufoo", sdk.NewInt(10000000))))
+	require.Nil(t, err)
+	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("ufoo", sdk.NewInt(10000000))))
+	require.Nil(t, err)
+	err = k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))))
+	require.Nil(t, err)
+	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))))
+	require.Nil(t, err)
+
+	_, pointerAddr := testkeeper.MockAddressPair()
+	k.SetERC20NativePointer(ctx, "ufoo", pointerAddr)
+
+	// Setup receiving addresses - NOT linked
+	_, evmAddr := testkeeper.MockAddressPair()
+	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	require.Nil(t, err)
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{
+		StateDB:   statedb,
+		TxContext: vm.TxContext{Origin: senderEVMAddr},
+	}
+
+	// Precompile send test
+	send, err := p.ABI.MethodById(p.SendID)
+	require.Nil(t, err)
+	args, err := send.Inputs.Pack(senderEVMAddr, evmAddr, "ufoo", big.NewInt(100))
+	require.Nil(t, err)
+	_, err = p.Run(&evm, pointerAddr, pointerAddr, append(p.SendID, args...), nil, false) // should not error
+	require.Nil(t, err)
+
+	// Use precompile balance to verify sendNative usei amount succeeded
+	balance, err := p.ABI.MethodById(p.BalanceID)
+	require.Nil(t, err)
+	args, err = balance.Inputs.Pack(evmAddr, "ufoo")
+	require.Nil(t, err)
+	precompileRes, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.BalanceID, args...), nil, false)
+	require.Nil(t, err)
+	is, err := balance.Outputs.Unpack(precompileRes)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(is))
+	require.Equal(t, big.NewInt(100), is[0].(*big.Int))
+
+	// test get all balances
+	allBalances, err := p.ABI.MethodById(p.AllBalancesID)
+	require.Nil(t, err)
+	args, err = allBalances.Inputs.Pack(senderEVMAddr)
+	require.Nil(t, err)
+	precompileRes, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.AllBalancesID, args...), nil, false)
+	require.Nil(t, err)
+	balances, err := allBalances.Outputs.Unpack(precompileRes)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(balances))
+	parsedBalances := balances[0].([]struct {
+		Amount *big.Int `json:"amount"`
+		Denom  string   `json:"denom"`
+	})
+
+	require.Equal(t, 2, len(parsedBalances))
+	require.Equal(t, bank.CoinBalance{
+		Amount: big.NewInt(9999900),
+		Denom:  "ufoo",
+	}, bank.CoinBalance(parsedBalances[0]))
+	require.Equal(t, bank.CoinBalance{
+		Amount: big.NewInt(10000000),
+		Denom:  "usei",
+	}, bank.CoinBalance(parsedBalances[1]))
+
+	// Verify errors properly raised on bank balance calls with incorrect inputs
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.BalanceID, args[:1]...), nil, false)
+	require.NotNil(t, err)
+	args, err = balance.Inputs.Pack(evmAddr, "")
+	require.Nil(t, err)
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.BalanceID, args...), nil, false)
+	require.NotNil(t, err)
+
+	// invalid input
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, []byte{1, 2, 3, 4}, nil, false)
+	require.NotNil(t, err)
+}
+
 func TestMetadata(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
