@@ -5,7 +5,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"

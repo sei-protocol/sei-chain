@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 
@@ -131,9 +132,12 @@ func (p Precompile) GetName() string {
 }
 
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+
+	operation := "wasmd_unknown"
 	defer func() {
 		if err != nil {
 			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+			metrics.IncrementErrorMetrics(operation, err)
 		}
 	}()
 	ctx, method, args, err := p.Prepare(evm, input)
@@ -150,6 +154,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	}
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
 
+	operation = method.Name
 	switch method.Name {
 	case InstantiateMethod:
 		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly)

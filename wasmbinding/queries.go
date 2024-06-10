@@ -3,6 +3,7 @@ package wasmbinding
 import (
 	"encoding/json"
 	"errors"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -205,9 +206,9 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 
 	defer func() {
 		if err != nil {
-			var aerr *types.AssociationMissingErr
+			var aerr types.AssociationMissingErr
 			if errors.As(err, &aerr) {
-				//TODO: emit metric for relevant query type
+				metrics.IncrementAssociationError(string(queryType), aerr)
 			}
 		}
 	}()

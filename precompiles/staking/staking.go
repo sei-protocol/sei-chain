@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"errors"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,7 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -111,9 +112,11 @@ func (p Precompile) GetName() string {
 }
 
 func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
+	operation := "staking_unknown"
 	defer func() {
 		if err != nil {
 			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+			metrics.IncrementErrorMetrics(operation, err)
 		}
 	}()
 	if readOnly {
@@ -127,6 +130,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 		return nil, errors.New("cannot delegatecall staking")
 	}
 
+	operation = method.Name
 	switch method.Name {
 	case DelegateMethod:
 		return p.delegate(ctx, method, caller, args, value)

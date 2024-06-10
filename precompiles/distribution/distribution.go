@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 
@@ -114,9 +115,11 @@ func (Precompile) IsTransaction(method string) bool {
 }
 
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, _ bool) (ret []byte, remainingGas uint64, err error) {
+	operation := "distribution_unknown"
 	defer func() {
 		if err != nil {
 			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+			metrics.IncrementErrorMetrics(operation, err)
 		}
 	}()
 	ctx, method, args, err := p.Prepare(evm, input)
@@ -131,6 +134,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ com
 	}
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
 
+	operation = method.Name
 	switch method.Name {
 	case SetWithdrawAddressMethod:
 		return p.setWithdrawAddress(ctx, method, caller, args, value)

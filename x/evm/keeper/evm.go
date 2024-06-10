@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -60,7 +61,9 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	// after they asssociate.
 	senderEvmAddr, found := k.GetEVMAddress(ctx, senderAddr)
 	if !found {
-		return nil, types.NewAssociationMissingErr(req.Sender)
+		err := types.NewAssociationMissingErr(req.Sender)
+		metrics.IncrementAssociationError("evm_handle_internal_evm_delegate_call", err)
+		return nil, err
 	}
 	ret, err := k.CallEVM(ctx, senderEvmAddr, to, &zeroInt, req.Data)
 	if err != nil {
