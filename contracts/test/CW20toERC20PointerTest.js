@@ -157,11 +157,21 @@ describe("CW20 to ERC20 Pointer", function () {
                     const respBefore = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
                     const balanceBefore = respBefore.data.balance;
 
-                    await callWasmViaPrecompile(pointer, { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
+                    const receipt = await callWasmViaPrecompile(ethers.provider, pointer, { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
                     const respAfter = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
                     const balanceAfter = respAfter.data.balance;
 
                     expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString());
+
+                    // make sure log is emitted
+                    console.log(receipt);
+                    const filter = {
+                        fromBlock: receipt["blockNumber"],
+                        toBlock: 'latest',
+                        topics: [ethers.id("Transfer(address,address,uint256)")]
+                    };
+                    const logs = await ethers.provider.getLogs(filter);
+                    expect(logs.length).to.equal(1)
                 });
             });
         });

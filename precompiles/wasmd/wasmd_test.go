@@ -10,6 +10,7 @@ import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
@@ -163,10 +164,6 @@ func TestExecute(t *testing.T) {
 	}
 	suppliedGas := uint64(1000000)
 	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
-	// circular interop
-	statedb.WithCtx(statedb.Ctx().WithIsEVM(false))
-	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
-	require.Equal(t, "sei does not support CW->EVM->CW call pattern", err.Error())
 	statedb.WithCtx(statedb.Ctx().WithIsEVM(true))
 	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
 	require.Nil(t, err)
@@ -569,4 +566,16 @@ func TestExecuteBatchMultipleMessages(t *testing.T) {
 	_, g, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteBatchID, args...), suppliedGas, big.NewInt(3000_000_000_000_000), nil, false)
 	require.NotNil(t, err)
 	require.Equal(t, uint64(0), g)
+}
+
+func TestAddEvents(t *testing.T) {
+	testApp := app.Setup(false, false)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now()).WithEvmEventManager(sdk.NewEVMEventManager())
+	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
+	evm := vm.EVM{
+		StateDB: statedb,
+	}
+	ctx.EVMEventManager().EmitEvents([]*ethtypes.Log{{}})
+	wasmd.AddEvents(ctx, &evm)
+	require.Equal(t, 1, len(statedb.GetAllLogs()))
 }

@@ -320,16 +320,16 @@ async function registerPointerForERC721(erc721Address, fees="20000usei", from=ad
     return getEventAttribute(response, "pointer_registered", "pointer_address")
 }
 
-async function callWasmViaPrecompile(cwAddress, payload, from=adminKeyName) {
+async function callWasmViaPrecompile(provider, cwAddress, payload, from=adminKeyName) {
     const jsonString = JSON.stringify(payload).replace(/"/g, '\\"'); // Properly escape JSON string
-    const command = `seid tx evm call-precompile wasmd execute ${cwAddress} "${jsonString}" 0usei --from=${from}`;
+    const command = `seid tx evm call-precompile wasmd execute ${cwAddress} "${jsonString}" "[]" --from=${from}`;
     const output = await execute(command);
-    const txHash = output.replace(/.*0x/, "0x").trim()
+    const txHash = output.replace(/.*0x/, "0x").trim();
     let attempt = 0;
     while(attempt < 10) {
         const receipt = await provider.getTransactionReceipt(txHash);
         if(receipt) {
-            return
+            return receipt
         }
         await sleep(500)
         attempt++
@@ -499,11 +499,8 @@ module.exports = {
     testAPIEnabled,
     incrementPointerVersion,
     associateWasm,
-<<<<<<< HEAD
     generateWallet,
-=======
     callWasmViaPrecompile,
->>>>>>> 76c43ddb (remove hop limit)
     WASM,
     ABI,
 };

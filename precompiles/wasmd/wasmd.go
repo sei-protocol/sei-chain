@@ -254,9 +254,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 		rerr = err
 		return
 	}
-	for _, e := range ctx.EVMEventManager().Events() {
-		evm.StateDB.AddLog(e)
-	}
+	AddEvents(ctx, evm)
 	ret, rerr = method.Outputs.Pack(addr.String(), data)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
@@ -382,9 +380,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 			rerr = err
 			return
 		}
-		for _, e := range ctx.EVMEventManager().Events() {
-			evm.StateDB.AddLog(e)
-		}
+		AddEvents(ctx, evm)
 		responses = append(responses, res)
 	}
 	if valueCopy != nil && valueCopy.Sign() != 0 {
@@ -480,9 +476,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		rerr = err
 		return
 	}
-	for _, e := range ctx.EVMEventManager().Events() {
-		evm.StateDB.AddLog(e)
-	}
+	AddEvents(ctx, evm)
 	ret, rerr = method.Outputs.Pack(res)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
@@ -530,4 +524,10 @@ func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{
 	ret, rerr = method.Outputs.Pack(res)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
+}
+
+func AddEvents(ctx sdk.Context, evm *vm.EVM) {
+	for _, e := range ctx.EVMEventManager().Events() {
+		evm.StateDB.AddLog(e)
+	}
 }
