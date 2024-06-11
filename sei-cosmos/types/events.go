@@ -12,6 +12,7 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/gogo/protobuf/jsonpb"
 	proto "github.com/gogo/protobuf/proto"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -397,4 +398,18 @@ func MarkEventsToIndex(events []abci.Event, indexSet map[string]struct{}) []abci
 	}
 
 	return updatedEvents
+}
+
+type EVMEventManager struct {
+	events []*ethtypes.Log
+}
+
+func NewEVMEventManager() *EVMEventManager {
+	return &EVMEventManager{events: []*ethtypes.Log{}}
+}
+
+func (eem *EVMEventManager) Events() []*ethtypes.Log { return eem.events }
+
+func (eem *EVMEventManager) EmitEvents(events []*ethtypes.Log) {
+	eem.events = append(eem.events, events...)
 }

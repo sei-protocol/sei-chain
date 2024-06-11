@@ -41,6 +41,7 @@ type Context struct {
 	minGasPrice      DecCoins
 	consParams       *tmproto.ConsensusParams
 	eventManager     *EventManager
+	evmEventManager  *EVMEventManager
 	priority         int64                 // The tx priority, only relevant in CheckTx
 	pendingTxChecker abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
 	checkTxCallback  func(Context, error)  // callback to make at the end of CheckTx. Input param is the error (nil-able) of `runMsgs`
@@ -126,6 +127,10 @@ func (c Context) MinGasPrices() DecCoins {
 
 func (c Context) EventManager() *EventManager {
 	return c.eventManager
+}
+
+func (c Context) EVMEventManager() *EVMEventManager {
+	return c.evmEventManager
 }
 
 func (c Context) Priority() int64 {
@@ -220,15 +225,16 @@ func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool, logger log
 	// https://github.com/gogo/protobuf/issues/519
 	header.Time = header.Time.UTC()
 	return Context{
-		ctx:          context.Background(),
-		ms:           ms,
-		header:       header,
-		chainID:      header.ChainID,
-		checkTx:      isCheckTx,
-		logger:       logger,
-		gasMeter:     NewInfiniteGasMeter(1, 1),
-		minGasPrice:  DecCoins{},
-		eventManager: NewEventManager(),
+		ctx:             context.Background(),
+		ms:              ms,
+		header:          header,
+		chainID:         header.ChainID,
+		checkTx:         isCheckTx,
+		logger:          logger,
+		gasMeter:        NewInfiniteGasMeter(1, 1),
+		minGasPrice:     DecCoins{},
+		eventManager:    NewEventManager(),
+		evmEventManager: NewEVMEventManager(),
 
 		txBlockingChannels:   make(acltypes.MessageAccessOpsChannelMapping),
 		txCompletionChannels: make(acltypes.MessageAccessOpsChannelMapping),
@@ -359,6 +365,11 @@ func (c Context) WithConsensusParams(params *tmproto.ConsensusParams) Context {
 // WithEventManager returns a Context with an updated event manager
 func (c Context) WithEventManager(em *EventManager) Context {
 	c.eventManager = em
+	return c
+}
+
+func (c Context) WithEvmEventManager(em *EVMEventManager) Context {
+	c.evmEventManager = em
 	return c
 }
 
