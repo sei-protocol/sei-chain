@@ -14,6 +14,7 @@ import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -245,7 +246,7 @@ func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []EvmTxDeferredInfo)
 			ctx.Logger().Error(fmt.Sprintf("getting invalid tx index in EVM deferred info: %d, num of txs: %d", txIdx, len(k.txResults)))
 			return true
 		}
-		if k.txResults[txIdx].Code == 0 || value.(*EvmTxDeferredInfo).Error != "" {
+		if k.txResults[txIdx].Code == 0 || k.txResults[txIdx].Code == sdkerrors.ErrEVMVMError.ABCICode() || value.(*EvmTxDeferredInfo).Error != "" {
 			res = append(res, *(value.(*EvmTxDeferredInfo)))
 		}
 		return true

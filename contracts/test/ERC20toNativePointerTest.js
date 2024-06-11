@@ -1,4 +1,6 @@
-const {setupSigners, deployErc20PointerNative, getAdmin, createTokenFactoryTokenAndMint, ABI} = require("./lib");
+const {setupSigners, deployErc20PointerNative, getAdmin, createTokenFactoryTokenAndMint, ABI, generateWallet,
+    fundAddress, getSeiAddress
+} = require("./lib");
 const {expect} = require("chai");
 
 const { expectRevert } = require('@openzeppelin/test-helpers');
@@ -54,7 +56,7 @@ describe("ERC20 to Native Pointer", function () {
     })
 
     describe("transfer()", function () {
-        it("should transfer", async function () {
+        it("should transfer to linked address", async function () {
             let sender = accounts[0];
             let recipient = accounts[1];
 
@@ -69,6 +71,34 @@ describe("ERC20 to Native Pointer", function () {
 
             const cleanupTx = await pointer.connect(recipient.signer).transfer(sender.evmAddress, 5)
             await cleanupTx.wait();
+        });
+
+        it("should transfer to unlinked address", async function () {
+            let sender = accounts[0];
+            let recipientWallet = generateWallet()
+            let recipient = await recipientWallet.getAddress()
+            const amount = BigInt(5);
+            const startBal = await pointer.balanceOf(sender.evmAddress);
+
+            // send token to unlinked wallet
+            const tx = await pointer.transfer(recipient, amount);
+            await tx.wait();
+
+            // should have sent balance (sender spent, receiver received)
+            expect(await pointer.balanceOf(sender.evmAddress)).to.equal(startBal-amount);
+            expect(await pointer.balanceOf(recipient)).to.equal(amount);
+
+            // fund address so it can transact
+            await fundAddress(recipient)
+
+            // unlinked wallet can send balance back to sender (becomes linked at this moment)
+            await (await pointer.connect(recipientWallet).transfer(sender.evmAddress, amount)).wait()
+            expect(await pointer.balanceOf(recipient)).to.equal(BigInt(0));
+            expect(await pointer.balanceOf(sender.evmAddress)).to.equal(startBal);
+
+            // confirm association actually happened
+            const seiAddress = await getSeiAddress(recipient)
+            expect(seiAddress.indexOf("sei")).to.equal(0)
         });
 
         it("should fail transfer() if sender has insufficient balance", async function () {

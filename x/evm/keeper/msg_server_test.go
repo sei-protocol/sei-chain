@@ -670,7 +670,7 @@ func TestEvmError(t *testing.T) {
 	require.Nil(t, err)
 
 	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
-	require.Equal(t, uint32(0), res.Code)
+	require.Equal(t, uint32(45), res.Code)
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.EvmTxInfo.TxHash))
 	require.Nil(t, err)
 	require.Equal(t, receipt.VmError, res.EvmTxInfo.VmError)
