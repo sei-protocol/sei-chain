@@ -3,13 +3,13 @@ package metrics
 import (
 	"errors"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 	"strconv"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Measures the time taken to execute a sudo msg
