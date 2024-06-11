@@ -3,6 +3,7 @@ package common
 import (
 	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"math/big"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -30,6 +31,13 @@ func (p Precompile) RequiredGas(input []byte, isTransaction bool) uint64 {
 	}
 
 	return storetypes.KVGasConfig().ReadCostFlat + (storetypes.KVGasConfig().ReadCostPerByte * uint64(len(argsBz)))
+}
+
+func HandlePrecompileError(err error, evm *vm.EVM, operation string) {
+	if err != nil {
+		evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+		metrics.IncrementErrorMetrics(operation, err)
+	}
 }
 
 func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method, []interface{}, error) {

@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 	"strconv"
 	"time"
@@ -293,8 +292,6 @@ func IncrementErrorMetrics(scenario string, err error) {
 }
 
 func IncrementAssociationError(scenario string, err types.AssociationMissingErr) {
-	//TODO: remove
-	fmt.Printf("[Debug] incrementing association error type=%s, address=%s, scenario=%s\n", err.AddressType(), err.Address, scenario)
 	telemetry.IncrCounterWithLabels(
 		[]string{"sei", "association", "error"},
 		1,

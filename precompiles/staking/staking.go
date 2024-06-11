@@ -12,8 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -114,10 +112,7 @@ func (p Precompile) GetName() string {
 func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
 	operation := "staking_unknown"
 	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-			metrics.IncrementErrorMetrics(operation, err)
-		}
+		pcommon.HandlePrecompileError(err, evm, operation)
 	}()
 	if readOnly {
 		return nil, errors.New("cannot call staking precompile from staticcall")
