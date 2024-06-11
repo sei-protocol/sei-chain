@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 	"strings"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 type EVMQueryHandler struct {
