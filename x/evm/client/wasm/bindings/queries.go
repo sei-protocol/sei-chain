@@ -7,11 +7,12 @@ import (
 type EVMQueryType string
 
 const (
-	StaticCallType             EVMQueryType = "evm_query_static_call"
-	ERC20TransferType          EVMQueryType = "evm_query_erc20_transfer"
-	ERC20TransferFromType      EVMQueryType = "evm_query_erc20_transfer_from"
-	ERC20ApproveType           EVMQueryType = "evm_query_erc20_approve"
-	ERC20AllowanceType         EVMQueryType = "evm_query_erc20_allowance"
+	StaticCallType        EVMQueryType = "evm_query_static_call"
+	ERC20TransferType     EVMQueryType = "evm_query_erc20_transfer"
+	ERC20TransferFromType EVMQueryType = "evm_query_erc20_transfer_from"
+	ERC20ApproveType      EVMQueryType = "evm_query_erc20_approve"
+	ERC20AllowanceType    EVMQueryType = "evm_query_erc20_allowance"
+	// #nosec G101 -- the word Token triggers the credential detection
 	ERC20TokenInfoType         EVMQueryType = "evm_query_erc20_token_info"
 	ERC20BalanceType           EVMQueryType = "evm_query_erc20_balance"
 	ERC721OwnerType            EVMQueryType = "evm_query_erc721_owner"
