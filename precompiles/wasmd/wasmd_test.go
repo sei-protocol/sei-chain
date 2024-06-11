@@ -162,11 +162,16 @@ func TestExecute(t *testing.T) {
 		StateDB: statedb,
 	}
 	suppliedGas := uint64(1000000)
+
 	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
-	// circular interop
+
+	// confirm circular interop works
+	// sends another set of coins so there are enough coins
+	testApp.BankKeeper.SendCoins(ctx, mockAddr, testApp.EvmKeeper.GetSeiAddressOrDefault(ctx, common.HexToAddress(wasmd.WasmdAddress)), amts)
 	statedb.WithCtx(statedb.Ctx().WithIsEVM(false))
 	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
-	require.Equal(t, "sei does not support CW->EVM->CW call pattern", err.Error())
+	require.NoError(t, err)
+
 	statedb.WithCtx(statedb.Ctx().WithIsEVM(true))
 	res, g, err := p.RunAndCalculateGas(&evm, mockEVMAddr, mockEVMAddr, append(p.ExecuteID, args...), suppliedGas, big.NewInt(1000_000_000_000_000), nil, false)
 	require.Nil(t, err)
@@ -174,8 +179,8 @@ func TestExecute(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 1, len(outputs))
 	require.Equal(t, fmt.Sprintf("received test msg from %s with 1000usei", mockAddr.String()), string(outputs[0].([]byte)))
-	require.Equal(t, uint64(907386), g)
-	require.Equal(t, int64(1000), testApp.BankKeeper.GetBalance(statedb.Ctx(), contractAddr, "usei").Amount.Int64())
+	require.Equal(t, uint64(909526), g)
+	require.Equal(t, int64(2000), testApp.BankKeeper.GetBalance(statedb.Ctx(), contractAddr, "usei").Amount.Int64())
 
 	amtsbz, err = sdk.NewCoins().MarshalJSON()
 	require.Nil(t, err)

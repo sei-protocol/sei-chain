@@ -139,9 +139,12 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	if err != nil {
 		return nil, 0, err
 	}
-	if method.Name != QueryMethod && !ctx.IsEVM() {
-		return nil, 0, errors.New("sei does not support CW->EVM->CW call pattern")
-	}
+
+	//TODO: re-enable if we need to prevent a loop situation
+	//if method.Name != QueryMethod && !ctx.IsEVM() {
+	//	return nil, 0, errors.New("sei does not support CW->EVM->CW call pattern")
+	//}
+
 	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
 	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultipler).TruncateInt().BigInt()
 	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
