@@ -63,9 +63,11 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	gp := server.GetGasPool()
 
 	defer func() {
+		fmt.Println("IN DEFER")
 		if pe := recover(); pe != nil {
-			// there is not supposed to be any panic
+			fmt.Println("In RECOVER")
 			debug.PrintStack()
+			// if this panic is due to occ conflict, then we should not log it as error
 			if !strings.Contains(fmt.Sprintf("%s", pe), occtypes.ErrReadEstimate.Error()) {
 				ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
 				telemetry.IncrCounter(1, types.ModuleName, "panics")
