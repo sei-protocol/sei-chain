@@ -17,7 +17,6 @@ import (
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -133,13 +132,9 @@ func (p Precompile) GetName() string {
 }
 
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
-
 	operation := "wasmd_unknown"
 	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-			metrics.IncrementErrorMetrics(operation, err)
-		}
+		pcommon.HandlePrecompileError(err, evm, operation)
 	}()
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
