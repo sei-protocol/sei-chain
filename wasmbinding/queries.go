@@ -3,10 +3,10 @@ package wasmbinding
 import (
 	"encoding/json"
 	"errors"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexbindings "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
@@ -15,7 +15,6 @@ import (
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	evmbindings "github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
 	oraclebindings "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -206,12 +205,7 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	queryType = parsedQuery.GetQueryType()
 
 	defer func() {
-		if err != nil {
-			var aerr types.AssociationMissingErr
-			if errors.As(err, &aerr) {
-				metrics.IncrementAssociationError(string(queryType), aerr)
-			}
-		}
+		metrics.IncrementErrorMetrics(string(queryType), err)
 	}()
 
 	switch queryType {
