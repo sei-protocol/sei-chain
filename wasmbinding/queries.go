@@ -3,10 +3,10 @@ package wasmbinding
 import (
 	"encoding/json"
 	"errors"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexbindings "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
