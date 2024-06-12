@@ -149,7 +149,7 @@ func newSeiFirehoseTracer(tracerURL *url.URL) (*seitracing.Hooks, error) {
 				firehoseInfo("committing isolated transaction tracer (tracer=%s)", isolatedTracerID)
 
 				if isolatedTxTracer.transactionTransient == nil {
-					panic(fmt.Errorf("hook OnTxCommit called without a transaction being completed, this is invalid (tracer=%s)", isolatedTracerID))
+					panic(fatal("hook OnTxCommit called without a transaction being completed, this is invalid (tracer=%s)", isolatedTracerID))
 				}
 
 				commitLock.Lock()
@@ -776,7 +776,7 @@ func (f *Firehose) OnCallEnter(depth int, typ byte, from common.Address, to comm
 
 		callType = callTypeFromOpCode(opCode)
 		if callType == pbeth.CallType_UNSPECIFIED {
-			panic(fmt.Errorf("unexpected call type, received OpCode %s but only call related opcode (CALL, CREATE, CREATE2, STATIC, DELEGATECALL and CALLCODE) or SELFDESTRUCT is accepted", opCode))
+			panic(fatal("unexpected call type, received OpCode %s but only call related opcode (CALL, CREATE, CREATE2, STATIC, DELEGATECALL and CALLCODE) or SELFDESTRUCT is accepted", opCode))
 		}
 	}
 
@@ -836,7 +836,7 @@ func (f *Firehose) onOpcodeKeccak256(call *pbeth.Call, stack []uint256.Int, memo
 	f.hasher.Reset()
 	f.hasher.Write(preImage)
 	if _, err := f.hasher.Read(f.hasherBuf[:]); err != nil {
-		panic(fmt.Errorf("failed to read keccak256 hash: %w", err))
+		panic(fatal("failed to read keccak256 hash: %w", err))
 	}
 
 	encodedData := hex.EncodeToString(preImage)
@@ -1007,7 +1007,7 @@ func (f *Firehose) callEnd(source string, output []byte, gasUsed uint64, err err
 
 	if f.latestCallEnterSuicided {
 		if source != callSourceChild {
-			panic(fmt.Errorf("unexpected source for suicided call end, expected child but got %s, suicide are always produced on a 'child' source", source))
+			panic(fatal("unexpected source for suicided call end, expected child but got %s, suicide are always produced on a 'child' source", source))
 		}
 
 		// Geth native tracer does a `OnEnter(SELFDESTRUCT, ...)/OnExit(...)`, we must skip the `OnExit` call
@@ -1156,7 +1156,7 @@ func (f *Firehose) newBalanceChange(tag string, address common.Address, oldValue
 	firehoseTrace("balance changed (tag=%s before=%d after=%d reason=%s)", tag, oldValue, newValue, reason)
 
 	if reason == pbeth.BalanceChange_REASON_UNKNOWN {
-		panic(fmt.Errorf("received unknown balance change reason %s", reason))
+		panic(fatal("received unknown balance change reason %s", reason))
 	}
 
 	return &pbeth.BalanceChange{
@@ -1291,7 +1291,7 @@ func (f *Firehose) newGasChange(tag string, oldValue, newValue uint64, reason pb
 
 	// Should already be checked by the caller, but we keep it here for safety if the code ever change
 	if reason == pbeth.GasChange_REASON_UNKNOWN {
-		panic(fmt.Errorf("received unknown gas change reason %s", reason))
+		panic(fatal("received unknown gas change reason %s", reason))
 	}
 
 	return &pbeth.GasChange{
@@ -1398,7 +1398,7 @@ func (f *Firehose) panicInvalidState(msg string, callerSkip int) string {
 		msg += fmt.Sprintf(" in transaction %s", hex.EncodeToString(f.transaction.Hash))
 	}
 
-	panic(fmt.Errorf("%s (caller=%s, init=%t, inBlock=%t, inTransaction=%t, inCall=%t)", msg, caller, f.chainConfig != nil, f.block != nil, f.transaction != nil, f.callStack.HasActiveCall()))
+	panic(fatal("%s (caller=%s, init=%t, inBlock=%t, inTransaction=%t, inCall=%t)", msg, caller, f.chainConfig != nil, f.block != nil, f.transaction != nil, f.callStack.HasActiveCall()))
 }
 
 // printToFirehose is an easy way to print to Firehose format, it essentially
@@ -1409,7 +1409,7 @@ func (f *Firehose) panicInvalidState(msg string, callerSkip int) string {
 func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *FinalityStatus) {
 	marshalled, err := proto.Marshal(block)
 	if err != nil {
-		panic(fmt.Errorf("failed to marshal block: %w", err))
+		panic(fatal("failed to marshal block: %w", err))
 	}
 
 	f.outputBuffer.Reset()
@@ -1436,16 +1436,33 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 
 	encoder := base64.NewEncoder(base64.StdEncoding, f.outputBuffer)
 	if _, err = encoder.Write(marshalled); err != nil {
-		panic(fmt.Errorf("write to encoder should have been infaillible: %w", err))
+		panic(fatal("write to encoder should have been infaillible: %w", err))
 	}
 
 	if err := encoder.Close(); err != nil {
-		panic(fmt.Errorf("closing encoder should have been infaillible: %w", err))
+		panic(fatal("closing encoder should have been infaillible: %w", err))
 	}
 
 	f.outputBuffer.WriteString("\n")
 
 	flushToFirehose(f.outputBuffer.Bytes(), os.Stdout)
+}
+
+// fatal is used as an helper to print the stack before a panic is about to be issued.
+// It's expected to be called like:
+//
+//	panic(fatal(..., <args>))
+//
+// This enables to print the stack trace before panicking to ensure it's properly displayed
+// since in presence of `defer/recover`, sometimes it's lost, to ease debugging, any panic
+// within the tracer should use this helper.
+func fatal(msg string, args ...any) error {
+	err := fmt.Errorf(msg, args...)
+
+	os.Stderr.WriteString(err.Error() + "\n")
+	debug.PrintStack()
+
+	return err
 }
 
 // printToFirehose is an easy way to print to Firehose format, it essentially
@@ -1547,7 +1564,7 @@ func transactionTypeFromChainTxType(txType uint8) pbeth.TransactionTrace_Type {
 	case types.BlobTxType:
 		return pbeth.TransactionTrace_TRX_TYPE_BLOB
 	default:
-		panic(fmt.Errorf("unknown transaction type %d", txType))
+		panic(fatal("unknown transaction type %d", txType))
 	}
 }
 
@@ -1558,7 +1575,7 @@ func transactionStatusFromChainTxReceipt(txStatus uint64) pbeth.TransactionTrace
 	case types.ReceiptStatusFailed:
 		return pbeth.TransactionTraceStatus_FAILED
 	default:
-		panic(fmt.Errorf("unknown transaction status %d", txStatus))
+		panic(fatal("unknown transaction status %d", txStatus))
 	}
 }
 
@@ -1687,7 +1704,7 @@ func balanceChangeReasonFromChain(reason tracing.BalanceChangeReason) pbeth.Bala
 		return r
 	}
 
-	panic(fmt.Errorf("unknown tracer balance change reason value '%d', check state.BalanceChangeReason so see to which constant it refers to", reason))
+	panic(fatal("unknown tracer balance change reason value '%d', check state.BalanceChangeReason so see to which constant it refers to", reason))
 }
 
 var gasChangeReasonToPb = map[tracing.GasChangeReason]pbeth.GasChange_Reason{
@@ -1712,13 +1729,13 @@ var gasChangeReasonToPb = map[tracing.GasChangeReason]pbeth.GasChange_Reason{
 func gasChangeReasonFromChain(reason tracing.GasChangeReason) pbeth.GasChange_Reason {
 	if r, ok := gasChangeReasonToPb[reason]; ok {
 		if r == pbeth.GasChange_REASON_UNKNOWN {
-			panic(fmt.Errorf("tracer gas change reason value '%d' mapped to %s which is not accepted", reason, r))
+			panic(fatal("tracer gas change reason value '%d' mapped to %s which is not accepted", reason, r))
 		}
 
 		return r
 	}
 
-	panic(fmt.Errorf("unknown tracer gas change reason value '%d', check vm.GasChangeReason so see to which constant it refers to", reason))
+	panic(fatal("unknown tracer gas change reason value '%d', check vm.GasChangeReason so see to which constant it refers to", reason))
 }
 
 func maxFeePerGas(tx *types.Transaction) *pbeth.BigInt {
@@ -1879,7 +1896,7 @@ func (s *CallStack) NextIndex() uint32 {
 
 func (s *CallStack) Pop() (out *pbeth.Call) {
 	if len(s.stack) == 0 {
-		panic(fmt.Errorf("pop from empty call stack"))
+		panic(fatal("pop from empty call stack"))
 	}
 
 	out = s.stack[len(s.stack)-1]
@@ -2172,7 +2189,7 @@ type validationResult struct {
 
 func (r *validationResult) panicOnAnyFailures(msg string, args ...any) {
 	if len(r.failures) > 0 {
-		panic(fmt.Errorf(fmt.Sprintf(msg, args...)+": validation failed:\n %s", strings.Join(r.failures, "\n")))
+		panic(fatal(fmt.Sprintf(msg, args...)+": validation failed:\n %s", strings.Join(r.failures, "\n")))
 	}
 }
 
