@@ -124,6 +124,9 @@ func newSeiFirehoseTracer(tracerURL *url.URL) (*seitracing.Hooks, error) {
 		OnSeiBlockStart:     tracer.OnSeiBlockStart,
 		OnSeiBlockEnd:       tracer.OnBlockEnd,
 
+		OnSeiSystemCallStart: tracer.OnSystemCallStart,
+		OnSeiSystemCallEnd:   tracer.OnSystemCallEnd,
+
 		GetTxTracer: func(txIndex int) sdk.TxTracer {
 			tracer.blockReorderOrdinalOnce.Do(func() {
 				tracer.blockReorderOrdinal = true
@@ -524,15 +527,16 @@ func (f *Firehose) reorderCallOrdinals(call *pbeth.Call, ordinalBase uint64) (or
 	return call.EndOrdinal
 }
 
-func (f *Firehose) OnBeaconBlockRootStart(root common.Hash) {
-	firehoseInfo("system call start (for=%s)", "beacon_block_root")
+func (f *Firehose) OnSystemCallStart() {
+	firehoseInfo("system call start")
 	f.ensureInBlockAndNotInTrx()
 
 	f.inSystemCall = true
 	f.transaction = &pbeth.TransactionTrace{}
 }
 
-func (f *Firehose) OnBeaconBlockRootEnd() {
+func (f *Firehose) OnSystemCallEnd() {
+	firehoseInfo("system call end")
 	f.ensureInBlockAndInTrx()
 	f.ensureInSystemCall()
 
