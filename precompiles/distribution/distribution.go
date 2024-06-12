@@ -7,15 +7,15 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/core/tracing"
-	"github.com/sei-protocol/sei-chain/utils"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -113,10 +113,9 @@ func (Precompile) IsTransaction(method string) bool {
 }
 
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, _ bool) (ret []byte, remainingGas uint64, err error) {
+	operation := "distribution_unknown"
 	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
+		pcommon.HandlePrecompileError(err, evm, operation)
 	}()
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
@@ -130,6 +129,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ com
 	}
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
 
+	operation = method.Name
 	switch method.Name {
 	case SetWithdrawAddressMethod:
 		return p.setWithdrawAddress(ctx, method, caller, args, value)
@@ -174,7 +174,7 @@ func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, call
 	}
 	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		rerr = fmt.Errorf("delegator %s is not associated", caller.Hex())
+		rerr = types.NewAssociationMissingErr(caller.Hex())
 		return
 	}
 	withdrawAddr, err := p.accAddressFromArg(ctx, args[0])
@@ -245,7 +245,7 @@ func (p Precompile) withdraw(ctx sdk.Context, delegator sdk.AccAddress, validato
 func (p Precompile) getDelegator(ctx sdk.Context, caller common.Address) (sdk.AccAddress, error) {
 	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, fmt.Errorf("delegator %s is not associated", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 
 	return delegator, nil

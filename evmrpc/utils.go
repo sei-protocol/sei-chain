@@ -174,6 +174,11 @@ func recordMetrics(apiMethod string, connectionType ConnectionType, startTime ti
 	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
 }
 
+func recordMetricsWithError(apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
+	metrics.IncrementErrorMetrics(apiMethod, err)
+	recordMetrics(apiMethod, connectionType, startTime, err == nil)
+}
+
 func CheckVersion(ctx sdk.Context, k *keeper.Keeper) error {
 	if !evmExists(ctx, k) {
 		return fmt.Errorf("evm module does not exist on height %d", ctx.BlockHeight())

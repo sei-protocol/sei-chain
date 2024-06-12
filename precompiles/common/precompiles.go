@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
@@ -30,6 +31,13 @@ func (p Precompile) RequiredGas(input []byte, isTransaction bool) uint64 {
 	}
 
 	return storetypes.KVGasConfig().ReadCostFlat + (storetypes.KVGasConfig().ReadCostPerByte * uint64(len(argsBz)))
+}
+
+func HandlePrecompileError(err error, evm *vm.EVM, operation string) {
+	if err != nil {
+		evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+		metrics.IncrementErrorMetrics(operation, err)
+	}
 }
 
 func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method, []interface{}, error) {

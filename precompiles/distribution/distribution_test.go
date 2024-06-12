@@ -2,10 +2,7 @@ package distribution_test
 
 import (
 	"encoding/hex"
-	"fmt"
-	"github.com/ethereum/go-ethereum/core/vm"
-	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
+
 	"math/big"
 	"reflect"
 	"testing"
@@ -20,13 +17,17 @@ import (
 	abitypes "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/sei-protocol/sei-chain/app"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
@@ -395,7 +396,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 			wantRet:          nil,
 			wantRemainingGas: 0,
 			wantErr:          true,
-			wantErrMsg:       "delegator 0x0000000000000000000000000000000000000000 is not associated",
+			wantErrMsg:       evmtypes.NewAssociationMissingErr("0x0000000000000000000000000000000000000000").Error(),
 		},
 		{
 			name:   "fails if delegator is not associated",
@@ -408,7 +409,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 			wantRet:          nil,
 			wantRemainingGas: 0,
 			wantErr:          true,
-			wantErrMsg:       fmt.Sprintf("delegator %s is not associated", notAssociatedCallerEvmAddress.String()),
+			wantErrMsg:       evmtypes.NewAssociationMissingErr(notAssociatedCallerEvmAddress.String()).Error(),
 		},
 		{
 			name:             "fails if no args passed",
@@ -504,7 +505,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			wantRet:          nil,
 			wantRemainingGas: 0,
 			wantErr:          true,
-			wantErrMsg:       "delegator 0x0000000000000000000000000000000000000000 is not associated",
+			wantErrMsg:       evmtypes.NewAssociationMissingErr("0x0000000000000000000000000000000000000000").Error(),
 		},
 		{
 			name:   "fails if delegator is not associated",
@@ -517,7 +518,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			wantRet:          nil,
 			wantRemainingGas: 0,
 			wantErr:          true,
-			wantErrMsg:       fmt.Sprintf("delegator %s is not associated", notAssociatedCallerEvmAddress.String()),
+			wantErrMsg:       evmtypes.NewAssociationMissingErr(notAssociatedCallerEvmAddress.String()).Error(),
 		},
 		{
 			name:             "fails if no args passed",
@@ -613,7 +614,7 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			wantRet:          nil,
 			wantRemainingGas: 0,
 			wantErr:          true,
-			wantErrMsg:       "delegator 0x0000000000000000000000000000000000000000 is not associated",
+			wantErrMsg:       evmtypes.NewAssociationMissingErr("0x0000000000000000000000000000000000000000").Error(),
 		},
 		{
 			name:   "fails if delegator is not associated",
@@ -626,7 +627,7 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			wantRet:          nil,
 			wantRemainingGas: 0,
 			wantErr:          true,
-			wantErrMsg:       fmt.Sprintf("delegator %s is not associated", notAssociatedCallerEvmAddress.String()),
+			wantErrMsg:       evmtypes.NewAssociationMissingErr(notAssociatedCallerEvmAddress.String()).Error(),
 		},
 		{
 			name:   "fails if address is invalid",

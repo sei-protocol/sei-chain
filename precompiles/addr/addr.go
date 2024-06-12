@@ -7,12 +7,14 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
+
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -124,6 +126,7 @@ func (p Precompile) getSeiAddr(ctx sdk.Context, method *abi.Method, args []inter
 
 	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, args[0].(common.Address))
 	if !found {
+		metrics.IncrementAssociationError("getSeiAddr", types.NewAssociationMissingErr(args[0].(common.Address).Hex()))
 		return nil, fmt.Errorf("EVM address %s is not associated", args[0].(common.Address).Hex())
 	}
 	return method.Outputs.Pack(seiAddr.String())
@@ -145,6 +148,7 @@ func (p Precompile) getEvmAddr(ctx sdk.Context, method *abi.Method, args []inter
 
 	evmAddr, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
 	if !found {
+		metrics.IncrementAssociationError("getEvmAddr", types.NewAssociationMissingErr(args[0].(string)))
 		return nil, fmt.Errorf("sei address %s is not associated", args[0].(string))
 	}
 	return method.Outputs.Pack(evmAddr)

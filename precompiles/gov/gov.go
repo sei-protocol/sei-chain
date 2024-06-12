@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"errors"
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -105,10 +104,9 @@ func (p Precompile) GetName() string {
 }
 
 func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
+	operation := "gov_unknown"
 	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
+		pcommon.HandlePrecompileError(err, evm, operation)
 	}()
 	if readOnly {
 		return nil, errors.New("cannot call gov precompile from staticcall")
@@ -121,6 +119,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 		return nil, errors.New("cannot delegatecall gov")
 	}
 
+	operation = method.Name
 	switch method.Name {
 	case VoteMethod:
 		return p.vote(ctx, method, caller, args, value)
@@ -140,7 +139,7 @@ func (p Precompile) vote(ctx sdk.Context, method *abi.Method, caller common.Addr
 	}
 	voter, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, fmt.Errorf("voter %s is not associated", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	proposalID := args[0].(uint64)
 	voteOption := args[1].(int32)
@@ -157,7 +156,7 @@ func (p Precompile) deposit(ctx sdk.Context, method *abi.Method, caller common.A
 	}
 	depositor, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, fmt.Errorf("depositor %s is not associated", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	proposalID := args[0].(uint64)
 	if value == nil || value.Sign() == 0 {

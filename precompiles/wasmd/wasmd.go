@@ -14,9 +14,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -130,10 +132,9 @@ func (p Precompile) GetName() string {
 }
 
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+	operation := "wasmd_unknown"
 	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
+		pcommon.HandlePrecompileError(err, evm, operation)
 	}()
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
@@ -149,6 +150,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	}
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
 
+	operation = method.Name
 	switch method.Name {
 	case InstantiateMethod:
 		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly)
@@ -192,7 +194,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	codeID := args[0].(uint64)
 	creatorAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		rerr = fmt.Errorf("creator %s is not associated", caller.Hex())
+		rerr = types.NewAssociationMissingErr(caller.Hex())
 		return
 	}
 	var adminAddr sdk.AccAddress
@@ -331,7 +333,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 		}
 		senderAddr, senderAssociated := p.evmKeeper.GetSeiAddress(ctx, caller)
 		if !senderAssociated {
-			rerr = fmt.Errorf("sender %s is not associated", caller.Hex())
+			rerr = types.NewAssociationMissingErr(caller.Hex())
 			return
 		}
 		msg := executeMsg.Msg
@@ -424,7 +426,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 	}
 	senderAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		rerr = fmt.Errorf("sender %s is not associated", caller.Hex())
+		rerr = types.NewAssociationMissingErr(caller.Hex())
 		return
 	}
 	msg := args[1].([]byte)
