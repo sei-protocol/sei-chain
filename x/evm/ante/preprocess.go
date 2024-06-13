@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -76,6 +77,7 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	} else if isAssociateTx {
 		// check if the account has enough balance (without charging)
 		if !p.IsAccountBalancePositive(ctx, seiAddr, evmAddr) {
+			metrics.IncrementAssociationError("associate_tx_insufficient_funds", evmtypes.NewAssociationMissingErr(seiAddr.String()))
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
 		}
 		if err := p.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
@@ -365,16 +367,22 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		acc := p.accountKeeper.GetAccount(ctx, signer)
 		if acc.GetPubKey() == nil {
 			ctx.Logger().Error(fmt.Sprintf("missing pubkey for %s", signer.String()))
+			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes(), btcec.S256())
 		if err != nil {
 			ctx.Logger().Debug(fmt.Sprintf("failed to parse pubkey for %s, likely due to the fact that it isn't on secp256k1 curve", acc.GetPubKey()), "err", err)
+			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		evmAddr, err := pubkeyToEVMAddress(pk.SerializeUncompressed())
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to get EVM address from pubkey due to %s", err))
+			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
+				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
 		ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
@@ -384,6 +392,12 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 		if err := migrateBalance(ctx, p.evmKeeper, evmAddr, signer); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
 			return ctx, err
+		}
+		if evmtypes.IsTxMsgAssociate(tx) {
+			// check if there is non-zero balance
+			if !p.evmKeeper.BankKeeper().GetBalance(ctx, signer, sdk.MustGetBaseDenom()).IsPositive() && !p.evmKeeper.BankKeeper().GetWeiBalance(ctx, signer).IsPositive() {
+				return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
+			}
 		}
 	}
 	return next(ctx, tx, simulate)

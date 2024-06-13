@@ -23,6 +23,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -76,7 +77,7 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_estimateGas", s.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("eth_estimateGas", s.connectionType, startTime, returnErr)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -302,7 +303,9 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		if !associated {
 			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)
 			if !associatedNow {
-				return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("address %s is not associated in the latest height", msg.From.Hex())
+				err := types.NewAssociationMissingErr(msg.From.Hex())
+				metrics.IncrementAssociationError("state_at_tx", err)
+				return nil, vm.BlockContext{}, nil, nil, err
 			}
 			if err := ante.NewEVMPreprocessDecorator(b.keeper, b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
 				return nil, vm.BlockContext{}, nil, nil, err
@@ -339,7 +342,9 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 		if !associated {
 			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)
 			if !associatedNow {
-				return nil, emptyRelease, fmt.Errorf("address %s is not associated in the latest height", msg.From.Hex())
+				err := types.NewAssociationMissingErr(msg.From.Hex())
+				metrics.IncrementAssociationError("state_at_block", err)
+				return nil, emptyRelease, err
 			}
 			if err := ante.NewEVMPreprocessDecorator(b.keeper, b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
 				return nil, emptyRelease, err

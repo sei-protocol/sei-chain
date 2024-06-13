@@ -1,6 +1,6 @@
 - name: Test validators should be able to create snapshot with custom location
   inputs:
-    # Check if snapshotd are created
+    # Check if snapshots are created
     - cmd: if [ -d "./build/generated/node_0/snapshots" ]; then echo "true"; else echo "false"; fi
       env: FOUND
       node: sei-node-0

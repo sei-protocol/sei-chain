@@ -381,6 +381,8 @@ func initAppConfig() (string, interface{}) {
 		ETHBlockTest blocktest.Config `mapstructure:"eth_block_test"`
 
 		EvmQuery querier.Config `mapstructure:"evm_query"`
+
+		LightInvariance app.LightInvarianceConfig `mapstructure:"light_invariance"`
 	}
 
 	// Optionally allow the chain developer to overwrite the SDK's default
@@ -420,10 +422,11 @@ func initAppConfig() (string, interface{}) {
 			LruSize:       1,
 			QueryGasLimit: 300000,
 		},
-		EVM:          evmrpc.DefaultConfig,
-		ETHReplay:    replay.DefaultConfig,
-		ETHBlockTest: blocktest.DefaultConfig,
-		EvmQuery:     querier.DefaultConfig,
+		EVM:             evmrpc.DefaultConfig,
+		ETHReplay:       replay.DefaultConfig,
+		ETHBlockTest:    blocktest.DefaultConfig,
+		EvmQuery:        querier.DefaultConfig,
+		LightInvariance: app.DefaultLightInvarianceConfig,
 	}
 
 	customAppTemplate := serverconfig.DefaultConfigTemplate + `
@@ -516,6 +519,9 @@ eth_blocktest_test_data_path = "{{ .ETHBlockTest.TestDataPath }}"
 
 [evm_query]
 evm_query_gas_limit = {{ .EvmQuery.GasLimit }}
+
+[light_invariance]
+supply_enabled = {{ .LightInvariance.SupplyEnabled }}
 `
 
 	return customAppTemplate, customAppConfig

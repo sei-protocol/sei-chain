@@ -4,7 +4,13 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/server/api"
+	cosmosConfig "github.com/cosmos/cosmos-sdk/server/config"
+	"github.com/gorilla/mux"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"math/big"
+	"reflect"
 	"testing"
 	"time"
 
@@ -404,4 +410,71 @@ func TestDecodeTransactionsConcurrently(t *testing.T) {
 	require.NotNil(t, typedTxs[0].GetMsgs()[0].(*evmtypes.MsgEVMTransaction).Derived)
 	require.Nil(t, typedTxs[1])
 	require.NotNil(t, typedTxs[2])
+}
+
+func TestApp_RegisterAPIRoutes(t *testing.T) {
+	type args struct {
+		apiSvr    *api.Server
+		apiConfig cosmosConfig.APIConfig
+	}
+	tests := []struct {
+		name        string
+		args        args
+		wantSwagger bool
+	}{
+		{
+			name: "swagger added to the router if configured",
+			args: args{
+				apiSvr: &api.Server{
+					ClientCtx:         client.Context{},
+					Router:            &mux.Router{},
+					GRPCGatewayRouter: runtime.NewServeMux(),
+				},
+				apiConfig: cosmosConfig.APIConfig{
+					Swagger: true,
+				},
+			},
+			wantSwagger: true,
+		},
+		{
+			name: "swagger not added to the router if not configured",
+			args: args{
+				apiSvr: &api.Server{
+					ClientCtx:         client.Context{},
+					Router:            &mux.Router{},
+					GRPCGatewayRouter: runtime.NewServeMux(),
+				},
+				apiConfig: cosmosConfig.APIConfig{},
+			},
+			wantSwagger: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			seiApp := &app.App{}
+			seiApp.RegisterAPIRoutes(tt.args.apiSvr, tt.args.apiConfig)
+			routes := tt.args.apiSvr.Router
+			gotSwagger := isSwaggerRouteAdded(routes)
+
+			if !reflect.DeepEqual(gotSwagger, tt.wantSwagger) {
+				t.Errorf("Run() gotSwagger = %v, want %v", gotSwagger, tt.wantSwagger)
+			}
+		})
+
+	}
+}
+
+func isSwaggerRouteAdded(router *mux.Router) bool {
+	var isAdded bool
+	err := router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+		pathTemplate, err := route.GetPathTemplate()
+		if err == nil && pathTemplate == "/swagger/" {
+			isAdded = true
+		}
+		return nil
+	})
+	if err != nil {
+		return false
+	}
+	return isAdded
 }

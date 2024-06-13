@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"errors"
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -111,10 +110,9 @@ func (p Precompile) GetName() string {
 }
 
 func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
+	operation := "staking_unknown"
 	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
+		pcommon.HandlePrecompileError(err, evm, operation)
 	}()
 	if readOnly {
 		return nil, errors.New("cannot call staking precompile from staticcall")
@@ -127,6 +125,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 		return nil, errors.New("cannot delegatecall staking")
 	}
 
+	operation = method.Name
 	switch method.Name {
 	case DelegateMethod:
 		return p.delegate(ctx, method, caller, args, value)
@@ -147,7 +146,7 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 	// there is no good way to merge delegations if it becomes associated)
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, fmt.Errorf("delegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	validatorBech32 := args[0].(string)
 	if value == nil || value.Sign() == 0 {
@@ -178,7 +177,7 @@ func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller commo
 	}
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, fmt.Errorf("redelegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	srcValidatorBech32 := args[0].(string)
 	dstValidatorBech32 := args[1].(string)
@@ -205,7 +204,7 @@ func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller commo
 	}
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, fmt.Errorf("undelegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	validatorBech32 := args[0].(string)
 	amount := args[1].(*big.Int)

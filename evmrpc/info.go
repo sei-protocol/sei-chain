@@ -175,6 +175,20 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 	return result, nil
 }
 
+func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error) {
+	startTime := time.Now()
+	defer recordMetrics("eth_maxPriorityFeePerGas", i.connectionType, startTime, true)
+	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
+	if err != nil {
+		return nil, err
+	}
+	if len(feeHist.Reward) == 0 || len(feeHist.Reward[0]) == 0 {
+		// if there is no EVM tx in the most recent block, return 0
+		return (*hexutil.Big)(big.NewInt(0)), nil
+	}
+	return (*hexutil.Big)(feeHist.Reward[0][0].ToInt()), nil
+}
+
 func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
 	defer func() {
 		if err := recover(); err != nil {
