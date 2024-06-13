@@ -250,10 +250,9 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 	}
 
 	if hooks := tracers.GetCtxEthTracingHooks(ctx); hooks != nil && hooks.OnBalanceChange != nil && (value.Sign() != 0) {
-		receveirEvmAddr, found := p.evmKeeper.GetEVMAddress(ctx, receiverSeiAddr)
-		if !found {
-			return nil, fmt.Errorf("sei address %s is not associated, this shouldn't happen at this point since SendCoinsAndWei above worked", receiverSeiAddr)
-		}
+		// The SendCoinsAndWei function above works with Sei addresses that haven't been associated here. Hence we cannot
+		// use `GetEVMAddress` and enforce to have a mapping. So we use GetEVMAddressOrDefault to get the EVM address.
+		receveirEvmAddr := p.evmKeeper.GetEVMAddressOrDefault(ctx, receiverSeiAddr)
 
 		tracers.TraceTransferEVMValue(ctx, hooks, p.bankKeeper, senderSeiAddr, caller, receiverSeiAddr, receveirEvmAddr, value)
 	}
