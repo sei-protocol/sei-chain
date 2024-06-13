@@ -23,7 +23,7 @@ type EVMCallFunc func(caller vm.ContractRef, addr *common.Address, input []byte,
 
 var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 
-func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEVMCall) (*sdk.Result, error) {
+func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEVMCall) (sdk.Context, *sdk.Result, error) {
 	var to *common.Address
 	if req.To != "" {
 		addr := common.HexToAddress(req.To)
@@ -31,31 +31,31 @@ func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEV
 	}
 	senderAddr, err := sdk.AccAddressFromBech32(req.Sender)
 	if err != nil {
-		return nil, err
+		return ctx, nil, err
 	}
-	ret, err := k.CallEVM(ctx, k.GetEVMAddressOrDefault(ctx, senderAddr), to, req.Value, req.Data)
+	retctx, ret, err := k.CallEVM(ctx, k.GetEVMAddressOrDefault(ctx, senderAddr), to, req.Value, req.Data)
 	if err != nil {
-		return nil, err
+		return ctx, nil, err
 	}
-	return &sdk.Result{Data: ret}, nil
+	return retctx, &sdk.Result{Data: ret}, nil
 }
 
-func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgInternalEVMDelegateCall) (*sdk.Result, error) {
+func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgInternalEVMDelegateCall) (sdk.Context, *sdk.Result, error) {
 	var to *common.Address
 	if req.To != "" {
 		addr := common.HexToAddress(req.To)
 		to = &addr
 	} else {
-		return nil, errors.New("cannot use a CosmWasm contract to delegate-create an EVM contract")
+		return ctx, nil, errors.New("cannot use a CosmWasm contract to delegate-create an EVM contract")
 	}
 	addr, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(req.FromContract))))
 	if !exists || common.BytesToAddress(addr).Cmp(*to) != 0 {
-		return nil, errors.New("only pointer contract can make delegatecalls")
+		return ctx, nil, errors.New("only pointer contract can make delegatecalls")
 	}
 	zeroInt := sdk.ZeroInt()
 	senderAddr, err := sdk.AccAddressFromBech32(req.Sender)
 	if err != nil {
-		return nil, err
+		return ctx, nil, err
 	}
 	// delegatecall caller must be associated; otherwise any state change on EVM contract will be lost
 	// after they asssociate.
@@ -63,28 +63,46 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	if !found {
 		err := types.NewAssociationMissingErr(req.Sender)
 		metrics.IncrementAssociationError("evm_handle_internal_evm_delegate_call", err)
-		return nil, err
+		return ctx, nil, err
 	}
-	ret, err := k.CallEVM(ctx, senderEvmAddr, to, &zeroInt, req.Data)
+	retctx, ret, err := k.CallEVM(ctx, senderEvmAddr, to, &zeroInt, req.Data)
 	if err != nil {
-		return nil, err
+		return ctx, nil, err
 	}
-	return &sdk.Result{Data: ret}, nil
+	return retctx, &sdk.Result{Data: ret}, nil
 }
 
-func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Address, val *sdk.Int, data []byte) (retdata []byte, reterr error) {
-	if ctx.IsEVM() {
-		return nil, errors.New("sei does not support EVM->CW->EVM call pattern")
-	}
+func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Address, val *sdk.Int, data []byte) (retctx sdk.Context, retdata []byte, reterr error) {
 	if to == nil && len(data) > params.MaxInitCodeSize {
-		return nil, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
+		return ctx, nil, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
 	}
 	value := utils.Big0
 	if val != nil {
 		if val.IsNegative() {
-			return nil, sdkerrors.ErrInvalidCoins
+			return ctx, nil, sdkerrors.ErrInvalidCoins
 		}
 		value = val.BigInt()
+	}
+	evm := types.GetCtxEVM(ctx)
+	if evm != nil {
+		// This call is part of an existing StateTransition, so directly invoking `Call`
+		var f EVMCallFunc
+		if to == nil {
+			// contract creation
+			f = func(caller vm.ContractRef, _ *common.Address, input []byte, gas uint64, value *big.Int) ([]byte, uint64, error) {
+				ret, _, leftoverGas, err := evm.Create(caller, input, gas, value)
+				return ret, leftoverGas, err
+			}
+		} else {
+			f = func(caller vm.ContractRef, addr *common.Address, input []byte, gas uint64, value *big.Int) ([]byte, uint64, error) {
+				return evm.Call(caller, *addr, input, gas, value)
+			}
+		}
+		ret, err := k.callEVM(ctx, from, to, val, data, f)
+		if err != nil {
+			return ctx, ret, err
+		}
+		return evm.StateDB.(*state.DBImpl).Ctx(), ret, err
 	}
 	// This call was not part of an existing StateTransition, so it should trigger one
 	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).WithIsEVM(true)
@@ -104,15 +122,15 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	}
 	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
 	if err != nil {
-		return nil, err
+		return ctx, nil, err
 	}
 	k.consumeEvmGas(ctx, res.UsedGas)
 	if res.Err != nil {
-		return nil, res.Err
+		return ctx, nil, res.Err
 	}
 	surplus, err := stateDB.Finalize()
 	if err != nil {
-		return nil, err
+		return ctx, nil, err
 	}
 	vmErr := ""
 	if res.Err != nil {
@@ -120,12 +138,13 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	}
 	receipt, err := k.WriteReceipt(ctx, stateDB, evmMsg, ethtypes.LegacyTxType, ctx.TxSum(), res.UsedGas, vmErr)
 	if err != nil {
-		return nil, err
+		return ctx, nil, err
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
 	k.AppendToEvmTxDeferredInfo(ctx, bloom, ctx.TxSum(), surplus)
-	return res.ReturnData, nil
+	ctx.EVMEventManager().EmitEvents(stateDB.GetAllLogs())
+	return ctx, res.ReturnData, nil
 }
 
 func (k *Keeper) StaticCallEVM(ctx sdk.Context, from sdk.AccAddress, to *common.Address, data []byte) ([]byte, error) {
