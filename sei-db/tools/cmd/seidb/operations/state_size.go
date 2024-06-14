@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/sei-protocol/sei-db/common/logger"
@@ -71,13 +72,15 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 					totalKeySize += len(node.Key())
 					totalValueSize += len(node.Value())
 					totalSize += len(node.Key()) + len(node.Value())
-					prefix := string(node.Key()[:2])
-					sizeByPrefix[prefix] += len(node.Key()) + len(node.Value())
+					prefix := fmt.Sprintf("%X", node.Key())
+					prefix = prefix[:2]
+					sizeByPrefix[prefix] += len(node.Value())
 				}
 				return true
 			})
 			fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize: %d \n", moduleName, totalNumKeys, totalKeySize, totalValueSize, totalSize)
-			fmt.Printf("Module %s prefix breakdown: %v \n", moduleName, sizeByPrefix)
+			result, _ := json.MarshalIndent(sizeByPrefix, "", "  ")
+			fmt.Printf("Module %s prefix breakdown: %s \n", moduleName, result)
 		}
 	}
 	return nil
