@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 	"sync"
@@ -94,13 +95,17 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber)
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockReceipts", a.connectionType, startTime, returnErr == nil)
 	// Get height from params
+	fmt.Printf("DEBUG - getBlockNumber number %+v\n", number)
 	heightPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
+		fmt.Printf("DEBUG - err getBlockNumber %+v\n", err)
 		return nil, err
 	}
 	// Get the block by height
+	fmt.Printf("DEBUG - blockByNumberWithRetry\n")
 	block, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
 	if err != nil {
+		fmt.Printf("DEBUG - err blockByNumberWithRetry %+v\n", err)
 		return nil, err
 	}
 	// Get all tx hashes for the block
