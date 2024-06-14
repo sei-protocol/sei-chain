@@ -46,17 +46,14 @@ func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.B
 	var numberPtr *int64
 	switch number {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
-		fmt.Printf("DEBUG - getBlockNumber case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber\n")
 		numberPtr = nil // requesting Block with nil means the latest block
 	case rpc.EarliestBlockNumber:
-		fmt.Printf("DEBUG - getBlockNumber EarliestBlockNumber\n")
 		genesisRes, err := tmClient.Genesis(ctx)
 		if err != nil {
 			return nil, err
 		}
 		numberPtr = &genesisRes.Genesis.InitialHeight
 	default:
-		fmt.Printf("DEBUG - getBlockNumber default\n")
 		numberI64 := number.Int64()
 		numberPtr = &numberI64
 	}

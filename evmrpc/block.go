@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 	"strings"
 	"sync"
@@ -94,19 +93,16 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockReceipts", a.connectionType, startTime, returnErr == nil)
-	fmt.Printf("DEBUG - GetBlockReceipts %+v\n", blockNrOrHash)
 	var block *coretypes.ResultBlock
 
 	// Param specified is block height
 	if blockNr, ok := blockNrOrHash.Number(); ok {
 		heightPtr, err := getBlockNumber(ctx, a.tmClient, blockNr)
 		if err != nil {
-			fmt.Printf("DEBUG - getBlockNumber Number err %+v\n", err)
 			return nil, err
 		}
 		blockByNumber, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
 		if err != nil {
-			fmt.Printf("DEBUG - blockByNumberWithRetry Number err %+v\n", err)
 			return nil, err
 		}
 		block = blockByNumber
@@ -116,14 +112,13 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if hash, ok := blockNrOrHash.Hash(); ok {
 		blockByHash, err := blockByHashWithRetry(ctx, a.tmClient, hash[:], 1)
 		if err != nil {
-			fmt.Printf("DEBUG - blockByHashWithRetry Hash err %+v\n", err)
 			return nil, err
 		}
 		block = blockByHash
 	}
 
+	// Should never get here
 	if block == nil {
-		fmt.Printf("DEBUG - block nil \n")
 		return nil, errors.New("param incorrectly specified")
 	}
 
