@@ -1,4 +1,4 @@
-package params
+moneypackage params
 
 import (
 	"time"
