@@ -91,28 +91,44 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
-func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber) (result []map[string]interface{}, returnErr error) {
+func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockReceipts", a.connectionType, startTime, returnErr == nil)
-	// Get height from params
-	fmt.Printf("DEBUG - getBlockNumber number %+v\n", number)
-	heightPtr, err := getBlockNumber(ctx, a.tmClient, number)
-	if err != nil {
-		fmt.Printf("DEBUG - err getBlockNumber %+v\n", err)
-		return nil, err
+	fmt.Printf("DEBUG - GetBlockReceipts %+v\n", blockNrOrHash)
+	var block *coretypes.ResultBlock
+
+	// Param specified is block height
+	if blockNr, ok := blockNrOrHash.Number(); ok {
+		heightPtr, err := getBlockNumber(ctx, a.tmClient, blockNr)
+		if err != nil {
+			fmt.Printf("DEBUG - getBlockNumber Number err %+v\n", err)
+			return nil, err
+		}
+		blockByNumber, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
+		if err != nil {
+			fmt.Printf("DEBUG - blockByNumberWithRetry Number err %+v\n", err)
+			return nil, err
+		}
+		block = blockByNumber
 	}
-	// Get the block by height
-	fmt.Printf("DEBUG - blockByNumberWithRetry\n")
-	block, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
-	if err != nil {
-		fmt.Printf("DEBUG - err blockByNumberWithRetry %+v\n", err)
-		return nil, err
+
+	// Param specified is block hash
+	if hash, ok := blockNrOrHash.Hash(); ok {
+		blockByHash, err := blockByHashWithRetry(ctx, a.tmClient, hash[:], 1)
+		if err != nil {
+			fmt.Printf("DEBUG - blockByHashWithRetry Hash err %+v\n", err)
+			return nil, err
+		}
+		block = blockByHash
 	}
+
+	if block == nil {
+		fmt.Printf("DEBUG - block nil \n")
+		return nil, errors.New("param incorrectly specified")
+	}
+
 	// Get all tx hashes for the block
-	height := LatestCtxHeight
-	if heightPtr != nil {
-		height = *heightPtr
-	}
+	height := block.Block.Header.Height
 	txHashes := a.keeper.GetTxHashesOnHeight(a.ctxProvider(height), height)
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
