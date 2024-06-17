@@ -82,6 +82,15 @@ func TestGetBlockReceipts(t *testing.T) {
 	require.Equal(t, "0x2", receipt3["blockNumber"])
 	require.Equal(t, "0x2", receipt3["transactionIndex"])
 	require.Equal(t, multiTxBlockTx3.Hash().Hex(), receipt3["transactionHash"])
+
+	// Query by tag latest => retrieves block 8
+	resObj3 := sendRequestGood(t, "getBlockReceipts", "latest")
+	result = resObj3["result"].([]interface{})
+	require.Equal(t, 1, len(result))
+	receipt1 = result[0].(map[string]interface{})
+	require.Equal(t, "0x8", receipt1["blockNumber"])
+	require.Equal(t, "0x0", receipt1["transactionIndex"])
+	require.Equal(t, multiTxBlockTx4.Hash().Hex(), receipt1["transactionHash"])
 }
 
 func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
