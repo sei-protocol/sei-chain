@@ -18,7 +18,7 @@ func DumpDbCmd() *cobra.Command {
 	dumpDbCmd := &cobra.Command{
 		Use:   "dump-db",
 		Short: "For a given State Store DB, dump-db iterates over all keys and values for a specific store and writes them to a file",
-		Run:   dump,
+		Run:   executeDumpDB,
 	}
 
 	dumpDbCmd.PersistentFlags().StringP("output-dir", "o", "", "Output Directory")
@@ -30,7 +30,7 @@ func DumpDbCmd() *cobra.Command {
 	return dumpDbCmd
 }
 
-func dump(cmd *cobra.Command, _ []string) {
+func executeDumpDB(cmd *cobra.Command, _ []string) {
 	outputDir, _ := cmd.Flags().GetString("output-dir")
 	module, _ := cmd.Flags().GetString("module")
 	dbDir, _ := cmd.Flags().GetString("db-dir")

@@ -1,40 +1,33 @@
 package operations
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/sc/memiavl"
-	"github.com/sei-protocol/sei-db/tools/utils"
 	"github.com/spf13/cobra"
 )
 
-func DumpIAVLCmd() *cobra.Command {
+func StateSizeCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "dump-iavl",
-		Short: "Iterate and dump memIAVL data",
-		Run:   executeDumpIAVL,
+		Use:   "state-size",
+		Short: "Print analytical results for state size",
+		Run:   executeStateSize,
 	}
 
 	cmd.PersistentFlags().StringP("db-dir", "d", "", "Database Directory")
-	cmd.PersistentFlags().StringP("output-dir", "o", "", "Output Directory")
 	cmd.PersistentFlags().Int64("height", 0, "Block Height")
 	cmd.PersistentFlags().StringP("module", "m", "", "Module to export. Default to export all")
 	return cmd
 }
 
-func executeDumpIAVL(cmd *cobra.Command, _ []string) {
+func executeStateSize(cmd *cobra.Command, _ []string) {
 	module, _ := cmd.Flags().GetString("module")
 	dbDir, _ := cmd.Flags().GetString("db-dir")
-	outputDir, _ := cmd.Flags().GetString("output-dir")
 	height, _ := cmd.Flags().GetInt64("height")
-
 	if dbDir == "" {
 		panic("Must provide database dir")
-	}
-
-	if outputDir == "" {
-		panic("Must provide output dir")
 	}
 
 	opts := memiavl.Options{
@@ -47,14 +40,14 @@ func executeDumpIAVL(cmd *cobra.Command, _ []string) {
 		panic(err)
 	}
 	defer db.Close()
-	err = DumpIAVLData(module, db, outputDir)
+	err = PrintStateSize(module, db)
 	if err != nil {
 		panic(err)
 	}
 }
 
-// DumpIAVLData print the raw keys and values for given module at given height for memIAVL tree
-func DumpIAVLData(module string, db *memiavl.DB, outputDir string) error {
+// PrintStateSize print the raw keys and values for given module at given height for memIAVL tree
+func PrintStateSize(module string, db *memiavl.DB) error {
 	modules := []string{}
 	if module == "" {
 		modules = AllModules
@@ -64,29 +57,30 @@ func DumpIAVLData(module string, db *memiavl.DB, outputDir string) error {
 
 	for _, moduleName := range modules {
 		tree := db.TreeByName(moduleName)
+		totalNumKeys := 0
+		totalKeySize := 0
+		totalValueSize := 0
+		totalSize := 0
 		if tree == nil {
 			fmt.Printf("Tree does not exist for module %s \n", moduleName)
 		} else {
-			fmt.Printf("Dumping module: %s \n", moduleName)
-			currentFile, err := utils.CreateFile(outputDir, moduleName)
-			if err != nil {
-				return err
-			}
-			_, err = currentFile.WriteString(fmt.Sprintf("Tree %s has version %d and root hash: %X \n", moduleName, tree.Version(), tree.RootHash()))
-			if err != nil {
-				return nil
-			}
+			fmt.Printf("Calculating for module: %s \n", moduleName)
+			sizeByPrefix := map[string]int{}
 			tree.ScanPostOrder(func(node memiavl.Node) bool {
 				if node.IsLeaf() {
-					_, err := currentFile.WriteString(fmt.Sprintf("Key: %X, Value: %X \n", node.Key(), node.Value()))
-					if err != nil {
-						panic(err)
-					}
+					totalNumKeys++
+					totalKeySize += len(node.Key())
+					totalValueSize += len(node.Value())
+					totalSize += len(node.Key()) + len(node.Value())
+					prefix := fmt.Sprintf("%X", node.Key())
+					prefix = prefix[:2]
+					sizeByPrefix[prefix] += len(node.Value())
 				}
 				return true
 			})
-			currentFile.Close()
-			fmt.Printf("Finished dumping module: %s \n", moduleName)
+			fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize: %d \n", moduleName, totalNumKeys, totalKeySize, totalValueSize, totalSize)
+			result, _ := json.MarshalIndent(sizeByPrefix, "", "  ")
+			fmt.Printf("Module %s prefix breakdown: %s \n", moduleName, result)
 		}
 	}
 	return nil
