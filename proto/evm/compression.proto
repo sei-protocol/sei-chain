@@ -1,0 +1,18 @@
+syntax = "proto3";
+package seiprotocol.seichain.evm;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
+
+// CompressedData is only used for receipts as the moment
+// It is not meant to be used outside of storage and retrieval
+message CompressedData {
+  enum Algorithm {
+    ZLIB = 0;
+  }
+
+  // if true, it informs the client that the data is compressed
+  bytes data = 1;
+  Algorithm algorithm = 2;
+}
