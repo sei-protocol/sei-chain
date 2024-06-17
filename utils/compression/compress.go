@@ -2,7 +2,7 @@ package compression
 
 import (
 	"fmt"
-	
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )

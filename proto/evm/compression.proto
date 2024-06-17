@@ -12,7 +12,6 @@ message CompressedData {
     ZLIB = 0;
   }
 
-  // if true, it informs the client that the data is compressed
   bytes data = 1;
   Algorithm algorithm = 2;
 }
