@@ -13,14 +13,14 @@ func CompressMessage(message proto.Message) ([]byte, error) {
 		return nil, err
 	}
 
-	bCompressed, err := compressZLib(b)
+	bCompressed, err := compressSnappy(b)
 	if err != nil {
 		return nil, err
 	}
 
 	cd := &types.CompressedData{
 		Data:      bCompressed,
-		Algorithm: types.CompressedData_ZLIB,
+		Algorithm: types.CompressedData_SNAPPY,
 	}
 	return cd.Marshal()
 }
@@ -40,8 +40,8 @@ func DecompressMessage(target proto.Message, compressed []byte) error {
 	}
 
 	// add other algorithms here if we need to change it
-	if cd.Algorithm == types.CompressedData_ZLIB {
-		decompressed, err := decompressZLib(cd.Data)
+	if cd.Algorithm == types.CompressedData_SNAPPY {
+		decompressed, err := decompressSnappy(cd.Data)
 		if err != nil {
 			return err
 		}

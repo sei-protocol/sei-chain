@@ -9,7 +9,7 @@ option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 // It is not meant to be used outside of storage and retrieval
 message CompressedData {
   enum Algorithm {
-    ZLIB = 0;
+    SNAPPY = 0;
   }
 
   bytes data = 1;

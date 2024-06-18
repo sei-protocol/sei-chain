@@ -173,11 +173,11 @@ func TestCompressionRatio(t *testing.T) {
 		//	Compress:   compressZstd,
 		//	Uncompress: decompressZstd,
 		//},
-		//{
-		//	Name:       "snappy",
-		//	Compress:   compressSnappy,
-		//	Uncompress: decompressSnappy,
-		//},
+		{
+			Name:       "snappy",
+			Compress:   compressSnappy,
+			Uncompress: decompressSnappy,
+		},
 		//{
 		//	Name:       "gzip",
 		//	Compress:   compressGzip,
@@ -230,7 +230,7 @@ func BenchmarkCompression(b *testing.B) {
 		{"zlib", compressZLib, decompressZLib},
 		//{"lz4", compressLz4, decompressLz4},
 		//{"zstd", compressZstd, decompressZstd},
-		//{"snappy", compressSnappy, decompressSnappy},
+		{"snappy", compressSnappy, decompressSnappy},
 		//{"gzip", compressGzip, decompressGzip},
 	}
 
