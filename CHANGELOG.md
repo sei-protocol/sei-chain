@@ -26,10 +26,22 @@ Types of changes (Stanzas):
 Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
-# Changelog
+# Changelog## v5.5.5
+sei-chain
+* [#1726](https://github.com/sei-protocol/sei-chain/pull/1726) Handle VM error code properly
+* [#1713](https://github.com/sei-protocol/sei-chain/pull/1713) RPC Get Evm Hash
+* [#1711](https://github.com/sei-protocol/sei-chain/pull/1711) Add gov proposal v2 for native pointer
+* [#1694](https://github.com/sei-protocol/sei-chain/pull/1694) Add native associate tx type
+
+
+sei-cosmos
+* [#511](https://github.com/sei-protocol/sei-cosmos/pull/511) Add error for evm revert
+
+
 ## v5.5.2
 sei-chain
 * [#1685](https://github.com/sei-protocol/sei-chain/pull/1685) Add EVM support to v5.5.2
+
 ## v5.4.0
 sei-chain
 * [#1671](https://github.com/sei-protocol/sei-chain/pull/1671) Update and fixes to ERC721 contract

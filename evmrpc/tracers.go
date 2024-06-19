@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
+	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -28,20 +29,30 @@ func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 	return &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, connectionType: connectionType}
 }
 
-func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (interface{}, error) {
+func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, true)
-	return api.tracersAPI.TraceTransaction(ctx, hash, config)
+	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, returnErr == nil)
+	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
+	return
 }
 
-func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (interface{}, error) {
+func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, true)
-	return api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
+	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	return
 }
 
-func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (interface{}, error) {
+func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, true)
-	return api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
+	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	return
+}
+
+func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("debug_traceCall", api.connectionType, startTime, returnErr == nil)
+	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
+	return
 }
