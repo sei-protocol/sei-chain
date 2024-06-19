@@ -73,7 +73,6 @@ func (s *DBImpl) SetLogger(logger *tracing.Hooks) {
 	s.logger = logger
 }
 
-// for interface compliance
 func (s *DBImpl) SetEVM(evm *vm.EVM) {
 	s.ctx = types.SetCtxEVM(s.ctx, evm)
 	s.snapshottedCtxs = utils.Map(s.snapshottedCtxs, func(ctx sdk.Context) sdk.Context { return types.SetCtxEVM(ctx, evm) })
@@ -109,6 +108,8 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
 		s.flushCtx(s.snapshottedCtxs[i])
 	}
+	s.ctx = s.snapshottedCtxs[0]
+	s.snapshottedCtxs = []sdk.Context{}
 
 	surplus = s.tempStateCurrent.surplus
 	for _, ts := range s.tempStatesHist {
