@@ -13,12 +13,18 @@ ENV PATH="/app:${PATH}"
 
 FROM base as fireeth_download
 
-ARG FIREETH="v2.6.1"
+ARG FIREETH="v2.6.2"
 
 # Download and extract the binary file
-RUN curl -LO https://github.com/streamingfast/firehose-ethereum/releases/download/v${FIREETH}/firehose-ethereum_linux_x86_64.tar.gz \
+RUN curl -LO https://github.com/streamingfast/firehose-ethereum/releases/download/${FIREETH}/firehose-ethereum_linux_x86_64.tar.gz \
     && tar -xzf firehose-ethereum_linux_x86_64.tar.gz \
     && rm firehose-ethereum_linux_x86_64.tar.gz
+
+FROM base as libwasmvm_download
+
+ARG WASMVM="v1.5.2"
+
+RUN wget -O /lib/libwasmvm.x86_64.so https://github.com/CosmWasm/wasmvm/releases/download/${WASMVM}/libwasmvm.x86_64.so
 
 FROM base as base_with_gcloud
 
@@ -29,9 +35,11 @@ RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.
 
 FROM base_with_gcloud
 
+ARG SEID_BIN="seid"
+
 COPY --from=fireeth_download /app/fireeth /app/fireeth
-COPY ./seid /app/seid
-COPY ./libwasmvm.x86_64.so /lib/libwasmvm.x86_64.so
+COPY --from=libwasmvm_download /lib/libwasmvm.x86_64.so /lib/libwasmvm.x86_64.so
+COPY ./${SEID_BIN} /app/seid
 
 RUN chmod +x /app/fireeth
 

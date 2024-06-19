@@ -7,7 +7,7 @@ release/
 build/
 cache/
 
-/seid
+/seid-*
 /libwasmvm.x86_64.so
 
 # Local .terraform directories
