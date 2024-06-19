@@ -1,0 +1,37 @@
+FROM ubuntu:22.04 as base
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg tar jq vim wget
+
+RUN curl -LO https://github.com/chmln/sd/releases/download/v1.0.0/sd-v1.0.0-x86_64-unknown-linux-gnu.tar.gz \
+    && tar -xzf sd-v1.0.0-x86_64-unknown-linux-gnu.tar.gz \
+    && cp sd-v1.0.0-x86_64-unknown-linux-gnu/sd /usr/local/bin/sd \
+    && rm -rf sd-v1.0.0-x86_64-unknown-linux-gnu sd-v1.0.0-x86_64-unknown-linux-gnu.tar.gz
+
+ENV PATH="/app:${PATH}"
+
+FROM base as fireeth_download
+
+ARG FIREETH="v2.6.1"
+
+# Download and extract the binary file
+RUN curl -LO https://github.com/streamingfast/firehose-ethereum/releases/download/v${FIREETH}/firehose-ethereum_linux_x86_64.tar.gz \
+    && tar -xzf firehose-ethereum_linux_x86_64.tar.gz \
+    && rm firehose-ethereum_linux_x86_64.tar.gz
+
+FROM base as base_with_gcloud
+
+RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+    && apt-get update -y \
+    && apt-get install google-cloud-sdk -y
+
+FROM base_with_gcloud
+
+COPY --from=fireeth_download /app/fireeth /app/fireeth
+COPY ./seid /app/seid
+COPY ./libwasmvm.x86_64.so /lib/libwasmvm.x86_64.so
+
+RUN chmod +x /app/fireeth
+
