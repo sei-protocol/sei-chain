@@ -151,6 +151,7 @@ func initRootCmd(
 		app.DefaultNodeHome,
 		newApp,
 		appExport,
+		appExportToFile,
 		addModuleInitFlags,
 		tracingProviderOpts,
 	)
@@ -313,6 +314,7 @@ func appExport(
 	jailAllowedAddrs []string,
 	appOpts servertypes.AppOptions,
 ) (servertypes.ExportedApp, error) {
+	fmt.Println("JEREMYDEBUG: in appExport")
 	encCfg := app.MakeEncodingConfig()
 	encCfg.Marshaler = codec.NewProtoCodec(encCfg.InterfaceRegistry)
 
@@ -333,6 +335,26 @@ func appExport(
 	}
 
 	return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
+}
+
+func appExportToFile(
+	logger log.Logger,
+	db dbm.DB,
+	traceStore io.Writer,
+	height int64,
+	forZeroHeight bool,
+	jailAllowedAddrs []string,
+	appOpts servertypes.AppOptions,
+	filePath string,
+) error {
+	// TODO
+	// appState, err := appExport(logger, db, traceStore, height, forZeroHeight, jailAllowedAddrs, appOpts)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// return servertypes.WriteGenesisFileToPath(filePath, appState)
+	return nil
 }
 
 func getPrimeNums(lo int, hi int) []int {
