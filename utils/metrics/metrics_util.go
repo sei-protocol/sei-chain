@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"math/big"
 	"strconv"
 	"time"
 
@@ -314,5 +315,20 @@ func IncrConsumerEventCount(msgType string) {
 		[]string{"sei", "loadtest", "consume", "count"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
+	)
+}
+
+func AddHistogramMetric(key []string, value float32) {
+	metrics.AddSample(key, value)
+}
+
+// Gauge for gas price paid for transactions
+// Metric Name:
+//
+// sei_evm_effective_gas_price
+func HistogramEvmEffectiveGasPrice(gasPrice *big.Int) {
+	AddHistogramMetric(
+		[]string{"sei", "evm", "effective", "gas", "price"},
+		float32(gasPrice.Uint64()),
 	)
 }

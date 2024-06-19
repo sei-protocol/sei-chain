@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -70,7 +71,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	resObj = resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x0", resObj["difficulty"])
 	require.Equal(t, "0x", resObj["extraData"])
-	require.Equal(t, "0xa", resObj["gasLimit"])
+	require.Equal(t, "0xbebc200", resObj["gasLimit"])
 	require.Equal(t, "0x5", resObj["gasUsed"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["hash"])
 	// see setup_tests.go, which have one transaction for block 0x8 (latest)
@@ -128,6 +129,12 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	}
 	blockRes := &coretypes.ResultBlockResults{
 		TxsResults: []*abci.ExecTxResult{},
+		ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxBytes: 100000000,
+				MaxGas:   200000000,
+			},
+		},
 	}
 
 	// Call EncodeTmBlock with empty transactions
@@ -167,6 +174,12 @@ func TestEncodeBankMsg(t *testing.T) {
 					bz, _ := Encoder(tx)
 					return bz
 				}(),
+			},
+		},
+		ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxBytes: 100000000,
+				MaxGas:   200000000,
 			},
 		},
 	}

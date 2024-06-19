@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
@@ -169,6 +172,16 @@ func TestAnteSurplus(t *testing.T) {
 	require.Equal(t, uint64(1), k.BankKeeper().GetWeiBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName)).Uint64())
 	// ante surplus should be cleared
 	require.Equal(t, uint64(0), k.GetAnteSurplusSum(ctx).Uint64())
+}
+
+// This test is just to make sure that the routes can be added without crashing
+func TestRoutesAddition(t *testing.T) {
+	k, _ := testkeeper.MockEVMKeeper()
+	appModule := evm.NewAppModule(nil, k)
+	mux := runtime.NewServeMux()
+	appModule.RegisterGRPCGatewayRoutes(client.Context{}, mux)
+
+	require.NotNil(t, appModule)
 }
 
 func addTestBalanceChangeTracerToCtx(ctx sdk.Context, balanceChanges *[]evmBalanceChange) sdk.Context {

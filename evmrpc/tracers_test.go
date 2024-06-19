@@ -1,8 +1,10 @@
 package evmrpc_test
 
 import (
+	"fmt"
 	"testing"
 
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,4 +70,19 @@ func TestTraceBlockByHash(t *testing.T) {
 	resObj = sendRequestGoodWithNamespace(t, "debug", "traceBlockByHash", "0xBE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B", args)
 	result = resObj["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})
 	require.Equal(t, 3, len(result))
+}
+
+func TestTraceCall(t *testing.T) {
+	_, from := testkeeper.MockAddressPair()
+	_, contractAddr := testkeeper.MockAddressPair()
+	txArgs := map[string]interface{}{
+		"from":    from.Hex(),
+		"to":      contractAddr.Hex(),
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+	}
+
+	resObj := sendRequestGoodWithNamespace(t, "debug", "traceCall", txArgs, "0x65")
+	result := resObj["result"].(map[string]interface{})
+	require.Equal(t, float64(21000), result["gas"])
+	require.Equal(t, false, result["failed"])
 }

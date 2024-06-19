@@ -443,3 +443,7 @@ func getEthReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message,
 
 	return receipt
 }
+
+func (server msgServer) Associate(context.Context, *types.MsgAssociate) (*types.MsgAssociateResponse, error) {
+	return &types.MsgAssociateResponse{}, nil
+}
