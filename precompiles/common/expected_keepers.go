@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -39,6 +40,12 @@ type EVMKeeper interface {
 	GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool)
 	SetERC721CW721Pointer(ctx sdk.Context, cw721Address string, addr common.Address) error
 	GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool)
+}
+
+type AccountKeeper interface {
+	HasAccount(ctx sdk.Context, addr sdk.AccAddress) bool
+	SetAccount(ctx sdk.Context, acc authtypes.AccountI)
+	NewAccountWithAddress(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
 }
 
 type OracleKeeper interface {
