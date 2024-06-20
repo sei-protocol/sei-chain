@@ -59,8 +59,9 @@ export SEID_REF=v5.5.5-fh3.0 \
 && sudo cp /home/sei/go/bin/seid /usr/local/bin/seid-"${SEID_REF:?}"
 ```
 
-In this folder, copy the newly built binary as well as the libwasmvm.so file.
-Then build the Docker container and push it out. Here the commands to use.
+Then from your developer machine now, run the following commands which download from the VM the binary locally and then build a Docker image from it.
+
+Adjust the `TAG` export to use a repository you control, the `SEID_REF` to fit with the correct version.
 
 ```
 # Assumed to be in `sei-chain` root folder, replace `sei0` in scp command to fit your own machine's name
@@ -70,6 +71,6 @@ export SEID_REF=v5.5.6-fh3.0 \
 && export TAG="ghcr.io/streamingfast/firehose-ethereum:${FIREETH:?}-sei-${SEID_REF:?}" \
 && scp sei0:/usr/local/bin/seid-${SEID_REF:?} . \
 && docker build --platform=linux/amd64 --build-arg="FIREETH=${FIREETH:?}" --build-arg="SEID_BIN=seid-${SEID_REF:?}" -t "${TAG:?}" -f Dockerfile.sf . \
-&& docker run --rm -it "${TAG:?}" seid version \
+&& docker run --platform=linux/amd64 --rm -it "${TAG:?}" seid version \
 && docker push "${TAG:?}"
 ```
