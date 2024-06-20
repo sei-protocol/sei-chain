@@ -9,7 +9,6 @@ import (
 	"math/big"
 	"slices"
 	"sort"
-	"strconv"
 	"sync"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
@@ -192,8 +191,11 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		return nil, err
 	}
 
-	timestamp := ctx.BlockHeader().Time.Unix()
-	rh := crypto.Keccak256Hash([]byte(strconv.FormatInt(timestamp, 10)))
+	r, err := ctx.BlockHeader().Time.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	rh := crypto.Keccak256Hash(r)
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
 		if IsPayablePrecompile(&recipient) {
