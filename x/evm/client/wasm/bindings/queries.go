@@ -5,26 +5,36 @@ import (
 )
 
 type SeiEVMQuery struct {
-	StaticCall                  *StaticCallRequest                  `json:"static_call,omitempty"`
-	ERC20TransferPayload        *ERC20TransferPayloadRequest        `json:"erc20_transfer_payload,omitempty"`
-	ERC20TransferFromPayload    *ERC20TransferFromPayloadRequest    `json:"erc20_transfer_from_payload,omitempty"`
-	ERC20ApprovePayload         *ERC20ApprovePayloadRequest         `json:"erc20_approve_payload,omitempty"`
-	ERC20Allowance              *ERC20AllowanceRequest              `json:"erc20_allowance,omitempty"`
-	ERC20TokenInfo              *ERC20TokenInfoRequest              `json:"erc20_token_info,omitempty"`
-	ERC20Balance                *ERC20BalanceRequest                `json:"erc20_balance,omitempty"`
-	ERC721Owner                 *ERC721OwnerRequest                 `json:"erc721_owner,omitempty"`
-	ERC721TransferPayload       *ERC721TransferPayloadRequest       `json:"erc721_transfer_payload,omitempty"`
-	ERC721ApprovePayload        *ERC721ApprovePayloadRequest        `json:"erc721_approve_payload,omitempty"`
-	ERC721SetApprovalAllPayload *ERC721SetApprovalAllPayloadRequest `json:"erc721_set_approval_all_payload,omitempty"`
-	ERC721Approved              *ERC721ApprovedRequest              `json:"erc721_approved,omitempty"`
-	ERC721IsApprovedForAll      *ERC721IsApprovedForAllRequest      `json:"erc721_is_approved_for_all,omitempty"`
-	ERC721TotalSupply           *ERC721TotalSupplyRequest           `json:"erc721_total_supply,omitempty"`
-	ERC721NameSymbol            *ERC721NameSymbolRequest            `json:"erc721_name_symbol,omitempty"`
-	ERC721Uri                   *ERC721UriRequest                   `json:"erc721_uri,omitempty"`
-	ERC721RoyaltyInfo           *ERC721RoyaltyInfoRequest           `json:"erc721_royalty_info,omitempty"`
-	GetEvmAddress               *GetEvmAddressRequest               `json:"get_evm_address,omitempty"`
-	GetSeiAddress               *GetSeiAddressRequest               `json:"get_sei_address,omitempty"`
-	SupportsInterface           *SupportsInterfaceRequest           `json:"supports_interface,omitempty"`
+	StaticCall                   *StaticCallRequest                   `json:"static_call,omitempty"`
+	ERC20TransferPayload         *ERC20TransferPayloadRequest         `json:"erc20_transfer_payload,omitempty"`
+	ERC20TransferFromPayload     *ERC20TransferFromPayloadRequest     `json:"erc20_transfer_from_payload,omitempty"`
+	ERC20ApprovePayload          *ERC20ApprovePayloadRequest          `json:"erc20_approve_payload,omitempty"`
+	ERC20Allowance               *ERC20AllowanceRequest               `json:"erc20_allowance,omitempty"`
+	ERC20TokenInfo               *ERC20TokenInfoRequest               `json:"erc20_token_info,omitempty"`
+	ERC20Balance                 *ERC20BalanceRequest                 `json:"erc20_balance,omitempty"`
+	ERC721Owner                  *ERC721OwnerRequest                  `json:"erc721_owner,omitempty"`
+	ERC721TransferPayload        *ERC721TransferPayloadRequest        `json:"erc721_transfer_payload,omitempty"`
+	ERC721ApprovePayload         *ERC721ApprovePayloadRequest         `json:"erc721_approve_payload,omitempty"`
+	ERC721SetApprovalAllPayload  *ERC721SetApprovalAllPayloadRequest  `json:"erc721_set_approval_all_payload,omitempty"`
+	ERC721Approved               *ERC721ApprovedRequest               `json:"erc721_approved,omitempty"`
+	ERC721IsApprovedForAll       *ERC721IsApprovedForAllRequest       `json:"erc721_is_approved_for_all,omitempty"`
+	ERC721TotalSupply            *ERC721TotalSupplyRequest            `json:"erc721_total_supply,omitempty"`
+	ERC721NameSymbol             *ERC721NameSymbolRequest             `json:"erc721_name_symbol,omitempty"`
+	ERC721Uri                    *ERC721UriRequest                    `json:"erc721_uri,omitempty"`
+	ERC721RoyaltyInfo            *ERC721RoyaltyInfoRequest            `json:"erc721_royalty_info,omitempty"`
+	ERC1155Owner                 *ERC1155OwnerRequest                 `json:"erc1155_owner,omitempty"`
+	ERC1155SendBatchPayload      *ERC1155TransferPayloadRequest       `json:"erc1155_transfer_payload,omitempty"`
+	ERC1155ApprovePayload        *ERC1155ApprovePayloadRequest        `json:"erc1155_approve_payload,omitempty"`
+	ERC1155SetApprovalAllPayload *ERC1155SetApprovalAllPayloadRequest `json:"erc1155_set_approval_all_payload,omitempty"`
+	ERC1155Approved              *ERC1155ApprovedRequest              `json:"erc1155_approved,omitempty"`
+	ERC1155IsApprovedForAll      *ERC1155IsApprovedForAllRequest      `json:"erc1155_is_approved_for_all,omitempty"`
+	ERC1155TotalSupply           *ERC1155TotalSupplyRequest           `json:"erc1155_total_supply,omitempty"`
+	ERC1155NameSymbol            *ERC1155NameSymbolRequest            `json:"erc1155_name_symbol,omitempty"`
+	ERC1155Uri                   *ERC1155UriRequest                   `json:"erc1155_uri,omitempty"`
+	ERC1155RoyaltyInfo           *ERC1155RoyaltyInfoRequest           `json:"erc1155_royalty_info,omitempty"`
+	GetEvmAddress                *GetEvmAddressRequest                `json:"get_evm_address,omitempty"`
+	GetSeiAddress                *GetSeiAddressRequest                `json:"get_sei_address,omitempty"`
+	SupportsInterface            *SupportsInterfaceRequest            `json:"supports_interface,omitempty"`
 }
 
 type StaticCallRequest struct {
