@@ -44,11 +44,9 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
     // Queries
     function balanceOf(address account, uint256 id) public view override returns (uint256) {
         require(account != address(0), "ERC1155: cannot query balance of zero address");
-        string memory req = _curlyBrace(
-                                _keyValue("balance_of",(_curlyBrace(
-                                    _join(_keyValue("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(account))),",",_keyValue("token_id", _doubleQuotes(Strings.toString(id))))
-                                )))
-                            );
+        string memory own = _formatPayload("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(account)));
+        string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(id)));
+        string memory req = _curlyBrace(_formatPayload("balance_of",(_curlyBrace(_join(own,",",tId)))));
         bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(req));
         return JsonPrecompile.extractAsUint256(response, "balance");
     }
@@ -64,27 +62,22 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
     }
 
     function uri(uint256 id) public view override returns (string memory) {
-        string memory req = _curlyBrace(
-                                _keyValue("token_info",(_curlyBrace(
-                                    _keyValue("token_id", _doubleQuotes(Strings.toString(id)))
-                                )))
-                            );
+        string memory tId = _curlyBrace(_formatPayload("token_id", _doubleQuotes(Strings.toString(id))));
+        string memory req = _curlyBrace(_formatPayload("token_info",(tId)));
         bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(req));
         return string(JsonPrecompile.extractAsBytes(response, "token_uri"));
     }
 
     function isApprovedForAll(address owner, address operator) public view override returns (bool) {
-        string memory req = _curlyBrace(
-                                _keyValue("is_approved_for_all",(_curlyBrace(
-                                    _join(_keyValue("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(owner))),",",_keyValue("operator", _doubleQuotes(AddrPrecompile.getSeiAddr(operator))))
-                                )))
-                            );
+        string memory own = _formatPayload("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(owner)));
+        string memory op = _formatPayload("operator", _doubleQuotes(AddrPrecompile.getSeiAddr(operator)));
+        string memory req = _curlyBrace(_formatPayload("is_approved_for_all",(_curlyBrace(_join(own,",",op)))));
         bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(req));
         return JsonPrecompile.extractAsUint256(response, "approved") == 1;
     }
 
 
-    function _keyValue(string memory key, string memory value) internal pure returns (string memory) {
+    function _formatPayload(string memory key, string memory value) internal pure returns (string memory) {
         return _join(_doubleQuotes(key), ":", value);
     }
 
