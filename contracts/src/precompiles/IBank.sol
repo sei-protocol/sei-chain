@@ -8,6 +8,10 @@ IBank constant BANK_CONTRACT = IBank(
 );
 
 interface IBank {
+    struct Coin {
+        uint256 amount;
+        string denom;
+    }
     // Transactions
     function send(
         address fromAddress,
@@ -16,23 +20,19 @@ interface IBank {
         uint256 amount
     ) external returns (bool success);
 
-    function sendFromCaller(
-        address toAddress,
-        string memory denom,
-        uint256 amount
-    ) external returns (bool success);
-
-    function sendFromOrigin(
-        address toAddress,
-        string memory denom,
-        uint256 amount
-    ) external returns (bool success);
+    function sendNative(
+        string memory toNativeAddress
+    ) payable external returns (bool success);
 
     // Queries
     function balance(
         address acc,
         string memory denom
     ) external view returns (uint256 amount);
+
+    function all_balances(
+        address acc
+    ) external view returns (Coin[] memory response);
 
     function name(
         string memory denom

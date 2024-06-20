@@ -12,16 +12,24 @@ interface IWasmd {
     function instantiate(
         uint64 codeID,
         string memory admin,
-        bytes memory payload,
+        bytes memory msg,
         string memory label,
         bytes memory coins
-    ) external returns (string memory contractAddr, bytes memory data);
+    ) payable external returns (string memory contractAddr, bytes memory data);
 
     function execute(
         string memory contractAddress,
-        bytes memory payload,
+        bytes memory msg,
         bytes memory coins
-    ) external returns (bytes memory response);
+    ) payable external returns (bytes memory response);
+
+    struct ExecuteMsg {
+        string contractAddress;
+        bytes msg;
+        bytes coins;
+    }
+
+    function execute_batch(ExecuteMsg[] memory executeMsgs) payable external returns (bytes[] memory responses);
 
     // Queries
     function query(string memory contractAddress, bytes memory req) external view returns (bytes memory response);

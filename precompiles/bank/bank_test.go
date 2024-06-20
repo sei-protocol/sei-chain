@@ -67,6 +67,9 @@ func TestRun(t *testing.T) {
 		TxContext: vm.TxContext{Origin: senderEVMAddr},
 	}
 
+	err = k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, p.Address(), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))))
+	fmt.Println("err = ", err)
+
 	// Precompile send test
 	send, err := p.ABI.MethodById(p.SendID)
 	require.Nil(t, err)
