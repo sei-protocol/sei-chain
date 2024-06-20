@@ -692,6 +692,7 @@ func New(
 			app.IBCKeeper.ClientKeeper,
 			app.IBCKeeper.ConnectionKeeper,
 			app.IBCKeeper.ChannelKeeper,
+			app.AccountKeeper,
 		); err != nil {
 			panic(err)
 		}
