@@ -73,6 +73,6 @@ func (k *Keeper) SetWasmKeeper(wasmKeeper *wasm.Keeper) {
 }
 
 func (k Keeper) CreateModuleAccount(ctx sdk.Context) {
-	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName)
+	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName, authtypes.Burner)
 	k.AccountKeeper.SetModuleAccount(ctx, moduleAcc)
 }
