@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"slices"
 	"sort"
+	"strconv"
 	"sync"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
@@ -27,6 +28,7 @@ import (
 	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/tests"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -189,11 +191,9 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	if err != nil {
 		return nil, err
 	}
-	r, err := ctx.BlockHeader().Time.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-	rh := common.BytesToHash(r)
+
+	timestamp := ctx.BlockHeader().Time.Unix()
+	rh := crypto.Keccak256Hash([]byte(strconv.FormatInt(timestamp, 10)))
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
 		if IsPayablePrecompile(&recipient) {
