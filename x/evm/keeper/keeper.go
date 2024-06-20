@@ -191,6 +191,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		return nil, err
 	}
 
+	// Use hash of block timestamp as info for PREVRANDAO
 	r, err := ctx.BlockHeader().Time.MarshalBinary()
 	if err != nil {
 		return nil, err
