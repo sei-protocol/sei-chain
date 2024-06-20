@@ -38,7 +38,7 @@ func (k *Keeper) RunWithOneOffEVMInstance(
 		return err
 	}
 	if !surplus.IsZero() {
-		logger("non-zero surplus", err.Error())
+		logger("non-zero surplus", surplus.String())
 	}
 	return nil
 }
@@ -93,7 +93,6 @@ func (k *Keeper) UpsertERCPointer(
 		k.SetCode(ctx, contractAddr, ret)
 	} else {
 		_, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(evmModuleAddress), bin, suppliedGas, utils.Big0)
-		evm.StateDB.SetNonce(evmModuleAddress, evm.StateDB.GetNonce(evmModuleAddress)+1)
 	}
 	if err != nil {
 		return
