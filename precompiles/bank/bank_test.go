@@ -59,7 +59,7 @@ func TestRun(t *testing.T) {
 	// Setup receiving addresses
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -194,6 +194,16 @@ func TestRun(t *testing.T) {
 	weiBalance := k.BankKeeper().GetWeiBalance(ctx, seiAddr)
 	require.Equal(t, big.NewInt(100), weiBalance.BigInt())
 
+	newAddr, _ := testkeeper.MockAddressPair()
+	require.Nil(t, k.AccountKeeper().GetAccount(ctx, newAddr))
+	argsNewAccount, err := sendNative.Inputs.Pack(newAddr.String())
+	require.Nil(t, err)
+	require.Nil(t, k.BankKeeper().SendCoins(ctx, seiAddr, k.GetSeiAddressOrDefault(ctx, p.Address()), sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt()))))
+	_, err = p.Run(&evm, evmAddr, evmAddr, append(p.SendNativeID, argsNewAccount...), big.NewInt(1), false)
+	require.Nil(t, err)
+	// should create account if not exists
+	require.NotNil(t, k.AccountKeeper().GetAccount(statedb.Ctx(), newAddr))
+
 	// test get all balances
 	allBalances, err := p.ABI.MethodById(p.AllBalancesID)
 	require.Nil(t, err)
@@ -256,7 +266,7 @@ func TestSendForUnlinkedReceiver(t *testing.T) {
 
 	// Setup receiving addresses - NOT linked
 	_, evmAddr := testkeeper.MockAddressPair()
-	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -325,7 +335,7 @@ func TestSendForUnlinkedReceiver(t *testing.T) {
 func TestMetadata(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
-	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -374,7 +384,7 @@ func TestMetadata(t *testing.T) {
 
 func TestRequiredGas(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
-	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
 	require.Nil(t, err)
 	balanceRequiredGas := p.RequiredGas(p.BalanceID)
 	require.Equal(t, uint64(1000), balanceRequiredGas)
@@ -384,7 +394,7 @@ func TestRequiredGas(t *testing.T) {
 
 func TestAddress(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
-	p, err := bank.NewPrecompile(k.BankKeeper(), k)
+	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
 	require.Nil(t, err)
 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
 }
