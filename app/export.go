@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/types/kv"
 
@@ -72,6 +73,7 @@ func (app *App) ExportAppToFileStateAndValidators(
 	}
 
 	file.Write([]byte("{"))
+	file.Write([]byte("\"app_state\":{"))
 	i := 0
 	app.mm.ProcessGenesisPerModule(ctx, app.appCodec, func(moduleName string, moduleJson json.RawMessage) {
 		if i != 0 {
@@ -82,19 +84,24 @@ func (app *App) ExportAppToFileStateAndValidators(
 	})
 	file.Write([]byte("}"))
 
-	genState := app.mm.ExportGenesis(ctx, app.appCodec)
-	appState, err := json.MarshalIndent(genState, "", "  ")
-	if err != nil {
-		return err
-	}
+	file.Write([]byte(fmt.Sprintf(",\"height\":%s", strconv.Itoa(int(height)))))
 
 	validators, err := staking.WriteValidators(ctx, app.StakingKeeper)
 	if err != nil {
 		return err
 	}
-	fmt.Println(height)
-	fmt.Println(appState)
-	fmt.Println(validators)
+
+	// write validators
+	validatorsRes := make([]byte, 0)
+	validatorsRes = append(validatorsRes, []byte(",\"validators\":")...)
+	validatorsBytes, err := json.Marshal(validators)
+	if err != nil {
+		return err
+	}
+	validatorsRes = append(validatorsRes, validatorsBytes...)
+	file.Write(validatorsRes)
+
+	file.Write([]byte("}"))
 	return nil
 }
 
