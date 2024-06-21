@@ -347,7 +347,7 @@ max-batch-bytes = 0
 # Note, if ttl-num-blocks is also defined, a transaction will be removed if it
 # has existed in the mempool at least ttl-num-blocks number of blocks or if it's
 # insertion time into the mempool is beyond ttl-duration.
-ttl-duration = "30s"
+ttl-duration = "15s"
 
 # ttl-num-blocks, if non-zero, defines the maximum number of blocks a transaction
 # can exist for in the mempool.
@@ -355,7 +355,7 @@ ttl-duration = "30s"
 # Note, if ttl-duration is also defined, a transaction will be removed if it
 # has existed in the mempool at least ttl-num-blocks number of blocks or if
 # it's insertion time into the mempool is beyond ttl-duration.
-ttl-num-blocks = 100
+ttl-num-blocks = 30
 
 tx-notify-threshold = 0
 

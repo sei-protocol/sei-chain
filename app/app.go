@@ -234,7 +234,7 @@ var (
 		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
-		dexmoduletypes.ModuleName:      nil,
+		dexmoduletypes.ModuleName:      {authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
@@ -692,6 +692,7 @@ func New(
 			app.IBCKeeper.ClientKeeper,
 			app.IBCKeeper.ConnectionKeeper,
 			app.IBCKeeper.ChannelKeeper,
+			app.AccountKeeper,
 		); err != nil {
 			panic(err)
 		}
