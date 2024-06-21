@@ -141,7 +141,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 4, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, true, true)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, true, true, false)
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 5, func(ctx sdk.Context) error {
@@ -149,11 +149,11 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 6, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true, false)
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 7, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true, false)
 	})
 }
 

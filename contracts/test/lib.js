@@ -41,6 +41,7 @@ const WASM = {
     CW20: "../contracts/wasm/cw20_base.wasm",
     POINTER_CW20: "../example/cosmwasm/cw20/artifacts/cwerc20.wasm",
     POINTER_CW721: "../example/cosmwasm/cw721/artifacts/cwerc721.wasm",
+    POINTER_CW1155: "../example/cosmwasm/cw721/artifacts/cwerc1155.wasm",
 }
 
 function sleep(ms) {
@@ -315,6 +316,15 @@ async function registerPointerForERC721(erc721Address, fees="20000usei", from=ad
     return getEventAttribute(response, "pointer_registered", "pointer_address")
 }
 
+async function registerPointerForERC1155(erc1155Address, fees="20000usei", from=adminKeyName) {
+    const command = `seid tx evm register-cw-pointer ERC1155 ${erc1155Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
+    const output = await execute(command);
+    const response = JSON.parse(output)
+    if(response.code !== 0) {
+        throw new Error("contract deployment failed")
+    }
+    return getEventAttribute(response, "pointer_registered", "pointer_address")
+}
 
 async function getSeiAddress(evmAddress) {
     const command = `seid q evm sei-addr ${evmAddress} -o json`

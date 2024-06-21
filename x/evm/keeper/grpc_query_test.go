@@ -7,8 +7,10 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -22,12 +24,16 @@ func TestQueryPointer(t *testing.T) {
 	seiAddr3, evmAddr3 := testkeeper.MockAddressPair()
 	seiAddr4, evmAddr4 := testkeeper.MockAddressPair()
 	seiAddr5, evmAddr5 := testkeeper.MockAddressPair()
+	seiAddr6, evmAddr6 := testkeeper.MockAddressPair()
+	seiAddr7, evmAddr7 := testkeeper.MockAddressPair()
 	goCtx := sdk.WrapSDKContext(ctx)
 	k.SetERC20NativePointer(ctx, seiAddr1.String(), evmAddr1)
 	k.SetERC20CW20Pointer(ctx, seiAddr2.String(), evmAddr2)
 	k.SetERC721CW721Pointer(ctx, seiAddr3.String(), evmAddr3)
 	k.SetCW20ERC20Pointer(ctx, evmAddr4, seiAddr4.String())
 	k.SetCW721ERC721Pointer(ctx, evmAddr5, seiAddr5.String())
+	k.SetERC1155CW1155Pointer(ctx, seiAddr6.String(), evmAddr6)
+	k.SetCW1155ERC1155Pointer(ctx, evmAddr7, seiAddr7.String())
 	q := keeper.Querier{k}
 	res, err := q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_NATIVE, Pointee: seiAddr1.String()})
 	require.Nil(t, err)
@@ -44,4 +50,10 @@ func TestQueryPointer(t *testing.T) {
 	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_ERC721, Pointee: evmAddr5.Hex()})
 	require.Nil(t, err)
 	require.Equal(t, types.QueryPointerResponse{Pointer: seiAddr5.String(), Version: uint32(erc721.CurrentVersion), Exists: true}, *res)
+	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_CW1155, Pointee: seiAddr3.String()})
+	require.Nil(t, err)
+	require.Equal(t, types.QueryPointerResponse{Pointer: evmAddr3.Hex(), Version: uint32(cw1155.CurrentVersion), Exists: true}, *res)
+	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_ERC1155, Pointee: evmAddr5.Hex()})
+	require.Nil(t, err)
+	require.Equal(t, types.QueryPointerResponse{Pointer: seiAddr5.String(), Version: uint32(erc1155.CurrentVersion), Exists: true}, *res)
 }

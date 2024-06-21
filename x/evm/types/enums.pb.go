@@ -23,11 +23,13 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 type PointerType int32
 
 const (
-	PointerType_ERC20  PointerType = 0
-	PointerType_ERC721 PointerType = 1
-	PointerType_NATIVE PointerType = 2
-	PointerType_CW20   PointerType = 3
-	PointerType_CW721  PointerType = 4
+	PointerType_ERC20   PointerType = 0
+	PointerType_ERC721  PointerType = 1
+	PointerType_NATIVE  PointerType = 2
+	PointerType_CW20    PointerType = 3
+	PointerType_CW721   PointerType = 4
+	PointerType_ERC1155 PointerType = 5
+	PointerType_CW1155  PointerType = 6
 )
 
 var PointerType_name = map[int32]string{
@@ -36,14 +38,18 @@ var PointerType_name = map[int32]string{
 	2: "NATIVE",
 	3: "CW20",
 	4: "CW721",
+	5: "ERC1155",
+	6: "CW1155",
 }
 
 var PointerType_value = map[string]int32{
-	"ERC20":  0,
-	"ERC721": 1,
-	"NATIVE": 2,
-	"CW20":   3,
-	"CW721":  4,
+	"ERC20":   0,
+	"ERC721":  1,
+	"NATIVE":  2,
+	"CW20":    3,
+	"CW721":   4,
+	"ERC1155": 5,
+	"CW1155":  6,
 }
 
 func (x PointerType) String() string {

@@ -105,6 +105,38 @@ func TestAddERCCW721PointerProposals(t *testing.T) {
 	require.Equal(t, addr, pointer1)
 }
 
+func TestAddERCCW1155PointerProposals(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	_, pointer1 := testkeeper.MockAddressPair()
+	_, pointer2 := testkeeper.MockAddressPair()
+	require.Nil(t, evm.HandleAddERCCW1155PointerProposal(ctx, k, &types.AddERCCW1155PointerProposal{
+		Pointee: "test",
+		Version: 1,
+		Pointer: pointer1.Hex(),
+	}))
+	addr, ver, exists := k.GetERC1155CW1155Pointer(ctx, "test")
+	require.True(t, exists)
+	require.Equal(t, uint16(1), ver)
+	require.Equal(t, addr, pointer1)
+	require.Nil(t, evm.HandleAddERCCW1155PointerProposal(ctx, k, &types.AddERCCW1155PointerProposal{
+		Pointee: "test",
+		Version: 2,
+		Pointer: pointer2.Hex(),
+	}))
+	addr, ver, exists = k.GetERC1155CW1155Pointer(ctx, "test")
+	require.True(t, exists)
+	require.Equal(t, uint16(2), ver)
+	require.Equal(t, addr, pointer2)
+	require.Nil(t, evm.HandleAddERCCW1155PointerProposal(ctx, k, &types.AddERCCW1155PointerProposal{
+		Pointee: "test",
+		Version: 2,
+	}))
+	addr, ver, exists = k.GetERC1155CW1155Pointer(ctx, "test")
+	require.True(t, exists)
+	require.Equal(t, uint16(1), ver)
+	require.Equal(t, addr, pointer1)
+}
+
 func TestAddCWERC20PointerProposals(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	_, pointee1 := testkeeper.MockAddressPair()
@@ -166,6 +198,39 @@ func TestAddCWERC721PointerProposals(t *testing.T) {
 		Version: 2,
 	}))
 	addr, ver, exists = k.GetCW721ERC721Pointer(ctx, pointee1)
+	require.True(t, exists)
+	require.Equal(t, uint16(1), ver)
+	require.Equal(t, addr, pointer1)
+}
+
+func TestAddCWERC1155PointerProposals(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	_, pointee1 := testkeeper.MockAddressPair()
+	pointer1, _ := testkeeper.MockAddressPair()
+	pointer2, _ := testkeeper.MockAddressPair()
+	require.Nil(t, evm.HandleAddCWERC1155PointerProposal(ctx, k, &types.AddCWERC1155PointerProposal{
+		Pointee: pointee1.Hex(),
+		Version: 1,
+		Pointer: pointer1.String(),
+	}))
+	addr, ver, exists := k.GetCW1155ERC1155Pointer(ctx, pointee1)
+	require.True(t, exists)
+	require.Equal(t, uint16(1), ver)
+	require.Equal(t, addr, pointer1)
+	require.Nil(t, evm.HandleAddCWERC1155PointerProposal(ctx, k, &types.AddCWERC1155PointerProposal{
+		Pointee: pointee1.Hex(),
+		Version: 2,
+		Pointer: pointer2.String(),
+	}))
+	addr, ver, exists = k.GetCW1155ERC1155Pointer(ctx, pointee1)
+	require.True(t, exists)
+	require.Equal(t, uint16(2), ver)
+	require.Equal(t, addr, pointer2)
+	require.Nil(t, evm.HandleAddCWERC1155PointerProposal(ctx, k, &types.AddCWERC1155PointerProposal{
+		Pointee: pointee1.Hex(),
+		Version: 2,
+	}))
+	addr, ver, exists = k.GetCW1155ERC1155Pointer(ctx, pointee1)
 	require.True(t, exists)
 	require.Equal(t, uint16(1), ver)
 	require.Equal(t, addr, pointer1)
