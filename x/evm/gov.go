@@ -103,15 +103,7 @@ func HandleAddERCCW721PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *type
 }
 
 func HandleAddERCCW1155PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *types.AddERCCW1155PointerProposal) error {
-	ctx.EventManager().EmitEvent(sdk.NewEvent(
-		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw1155"),
-		sdk.NewAttribute(types.AttributeKeyPointerAddress, p.Pointer), sdk.NewAttribute(types.AttributeKeyPointee, p.Pointee),
-		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", p.Version))))
-	if p.Pointer == "" {
-		k.DeleteERC1155CW1155Pointer(ctx, p.Pointee, uint16(p.Version))
-		return nil
-	}
-	return k.SetERC1155CW1155PointerWithVersion(ctx, p.Pointee, common.HexToAddress(p.Pointer), uint16(p.Version))
+	return errors.New("proposal type deprecated")
 }
 
 func HandleAddCWERC20PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *types.AddCWERC20PointerProposal) error {
@@ -123,13 +115,5 @@ func HandleAddCWERC721PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *type
 }
 
 func HandleAddCWERC1155PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *types.AddCWERC1155PointerProposal) error {
-	ctx.EventManager().EmitEvent(sdk.NewEvent(
-		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc1155"),
-		sdk.NewAttribute(types.AttributeKeyPointerAddress, p.Pointer), sdk.NewAttribute(types.AttributeKeyPointee, p.Pointee),
-		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", p.Version))))
-	if p.Pointer == "" {
-		k.DeleteCW1155ERC1155Pointer(ctx, common.HexToAddress(p.Pointee), uint16(p.Version))
-		return nil
-	}
-	return k.SetCW1155ERC1155PointerWithVersion(ctx, common.HexToAddress(p.Pointee), p.Pointer, uint16(p.Version))
+	return errors.New("proposal type deprecated")
 }
