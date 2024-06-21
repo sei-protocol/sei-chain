@@ -230,7 +230,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	surplus := am.keeper.GetAnteSurplusSum(ctx)
 	for _, deferredInfo := range evmTxDeferredInfoList {
 		if deferredInfo.Error != "" && deferredInfo.TxHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
-			_ = am.keeper.SetReceipt(ctx, deferredInfo.TxHash, &types.Receipt{
+			_ = am.keeper.SetTransientReceipt(ctx, deferredInfo.TxHash, &types.Receipt{
 				TxHashHex:        deferredInfo.TxHash.Hex(),
 				TransactionIndex: uint32(deferredInfo.TxIndx),
 				VmError:          deferredInfo.Error,

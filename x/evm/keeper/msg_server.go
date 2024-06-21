@@ -254,7 +254,7 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 
 	receipt.From = origMsg.Derived.SenderEVMAddr.Hex()
 
-	return receipt, server.SetReceipt(ctx, tx.Hash(), receipt)
+	return receipt, server.SetTransientReceipt(ctx, tx.Hash(), receipt)
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {

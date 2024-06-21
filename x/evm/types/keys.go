@@ -18,6 +18,10 @@ const (
 
 	MemStoreKey = "evm_mem"
 
+	TransientStoreKey = "evm_transient"
+
+	ReceiptStoreKey = "receipt"
+
 	// QuerierRoute is the querier route for auth
 	QuerierRoute = ModuleName
 )

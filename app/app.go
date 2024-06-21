@@ -407,6 +407,7 @@ func New(
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
 	bAppOptions := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
+
 	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
@@ -423,7 +424,7 @@ func New(
 		tokenfactorytypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
-	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
+	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey, banktypes.DeferredCacheStoreKey, evmtypes.MemStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
@@ -597,8 +598,14 @@ func New(
 	)
 
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
-		app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper,
-		app.TransferKeeper, wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.BankKeeper,
+		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+
+	bApp.SetPreCommitHandler(func(ctx sdk.Context) error {
+		return app.EvmKeeper.FlushTransientReceipts(ctx)
+	})
+
 	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
