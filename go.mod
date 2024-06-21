@@ -344,7 +344,8 @@ require (
 )
 
 replace (
-	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.1.5
+	// github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.1.5
+	github.com/CosmWasm/wasmd => ../sei-wasmd
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	// github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.22
 	github.com/cosmos/cosmos-sdk => ../sei-cosmos
