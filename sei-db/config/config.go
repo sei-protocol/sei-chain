@@ -56,7 +56,7 @@ type StateStoreConfig struct {
 	// DBDirectory defines the directory to store the state store db files
 	// If not explicitly set, default to application home directory
 	// default to empty
-	DBDirectory string `mapstructure:"db-dir"`
+	DBDirectory string `mapstructure:"db-directory"`
 
 	// DedicatedChangelog defines if we should use a separate changelog for SS store other than sharing with SC
 	DedicatedChangelog bool `mapstructure:"dedicated-changelog"`
