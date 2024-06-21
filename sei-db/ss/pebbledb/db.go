@@ -306,10 +306,8 @@ func (db *Database) writeAsync() {
 		for nextChange := range db.pendingChanges {
 			version := nextChange.Version
 			for _, cs := range nextChange.Changesets {
-				err := db.ApplyChangeset(version, cs)
-				if err != nil {
-					panic(panic)
-				}
+				db.ApplyChangeset(version, cs)
+
 			}
 			db.SetLatestVersion(version)
 		}
