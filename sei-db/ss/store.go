@@ -2,12 +2,12 @@ package ss
 
 import (
 	"fmt"
-	"github.com/sei-protocol/sei-db/ss/pruning"
 
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-db/ss/pruning"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/sei-protocol/sei-db/stream/changelog"
 )
@@ -86,7 +86,7 @@ func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore ty
 	// Look backward to find where we should start replay from
 	curVersion := lastEntry.Version
 	curOffset := lastOffset
-	for curVersion > ssLatestVersion && curOffset >= firstOffset {
+	for curVersion > ssLatestVersion && curOffset > firstOffset {
 		curOffset--
 		curEntry, errRead := streamHandler.ReadAt(curOffset)
 		if errRead != nil {

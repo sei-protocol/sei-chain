@@ -5,9 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/stream/changelog"
 	"math"
 	"strings"
 	"sync"
@@ -15,9 +12,12 @@ import (
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/stream/changelog"
 	"golang.org/x/exp/slices"
 )
 
