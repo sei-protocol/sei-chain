@@ -18,6 +18,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -40,6 +41,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryEVMAddress())
 	cmd.AddCommand(CmdQueryERC20Payload())
 	cmd.AddCommand(CmdQueryERC721Payload())
+	cmd.AddCommand(CmdQueryERC1155Payload())
 	cmd.AddCommand(CmdQueryERC20())
 	cmd.AddCommand(CmdQueryPayload())
 	cmd.AddCommand(CmdQueryPointer())
@@ -291,10 +293,53 @@ func CmdQueryERC721Payload() *cobra.Command {
 	return cmd
 }
 
+func CmdQueryERC1155Payload() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "erc1155-payload [method] [arguments...]",
+		Short: "get hex payload for the given inputs",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			abi, err := cw1155.Cw1155MetaData.GetAbi()
+			if err != nil {
+				return err
+			}
+			var bz []byte
+			switch args[0] { // TODO: fill in with key ERC1155 functions
+			case "approve":
+				spender := common.HexToAddress(args[1])
+				id, _ := sdk.NewIntFromString(args[2])
+				bz, err = abi.Pack(args[0], spender, id.BigInt())
+			case "transferFrom":
+				from := common.HexToAddress(args[1])
+				to := common.HexToAddress(args[2])
+				id, _ := sdk.NewIntFromString(args[3])
+				bz, err = abi.Pack(args[0], from, to, id.BigInt())
+			case "setApprovalForAll":
+				op := common.HexToAddress(args[1])
+				approved := args[2] == "true"
+				bz, err = abi.Pack(args[0], op, approved)
+			}
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintString(hex.EncodeToString(bz))
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
 func CmdQueryPointer() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pointer [type] [pointee]",
-		Short: "get pointer address of the specified type (one of [NATIVE, CW20, CW721, ERC20, ERC721]) and pointee",
+		Short: "get pointer address of the specified type (one of [NATIVE, CW20, CW721, CW1155, ERC20, ERC721, ERC1155]) and pointee",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)

@@ -1,4 +1,4 @@
-package erc721
+package erc1155
 
 import "embed"
 
