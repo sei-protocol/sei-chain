@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -54,9 +55,10 @@ func GetABI() abi.ABI {
 
 type Precompile struct {
 	pcommon.Precompile
-	bankKeeper pcommon.BankKeeper
-	evmKeeper  pcommon.EVMKeeper
-	address    common.Address
+	accountKeeper pcommon.AccountKeeper
+	bankKeeper    pcommon.BankKeeper
+	evmKeeper     pcommon.EVMKeeper
+	address       common.Address
 
 	SendID        []byte
 	SendNativeID  []byte
@@ -73,14 +75,15 @@ type CoinBalance struct {
 	Denom  string
 }
 
-func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper, accountKeeper pcommon.AccountKeeper) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
-		Precompile: pcommon.Precompile{ABI: newAbi},
-		bankKeeper: bankKeeper,
-		evmKeeper:  evmKeeper,
-		address:    common.HexToAddress(BankAddress),
+		Precompile:    pcommon.Precompile{ABI: newAbi},
+		bankKeeper:    bankKeeper,
+		evmKeeper:     evmKeeper,
+		accountKeeper: accountKeeper,
+		address:       common.HexToAddress(BankAddress),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -187,7 +190,6 @@ func (p Precompile) send(ctx sdk.Context, caller common.Address, method *abi.Met
 		// short circuit
 		return method.Outputs.Pack(true)
 	}
-	// TODO: it's possible to extend evm module's balance to handle non-usei tokens as well
 	senderSeiAddr, err := p.accAddressFromArg(ctx, args[0])
 	if err != nil {
 		return nil, err
@@ -240,6 +242,11 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 
 	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, usei, wei); err != nil {
 		return nil, err
+	}
+	accExists := p.accountKeeper.HasAccount(ctx, receiverSeiAddr)
+	if !accExists {
+		defer telemetry.IncrCounter(1, "new", "account")
+		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, receiverSeiAddr))
 	}
 
 	return method.Outputs.Pack(true)
@@ -359,7 +366,8 @@ func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.Acc
 	}
 	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, addr)
 	if !found {
-		return nil, fmt.Errorf("EVM address %s is not associated", addr.Hex())
+		// return the casted version instead
+		return sdk.AccAddress(addr[:]), nil
 	}
 	return seiAddr, nil
 }

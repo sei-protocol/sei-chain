@@ -1,4 +1,5 @@
-const { exec } = require("child_process"); // Importing exec from child_process
+const { exec } = require("child_process");
+const {ethers} = require("hardhat"); // Importing exec from child_process
 
 const adminKeyName = "admin"
 
@@ -54,6 +55,10 @@ async function delay() {
 
 async function getCosmosTx(provider, evmTxHash) {
     return await provider.send("sei_getCosmosTx", [evmTxHash])
+}
+
+async function getEvmTx(provider, cosmosTxHash) {
+    return await provider.send("sei_getEvmTx", [cosmosTxHash])
 }
 
 async function fundAddress(addr, amount="10000000000000000000") {
@@ -326,6 +331,23 @@ async function registerPointerForERC1155(erc1155Address, fees="20000usei", from=
     return getEventAttribute(response, "pointer_registered", "pointer_address")
 }
 
+async function callWasmViaPrecompile(provider, cwAddress, payload, from=adminKeyName) {
+    const jsonString = JSON.stringify(payload).replace(/"/g, '\\"'); // Properly escape JSON string
+    const command = `seid tx evm call-precompile wasmd execute ${cwAddress} "${jsonString}" "[]" --from=${from}`;
+    const output = await execute(command);
+    const txHash = output.replace(/.*0x/, "0x").trim();
+    let attempt = 0;
+    while(attempt < 10) {
+        const receipt = await provider.getTransactionReceipt(txHash);
+        if(receipt) {
+            return receipt
+        }
+        await sleep(500)
+        attempt++
+    }
+    throw new Error("call wasm via precompile failed")
+}
+
 async function getSeiAddress(evmAddress) {
     const command = `seid q evm sei-addr ${evmAddress} -o json`
     const output = await execute(command);
@@ -340,6 +362,10 @@ async function getEvmAddress(seiAddress) {
     return response.evm_address
 }
 
+function generateWallet() {
+    const wallet = ethers.Wallet.createRandom();
+    return wallet.connect(ethers.provider);
+}
 
 async function deployEvmContract(name, args=[]) {
     const Contract = await ethers.getContractFactory(name);
@@ -479,10 +505,13 @@ module.exports = {
     evmSend,
     waitForReceipt,
     getCosmosTx,
+    getEvmTx,
     isDocker,
     testAPIEnabled,
     incrementPointerVersion,
     associateWasm,
+    generateWallet,
+    callWasmViaPrecompile,
     WASM,
     ABI,
 };

@@ -52,13 +52,14 @@ func InitializePrecompiles(
 	clientKeeper common.ClientKeeper,
 	connectionKeeper common.ConnectionKeeper,
 	channelKeeper common.ChannelKeeper,
+	accountKeeper common.AccountKeeper,
 ) error {
 	SetupMtx.Lock()
 	defer SetupMtx.Unlock()
 	if Initialized {
 		panic("precompiles already initialized")
 	}
-	bankp, err := bank.NewPrecompile(bankKeeper, evmKeeper)
+	bankp, err := bank.NewPrecompile(bankKeeper, evmKeeper, accountKeeper)
 	if err != nil {
 		return err
 	}
@@ -133,7 +134,7 @@ func InitializePrecompiles(
 func GetPrecompileInfo(name string) PrecompileInfo {
 	if !Initialized {
 		// Precompile Info does not require any keeper state
-		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}
 	i, ok := PrecompileNamesToInfo[name]
 	if !ok {

@@ -8,10 +8,12 @@ import (
 	"math"
 	"math/big"
 	"runtime/debug"
+	"strings"
 
 	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	occtypes "github.com/cosmos/cosmos-sdk/types/occ"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -63,10 +65,11 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 	defer func() {
 		if pe := recover(); pe != nil {
-			// there is not supposed to be any panic
-			debug.PrintStack()
-			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
-			telemetry.IncrCounter(1, types.ModuleName, "panics")
+			if !strings.Contains(fmt.Sprintf("%s", pe), occtypes.ErrReadEstimate.Error()) {
+				debug.PrintStack()
+				ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
+				telemetry.IncrCounter(1, types.ModuleName, "panics")
+			}
 			server.AppendErrorToEvmTxDeferredInfo(ctx, tx.Hash(), fmt.Sprintf("%s", pe))
 
 			panic(pe)
@@ -354,4 +357,8 @@ func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *typ
 	}
 	server.SetAddressMapping(ctx, addr, evmAddr)
 	return &types.MsgAssociateContractAddressResponse{}, nil
+}
+
+func (server msgServer) Associate(context.Context, *types.MsgAssociate) (*types.MsgAssociateResponse, error) {
+	return &types.MsgAssociateResponse{}, nil
 }

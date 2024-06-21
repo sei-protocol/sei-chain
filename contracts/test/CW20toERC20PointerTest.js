@@ -1,6 +1,6 @@
 const {getAdmin, queryWasm, executeWasm, associateWasm, deployEvmContract, setupSigners, deployErc20PointerForCw20, deployWasm, WASM,
     registerPointerForERC20,
-    proposeCW20toERC20Upgrade
+    proposeCW20toERC20Upgrade, callWasmViaPrecompile
 } = require("./lib");
 const { expect } = require("chai");
 
@@ -152,6 +152,27 @@ describe("CW20 to ERC20 Pointer", function () {
                     const balanceAfter = respAfter.data.balance;
                     expect(balanceAfter).to.equal((parseInt(balanceBefore) - 100).toString());
                 });
+
+                it("should be callable via wasmd precompile", async function() {
+                    const respBefore = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
+                    const balanceBefore = respBefore.data.balance;
+
+                    const receipt = await callWasmViaPrecompile(ethers.provider, pointer, { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
+                    const respAfter = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
+                    const balanceAfter = respAfter.data.balance;
+
+                    expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString());
+
+                    // make sure log is emitted
+                    console.log(receipt);
+                    const filter = {
+                        fromBlock: receipt["blockNumber"],
+                        toBlock: 'latest',
+                        topics: [ethers.id("Transfer(address,address,uint256)")]
+                    };
+                    const logs = await ethers.provider.getLogs(filter);
+                    expect(logs.length).to.equal(1)
+                });
             });
         });
     }
@@ -169,7 +190,11 @@ describe("CW20 to ERC20 Pointer", function () {
             1: 1000000000000
         });
 
-        describe("Pointer Upgrade", function () {
+        // Pointer version is going to be coupled with seid version going forward (as in,
+        // given a seid version, it's impossible to have multiple versions of pointer).
+        // We need to recreate the equivalent of the following test once we have a framework
+        // for simulating chain-level upgrade.
+        describe.skip("Pointer Upgrade", function () {
             let newPointer;
 
             before(async function () {

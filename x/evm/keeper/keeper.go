@@ -14,6 +14,7 @@ import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -26,6 +27,7 @@ import (
 	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/tests"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -188,11 +190,13 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	if err != nil {
 		return nil, err
 	}
+
+	// Use hash of block timestamp as info for PREVRANDAO
 	r, err := ctx.BlockHeader().Time.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
-	rh := common.BytesToHash(r)
+	rh := crypto.Keccak256Hash(r)
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
 		if IsPayablePrecompile(&recipient) {
@@ -245,7 +249,7 @@ func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []EvmTxDeferredInfo)
 			ctx.Logger().Error(fmt.Sprintf("getting invalid tx index in EVM deferred info: %d, num of txs: %d", txIdx, len(k.txResults)))
 			return true
 		}
-		if k.txResults[txIdx].Code == 0 || value.(*EvmTxDeferredInfo).Error != "" {
+		if k.txResults[txIdx].Code == 0 || k.txResults[txIdx].Code == sdkerrors.ErrEVMVMError.ABCICode() || value.(*EvmTxDeferredInfo).Error != "" {
 			res = append(res, *(value.(*EvmTxDeferredInfo)))
 		}
 		return true

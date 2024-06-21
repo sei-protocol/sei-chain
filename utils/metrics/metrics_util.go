@@ -1,11 +1,14 @@
 package metrics
 
 import (
+	"errors"
+	"math/big"
 	"strconv"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Measures the time taken to execute a sudo msg
@@ -276,6 +279,29 @@ func IncrementRpcRequestCounter(endpoint string, connectionType string, success 
 	)
 }
 
+func IncrementErrorMetrics(scenario string, err error) {
+	if err == nil {
+		return
+	}
+	var assocErr types.AssociationMissingErr
+	if errors.As(err, &assocErr) {
+		IncrementAssociationError(scenario, assocErr)
+		return
+	}
+	// add other error types to handle as metrics
+}
+
+func IncrementAssociationError(scenario string, err types.AssociationMissingErr) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "association", "error"},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("scenario", scenario),
+			telemetry.NewLabel("type", err.AddressType()),
+		},
+	)
+}
+
 // Measures the RPC request latency in milliseconds
 // Metric Name:
 //
@@ -314,5 +340,20 @@ func IncrConsumerEventCount(msgType string) {
 		[]string{"sei", "loadtest", "consume", "count"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
+	)
+}
+
+func AddHistogramMetric(key []string, value float32) {
+	metrics.AddSample(key, value)
+}
+
+// Gauge for gas price paid for transactions
+// Metric Name:
+//
+// sei_evm_effective_gas_price
+func HistogramEvmEffectiveGasPrice(gasPrice *big.Int) {
+	AddHistogramMetric(
+		[]string{"sei", "evm", "effective", "gas", "price"},
+		float32(gasPrice.Uint64()),
 	)
 }

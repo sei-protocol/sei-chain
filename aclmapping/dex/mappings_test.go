@@ -9,6 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	"github.com/k0kubun/pp/v3"
 	dexacl "github.com/sei-protocol/sei-chain/aclmapping/dex"
@@ -135,13 +136,13 @@ func (suite *KeeperTestSuite) TestMsgPlaceOrder() {
 		{
 			name:          "default place order",
 			msg:           suite.msgPlaceOrders,
-			expectedError: nil,
+			expectedError: sdkerrors.Wrapf(sdkerrors.ErrNotSupported, "deprecated"),
 			dynamicDep:    true,
 		},
 		{
 			name:          "dont check synchronous",
 			msg:           suite.msgPlaceOrders,
-			expectedError: nil,
+			expectedError: sdkerrors.Wrapf(sdkerrors.ErrNotSupported, "deprecated"),
 			dynamicDep:    false,
 		},
 	}
@@ -191,13 +192,13 @@ func (suite *KeeperTestSuite) TestMsgCancelOrder() {
 		{
 			name:          "default cancel order",
 			msg:           suite.msgCancelOrders,
-			expectedError: nil,
+			expectedError: sdkerrors.Wrapf(sdkerrors.ErrNotSupported, "deprecated"),
 			dynamicDep:    true,
 		},
 		{
 			name:          "dont check synchronous",
 			msg:           suite.msgCancelOrders,
-			expectedError: nil,
+			expectedError: sdkerrors.Wrapf(sdkerrors.ErrNotSupported, "deprecated"),
 			dynamicDep:    false,
 		},
 	}

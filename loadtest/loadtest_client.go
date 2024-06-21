@@ -164,7 +164,7 @@ func BuildEvmTxClients(config *Config, keys []cryptotypes.PrivKey) []*EvmTxClien
 	}
 	// Build one client per key
 	for i, key := range keys {
-		clients[i] = NewEvmTxClient(key, chainID, gasPrice, ethClients, config.EVMAddresses)
+		clients[i] = NewEvmTxClient(key, chainID, gasPrice, ethClients, config.EVMAddresses, config.EvmUseEip1559Txs)
 	}
 	return clients
 }
