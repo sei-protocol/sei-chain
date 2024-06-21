@@ -129,7 +129,7 @@ func (k *Keeper) DeleteERC721CW721Pointer(ctx sdk.Context, cw721Address string, 
 
 // ERC1155 -> CW1155
 func (k *Keeper) SetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string, addr common.Address) error {
-	return k.SetERC1155CW1155PointerWithVersion(ctx, 1155Address, addr, 1155.CurrentVersion)
+	return k.SetERC1155CW1155PointerWithVersion(ctx, cw1155Address, addr, cw1155.CurrentVersion)
 }
 
 // ERC1155 -> CW1155
