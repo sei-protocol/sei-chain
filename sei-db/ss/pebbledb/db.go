@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
@@ -117,7 +118,12 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		streamHandler, _ := changelog.NewStream(
 			logger.NewNopLogger(),
 			utils.GetChangelogPath(dataDir),
-			changelog.Config{DisableFsync: true, ZeroCopy: true},
+			changelog.Config{
+				DisableFsync:  true,
+				ZeroCopy:      true,
+				KeepRecent:    uint64(config.KeepRecent),
+				PruneInterval: 300 * time.Second,
+			},
 		)
 		database.streamHandler = streamHandler
 		go database.writeAsync()
