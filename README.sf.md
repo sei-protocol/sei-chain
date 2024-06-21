@@ -48,11 +48,11 @@ git push feature/firehose-tracer-at-latest-release-tag release/firehose "${VERSI
 
 Built manually for now on the GCP VM, here the commands we use to build it in our VM.
 
-> [!NOTE]
-> The instructions below **must** be run on the VM itself for now.
+> [!IMPORTANT]
+> The instructions below **must** be run on the VM itself and not on your developer's machine.
 
 ```bash
-export SEID_REF=v5.5.5-fh3.0 \
+export SEID_REF=v5.5.6-fh3.0 \
 && sudo -u sei git -C /data/build/seid/ fetch origin \
 && sudo -u sei git -C /data/build/seid/ checkout "${SEID_REF:?}" \
 && sudo -u sei bash -c 'source /etc/profile.d/02-golang.sh && cd /data/build/seid && make install' \
