@@ -2,6 +2,7 @@ package ss
 
 import (
 	"fmt"
+	"github.com/sei-protocol/sei-db/ss/pruning"
 
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
@@ -34,20 +35,31 @@ func RegisterBackend(backendType BackendType, initializer BackendInitializer) {
 }
 
 // NewStateStore Create a new state store with the specified backend type
-func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.StateStore, error) {
+func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateStoreConfig) (types.StateStore, error) {
 	initializer, ok := backends[BackendType(ssConfig.Backend)]
 	if !ok {
 		return nil, fmt.Errorf("unsupported backend: %s", ssConfig.Backend)
 	}
-	db, err := initializer(homeDir, ssConfig)
+	stateStore, err := initializer(homeDir, ssConfig)
 	if err != nil {
 		return nil, err
 	}
-	return db, nil
+	// Handle auto recovery for DB running with async mode
+	if ssConfig.DedicatedChangelog {
+		changelogPath := utils.GetChangelogPath(utils.GetStateStorePath(homeDir, ssConfig.Backend))
+		err := RecoverStateStore(logger, changelogPath, stateStore)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Start the pruning manager for DB
+	pruningManager := pruning.NewPruningManager(logger, stateStore, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds))
+	pruningManager.Start()
+	return stateStore, nil
 }
 
 // RecoverStateStore will be called during initialization to recover the state from rlog
-func RecoverStateStore(homePath string, logger logger.Logger, stateStore types.StateStore) error {
+func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore types.StateStore) error {
 	ssLatestVersion, err := stateStore.GetLatestVersion()
 	if err != nil {
 		return err
@@ -55,11 +67,7 @@ func RecoverStateStore(homePath string, logger logger.Logger, stateStore types.S
 	if ssLatestVersion <= 0 {
 		return nil
 	}
-	streamHandler, err := changelog.NewStream(
-		logger,
-		utils.GetChangelogPath(utils.GetChangelogPath(utils.GetCommitStorePath(homePath))),
-		changelog.Config{},
-	)
+	streamHandler, err := changelog.NewStream(logger, changelogPath, changelog.Config{})
 	if err != nil {
 		return err
 	}
@@ -71,16 +79,25 @@ func RecoverStateStore(homePath string, logger logger.Logger, stateStore types.S
 	if lastOffset <= 0 || errLast != nil {
 		return err
 	}
-	firstEntry, errRead := streamHandler.ReadAt(firstOffset)
+	lastEntry, errRead := streamHandler.ReadAt(lastOffset)
 	if errRead != nil {
 		return err
 	}
-	firstVersion := firstEntry.Version
-	delta := uint64(firstVersion) - firstOffset
-	targetStartOffset := uint64(ssLatestVersion) - delta
+	// Look backward to find where we should start replay from
+	curVersion := lastEntry.Version
+	curOffset := lastOffset
+	for curVersion > ssLatestVersion && curOffset >= firstOffset {
+		curOffset--
+		curEntry, errRead := streamHandler.ReadAt(curOffset)
+		if errRead != nil {
+			return err
+		}
+		curVersion = curEntry.Version
+	}
+	targetStartOffset := curOffset
 	logger.Info(fmt.Sprintf("Start replaying changelog to recover StateStore from offset %d to %d", targetStartOffset, lastOffset))
 	if targetStartOffset < lastOffset {
-		return streamHandler.Replay(targetStartOffset+1, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
+		return streamHandler.Replay(targetStartOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
 			// commit to state store
 			for _, cs := range entry.Changesets {
 				if err := stateStore.ApplyChangeset(entry.Version, cs); err != nil {

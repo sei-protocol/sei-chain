@@ -21,6 +21,7 @@ type Stream struct {
 	logger       logger.Logger
 	writeChannel chan *Message
 	errSignal    chan error
+	nextOffset   uint64
 }
 
 type Message struct {
@@ -32,6 +33,7 @@ type Config struct {
 	DisableFsync    bool
 	ZeroCopy        bool
 	WriteBufferSize int
+	KeepLast        int
 }
 
 // NewStream creates a new changelog stream that persist the changesets in the log
@@ -42,6 +44,15 @@ func NewStream(logger logger.Logger, dir string, config Config) (*Stream, error)
 	})
 	if err != nil {
 		return nil, err
+	}
+	firstEntry, err := log.FirstIndex()
+	if err != nil {
+		return nil, err
+	}
+	if firstEntry <= 0 {
+	}
+	if config.KeepLast > 0 {
+
 	}
 	return &Stream{
 		log:    log,
@@ -72,6 +83,18 @@ func (stream *Stream) Write(offset uint64, entry proto.ChangelogEntry) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// WriteNextEntry will write a new entry to the last index of the log.
+// Whether the writes is in blocking or async manner depends on the buffer size.
+func (stream *Stream) WriteNextEntry(entry proto.ChangelogEntry) error {
+	nextOffset := stream.nextOffset
+	err := stream.Write(nextOffset, entry)
+	if err != nil {
+		return err
+	}
+	stream.nextOffset++
 	return nil
 }
 
@@ -170,6 +193,11 @@ func (stream *Stream) Replay(start uint64, end uint64, processFn func(index uint
 		}
 	}
 	return nil
+}
+
+//
+func (stream *Stream) Pruning() {
+
 }
 
 func (stream *Stream) Close() error {
