@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
@@ -16,12 +17,14 @@ import (
 var _ types.Stream[proto.ChangelogEntry] = (*Stream)(nil)
 
 type Stream struct {
+	dir          string
 	log          *wal.Log
 	config       Config
 	logger       logger.Logger
 	writeChannel chan *Message
 	errSignal    chan error
 	nextOffset   uint64
+	isClosed     bool
 }
 
 type Message struct {
@@ -33,7 +36,8 @@ type Config struct {
 	DisableFsync    bool
 	ZeroCopy        bool
 	WriteBufferSize int
-	KeepLast        int
+	KeepRecent      uint64
+	PruneInterval   time.Duration
 }
 
 // NewStream creates a new changelog stream that persist the changesets in the log
@@ -45,20 +49,22 @@ func NewStream(logger logger.Logger, dir string, config Config) (*Stream, error)
 	if err != nil {
 		return nil, err
 	}
-	firstEntry, err := log.FirstIndex()
+	stream := &Stream{
+		dir:      dir,
+		log:      log,
+		config:   config,
+		logger:   logger,
+		isClosed: false,
+	}
+	startIndex, err := log.FirstIndex()
 	if err != nil {
 		return nil, err
 	}
-	if firstEntry <= 0 {
+	stream.nextOffset = startIndex + 1
+	if config.KeepRecent > 0 {
+		go stream.StartPruning(config.KeepRecent, config.PruneInterval)
 	}
-	if config.KeepLast > 0 {
-
-	}
-	return &Stream{
-		log:    log,
-		config: config,
-		logger: logger,
-	}, nil
+	return stream, nil
 
 }
 
@@ -195,9 +201,17 @@ func (stream *Stream) Replay(start uint64, end uint64, processFn func(index uint
 	return nil
 }
 
-//
-func (stream *Stream) Pruning() {
-
+func (stream *Stream) StartPruning(keepRecent uint64, pruneInterval time.Duration) {
+	for !stream.isClosed {
+		lastIndex, _ := stream.log.LastIndex()
+		firstIndex, _ := stream.log.FirstIndex()
+		if lastIndex > keepRecent && (lastIndex-keepRecent) > firstIndex {
+			prunePos := lastIndex - keepRecent
+			err := stream.TruncateBefore(prunePos)
+			stream.logger.Error(fmt.Sprintf("failed to prune changelog till index %d", prunePos), "err", err)
+		}
+		time.Sleep(pruneInterval)
+	}
 }
 
 func (stream *Stream) Close() error {
@@ -209,6 +223,7 @@ func (stream *Stream) Close() error {
 	stream.writeChannel = nil
 	stream.errSignal = nil
 	errClose := stream.log.Close()
+	stream.isClosed = true
 	return errorutils.Join(err, errClose)
 }
 
