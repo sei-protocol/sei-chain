@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/types/kv"
 
@@ -53,8 +52,8 @@ func (app *App) ExportAppStateAndValidators(
 }
 
 func (app *App) ExportAppToFileStateAndValidators(
-	forZeroHeight bool, jailAllowedAddrs []string, filePath string,
-) error {
+	forZeroHeight bool, jailAllowedAddrs []string, file *os.File,
+) (servertypes.ExportedApp, error) {
 	// as if they could withdraw from the start of the next block
 	ctx := app.NewContext(true, tmproto.Header{Height: app.LastBlockHeight()})
 
@@ -65,14 +64,6 @@ func (app *App) ExportAppToFileStateAndValidators(
 		height = 0
 		app.prepForZeroHeightGenesis(ctx, jailAllowedAddrs)
 	}
-
-	// open file for writing
-	file, err := os.Create(filePath)
-	if err != nil {
-		return err
-	}
-
-	file.Write([]byte("{"))
 	file.Write([]byte("\"app_state\":{"))
 	i := 0
 	app.mm.ProcessGenesisPerModule(ctx, app.appCodec, func(moduleName string, moduleJson json.RawMessage) {
@@ -83,26 +74,16 @@ func (app *App) ExportAppToFileStateAndValidators(
 		i += 1
 	})
 	file.Write([]byte("}"))
-
-	file.Write([]byte(fmt.Sprintf(",\"height\":%s", strconv.Itoa(int(height)))))
-
 	validators, err := staking.WriteValidators(ctx, app.StakingKeeper)
 	if err != nil {
-		return err
+		return servertypes.ExportedApp{}, err
 	}
 
-	// write validators
-	validatorsRes := make([]byte, 0)
-	validatorsRes = append(validatorsRes, []byte(",\"validators\":")...)
-	validatorsBytes, err := json.Marshal(validators)
-	if err != nil {
-		return err
-	}
-	validatorsRes = append(validatorsRes, validatorsBytes...)
-	file.Write(validatorsRes)
-
-	file.Write([]byte("}"))
-	return nil
+	return servertypes.ExportedApp{
+		Validators:      validators,
+		Height:          height,
+		ConsensusParams: app.BaseApp.GetConsensusParams(ctx),
+	}, nil
 }
 
 // AddressFromValidatorsKey creates the validator operator address from ValidatorsKey

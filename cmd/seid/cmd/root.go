@@ -336,8 +336,8 @@ func appExportToFile(
 	forZeroHeight bool,
 	jailAllowedAddrs []string,
 	appOpts servertypes.AppOptions,
-	filePath string,
-) error {
+	file *os.File,
+) (servertypes.ExportedApp, error) {
 	exportableApp, err := getExportableApp(
 		logger,
 		db,
@@ -346,10 +346,10 @@ func appExportToFile(
 		appOpts,
 	)
 	if err != nil {
-		return err
+		return servertypes.ExportedApp{}, err
 	}
 
-	return exportableApp.ExportAppToFileStateAndValidators(forZeroHeight, jailAllowedAddrs, filePath)
+	return exportableApp.ExportAppToFileStateAndValidators(forZeroHeight, jailAllowedAddrs, file)
 }
 
 func getExportableApp(
