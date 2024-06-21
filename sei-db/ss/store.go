@@ -94,6 +94,7 @@ func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore ty
 		}
 		curVersion = curEntry.Version
 	}
+	// Replay from the offset where the offset where the version is larger than SS store latest version
 	targetStartOffset := curOffset
 	logger.Info(fmt.Sprintf("Start replaying changelog to recover StateStore from offset %d to %d", targetStartOffset, lastOffset))
 	if targetStartOffset < lastOffset {
