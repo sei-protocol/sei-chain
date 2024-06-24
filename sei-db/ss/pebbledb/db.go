@@ -317,6 +317,7 @@ func (db *Database) Prune(version int64) error {
 		}
 
 		// Seek to next key if we are at a version which is higher than prune height
+		// Do not seek to next key if KeepLastVersion is false and we need to delete the previous key in pruning
 		if currVersionDecoded > version && (db.config.KeepLastVersion || prevVersionDecoded > version) {
 			itr.NextPrefix()
 			continue
