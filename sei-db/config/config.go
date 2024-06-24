@@ -80,6 +80,10 @@ type StateStoreConfig struct {
 	// ImportNumWorkers defines the number of goroutines used during import
 	// defaults to 1
 	ImportNumWorkers int `mapstructure:"import-num-workers"`
+
+	// Whether to keep last version of a key during pruning or delete
+	// defaults to true
+	KeepLastVersion bool `mapstructure:"keep-last-version"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {

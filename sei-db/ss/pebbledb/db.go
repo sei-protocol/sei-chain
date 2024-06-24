@@ -322,9 +322,10 @@ func (db *Database) Prune(version int64) error {
 			continue
 		}
 
-		// Delete a key if another entry for that key exists a larger version than original but leq to the prune height
+		// Delete a key if another entry for that key exists at a larger version than original but leq to the prune height
 		// Also delete a key if it has been tombstoned and its version is leq to the prune height
-		if prevVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || valTombstoned(prevValEncoded)) {
+		// Also delete a key if KeepLastVersion is false and version is leq to the prune height
+		if prevVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || valTombstoned(prevValEncoded) || !db.config.KeepLastVersion) {
 			err = batch.Delete(prevKeyEncoded, nil)
 			if err != nil {
 				return err
