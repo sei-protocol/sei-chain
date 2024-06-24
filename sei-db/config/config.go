@@ -102,5 +102,6 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		KeepRecent:           DefaultSSKeepRecent,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 		ImportNumWorkers:     DefaultSSImportWorkers,
+		KeepLastVersion:      true,
 	}
 }
