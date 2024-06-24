@@ -519,6 +519,9 @@ type RPCConfig struct {
 
 	// Lag threshold determines the threshold for whether the /lag_status endpoint returns OK or not
 	LagThreshold int64 `mapstructure:"lag-threshold"`
+
+	// Timeout for any read request
+	TimeoutRead time.Duration `mapstructure:"timeout-read"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -547,6 +550,8 @@ func DefaultRPCConfig() *RPCConfig {
 		TLSCertFile:  "",
 		TLSKeyFile:   "",
 		LagThreshold: 300,
+
+		TimeoutRead: 10 * time.Second,
 	}
 }
 

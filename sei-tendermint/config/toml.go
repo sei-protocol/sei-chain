@@ -277,6 +277,9 @@ tls-key-file = "{{ .RPC.TLSKeyFile }}"
 # pprof listen address (https://golang.org/pkg/net/http/pprof)
 pprof-laddr = "{{ .RPC.PprofListenAddress }}"
 
+# timeout for any read request
+timeout-read = "{{ .RPC.TimeoutRead }}"
+
 #######################################################
 ###           P2P Configuration Options             ###
 #######################################################

@@ -243,6 +243,10 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 		cfg.WriteTimeout = conf.RPC.TimeoutBroadcastTxCommit + 1*time.Second
 	}
 
+	if conf.RPC.TimeoutRead > 0 {
+		cfg.ReadTimeout = conf.RPC.TimeoutRead
+	}
+
 	// If the event log is enabled, subscribe to all events published to the
 	// event bus, and forward them to the event log.
 	if lg := env.EventLog; lg != nil {
