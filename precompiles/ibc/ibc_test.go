@@ -49,7 +49,7 @@ func TestPrecompile_Run(t *testing.T) {
 	receiverAddress := "cosmos1yykwxjzr2tv4mhx5tsf8090sdg96f2ax8fydk2"
 
 	pre, _ := ibc.NewPrecompile(nil, nil, nil, nil, nil)
-	testTransfer, _ := pre.ABI.MethodById(pre.TransferID)
+	testTransfer, _ := pre.ABI.MethodById(pre.GetExecutor().(*ibc.PrecompileExecutor).TransferID)
 	packedTrue, _ := testTransfer.Outputs.Pack(true)
 
 	type fields struct {
@@ -271,14 +271,14 @@ func TestPrecompile_Run(t *testing.T) {
 				TxContext: vm.TxContext{Origin: senderEvmAddress},
 			}
 			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, k, nil, nil, nil)
-			transfer, err := p.ABI.MethodById(p.TransferID)
+			transfer, err := p.ABI.MethodById(p.GetExecutor().(*ibc.PrecompileExecutor).TransferID)
 			require.Nil(t, err)
 			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverAddr,
 				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
 				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp,
 				tt.args.input.memo)
 			require.Nil(t, err)
-			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.TransferID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
+			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*ibc.PrecompileExecutor).TransferID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -452,7 +452,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 				k, tt.fields.clientKeeper,
 				tt.fields.connectionKeeper,
 				tt.fields.channelKeeper)
-			transfer, err := p.ABI.MethodById(p.TransferWithDefaultTimeoutID)
+			transfer, err := p.ABI.MethodById(p.GetExecutor().(*ibc.PrecompileExecutor).TransferWithDefaultTimeoutID)
 			require.Nil(t, err)
 			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverAddr,
 				tt.args.input.sourcePort, tt.args.input.sourceChannel, tt.args.input.denom, tt.args.input.amount,
@@ -461,7 +461,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm,
 				tt.args.caller,
 				tt.args.callingContract,
-				append(p.TransferWithDefaultTimeoutID, inputs...),
+				append(p.GetExecutor().(*ibc.PrecompileExecutor).TransferWithDefaultTimeoutID, inputs...),
 				tt.args.suppliedGas,
 				tt.args.value,
 				nil,
@@ -648,7 +648,7 @@ func TestPrecompile_GetAdjustedTimestamp(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, tt.fields.evmKeeper, tt.fields.clientKeeper, tt.fields.connectionKeeper, tt.fields.channelKeeper)
-			got, err := p.GetAdjustedTimestamp(tt.args.ctx, tt.args.clientId, tt.args.height)
+			got, err := p.GetExecutor().(*ibc.PrecompileExecutor).GetAdjustedTimestamp(tt.args.ctx, tt.args.clientId, tt.args.height)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetAdjustedTimestamp() error = %v, wantErr %v", err, tt.wantErr)
 				return
