@@ -249,6 +249,8 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	}
 
 	ctx = ctx.WithEvmEventManager(sdk.NewEVMEventManager())
+	em := ctx.EventManager()
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	addr, data, err := p.wasmdKeeper.Instantiate(ctx, codeID, creatorAddr, adminAddr, msg, label, coins)
 	if err != nil {
 		rerr = err
@@ -256,6 +258,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	}
 	AddEvents(ctx, evm)
 	ret, rerr = method.Outputs.Pack(addr.String(), data)
+	em.EmitEvents(ctx.EventManager().Events())
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
@@ -375,6 +378,8 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 		}
 
 		ctx = ctx.WithEvmEventManager(sdk.NewEVMEventManager())
+		em := ctx.EventManager()
+		ctx = ctx.WithEventManager(sdk.NewEventManager())
 		res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
 		if err != nil {
 			rerr = err
@@ -382,6 +387,8 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 		}
 		AddEvents(ctx, evm)
 		responses = append(responses, res)
+		em.EmitEvents(ctx.EventManager().Events())
+		ctx = ctx.WithEventManager(em)
 	}
 	if valueCopy != nil && valueCopy.Sign() != 0 {
 		rerr = errors.New("value remaining after execution, must match provided amounts exactly")
@@ -471,6 +478,8 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 		}
 	}
 	ctx = ctx.WithEvmEventManager(sdk.NewEVMEventManager())
+	em := ctx.EventManager()
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
 	if err != nil {
 		rerr = err
@@ -478,6 +487,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 	}
 	AddEvents(ctx, evm)
 	ret, rerr = method.Outputs.Pack(res)
+	em.EmitEvents(ctx.EventManager().Events())
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
