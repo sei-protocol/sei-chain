@@ -11,9 +11,10 @@ import (
 
 func TestStorageTestSuite(t *testing.T) {
 	s := &sstest.StorageTestSuite{
-		NewDB: func(dir string) (types.StateStore, error) {
-			return New(dir, config.DefaultStateStoreConfig())
+		NewDB: func(dir string, config config.StateStoreConfig) (types.StateStore, error) {
+			return New(dir, config)
 		},
+		Config:         config.DefaultStateStoreConfig(),
 		EmptyBatchSize: 12,
 	}
 
