@@ -2,6 +2,7 @@ package operations
 
 import (
 	"fmt"
+	"github.com/sei-protocol/sei-db/common/logger"
 
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss"
@@ -53,7 +54,7 @@ func PruneDB(dbBackend string, dbDir string, version int64) {
 	// TODO: Defer Close Db
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = dbBackend
-	backend, err := ss.NewStateStore(dbDir, ssConfig)
+	backend, err := ss.NewStateStore(logger.NewNopLogger(), dbDir, ssConfig)
 	if err != nil {
 		panic(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss"
 	"github.com/sei-protocol/sei-db/tools/cmd/seidb/benchmark"
@@ -74,7 +75,7 @@ func DumpDbData(dbBackend string, module string, outputDir string, dbDir string)
 	// TODO: Defer Close Db
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = dbBackend
-	backend, err := ss.NewStateStore(outputDir, ssConfig)
+	backend, err := ss.NewStateStore(logger.NewNopLogger(), outputDir, ssConfig)
 	if err != nil {
 		panic(err)
 	}
