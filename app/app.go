@@ -603,6 +603,7 @@ func New(
 		DedicatedChangelog: true,
 		AsyncWriteBuffer:   10,
 		KeepRecent:         cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks)),
+		Backend:            string(ss.PebbleDBBackend),
 	})
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), receiptStore, app.BankKeeper,
