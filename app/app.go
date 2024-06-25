@@ -129,6 +129,7 @@ import (
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	seidb "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -383,6 +384,8 @@ type App struct {
 	encodingConfig        appparams.EncodingConfig
 	evmRPCConfig          evmrpc.Config
 	lightInvarianceConfig LightInvarianceConfig
+
+	receiptStore seidb.StateStore
 }
 
 // New returns a reference to an initialized blockchain app
@@ -599,20 +602,22 @@ func New(
 	)
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
-	receiptStore, err := ss.NewStateStore(logger, receiptStorePath, ssconfig.StateStoreConfig{
+	app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssconfig.StateStoreConfig{
 		DedicatedChangelog: true,
 		AsyncWriteBuffer:   10,
 		KeepRecent:         cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks)),
 		Backend:            string(ss.PebbleDBBackend),
 	})
+	if err != nil {
+		panic(fmt.Sprintf("error while creating receipt store: %s", err))
+	}
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
-		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), receiptStore, app.BankKeeper,
+		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
 
-	bApp.SetPreCommitHandler(func(ctx sdk.Context) error {
-		return app.EvmKeeper.FlushTransientReceipts(ctx)
-	})
+	bApp.SetPreCommitHandler(app.HandlePreCommit)
+	bApp.SetCloseHandler(app.Close)
 
 	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
 	if err != nil {
@@ -983,6 +988,19 @@ func New(
 	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, upgrades.ChainIDSeiHardForkTest, app.WasmKeeper))
 
 	return app
+}
+
+// HandlePreCommit happens right before the block is committed
+func (app *App) HandlePreCommit(ctx sdk.Context) error {
+	return app.EvmKeeper.FlushTransientReceipts(ctx)
+}
+
+// Close closes all items that needs closing (called by baseapp)
+func (app *App) Close() error {
+	if app.receiptStore != nil {
+		return app.receiptStore.Close()
+	}
+	return nil
 }
 
 // Add (or remove) keepers when they are introduced / removed in different versions
