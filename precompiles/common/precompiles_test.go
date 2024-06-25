@@ -1,12 +1,18 @@
 package common_test
 
 import (
+	"bytes"
 	"errors"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
+	"os"
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
+
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/common"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -41,4 +47,83 @@ func TestHandlePrecompileError(t *testing.T) {
 	common.HandlePrecompileError(nil, evm, "no_error")
 	common.HandlePrecompileError(types.NewAssociationMissingErr(evmAddr.Hex()), evm, "association")
 	common.HandlePrecompileError(errors.New("other error"), evm, "other")
+}
+
+type MockPrecompileExecutor struct {
+	throw bool
+}
+
+func (e *MockPrecompileExecutor) RequiredGas([]byte, *abi.Method) uint64 {
+	return 0
+}
+
+func (e *MockPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller ethcommon.Address, callingContract ethcommon.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) ([]byte, error) {
+	ctx.EventManager().EmitEvent(sdk.NewEvent("test"))
+	if e.throw {
+		return nil, errors.New("test")
+	}
+	return []byte("success"), nil
+}
+
+func TestPrecompileRun(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	abiBz, err := os.ReadFile("erc20_abi.json")
+	require.Nil(t, err)
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	require.Nil(t, err)
+	input, err := newAbi.Pack("decimals")
+	require.Nil(t, err)
+	precompile := common.NewPrecompile(newAbi, &MockPrecompileExecutor{throw: false}, ethcommon.Address{}, "test")
+	stateDB := state.NewDBImpl(ctx, k, false)
+	res, err := precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false)
+	require.Equal(t, []byte("success"), res)
+	require.Nil(t, err)
+	require.NotEmpty(t, stateDB.Ctx().EventManager().Events())
+	stateDB.WithCtx(ctx.WithEventManager(sdk.NewEventManager()))
+	precompile = common.NewPrecompile(newAbi, &MockPrecompileExecutor{throw: true}, ethcommon.Address{}, "test")
+	res, err = precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false)
+	require.Nil(t, res)
+	require.NotNil(t, err)
+	// should not emit any event
+	require.Empty(t, stateDB.Ctx().EventManager().Events())
+}
+
+type MockDynamicGasPrecompileExecutor struct {
+	throw     bool
+	evmKeeper common.EVMKeeper
+}
+
+func (e *MockDynamicGasPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller ethcommon.Address, callingContract ethcommon.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	ctx.EventManager().EmitEvent(sdk.NewEvent("test"))
+	if e.throw {
+		return nil, 0, errors.New("test")
+	}
+	return []byte("success"), 0, nil
+}
+
+func (e *MockDynamicGasPrecompileExecutor) EVMKeeper() common.EVMKeeper {
+	return e.evmKeeper
+}
+
+func TestDynamicGasPrecompileRun(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	abiBz, err := os.ReadFile("erc20_abi.json")
+	require.Nil(t, err)
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	require.Nil(t, err)
+	input, err := newAbi.Pack("decimals")
+	require.Nil(t, err)
+	precompile := common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{throw: false, evmKeeper: k}, ethcommon.Address{}, "test")
+	stateDB := state.NewDBImpl(ctx, k, false)
+	res, _, err := precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false)
+	require.Equal(t, []byte("success"), res)
+	require.Nil(t, err)
+	require.NotEmpty(t, stateDB.Ctx().EventManager().Events())
+	stateDB.WithCtx(ctx.WithEventManager(sdk.NewEventManager()))
+	precompile = common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{throw: true, evmKeeper: k}, ethcommon.Address{}, "test")
+	res, _, err = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false)
+	require.Nil(t, res)
+	require.NotNil(t, err)
+	// should not emit any event
+	require.Empty(t, stateDB.Ctx().EventManager().Events())
 }

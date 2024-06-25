@@ -12,11 +12,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -30,16 +28,12 @@ const (
 
 const WasmdAddress = "0x0000000000000000000000000000000000001002"
 
-var _ vm.PrecompiledContract = &Precompile{}
-var _ vm.DynamicGasPrecompiledContract = &Precompile{}
-
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
 //go:embed abi.json
 var f embed.FS
 
-type Precompile struct {
-	pcommon.Precompile
+type PrecompileExecutor struct {
 	evmKeeper       pcommon.EVMKeeper
 	bankKeeper      pcommon.BankKeeper
 	wasmdKeeper     pcommon.WasmdKeeper
@@ -58,10 +52,10 @@ type ExecuteMsg struct {
 	Coins           []byte `json:"coins"`
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper, bankKeeper pcommon.BankKeeper) (*Precompile, error) {
+func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.DynamicGasPrecompile, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
-		return nil, fmt.Errorf("error loading the staking ABI %s", err)
+		return nil, fmt.Errorf("error loading the wasmd ABI %s", err)
 	}
 
 	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
@@ -69,8 +63,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 		return nil, err
 	}
 
-	p := &Precompile{
-		Precompile:      pcommon.Precompile{ABI: newAbi},
+	executor := &PrecompileExecutor{
 		wasmdKeeper:     wasmdKeeper,
 		wasmdViewKeeper: wasmdViewKeeper,
 		evmKeeper:       evmKeeper,
@@ -81,73 +74,19 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 	for name, m := range newAbi.Methods {
 		switch name {
 		case InstantiateMethod:
-			p.InstantiateID = m.ID
+			executor.InstantiateID = m.ID
 		case ExecuteMethod:
-			p.ExecuteID = m.ID
+			executor.ExecuteID = m.ID
 		case ExecuteBatchMethod:
-			p.ExecuteBatchID = m.ID
+			executor.ExecuteBatchID = m.ID
 		case QueryMethod:
-			p.QueryID = m.ID
+			executor.QueryID = m.ID
 		}
 	}
-
-	return p, nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, executor, common.HexToAddress(WasmdAddress), "wasmd"), nil
 }
 
-// RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID, err := pcommon.ExtractMethodID(input)
-	if err != nil {
-		return pcommon.UnknownMethodCallGas
-	}
-
-	method, err := p.ABI.MethodById(methodID)
-	if err != nil {
-		// This should never happen since this method is going to fail during Run
-		return pcommon.UnknownMethodCallGas
-	}
-
-	return p.Precompile.RequiredGas(input, p.IsTransaction(method.Name))
-}
-
-func (Precompile) IsTransaction(method string) bool {
-	switch method {
-	case ExecuteMethod:
-		return true
-	case ExecuteBatchMethod:
-		return true
-	case InstantiateMethod:
-		return true
-	default:
-		return false
-	}
-}
-
-func (p Precompile) Address() common.Address {
-	return p.address
-}
-
-func (p Precompile) GetName() string {
-	return "wasmd"
-}
-
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
-	operation := "wasmd_unknown"
-	defer func() {
-		pcommon.HandlePrecompileError(err, evm, operation)
-	}()
-	ctx, method, args, err := p.Prepare(evm, input)
-	if err != nil {
-		return nil, 0, err
-	}
-	gasMultipler := p.evmKeeper.GetPriorityNormalizer(ctx)
-	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultipler).TruncateInt().BigInt()
-	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
-		gasLimitBigInt = utils.BigMaxU64
-	}
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
-
-	operation = method.Name
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
 	switch method.Name {
 	case InstantiateMethod:
 		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly, evm)
@@ -161,11 +100,11 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	return
 }
 
-func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool) ([]byte, error) {
-	panic("static gas Run is not implemented for dynamic gas precompile")
+func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+	return p.evmKeeper
 }
 
-func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -260,7 +199,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	return
 }
 
-func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -392,7 +331,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 	return
 }
 
-func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -482,7 +421,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 	return
 }
 
-func (p Precompile) query(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) query(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
