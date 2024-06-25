@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
 	"io"
 	"net/http"
 	"os"
@@ -26,14 +27,6 @@ import (
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 
-	"github.com/sei-protocol/sei-chain/aclmapping"
-	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
-	appparams "github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/app/upgrades"
-	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
-	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/wasmbinding"
-
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -47,20 +40,16 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/cosmos-sdk/x/auth"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
-	"github.com/cosmos/cosmos-sdk/x/authz"
-	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
-	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
-
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	"github.com/cosmos/cosmos-sdk/x/auth"
+	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
@@ -68,6 +57,9 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
 	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
+	"github.com/cosmos/cosmos-sdk/x/authz"
+	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
+	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -118,6 +110,13 @@ import (
 	ibcporttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	"github.com/sei-protocol/sei-chain/aclmapping"
+	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
+	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/upgrades"
+	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
@@ -597,8 +596,10 @@ func New(
 		wasmOpts...,
 	)
 
+	//TODO: create state store
+	var receiptStore seidbtypes.StateStore
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
-		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.BankKeeper,
+		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
 

@@ -60,15 +60,16 @@ func (k *Keeper) SetReceipt(ctx sdk.Context, txHash common.Hash, receipt *types.
 }
 
 func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
-	//TODO implement flush receipts
-	//receiptStore := ctx.EvmReceiptStateStore()
 	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix).Iterator(nil, nil)
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
+		// TODO: write this tx to store to receiptStore
+
 		//txHash := common.BytesToHash(iter.Key())
 		//bz := iter.Value()
-		// TODO: write this tx to store to receiptStore
-		// Make sure the key aligns with GetReceipt ^
+		//k.receiptStore.ApplyChangeset(...)
 	}
+
+	//TODO: we may not actually need this if transient stores are auto-cleared, we'll need to verify
 	return ctx.TransientStore(k.transientStoreKey).DeleteAll(nil, nil)
 }
