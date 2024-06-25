@@ -279,6 +279,9 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 				return err
 			}
 		} else {
+			if cs.Name == "receipt" {
+				fmt.Printf("[Debug] PebbleDB setting key %X, value %X\n", kvPair.Key, kvPair.Value)
+			}
 			if err := b.Set(cs.Name, kvPair.Key, kvPair.Value); err != nil {
 				return err
 			}
@@ -317,9 +320,11 @@ func (db *Database) writeAsyncInBackground() {
 	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
 		if db.streamHandler != nil {
+			fmt.Printf("[Debug] Found new changes in pending writes: %d\n", nextChange.Version)
 			version := nextChange.Version
 			for _, cs := range nextChange.Changesets {
 				err := db.ApplyChangeset(version, cs)
+				fmt.Printf("[Debug] Applied new changes: %v\n", nextChange)
 				if err != nil {
 					panic(err)
 				}
@@ -328,6 +333,7 @@ func (db *Database) writeAsyncInBackground() {
 			if err != nil {
 				panic(err)
 			}
+
 		}
 	}
 
