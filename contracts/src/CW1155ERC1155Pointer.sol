@@ -124,7 +124,7 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
 
     function safeBatchTransferFrom(address from, address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data) public override {
         require(to != address(0), "ERC1155: transfer to the zero address");
-        require(isApprovedForAll(from, address(this)), "ERC1155: caller is not approved to transfer");
+        require(msg.sender == from || isApprovedForAll(from, msg.sender), "ERC1155: caller is not approved to transfer");
         require(ids.length == amounts.length, "ERC1155: ids and amounts length mismatch");
         
         for(uint256 i = 0; i < ids.length; i++){
