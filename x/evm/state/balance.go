@@ -80,7 +80,6 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing
 	}
 
 	if s.logger != nil && s.logger.OnBalanceChange != nil {
-		// We could modify AddWei instead so it returns us the old/new balance directly.
 		newBalance := s.GetBalance(evmAddr)
 		oldBalance := new(big.Int).Sub(newBalance, amt)
 
