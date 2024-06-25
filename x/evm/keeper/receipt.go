@@ -23,7 +23,7 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 // Many EVM applications (e.g. MetaMask) relies on being on able to query receipt
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	bz, err := ctx.EvmReceiptStateStore().Get(types.ReceiptStoreKey, ctx.BlockHeight(), types.ReceiptKey(txHash))
+	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, ctx.BlockHeight(), types.ReceiptKey(txHash))
 	if err != nil {
 		return nil, err
 	}
