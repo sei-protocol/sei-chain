@@ -57,11 +57,11 @@ func NewStream(logger logger.Logger, dir string, config Config) (*Stream, error)
 		isClosed: false,
 	}
 	// Finding the nextOffset to write
-	startIndex, err := log.FirstIndex()
+	lastIndex, err := log.LastIndex()
 	if err != nil {
 		return nil, err
 	}
-	stream.nextOffset = startIndex + 1
+	stream.nextOffset = lastIndex + 1
 	// Start the auto pruning goroutine
 	if config.KeepRecent > 0 {
 		go stream.StartPruning(config.KeepRecent, config.PruneInterval)

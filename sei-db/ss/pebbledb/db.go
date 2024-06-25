@@ -44,8 +44,9 @@ var (
 )
 
 type Database struct {
-	storage *pebble.DB
-	config  config.StateStoreConfig
+	storage      *pebble.DB
+	asyncWriteWG sync.WaitGroup
+	config       config.StateStoreConfig
 	// Earliest version for db after pruning
 	earliestVersion int64
 
@@ -110,6 +111,7 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	}
 	database := &Database{
 		storage:         db,
+		asyncWriteWG:    sync.WaitGroup{},
 		config:          config,
 		earliestVersion: earliestVersion,
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
@@ -126,7 +128,7 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 			},
 		)
 		database.streamHandler = streamHandler
-		go database.writeAsync()
+		go database.writeAsyncInBackground()
 	}
 	return database, nil
 }
@@ -138,13 +140,15 @@ func NewWithDB(storage *pebble.DB) *Database {
 }
 
 func (db *Database) Close() error {
-	err := db.storage.Close()
-	db.storage = nil
 	if db.streamHandler != nil {
 		db.streamHandler.Close()
 		db.streamHandler = nil
 		close(db.pendingChanges)
 	}
+	// Wait for the async writes to finish
+	db.asyncWriteWG.Wait()
+	err := db.storage.Close()
+	db.storage = nil
 	return err
 }
 
@@ -294,6 +298,7 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			Version: version,
 		}
 		entry.Changesets = changesets
+		entry.Upgrades = nil
 		err := db.streamHandler.WriteNextEntry(entry)
 		if err != nil {
 			return err
@@ -307,17 +312,22 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 	return nil
 }
 
-func (db *Database) writeAsync() {
-	for db.streamHandler != nil {
-		for nextChange := range db.pendingChanges {
+func (db *Database) writeAsyncInBackground() {
+	db.asyncWriteWG.Add(1)
+	defer db.asyncWriteWG.Done()
+	for nextChange := range db.pendingChanges {
+		if db.streamHandler != nil {
 			version := nextChange.Version
 			for _, cs := range nextChange.Changesets {
-				db.ApplyChangeset(version, cs)
-
+				err := db.ApplyChangeset(version, cs)
+				if err != nil {
+					panic(err)
+				}
 			}
 			db.SetLatestVersion(version)
 		}
 	}
+
 }
 
 // Prune attempts to prune all versions up to and including the current version
