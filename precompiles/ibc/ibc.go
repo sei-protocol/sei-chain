@@ -7,21 +7,17 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
-
-	"github.com/cosmos/cosmos-sdk/types/bech32"
-
-	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/bech32"
+	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -32,9 +28,6 @@ const (
 const (
 	IBCAddress = "0x0000000000000000000000000000000000001009"
 )
-
-var _ vm.PrecompiledContract = &Precompile{}
-var _ vm.DynamicGasPrecompiledContract = &Precompile{}
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -54,9 +47,7 @@ func GetABI() abi.ABI {
 	return newAbi
 }
 
-type Precompile struct {
-	pcommon.Precompile
-	address          common.Address
+type PrecompileExecutor struct {
 	transferKeeper   pcommon.TransferKeeper
 	evmKeeper        pcommon.EVMKeeper
 	clientKeeper     pcommon.ClientKeeper
@@ -72,12 +63,10 @@ func NewPrecompile(
 	evmKeeper pcommon.EVMKeeper,
 	clientKeeper pcommon.ClientKeeper,
 	connectionKeeper pcommon.ConnectionKeeper,
-	channelKeeper pcommon.ChannelKeeper) (*Precompile, error) {
+	channelKeeper pcommon.ChannelKeeper) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := GetABI()
 
-	p := &Precompile{
-		Precompile:       pcommon.Precompile{ABI: newAbi},
-		address:          common.HexToAddress(IBCAddress),
+	p := &PrecompileExecutor{
 		transferKeeper:   transferKeeper,
 		evmKeeper:        evmKeeper,
 		clientKeeper:     clientKeeper,
@@ -94,48 +83,16 @@ func NewPrecompile(
 		}
 	}
 
-	return p, nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, p, common.HexToAddress(IBCAddress), "ibc"), nil
 }
 
-// RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID, err := pcommon.ExtractMethodID(input)
-	if err != nil {
-		return pcommon.UnknownMethodCallGas
-	}
-
-	method, err := p.ABI.MethodById(methodID)
-	if err != nil {
-		// This should never happen since this method is going to fail during Run
-		return pcommon.UnknownMethodCallGas
-	}
-
-	return p.Precompile.RequiredGas(input, p.IsTransaction(method.Name))
-}
-
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, _ *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
-	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
-	}()
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
 	if readOnly {
 		return nil, 0, errors.New("cannot call IBC precompile from staticcall")
-	}
-	ctx, method, args, err := p.Prepare(evm, input)
-	if err != nil {
-		return nil, 0, err
 	}
 	if caller.Cmp(callingContract) != 0 {
 		return nil, 0, errors.New("cannot delegatecall IBC")
 	}
-
-	gasMultiplier := p.evmKeeper.GetPriorityNormalizer(ctx)
-	gasLimitBigInt := new(big.Int).Mul(new(big.Int).SetUint64(suppliedGas), gasMultiplier.TruncateInt().BigInt())
-	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
-		gasLimitBigInt = utils.BigMaxU64
-	}
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
 
 	switch method.Name {
 	case TransferMethod:
@@ -146,11 +103,11 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	return
 }
 
-func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool) (bz []byte, err error) {
-	panic("static gas Run is not implemented for dynamic gas precompile")
+func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+	return p.evmKeeper
 }
 
-func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -234,7 +191,7 @@ func (p Precompile) transfer(ctx sdk.Context, method *abi.Method, args []interfa
 	return
 }
 
-func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -320,38 +277,19 @@ func (p Precompile) transferWithDefaultTimeout(ctx sdk.Context, method *abi.Meth
 	return
 }
 
-func (Precompile) IsTransaction(method string) bool {
-	switch method {
-	case TransferMethod:
-		return true
-	case TransferWithDefaultTimeoutMethod:
-		return true
-	default:
-		return false
-	}
-}
-
-func (p Precompile) Address() common.Address {
-	return p.address
-}
-
-func (p Precompile) GetName() string {
-	return "ibc"
-}
-
-func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
+func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")
 	}
 	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, addr)
 	if !found {
-		return nil, fmt.Errorf("EVM address %s is not associated", addr.Hex())
+		return nil, evmtypes.NewAssociationMissingErr(addr.Hex())
 	}
 	return seiAddr, nil
 }
 
-func (p Precompile) getChannelConnection(ctx sdk.Context, port string, channelID string) (*connectiontypes.ConnectionEnd, error) {
+func (p PrecompileExecutor) getChannelConnection(ctx sdk.Context, port string, channelID string) (*connectiontypes.ConnectionEnd, error) {
 	channel, found := p.channelKeeper.GetChannel(ctx, port, channelID)
 	if !found {
 		return nil, errors.New("channel not found")
@@ -365,7 +303,7 @@ func (p Precompile) getChannelConnection(ctx sdk.Context, port string, channelID
 	return &connection, nil
 }
 
-func (p Precompile) getConsensusLatestHeight(ctx sdk.Context, connection connectiontypes.ConnectionEnd) (*clienttypes.Height, error) {
+func (p PrecompileExecutor) getConsensusLatestHeight(ctx sdk.Context, connection connectiontypes.ConnectionEnd) (*clienttypes.Height, error) {
 	clientState, found := p.clientKeeper.GetClientState(ctx, connection.ClientId)
 
 	if !found {
@@ -391,7 +329,7 @@ func GetAdjustedHeight(latestConsensusHeight clienttypes.Height) (clienttypes.He
 	return absoluteHeight, nil
 }
 
-func (p Precompile) GetAdjustedTimestamp(ctx sdk.Context, clientId string, height clienttypes.Height) (uint64, error) {
+func (p PrecompileExecutor) GetAdjustedTimestamp(ctx sdk.Context, clientId string, height clienttypes.Height) (uint64, error) {
 	consensusState, found := p.clientKeeper.GetClientConsensusState(ctx, clientId, height)
 	var consensusStateTimestamp uint64
 	if found {
@@ -421,7 +359,7 @@ type ValidatedArgs struct {
 	amount                *big.Int
 }
 
-func (p Precompile) validateCommonArgs(ctx sdk.Context, args []interface{}, caller common.Address) (*ValidatedArgs, error) {
+func (p PrecompileExecutor) validateCommonArgs(ctx sdk.Context, args []interface{}, caller common.Address) (*ValidatedArgs, error) {
 	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !ok {
 		return nil, errors.New("caller is not a valid SEI address")

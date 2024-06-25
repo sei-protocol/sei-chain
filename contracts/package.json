@@ -24,6 +24,7 @@
   "dependencies": {
     "@openzeppelin/contracts": "^5.0.1",
     "@openzeppelin/upgrades-core": "^1.32.3",
+    "bignumber.js": "^9.1.2",
     "dotenv": "^16.3.1",
     "lodash": "^4.17.21"
   }

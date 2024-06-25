@@ -57,6 +57,10 @@ contract CW20ERC20Pointer is ERC20 {
 
     // Transactions
     function approve(address spender, uint256 amount) public override returns (bool) {
+        // if amount is larger uint128 then set amount to uint128 max
+        if (amount > type(uint128).max) {
+            amount = type(uint128).max;
+        }
         uint256 currentAllowance = allowance(msg.sender, spender);
         if (currentAllowance > amount) {
             string memory spenderAddr = _formatPayload("spender", _doubleQuotes(AddrPrecompile.getSeiAddr(spender)));

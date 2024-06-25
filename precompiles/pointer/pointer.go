@@ -12,14 +12,13 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -28,28 +27,25 @@ const (
 	AddNativePointer = "addNativePointer"
 	AddCW20Pointer   = "addCW20Pointer"
 	AddCW721Pointer  = "addCW721Pointer"
+	AddCW1155Pointer  = "addCW1155Pointer"
 )
 
 const PointerAddress = "0x000000000000000000000000000000000000100b"
-
-var _ vm.PrecompiledContract = &Precompile{}
-var _ vm.DynamicGasPrecompiledContract = &Precompile{}
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
 //go:embed abi.json
 var f embed.FS
 
-type Precompile struct {
-	pcommon.Precompile
+type PrecompileExecutor struct {
 	evmKeeper   pcommon.EVMKeeper
 	bankKeeper  pcommon.BankKeeper
 	wasmdKeeper pcommon.WasmdViewKeeper
-	address     common.Address
 
 	AddNativePointerID []byte
 	AddCW20PointerID   []byte
 	AddCW721PointerID  []byte
+	AddCW1155PointerID []byte
 }
 
 func ABI() (*ethabi.ABI, error) {
@@ -65,18 +61,16 @@ func ABI() (*ethabi.ABI, error) {
 	return &newAbi, nil
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, wasmdKeeper pcommon.WasmdViewKeeper) (*Precompile, error) {
+func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, wasmdKeeper pcommon.WasmdViewKeeper) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi, err := ABI()
 	if err != nil {
 		return nil, err
 	}
 
-	p := &Precompile{
-		Precompile:  pcommon.Precompile{ABI: *newAbi},
+	p := &PrecompileExecutor{
 		evmKeeper:   evmKeeper,
 		bankKeeper:  bankKeeper,
 		wasmdKeeper: wasmdKeeper,
-		address:     common.HexToAddress(PointerAddress),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -87,38 +81,17 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, w
 			p.AddCW20PointerID = m.ID
 		case AddCW721Pointer:
 			p.AddCW721PointerID = m.ID
+		case AddCW1155Pointer:
+			p.AddCW1155PointerID = m.ID
 		}
 	}
 
-	return p, nil
+	return pcommon.NewDynamicGasPrecompile(*newAbi, p, common.HexToAddress(PointerAddress), PrecompileName), nil
 }
 
-// RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p Precompile) RequiredGas(input []byte) uint64 {
-	// gas is calculated dynamically
-	return pcommon.UnknownMethodCallGas
-}
-
-func (p Precompile) Address() common.Address {
-	return p.address
-}
-
-func (p Precompile) GetName() string {
-	return PrecompileName
-}
-
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
-	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
-	}()
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
 	if readOnly {
 		return nil, 0, errors.New("cannot call pointer precompile from staticcall")
-	}
-	ctx, method, args, err := p.Prepare(evm, input)
-	if err != nil {
-		return nil, 0, err
 	}
 	if caller.Cmp(callingContract) != 0 {
 		return nil, 0, errors.New("cannot delegatecall pointer")
@@ -131,17 +104,19 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 		return p.AddCW20(ctx, method, caller, args, value, evm, suppliedGas)
 	case AddCW721Pointer:
 		return p.AddCW721(ctx, method, caller, args, value, evm, suppliedGas)
+	case AddCW1155Pointer:
+		return p.AddCW1155(ctx, method, caller, args, value, evm, suppliedGas)
 	default:
 		err = fmt.Errorf("unknown method %s", method.Name)
 	}
 	return
 }
 
-func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool) ([]byte, error) {
-	panic("static gas Run is not implemented for dynamic gas precompile")
+func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+	return p.evmKeeper
 }
 
-func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -198,7 +173,7 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 	return
 }
 
-func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -252,7 +227,7 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 	return
 }
 
-func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -302,6 +277,60 @@ func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller comm
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw721"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
 		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", cw721.CurrentVersion))))
+	ret, err = method.Outputs.Pack(contractAddr)
+	return
+}
+
+func (p PrecompileExecutor) AddCW1155(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
+	cwAddr := args[0].(string)
+	existingAddr, existingVersion, exists := p.evmKeeper.GetERC1155CW1155Pointer(ctx, cwAddr)
+	if exists && existingVersion >= cw1155.CurrentVersion {
+		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw1155.CurrentVersion)
+	}
+	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
+	if err != nil {
+		return nil, 0, err
+	}
+	res, err := p.wasmdKeeper.QuerySmart(ctx, cwAddress, []byte("{\"contract_info\":{}}"))
+	if err != nil {
+		return nil, 0, err
+	}
+	formattedRes := map[string]interface{}{}
+	if err := json.Unmarshal(res, &formattedRes); err != nil {
+		return nil, 0, err
+	}
+	name := formattedRes["name"].(string)
+	symbol := formattedRes["symbol"].(string)
+	constructorArguments := []interface{}{
+		cwAddr, name, symbol,
+	}
+
+	packedArgs, err := cw1155.GetParsedABI().Pack("", constructorArguments...)
+	if err != nil {
+		panic(err)
+	}
+	bin := append(cw1155.GetBin(), packedArgs...)
+	if value == nil {
+		value = utils.Big0
+	}
+	ret, contractAddr, remainingGas, err := evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
+	if err != nil {
+		return
+	}
+	err = p.evmKeeper.SetERC1155CW1155Pointer(ctx, cwAddr, contractAddr)
+	if err != nil {
+		return
+	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw1155"),
+		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
+		sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", cw1155.CurrentVersion))))
 	ret, err = method.Outputs.Pack(contractAddr)
 	return
 }

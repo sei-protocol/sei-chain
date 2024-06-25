@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -75,7 +76,9 @@ func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingCo
 func (AppModuleBasic) RegisterRESTRoutes(_ client.Context, _ *mux.Router) {}
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the module.
-func (AppModuleBasic) RegisterGRPCGatewayRoutes(_ client.Context, _ *runtime.ServeMux) {}
+func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
+	_ = types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx))
+}
 
 // GetTxCmd returns the capability module's root tx command.
 func (a AppModuleBasic) GetTxCmd() *cobra.Command {
@@ -141,7 +144,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 4, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, true, true)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, true, true, false)
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 5, func(ctx sdk.Context) error {
@@ -149,11 +152,11 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 6, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true, false)
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 7, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true, false)
 	})
 }
 

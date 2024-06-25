@@ -10,6 +10,8 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -17,10 +19,11 @@ import (
 type GaslessDecorator struct {
 	wrapped      []sdk.AnteFullDecorator
 	oracleKeeper oraclekeeper.Keeper
+	evmKeeper    *evmkeeper.Keeper
 }
 
-func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekeeper.Keeper) GaslessDecorator {
-	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper}
+func NewGaslessDecorator(wrapped []sdk.AnteFullDecorator, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) GaslessDecorator {
+	return GaslessDecorator{wrapped: wrapped, oracleKeeper: oracleKeeper, evmKeeper: evmKeeper}
 }
 
 func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
@@ -28,7 +31,7 @@ func (gd GaslessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool,
 	// eagerly set infinite gas meter so that queries performed by IsTxGasless will not incur gas cost
 	ctx = ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
 
-	isGasless, err := IsTxGasless(tx, ctx, gd.oracleKeeper)
+	isGasless, err := IsTxGasless(tx, ctx, gd.oracleKeeper, gd.evmKeeper)
 	if err != nil {
 		return ctx, err
 	}
@@ -108,7 +111,7 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 	return next(append(txDeps, deps...), tx, txIndex)
 }
 
-func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (bool, error) {
+func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (bool, error) {
 	if len(tx.GetMsgs()) == 0 {
 		// empty TX shouldn't be gasless
 		return false, nil
@@ -128,6 +131,10 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper) (
 			isGasless, err := oracleVoteIsGasless(m, ctx, oracleKeeper)
 			if err != nil || !isGasless {
 				return false, err
+			}
+		case *evmtypes.MsgAssociate:
+			if !evmAssociateIsGasless(m, ctx, evmKeeper) {
+				return false, nil
 			}
 		default:
 			return false, nil
@@ -189,4 +196,11 @@ func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.
 	}
 	// otherwise we allow it
 	return true, nil
+}
+
+func evmAssociateIsGasless(msg *evmtypes.MsgAssociate, ctx sdk.Context, keeper *evmkeeper.Keeper) bool {
+	// not gasless if already associated
+	seiAddr := sdk.MustAccAddressFromBech32(msg.Sender)
+	_, associated := keeper.GetEVMAddress(ctx, seiAddr)
+	return !associated
 }

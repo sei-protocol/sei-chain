@@ -54,11 +54,13 @@ var (
 )
 
 var (
-	PointerERC20NativePrefix = []byte{0x0}
-	PointerERC20CW20Prefix   = []byte{0x1}
-	PointerERC721CW721Prefix = []byte{0x2}
-	PointerCW20ERC20Prefix   = []byte{0x3}
-	PointerCW721ERC721Prefix = []byte{0x4}
+	PointerERC20NativePrefix   = []byte{0x0}
+	PointerERC20CW20Prefix     = []byte{0x1}
+	PointerERC721CW721Prefix   = []byte{0x2}
+	PointerCW20ERC20Prefix     = []byte{0x3}
+	PointerCW721ERC721Prefix   = []byte{0x4}
+	PointerERC1155CW1155Prefix = []byte{0x5}
+	PointerCW1155ERC1155Prefix = []byte{0x6}
 )
 
 func EVMAddressToSeiAddressKey(evmAddress common.Address) []byte {
@@ -110,6 +112,13 @@ func PointerERC721CW721Key(cw721Address string) []byte {
 	)
 }
 
+func PointerERC1155CW1155Key(cw1155Address string) []byte {
+	return append(
+		append(PointerRegistryPrefix, PointerERC1155CW1155Prefix...),
+		[]byte(cw1155Address)...,
+	)
+}
+
 func PointerCW20ERC20Key(erc20Addr common.Address) []byte {
 	return append(
 		append(PointerRegistryPrefix, PointerCW20ERC20Prefix...),
@@ -121,6 +130,13 @@ func PointerCW721ERC721Key(erc721Addr common.Address) []byte {
 	return append(
 		append(PointerRegistryPrefix, PointerCW721ERC721Prefix...),
 		erc721Addr[:]...,
+	)
+}
+
+func PointerCW1155ERC1155Key(erc1155Addr common.Address) []byte {
+	return append(
+		append(PointerRegistryPrefix, PointerCW1155ERC1155Prefix...),
+		erc1155Addr[:]...,
 	)
 }
 

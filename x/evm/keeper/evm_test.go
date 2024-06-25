@@ -5,13 +5,15 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/stretchr/testify/require"
+	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
+
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/stretchr/testify/require"
-	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestInternalCallCreateContract(t *testing.T) {
@@ -176,4 +178,30 @@ func TestNegativeTransfer(t *testing.T) {
 
 	_, err = k.HandleInternalEVMCall(ctx, req2)
 	require.ErrorContains(t, err, "max initcode size exceeded")
+}
+
+func TestHandleInternalEVMDelegateCall_AssociationError(t *testing.T) {
+	k := testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	testAddr, _ := testkeeper.MockAddressPair()
+	cwAddr, contractAddr := testkeeper.MockAddressPair()
+	castedAddr := common.BytesToAddress(cwAddr.Bytes())
+
+	k.SetCode(ctx, contractAddr, []byte("code"))
+	require.NoError(t, k.SetERC20CW20Pointer(ctx, string(castedAddr.Bytes()), contractAddr))
+
+	addr, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(contractAddr))
+	require.True(t, exists)
+	require.Equal(t, castedAddr.Bytes(), addr)
+
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(2000)))
+	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(2000)))))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, testAddr, amt))
+	req := &types.MsgInternalEVMDelegateCall{
+		Sender:       testAddr.String(),
+		FromContract: string(contractAddr.Bytes()),
+		To:           castedAddr.Hex(),
+	}
+	_, err := k.HandleInternalEVMDelegateCall(ctx, req)
+	require.Equal(t, err.Error(), types.NewAssociationMissingErr(testAddr.String()).Error())
 }

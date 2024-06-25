@@ -7,11 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/rakyll/statik/fs"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -159,6 +163,9 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmclient "github.com/CosmWasm/wasmd/x/wasm/client"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+
+	// unnamed import of statik for openapi/swagger UI support
+	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -227,7 +234,7 @@ var (
 		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
-		dexmoduletypes.ModuleName:      nil,
+		dexmoduletypes.ModuleName:      {authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
@@ -372,8 +379,9 @@ type App struct {
 
 	HardForkManager *upgrades.HardForkManager
 
-	encodingConfig appparams.EncodingConfig
-	evmRPCConfig   evmrpc.Config
+	encodingConfig        appparams.EncodingConfig
+	evmRPCConfig          evmrpc.Config
+	lightInvarianceConfig LightInvarianceConfig
 }
 
 // New returns a reference to an initialized blockchain app
@@ -617,6 +625,11 @@ func New(
 		}
 		app.EvmKeeper.EthClient = ethclient.NewClient(rpcclient)
 	}
+	lightInvarianceConfig, err := ReadLightInvarianceConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading light invariance config due to %s", err))
+	}
+	app.lightInvarianceConfig = lightInvarianceConfig
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
@@ -679,6 +692,7 @@ func New(
 			app.IBCKeeper.ClientKeeper,
 			app.IBCKeeper.ConnectionKeeper,
 			app.IBCKeeper.ChannelKeeper,
+			app.AccountKeeper,
 		); err != nil {
 			panic(err)
 		}
@@ -1126,7 +1140,8 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
-			app.WriteState()
+			cms := app.WriteState()
+			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
 			return &resp, nil
@@ -1142,7 +1157,8 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
-	app.WriteState()
+	cms := app.WriteState()
+	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
@@ -1652,7 +1668,7 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 
 // LoadHeight loads a particular height
 func (app *App) LoadHeight(height int64) error {
-	return app.LoadVersion(height)
+	return app.LoadVersionWithoutInit(height)
 }
 
 // ModuleAccountAddrs returns all the app's module account addresses.
@@ -1717,7 +1733,7 @@ func (app *App) GetSubspace(moduleName string) paramstypes.Subspace {
 
 // RegisterAPIRoutes registers all application module routes with the provided
 // API server.
-func (app *App) RegisterAPIRoutes(apiSvr *api.Server, _ config.APIConfig) {
+func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig) {
 	clientCtx := apiSvr.ClientCtx
 	rpc.RegisterRoutes(clientCtx, apiSvr.Router)
 	// Register legacy tx routes.
@@ -1730,6 +1746,12 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, _ config.APIConfig) {
 	// Register legacy and grpc-gateway routes for all modules.
 	ModuleBasics.RegisterRESTRoutes(clientCtx, apiSvr.Router)
 	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+
+	// register swagger API from root so that other applications can override easily
+	if apiConfig.Swagger {
+		RegisterSwaggerAPI(apiSvr.Router)
+	}
+
 }
 
 // RegisterTxService implements the Application.RegisterTxService method.
@@ -1773,6 +1795,17 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 }
 
+// RegisterSwaggerAPI registers swagger route with API Server
+func RegisterSwaggerAPI(rtr *mux.Router) {
+	statikFS, err := fs.NewWithNamespace("swagger")
+	if err != nil {
+		panic(err)
+	}
+
+	staticServer := http.FileServer(statikFS)
+	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
+}
+
 func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 	totalGasWanted := uint64(0)
 	for _, tx := range txs {
@@ -1786,7 +1819,7 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 			// such tx will not be processed and thus won't consume gas. Skipping
 			continue
 		}
-		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper)
+		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
 			ctx.Logger().Error("error checking if tx is gasless", "error", err)
 			continue
