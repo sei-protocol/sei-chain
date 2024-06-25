@@ -87,13 +87,16 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if method.Name != QueryMethod && !ctx.IsEVM() {
+		return nil, 0, errors.New("sei does not support CW->EVM->CW call pattern")
+	}
 	switch method.Name {
 	case InstantiateMethod:
-		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly, evm)
+		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly)
 	case ExecuteMethod:
-		return p.execute(ctx, method, caller, callingContract, args, value, readOnly, evm)
+		return p.execute(ctx, method, caller, callingContract, args, value, readOnly)
 	case ExecuteBatchMethod:
-		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly, evm)
+		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly)
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
 	}
@@ -104,7 +107,7 @@ func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
 	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -187,19 +190,17 @@ func (p PrecompileExecutor) instantiate(ctx sdk.Context, method *abi.Method, cal
 		}
 	}
 
-	ctx = ctx.WithEvmEventManager(sdk.NewEVMEventManager())
 	addr, data, err := p.wasmdKeeper.Instantiate(ctx, codeID, creatorAddr, adminAddr, msg, label, coins)
 	if err != nil {
 		rerr = err
 		return
 	}
-	AddEvents(ctx, evm)
 	ret, rerr = method.Outputs.Pack(addr.String(), data)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
-func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -313,13 +314,11 @@ func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, ca
 			return
 		}
 
-		ctx = ctx.WithEvmEventManager(sdk.NewEVMEventManager())
 		res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
 		if err != nil {
 			rerr = err
 			return
 		}
-		AddEvents(ctx, evm)
 		responses = append(responses, res)
 	}
 	if valueCopy != nil && valueCopy.Sign() != 0 {
@@ -331,7 +330,7 @@ func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, ca
 	return
 }
 
-func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -409,13 +408,11 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 			return
 		}
 	}
-	ctx = ctx.WithEvmEventManager(sdk.NewEVMEventManager())
 	res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
 	if err != nil {
 		rerr = err
 		return
 	}
-	AddEvents(ctx, evm)
 	ret, rerr = method.Outputs.Pack(res)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
@@ -463,10 +460,4 @@ func (p PrecompileExecutor) query(ctx sdk.Context, method *abi.Method, args []in
 	ret, rerr = method.Outputs.Pack(res)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
-}
-
-func AddEvents(ctx sdk.Context, evm *vm.EVM) {
-	for _, e := range ctx.EVMEventManager().Events() {
-		evm.StateDB.AddLog(e)
-	}
 }

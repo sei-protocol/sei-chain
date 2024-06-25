@@ -320,22 +320,6 @@ async function registerPointerForERC721(erc721Address, fees="20000usei", from=ad
     return getEventAttribute(response, "pointer_registered", "pointer_address")
 }
 
-async function callWasmViaPrecompile(provider, cwAddress, payload, from=adminKeyName) {
-    const jsonString = JSON.stringify(payload).replace(/"/g, '\\"'); // Properly escape JSON string
-    const command = `seid tx evm call-precompile wasmd execute ${cwAddress} "${jsonString}" "[]" --from=${from}`;
-    const output = await execute(command);
-    const txHash = output.replace(/.*0x/, "0x").trim();
-    let attempt = 0;
-    while(attempt < 10) {
-        const receipt = await provider.getTransactionReceipt(txHash);
-        if(receipt) {
-            return receipt
-        }
-        await sleep(500)
-        attempt++
-    }
-    throw new Error("call wasm via precompile failed")
-}
 
 async function getSeiAddress(evmAddress) {
     const command = `seid q evm sei-addr ${evmAddress} -o json`
@@ -500,7 +484,6 @@ module.exports = {
     incrementPointerVersion,
     associateWasm,
     generateWallet,
-    callWasmViaPrecompile,
     WASM,
     ABI,
 };
