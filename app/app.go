@@ -14,8 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
+	"github.com/sei-protocol/sei-db/ss"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -116,12 +118,6 @@ import (
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
-	"github.com/sei-protocol/sei-chain/x/mint"
-	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
-	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
-	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
-
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
@@ -129,6 +125,10 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/mint"
+	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
+	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -165,6 +165,8 @@ import (
 
 	// unnamed import of statik for openapi/swagger UI support
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
+
+	ssconfig "github.com/sei-protocol/sei-db/config"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -596,8 +598,12 @@ func New(
 		wasmOpts...,
 	)
 
-	//TODO: create state store
-	var receiptStore seidbtypes.StateStore
+	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
+	receiptStore, err := ss.NewStateStore(logger, receiptStorePath, ssconfig.StateStoreConfig{
+		DedicatedChangelog: true,
+		AsyncWriteBuffer:   10,
+		KeepRecent:         cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks)),
+	})
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,

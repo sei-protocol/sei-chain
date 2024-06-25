@@ -4,8 +4,10 @@ import (
 	"errors"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/iavl"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-db/proto"
 )
 
 // SetTransientReceipt sets a data structure that stores EVM specific transaction metadata.
@@ -62,12 +64,20 @@ func (k *Keeper) SetReceipt(ctx sdk.Context, txHash common.Hash, receipt *types.
 func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
 	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix).Iterator(nil, nil)
 	defer iter.Close()
+	var pairs []*iavl.KVPair
+	var changesets []*proto.NamedChangeSet
 	for ; iter.Valid(); iter.Next() {
-		// TODO: write this tx to store to receiptStore
-
-		//txHash := common.BytesToHash(iter.Key())
-		//bz := iter.Value()
-		//k.receiptStore.ApplyChangeset(...)
+		kvPair := &iavl.KVPair{Key: iter.Key(), Value: iter.Value()}
+		pairs = append(pairs, kvPair)
+	}
+	ncs := &proto.NamedChangeSet{
+		Name:      types.ReceiptStoreKey,
+		Changeset: iavl.ChangeSet{Pairs: pairs},
+	}
+	changesets = append(changesets, ncs)
+	err := k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
+	if err != nil {
+		return err
 	}
 
 	//TODO: we may not actually need this if transient stores are auto-cleared, we'll need to verify
