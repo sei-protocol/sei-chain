@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/IERC1155MetadataURI.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IWasmd} from "./precompiles/IWasmd.sol";
@@ -14,7 +13,8 @@ import {IJson} from "./precompiles/IJson.sol";
 import {IAddr} from "./precompiles/IAddr.sol";
 
 
-contract CW1155ERC1155Pointer is ERC1155, ERC2981, ReentrancyGuard {
+contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
+
 
     address constant WASMD_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001002;
     address constant JSON_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001003;
@@ -99,18 +99,10 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981, ReentrancyGuard {
     }
 
     //transactions
-    function safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes memory data) public override nonReentrant {
+    function safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes memory data) public override {
         require(to != address(0), "ERC1155: transfer to the zero address");
         require(balanceOf(from, id) >= amount, "ERC1155: insufficient balance for transfer");
         require(msg.sender == from || isApprovedForAll(from, msg.sender), "ERC1155: caller is not approved to transfer");
-        if (to.code.length > 0) {
-            require(
-                IERC1155Receiver(to).onERC1155Received(
-                    msg.sender, from, id, amount, data
-                ) == IERC1155Receiver.onERC1155Received.selector,
-                "unsafe transfer"
-            );
-        }
     
         string memory f = _formatPayload("from", _doubleQuotes(AddrPrecompile.getSeiAddr(from)));
         string memory t = _formatPayload("to", _doubleQuotes(AddrPrecompile.getSeiAddr(to)));
@@ -120,20 +112,20 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981, ReentrancyGuard {
         string memory req = _curlyBrace(_formatPayload("send",(_curlyBrace(_join(f,",",_join(t,",",_join(tId,",",amt)))))));
         _execute(bytes(req));
         emit TransferSingle(msg.sender, from, to, id, amount);
-    }
-
-    function safeBatchTransferFrom(address from, address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data) public override nonReentrant{
-        require(to != address(0), "ERC1155: transfer to the zero address");
-        require(isApprovedForAll(from, address(this)), "ERC1155: caller is not approved to transfer");
-        require(ids.length == amounts.length, "ERC1155: ids and amounts length mismatch");
         if (to.code.length > 0) {
             require(
-                IERC1155Receiver(to).onERC1155BatchReceived(
-                    msg.sender, from, ids, amounts, data
+                IERC1155Receiver(to).onERC1155Received(
+                    msg.sender, from, id, amount, data
                 ) == IERC1155Receiver.onERC1155Received.selector,
                 "unsafe transfer"
             );
         }
+    }
+
+    function safeBatchTransferFrom(address from, address to, uint256[] memory ids, uint256[] memory amounts, bytes memory data) public override {
+        require(to != address(0), "ERC1155: transfer to the zero address");
+        require(isApprovedForAll(from, address(this)), "ERC1155: caller is not approved to transfer");
+        require(ids.length == amounts.length, "ERC1155: ids and amounts length mismatch");
         
         for(uint256 i = 0; i < ids.length; i++){
             require(balanceOf(from, ids[i]) >= amounts[i], "ERC1155: insufficient balance for transfer");
@@ -152,6 +144,14 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981, ReentrancyGuard {
 
         _execute(bytes(req));
         emit TransferBatch(msg.sender, from, to, ids, amounts);
+                if (to.code.length > 0) {
+            require(
+                IERC1155Receiver(to).onERC1155BatchReceived(
+                    msg.sender, from, ids, amounts, data
+                ) == IERC1155Receiver.onERC1155Received.selector,
+                "unsafe transfer"
+            );
+        }
     }
 
     function setApprovalForAll(address operator, bool approved) public override {
