@@ -25,12 +25,20 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 // Many EVM applications (e.g. MetaMask) relies on being on able to query receipt
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, ctx.BlockHeight(), types.ReceiptKey(txHash))
+	ctx.Logger().Info("[Debug] GetReceipt START", "tx", txHash.Hex())
+	v, err := k.receiptStore.GetLatestVersion()
+	if err != nil {
+		return nil, err
+	}
+	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, v, types.ReceiptKey(txHash))
+	ctx.Logger().Info("[Debug] GetReceipt DONE", "tx", txHash.Hex())
 	if err != nil {
 		return nil, err
 	}
 
 	if bz == nil {
+		ctx.Logger().Info("[Debug] GetReceipt NOT FOUND", "tx", txHash.Hex())
+
 		// fallback because these used to exist in application state
 		store := ctx.KVStore(k.storeKey)
 		bz = store.Get(types.ReceiptKey(txHash))
@@ -62,13 +70,18 @@ func (k *Keeper) SetReceipt(ctx sdk.Context, txHash common.Hash, receipt *types.
 }
 
 func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
+	ctx.Logger().Info("[Debug] Flushing transient receipts")
 	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix).Iterator(nil, nil)
 	defer iter.Close()
 	var pairs []*iavl.KVPair
 	var changesets []*proto.NamedChangeSet
 	for ; iter.Valid(); iter.Next() {
+		ctx.Logger().Info("[Debug] FlushTransientReceipts", "tx", common.BytesToHash(iter.Key()).Hex())
 		kvPair := &iavl.KVPair{Key: iter.Key(), Value: iter.Value()}
 		pairs = append(pairs, kvPair)
+	}
+	if len(pairs) == 0 {
+		return nil
 	}
 	ncs := &proto.NamedChangeSet{
 		Name:      types.ReceiptStoreKey,
