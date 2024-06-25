@@ -65,7 +65,17 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	}
 
 	operation = method.Name
-	return p.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm)
+	em := ctx.EventManager()
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	bz, err = p.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm)
+	if err != nil {
+		return bz, err
+	}
+	events := ctx.EventManager().Events()
+	if len(events) > 0 {
+		em.EmitEvents(ctx.EventManager().Events())
+	}
+	return bz, err
 }
 
 func HandlePrecompileError(err error, evm *vm.EVM, operation string) {
@@ -147,7 +157,17 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
 
 	operation = method.Name
-	return d.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm, suppliedGas)
+	em := ctx.EventManager()
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	ret, remainingGas, err = d.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm, suppliedGas)
+	if err != nil {
+		return ret, remainingGas, err
+	}
+	events := ctx.EventManager().Events()
+	if len(events) > 0 {
+		em.EmitEvents(ctx.EventManager().Events())
+	}
+	return ret, remainingGas, err
 }
 
 func (d DynamicGasPrecompile) GetExecutor() DynamicGasPrecompileExecutor {
