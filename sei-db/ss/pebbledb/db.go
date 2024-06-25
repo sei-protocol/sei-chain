@@ -324,7 +324,10 @@ func (db *Database) writeAsyncInBackground() {
 					panic(err)
 				}
 			}
-			db.SetLatestVersion(version)
+			err := db.SetLatestVersion(version)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 
