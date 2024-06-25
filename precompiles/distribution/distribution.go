@@ -10,11 +10,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -27,8 +25,6 @@ const (
 const (
 	DistrAddress = "0x0000000000000000000000000000000000001007"
 )
-
-var _ vm.PrecompiledContract = &Precompile{}
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -48,8 +44,7 @@ func GetABI() abi.ABI {
 	return newAbi
 }
 
-type Precompile struct {
-	pcommon.Precompile
+type PrecompileExecutor struct {
 	distrKeeper pcommon.DistributionKeeper
 	evmKeeper   pcommon.EVMKeeper
 	address     common.Address
@@ -59,11 +54,10 @@ type Precompile struct {
 	WithdrawMultipleDelegationRewardsID []byte
 }
 
-func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := GetABI()
 
-	p := &Precompile{
-		Precompile:  pcommon.Precompile{ABI: newAbi},
+	p := &PrecompileExecutor{
 		distrKeeper: distrKeeper,
 		evmKeeper:   evmKeeper,
 		address:     common.HexToAddress(DistrAddress),
@@ -80,56 +74,10 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 		}
 	}
 
-	return p, nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, p, p.address, "distribution"), nil
 }
 
-// RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID, err := pcommon.ExtractMethodID(input)
-	if err != nil {
-		return pcommon.UnknownMethodCallGas
-	}
-
-	method, err := p.ABI.MethodById(methodID)
-	if err != nil {
-		// This should never happen since this method is going to fail during Run
-		return pcommon.UnknownMethodCallGas
-	}
-
-	return p.Precompile.RequiredGas(input, p.IsTransaction(method.Name))
-}
-
-func (Precompile) IsTransaction(method string) bool {
-	switch method {
-	case SetWithdrawAddressMethod:
-		return true
-	case WithdrawDelegationRewardsMethod:
-		return true
-	case WithdrawMultipleDelegationRewardsMethod:
-		return true
-	default:
-		return false
-	}
-}
-
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, _ bool) (ret []byte, remainingGas uint64, err error) {
-	operation := "distribution_unknown"
-	defer func() {
-		pcommon.HandlePrecompileError(err, evm, operation)
-	}()
-	ctx, method, args, err := p.Prepare(evm, input)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	gasMultiplier := p.evmKeeper.GetPriorityNormalizer(ctx)
-	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultiplier).TruncateInt().BigInt()
-	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
-		gasLimitBigInt = utils.BigMaxU64
-	}
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
-
-	operation = method.Name
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
 	switch method.Name {
 	case SetWithdrawAddressMethod:
 		return p.setWithdrawAddress(ctx, method, caller, args, value)
@@ -142,19 +90,15 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ com
 	return
 }
 
-func (p Precompile) Address() common.Address {
-	return p.address
+func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+	return p.evmKeeper
 }
 
-func (p Precompile) GetName() string {
+func (p PrecompileExecutor) GetName() string {
 	return "distribution"
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
-	panic("static gas Run is not implemented for dynamic gas precompile")
-}
-
-func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -192,7 +136,7 @@ func (p Precompile) setWithdrawAddress(ctx sdk.Context, method *abi.Method, call
 	return
 }
 
-func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) withdrawDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -222,7 +166,7 @@ func (p Precompile) withdrawDelegationRewards(ctx sdk.Context, method *abi.Metho
 	return
 }
 
-func (p Precompile) validateInput(value *big.Int, args []interface{}, expectedArgsLength int) error {
+func (p PrecompileExecutor) validateInput(value *big.Int, args []interface{}, expectedArgsLength int) error {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return err
 	}
@@ -234,7 +178,7 @@ func (p Precompile) validateInput(value *big.Int, args []interface{}, expectedAr
 	return nil
 }
 
-func (p Precompile) withdraw(ctx sdk.Context, delegator sdk.AccAddress, validatorAddress string) (sdk.Coins, error) {
+func (p PrecompileExecutor) withdraw(ctx sdk.Context, delegator sdk.AccAddress, validatorAddress string) (sdk.Coins, error) {
 	validator, err := sdk.ValAddressFromBech32(validatorAddress)
 	if err != nil {
 		return nil, err
@@ -242,7 +186,7 @@ func (p Precompile) withdraw(ctx sdk.Context, delegator sdk.AccAddress, validato
 	return p.distrKeeper.WithdrawDelegationRewards(ctx, delegator, validator)
 }
 
-func (p Precompile) getDelegator(ctx sdk.Context, caller common.Address) (sdk.AccAddress, error) {
+func (p PrecompileExecutor) getDelegator(ctx sdk.Context, caller common.Address) (sdk.AccAddress, error) {
 	delegator, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
 		return nil, types.NewAssociationMissingErr(caller.Hex())
@@ -251,7 +195,7 @@ func (p Precompile) getDelegator(ctx sdk.Context, caller common.Address) (sdk.Ac
 	return delegator, nil
 }
 
-func (p Precompile) withdrawMultipleDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) withdrawMultipleDelegationRewards(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -285,7 +229,7 @@ func (p Precompile) withdrawMultipleDelegationRewards(ctx sdk.Context, method *a
 	return
 }
 
-func (p Precompile) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
+func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
 		return nil, errors.New("invalid addr")

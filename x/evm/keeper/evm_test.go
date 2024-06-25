@@ -35,6 +35,9 @@ func TestInternalCallCreateContract(t *testing.T) {
 		Data:   contractData,
 	}
 	// circular interop call
+	ctx = ctx.WithIsEVM(true)
+	_, err = k.HandleInternalEVMCall(ctx, req)
+	require.Equal(t, "sei does not support EVM->CW->EVM call pattern", err.Error())
 	ctx = ctx.WithIsEVM(false)
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
@@ -59,6 +62,9 @@ func TestInternalCall(t *testing.T) {
 		Sender: testAddr.String(),
 		Data:   contractData,
 	}
+	ctx = ctx.WithIsEVM(true)
+	_, err = k.HandleInternalEVMCall(ctx, req)
+	require.Equal(t, "sei does not support EVM->CW->EVM call pattern", err.Error())
 	ctx = ctx.WithIsEVM(false)
 	ret, err := k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)

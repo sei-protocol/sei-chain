@@ -431,11 +431,11 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 				StateDB: stateDb,
 			}
 			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
-			withdraw, err := p.ABI.MethodById(p.WithdrawDelegationRewardsID)
+			withdraw, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawDelegationRewardsID)
 			require.Nil(t, err)
 			inputs, err := withdraw.Inputs.Pack(tt.args.validator)
 			require.Nil(t, err)
-			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.WithdrawDelegationRewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawDelegationRewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -540,11 +540,11 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 				StateDB: stateDb,
 			}
 			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
-			withdraw, err := p.ABI.MethodById(p.WithdrawMultipleDelegationRewardsID)
+			withdraw, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawMultipleDelegationRewardsID)
 			require.Nil(t, err)
 			inputs, err := withdraw.Inputs.Pack(tt.args.validators)
 			require.Nil(t, err)
-			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.WithdrawMultipleDelegationRewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawMultipleDelegationRewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -664,11 +664,11 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 				TxContext: vm.TxContext{Origin: callerEvmAddress},
 			}
 			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
-			setAddress, err := p.ABI.MethodById(p.SetWithdrawAddrID)
+			setAddress, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).SetWithdrawAddrID)
 			require.Nil(t, err)
 			inputs, err := setAddress.Inputs.Pack(tt.args.addressToSet)
 			require.Nil(t, err)
-			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.SetWithdrawAddrID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).SetWithdrawAddrID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -681,57 +681,6 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			}
 			if gotRemainingGas != tt.wantRemainingGas {
 				t.Errorf("RunAndCalculateGas() gotRemainingGas = %v, want %v", gotRemainingGas, tt.wantRemainingGas)
-			}
-		})
-	}
-}
-
-func TestPrecompile_IsTransaction(t *testing.T) {
-	type fields struct {
-		Precompile                          pcommon.Precompile
-		distrKeeper                         pcommon.DistributionKeeper
-		evmKeeper                           pcommon.EVMKeeper
-		address                             common.Address
-		SetWithdrawAddrID                   []byte
-		WithdrawDelegationRewardsID         []byte
-		WithdrawMultipleDelegationRewardsID []byte
-	}
-	type args struct {
-		method string
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   bool
-	}{
-		{
-			name:   "fails if method is not a transaction",
-			fields: fields{},
-			args: args{
-				method: "notATransaction",
-			},
-			want: false,
-		},
-		{
-			name:   "succeeds if method is a transaction",
-			fields: fields{},
-			args: args{
-				method: "setWithdrawAddress",
-			},
-			want: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pr := distribution.Precompile{
-				Precompile:                          tt.fields.Precompile,
-				SetWithdrawAddrID:                   tt.fields.SetWithdrawAddrID,
-				WithdrawDelegationRewardsID:         tt.fields.WithdrawDelegationRewardsID,
-				WithdrawMultipleDelegationRewardsID: tt.fields.WithdrawMultipleDelegationRewardsID,
-			}
-			if got := pr.IsTransaction(tt.args.method); got != tt.want {
-				t.Errorf("IsTransaction() = %v, want %v", got, tt.want)
 			}
 		})
 	}
