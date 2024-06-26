@@ -2,7 +2,7 @@ package keeper
 
 import (
 	"errors"
-	
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/iavl"
 	"github.com/ethereum/go-ethereum/common"

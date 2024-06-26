@@ -616,7 +616,7 @@ func New(
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
-	bApp.SetCloseHandler(app.Close)
+	bApp.SetCloseHandler(app.HandleClose)
 
 	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
 	if err != nil {
@@ -995,7 +995,7 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 }
 
 // Close closes all items that needs closing (called by baseapp)
-func (app *App) Close() error {
+func (app *App) HandleClose() error {
 	if app.receiptStore != nil {
 		return app.receiptStore.Close()
 	}
