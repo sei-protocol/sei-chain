@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/exp/slices"
@@ -18,13 +19,14 @@ const (
 type StorageTestSuite struct {
 	suite.Suite
 
-	NewDB          func(dir string) (types.StateStore, error)
+	NewDB          func(dir string, config config.StateStoreConfig) (types.StateStore, error)
 	EmptyBatchSize int
 	SkipTests      []string
+	Config         config.StateStoreConfig
 }
 
 func (s *StorageTestSuite) TestDatabaseClose() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	s.Require().NoError(db.Close())
 
@@ -34,7 +36,7 @@ func (s *StorageTestSuite) TestDatabaseClose() {
 
 func (s *StorageTestSuite) TestDatabaseLatestVersion() {
 	tempDir := s.T().TempDir()
-	db, err := s.NewDB(tempDir)
+	db, err := s.NewDB(tempDir, s.Config)
 	s.Require().NoError(err)
 
 	lv, err := db.GetLatestVersion()
@@ -55,7 +57,7 @@ func (s *StorageTestSuite) TestDatabaseLatestVersion() {
 	err = db.Close()
 	s.Require().NoError(err)
 
-	newDB, err := s.NewDB(tempDir)
+	newDB, err := s.NewDB(tempDir, s.Config)
 	s.Require().NoError(err)
 	defer newDB.Close()
 
@@ -66,7 +68,7 @@ func (s *StorageTestSuite) TestDatabaseLatestVersion() {
 }
 
 func (s *StorageTestSuite) TestDatabaseVersionedKeys() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -80,7 +82,7 @@ func (s *StorageTestSuite) TestDatabaseVersionedKeys() {
 }
 
 func (s *StorageTestSuite) TestDatabaseGetVersionedKey() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -149,7 +151,7 @@ func (s *StorageTestSuite) TestDatabaseGetVersionedKey() {
 
 func (s *StorageTestSuite) TestDatabaseVersionZero() {
 	// Db should write all keys at version 0 at version 1
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -183,7 +185,7 @@ func (s *StorageTestSuite) TestDatabaseVersionZero() {
 }
 
 func (s *StorageTestSuite) TestDatabaseApplyChangeset() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -220,7 +222,7 @@ func (s *StorageTestSuite) TestDatabaseApplyChangeset() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorEmptyDomain() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -230,7 +232,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorEmptyDomain() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorClose() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -243,7 +245,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorClose() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorDomain() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -274,7 +276,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorDomain() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIterator() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -332,7 +334,7 @@ func (s *StorageTestSuite) TestDatabaseIterator() {
 	s.Require().Nil(iter3)
 }
 func (s *StorageTestSuite) TestDatabaseIteratorRangedDeletes() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -357,7 +359,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorRangedDeletes() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorDeletes() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -393,7 +395,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorDeletes() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorMultiVersion() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -439,7 +441,7 @@ func (s *StorageTestSuite) TestDatabaseIteratorMultiVersion() {
 
 // Tests bug where iterator loops continuously
 func (s *StorageTestSuite) TestDatabaseBugInitialReverseIteration() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -468,7 +470,7 @@ func (s *StorageTestSuite) TestDatabaseBugInitialReverseIteration() {
 }
 
 func (s *StorageTestSuite) TestDatabaseBugInitialForwardIteration() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -498,7 +500,7 @@ func (s *StorageTestSuite) TestDatabaseBugInitialForwardIteration() {
 }
 
 func (s *StorageTestSuite) TestDatabaseBugInitialForwardIterationHigher() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -526,7 +528,7 @@ func (s *StorageTestSuite) TestDatabaseBugInitialForwardIterationHigher() {
 }
 
 func (s *StorageTestSuite) TestDatabaseBugInitialReverseIterationHigher() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -555,7 +557,7 @@ func (s *StorageTestSuite) TestDatabaseBugInitialReverseIterationHigher() {
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorNoDomain() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -584,7 +586,7 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 		s.T().SkipNow()
 	}
 
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -648,7 +650,7 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 }
 
 func (s *StorageTestSuite) TestDatabasePruneAndTombstone() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -669,7 +671,7 @@ func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 		s.T().SkipNow()
 	}
 
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -712,8 +714,66 @@ func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 	s.Require().Equal([]byte("value003"), bz)
 }
 
+func (s *StorageTestSuite) TestDatabasePruneKeepLastVersion() {
+	// Update config to set KeepLastVersion to false
+	stateStoreConfig := s.Config
+	stateStoreConfig.KeepLastVersion = false
+	db, err := s.NewDB(s.T().TempDir(), stateStoreConfig)
+	s.Require().NoError(err)
+	defer db.Close()
+
+	s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, [][]byte{[]byte("key000")}, [][]byte{[]byte("value001")}))
+	s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value002")}))
+	s.Require().NoError(DBApplyChangeset(db, 200, storeKey1, [][]byte{[]byte("key002")}, [][]byte{[]byte("value003")}))
+	s.Require().NoError(DBApplyChangeset(db, 200, storeKey1, [][]byte{[]byte("key003")}, [][]byte{[]byte("value004")}))
+
+	// prune version 150
+	s.Require().NoError(db.Prune(150))
+
+	// Verify that all keys before prune height are deleted
+	bz, err := db.Get(storeKey1, 100, []byte("key000"))
+	s.Require().NoError(err)
+	s.Require().Nil(bz)
+
+	bz, err = db.Get(storeKey1, 160, []byte("key001"))
+	s.Require().NoError(err)
+	s.Require().Nil(bz)
+
+	// Verify keys after prune height can be retrieved
+	bz, err = db.Get(storeKey1, 200, []byte("key002"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("value003"), bz)
+
+	bz, err = db.Get(storeKey1, 220, []byte("key003"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("value004"), bz)
+
+	// Now reset KeepLastVersion to true and verify latest version of key exists
+	newDB, err := s.NewDB(s.T().TempDir(), s.Config)
+	s.Require().NoError(err)
+	defer newDB.Close()
+
+	s.Require().NoError(DBApplyChangeset(newDB, 100, storeKey1, [][]byte{[]byte("key000")}, [][]byte{[]byte("value001")}))
+	s.Require().NoError(DBApplyChangeset(newDB, 100, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value002")}))
+	s.Require().NoError(DBApplyChangeset(newDB, 200, storeKey1, [][]byte{[]byte("key002")}, [][]byte{[]byte("value003")}))
+	s.Require().NoError(DBApplyChangeset(newDB, 200, storeKey1, [][]byte{[]byte("key003")}, [][]byte{[]byte("value004")}))
+
+	// prune version 150
+	s.Require().NoError(newDB.Prune(150))
+
+	// Can still retrieve those keys because KeepLastVersion is true
+	bz, err = newDB.Get(storeKey1, 160, []byte("key000"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("value001"), bz)
+
+	bz, err = newDB.Get(storeKey1, 180, []byte("key001"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("value002"), bz)
+
+}
+
 func (s *StorageTestSuite) TestDatabaseReverseIterator() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -768,7 +828,7 @@ func (s *StorageTestSuite) TestDatabaseReverseIterator() {
 }
 
 func (s *StorageTestSuite) TestParallelWrites() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -814,7 +874,7 @@ func (s *StorageTestSuite) TestParallelWrites() {
 }
 
 func (s *StorageTestSuite) TestParallelWriteAndPruning() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -875,7 +935,7 @@ func (s *StorageTestSuite) TestParallelWriteAndPruning() {
 }
 
 func (s *StorageTestSuite) TestDatabaseParallelDeleteIteration() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -948,7 +1008,7 @@ func (s *StorageTestSuite) TestDatabaseParallelDeleteIteration() {
 }
 
 func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -1010,7 +1070,8 @@ func (s *StorageTestSuite) TestDatabaseParallelWriteDelete() {
 }
 
 func (s *StorageTestSuite) TestParallelIterationAndPruning() {
-	db, err := s.NewDB(s.T().TempDir())
+	fmt.Printf("DEBUG - config %+v\n", s.Config)
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
@@ -1085,7 +1146,7 @@ func (s *StorageTestSuite) TestParallelIterationAndPruning() {
 }
 
 func (s *StorageTestSuite) TestDatabaseParallelIterationVersions() {
-	db, err := s.NewDB(s.T().TempDir())
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
 
