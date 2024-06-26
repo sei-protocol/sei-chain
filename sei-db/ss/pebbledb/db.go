@@ -8,13 +8,17 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/stream/changelog"
 	"golang.org/x/exp/slices"
 )
 
@@ -40,14 +44,26 @@ var (
 )
 
 type Database struct {
-	storage *pebble.DB
-	config  config.StateStoreConfig
+	storage      *pebble.DB
+	asyncWriteWG sync.WaitGroup
+	config       config.StateStoreConfig
 	// Earliest version for db after pruning
 	earliestVersion int64
 
 	// Map of module to when each was last updated
 	// Used in pruning to skip over stores that have not been updated recently
 	storeKeyDirty sync.Map
+
+	// Changelog used to support async write
+	streamHandler *changelog.Stream
+
+	// Pending changes to be written to the DB
+	pendingChanges chan VersionedChangesets
+}
+
+type VersionedChangesets struct {
+	Version    int64
+	Changesets []*proto.NamedChangeSet
 }
 
 func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
@@ -93,12 +109,28 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
 	}
-
-	return &Database{
+	database := &Database{
 		storage:         db,
+		asyncWriteWG:    sync.WaitGroup{},
 		config:          config,
 		earliestVersion: earliestVersion,
-	}, nil
+		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
+	}
+	if config.DedicatedChangelog {
+		streamHandler, _ := changelog.NewStream(
+			logger.NewNopLogger(),
+			utils.GetChangelogPath(dataDir),
+			changelog.Config{
+				DisableFsync:  true,
+				ZeroCopy:      true,
+				KeepRecent:    uint64(config.KeepRecent),
+				PruneInterval: 300 * time.Second,
+			},
+		)
+		database.streamHandler = streamHandler
+		go database.writeAsyncInBackground()
+	}
+	return database, nil
 }
 
 func NewWithDB(storage *pebble.DB) *Database {
@@ -108,6 +140,13 @@ func NewWithDB(storage *pebble.DB) *Database {
 }
 
 func (db *Database) Close() error {
+	if db.streamHandler != nil {
+		db.streamHandler.Close()
+		db.streamHandler = nil
+		close(db.pendingChanges)
+	}
+	// Wait for the async writes to finish
+	db.asyncWriteWG.Wait()
 	err := db.storage.Close()
 	db.storage = nil
 	return err
@@ -250,6 +289,48 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	db.storeKeyDirty.Store(cs.Name, version)
 
 	return b.Write()
+}
+
+func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
+	// Write to WAL first
+	if db.streamHandler != nil {
+		entry := proto.ChangelogEntry{
+			Version: version,
+		}
+		entry.Changesets = changesets
+		entry.Upgrades = nil
+		err := db.streamHandler.WriteNextEntry(entry)
+		if err != nil {
+			return err
+		}
+	}
+	// Then write to pending changes
+	db.pendingChanges <- VersionedChangesets{
+		Version:    version,
+		Changesets: changesets,
+	}
+	return nil
+}
+
+func (db *Database) writeAsyncInBackground() {
+	db.asyncWriteWG.Add(1)
+	defer db.asyncWriteWG.Done()
+	for nextChange := range db.pendingChanges {
+		if db.streamHandler != nil {
+			version := nextChange.Version
+			for _, cs := range nextChange.Changesets {
+				err := db.ApplyChangeset(version, cs)
+				if err != nil {
+					panic(err)
+				}
+			}
+			err := db.SetLatestVersion(version)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+
 }
 
 // Prune attempts to prune all versions up to and including the current version

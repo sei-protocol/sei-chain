@@ -24,6 +24,9 @@ type StateStore interface {
 	// the version should be latest version plus one.
 	ApplyChangeset(version int64, cs *proto.NamedChangeSet) error
 
+	// ApplyChangesetAsync Write changesets into WAL file first and apply later for async writes
+	ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error
+
 	// Import the initial state of the store
 	Import(version int64, ch <-chan SnapshotNode) error
 

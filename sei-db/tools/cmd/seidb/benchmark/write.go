@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss"
 	"github.com/sei-protocol/sei-db/tools/dbbackend"
@@ -67,7 +68,7 @@ func DBWrite(inputKVDir string, numVersions int, outputDir string, dbBackend str
 	fmt.Printf("Reading Raw Keys and Values from %s\n", inputKVDir)
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Backend = dbBackend
-	backend, err := ss.NewStateStore(outputDir, ssConfig)
+	backend, err := ss.NewStateStore(logger.NewNopLogger(), outputDir, ssConfig)
 	if err != nil {
 		panic(err)
 	}

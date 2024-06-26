@@ -58,6 +58,9 @@ type StateStoreConfig struct {
 	// default to empty
 	DBDirectory string `mapstructure:"db-directory"`
 
+	// DedicatedChangelog defines if we should use a separate changelog for SS store other than sharing with SC
+	DedicatedChangelog bool `mapstructure:"dedicated-changelog"`
+
 	// Backend defines the backend database used for state-store
 	// Supported backends: pebbledb, rocksdb
 	// defaults to pebbledb

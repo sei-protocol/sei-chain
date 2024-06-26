@@ -210,6 +210,10 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	return b.Write()
 }
 
+func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
+	return fmt.Errorf("not implemented")
+}
+
 func (db *Database) Prune(version int64) error {
 	stmt := "DELETE FROM state_storage WHERE version <= ? AND store_key != ?;"
 

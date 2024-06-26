@@ -10,6 +10,6 @@ func GetStateStorePath(homePath string, backend string) string {
 	return filepath.Join(homePath, "data", backend)
 }
 
-func GetChangelogPath(commitStorePath string) string {
-	return filepath.Join(commitStorePath, "changelog")
+func GetChangelogPath(dbPath string) string {
+	return filepath.Join(dbPath, "changelog")
 }

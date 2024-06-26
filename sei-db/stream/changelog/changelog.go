@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
@@ -16,11 +17,14 @@ import (
 var _ types.Stream[proto.ChangelogEntry] = (*Stream)(nil)
 
 type Stream struct {
+	dir          string
 	log          *wal.Log
 	config       Config
 	logger       logger.Logger
 	writeChannel chan *Message
 	errSignal    chan error
+	nextOffset   uint64
+	isClosed     bool
 }
 
 type Message struct {
@@ -32,6 +36,8 @@ type Config struct {
 	DisableFsync    bool
 	ZeroCopy        bool
 	WriteBufferSize int
+	KeepRecent      uint64
+	PruneInterval   time.Duration
 }
 
 // NewStream creates a new changelog stream that persist the changesets in the log
@@ -43,11 +49,24 @@ func NewStream(logger logger.Logger, dir string, config Config) (*Stream, error)
 	if err != nil {
 		return nil, err
 	}
-	return &Stream{
-		log:    log,
-		config: config,
-		logger: logger,
-	}, nil
+	stream := &Stream{
+		dir:      dir,
+		log:      log,
+		config:   config,
+		logger:   logger,
+		isClosed: false,
+	}
+	// Finding the nextOffset to write
+	lastIndex, err := log.LastIndex()
+	if err != nil {
+		return nil, err
+	}
+	stream.nextOffset = lastIndex + 1
+	// Start the auto pruning goroutine
+	if config.KeepRecent > 0 {
+		go stream.StartPruning(config.KeepRecent, config.PruneInterval)
+	}
+	return stream, nil
 
 }
 
@@ -72,6 +91,18 @@ func (stream *Stream) Write(offset uint64, entry proto.ChangelogEntry) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// WriteNextEntry will write a new entry to the last index of the log.
+// Whether the writes is in blocking or async manner depends on the buffer size.
+func (stream *Stream) WriteNextEntry(entry proto.ChangelogEntry) error {
+	nextOffset := stream.nextOffset
+	err := stream.Write(nextOffset, entry)
+	if err != nil {
+		return err
+	}
+	stream.nextOffset++
 	return nil
 }
 
@@ -172,6 +203,19 @@ func (stream *Stream) Replay(start uint64, end uint64, processFn func(index uint
 	return nil
 }
 
+func (stream *Stream) StartPruning(keepRecent uint64, pruneInterval time.Duration) {
+	for !stream.isClosed {
+		lastIndex, _ := stream.log.LastIndex()
+		firstIndex, _ := stream.log.FirstIndex()
+		if lastIndex > keepRecent && (lastIndex-keepRecent) > firstIndex {
+			prunePos := lastIndex - keepRecent
+			err := stream.TruncateBefore(prunePos)
+			stream.logger.Error(fmt.Sprintf("failed to prune changelog till index %d", prunePos), "err", err)
+		}
+		time.Sleep(pruneInterval)
+	}
+}
+
 func (stream *Stream) Close() error {
 	if stream.writeChannel == nil {
 		return nil
@@ -181,6 +225,7 @@ func (stream *Stream) Close() error {
 	stream.writeChannel = nil
 	stream.errSignal = nil
 	errClose := stream.log.Close()
+	stream.isClosed = true
 	return errorutils.Join(err, errClose)
 }
 

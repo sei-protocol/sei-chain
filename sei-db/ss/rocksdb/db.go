@@ -179,6 +179,10 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	return b.Write()
 }
 
+func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
+	return fmt.Errorf("not implemented")
+}
+
 // Prune attempts to prune all versions up to and including the provided version.
 // This is done internally by updating the full_history_ts_low RocksDB value on
 // the column families, s.t. all versions less than full_history_ts_low will be

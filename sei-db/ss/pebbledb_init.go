@@ -9,11 +9,11 @@ import (
 
 func init() {
 	initializer := func(dir string, configs config.StateStoreConfig) (types.StateStore, error) {
-		dbHome := dir
+		dbHome := utils.GetStateStorePath(dir, configs.Backend)
 		if configs.DBDirectory != "" {
 			dbHome = configs.DBDirectory
 		}
-		return pebbledb.New(utils.GetStateStorePath(dbHome, configs.Backend), configs)
+		return pebbledb.New(dbHome, configs)
 	}
 	RegisterBackend(PebbleDBBackend, initializer)
 }
