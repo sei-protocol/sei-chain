@@ -3,11 +3,13 @@ package keeper
 import (
 	"errors"
 	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/iavl"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-db/proto"
+
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // SetTransientReceipt sets a data structure that stores EVM specific transaction metadata.
