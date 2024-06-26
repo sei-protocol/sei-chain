@@ -110,6 +110,8 @@ func TestABCI(t *testing.T) {
 	k.AppendErrorToEvmTxDeferredInfo(ctx.WithTxIndex(0), common.Hash{1}, "test error")
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 1}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
+	err = k.FlushTransientReceipts(ctx)
+	require.NoError(t, err)
 	receipt, err := k.GetReceipt(ctx, common.Hash{1})
 	require.Nil(t, err)
 	require.Equal(t, receipt.BlockNumber, uint64(ctx.BlockHeight()))
