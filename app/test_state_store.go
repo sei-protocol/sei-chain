@@ -78,20 +78,7 @@ func (s *InMemoryStateStore) Iterator(storeKey string, version int64, start, end
 		return nil, errors.New("version not found")
 	}
 
-	keys := []string{}
-	for k := range versionData {
-		if (start == nil || k >= string(start)) && (end == nil || k < string(end)) {
-			keys = append(keys, k)
-		}
-	}
-
-	return &InMemoryIterator{
-		data:    versionData,
-		keys:    keys,
-		current: -1,
-		start:   start,
-		end:     end,
-	}, nil
+	return NewInMemoryIterator(versionData, start, end), nil
 }
 
 func (s *InMemoryStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
@@ -108,25 +95,14 @@ func (s *InMemoryStateStore) ReverseIterator(storeKey string, version int64, sta
 		return nil, errors.New("version not found")
 	}
 
-	keys := []string{}
-	for k := range versionData {
-		if (start == nil || k >= string(start)) && (end == nil || k < string(end)) {
-			keys = append(keys, k)
-		}
-	}
+	iter := NewInMemoryIterator(versionData, start, end)
 
 	// Reverse the keys for reverse iteration
-	for i, j := 0, len(keys)-1; i < j; i, j = i+1, j-1 {
-		keys[i], keys[j] = keys[j], keys[i]
+	for i, j := 0, len(iter.keys)-1; i < j; i, j = i+1, j-1 {
+		iter.keys[i], iter.keys[j] = iter.keys[j], iter.keys[i]
 	}
 
-	return &InMemoryIterator{
-		data:    versionData,
-		keys:    keys,
-		current: -1,
-		start:   start,
-		end:     end,
-	}, nil
+	return iter, nil
 }
 
 func (s *InMemoryStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error) {
@@ -266,13 +242,29 @@ func (s *InMemoryStateStore) Close() error {
 	return nil
 }
 
-// InMemoryIterator implements the DBIterator interface for an in-memory store.
 type InMemoryIterator struct {
 	data    map[string][]byte
 	keys    []string
 	current int
 	start   []byte
 	end     []byte
+}
+
+func NewInMemoryIterator(data map[string][]byte, start, end []byte) *InMemoryIterator {
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		if (start == nil || k >= string(start)) && (end == nil || k < string(end)) {
+			keys = append(keys, k)
+		}
+	}
+
+	return &InMemoryIterator{
+		data:    data,
+		keys:    keys,
+		current: 0,
+		start:   start,
+		end:     end,
+	}
 }
 
 func (it *InMemoryIterator) Domain() (start, end []byte) {
