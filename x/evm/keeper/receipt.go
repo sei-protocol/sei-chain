@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"errors"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/iavl"
 	"github.com/ethereum/go-ethereum/common"
@@ -25,25 +24,18 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 // Many EVM applications (e.g. MetaMask) relies on being on able to query receipt
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-
-	// try transient store first (fastest)
-	tStore := ctx.TransientStore(k.transientStoreKey)
-	bz := tStore.Get(types.ReceiptKey(txHash))
+	// try persistent store
+	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, ctx.BlockHeight(), types.ReceiptKey(txHash))
+	if err != nil {
+		return nil, err
+	}
 
 	if bz == nil {
-		// try persistent store
-		bz, err := k.receiptStore.Get(types.ReceiptStoreKey, ctx.BlockHeight(), types.ReceiptKey(txHash))
-		if err != nil {
-			return nil, err
-		}
-
+		// try legacy store for older receipts
+		store := ctx.KVStore(k.storeKey)
+		bz = store.Get(types.ReceiptKey(txHash))
 		if bz == nil {
-			// try legacy store for older receipts
-			store := ctx.KVStore(k.storeKey)
-			bz = store.Get(types.ReceiptKey(txHash))
-			if bz == nil {
-				return nil, errors.New("not found")
-			}
+			return nil, errors.New("not found")
 		}
 	}
 
