@@ -76,6 +76,7 @@ func DefaultConfig() network.Config {
 				&TestAppOptions{},
 				nil,
 				app.EmptyACLOpts,
+				app.EmptyAppOptions,
 				baseapp.SetPruning(storetypes.NewPruningOptionsFromString(val.AppConfig.Pruning)),
 				baseapp.SetMinGasPrices(val.AppConfig.MinGasPrices),
 			)

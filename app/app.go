@@ -266,7 +266,8 @@ var (
 	// EmptyAclmOpts defines a type alias for a list of wasm options.
 	EmptyACLOpts []aclkeeper.Option
 	// EnableOCC allows tests to override default OCC enablement behavior
-	EnableOCC = true
+	EnableOCC       = true
+	EmptyAppOptions []AppOption
 )
 
 var (
@@ -388,6 +389,8 @@ type App struct {
 	receiptStore seidb.StateStore
 }
 
+type AppOption func(*App)
+
 // New returns a reference to an initialized blockchain app
 func New(
 	logger log.Logger,
@@ -404,6 +407,7 @@ func New(
 	appOpts servertypes.AppOptions,
 	wasmOpts []wasm.Option,
 	aclOpts []aclkeeper.Option,
+	appOptions []AppOption,
 	baseAppOptions ...func(*baseapp.BaseApp),
 ) *App {
 	appCodec := encodingConfig.Marshaler
@@ -445,6 +449,11 @@ func New(
 		metricCounter:     &map[string]float32{},
 		encodingConfig:    encodingConfig,
 	}
+
+	for _, option := range appOptions {
+		option(app)
+	}
+
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
 	// set the BaseApp's parameter store
@@ -606,10 +615,13 @@ func New(
 	ssConfig.DedicatedChangelog = true
 	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	ssConfig.DBDirectory = receiptStorePath
-	app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssConfig)
-	if err != nil {
-		panic(fmt.Sprintf("error while creating receipt store: %s", err))
+	if app.receiptStore == nil {
+		app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssConfig)
+		if err != nil {
+			panic(fmt.Sprintf("error while creating receipt store: %s", err))
+		}
 	}
+
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,

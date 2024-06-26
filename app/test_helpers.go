@@ -177,6 +177,13 @@ func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...fu
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
+
+	options := []AppOption{
+		func(app *App) {
+			app.receiptStore = NewInMemoryStateStore()
+		},
+	}
+
 	res = New(
 		log.NewNopLogger(),
 		db,
@@ -192,6 +199,7 @@ func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...fu
 		TestAppOpts{},
 		EmptyWasmOpts,
 		EmptyACLOpts,
+		options,
 		baseAppOptions...,
 	)
 	if !isCheckTx {
@@ -235,6 +243,7 @@ func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions
 		TestAppOpts{true},
 		EmptyWasmOpts,
 		EmptyACLOpts,
+		EmptyAppOptions,
 		baseAppOptions...,
 	)
 	if !isCheckTx {
@@ -285,6 +294,7 @@ func SetupTestingAppWithLevelDb(isCheckTx bool, enableEVMCustomPrecompiles bool)
 		TestAppOpts{},
 		EmptyWasmOpts,
 		EmptyACLOpts,
+		nil,
 	)
 	if !isCheckTx {
 		genesisState := NewDefaultGenesisState(cdc)
