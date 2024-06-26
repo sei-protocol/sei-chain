@@ -86,11 +86,6 @@ func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
 	changesets = append(changesets, ncs)
-	err := k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
-	if err != nil {
-		return err
-	}
 
-	//TODO: we may not actually need this if transient stores are auto-cleared, we'll need to verify
-	return ctx.TransientStore(k.transientStoreKey).DeleteAll(nil, nil)
+	return k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
 }
