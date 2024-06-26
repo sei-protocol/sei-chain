@@ -615,13 +615,13 @@ func New(
 	ssConfig.DedicatedChangelog = true
 	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	ssConfig.DBDirectory = receiptStorePath
+	ssConfig.KeepLastVersion = false
 	if app.receiptStore == nil {
 		app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssConfig)
 		if err != nil {
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}
 	}
-
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
