@@ -30,17 +30,17 @@ func (s *InMemoryStateStore) Get(storeKey string, version int64, key []byte) ([]
 
 	store, ok := s.data[storeKey]
 	if !ok {
-		return nil, errors.New("store not found")
+		return nil, errors.New("not found")
 	}
 
 	versionData, ok := store[version]
 	if !ok {
-		return nil, errors.New("version not found")
+		return nil, errors.New("not found")
 	}
 
 	value, ok := versionData[string(key)]
 	if !ok {
-		return nil, errors.New("key not found")
+		return nil, errors.New("not found")
 	}
 
 	return value, nil
