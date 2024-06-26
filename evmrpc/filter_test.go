@@ -255,7 +255,7 @@ func TestFilterGetFilterChanges(t *testing.T) {
 		Address: common.HexToAddress("0x1111111111111111111111111111111111111112"),
 		Topics:  []common.Hash{},
 	}}}})
-	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900005"), &types.Receipt{
+	EVMKeeper.MockReceipt(Ctx, common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900005"), &types.Receipt{
 		BlockNumber: 9,
 		LogsBloom:   bloom[:],
 		Logs: []*types.Log{{

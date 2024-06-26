@@ -26,11 +26,7 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	ctx.Logger().Info("[Debug] GetReceipt START", "tx", txHash.Hex())
-	v, err := k.receiptStore.GetLatestVersion()
-	if err != nil {
-		return nil, err
-	}
-	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, v, types.ReceiptKey(txHash))
+	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, ctx.BlockHeight(), types.ReceiptKey(txHash))
 	ctx.Logger().Info("[Debug] GetReceipt DONE", "tx", txHash.Hex())
 	if err != nil {
 		return nil, err
@@ -54,19 +50,14 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	return &r, nil
 }
 
-//	SetReceipt sets a data structure that stores EVM specific transaction metadata.
+//	MockReceipt sets a data structure that stores EVM specific transaction metadata.
 //
-// Deprecated: in favor of SetTransientReceipt
 // this is currently used by a number of tests to set receipts at the moment
-// TODO: remove this once we move off of SetReceipt (tests are using it)
-func (k *Keeper) SetReceipt(ctx sdk.Context, txHash common.Hash, receipt *types.Receipt) error {
-	store := ctx.KVStore(k.storeKey)
-	bz, err := receipt.Marshal()
-	if err != nil {
+func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, receipt *types.Receipt) error {
+	if err := k.SetTransientReceipt(ctx, txHash, receipt); err != nil {
 		return err
 	}
-	store.Set(types.ReceiptKey(txHash), bz)
-	return nil
+	return k.FlushTransientReceipts(ctx)
 }
 
 func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {

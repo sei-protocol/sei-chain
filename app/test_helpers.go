@@ -228,6 +228,13 @@ func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
+
+	options := []AppOption{
+		func(app *App) {
+			app.receiptStore = NewInMemoryStateStore()
+		},
+	}
+
 	res = New(
 		log.NewNopLogger(),
 		db,
@@ -243,7 +250,7 @@ func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions
 		TestAppOpts{true},
 		EmptyWasmOpts,
 		EmptyACLOpts,
-		EmptyAppOptions,
+		options,
 		baseAppOptions...,
 	)
 	if !isCheckTx {
