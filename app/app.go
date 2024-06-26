@@ -602,12 +602,11 @@ func New(
 	)
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
-	app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssconfig.StateStoreConfig{
-		DedicatedChangelog: true,
-		AsyncWriteBuffer:   10,
-		KeepRecent:         cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks)),
-		Backend:            string(ss.PebbleDBBackend),
-	})
+	ssConfig := ssconfig.DefaultStateStoreConfig()
+	ssConfig.DedicatedChangelog = true
+	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
+	ssConfig.DBDirectory = receiptStorePath
+	app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssConfig)
 	if err != nil {
 		panic(fmt.Sprintf("error while creating receipt store: %s", err))
 	}
