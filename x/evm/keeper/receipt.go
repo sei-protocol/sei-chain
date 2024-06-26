@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"errors"
+	"fmt"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/iavl"
 	"github.com/ethereum/go-ethereum/common"
@@ -24,8 +25,15 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 // Many EVM applications (e.g. MetaMask) relies on being on able to query receipt
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
+
+	// receipts are immutable, use latest version
+	lv, err := k.receiptStore.GetLatestVersion()
+	if err != nil {
+		return nil, err
+	}
+
 	// try persistent store
-	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, ctx.BlockHeight(), types.ReceiptKey(txHash))
+	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +58,7 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 //
 // this is currently used by a number of tests to set receipts at the moment
 func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, receipt *types.Receipt) error {
+	fmt.Printf("MOCK RECEIPT height=%d, tx=%s\n", ctx.BlockHeight(), txHash.Hex())
 	if err := k.SetTransientReceipt(ctx, txHash, receipt); err != nil {
 		return err
 	}
