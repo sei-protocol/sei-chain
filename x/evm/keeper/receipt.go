@@ -25,21 +25,25 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 // Many EVM applications (e.g. MetaMask) relies on being on able to query receipt
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-	ctx.Logger().Info("[Debug] GetReceipt START", "tx", txHash.Hex())
-	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, ctx.BlockHeight(), types.ReceiptKey(txHash))
-	ctx.Logger().Info("[Debug] GetReceipt DONE", "tx", txHash.Hex())
-	if err != nil {
-		return nil, err
-	}
+
+	// try transient store first (fastest)
+	tStore := ctx.TransientStore(k.transientStoreKey)
+	bz := tStore.Get(types.ReceiptKey(txHash))
 
 	if bz == nil {
-		ctx.Logger().Info("[Debug] GetReceipt NOT FOUND", "tx", txHash.Hex())
+		// try persistent store
+		bz, err := k.receiptStore.Get(types.ReceiptStoreKey, ctx.BlockHeight(), types.ReceiptKey(txHash))
+		if err != nil {
+			return nil, err
+		}
 
-		// fallback because these used to exist in application state
-		store := ctx.KVStore(k.storeKey)
-		bz = store.Get(types.ReceiptKey(txHash))
 		if bz == nil {
-			return nil, errors.New("not found")
+			// try legacy store for older receipts
+			store := ctx.KVStore(k.storeKey)
+			bz = store.Get(types.ReceiptKey(txHash))
+			if bz == nil {
+				return nil, errors.New("not found")
+			}
 		}
 	}
 
