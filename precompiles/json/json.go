@@ -15,7 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
 const (
@@ -27,17 +26,12 @@ const (
 const JSONAddress = "0x0000000000000000000000000000000000001003"
 const GasCostPerByte = 100 // TODO: parameterize
 
-var _ vm.PrecompiledContract = &Precompile{}
-
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
 //go:embed abi.json
 var f embed.FS
 
-type Precompile struct {
-	pcommon.Precompile
-	address common.Address
-
+type PrecompileExecutor struct {
 	ExtractAsBytesID     []byte
 	ExtractAsBytesListID []byte
 	ExtractAsUint256ID   []byte
@@ -56,16 +50,13 @@ func ABI() (*abi.ABI, error) {
 	return &newAbi, nil
 }
 
-func NewPrecompile() (*Precompile, error) {
+func NewPrecompile() (*pcommon.Precompile, error) {
 	newAbi, err := ABI()
 	if err != nil {
 		return nil, err
 	}
 
-	p := &Precompile{
-		Precompile: pcommon.Precompile{ABI: *newAbi},
-		address:    common.HexToAddress(JSONAddress),
-	}
+	p := &PrecompileExecutor{}
 
 	for name, m := range newAbi.Methods {
 		switch name {
@@ -78,40 +69,15 @@ func NewPrecompile() (*Precompile, error) {
 		}
 	}
 
-	return p, nil
+	return pcommon.NewPrecompile(*newAbi, p, common.HexToAddress(JSONAddress), "json"), nil
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p Precompile) RequiredGas(input []byte) uint64 {
-	if len(input) < 4 {
-		return pcommon.UnknownMethodCallGas
-	}
-	return uint64(GasCostPerByte * (len(input) - 4))
+func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
+	return uint64(GasCostPerByte * len(input))
 }
 
-func (Precompile) IsTransaction(string) bool {
-	return false
-}
-
-func (p Precompile) Address() common.Address {
-	return p.address
-}
-
-func (p Precompile) GetName() string {
-	return "json"
-}
-
-func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input []byte, value *big.Int, _ bool) (bz []byte, err error) {
-	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
-	}()
-	ctx, method, args, err := p.Prepare(evm, input)
-	if err != nil {
-		return nil, err
-	}
-
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (bz []byte, err error) {
 	switch method.Name {
 	case ExtractAsBytesMethod:
 		return p.extractAsBytes(ctx, method, args, value)
@@ -134,7 +100,7 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input [
 	return
 }
 
-func (p Precompile) extractAsBytes(_ sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) extractAsBytes(_ sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -162,7 +128,7 @@ func (p Precompile) extractAsBytes(_ sdk.Context, method *abi.Method, args []int
 	return method.Outputs.Pack([]byte(result))
 }
 
-func (p Precompile) extractAsBytesList(_ sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) extractAsBytesList(_ sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -190,7 +156,7 @@ func (p Precompile) extractAsBytesList(_ sdk.Context, method *abi.Method, args [
 	return method.Outputs.Pack(utils.Map(decodedResult, func(r gjson.RawMessage) []byte { return []byte(r) }))
 }
 
-func (p Precompile) ExtractAsUint256(_ sdk.Context, _ *abi.Method, args []interface{}, value *big.Int) (*big.Int, error) {
+func (p PrecompileExecutor) ExtractAsUint256(_ sdk.Context, _ *abi.Method, args []interface{}, value *big.Int) (*big.Int, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
