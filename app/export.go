@@ -64,16 +64,9 @@ func (app *App) ExportAppToFileStateAndValidators(
 		height = 0
 		app.prepForZeroHeightGenesis(ctx, jailAllowedAddrs)
 	}
-	file.Write([]byte("\"app_state\":{"))
-	i := 0
 	app.mm.ProcessGenesisPerModule(ctx, app.appCodec, func(moduleName string, moduleJson json.RawMessage) {
-		if i != 0 {
-			file.Write([]byte(","))
-		}
-		file.Write([]byte(fmt.Sprintf("\"%s\":%s", moduleName, string(moduleJson))))
-		i += 1
+		file.Write([]byte(fmt.Sprintf("{\"app_state\": {\"module\":\"%s\",\"data\":%s}}\n", moduleName, string(moduleJson))))
 	})
-	file.Write([]byte("}"))
 	validators, err := staking.WriteValidators(ctx, app.StakingKeeper)
 	if err != nil {
 		return servertypes.ExportedApp{}, err

@@ -83,6 +83,74 @@ func ExportGenesis(ctx sdk.Context, k *keeper.Keeper) *types.GenesisState {
 	return genesis
 }
 
+func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.GenesisState {
+	ch := make(chan *types.GenesisState)
+	go func() {
+		genesis := types.DefaultGenesis()
+		genesis.Params = k.GetParams(ctx)
+		ch <- genesis
+
+		k.IterateSeiAddressMapping(ctx, func(evmAddr common.Address, seiAddr sdk.AccAddress) bool {
+			var genesis types.GenesisState
+			genesis.AddressAssociations = append(genesis.AddressAssociations, &types.AddressAssociation{
+				SeiAddress: seiAddr.String(),
+				EthAddress: evmAddr.Hex(),
+			})
+			ch <- &genesis
+			return false
+		})
+		k.IterateAllCode(ctx, func(addr common.Address, code []byte) bool {
+			var genesis types.GenesisState
+			genesis.Codes = append(genesis.Codes, &types.Code{
+				Address: addr.Hex(),
+				Code:    code,
+			})
+			ch <- &genesis
+			return false
+		})
+		k.IterateState(ctx, func(addr common.Address, key, val common.Hash) bool {
+			var genesis types.GenesisState
+			genesis.States = append(genesis.States, &types.ContractState{
+				Address: addr.Hex(),
+				Key:     key[:],
+				Value:   val[:],
+			})
+			ch <- &genesis
+			return false
+		})
+		k.IterateAllNonces(ctx, func(addr common.Address, nonce uint64) bool {
+			var genesis types.GenesisState
+			genesis.Nonces = append(genesis.Nonces, &types.Nonce{
+				Address: addr.Hex(),
+				Nonce:   nonce,
+			})
+			ch <- &genesis
+			return false
+		})
+		for _, prefix := range [][]byte{
+			types.ReceiptKeyPrefix,
+			types.BlockBloomPrefix,
+			types.TxHashesPrefix,
+			types.PointerRegistryPrefix,
+			types.PointerCWCodePrefix,
+			types.PointerReverseRegistryPrefix,
+		} {
+			k.IterateAll(ctx, prefix, func(key, val []byte) bool {
+				var genesis types.GenesisState
+				genesis.Serialized = append(genesis.Serialized, &types.Serialized{
+					Prefix: prefix,
+					Key:    key,
+					Value:  val,
+				})
+				ch <- &genesis
+				return false
+			})
+		}
+		close(ch)
+	}()
+	return ch
+}
+
 // GetGenesisStateFromAppState returns x/evm GenesisState given raw application
 // genesis state.
 func GetGenesisStateFromAppState(cdc codec.JSONCodec, appState map[string]json.RawMessage) *types.GenesisState {
