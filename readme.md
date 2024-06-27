@@ -2,31 +2,30 @@
 
 ![Banner!](assets/SeiLogo.png)
 
-Sei is the fastest general purpose L1 blockchain offering the best infrastructure for the exchange of digital assets. The chain emphasizes reliability, security and high throughput above all else, enabling an entirely new echelon of ultra-high performance DeFi products built on top. Sei's on-chain CLOB and matching engine provides deep liquidity and price-time-priority matching for traders and apps. Apps built on Sei benefit from built-in orderbook infrastructure, deep liquidity, and a fully decentralized matching service. Users benefit from this exchange model with the ability to select price, size, and direction of their trades coupled with MEV protection.
+Sei is the fastest general purpose L1 blockchain and the first parallelized EVM. This allows Sei to get the best of Solana and Ethereum - a hyper optimized execution layer that benefits from the tooling and mindshare around the EVM.
 
 # Sei
-**Sei** is a blockchain built using Cosmos SDK and Tendermint. It is built using the Cosmos SDK and Tendermint core, and features a built-in central limit orderbook (CLOB) module. Decentralized applications building on Sei can build on top of the CLOB, and other Cosmos-based blockchains can leverage Sei's CLOB as a shared liquidity hub and create markets for any asset.
-
-Designed with developers and users in mind, Sei serves as the infrastructure and shared liquidity hub for the next generation of DeFi. Apps can easily plug-and-play to trade on Sei orderbook infrastructure and access pooled liquidity from other apps. To prioritize developer experience, Sei Network has integrated the wasmd module to support CosmWasm smart contracts.
+**Sei** is a high-performance, low-fee, delegated proof-of-stake blockchain designed for developers. It supports optimistic parallel execution of both EVM and CosmWasm, opening up new design possibilities. With unique optimizations like twin turbo consensus and SeiDB, Sei ensures consistent 400ms block times and a transaction throughput that’s orders of magnitude higher than Ethereum. This means faster, more cost-effective operations. Plus, Sei’s seamless interoperability between EVM and CosmWasm gives developers native access to the entire Cosmos ecosystem, including IBC tokens, multi-sig accounts, fee grants, and more.
 
 # Documentation
-For the most up to date documentation please visit https://www.sei.io/
+For the most up to date documentation please visit https://www.docs.sei.io/
 
-# Sei Ecosystem
-Sei Network is an L1 blockchain with a built-in on-chain orderbook that allows smart contracts easy access to shared liquidity. Sei architecture enables composable apps that maintain modularity.
+# Sei Optimizations
+Sei introduces four major innovations:
 
-Sei Network serves as the matching core of the ecosystem, offering superior reliability and ultra-high transaction speed to ecosystem partners, each with their own functionality and user experience. Anyone can create a DeFi application that leverages Sei's liquidity and the entire ecosystem benefits.
+- Twin Turbo Consensus: This feature allows Sei to reach the fastest time to finality of any blockchain at 400ms, unlocking web2 like experiences for applications.
+- Optimistic Parallelization: This feature allows developers to unlock parallel processing for their Ethereum applications, with no additional work.
+- SeiDB: This major upgrade allows Sei to handle the much higher rate of data storage, reads and writes which become extremely important for a high performance blockchain.
+- Interoperable EVM: This allows existing developers in the Ethereum ecosystem to deploy their applications, tooling and infrastructure to Sei with no changes, while benefiting from the 100x performance improvements offered by Sei.
 
-Developers, traders, and users can all connect to Sei as ecosystem partners benefiting from shared liquidity and decentralized financial primitives.
+All these features combine to unlock a brand new, scalable design space for the Ethereum Ecosystem.
 
 # Testnet
 ## Get started
 **How to validate on the Sei Testnet**
-*This is the Sei Testnet-1 (sei-testnet-1)*
+*This is the Sei Atlantic-2 Testnet ()*
 
-> Genesis [Published](https://github.com/sei-protocol/testnet/blob/main/sei-testnet-1/genesis.json)
-
-> Peers [Published](https://github.com/sei-protocol/testnet/blob/main/sei-testnet-1/addrbook.json)
+> Genesis [Published](https://github.com/sei-protocol/testnet/blob/main/atlantic-2/genesis.json)
 
 ## Hardware Requirements
 **Minimum**
