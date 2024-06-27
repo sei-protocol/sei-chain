@@ -262,7 +262,7 @@ func TestEvmAnteErrorHandler(t *testing.T) {
 		Log:  "nonce too high",
 	}})
 	testkeeper.EVMTestApp.EvmKeeper.SetMsgs([]*evmtypes.MsgEVMTransaction{req})
-	deferredInfo := testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	deferredInfo := testkeeper.EVMTestApp.EvmKeeper.GetAllEVMTxDeferredInfo(ctx)
 	require.Equal(t, 1, len(deferredInfo))
 	require.Contains(t, deferredInfo[0].Error, "nonce too high")
 }

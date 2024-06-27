@@ -11,12 +11,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []*types.DeferredInfo) {
-<<<<<<< HEAD
+func (k *Keeper) GetAllEVMTxDeferredInfo(ctx sdk.Context) (res []*types.DeferredInfo) {
 	store := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix)
-=======
-	store := prefix.NewStore(ctx.TransientStore(k.tStoreKey), types.DeferredInfoPrefix)
->>>>>>> 888db563 (handle error cases)
 	for txIdx, msg := range k.msgs {
 		if msg == nil {
 			continue
@@ -66,4 +62,16 @@ func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom
 		panic(err)
 	}
 	prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix).Set(key, bz)
+}
+
+func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) *types.DeferredInfo {
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, uint64(ctx.TxIndex()))
+	val := &types.DeferredInfo{}
+	bz := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix).Get(key)
+	if bz == nil {
+		return nil
+	}
+	_ = val.Unmarshal(bz)
+	return val
 }

@@ -998,6 +998,8 @@ func New(
 	app.HardForkManager = upgrades.NewHardForkManager(app.ChainID)
 	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, upgrades.ChainIDSeiHardForkTest, app.WasmKeeper))
 
+	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
+
 	return app
 }
 
