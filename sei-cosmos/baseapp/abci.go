@@ -327,6 +327,9 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 			resultStr = "failed"
 		}
 	}
+	for _, hook := range app.deliverTxHooks {
+		hook(ctx, tx, checksum, res)
+	}
 	return
 }
 

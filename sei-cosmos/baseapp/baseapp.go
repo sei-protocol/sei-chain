@@ -75,6 +75,8 @@ type (
 	// an older version of the software. In particular, if a module changed the substore key name
 	// (or removed a substore) between two versions of the software.
 	StoreLoader func(ms sdk.CommitMultiStore) error
+
+	DeliverTxHook func(sdk.Context, sdk.Tx, [32]byte, abci.ResponseDeliverTx)
 )
 
 // BaseApp reflects the ABCI application implementation.
@@ -172,6 +174,8 @@ type BaseApp struct { //nolint: maligned
 
 	concurrencyWorkers int
 	occEnabled         bool
+
+	deliverTxHooks []DeliverTxHook
 }
 
 type appStore struct {
@@ -279,6 +283,7 @@ func NewBaseApp(
 		},
 		commitLock:       &sync.Mutex{},
 		checkTxStateLock: &sync.RWMutex{},
+		deliverTxHooks:   []DeliverTxHook{},
 	}
 
 	app.TracingInfo.SetContext(context.Background())
@@ -1202,4 +1207,8 @@ func (app *BaseApp) GetCheckCtx() sdk.Context {
 	app.checkTxStateLock.RLock()
 	defer app.checkTxStateLock.RUnlock()
 	return app.checkState.ctx
+}
+
+func (app *BaseApp) RegisterDeliverTxHook(hook DeliverTxHook) {
+	app.deliverTxHooks = append(app.deliverTxHooks, hook)
 }
