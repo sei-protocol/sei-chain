@@ -30,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/tests"
+	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -42,9 +43,11 @@ import (
 )
 
 type Keeper struct {
-	storeKey    sdk.StoreKey
-	memStoreKey sdk.StoreKey
-	Paramstore  paramtypes.Subspace
+	storeKey          sdk.StoreKey
+	memStoreKey       sdk.StoreKey
+	transientStoreKey sdk.StoreKey
+
+	Paramstore paramtypes.Subspace
 
 	deferredInfo *sync.Map
 	txResults    []*abci.ExecTxResult
@@ -77,6 +80,8 @@ type Keeper struct {
 	DB          ethstate.Database
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
+
+	receiptStore seidbtypes.StateStore
 }
 
 type EvmTxDeferredInfo struct {
@@ -116,7 +121,7 @@ func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethty
 }
 
 func NewKeeper(
-	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, paramstore paramtypes.Subspace,
+	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore seidbtypes.StateStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
 	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
@@ -125,6 +130,7 @@ func NewKeeper(
 	k := &Keeper{
 		storeKey:                     storeKey,
 		memStoreKey:                  memStoreKey,
+		transientStoreKey:            transientStoreKey,
 		Paramstore:                   paramstore,
 		bankKeeper:                   bankKeeper,
 		accountKeeper:                accountKeeper,
@@ -137,6 +143,7 @@ func NewKeeper(
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
 		deferredInfo:                 &sync.Map{},
+		receiptStore:                 receiptStateStore,
 	}
 	return k
 }

@@ -345,6 +345,7 @@ func deployContract(t *testing.T, ctx sdk.Context, k *keeper.Keeper, path string
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	if receipt.Status != 1 {
