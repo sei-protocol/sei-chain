@@ -370,6 +370,12 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 	header := app.stateToCommit.ctx.BlockHeader()
 	retainHeight := app.GetBlockRetentionHeight(header.Height)
 
+	if app.preCommitHandler != nil {
+		if err := app.preCommitHandler(app.deliverState.ctx); err != nil {
+			panic(fmt.Errorf("error when executing commit handler: %s", err))
+		}
+	}
+
 	app.WriteState()
 	app.GetWorkingHash()
 	app.cms.Commit(true)

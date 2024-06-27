@@ -74,7 +74,7 @@ func NewStore(
 		pendingChanges: make(chan VersionedChangesets, 1000),
 	}
 	if ssConfig.Enable {
-		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
+		ssStore, err := ss.NewStateStore(logger, homeDir, ssConfig)
 		if err != nil {
 			panic(err)
 		}
@@ -84,14 +84,11 @@ func NewStore(
 		if ssVersion <= 0 && scVersion > 0 {
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
-		if err = ss.RecoverStateStore(homeDir, logger, ssStore); err != nil {
+		if err = ss.RecoverStateStore(logger, homeDir, ssStore); err != nil {
 			panic(err)
 		}
 		store.ssStore = ssStore
 		go store.StateStoreCommit()
-		store.pruningManager = pruning.NewPruningManager(
-			logger, ssStore, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds))
-		store.pruningManager.Start()
 	}
 	return store
 

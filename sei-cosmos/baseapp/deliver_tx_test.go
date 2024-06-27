@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -906,9 +907,16 @@ func TestBaseAppAnteHandler(t *testing.T) {
 		r := sdk.NewRoute(routeMsgCounter, handlerMsgCounter(t, capKey1, deliverKey))
 		bapp.Router().AddRoute(r)
 	}
+	var preCommitCalled bool
+	preCommitHandlerOpt := func(bapp *BaseApp) {
+		bapp.SetPreCommitHandler(func(ctx sdk.Context) error {
+			preCommitCalled = true
+			return nil
+		})
+	}
 
 	cdc := codec.NewLegacyAmino()
-	app := setupBaseApp(t, anteOpt, routerOpt)
+	app := setupBaseApp(t, anteOpt, routerOpt, preCommitHandlerOpt)
 
 	app.InitChain(context.Background(), &abci.RequestInitChain{})
 	registerTestCodec(cdc)
@@ -976,6 +984,98 @@ func TestBaseAppAnteHandler(t *testing.T) {
 
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
+
+	require.True(t, preCommitCalled)
+}
+
+func TestPrecommitHandlerPanic(t *testing.T) {
+	anteKey := []byte("ante-key")
+	anteOpt := func(bapp *BaseApp) {
+		bapp.SetAnteHandler(anteHandlerTxTest(t, capKey1, anteKey))
+	}
+
+	deliverKey := []byte("deliver-key")
+	routerOpt := func(bapp *BaseApp) {
+		r := sdk.NewRoute(routeMsgCounter, handlerMsgCounter(t, capKey1, deliverKey))
+		bapp.Router().AddRoute(r)
+	}
+	preCommitHandlerOpt := func(bapp *BaseApp) {
+		bapp.SetPreCommitHandler(func(ctx sdk.Context) error {
+			return errors.New("test error")
+		})
+	}
+
+	cdc := codec.NewLegacyAmino()
+	app := setupBaseApp(t, anteOpt, routerOpt, preCommitHandlerOpt)
+
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
+	registerTestCodec(cdc)
+
+	header := tmproto.Header{Height: app.LastBlockHeight() + 1}
+	app.setDeliverState(header)
+	app.BeginBlock(app.deliverState.ctx, abci.RequestBeginBlock{Header: header})
+
+	// execute a tx that will fail ante handler execution
+	//
+	// NOTE: State should not be mutated here. This will be implicitly checked by
+	// the next txs ante handler execution (anteHandlerTxTest).
+	tx := newTxCounter(0, 0)
+	tx.setFailOnAnte(true)
+	txBytes, err := cdc.Marshal(tx)
+	require.NoError(t, err)
+	decoded, _ := app.txDecoder(txBytes)
+	res := app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	require.Empty(t, res.Events)
+	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
+
+	ctx := app.getState(runTxModeDeliver).ctx
+	store := ctx.KVStore(capKey1)
+	require.Equal(t, int64(0), getIntFromStore(store, anteKey))
+
+	// execute at tx that will pass the ante handler (the checkTx state should
+	// mutate) but will fail the message handler
+	tx = newTxCounter(0, 0)
+	tx.setFailOnHandler(true)
+
+	txBytes, err = cdc.Marshal(tx)
+	require.NoError(t, err)
+
+	decoded, _ = app.txDecoder(txBytes)
+	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	// should emit ante event
+	require.NotEmpty(t, res.Events)
+	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
+
+	ctx = app.getState(runTxModeDeliver).ctx
+	store = ctx.KVStore(capKey1)
+	require.Equal(t, int64(1), getIntFromStore(store, anteKey))
+	require.Equal(t, int64(0), getIntFromStore(store, deliverKey))
+
+	// execute a successful ante handler and message execution where state is
+	// implicitly checked by previous tx executions
+	tx = newTxCounter(1, 0)
+
+	txBytes, err = cdc.Marshal(tx)
+	require.NoError(t, err)
+
+	decoded, _ = app.txDecoder(txBytes)
+	res = app.DeliverTx(app.deliverState.ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	require.NotEmpty(t, res.Events)
+	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
+
+	ctx = app.getState(runTxModeDeliver).ctx
+	store = ctx.KVStore(capKey1)
+	require.Equal(t, int64(2), getIntFromStore(store, anteKey))
+	require.Equal(t, int64(1), getIntFromStore(store, deliverKey))
+
+	// commit
+	app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
+	require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
+
+	app.SetDeliverStateToCommit()
+
+	// should panic because pre-commit handler returned an error
+	require.Panics(t, func() { app.Commit(context.Background()) })
 }
 
 func TestGasConsumptionBadTx(t *testing.T) {
@@ -1426,7 +1526,13 @@ func TestCheckTx(t *testing.T) {
 		}))
 	}
 
-	app := setupBaseApp(t, anteOpt, routerOpt)
+	pchOpt := func(bapp *BaseApp) {
+		bapp.SetPreCommitHandler(func(ctx sdk.Context) error {
+			return nil
+		})
+	}
+
+	app := setupBaseApp(t, anteOpt, routerOpt, pchOpt)
 
 	nTxs := int64(5)
 	app.InitChain(context.Background(), &abci.RequestInitChain{})
@@ -1591,7 +1697,6 @@ func TestInfo(t *testing.T) {
 
 func TestBaseAppOptionSeal(t *testing.T) {
 	app := setupBaseApp(t)
-
 	require.Panics(t, func() {
 		app.SetName("")
 	})
@@ -1627,6 +1732,9 @@ func TestBaseAppOptionSeal(t *testing.T) {
 	})
 	require.Panics(t, func() {
 		app.SetRouter(NewRouter())
+	})
+	require.Panics(t, func() {
+		app.SetPreCommitHandler(nil)
 	})
 }
 

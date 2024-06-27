@@ -191,6 +191,22 @@ func (app *BaseApp) SetPrepareProposalHandler(prepareProposalHandler sdk.Prepare
 	app.prepareProposalHandler = prepareProposalHandler
 }
 
+func (app *BaseApp) SetPreCommitHandler(preCommitHandler sdk.PreCommitHandler) {
+	if app.sealed {
+		panic("SetPreCommitHandler() on sealed BaseApp")
+	}
+
+	app.preCommitHandler = preCommitHandler
+}
+
+func (app *BaseApp) SetCloseHandler(closeHandler sdk.CloseHandler) {
+	if app.sealed {
+		panic("SetCloseHandler() on sealed BaseApp")
+	}
+
+	app.closeHandler = closeHandler
+}
+
 func (app *BaseApp) SetProcessProposalHandler(processProposalHandler sdk.ProcessProposalHandler) {
 	if app.sealed {
 		panic("SetProcessProposalHandler() on sealed BaseApp")

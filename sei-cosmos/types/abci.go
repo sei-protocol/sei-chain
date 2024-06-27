@@ -32,3 +32,6 @@ type ProcessProposalHandler func(ctx Context, req *abci.RequestProcessProposal) 
 type FinalizeBlocker func(ctx Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error)
 
 type LoadVersionHandler func() error
+
+type PreCommitHandler func(ctx Context) error
+type CloseHandler func() error
