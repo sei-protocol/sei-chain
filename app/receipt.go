@@ -21,7 +21,11 @@ const ShellEVMTxType = math.MaxUint32
 
 var ERC20ApprovalTopic = common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
 var ERC20TransferTopic = common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
+var ERC721TransferTopic = common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
+var ERC721ApprovalTopic = common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
+var ERC721ApproveAllTopic = common.HexToHash("0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31")
 var EmptyHash = common.HexToHash("0x0")
+var TrueHash = common.HexToHash("0x1")
 
 type AllowanceResponse struct {
 	Allowance sdk.Int         `json:"allowance"`
@@ -46,6 +50,107 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
+			}
+			continue
+		}
+		// check if there is a ERC721 pointer to contract Addr
+		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(ctx, contractAddr)
+		if exists {
+			action, found := GetAttributeValue(wasmEvent, "action")
+			if !found {
+				continue
+			}
+			var topics []common.Hash
+			switch action {
+			case "transfer_nft", "send_nft", "burn":
+				topics = []common.Hash{
+					ERC721TransferTopic,
+					app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+					app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient"),
+				}
+				tokenID := GetTokenIDAttribute(wasmEvent)
+				if tokenID == nil {
+					continue
+				}
+				logs = append(logs, &ethtypes.Log{
+					Address: pointerAddr,
+					Index:   uint(len(logs)),
+					Topics:  topics,
+					Data:    common.BigToHash(tokenID).Bytes(),
+				})
+				continue
+			case "mint":
+				topics = []common.Hash{
+					ERC721TransferTopic,
+					EmptyHash,
+					app.GetEvmAddressAttribute(ctx, wasmEvent, "owner"),
+				}
+				tokenID := GetTokenIDAttribute(wasmEvent)
+				if tokenID == nil {
+					continue
+				}
+				logs = append(logs, &ethtypes.Log{
+					Address: pointerAddr,
+					Index:   uint(len(logs)),
+					Topics:  topics,
+					Data:    common.BigToHash(tokenID).Bytes(),
+				})
+			case "approve":
+				topics = []common.Hash{
+					ERC721ApprovalTopic,
+					app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+					app.GetEvmAddressAttribute(ctx, wasmEvent, "spender"),
+				}
+				tokenID := GetTokenIDAttribute(wasmEvent)
+				if tokenID == nil {
+					continue
+				}
+				logs = append(logs, &ethtypes.Log{
+					Address: pointerAddr,
+					Index:   uint(len(logs)),
+					Topics:  topics,
+					Data:    common.BigToHash(tokenID).Bytes(),
+				})
+			case "revoke":
+				topics = []common.Hash{
+					ERC721ApprovalTopic,
+					app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+					EmptyHash,
+				}
+				tokenID := GetTokenIDAttribute(wasmEvent)
+				if tokenID == nil {
+					continue
+				}
+				logs = append(logs, &ethtypes.Log{
+					Address: pointerAddr,
+					Index:   uint(len(logs)),
+					Topics:  topics,
+					Data:    common.BigToHash(tokenID).Bytes(),
+				})
+			case "approve_all":
+				topics = []common.Hash{
+					ERC721ApproveAllTopic,
+					app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+					app.GetEvmAddressAttribute(ctx, wasmEvent, "operator"),
+				}
+				logs = append(logs, &ethtypes.Log{
+					Address: pointerAddr,
+					Index:   uint(len(logs)),
+					Topics:  topics,
+					Data:    TrueHash.Bytes(),
+				})
+			case "revoke_all":
+				topics = []common.Hash{
+					ERC721ApproveAllTopic,
+					app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+					app.GetEvmAddressAttribute(ctx, wasmEvent, "operator"),
+				}
+				logs = append(logs, &ethtypes.Log{
+					Address: pointerAddr,
+					Index:   uint(len(logs)),
+					Topics:  topics,
+					Data:    EmptyHash.Bytes(),
+				})
 			}
 			continue
 		}
@@ -185,4 +290,16 @@ func GetAmountAttribute(event abci.Event) (*big.Int, bool) {
 		}
 	}
 	return nil, false
+}
+
+func GetTokenIDAttribute(event abci.Event) *big.Int {
+	tokenID, found := GetAttributeValue(event, "token_id")
+	if !found {
+		return nil
+	}
+	tokenIDInt, ok := sdk.NewIntFromString(tokenID)
+	if !ok {
+		return nil
+	}
+	return tokenIDInt.BigInt()
 }
