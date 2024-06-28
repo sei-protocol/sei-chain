@@ -165,6 +165,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 			})
 			serializedEnd := time.Since(serializedStart)
 			fmt.Println("IterateAll time: ", serializedEnd, " for prefix: ", prefix)
+			fmt.Println("length of genesis.Serialized: ", len(genesis.Serialized))
 			ch <- &genesis
 		}
 		close(ch)
