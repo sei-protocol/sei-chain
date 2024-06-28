@@ -104,11 +104,11 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		txHash = common.HexToHash(response.EvmTxInfo.TxHash)
 	}
 	var bloom ethtypes.Bloom
-	if r, err := app.EvmKeeper.GetReceipt(ctx, txHash); err == nil && r != nil {
+	if r, err := app.EvmKeeper.GetTransientReceipt(ctx, txHash); err == nil && r != nil {
 		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertEthLog)...)
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r)}})
 		r.LogsBloom = bloom[:]
-		app.EvmKeeper.SetTransientReceipt(ctx, txHash, r)
+		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, r)
 	} else {
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: logs}})
 		receipt := &evmtypes.Receipt{
@@ -126,7 +126,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			// use the first signer as the `from`
 			receipt.From = app.EvmKeeper.GetEVMAddressOrDefault(ctx, sigTx.GetSigners()[0]).Hex()
 		}
-		app.EvmKeeper.SetTransientReceipt(ctx, txHash, receipt)
+		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, receipt)
 	}
 	if d := app.EvmKeeper.GetEVMTxDeferredInfo(ctx); d != nil {
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, d.Surplus)
