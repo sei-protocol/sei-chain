@@ -145,7 +145,6 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 		nonceEnd := time.Since(nonceStart)
 		fmt.Println("IterateAllNonces time: ", nonceEnd)
 
-		serializedStart := time.Now()
 		for _, prefix := range [][]byte{
 			types.ReceiptKeyPrefix,
 			types.BlockBloomPrefix,
@@ -154,19 +153,20 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 			types.PointerCWCodePrefix,
 			types.PointerReverseRegistryPrefix,
 		} {
+			var genesis types.GenesisState
+			serializedStart := time.Now()
 			k.IterateAll(ctx, prefix, func(key, val []byte) bool {
-				var genesis types.GenesisState
 				genesis.Serialized = append(genesis.Serialized, &types.Serialized{
 					Prefix: prefix,
 					Key:    key,
 					Value:  val,
 				})
-				ch <- &genesis
 				return false
 			})
+			serializedEnd := time.Since(serializedStart)
+			fmt.Println("IterateAll time: ", serializedEnd, " for prefix: ", prefix)
+			ch <- &genesis
 		}
-		serializedEnd := time.Since(serializedStart)
-		fmt.Println("IterateAll time: ", serializedEnd)
 		close(ch)
 	}()
 	return ch
