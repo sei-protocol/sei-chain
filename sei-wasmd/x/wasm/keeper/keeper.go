@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/types/address"
 
 	wasmvm "github.com/CosmWasm/wasmvm"
@@ -90,18 +89,6 @@ type Keeper struct {
 	maxQueryStackSize uint32
 }
 
-type routerWithContext struct {
-	router *baseapp.MsgServiceRouter
-}
-
-func (rc routerWithContext) Handler(msg sdk.Msg) MsgHandler {
-	h := rc.router.Handler(msg)
-	return func(ctx sdk.Context, req sdk.Msg) (sdk.Context, *sdk.Result, error) {
-		result, err := h(ctx, msg)
-		return ctx, result, err
-	}
-}
-
 // NewKeeper creates a new contract Keeper instance
 // If customEncoders is non-nil, we can use this to override some of the message handler, especially custom
 func NewKeeper(
@@ -117,7 +104,7 @@ func NewKeeper(
 	portKeeper types.PortKeeper,
 	capabilityKeeper types.CapabilityKeeper,
 	portSource types.ICS20TransferPortSource,
-	router *baseapp.MsgServiceRouter,
+	router MessageRouter,
 	queryRouter GRPCQueryRouter,
 	homeDir string,
 	wasmConfig types.WasmConfig,
@@ -133,7 +120,6 @@ func NewKeeper(
 		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
 	}
 
-	routerWithCtx := routerWithContext{router}
 	keeper := &Keeper{
 		storeKey:          storeKey,
 		cdc:               cdc,
@@ -143,7 +129,7 @@ func NewKeeper(
 		bank:              NewBankCoinTransferrer(bankKeeper),
 		portKeeper:        portKeeper,
 		capabilityKeeper:  capabilityKeeper,
-		messenger:         NewDefaultMessageHandler(routerWithCtx, channelKeeper, capabilityKeeper, bankKeeper, cdc, portSource),
+		messenger:         NewDefaultMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, cdc, portSource),
 		queryGasLimit:     wasmConfig.SmartQueryGasLimit,
 		paramSpace:        paramSpace,
 		gasRegister:       NewDefaultWasmGasRegister(),
