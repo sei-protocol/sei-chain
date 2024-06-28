@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"sort"
 	"sync"
 
 	seidbproto "github.com/sei-protocol/sei-db/proto"
@@ -257,6 +258,7 @@ func NewInMemoryIterator(data map[string][]byte, start, end []byte) *InMemoryIte
 			keys = append(keys, k)
 		}
 	}
+	sort.Strings(keys)
 
 	return &InMemoryIterator{
 		data:    data,
