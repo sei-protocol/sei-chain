@@ -15,7 +15,6 @@ import {IAddr} from "./precompiles/IAddr.sol";
 
 contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
 
-
     address constant WASMD_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001002;
     address constant JSON_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001003;
     address constant ADDR_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001004;
@@ -24,15 +23,19 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
     IWasmd public WasmdPrecompile;
     IJson public JsonPrecompile;
     IAddr public AddrPrecompile;
+    string public name;
+    string public symbol;
 
     error NotImplementedOnCosmwasmContract(string method);
     error NotImplemented(string method);
 
-    constructor(string memory Cw1155Address_, string memory uri_) ERC1155(uri_) {
+    constructor(string memory Cw1155Address_, string memory name_, string memory symbol_) ERC1155("") {
+        Cw1155Address = Cw1155Address_;
         WasmdPrecompile = IWasmd(WASMD_PRECOMPILE_ADDRESS);
         JsonPrecompile = IJson(JSON_PRECOMPILE_ADDRESS);
         AddrPrecompile = IAddr(ADDR_PRECOMPILE_ADDRESS);
-        Cw1155Address = Cw1155Address_;
+        name = name_;
+        symbol = symbol_;
     }
 
     function supportsInterface(bytes4 interfaceId) public pure override(ERC2981, ERC1155) returns (bool) {
@@ -76,6 +79,25 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         string memory req = _curlyBrace(_formatPayload("is_approved_for_all",(_curlyBrace(_join(own,",",op)))));
         bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(req));
         return JsonPrecompile.extractAsUint256(response, "approved") == 1;
+    }
+
+    // ERC1155Supply
+    function totalSupply() public view virtual returns (uint256) {
+        bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes("{\"num_tokens\":{}}"));
+        return JsonPrecompile.extractAsUint256(response, "count");
+    }
+
+    function totalSupply(uint256 id) public view virtual returns (uint256) {
+        string memory query = string.concat(
+            string.concat("{\"num_tokens\":{\"token_id\":\"", Strings.toString(id)),
+            "\"}}"
+        );
+        bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(query));
+        return JsonPrecompile.extractAsUint256(response, "count");
+    }
+
+    function exists(uint256 id) public view virtual returns (bool) {
+        return totalSupply(id) > 0;
     }
 
     // 2981
