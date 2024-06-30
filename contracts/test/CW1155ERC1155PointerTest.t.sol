@@ -90,7 +90,7 @@ contract CW1155ERC1155PointerTest is Test {
     MockAddr mockAddr;
 
     function setUp() public {
-        pointer = new CW1155ERC1155Pointer(MockCWContractAddress, "ipfs://uri.json");
+        pointer = new CW1155ERC1155Pointer(MockCWContractAddress, "Test", "TEST");
         mockWasmd = new MockWasmd();
         mockJson = new MockJson();
         mockAddr = new MockAddr();
