@@ -1,6 +1,6 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Uint128, StdError};
+use cosmwasm_std::{DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Uint128, StdError, Addr};
 use cw721::{Approval, OperatorResponse, ContractInfoResponse, NftInfoResponse, AllNftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
 use cw2981_royalties::msg::{RoyaltiesInfoResponse, CheckRoyaltiesResponse};
 use cw2981_royalties::{Metadata as Cw2981Metadata, Extension as Cw2981Extension};
@@ -9,8 +9,9 @@ use crate::querier::{EvmQuerier};
 use crate::error::ContractError;
 use crate::state::ERC1155_ADDRESS;
 use std::str::FromStr;
-use cw1155::{ApproveAllEvent, BalanceResponse, Cw1155BatchReceiveMsg, Cw1155ReceiveMsg, OwnerToken, RevokeAllEvent, TokenAmount, TransferEvent};
+use cw1155::{ApproveAllEvent, Balance, BalanceResponse, Cw1155BatchReceiveMsg, Cw1155ReceiveMsg, OwnerToken, RevokeAllEvent, TokenAmount, TransferEvent};
 use cw1155_royalties::Cw1155RoyaltiesExecuteMsg;
+use itertools::izip;
 
 const ERC2981_ID: &str = "0x2a55205a";
 
@@ -246,11 +247,17 @@ pub fn query_balance_of(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, to
     Ok(BalanceResponse{ balance })
 }
 
-pub fn query_balance_of_batch(deps: Deps<EvmQueryWrapper>, env: Env, batch: Vec<OwnerToken>) -> StdResult<BalanceResponse> {
+pub fn query_balance_of_batch(deps: Deps<EvmQueryWrapper>, env: Env, batch: Vec<OwnerToken>) -> StdResult<Vec<Balance>> {
     let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let balance = Uint128::from_str(&querier.erc1155_balance_of_batch(env.clone().contract.address.into_string(), erc_addr, batch)?.amount)?;
-    Ok(BalanceResponse{ balance })
+    let res = querier.erc1155_balance_of_batch(env.clone().contract.address.into_string(), erc_addr, batch)?;
+    let balances = izip!(&res.accounts, &res.token_ids, &res.amounts)
+        .map(|(account, token_id, amount)| Ok(Balance{
+            token_id: token_id.to_string(),
+            owner: Addr::unchecked(account),
+            amount: Uint128::from_str(amount)?,
+        })).collect::<StdResult<Vec<_>>>()?;
+    Ok(balances)
 }
 
 pub fn query_token_approvals() -> Result<Response<EvmMsg>, ContractError> {

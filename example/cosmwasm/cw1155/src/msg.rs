@@ -116,6 +116,13 @@ pub struct Erc1155BalanceOfResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Erc1155BalanceOfBatchResponse {
+    pub accounts: Vec<String>,
+    pub token_ids: Vec<String>,
+    pub amounts: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc1155IsApprovedForAllResponse {
     pub is_approved: bool,
 }
