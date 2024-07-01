@@ -94,8 +94,6 @@ func getMethodPayload(newAbi abi.ABI, args []string) ([]byte, error) {
 			arg = args[idx]
 		case abi.AddressTy:
 			arg = common.HexToAddress(args[idx])
-		case abi.BytesTy:
-			arg = []byte(args[idx])
 		default:
 			return nil, errors.New("argument type not supported yet")
 		}

@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
 const (
@@ -23,17 +22,13 @@ const (
 
 const PointerViewAddress = "0x000000000000000000000000000000000000100A"
 
-var _ vm.PrecompiledContract = &Precompile{}
-
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
 //go:embed abi.json
 var f embed.FS
 
-type Precompile struct {
-	pcommon.Precompile
+type PrecompileExecutor struct {
 	evmKeeper pcommon.EVMKeeper
-	address   common.Address
 
 	GetNativePointerID []byte
 	GetCW20PointerID   []byte
@@ -41,7 +36,7 @@ type Precompile struct {
 	GetCW1155PointerID  []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
 		return nil, fmt.Errorf("error loading the pointer ABI %s", err)
@@ -52,10 +47,8 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
 		return nil, err
 	}
 
-	p := &Precompile{
-		Precompile: pcommon.Precompile{ABI: newAbi},
-		evmKeeper:  evmKeeper,
-		address:    common.HexToAddress(PointerViewAddress),
+	p := &PrecompileExecutor{
+		evmKeeper: evmKeeper,
 	}
 
 	for name, m := range newAbi.Methods {
@@ -71,33 +64,15 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
 		}
 	}
 
-	return p, nil
+	return pcommon.NewPrecompile(newAbi, p, common.HexToAddress(PointerViewAddress), "pointerview"), nil
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p Precompile) RequiredGas(input []byte) uint64 {
+func (p PrecompileExecutor) RequiredGas([]byte, *abi.Method) uint64 {
 	return 2000
 }
 
-func (p Precompile) Address() common.Address {
-	return p.address
-}
-
-func (p Precompile) GetName() string {
-	return "pointerview"
-}
-
-func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input []byte, _ *big.Int, _ bool) (ret []byte, err error) {
-	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
-	}()
-	ctx, method, args, err := p.Prepare(evm, input)
-	if err != nil {
-		return nil, err
-	}
-
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, err error) {
 	switch method.Name {
 	case GetNativePointer:
 		return p.GetNative(ctx, method, args)
@@ -113,7 +88,7 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input [
 	return
 }
 
-func (p Precompile) GetNative(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
+func (p PrecompileExecutor) GetNative(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
@@ -122,7 +97,7 @@ func (p Precompile) GetNative(ctx sdk.Context, method *abi.Method, args []interf
 	return method.Outputs.Pack(existingAddr, existingVersion, exists)
 }
 
-func (p Precompile) GetCW20(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
+func (p PrecompileExecutor) GetCW20(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
@@ -131,7 +106,7 @@ func (p Precompile) GetCW20(ctx sdk.Context, method *abi.Method, args []interfac
 	return method.Outputs.Pack(existingAddr, existingVersion, exists)
 }
 
-func (p Precompile) GetCW721(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
+func (p PrecompileExecutor) GetCW721(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
@@ -140,7 +115,7 @@ func (p Precompile) GetCW721(ctx sdk.Context, method *abi.Method, args []interfa
 	return method.Outputs.Pack(existingAddr, existingVersion, exists)
 }
 
-func (p Precompile) GetCW1155(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
+func (p PrecompileExecutor) GetCW1155(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
