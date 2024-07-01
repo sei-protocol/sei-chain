@@ -1,31 +1,32 @@
-const {setupSigners, deployErc721PointerForCw721, getAdmin, deployWasm,  executeWasm, ABI, WASM,
-    registerPointerForERC721
+const {setupSigners, deployErc1155PointerForCw1155, getAdmin, deployWasm,  executeWasm, ABI, WASM,
+    registerPointerForERC1155
 } = require("./lib");
 const {expect} = require("chai");
 
-describe("ERC721 to CW721 Pointer", function () {
+describe("ERC1155 to CW1155 Pointer", function () {
     let accounts;
     let pointerAcc0;
     let pointerAcc1;
-    let cw721Address;
+    let cw1155Address;
     let admin;
 
     before(async function () {
         accounts = await setupSigners(await hre.ethers.getSigners())
         admin = await getAdmin()
 
-        cw721Address = await deployWasm(WASM.CW721, admin.seiAddress, "cw721", {
+        cw1155Address = await deployWasm(WASM.CW1155, admin.seiAddress, "cw1155", {
             name: "Test",
             symbol: "TEST",
             minter: admin.seiAddress
         })
 
-        await executeWasm(cw721Address,  { mint : { token_id : "1", owner : admin.seiAddress, token_uri: "token uri 1"}});
-        await executeWasm(cw721Address,  { mint : { token_id : "2", owner : accounts[0].seiAddress, token_uri: "token uri 2"}});
-        await executeWasm(cw721Address,  { mint : { token_id : "3", owner : accounts[1].seiAddress, token_uri: "token uri 3"}});
+        await executeWasm(cw1155Address, {mint: {recipient: admin.seiAddress, msg: {token_id: "1", amount: 10, token_uri: "uri1"}}});
+        await executeWasm(cw1155Address, {mint: {recipient: accounts[0].seiAddress, msg: {token_id: "1", amount: 11}}});
+        await executeWasm(cw1155Address, {mint: {recipient: accounts[1].seiAddress, msg: {token_id: "2", amount: 12, token_uri: "uri2"}}});
+        await executeWasm(cw1155Address, {mint: {recipient: admin.seiAddress, msg: {token_id: "2", amount: 13}}});
 
-        const pointerAddr = await deployErc721PointerForCw721(hre.ethers.provider, cw721Address)
-        const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC721, hre.ethers.provider);
+        const pointerAddr = await deployErc1155PointerForCw1155(hre.ethers.provider, cw1155Address)
+        const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC1155, hre.ethers.provider);
         pointerAcc0 = contract.connect(accounts[0].signer)
         pointerAcc1 = contract.connect(accounts[1].signer) 
     })
@@ -33,7 +34,7 @@ describe("ERC721 to CW721 Pointer", function () {
     describe("validation", function(){
         it("should not allow a pointer to the pointer", async function(){
             try {
-                await registerPointerForERC721(await pointerAcc0.getAddress())
+                await registerPointerForERC1155(await pointerAcc0.getAddress())
                 expect.fail(`Expected to be prevented from creating a pointer`);
             } catch(e){
                 expect(e.message).to.include("contract deployment failed");
@@ -58,13 +59,13 @@ describe("ERC721 to CW721 Pointer", function () {
         });
 
         it("token uri", async function () {
-            const uri = await pointerAcc0.tokenURI(1);
-            expect(uri).to.equal("token uri 1");
+            const uri = await pointerAcc0.uri(1);
+            expect(uri).to.equal("uri1");
         });
 
         it("balance of", async function () {
             const balance = await pointerAcc0.balanceOf(admin.evmAddress);
-            expect(balance).to.equal(1);
+            expect(balance).to.equal(23);
         });
 
         it("get approved", async function () {

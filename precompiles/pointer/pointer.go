@@ -27,7 +27,7 @@ const (
 	AddNativePointer = "addNativePointer"
 	AddCW20Pointer   = "addCW20Pointer"
 	AddCW721Pointer  = "addCW721Pointer"
-	AddCW1155Pointer  = "addCW1155Pointer"
+	AddCW1155Pointer = "addCW1155Pointer"
 )
 
 const PointerAddress = "0x000000000000000000000000000000000000100b"
