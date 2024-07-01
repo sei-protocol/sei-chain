@@ -41,7 +41,7 @@ func TestInternalCallCreateContract(t *testing.T) {
 	ctx = ctx.WithIsEVM(false)
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
-	receipt, err := k.GetReceipt(ctx, [32]byte{1, 2, 3})
+	receipt, err := k.GetTransientReceipt(ctx, [32]byte{1, 2, 3})
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
 }

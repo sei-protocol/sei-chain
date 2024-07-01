@@ -246,27 +246,22 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 // Gets the EVM tx index based on the tx index (typically from receipt.TransactionIndex
 // Essentially loops through and calculates the index if we ignore cosmos txs
 func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, receiptChecker func(common.Hash) bool) (index int, found bool) {
-	evmTxIndex := 0
-	foundTx := false
+	var evmTxIndex int
 	for i, tx := range txs {
 		etx := getEthTxForTxBz(tx, decoder)
-		if etx == nil { // cosmos tx, check if it has a receipt
-			if !receiptChecker(sha256.Sum256(tx)) {
-				continue
-			}
+		// does not exist and has no receipt (cosmos)
+		if etx == nil && !receiptChecker(sha256.Sum256(tx)) {
+			continue
 		}
+
+		// found the index
 		if i == int(txIndex) {
-			foundTx = true
-			break
+			return evmTxIndex, true
 		}
+
 		evmTxIndex++
 	}
-	if !foundTx {
-		return -1, false
-	} else {
-		return evmTxIndex, true
-
-	}
+	return -1, false
 }
 
 func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock, receiptChecker func(common.Hash) bool) (map[string]interface{}, error) {
