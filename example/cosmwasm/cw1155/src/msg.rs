@@ -116,11 +116,6 @@ pub struct Erc1155BalanceOfResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct Erc1155ApprovedResponse {
-    pub approved: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc1155IsApprovedForAllResponse {
     pub is_approved: bool,
 }
