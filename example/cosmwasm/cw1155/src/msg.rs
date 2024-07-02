@@ -117,9 +117,7 @@ pub struct Erc1155BalanceOfResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc1155BalanceOfBatchResponse {
-    pub accounts: Vec<String>,
-    pub token_ids: Vec<String>,
-    pub amounts: Vec<String>,
+    pub amounts: Vec<Uint128>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

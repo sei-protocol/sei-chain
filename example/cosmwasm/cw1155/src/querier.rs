@@ -25,7 +25,7 @@ impl<'a> EvmQuerier<'a> {
         self.querier.query(&request)
     }
 
-    pub fn erc1155_balance_of_batch(&self, caller: String, contract_address: String, batch: Vec<OwnerToken>) -> StdResult<Erc1155BalanceOfBatchResponse> {
+    pub fn erc1155_balance_of_batch(&self, caller: String, contract_address: String, batch: &Vec<OwnerToken>) -> StdResult<Erc1155BalanceOfBatchResponse> {
         let (accounts, token_ids): (Vec<_>, Vec<_>) = batch.iter().map(|ot| (ot.owner.to_string(), ot.token_id.to_string())).unzip();
 
         let request = EvmQueryWrapper {
