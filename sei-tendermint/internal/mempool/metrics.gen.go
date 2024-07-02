@@ -26,13 +26,17 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "pending_size",
 			Help:      "Number of pending transactions in mempool",
 		}, labels).With(labelsAndValues...),
-		TxSizeBytes: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
+		TxSizeBytes: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "tx_size_bytes",
-			Help:      "Histogram of transaction sizes in bytes.",
-
-			Buckets: stdprometheus.ExponentialBuckets(1, 3, 7),
+			Help:      "Accumulated transaction sizes in bytes.",
+		}, labels).With(labelsAndValues...),
+		TotalTxsSizeBytes: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "total_txs_size_bytes",
+			Help:      "Total current mempool uncommitted txs bytes",
 		}, labels).With(labelsAndValues...),
 		FailedTxs: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
 			Namespace: namespace,
@@ -81,15 +85,16 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 
 func NopMetrics() *Metrics {
 	return &Metrics{
-		Size:         discard.NewGauge(),
-		PendingSize:  discard.NewGauge(),
-		TxSizeBytes:  discard.NewHistogram(),
-		FailedTxs:    discard.NewCounter(),
-		RejectedTxs:  discard.NewCounter(),
-		EvictedTxs:   discard.NewCounter(),
-		ExpiredTxs:   discard.NewCounter(),
-		RecheckTimes: discard.NewCounter(),
-		RemovedTxs:   discard.NewCounter(),
-		InsertedTxs:  discard.NewCounter(),
+		Size:              discard.NewGauge(),
+		PendingSize:       discard.NewGauge(),
+		TxSizeBytes:       discard.NewCounter(),
+		TotalTxsSizeBytes: discard.NewGauge(),
+		FailedTxs:         discard.NewCounter(),
+		RejectedTxs:       discard.NewCounter(),
+		EvictedTxs:        discard.NewCounter(),
+		ExpiredTxs:        discard.NewCounter(),
+		RecheckTimes:      discard.NewCounter(),
+		RemovedTxs:        discard.NewCounter(),
+		InsertedTxs:       discard.NewCounter(),
 	}
 }

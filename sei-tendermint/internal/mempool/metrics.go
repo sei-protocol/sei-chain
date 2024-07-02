@@ -21,8 +21,11 @@ type Metrics struct {
 	// Number of pending transactions in mempool
 	PendingSize metrics.Gauge
 
-	// Histogram of transaction sizes in bytes.
-	TxSizeBytes metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"1,3,7"`
+	// Accumulated transaction sizes in bytes.
+	TxSizeBytes metrics.Counter
+
+	// Total current mempool uncommitted txs bytes
+	TotalTxsSizeBytes metrics.Gauge
 
 	// Number of failed transactions.
 	FailedTxs metrics.Counter
