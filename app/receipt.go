@@ -56,101 +56,10 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		// check if there is a ERC721 pointer to contract Addr
 		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(ctx, contractAddr)
 		if exists {
-			action, found := GetAttributeValue(wasmEvent, "action")
-			if !found {
-				continue
-			}
-			var topics []common.Hash
-			switch action {
-			case "transfer_nft", "send_nft", "burn":
-				topics = []common.Hash{
-					ERC721TransferTopic,
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient"),
-				}
-				tokenID := GetTokenIDAttribute(wasmEvent)
-				if tokenID == nil {
-					continue
-				}
-				logs = append(logs, &ethtypes.Log{
-					Address: pointerAddr,
-					Index:   uint(len(logs)),
-					Topics:  topics,
-					Data:    common.BigToHash(tokenID).Bytes(),
-				})
-				continue
-			case "mint":
-				topics = []common.Hash{
-					ERC721TransferTopic,
-					EmptyHash,
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "owner"),
-				}
-				tokenID := GetTokenIDAttribute(wasmEvent)
-				if tokenID == nil {
-					continue
-				}
-				logs = append(logs, &ethtypes.Log{
-					Address: pointerAddr,
-					Index:   uint(len(logs)),
-					Topics:  topics,
-					Data:    common.BigToHash(tokenID).Bytes(),
-				})
-			case "approve":
-				topics = []common.Hash{
-					ERC721ApprovalTopic,
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "spender"),
-				}
-				tokenID := GetTokenIDAttribute(wasmEvent)
-				if tokenID == nil {
-					continue
-				}
-				logs = append(logs, &ethtypes.Log{
-					Address: pointerAddr,
-					Index:   uint(len(logs)),
-					Topics:  topics,
-					Data:    common.BigToHash(tokenID).Bytes(),
-				})
-			case "revoke":
-				topics = []common.Hash{
-					ERC721ApprovalTopic,
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
-					EmptyHash,
-				}
-				tokenID := GetTokenIDAttribute(wasmEvent)
-				if tokenID == nil {
-					continue
-				}
-				logs = append(logs, &ethtypes.Log{
-					Address: pointerAddr,
-					Index:   uint(len(logs)),
-					Topics:  topics,
-					Data:    common.BigToHash(tokenID).Bytes(),
-				})
-			case "approve_all":
-				topics = []common.Hash{
-					ERC721ApproveAllTopic,
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "operator"),
-				}
-				logs = append(logs, &ethtypes.Log{
-					Address: pointerAddr,
-					Index:   uint(len(logs)),
-					Topics:  topics,
-					Data:    TrueHash.Bytes(),
-				})
-			case "revoke_all":
-				topics = []common.Hash{
-					ERC721ApproveAllTopic,
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "operator"),
-				}
-				logs = append(logs, &ethtypes.Log{
-					Address: pointerAddr,
-					Index:   uint(len(logs)),
-					Topics:  topics,
-					Data:    EmptyHash.Bytes(),
-				})
+			log, eligible := app.translateCW721Event(ctx, wasmEvent, pointerAddr, contractAddr)
+			if eligible {
+				log.Index = uint(len(logs))
+				logs = append(logs, log)
 			}
 			continue
 		}
@@ -164,7 +73,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	}
 	var bloom ethtypes.Bloom
 	if r, err := app.EvmKeeper.GetTransientReceipt(ctx, txHash); err == nil && r != nil {
-		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertEthLog)...)
+		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)...)
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r)}})
 		r.LogsBloom = bloom[:]
 		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, r)
@@ -176,7 +85,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			GasUsed:          ctx.GasMeter().GasConsumed(),
 			BlockNumber:      uint64(ctx.BlockHeight()),
 			TransactionIndex: uint32(ctx.TxIndex()),
-			Logs:             utils.Map(logs, evmkeeper.ConvertEthLog),
+			Logs:             utils.Map(logs, evmkeeper.ConvertSyntheticEthLog),
 			LogsBloom:        bloom[:],
 			Status:           uint32(ethtypes.ReceiptStatusSuccessful), // we don't create shell receipt for failed Cosmos tx since there is no event anyway
 		}
@@ -246,6 +155,99 @@ func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointe
 			Address: pointerAddr,
 			Topics:  topics,
 			Data:    common.BigToHash(allowanceResponse.Allowance.BigInt()).Bytes(),
+		}, true
+	}
+	return nil, false
+}
+
+func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string) (*ethtypes.Log, bool) {
+	action, found := GetAttributeValue(wasmEvent, "action")
+	if !found {
+		return nil, false
+	}
+	var topics []common.Hash
+	switch action {
+	case "transfer_nft", "send_nft", "burn":
+		topics = []common.Hash{
+			ERC721TransferTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient"),
+		}
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    common.BigToHash(tokenID).Bytes(),
+		}, true
+	case "mint":
+		topics = []common.Hash{
+			ERC721TransferTopic,
+			EmptyHash,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "owner"),
+		}
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    common.BigToHash(tokenID).Bytes(),
+		}, true
+	case "approve":
+		topics = []common.Hash{
+			ERC721ApprovalTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "spender"),
+		}
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    common.BigToHash(tokenID).Bytes(),
+		}, true
+	case "revoke":
+		topics = []common.Hash{
+			ERC721ApprovalTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			EmptyHash,
+		}
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    common.BigToHash(tokenID).Bytes(),
+		}, true
+	case "approve_all":
+		topics = []common.Hash{
+			ERC721ApproveAllTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "operator"),
+		}
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    TrueHash.Bytes(),
+		}, true
+	case "revoke_all":
+		topics = []common.Hash{
+			ERC721ApproveAllTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "operator"),
+		}
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    EmptyHash.Bytes(),
 		}, true
 	}
 	return nil, false

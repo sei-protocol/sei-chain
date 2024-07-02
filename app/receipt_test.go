@@ -185,7 +185,8 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	require.NotNil(t, testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx))
+	_, found := testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
 
 	// calling from wasmd precompile
 	abi, err := wasmd.GetABI()
@@ -228,7 +229,8 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	require.NotNil(t, testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx))
+	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
 
 	// test approval message
 	payload = []byte(fmt.Sprintf("{\"approve\":{\"spender\":\"%s\",\"token_id\":\"2\"}}", recipient.String()))
@@ -252,7 +254,8 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	require.NotNil(t, testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx))
+	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
 	require.Equal(t, common.HexToHash("0x2").Bytes(), receipt.Logs[0].Data)
 
 	// revoke
@@ -277,7 +280,8 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	require.NotNil(t, testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx))
+	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
 	require.Equal(t, common.HexToHash("0x2").Bytes(), receipt.Logs[0].Data)
 
 	// approve all
@@ -302,7 +306,8 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	require.NotNil(t, testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx))
+	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
 	require.Equal(t, common.HexToHash("0x1").Bytes(), receipt.Logs[0].Data)
 
 	// revoke all
@@ -327,7 +332,8 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	require.NotNil(t, testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx))
+	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
 	require.Equal(t, common.HexToHash("0x0").Bytes(), receipt.Logs[0].Data)
 
 	// burn
@@ -352,7 +358,8 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	require.NotNil(t, testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx))
+	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
 	require.Equal(t, common.HexToHash("0x2").Bytes(), receipt.Logs[0].Data)
 }
 
