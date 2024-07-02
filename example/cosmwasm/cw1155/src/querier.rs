@@ -1,7 +1,7 @@
 use cosmwasm_std::{QuerierWrapper, StdResult, Uint128};
 use cw1155::OwnerToken;
 
-use crate::msg::{Route, EvmQuery, EvmQueryWrapper, ErcPayloadResponse, Erc1155BalanceOfResponse, Erc1155ApprovedResponse, Erc1155IsApprovedForAllResponse, Erc1155NameSymbolResponse, Erc1155UriResponse, Erc1155RoyaltyInfoResponse, SupportsInterfaceResponse, Erc1155TotalSupplyResponse};
+use crate::msg::{Route, EvmQuery, EvmQueryWrapper, ErcPayloadResponse, Erc1155BalanceOfResponse, Erc1155IsApprovedForAllResponse, Erc1155NameSymbolResponse, Erc1155UriResponse, Erc1155RoyaltyInfoResponse, SupportsInterfaceResponse, Erc1155TotalSupplyResponse, Erc1155BalanceOfBatchResponse};
 
 pub const DEFAULT_LIMIT: u32 = 10;
 pub const MAX_LIMIT: u32 = 30;
@@ -25,31 +25,21 @@ impl<'a> EvmQuerier<'a> {
         self.querier.query(&request)
     }
 
-    pub fn erc1155_balance_of_batch(&self, caller: String, contract_address: String, batch: Vec<OwnerToken>) -> StdResult<Erc1155BalanceOfResponse> {
+    pub fn erc1155_balance_of_batch(&self, caller: String, contract_address: String, batch: &Vec<OwnerToken>) -> StdResult<Erc1155BalanceOfBatchResponse> {
+        let (accounts, token_ids): (Vec<_>, Vec<_>) = batch.iter().map(|ot| (ot.owner.to_string(), ot.token_id.to_string())).unzip();
+
         let request = EvmQueryWrapper {
             route: Route::Evm,
             query_data: EvmQuery::Erc1155BalanceOfBatch {
                 caller,
                 contract_address,
-                accounts: batch.iter().map(|ot| ot.owner.to_string()).collect(),
-                token_ids: batch.iter().map(|ot| ot.token_id.to_string()).collect()
+                accounts,
+                token_ids
             },
         }
             .into();
 
         self.querier.query(&request)
-    }
-
-    pub fn erc1155_approved(&self, caller: String, contract_address: String, token_id: String) -> StdResult<Erc1155ApprovedResponse> {
-        // todo - is this implemented in erc1155?
-        todo!()
-        // let request = EvmQueryWrapper {
-        //     route: Route::Evm,
-        //     query_data: EvmQuery::Erc1155Approved { caller, contract_address, token_id },
-        // }
-        // .into();
-        //
-        // self.querier.query(&request)
     }
 
     pub fn erc1155_is_approved_for_all(&self, caller: String, contract_address: String, owner: String, operator: String) -> StdResult<Erc1155IsApprovedForAllResponse> {
@@ -106,21 +96,6 @@ impl<'a> EvmQuerier<'a> {
             .into();
 
         self.querier.query(&request)
-    }
-
-    // returns base64-encoded bytes
-    pub fn erc1155_approve_payload(&self, spender: String, token_id: String) -> StdResult<ErcPayloadResponse> {
-        // todo - is this implemented in erc1155?
-        todo!()
-        // let request = EvmQueryWrapper {
-        //     route: Route::Evm,
-        //     query_data: EvmQuery::Erc1155ApprovePayload {
-        //         spender, token_id,
-        //     },
-        // }
-        // .into();
-        //
-        // self.querier.query(&request)
     }
 
     // returns base64-encoded bytes

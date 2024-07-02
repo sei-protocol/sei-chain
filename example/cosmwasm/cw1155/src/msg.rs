@@ -116,8 +116,8 @@ pub struct Erc1155BalanceOfResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct Erc1155ApprovedResponse {
-    pub approved: String,
+pub struct Erc1155BalanceOfBatchResponse {
+    pub amounts: Vec<Uint128>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
