@@ -93,11 +93,26 @@ describe("ERC20 to CW20 Pointer", function () {
                     expect(await pointer.balanceOf(sender.evmAddress)).to.equal(balances.account0);
                     expect(await pointer.balanceOf(recipient.evmAddress)).to.equal(balances.account1);
 
+                    const blockNumber = await ethers.provider.getBlockNumber();
                     const tx = await pointer.transfer(recipient.evmAddress, 1);
                     await tx.wait();
 
                     expect(await pointer.balanceOf(sender.evmAddress)).to.equal(balances.account0-1);
                     expect(await pointer.balanceOf(recipient.evmAddress)).to.equal(balances.account1+1);
+
+                    // check logs
+                    const filter = {
+                        fromBlock: blockNumber,
+                        toBlock: 'latest',
+                        address: await pointer.getAddress(),
+                        topics: [ethers.id("Transfer(address,address,uint256)")]
+                    };
+                    const logs = await ethers.provider.getLogs(filter);
+                    expect(logs.length).to.equal(1);
+                    expect(logs[0]["address"]).to.equal(await pointer.getAddress());
+                    expect(logs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
+                    expect(logs[0]["topics"][1].substring(26)).to.equal(sender.evmAddress.substring(2).toLowerCase());
+                    expect(logs[0]["topics"][2].substring(26)).to.equal(recipient.evmAddress.substring(2).toLowerCase());
 
                     const cleanupTx = await pointer.connect(recipient.signer).transfer(sender.evmAddress, 1);
                     await cleanupTx.wait();
@@ -124,10 +139,25 @@ describe("ERC20 to CW20 Pointer", function () {
                 it("should approve", async function () {
                     const owner = accounts[0].evmAddress;
                     const spender = accounts[1].evmAddress;
+                    const blockNumber = await ethers.provider.getBlockNumber();
                     const tx = await pointer.approve(spender, 1000000);
                     await tx.wait();
                     const allowance = await pointer.allowance(owner, spender);
                     expect(Number(allowance)).to.equal(1000000);
+
+                    // check logs
+                    const filter = {
+                        fromBlock: blockNumber,
+                        toBlock: 'latest',
+                        address: await pointer.getAddress(),
+                        topics: [ethers.id("Approval(address,address,uint256)")]
+                    };
+                    const logs = await ethers.provider.getLogs(filter);
+                    expect(logs.length).to.equal(1);
+                    expect(logs[0]["address"]).to.equal(await pointer.getAddress());
+                    expect(logs[0]["topics"][0]).to.equal(ethers.id("Approval(address,address,uint256)"));
+                    expect(logs[0]["topics"][1].substring(26)).to.equal(owner.substring(2).toLowerCase());
+                    expect(logs[0]["topics"][2].substring(26)).to.equal(spender.substring(2).toLowerCase());
                 });
 
                 it("should lower approval", async function () {

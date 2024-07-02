@@ -14,5 +14,5 @@ func GetMemState(ctx context.Context) *dexcache.MemState {
 	if val := ctx.Value(DexMemStateContextKey); val != nil {
 		return val.(*dexcache.MemState)
 	}
-	panic("cannot find mem state in context")
+	return nil
 }

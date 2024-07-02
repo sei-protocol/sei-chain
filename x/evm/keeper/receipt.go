@@ -23,6 +23,19 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 	return nil
 }
 
+func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
+	store := ctx.TransientStore(k.transientStoreKey)
+	bz := store.Get(types.ReceiptKey(txHash))
+	if bz == nil {
+		return nil, errors.New("not found")
+	}
+	r := &types.Receipt{}
+	if err := r.Unmarshal(bz); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
 // GetReceipt returns a data structure that stores EVM specific transaction metadata.
 // Many EVM applications (e.g. MetaMask) relies on being on able to query receipt
 // by EVM transaction hash (not Sei transaction hash) to function properly.
