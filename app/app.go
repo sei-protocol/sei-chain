@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1885,7 +1886,13 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		if isGasless {
 			continue
 		}
-		totalGasWanted += feeTx.GetGas()
+		// Check for overflow before adding
+		gasWanted := feeTx.GetGas()
+		if int64(gasWanted) < 0 || int64(totalGasWanted) > math.MaxInt64-int64(gasWanted) {
+			return false
+		}
+
+		totalGasWanted += gasWanted
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
 			// early return
 			return false
