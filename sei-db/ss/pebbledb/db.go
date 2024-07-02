@@ -496,18 +496,76 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
 func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
+	// Re route to RawImport
+	rawCh := make(chan types.RawSnapshotNode, db.config.ImportNumWorkers)
+	go func() {
+		defer close(rawCh)
+		for entry := range ch {
+			rawCh <- types.GetRawSnapshotNode(entry, version)
+		}
+	}()
+
+	return db.RawImport(rawCh)
+
+	// var wg sync.WaitGroup
+
+	// worker := func() {
+	// 	defer wg.Done()
+	// 	batch, err := NewBatch(db.storage, version)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+
+	// 	var counter int
+	// 	for entry := range ch {
+	// 		err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
+	// 		if err != nil {
+	// 			panic(err)
+	// 		}
+
+	// 		counter++
+	// 		if counter%ImportCommitBatchSize == 0 {
+	// 			if err := batch.Write(); err != nil {
+	// 				panic(err)
+	// 			}
+
+	// 			batch, err = NewBatch(db.storage, version)
+	// 			if err != nil {
+	// 				panic(err)
+	// 			}
+	// 		}
+	// 	}
+
+	// 	if batch.Size() > 0 {
+	// 		if err := batch.Write(); err != nil {
+	// 			panic(err)
+	// 		}
+	// 	}
+	// }
+
+	// wg.Add(db.config.ImportNumWorkers)
+	// for i := 0; i < db.config.ImportNumWorkers; i++ {
+	// 	go worker()
+	// }
+
+	// wg.Wait()
+
+	// return nil
+}
+
+func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 	var wg sync.WaitGroup
 
 	worker := func() {
 		defer wg.Done()
-		batch, err := NewBatch(db.storage, version)
+		batch, err := NewRawBatch(db.storage)
 		if err != nil {
 			panic(err)
 		}
 
 		var counter int
 		for entry := range ch {
-			err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
+			err := batch.Set(entry.StoreKey, entry.Key, entry.Value, entry.Version)
 			if err != nil {
 				panic(err)
 			}
@@ -518,7 +576,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
 					panic(err)
 				}
 
-				batch, err = NewBatch(db.storage, version)
+				batch, err = NewRawBatch(db.storage)
 				if err != nil {
 					panic(err)
 				}

@@ -30,6 +30,9 @@ type StateStore interface {
 	// Import the initial state of the store
 	Import(version int64, ch <-chan SnapshotNode) error
 
+	// Import the kv entries into the store in any order of version
+	RawImport(ch <-chan RawSnapshotNode) error
+
 	// Prune attempts to prune all versions up to and including the provided
 	// version argument. The operation should be idempotent. An error should be
 	// returned upon failure.
@@ -72,4 +75,20 @@ type SnapshotNode struct {
 	StoreKey string
 	Key      []byte
 	Value    []byte
+}
+
+type RawSnapshotNode struct {
+	StoreKey string
+	Key      []byte
+	Value    []byte
+	Version  int64
+}
+
+func GetRawSnapshotNode(node SnapshotNode, version int64) RawSnapshotNode {
+	return RawSnapshotNode{
+		StoreKey: node.StoreKey,
+		Key:      node.Key,
+		Value:    node.Value,
+		Version:  version,
+	}
 }
