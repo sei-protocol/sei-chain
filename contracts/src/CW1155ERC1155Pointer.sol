@@ -148,25 +148,35 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         require(to != address(0), "ERC1155: transfer to the zero address");
         require(msg.sender == from || isApprovedForAll(from, msg.sender), "ERC1155: caller is not approved to transfer");
         require(ids.length == amounts.length, "ERC1155: ids and amounts length mismatch");
-        
+        require(ids.length > 0, "ERC1155: no tokens to transfer");
+        address[] memory batchFrom = new address[](ids.length);
         for(uint256 i = 0; i < ids.length; i++){
-            require(balanceOf(from, ids[i]) >= amounts[i], "ERC1155: insufficient balance for transfer");
+            batchFrom[i] = from;
         }
-        
-        string memory f = _formatPayload("from", _doubleQuotes(AddrPrecompile.getSeiAddr(from)));
-        string memory t = _formatPayload("to", _doubleQuotes(AddrPrecompile.getSeiAddr(to)));
-        string memory tokenAmount = _formatPayload("token_amount", "[");
-        for(uint256 i = 0; i < ids.length; i++){
-            string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(ids[i])));
-            string memory amt = _formatPayload("amount", _doubleQuotes(Strings.toString(amounts[i])));
-            string.concat(tokenAmount, _curlyBrace(_join(tId,",",amt)));
+        uint256[] memory balances = balanceOfBatch(batchFrom, ids);
+        for(uint256 i = 0; i < balances.length; i++){
+            require(balances[i] >= amounts[i], "ERC1155: insufficient balance for transfer");
         }
-        string.concat(tokenAmount, "]");
-        string memory req = _curlyBrace(_formatPayload("send_batch",(_curlyBrace(_join(f,",",_join(t,",",tokenAmount))))));
 
-        _execute(bytes(req));
+        string memory payload = string.concat("{\"send_batch\":{\"from\":\"", AddrPrecompile.getSeiAddr(from));
+        payload = string.concat(payload, "\",\"to\":\"");
+        payload = string.concat(payload, AddrPrecompile.getSeiAddr(to));
+        payload = string.concat(payload, "\",\"batch\":[");
+        for(uint256 i = 0; i < ids.length; i++){
+            string memory batch = string.concat("{\"token_id\":\"", Strings.toString(ids[i]));
+            batch = string.concat(batch, "\",\"amount\":\"");
+            batch = string.concat(batch, Strings.toString(amounts[i]));
+            if (i < ids.length - 1) {
+                batch = string.concat(batch, "\"},");
+            } else {
+                batch = string.concat(batch, "\"}");
+            }
+            payload = string.concat(payload, batch);
+        }
+        payload = string.concat(payload, "]}}");
+        _execute(bytes(payload));
         emit TransferBatch(msg.sender, from, to, ids, amounts);
-                if (to.code.length > 0) {
+        if (to.code.length > 0) {
             require(
                 IERC1155Receiver(to).onERC1155BatchReceived(
                     msg.sender, from, ids, amounts, data
