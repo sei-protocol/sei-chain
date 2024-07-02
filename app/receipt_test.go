@@ -70,7 +70,8 @@ func TestEvmEventsForCw20(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	require.NotNil(t, testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx))
+	_, found := testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
 
 	// calling from wasmd precompile
 	abi, err := wasmd.GetABI()
@@ -112,7 +113,8 @@ func TestEvmEventsForCw20(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	require.NotNil(t, testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx))
+	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
 
 	// test approval message
 	payload = []byte(fmt.Sprintf("{\"increase_allowance\":{\"spender\":\"%s\",\"amount\":\"100\"}}", recipient.String()))
@@ -136,7 +138,8 @@ func TestEvmEventsForCw20(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	require.NotNil(t, testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx))
+	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
 	require.Equal(t, common.HexToHash("0x64").Bytes(), receipt.Logs[0].Data)
 }
 

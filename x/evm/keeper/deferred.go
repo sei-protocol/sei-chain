@@ -64,14 +64,17 @@ func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom
 	prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix).Set(key, bz)
 }
 
-func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) *types.DeferredInfo {
+func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (*types.DeferredInfo, bool) {
 	key := make([]byte, 8)
 	binary.BigEndian.PutUint64(key, uint64(ctx.TxIndex()))
 	val := &types.DeferredInfo{}
 	bz := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix).Get(key)
 	if bz == nil {
-		return nil
+		return nil, false
 	}
-	_ = val.Unmarshal(bz)
-	return val
+	if err := val.Unmarshal(bz); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("failed to unmarshal EVM deferred info: %s", err))
+		return nil, false
+	}
+	return val, true
 }

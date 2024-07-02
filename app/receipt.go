@@ -42,56 +42,10 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		// check if there is a ERC20 pointer to contractAddr
 		pointerAddr, _, exists := app.EvmKeeper.GetERC20CW20Pointer(ctx, contractAddr)
 		if exists {
-			action, found := GetAttributeValue(wasmEvent, "action")
-			if !found {
-				continue
-			}
-			var topics []common.Hash
-			switch action {
-			case "mint", "burn", "send", "transfer", "transfer_from", "send_from", "burn_from":
-				topics = []common.Hash{
-					ERC20TransferTopic,
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "from"),
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "to"),
-				}
-				logs = append(logs, &ethtypes.Log{
-					Address: pointerAddr,
-					Index:   uint(len(logs)),
-					Topics:  topics,
-					Data:    common.BigToHash(GetAmountAttribute(wasmEvent)).Bytes(),
-				})
-			case "increase_allowance", "decrease_allowance":
-				ownerStr, found := GetAttributeValue(wasmEvent, "owner")
-				if !found {
-					continue
-				}
-				spenderStr, found := GetAttributeValue(wasmEvent, "spender")
-				if !found {
-					continue
-				}
-				topics := []common.Hash{
-					ERC20ApprovalTopic,
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "owner"),
-					app.GetEvmAddressAttribute(ctx, wasmEvent, "spender"),
-				}
-				res, err := app.WasmKeeper.QuerySmart(
-					ctx,
-					sdk.MustAccAddressFromBech32(contractAddr),
-					[]byte(fmt.Sprintf("{\"allowance\":{\"owner\":\"%s\",\"spender\":\"%s\"}}", ownerStr, spenderStr)),
-				)
-				if err != nil {
-					continue
-				}
-				allowanceResponse := &AllowanceResponse{}
-				if err := json.Unmarshal(res, allowanceResponse); err != nil {
-					continue
-				}
-				logs = append(logs, &ethtypes.Log{
-					Address: pointerAddr,
-					Index:   uint(len(logs)),
-					Topics:  topics,
-					Data:    common.BigToHash(allowanceResponse.Allowance.BigInt()).Bytes(),
-				})
+			log, eligible := app.translateCW20Event(ctx, wasmEvent, pointerAddr, contractAddr)
+			if eligible {
+				log.Index = uint(len(logs))
+				logs = append(logs, log)
 			}
 			continue
 		}
@@ -128,11 +82,68 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		}
 		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, receipt)
 	}
-	if d := app.EvmKeeper.GetEVMTxDeferredInfo(ctx); d != nil {
+	if d, found := app.EvmKeeper.GetEVMTxDeferredInfo(ctx); found {
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, d.Surplus)
 	} else {
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, sdk.ZeroInt())
 	}
+}
+
+func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string) (*ethtypes.Log, bool) {
+	action, found := GetAttributeValue(wasmEvent, "action")
+	if !found {
+		return nil, false
+	}
+	var topics []common.Hash
+	switch action {
+	case "mint", "burn", "send", "transfer", "transfer_from", "send_from", "burn_from":
+		topics = []common.Hash{
+			ERC20TransferTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "from"),
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "to"),
+		}
+		amount, found := GetAmountAttribute(wasmEvent)
+		if !found {
+			return nil, false
+		}
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    common.BigToHash(amount).Bytes(),
+		}, true
+	case "increase_allowance", "decrease_allowance":
+		ownerStr, found := GetAttributeValue(wasmEvent, "owner")
+		if !found {
+			return nil, false
+		}
+		spenderStr, found := GetAttributeValue(wasmEvent, "spender")
+		if !found {
+			return nil, false
+		}
+		topics := []common.Hash{
+			ERC20ApprovalTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "owner"),
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "spender"),
+		}
+		res, err := app.WasmKeeper.QuerySmart(
+			ctx,
+			sdk.MustAccAddressFromBech32(contractAddr),
+			[]byte(fmt.Sprintf("{\"allowance\":{\"owner\":\"%s\",\"spender\":\"%s\"}}", ownerStr, spenderStr)),
+		)
+		if err != nil {
+			return nil, false
+		}
+		allowanceResponse := &AllowanceResponse{}
+		if err := json.Unmarshal(res, allowanceResponse); err != nil {
+			return nil, false
+		}
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    common.BigToHash(allowanceResponse.Allowance.BigInt()).Bytes(),
+		}, true
+	}
+	return nil, false
 }
 
 func (app *App) GetEvmAddressAttribute(ctx sdk.Context, event abci.Event, attribute string) common.Hash {
@@ -165,13 +176,13 @@ func GetAttributeValue(event abci.Event, attribute string) (string, bool) {
 	return "", false
 }
 
-func GetAmountAttribute(event abci.Event) *big.Int {
+func GetAmountAttribute(event abci.Event) (*big.Int, bool) {
 	amount, found := GetAttributeValue(event, "amount")
 	if found {
 		amountInt, ok := sdk.NewIntFromString(amount)
 		if ok {
-			return amountInt.BigInt()
+			return amountInt.BigInt(), true
 		}
 	}
-	return big.NewInt(0)
+	return nil, false
 }

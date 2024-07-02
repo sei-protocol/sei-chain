@@ -109,6 +109,10 @@ describe("ERC20 to CW20 Pointer", function () {
                     };
                     const logs = await ethers.provider.getLogs(filter);
                     expect(logs.length).to.equal(1);
+                    expect(logs[0]["address"]).to.equal(await pointer.getAddress());
+                    expect(logs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
+                    expect(logs[0]["topics"][1].substring(26)).to.equal(sender.evmAddress.substring(2).toLowerCase());
+                    expect(logs[0]["topics"][2].substring(26)).to.equal(recipient.evmAddress.substring(2).toLowerCase());
 
                     const cleanupTx = await pointer.connect(recipient.signer).transfer(sender.evmAddress, 1);
                     await cleanupTx.wait();
@@ -150,6 +154,10 @@ describe("ERC20 to CW20 Pointer", function () {
                     };
                     const logs = await ethers.provider.getLogs(filter);
                     expect(logs.length).to.equal(1);
+                    expect(logs[0]["address"]).to.equal(await pointer.getAddress());
+                    expect(logs[0]["topics"][0]).to.equal(ethers.id("Approval(address,address,uint256)"));
+                    expect(logs[0]["topics"][1].substring(26)).to.equal(owner.substring(2).toLowerCase());
+                    expect(logs[0]["topics"][2].substring(26)).to.equal(spender.substring(2).toLowerCase());
                 });
 
                 it("should lower approval", async function () {
