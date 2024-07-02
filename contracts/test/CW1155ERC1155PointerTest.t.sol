@@ -316,7 +316,7 @@ contract CW1155ERC1155PointerTest is Test {
         );
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, bytes("{\"send\":{\"from\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"to\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"token_id\":\"1\",\"amount\":\"1\"}}")),
+            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, bytes("{\"send\":{\"from\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"to\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"batch\":[{\"token_id\":\"1\",\"amount\":\"1\"},{\"token_id\":\"2\",\"amount\":\"2\"}]}}")),
             abi.encode(bytes(""))
         );
         uint256[] memory ids = new uint256[](2);

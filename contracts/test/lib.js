@@ -52,7 +52,7 @@ const ABI = {
         "function safeTransferFrom(address _from, address _to, uint256 _id, uint256 _value, bytes _data)",
         "function safeBatchTransferFrom(address _from, address _to, uint256[] _ids, uint256[] _values, bytes _data)",
         "function totalSupply() view returns (uint256)",
-        "function totalSupply(uint256 id) view returns (uint256);",
+        "function totalSupply(uint256 id) view returns (uint256)",
         "function exists(uint256 id) view returns (uint256)",
     ],
 }

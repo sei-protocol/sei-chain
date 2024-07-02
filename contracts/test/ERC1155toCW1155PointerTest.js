@@ -20,10 +20,10 @@ describe("ERC1155 to CW1155 Pointer", function () {
             minter: admin.seiAddress
         })
 
-        await executeWasm(cw1155Address, {mint: {recipient: admin.seiAddress, msg: {token_id: "1", amount: 10, token_uri: "uri1"}}});
-        await executeWasm(cw1155Address, {mint: {recipient: accounts[0].seiAddress, msg: {token_id: "1", amount: 11}}});
-        await executeWasm(cw1155Address, {mint: {recipient: accounts[1].seiAddress, msg: {token_id: "2", amount: 12, token_uri: "uri2"}}});
-        await executeWasm(cw1155Address, {mint: {recipient: admin.seiAddress, msg: {token_id: "2", amount: 13}}});
+        await executeWasm(cw1155Address, {mint: {recipient: admin.seiAddress, msg: {token_id: "1", amount: "10", token_uri: "uri1"}}});
+        await executeWasm(cw1155Address, {mint: {recipient: accounts[0].seiAddress, msg: {token_id: "1", amount: "11"}}});
+        await executeWasm(cw1155Address, {mint: {recipient: accounts[1].seiAddress, msg: {token_id: "2", amount: "12", token_uri: "uri2"}}});
+        await executeWasm(cw1155Address, {mint: {recipient: admin.seiAddress, msg: {token_id: "2", amount: "13"}}});
 
         const pointerAddr = await deployErc1155PointerForCw1155(hre.ethers.provider, cw1155Address)
         const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC1155, hre.ethers.provider);
@@ -53,24 +53,30 @@ describe("ERC1155 to CW1155 Pointer", function () {
             expect(symbol).to.equal("TEST");
         });
 
-        it("owner of", async function () {
-            const owner = await pointerAcc0.ownerOf(1);
-            expect(owner).to.equal(admin.evmAddress);
-        });
-
         it("token uri", async function () {
             const uri = await pointerAcc0.uri(1);
             expect(uri).to.equal("uri1");
         });
 
         it("balance of", async function () {
-            const balance = await pointerAcc0.balanceOf(admin.evmAddress);
-            expect(balance).to.equal(23);
+            const balance = await pointerAcc0.balanceOf(admin.evmAddress, 1);
+            expect(balance).to.equal(10);
         });
 
-        it("get approved", async function () {
-            const approved = await pointerAcc0.getApproved(1);
-            expect(approved).to.equal("0x0000000000000000000000000000000000000000");
+        it("balance of batch", async function () {
+            const froms = [
+                admin.evmAddress,
+                admin.evmAddress,
+                accounts[0].evmAddress,
+                accounts[0].evmAddress,
+            ];
+            const tids = [1, 2, 1, 2];
+            const balances = await pointerAcc0.balanceOfBatch(froms, tids);
+            expect(balances.length).to.equal(froms.length);
+            expect(balances[0]).to.equal(10);
+            expect(balances[1]).to.equal(13);
+            expect(balances[2]).to.equal(11);
+            expect(balances[3]).to.equal(0);
         });
 
         it("is approved for all", async function () {
@@ -80,43 +86,61 @@ describe("ERC1155 to CW1155 Pointer", function () {
     })
 
     describe("write", function(){
-        it("approve", async function () {
-            const approvedTxResp = await pointerAcc0.approve(accounts[1].evmAddress, 2)
-            await approvedTxResp.wait()
-            const approved = await pointerAcc0.getApproved(2); 
-            expect(approved).to.equal(accounts[1].evmAddress);
-
-            await expect(approvedTxResp)
-                .to.emit(pointerAcc0, 'Approval')
-                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, 2);
-        });
-
-        it("cannot approve token you don't own", async function () {
-            await expect(pointerAcc0.approve(accounts[1].evmAddress, 1)).to.be.reverted;
-        });
-
         it("transfer from", async function () {
-            // accounts[0] should transfer token id 2 to accounts[1]
-            await mine(pointerAcc0.approve(accounts[1].evmAddress, 2));
-            transferTxResp = await pointerAcc1.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 2);
+            // accounts[0] should transfer token id 1 to accounts[1]
+            let balance0 = await pointerAcc0.balanceOf(accounts[0].evmAddress, 1);
+            expect(balance0).to.equal(11);
+            let balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress, 1);
+            expect(balance1).to.equal(0);
+            transferTxResp = await pointerAcc1.safeTransferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 1, 5, '0x');
             await transferTxResp.wait();
             await expect(transferTxResp)
-                .to.emit(pointerAcc0, 'Transfer')
-                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, 2);
-            const balance0 = await pointerAcc0.balanceOf(accounts[0].evmAddress);
-            expect(balance0).to.equal(0);
-            const balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress);
-            expect(balance1).to.equal(2);
-
-            // return token id 2 back to accounts[0] using safe transfer from
-            await mine(pointerAcc1.approve(accounts[0].evmAddress, 2));
-            await mine(pointerAcc1.safeTransferFrom(accounts[1].evmAddress, accounts[0].evmAddress, 2));
-            const balance0After = await pointerAcc0.balanceOf(accounts[0].evmAddress);
-            expect(balance0After).to.equal(1);
+                .to.emit(pointerAcc0, 'TransferSingle')
+                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, 1, 5);
+            balance0 = await pointerAcc0.balanceOf(accounts[0].evmAddress, 1);
+            expect(balance0).to.equal(6);
+            balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress, 1);
+            expect(balance1).to.equal(5);
         });
 
         it("cannot transfer token you don't own", async function () {
-            await expect(pointerAcc0.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 3)).to.be.reverted;
+            await expect(pointerAcc0.safeTransferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 3, 1, '0x')).to.be.reverted;
+        });
+
+        it("cannot transfer token with insufficient balance", async function () {
+            await expect(pointerAcc0.safeTransferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 1, 100, '0x')).to.be.reverted;
+        });
+
+        it("batch transfer from", async function () {
+            const tids = [1, 2];
+            const tamounts = [5, 4];
+            let balances = await pointerAcc0.balanceOfBatch(
+                [admin.evmAddress, admin.evmAddress, accounts[1].evmAddress, accounts[1].evmAddress],
+                [...tids, ...tids]
+            );
+            expect(balances[0]).to.equal(10);
+            expect(balances[1]).to.equal(13);
+            expect(balances[2]).to.equal(0);
+            expect(balances[3]).to.equal(12);
+            transferTxResp = await pointerAcc1.safeBatchTransferFrom(
+                admin.evmAddress,
+                accounts[1].evmAddress,
+                tids,
+                tamounts,
+                '0x'
+            );
+            await transferTxResp.wait();
+            await expect(transferTxResp)
+                .to.emit(pointerAcc0, 'TransferBatch')
+                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, tids, tamounts);
+            balances = await pointerAcc0.balanceOfBatch(
+                [admin.evmAddress, admin.evmAddress, accounts[1].evmAddress, accounts[1].evmAddress],
+                [...tids, ...tids]
+            );
+            expect(balances[0]).to.equal(5);
+            expect(balances[1]).to.equal(9);
+            expect(balances[2]).to.equal(5);
+            expect(balances[3]).to.equal(16);
         });
 
         it("set approval for all", async function () {
