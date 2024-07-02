@@ -507,6 +507,8 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
 
 	return db.RawImport(rawCh)
 
+	// TODO: Revert. This is just for testing RawImport End to End temporarily
+
 	// var wg sync.WaitGroup
 
 	// worker := func() {
