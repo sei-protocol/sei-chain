@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Uint128, Addr};
-use cw721::{ContractInfoResponse, NftInfoResponse, AllNftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
+use cw721::{ContractInfoResponse, NftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
 use cw2981_royalties::msg::{RoyaltiesInfoResponse, CheckRoyaltiesResponse};
 use cw2981_royalties::{Metadata as Cw2981Metadata, Extension as Cw2981Extension};
 use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, CwErc1155QueryMsg, QueryMsg};
@@ -220,9 +220,6 @@ pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg) -> Result<Bin
         QueryMsg::Ownership {} => to_json_binary(&query_ownership()?),
         QueryMsg::ContractInfo {} => to_json_binary(&query_contract_info(deps, env)?),
         QueryMsg::TokenInfo { token_id } => to_json_binary(&query_nft_info(deps, env, token_id)?),
-        QueryMsg::AllTokenInfo { .. } => {
-            to_json_binary(&query_all_nft_info()?)
-        },
         QueryMsg::Extension { msg } => match msg {
             CwErc1155QueryMsg::EvmAddress {} => {
                 to_json_binary(&ERC1155_ADDRESS.load(deps.storage)?)
@@ -315,10 +312,6 @@ pub fn query_nft_info(
             },
         }),
     })
-}
-
-pub fn query_all_nft_info() -> Result<AllNftInfoResponse<Cw2981Extension>, ContractError> {
-    Err(ContractError::NotSupported {})
 }
 
 pub fn query_tokens() -> Result<TokensResponse, ContractError> {
