@@ -6,7 +6,6 @@ import {CW1155ERC1155Pointer} from "../src/CW1155ERC1155Pointer.sol";
 import {IWasmd} from "../src/precompiles/IWasmd.sol";
 import {IJson} from "../src/precompiles/IJson.sol";
 import {IAddr} from "../src/precompiles/IAddr.sol";
-import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 address constant WASMD_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001002;
