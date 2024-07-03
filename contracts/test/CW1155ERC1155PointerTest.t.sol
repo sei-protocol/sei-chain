@@ -6,6 +6,7 @@ import {CW1155ERC1155Pointer} from "../src/CW1155ERC1155Pointer.sol";
 import {IWasmd} from "../src/precompiles/IWasmd.sol";
 import {IJson} from "../src/precompiles/IJson.sol";
 import {IAddr} from "../src/precompiles/IAddr.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 import "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 address constant WASMD_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001002;
@@ -273,6 +274,13 @@ contract CW1155ERC1155PointerTest is Test {
             abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, bytes("{\"send\":{\"from\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"to\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"token_id\":\"1\",\"amount\":\"1\"}}")),
             abi.encode(bytes(""))
         );
+
+        string memory req = "{\"send\":{\"from\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"to\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"token_id\":\"1\",\"amount\":\"1\"}}";
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, bytes(req), bytes("[]"))
+        );
+        
         vm.expectEmit();
         emit TransferSingle(MockCallerEVMAddr, MockCallerEVMAddr, MockOperatorEVMAddr, 1, 1);
         vm.startPrank(MockCallerEVMAddr);
