@@ -95,7 +95,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     { token_id: "3", owner: accounts[1].seiAddress, amount: "11" },
                 ]
             }});
-            await executeWasm(pointer, {
+            const res = await executeWasm(pointer, {
                 send: {
                     from: admin.seiAddress,
                     to: accounts[1].seiAddress,
@@ -103,6 +103,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     amount: "5",
                 }
             });
+            expect(res.code).to.equal(0);
             ownerResult = await queryWasm(pointer, "balance_of_batch", [
                 { owner: admin.seiAddress, token_id: "3" },
                 { owner: accounts[1].seiAddress, token_id: "3" },
@@ -137,7 +138,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     { token_id: "0", owner: accounts[1].seiAddress, amount: "0" },
                 ]
             }});
-            await executeWasm(pointer, {
+            const res = await executeWasm(pointer, {
                 send: {
                     from: accounts[1].seiAddress,
                     to: admin.seiAddress,
@@ -145,6 +146,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     amount: "5",
                 }
             });
+            expect(res.code).to.not.equal(0);
             ownerResult = await queryWasm(pointer, "balance_of_batch", [
                 { owner: admin.seiAddress, token_id: "0" },
                 { owner: accounts[1].seiAddress, token_id: "0" },
@@ -172,7 +174,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     { token_id: "4", owner: accounts[1].seiAddress, amount: "12" },
                 ]
             }});
-            await executeWasm(pointer, {
+            const res = await executeWasm(pointer, {
                 send_batch: {
                     from: admin.seiAddress,
                     to: accounts[1].seiAddress,
@@ -182,6 +184,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     ],
                 }
             });
+            expect(res.code).to.equal(0);
             ownerResult = await queryWasm(pointer, "balance_of_batch", [
                 { owner: admin.seiAddress, token_id: "3" },
                 { owner: accounts[1].seiAddress, token_id: "3" },
