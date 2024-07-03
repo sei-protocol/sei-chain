@@ -101,12 +101,12 @@ pub struct ErcPayloadResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc1155BalanceOfResponse {
-    pub amount: String,
+    pub balance: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc1155BalanceOfBatchResponse {
-    pub amounts: Vec<Uint128>,
+    pub balances: Vec<Uint128>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

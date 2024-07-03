@@ -236,7 +236,7 @@ pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg) -> Result<Bin
 pub fn query_balance_of(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, token_id: String) -> StdResult<BalanceResponse> {
     let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let balance = Uint128::from_str(&querier.erc1155_balance_of(env.clone().contract.address.into_string(), erc_addr.clone(), owner, token_id.clone())?.amount)?;
+    let balance = Uint128::from_str(&querier.erc1155_balance_of(env.clone().contract.address.into_string(), erc_addr.clone(), owner, token_id.clone())?.balance)?;
     Ok(BalanceResponse{ balance })
 }
 
@@ -244,7 +244,7 @@ pub fn query_balance_of_batch(deps: Deps<EvmQueryWrapper>, env: Env, batch: Vec<
     let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
     let res = querier.erc1155_balance_of_batch(env.clone().contract.address.into_string(), erc_addr, &batch)?;
-    let balances = izip!(&batch, &res.amounts)
+    let balances = izip!(&batch, &res.balances)
         .map(|(OwnerToken{ owner, token_id }, amount)| Balance{
             token_id: token_id.to_string(),
             owner: Addr::unchecked(owner),
