@@ -78,7 +78,6 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         for(uint256 i = 0; i < parseResponse.length; i++){
             balances[i] = JsonPrecompile.extractAsUint256(parseResponse[i], "amount");
         }
-        return balances;
     }
 
     function uri(uint256 id) public view override returns (string memory) {
