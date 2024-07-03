@@ -46,8 +46,7 @@ func (t TestTx) ValidateBasic() error {
 }
 
 type TestAppOpts struct {
-	useSC bool
-	useSS bool
+	useSc bool
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -55,7 +54,7 @@ func (t TestAppOpts) Get(s string) interface{} {
 		return "sei-test"
 	}
 	if s == FlagSCEnable {
-		return t.useSC
+		return t.useSc
 	}
 	return nil
 }
@@ -248,7 +247,7 @@ func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		TestAppOpts{true, false},
+		TestAppOpts{true},
 		EmptyWasmOpts,
 		EmptyACLOpts,
 		options,
