@@ -9,7 +9,7 @@ use crate::querier::{EvmQuerier};
 use crate::error::ContractError;
 use crate::state::ERC1155_ADDRESS;
 use std::str::FromStr;
-use cw1155::{ApproveAllEvent, Balance, BalanceResponse, Cw1155BatchReceiveMsg, Cw1155ReceiveMsg, IsApprovedForAllResponse, OwnerToken, RevokeAllEvent, TokenAmount, TransferEvent};
+use cw1155::{ApproveAllEvent, Balance, BalanceResponse, BalancesResponse, Cw1155BatchReceiveMsg, Cw1155ReceiveMsg, IsApprovedForAllResponse, OwnerToken, RevokeAllEvent, TokenAmount, TransferEvent};
 use cw1155_royalties::Cw1155RoyaltiesExecuteMsg;
 use itertools::izip;
 
@@ -247,7 +247,7 @@ pub fn query_balance_of(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, to
     Ok(BalanceResponse{ balance })
 }
 
-pub fn query_balance_of_batch(deps: Deps<EvmQueryWrapper>, env: Env, batch: Vec<OwnerToken>) -> StdResult<Vec<Balance>> {
+pub fn query_balance_of_batch(deps: Deps<EvmQueryWrapper>, env: Env, batch: Vec<OwnerToken>) -> StdResult<BalancesResponse> {
     let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
     let res = querier.erc1155_balance_of_batch(env.clone().contract.address.into_string(), erc_addr, &batch)?;
@@ -257,7 +257,7 @@ pub fn query_balance_of_batch(deps: Deps<EvmQueryWrapper>, env: Env, batch: Vec<
             owner: Addr::unchecked(owner),
             amount: amount.clone(),
         }).collect();
-    Ok(balances)
+    Ok(BalancesResponse{ balances })
 }
 
 pub fn query_token_approvals() -> Result<Response<EvmMsg>, ContractError> {
