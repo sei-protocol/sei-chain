@@ -60,19 +60,23 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
             revert ERC1155InvalidArrayLength(ids.length, accounts.length);
         }
         string memory ownerTokens = "[";
-        for(uint256 i = 0; i < accounts.length; i++){
-            if(i > 0){
-                string.concat(ownerTokens, ",");
+        for (uint256 i = 0; i < accounts.length; i++) {
+            if (i > 0) {
+                ownerTokens = string.concat(ownerTokens, ",");
             }
-            string.concat(ownerTokens,string.concat(string.concat("{\"owner\":\"",AddrPrecompile.getSeiAddr(accounts[i])),string.concat(string.concat("\",\"token_id\":\"",Strings.toString(ids[i])),"\"}")));
+            string memory ownerToken = string.concat("{\"owner\":\"", AddrPrecompile.getSeiAddr(accounts[i]));
+            ownerToken = string.concat(ownerToken, "\",\"token_id\":\"");
+            ownerToken = string.concat(ownerToken, Strings.toString(ids[i]));
+            ownerToken = string.concat(ownerToken, "\"}");
+            ownerTokens = string.concat(ownerTokens, ownerToken);
         }
-        string.concat(ownerTokens, "]");
+        ownerTokens = string.concat(ownerTokens, "]");
         string memory req = _curlyBrace(_formatPayload("balance_of_batch",_curlyBrace(_formatPayload("owner_tokens",ownerTokens))));
         bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(req));
         bytes[] memory parseResponse = JsonPrecompile.extractAsBytesList(response, "balances");
-        balances = new uint256[](response.length);
-        for(uint256 i = 0; i < response.length; i++){
-            balances[i] = JsonPrecompile.extractAsUint256(parseResponse[i], "balance");
+        balances = new uint256[](parseResponse.length);
+        for(uint256 i = 0; i < parseResponse.length; i++){
+            balances[i] = JsonPrecompile.extractAsUint256(parseResponse[i], "amount");
         }
         return balances;
     }

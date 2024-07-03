@@ -121,36 +121,42 @@ contract CW1155ERC1155PointerTest is Test {
 
     function testBalanceOfBatch() public {
         vm.mockCall(
-            WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"}}")),
-            abi.encode("{\"balance\":\"1\"}")
+            ADDR_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("getSeiAddr(string)", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+            abi.encode(MockCallerSeiAddr)
         );
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"2\"}}")),
-            abi.encode("{\"balance\":\"2\"}")
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of_batch\":{\"owner_tokens\":[{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"2\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"3\"}]}}")),
+            abi.encode("{\"balances\":[ { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"1\", \"amount\": \"1\" }, { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"2\", \"amount\": \"2\" }, { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"3\", \"amount\": \"0\" } ]}")
         );
-        vm.mockCall(
-            WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"3\"}}")),
-            abi.encode("{\"balance\":\"0\"}")
-        );
+
+        bytes[] memory resp = new bytes[](3);
+        resp[0] = bytes("{\"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"1\", \"amount\": \"1\"}");
+        resp[1] = bytes("{\"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"2\", \"amount\": \"2\"}");
+        resp[2] = bytes("{\"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"3\", \"amount\": \"0\"}");
 
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"balance\":\"1\"}"), "balance"),
+            abi.encodeWithSignature("extractAsBytesList(bytes,string)",bytes("{\"balances\":[ { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"1\", \"amount\": \"1\" }, { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"2\", \"amount\": \"2\" }, { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"3\", \"amount\": \"0\" } ]}"), "balances"),
+            abi.encode(resp)
+        );
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsUint256(bytes,string)", resp[0], "amount"),
             abi.encode(1)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"balance\":\"2\"}"), "balance"),
+            abi.encodeWithSignature("extractAsUint256(bytes,string)", resp[1], "amount"),
             abi.encode(2)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"balance\":\"0\"}"), "balance"),
+            abi.encodeWithSignature("extractAsUint256(bytes,string)", resp[2], "amount"),
             abi.encode(0)
         );
+    
         address[] memory owners = new address[](3);
         uint256[] memory ids = new uint256[](3);
         owners[0] = MockCallerEVMAddr;
@@ -166,7 +172,7 @@ contract CW1155ERC1155PointerTest is Test {
         assertEq(pointer.balanceOfBatch(owners, ids), expectedResp);
     }
 
-    function testBatchBalanceOfBadLength() public {
+    function testBalanceOfBatchBadLength() public {
         uint256 idsLength = 1;
         uint256 valuesLength = 0;
         vm.expectRevert(
