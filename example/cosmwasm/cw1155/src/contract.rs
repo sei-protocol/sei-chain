@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Uint128, StdError, Addr};
-use cw721::{Approval, OperatorResponse, ContractInfoResponse, NftInfoResponse, AllNftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
+use cosmwasm_std::{DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Uint128, Addr};
+use cw721::{ContractInfoResponse, NftInfoResponse, AllNftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
 use cw2981_royalties::msg::{RoyaltiesInfoResponse, CheckRoyaltiesResponse};
 use cw2981_royalties::{Metadata as Cw2981Metadata, Extension as Cw2981Extension};
 use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, CwErc1155QueryMsg, QueryMsg};
@@ -212,11 +212,7 @@ pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg) -> Result<Bin
             limit,
         )?),
         QueryMsg::NumTokens { token_id } => {
-            if let Some(_) = token_id {
-                return Err(ContractError::NotSupported {})
-            } else {
-                to_json_binary(&query_num_tokens(deps, env)?)
-            }
+            to_json_binary(&query_num_tokens(deps, env, token_id)?)
         },
         QueryMsg::Tokens { .. } => to_json_binary(&query_tokens()?),
         QueryMsg::AllTokens { .. } => to_json_binary(&query_all_tokens()?),
@@ -380,11 +376,11 @@ pub fn query_all_operators(
     Err(ContractError::NotSupported {})
 }
 
-pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<NumTokensResponse> {
+pub fn query_num_tokens(deps: Deps<EvmQueryWrapper>, env: Env, token_id: Option<String>) -> StdResult<NumTokensResponse> {
     let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
     let res = querier
-        .erc1155_total_supply(env.clone().contract.address.into_string(), erc_addr.clone())?;
+        .erc1155_total_supply(env.clone().contract.address.into_string(), erc_addr.clone(), token_id)?;
     Ok(NumTokensResponse {
         count: res.supply.u128() as u64,
     })
