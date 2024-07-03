@@ -129,7 +129,7 @@ contract CW1155ERC1155PointerTest is Test {
             abi.encodeWithSignature("getSeiAddr(string)", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
             abi.encode(MockCallerSeiAddr)
         );
-        bytes memory queryCall = bytes("{\"balance_of_batch\":{\"owner_tokens\":[{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"2\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"3\"}]}}");
+        bytes memory queryCall = bytes("{\"balance_of_batch\":[{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"2\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"3\"}]}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
             abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall),
@@ -393,7 +393,7 @@ contract CW1155ERC1155PointerTest is Test {
     }
 
     function testSafeBatchTransferFrom() public {
-        bytes memory queryCall = bytes("{\"balance_of_batch\":{\"owner_tokens\":[{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"2\"}]}}");
+        bytes memory queryCall = bytes("{\"balance_of_batch\":[{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"2\"}]}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
             abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall),

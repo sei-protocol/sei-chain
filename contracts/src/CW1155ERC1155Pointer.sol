@@ -71,7 +71,7 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
             ownerTokens = string.concat(ownerTokens, ownerToken);
         }
         ownerTokens = string.concat(ownerTokens, "]");
-        string memory req = _curlyBrace(_formatPayload("balance_of_batch",_curlyBrace(_formatPayload("owner_tokens",ownerTokens))));
+        string memory req = _curlyBrace(_formatPayload("balance_of_batch", ownerTokens));
         bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(req));
         bytes[] memory parseResponse = JsonPrecompile.extractAsBytesList(response, "balances");
         balances = new uint256[](parseResponse.length);
