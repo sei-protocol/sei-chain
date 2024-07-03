@@ -45,11 +45,6 @@ pub enum EvmQuery {
         token_ids: Vec<String>,
         amounts: Vec<Uint128>,
     },
-    // todo - is this implemented in erc1155?
-    Erc1155ApprovePayload {
-        spender: String,
-        token_id: String,
-    },
     Erc1155BalanceOf {
         caller: String,
         contract_address: String,
@@ -61,12 +56,6 @@ pub enum EvmQuery {
         contract_address: String,
         accounts: Vec<String>,
         token_ids: Vec<String>,
-    },
-    // todo - is this implemented in erc1155?
-    Erc1155Approved {
-        caller: String,
-        contract_address: String,
-        token_id: String,
     },
     Erc1155IsApprovedForAll {
         caller: String,
@@ -87,7 +76,6 @@ pub enum EvmQuery {
         contract_address: String,
         token_id: String,
     },
-    // todo - quantity field?
     Erc1155RoyaltyInfo {
         caller: String,
         contract_address: String,
