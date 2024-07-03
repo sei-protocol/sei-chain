@@ -9,7 +9,7 @@ use crate::querier::{EvmQuerier};
 use crate::error::ContractError;
 use crate::state::ERC1155_ADDRESS;
 use std::str::FromStr;
-use cw1155::{ApproveAllEvent, Balance, BalanceResponse, Cw1155BatchReceiveMsg, Cw1155ReceiveMsg, OwnerToken, RevokeAllEvent, TokenAmount, TransferEvent};
+use cw1155::{ApproveAllEvent, Balance, BalanceResponse, Cw1155BatchReceiveMsg, Cw1155ReceiveMsg, IsApprovedForAllResponse, OwnerToken, RevokeAllEvent, TokenAmount, TransferEvent};
 use cw1155_royalties::Cw1155RoyaltiesExecuteMsg;
 use itertools::izip;
 
@@ -268,14 +268,11 @@ pub fn query_all_balances() -> Result<Response<EvmMsg>, ContractError> {
     Err(ContractError::NotSupported {})
 }
 
-pub fn query_is_approved_for_all(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, operator: String) -> StdResult<OperatorResponse> {
+pub fn query_is_approved_for_all(deps: Deps<EvmQueryWrapper>, env: Env, owner: String, operator: String) -> StdResult<IsApprovedForAllResponse> {
     let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
     let querier = EvmQuerier::new(&deps.querier);
-    let is_approved = querier.erc1155_is_approved_for_all(env.clone().contract.address.into_string(), erc_addr.clone(), owner.clone(), operator.clone())?.is_approved;
-    if is_approved {
-        return Ok(OperatorResponse{approval: Approval{spender: operator.clone(), expires: cw721::Expiration::Never {}}});
-    }
-    Err(StdError::not_found("approval"))
+    let approved = querier.erc1155_is_approved_for_all(env.clone().contract.address.into_string(), erc_addr.clone(), owner.clone(), operator.clone())?.is_approved;
+    Ok(IsApprovedForAllResponse{ approved })
 }
 
 pub fn query_contract_info(deps: Deps<EvmQueryWrapper>, env: Env) -> StdResult<ContractInfoResponse> {
