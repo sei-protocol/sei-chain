@@ -459,5 +459,5 @@ func TestCW1155RoyaltiesPointerToERC1155Royalties(t *testing.T) {
 	require.Nil(t, err)
 	ret, err = testkeeper.EVMTestApp.WasmKeeper.QuerySmart(ctx, sdk.MustAccAddressFromBech32(res2.PointerAddress), query)
 	require.Nil(t, err)
-	require.Equal(t, fmt.Sprintf("{\"address\":\"%s\",\"royalty_amount\":\"1000\"}", seiAddr.String()), string(ret))
+	require.Equal(t, fmt.Sprintf("{\"address\":\"%s\",\"royalty_amount\":\"50\"}", seiAddr.String()), string(ret))
 }

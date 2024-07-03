@@ -12,7 +12,6 @@ import {IWasmd} from "./precompiles/IWasmd.sol";
 import {IJson} from "./precompiles/IJson.sol";
 import {IAddr} from "./precompiles/IAddr.sol";
 
-
 contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
 
     address constant WASMD_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001002;
@@ -77,8 +76,15 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         string memory own = _formatPayload("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(owner)));
         string memory op = _formatPayload("operator", _doubleQuotes(AddrPrecompile.getSeiAddr(operator)));
         string memory req = _curlyBrace(_formatPayload("is_approved_for_all",(_curlyBrace(_join(own,",",op)))));
-        bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(req));
-        return JsonPrecompile.extractAsUint256(response, "approved") == 1;
+        bytes32 response = keccak256(WasmdPrecompile.query(Cw1155Address, bytes(req)));
+        bytes32 approvedMsg = keccak256("{\"approved\":true}");
+        bytes32 unapprovedMsg = keccak256("{\"approved\":false}");
+        if (response == approvedMsg) {
+            return true;
+        } else if (response == unapprovedMsg) {
+            return false;
+        }
+        revert NotImplementedOnCosmwasmContract("is_approved_for_all");
     }
 
     // ERC1155Supply
@@ -109,7 +115,7 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         }
         string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
         string memory sPrice = _formatPayload("sale_price", _doubleQuotes(Strings.toString(salePrice)));
-        string memory req = _curlyBrace(_formatPayload("royalty_info", _curlyBrace(_join(tId, sPrice, ","))));
+        string memory req = _curlyBrace(_formatPayload("royalty_info", _curlyBrace(_join(tId, ",", sPrice))));
         string memory fullReq = _curlyBrace(_formatPayload("extension", _curlyBrace(_formatPayload("msg", req))));
         bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(fullReq));
         bytes memory addr = JsonPrecompile.extractAsBytes(response, "address");
