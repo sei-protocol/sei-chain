@@ -90,7 +90,11 @@ pub enum EvmQuery {
     Erc1155TotalSupply {
         caller: String,
         contract_address: String,
-        token_id: Option<String>,
+    },
+    Erc1155TotalSupplyForToken {
+        caller: String,
+        contract_address: String,
+        token_id: String,
     },
 }
 

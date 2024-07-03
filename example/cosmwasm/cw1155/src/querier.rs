@@ -151,13 +151,21 @@ impl<'a> EvmQuerier<'a> {
         contract_address: String,
         token_id: Option<String>
     ) -> StdResult<Erc1155TotalSupplyResponse> {
-        let request = EvmQueryWrapper {
-            route: Route::Evm,
-            query_data: EvmQuery::Erc1155TotalSupply {
+        let query_data = if let Some(token_id) = token_id {
+            EvmQuery::Erc1155TotalSupplyForToken {
                 caller,
                 contract_address,
                 token_id
-            },
+            }
+        } else {
+            EvmQuery::Erc1155TotalSupply {
+                caller,
+                contract_address,
+            }
+        };
+        let request = EvmQueryWrapper {
+            route: Route::Evm,
+            query_data,
         }
         .into();
 
