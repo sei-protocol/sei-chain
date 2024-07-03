@@ -33,13 +33,13 @@ impl CustomQuery for EvmQueryWrapper {}
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EvmQuery {
-    Erc1155TransferSinglePayload {
+    Erc1155TransferPayload {
         from: String,
         recipient: String,
         token_id: String,
         amount: Uint128,
     },
-    Erc1155TransferBatchPayload {
+    Erc1155BatchTransferPayload {
         from: String,
         recipient: String,
         token_ids: Vec<String>,

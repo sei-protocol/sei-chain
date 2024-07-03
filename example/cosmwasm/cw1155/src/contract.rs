@@ -76,7 +76,7 @@ pub fn execute_send_single(
     let erc_addr = ERC1155_ADDRESS.load(deps.storage)?;
 
     let querier = EvmQuerier::new(&deps.querier);
-    let payload = querier.erc1155_transfer_single_payload(from.clone().unwrap_or_else(|| info.sender.to_string()), recipient.to_string(), token_id.to_string(), amount)?;
+    let payload = querier.erc1155_transfer_payload(from.clone().unwrap_or_else(|| info.sender.to_string()), recipient.to_string(), token_id.to_string(), amount)?;
     let delegate_msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
 
     let mut res = Response::new().add_message(delegate_msg);
@@ -113,7 +113,7 @@ pub fn execute_send_batch(
     let amounts = batch.to_vec().into_iter().map(|t| t.amount).collect::<Vec<_>>();
 
     let querier = EvmQuerier::new(&deps.querier);
-    let payload = querier.erc1155_transfer_batch_payload(from.clone().unwrap_or_else(|| info.sender.to_string()), recipient.to_string(), token_ids.to_vec(), amounts.to_vec())?;
+    let payload = querier.erc1155_batch_transfer_payload(from.clone().unwrap_or_else(|| info.sender.to_string()), recipient.to_string(), token_ids.to_vec(), amounts.to_vec())?;
     let delegate_msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
 
     let mut res = Response::new().add_message(delegate_msg);

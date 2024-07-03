@@ -73,10 +73,10 @@ impl<'a> EvmQuerier<'a> {
     }
 
     // returns base64-encoded bytes
-    pub fn erc1155_transfer_single_payload(&self, from: String, recipient: String, token_id: String, amount: Uint128) -> StdResult<ErcPayloadResponse> {
+    pub fn erc1155_transfer_payload(&self, from: String, recipient: String, token_id: String, amount: Uint128) -> StdResult<ErcPayloadResponse> {
         let request = EvmQueryWrapper {
             route: Route::Evm,
-            query_data: EvmQuery::Erc1155TransferSinglePayload {
+            query_data: EvmQuery::Erc1155TransferPayload {
                 from, recipient, token_id, amount
             },
         }
@@ -86,10 +86,10 @@ impl<'a> EvmQuerier<'a> {
     }
 
     // returns base64-encoded bytes
-    pub fn erc1155_transfer_batch_payload(&self, from: String, recipient: String, token_ids: Vec<String>, amounts: Vec<Uint128>) -> StdResult<ErcPayloadResponse> {
+    pub fn erc1155_batch_transfer_payload(&self, from: String, recipient: String, token_ids: Vec<String>, amounts: Vec<Uint128>) -> StdResult<ErcPayloadResponse> {
         let request = EvmQueryWrapper {
             route: Route::Evm,
-            query_data: EvmQuery::Erc1155TransferBatchPayload {
+            query_data: EvmQuery::Erc1155BatchTransferPayload {
                 from, recipient, token_ids, amounts
             },
         }
