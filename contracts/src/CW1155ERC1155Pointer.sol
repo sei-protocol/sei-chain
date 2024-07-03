@@ -59,9 +59,24 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         if(accounts.length != ids.length){
             revert ERC1155InvalidArrayLength(ids.length, accounts.length);
         }
-        balances = new uint256[](accounts.length);
-        for(uint256 i = 0; i < accounts.length; i++){
-            balances[i] = balanceOf(accounts[i], ids[i]);
+        string memory ownerTokens = "[";
+        for (uint256 i = 0; i < accounts.length; i++) {
+            if (i > 0) {
+                ownerTokens = string.concat(ownerTokens, ",");
+            }
+            string memory ownerToken = string.concat("{\"owner\":\"", AddrPrecompile.getSeiAddr(accounts[i]));
+            ownerToken = string.concat(ownerToken, "\",\"token_id\":\"");
+            ownerToken = string.concat(ownerToken, Strings.toString(ids[i]));
+            ownerToken = string.concat(ownerToken, "\"}");
+            ownerTokens = string.concat(ownerTokens, ownerToken);
+        }
+        ownerTokens = string.concat(ownerTokens, "]");
+        string memory req = _curlyBrace(_formatPayload("balance_of_batch", ownerTokens));
+        bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(req));
+        bytes[] memory parseResponse = JsonPrecompile.extractAsBytesList(response, "balances");
+        balances = new uint256[](parseResponse.length);
+        for(uint256 i = 0; i < parseResponse.length; i++){
+            balances[i] = JsonPrecompile.extractAsUint256(parseResponse[i], "amount");
         }
     }
 

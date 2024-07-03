@@ -100,10 +100,15 @@ contract CW1155ERC1155PointerTest is Test {
     }
 
     function testBalanceOf() public {
+        bytes memory queryCall = bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall),
             abi.encode("{\"balance\":\"1\"}")
+        );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
@@ -120,36 +125,47 @@ contract CW1155ERC1155PointerTest is Test {
 
     function testBalanceOfBatch() public {
         vm.mockCall(
-            WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"}}")),
-            abi.encode("{\"balance\":\"1\"}")
+            ADDR_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("getSeiAddr(string)", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+            abi.encode(MockCallerSeiAddr)
         );
+        bytes memory queryCall = bytes("{\"balance_of_batch\":[{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"2\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"3\"}]}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"2\"}}")),
-            abi.encode("{\"balance\":\"2\"}")
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall),
+            abi.encode("{\"balances\":[ { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"1\", \"amount\": \"1\" }, { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"2\", \"amount\": \"2\" }, { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"3\", \"amount\": \"0\" } ]}")
         );
-        vm.mockCall(
+        vm.expectCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"3\"}}")),
-            abi.encode("{\"balance\":\"0\"}")
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall)
         );
+
+        bytes[] memory resp = new bytes[](3);
+        resp[0] = bytes("{\"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"1\", \"amount\": \"1\"}");
+        resp[1] = bytes("{\"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"2\", \"amount\": \"2\"}");
+        resp[2] = bytes("{\"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"3\", \"amount\": \"0\"}");
 
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"balance\":\"1\"}"), "balance"),
+            abi.encodeWithSignature("extractAsBytesList(bytes,string)",bytes("{\"balances\":[ { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"1\", \"amount\": \"1\" }, { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"2\", \"amount\": \"2\" }, { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"3\", \"amount\": \"0\" } ]}"), "balances"),
+            abi.encode(resp)
+        );
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsUint256(bytes,string)", resp[0], "amount"),
             abi.encode(1)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"balance\":\"2\"}"), "balance"),
+            abi.encodeWithSignature("extractAsUint256(bytes,string)", resp[1], "amount"),
             abi.encode(2)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"balance\":\"0\"}"), "balance"),
+            abi.encodeWithSignature("extractAsUint256(bytes,string)", resp[2], "amount"),
             abi.encode(0)
         );
+    
         address[] memory owners = new address[](3);
         uint256[] memory ids = new uint256[](3);
         owners[0] = MockCallerEVMAddr;
@@ -165,7 +181,7 @@ contract CW1155ERC1155PointerTest is Test {
         assertEq(pointer.balanceOfBatch(owners, ids), expectedResp);
     }
 
-    function testBatchBalanceOfBadLength() public {
+    function testBalanceOfBatchBadLength() public {
         uint256 idsLength = 1;
         uint256 valuesLength = 0;
         vm.expectRevert(
@@ -179,10 +195,15 @@ contract CW1155ERC1155PointerTest is Test {
     }
 
     function testUri() public {
+        bytes memory queryCall = bytes("{\"token_info\":{\"token_id\":\"1\"}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"token_info\":{\"token_id\":\"1\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall),
             abi.encode("{\"extension\": { \"animation_url\": null, \"attributes\": null, \"background_color\": null, \"description\": null, \"external_url\": null, \"image\": null, \"image_data\": null, \"name\": null, \"royalty_payment_address\": null, \"royalty_percentage\": null, \"youtube_url\": null }, \"token_uri\": \"test\" }")
+        );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall)
         );
         
         vm.mockCall(
@@ -195,16 +216,26 @@ contract CW1155ERC1155PointerTest is Test {
 
     function testIsApprovedForAll() public {
         // test response for approved operator
+        bytes memory queryCall1 = bytes("{\"is_approved_for_all\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"operator\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"is_approved_for_all\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"operator\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall1),
             abi.encode("{\"approved\":true}")
         );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall1)
+        );
         // test response for unapproved operator
+        bytes memory queryCall2 = bytes("{\"is_approved_for_all\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"operator\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\"}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"is_approved_for_all\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"operator\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall2),
             abi.encode("{\"approved\":false}")
+        );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall2)
         );
 
         assertEq(pointer.isApprovedForAll(MockCallerEVMAddr, MockOperatorEVMAddr), true);
@@ -212,20 +243,30 @@ contract CW1155ERC1155PointerTest is Test {
     }
 
     function testRoyaltyInfo() public {
+        bytes memory queryCall1 = bytes("{\"extension\":{\"msg\":{\"check_royalties\":{}}}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"extension\":{\"msg\":{\"check_royalties\":{}}}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall1),
             abi.encode("{\"royalty_payments\":true}")
+        );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall1)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
             abi.encodeWithSignature("extractAsBytes(bytes,string)", bytes("{\"royalty_payments\":true}"), "royalty_payments"),
             abi.encode("true")
         );
+        bytes memory queryCall2 = bytes("{\"extension\":{\"msg\":{\"royalty_info\":{\"token_id\":\"1\",\"sale_price\":\"1000\"}}}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"extension\":{\"msg\":{\"royalty_info\":{\"token_id\":\"1\",\"sale_price\":\"1000\"}}}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall2),
             abi.encode("{\"address\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"royalty_amount\":\"10\"}")
+        );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall2)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
@@ -248,10 +289,15 @@ contract CW1155ERC1155PointerTest is Test {
     }
 
     function testSafeTransferFrom() public {
+        bytes memory queryCall = bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall),
             abi.encode("{\"balance\":\"1\"}")
+        );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
@@ -268,11 +314,18 @@ contract CW1155ERC1155PointerTest is Test {
             abi.encodeWithSignature("getEvmAddr(string)", "sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe"),
             abi.encode(address(MockOperatorEVMAddr))
         );
+
+        bytes memory executeCall = bytes("{\"send\":{\"from\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"to\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"token_id\":\"1\",\"amount\":\"1\"}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, bytes("{\"send\":{\"from\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"to\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"token_id\":\"1\",\"amount\":\"1\"}}")),
+            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, executeCall),
             abi.encode(bytes(""))
         );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, executeCall, bytes("[]"))
+        );
+
         vm.expectEmit();
         emit TransferSingle(MockCallerEVMAddr, MockCallerEVMAddr, MockOperatorEVMAddr, 1, 1);
         vm.startPrank(MockCallerEVMAddr);
@@ -281,20 +334,30 @@ contract CW1155ERC1155PointerTest is Test {
     }
 
     function testSafeTransferFromWithOperator() public {
+        bytes memory queryCall1 = bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall1),
             abi.encode("{\"balance\":\"1\"}")
+        );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall1)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
             abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"balance\":\"1\"}"), "balance"),
             abi.encode(1)
         );
+        bytes memory queryCall2 = bytes("{\"is_approved_for_all\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"operator\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"is_approved_for_all\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"operator\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}}")),
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall2),
             abi.encode("{\"approved\":true}")
+        );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall2)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
@@ -311,11 +374,17 @@ contract CW1155ERC1155PointerTest is Test {
             abi.encodeWithSignature("getEvmAddr(string)", "sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe"),
             abi.encode(address(MockOperatorEVMAddr))
         );
+        bytes memory executeCall =  bytes("{\"send\":{\"from\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"to\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"token_id\":\"1\",\"amount\":\"1\"}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, bytes("{\"send\":{\"from\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"to\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"token_id\":\"1\",\"amount\":\"1\"}}")),
+            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress,executeCall),
             abi.encode(bytes(""))
         );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, executeCall, bytes("[]"))
+        );
+
         vm.expectEmit();
         emit TransferSingle(MockOperatorEVMAddr, MockCallerEVMAddr, MockOperatorEVMAddr, 1, 1);
         vm.startPrank(MockOperatorEVMAddr);
@@ -324,26 +393,36 @@ contract CW1155ERC1155PointerTest is Test {
     }
 
     function testSafeBatchTransferFrom() public {
+        bytes memory queryCall = bytes("{\"balance_of_batch\":[{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"},{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"2\"}]}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"1\"}}")),
-            abi.encode("{\"balance\":\"1\"}")
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall),
+            abi.encode("{\"balances\":[ { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"1\", \"amount\": \"1\" }, { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"2\", \"amount\": \"2\" } ]}")
+        );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, queryCall)
+        );
+        bytes[] memory resp = new bytes[](2);
+        resp[0] = bytes("{\"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"1\", \"amount\": \"1\"}");
+        resp[1] = bytes("{\"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"2\", \"amount\": \"2\"}");
+
+        vm.mockCall(
+            JSON_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("extractAsBytesList(bytes,string)",bytes("{\"balances\":[ { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"1\", \"amount\": \"1\" }, { \"owner\": \"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\", \"token_id\": \"2\", \"amount\": \"2\" } ]}"), "balances"),
+            abi.encode(resp)
         );
         vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"balance\":\"1\"}"), "balance"),
+            abi.encodeWithSignature("extractAsUint256(bytes,string)", resp[0], "amount"),
             abi.encode(1)
         );
         vm.mockCall(
-            WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"balance_of\":{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"token_id\":\"2\"}}")),
-            abi.encode("{\"balance\":\"2\"}")
-        );
-        vm.mockCall(
             JSON_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("extractAsUint256(bytes,string)", bytes("{\"balance\":\"2\"}"), "balance"),
+            abi.encodeWithSignature("extractAsUint256(bytes,string)", resp[1], "amount"),
             abi.encode(2)
         );
+    
         vm.mockCall(
             ADDR_PRECOMPILE_ADDRESS,
             abi.encodeWithSignature("getEvmAddr(string)", "sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw"),
@@ -354,11 +433,18 @@ contract CW1155ERC1155PointerTest is Test {
             abi.encodeWithSignature("getEvmAddr(string)", "sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe"),
             abi.encode(address(MockOperatorEVMAddr))
         );
+
+        bytes memory executeCall = bytes("{\"send_batch\":{\"from\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"to\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"batch\":[{\"token_id\":\"1\",\"amount\":\"1\"},{\"token_id\":\"2\",\"amount\":\"2\"}]}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, bytes("{\"send\":{\"from\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\",\"to\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\",\"batch\":[{\"token_id\":\"1\",\"amount\":\"1\"},{\"token_id\":\"2\",\"amount\":\"2\"}]}}")),
+            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, executeCall),
             abi.encode(bytes(""))
         );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, executeCall, bytes("[]"))
+        );
+
         uint256[] memory ids = new uint256[](2);
         uint256[] memory amounts = new uint256[](2);
         ids[0] = 1;
@@ -373,10 +459,15 @@ contract CW1155ERC1155PointerTest is Test {
     }
 
     function testSetApprovalForAll() public {
+        bytes memory executeCall = bytes("{\"approve_all\":{\"operator\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}}");
         vm.mockCall(
             WASMD_PRECOMPILE_ADDRESS,
-            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, bytes("{\"approval_all\":{\"operator\":\"sei1vldxw5dy5k68hqr4d744rpg9w8cqs54x4asdqe\"}}"), bytes("[]")),
+            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, executeCall, bytes("[]")),
             abi.encode(bytes(""))
+        );
+        vm.expectCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, executeCall, bytes("[]"))
         );
         vm.mockCall(
             ADDR_PRECOMPILE_ADDRESS,

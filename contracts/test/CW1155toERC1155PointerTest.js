@@ -42,7 +42,6 @@ describe("CW1155 to ERC1155 Pointer", function () {
 
         it("should batch query the balance of several owners' tokens", async function () {
             const result = await queryWasm(pointer, "balance_of_batch", [{"owner": admin.seiAddress, token_id: "4"}, {"owner": accounts[0].seiAddress, token_id: "14"}]);
-            console.log(result)
             expect(result).to.deep.equal({data:{
                 balances: [
                     { token_id: "4", owner: admin.seiAddress, amount: "11" },
@@ -77,11 +76,10 @@ describe("CW1155 to ERC1155 Pointer", function () {
         });
 
         it("should fetch all information about an NFT", async function () {
-            const result = await queryWasm(pointer, "all_token_info", { token_id: "1" });
-            expect(result.data.token_id).to.equal('1');
-            expect(result.data.info.token_uri).to.equal('https://example.com/{id}');
-            expect(result.data.info.extension.royalty_percentage).to.equal(5);
-            expect(result.data.info.extension.royalty_payment_address).to.equal(admin.seiAddress);
+            const result = await queryWasm(pointer, "token_info", { token_id: "1" });
+            expect(result.data.token_uri).to.equal('https://example.com/{id}');
+            expect(result.data.extension.royalty_percentage).to.equal(5);
+            expect(result.data.extension.royalty_payment_address).to.equal(admin.seiAddress);
         });
     })
 
@@ -97,7 +95,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     { token_id: "3", owner: accounts[1].seiAddress, amount: "11" },
                 ]
             }});
-            await executeWasm(pointer, {
+            const res = await executeWasm(pointer, {
                 send: {
                     from: admin.seiAddress,
                     to: accounts[1].seiAddress,
@@ -105,6 +103,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     amount: "5",
                 }
             });
+            expect(res.code).to.equal(0);
             ownerResult = await queryWasm(pointer, "balance_of_batch", [
                 { owner: admin.seiAddress, token_id: "3" },
                 { owner: accounts[1].seiAddress, token_id: "3" },
@@ -139,7 +138,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     { token_id: "0", owner: accounts[1].seiAddress, amount: "0" },
                 ]
             }});
-            await executeWasm(pointer, {
+            const res = await executeWasm(pointer, {
                 send: {
                     from: accounts[1].seiAddress,
                     to: admin.seiAddress,
@@ -147,6 +146,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     amount: "5",
                 }
             });
+            expect(res.code).to.not.equal(0);
             ownerResult = await queryWasm(pointer, "balance_of_batch", [
                 { owner: admin.seiAddress, token_id: "0" },
                 { owner: accounts[1].seiAddress, token_id: "0" },
@@ -174,7 +174,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     { token_id: "4", owner: accounts[1].seiAddress, amount: "12" },
                 ]
             }});
-            await executeWasm(pointer, {
+            const res = await executeWasm(pointer, {
                 send_batch: {
                     from: admin.seiAddress,
                     to: accounts[1].seiAddress,
@@ -184,6 +184,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     ],
                 }
             });
+            expect(res.code).to.equal(0);
             ownerResult = await queryWasm(pointer, "balance_of_batch", [
                 { owner: admin.seiAddress, token_id: "3" },
                 { owner: accounts[1].seiAddress, token_id: "3" },
@@ -201,6 +202,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
         });
 
         it("should set an operator for all tokens of an owner", async function () {
+            expect(await erc1155.isApprovedForAll(admin.evmAddress, accounts[1].evmAddress)).to.be.false;
             await executeWasm(pointer, { approve_all: { operator: accounts[1].seiAddress }});
             expect(await erc1155.isApprovedForAll(admin.evmAddress, accounts[1].evmAddress)).to.be.true
             await executeWasm(pointer, { revoke_all: { operator: accounts[1].seiAddress }});

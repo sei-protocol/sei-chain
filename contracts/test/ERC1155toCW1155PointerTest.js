@@ -24,11 +24,12 @@ describe("ERC1155 to CW1155 Pointer", function () {
         await executeWasm(cw1155Address, {mint: {recipient: accounts[0].seiAddress, msg: {token_id: "1", amount: "11"}}});
         await executeWasm(cw1155Address, {mint: {recipient: accounts[1].seiAddress, msg: {token_id: "2", amount: "12", token_uri: "uri2"}}});
         await executeWasm(cw1155Address, {mint: {recipient: admin.seiAddress, msg: {token_id: "2", amount: "13"}}});
+        await executeWasm(cw1155Address, {mint: {recipient: accounts[1].seiAddress, msg: {token_id: "3", amount: "14", token_uri: "uri3"}}});
 
         const pointerAddr = await deployErc1155PointerForCw1155(hre.ethers.provider, cw1155Address)
         const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC1155, hre.ethers.provider);
         pointerAcc0 = contract.connect(accounts[0].signer)
-        pointerAcc1 = contract.connect(accounts[1].signer) 
+        pointerAcc1 = contract.connect(accounts[1].signer)
     })
 
     describe("validation", function(){
@@ -92,11 +93,11 @@ describe("ERC1155 to CW1155 Pointer", function () {
             expect(balance0).to.equal(11);
             let balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress, 1);
             expect(balance1).to.equal(0);
-            transferTxResp = await pointerAcc1.safeTransferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 1, 5, '0x');
+            transferTxResp = await pointerAcc0.safeTransferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 1, 5, '0x');
             await transferTxResp.wait();
             await expect(transferTxResp)
                 .to.emit(pointerAcc0, 'TransferSingle')
-                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, 1, 5);
+                .withArgs(accounts[0].evmAddress, accounts[0].evmAddress, accounts[1].evmAddress, 1, 5);
             balance0 = await pointerAcc0.balanceOf(accounts[0].evmAddress, 1);
             expect(balance0).to.equal(6);
             balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress, 1);
@@ -112,35 +113,35 @@ describe("ERC1155 to CW1155 Pointer", function () {
         });
 
         it("batch transfer from", async function () {
-            const tids = [1, 2];
+            const tids = [3, 2];
             const tamounts = [5, 4];
-            let balances = await pointerAcc0.balanceOfBatch(
-                [admin.evmAddress, admin.evmAddress, accounts[1].evmAddress, accounts[1].evmAddress],
+            let balances = await pointerAcc1.balanceOfBatch(
+                [accounts[1].evmAddress, accounts[1].evmAddress, accounts[0].evmAddress, accounts[0].evmAddress],
                 [...tids, ...tids]
             );
-            expect(balances[0]).to.equal(10);
-            expect(balances[1]).to.equal(13);
+            expect(balances[0]).to.equal(14);
+            expect(balances[1]).to.equal(12);
             expect(balances[2]).to.equal(0);
-            expect(balances[3]).to.equal(12);
+            expect(balances[3]).to.equal(0);
             transferTxResp = await pointerAcc1.safeBatchTransferFrom(
-                admin.evmAddress,
                 accounts[1].evmAddress,
+                accounts[0].evmAddress,
                 tids,
                 tamounts,
                 '0x'
             );
             await transferTxResp.wait();
             await expect(transferTxResp)
-                .to.emit(pointerAcc0, 'TransferBatch')
-                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, tids, tamounts);
-            balances = await pointerAcc0.balanceOfBatch(
-                [admin.evmAddress, admin.evmAddress, accounts[1].evmAddress, accounts[1].evmAddress],
+                .to.emit(pointerAcc1, 'TransferBatch')
+                .withArgs(accounts[1].evmAddress, accounts[1].evmAddress, accounts[0].evmAddress, tids, tamounts);
+            balances = await pointerAcc1.balanceOfBatch(
+                [accounts[1].evmAddress, accounts[1].evmAddress, accounts[0].evmAddress, accounts[0].evmAddress],
                 [...tids, ...tids]
             );
-            expect(balances[0]).to.equal(5);
-            expect(balances[1]).to.equal(9);
+            expect(balances[0]).to.equal(9);
+            expect(balances[1]).to.equal(8);
             expect(balances[2]).to.equal(5);
-            expect(balances[3]).to.equal(16);
+            expect(balances[3]).to.equal(4);
         });
 
         it("set approval for all", async function () {

@@ -260,6 +260,9 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case evmbindings.ERC721RoyaltyInfoType:
 		c := parsedQuery.ERC721RoyaltyInfo
 		return qp.evmHandler.HandleERC721RoyaltyInfo(ctx, c.Caller, c.ContractAddress, c.TokenID, c.SalePrice)
+	case evmbindings.ERC1155TransferType:
+		c := parsedQuery.ERC1155TransferPayload
+		return qp.evmHandler.HandleERC1155TransferPayload(ctx, c.From, c.Recipient, c.TokenID, c.Amount)
 	case evmbindings.ERC1155BatchTransferType:
 		c := parsedQuery.ERC1155BatchTransferPayload
 		return qp.evmHandler.HandleERC1155BatchTransferPayload(ctx, c.From, c.Recipient, c.TokenIDs, c.Amounts)

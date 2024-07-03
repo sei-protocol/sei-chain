@@ -33,22 +33,17 @@ impl CustomQuery for EvmQueryWrapper {}
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EvmQuery {
-    Erc1155TransferSinglePayload {
+    Erc1155TransferPayload {
         from: String,
         recipient: String,
         token_id: String,
         amount: Uint128,
     },
-    Erc1155TransferBatchPayload {
+    Erc1155BatchTransferPayload {
         from: String,
         recipient: String,
         token_ids: Vec<String>,
         amounts: Vec<Uint128>,
-    },
-    // todo - is this implemented in erc1155?
-    Erc1155ApprovePayload {
-        spender: String,
-        token_id: String,
     },
     Erc1155BalanceOf {
         caller: String,
@@ -61,12 +56,6 @@ pub enum EvmQuery {
         contract_address: String,
         accounts: Vec<String>,
         token_ids: Vec<String>,
-    },
-    // todo - is this implemented in erc1155?
-    Erc1155Approved {
-        caller: String,
-        contract_address: String,
-        token_id: String,
     },
     Erc1155IsApprovedForAll {
         caller: String,
@@ -87,7 +76,6 @@ pub enum EvmQuery {
         contract_address: String,
         token_id: String,
     },
-    // todo - quantity field?
     Erc1155RoyaltyInfo {
         caller: String,
         contract_address: String,
@@ -103,6 +91,11 @@ pub enum EvmQuery {
         caller: String,
         contract_address: String,
     },
+    Erc1155TotalSupplyForToken {
+        caller: String,
+        contract_address: String,
+        token_id: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -112,12 +105,12 @@ pub struct ErcPayloadResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc1155BalanceOfResponse {
-    pub amount: String,
+    pub balance: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Erc1155BalanceOfBatchResponse {
-    pub amounts: Vec<Uint128>,
+    pub balances: Vec<Uint128>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
