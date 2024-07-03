@@ -312,6 +312,7 @@ func TestHandleERC1155IsApprovedForAll(t *testing.T) {
 	res2, err := h.HandleERC1155IsApprovedForAll(ctx, addr1.String(), contractAddr.String(), addr2.String(), addr2.String())
 	require.Nil(t, err)
 	require.NotEmpty(t, res2)
+	require.Equal(t, `{"is_approved":false}`, string(res2))
 }
 
 func TestHandleERC1155BalanceOf(t *testing.T) {
@@ -327,6 +328,8 @@ func TestHandleERC1155BalanceOf(t *testing.T) {
 	res2, err := h.HandleERC1155BalanceOf(ctx, addr1.String(), contractAddr.String(), addr1.String(), "1")
 	require.Nil(t, err)
 	require.NotEmpty(t, res2)
+	match, _ := regexp.MatchString(`{"balance":"\d+"}`, string(res2))
+	require.True(t, match)
 }
 
 func TestHandleERC1155BalanceOfBatch(t *testing.T) {

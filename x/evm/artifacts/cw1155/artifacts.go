@@ -12,8 +12,8 @@ import (
 
 const CurrentVersion uint16 = 1
 
-// //go:embed CW1155ERC1155Pointer.abi
-// //go:embed CW1155ERC1155Pointer.bin
+//go:embed CW1155ERC1155Pointer.abi
+//go:embed CW1155ERC1155Pointer.bin
 var f embed.FS
 
 var cachedBin []byte

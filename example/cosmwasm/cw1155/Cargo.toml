@@ -22,6 +22,7 @@ cw1155 = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "3751bf6
 cw2981-royalties = "0.18.0"
 cw721 = "0.18.0"
 cw721-base = "0.18.0"
+itertools = "0.13"
 schemars = "0.8.16"
 serde = "1.0.195"
 thiserror = "1.0.56"
