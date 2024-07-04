@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -267,15 +268,24 @@ func CmdQueryERC721Payload() *cobra.Command {
 			var bz []byte
 			switch args[0] {
 			case "approve":
+				if len(args) != 3 {
+					return errors.New("expected usage: `seid tx evm erc721-payload approve [spender] [tokenId]`")
+				}
 				spender := common.HexToAddress(args[1])
 				id, _ := sdk.NewIntFromString(args[2])
 				bz, err = abi.Pack(args[0], spender, id.BigInt())
 			case "transferFrom":
+				if len(args) != 4 {
+					return errors.New("expected usage: `seid tx evm erc721-payload transferFrom [from] [to] [tokenId]`")
+				}
 				from := common.HexToAddress(args[1])
 				to := common.HexToAddress(args[2])
 				id, _ := sdk.NewIntFromString(args[3])
 				bz, err = abi.Pack(args[0], from, to, id.BigInt())
 			case "setApprovalForAll":
+				if len(args) != 3 {
+					return errors.New("expected usage: `seid tx evm erc721-payload setApprovalForAll [spender] [ture|false]`")
+				}
 				op := common.HexToAddress(args[1])
 				approved := args[2] == "true"
 				bz, err = abi.Pack(args[0], op, approved)
@@ -308,17 +318,48 @@ func CmdQueryERC1155Payload() *cobra.Command {
 				return err
 			}
 			var bz []byte
-			switch args[0] { // TODO: fill in with key ERC1155 functions
-			case "approve":
-				spender := common.HexToAddress(args[1])
-				id, _ := sdk.NewIntFromString(args[2])
-				bz, err = abi.Pack(args[0], spender, id.BigInt())
-			case "transferFrom":
+			switch args[0] {
+			case "safeTransferFrom":
+				if len(args) != 6 {
+					return errors.New("expected usage: `seid tx evm erc1155-payload safeTransferFrom [from] [to] [tokenId] [amount] [data]`")
+				}
 				from := common.HexToAddress(args[1])
 				to := common.HexToAddress(args[2])
 				id, _ := sdk.NewIntFromString(args[3])
-				bz, err = abi.Pack(args[0], from, to, id.BigInt())
+				amt, _ := sdk.NewIntFromString(args[4])
+				bz, err = abi.Pack(args[0], from, to, id.BigInt(), amt.BigInt(), []byte(args[5]))
+			case "safeBatchTransferFrom":
+				if len(args) != 6 {
+					return errors.New("expected usage: `seid tx evm erc1155-payload safeBatchTransferFrom [from] [to] [tokenIds] [amounts] [data]`")
+				}
+				from := common.HexToAddress(args[1])
+				to := common.HexToAddress(args[2])
+				idsRaw := strings.Split(strings.ReplaceAll(strings.ReplaceAll(args[3], "[", ""), "]", ""), ",")
+				var ids []*big.Int
+				for _, n := range idsRaw {
+					id, ok := sdk.NewIntFromString(strings.Trim(n, " "))
+					if !ok {
+						err = errors.New("cannot parse array of int from: " + args[3])
+						break
+					}
+					ids = append(ids, id.BigInt())
+				}
+				amtsRaw := strings.Split(strings.ReplaceAll(strings.ReplaceAll(args[4], "[", ""), "]", ""), ",")
+				var amts []*big.Int
+				for _, n := range amtsRaw {
+					amt, ok := sdk.NewIntFromString(strings.Trim(n, " "))
+					if !ok {
+						err = errors.New("cannot parse array of int from: " + args[4])
+						break
+					}
+					amts = append(amts, amt.BigInt())
+				}
+				fmt.Println(ids, amts)
+				bz, err = abi.Pack(args[0], from, to, ids, amts, []byte(args[5]))
 			case "setApprovalForAll":
+				if len(args) != 3 {
+					return errors.New("expected usage: `seid tx evm erc1155-payload setApprovalForAll [spender] [ture|false]`")
+				}
 				op := common.HexToAddress(args[1])
 				approved := args[2] == "true"
 				bz, err = abi.Pack(args[0], op, approved)
