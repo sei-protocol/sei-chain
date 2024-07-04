@@ -14,8 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
+	"github.com/sei-protocol/sei-db/ss"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -25,14 +27,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-
-	"github.com/sei-protocol/sei-chain/aclmapping"
-	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
-	appparams "github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/app/upgrades"
-	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
-	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/wasmbinding"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -47,20 +41,16 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/cosmos-sdk/x/auth"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
-	"github.com/cosmos/cosmos-sdk/x/authz"
-	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
-	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
-
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	"github.com/cosmos/cosmos-sdk/x/auth"
+	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
@@ -68,6 +58,9 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
 	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
+	"github.com/cosmos/cosmos-sdk/x/authz"
+	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
+	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -118,11 +111,13 @@ import (
 	ibcporttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
-	"github.com/sei-protocol/sei-chain/x/mint"
-	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
-	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
-	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-
+	"github.com/sei-protocol/sei-chain/aclmapping"
+	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
+	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/upgrades"
+	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
@@ -130,6 +125,11 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/mint"
+	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
+	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	seidb "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -166,6 +166,8 @@ import (
 
 	// unnamed import of statik for openapi/swagger UI support
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
+
+	ssconfig "github.com/sei-protocol/sei-db/config"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -264,7 +266,8 @@ var (
 	// EmptyAclmOpts defines a type alias for a list of wasm options.
 	EmptyACLOpts []aclkeeper.Option
 	// EnableOCC allows tests to override default OCC enablement behavior
-	EnableOCC = true
+	EnableOCC       = true
+	EmptyAppOptions []AppOption
 )
 
 var (
@@ -382,7 +385,11 @@ type App struct {
 	encodingConfig        appparams.EncodingConfig
 	evmRPCConfig          evmrpc.Config
 	lightInvarianceConfig LightInvarianceConfig
+
+	receiptStore seidb.StateStore
 }
+
+type AppOption func(*App)
 
 // New returns a reference to an initialized blockchain app
 func New(
@@ -400,6 +407,7 @@ func New(
 	appOpts servertypes.AppOptions,
 	wasmOpts []wasm.Option,
 	aclOpts []aclkeeper.Option,
+	appOptions []AppOption,
 	baseAppOptions ...func(*baseapp.BaseApp),
 ) *App {
 	appCodec := encodingConfig.Marshaler
@@ -407,6 +415,7 @@ func New(
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
 	bAppOptions := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
+
 	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
@@ -423,8 +432,8 @@ func New(
 		tokenfactorytypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
-	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey, banktypes.DeferredCacheStoreKey, evmtypes.MemStoreKey, oracletypes.MemStoreKey)
+	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
 		BaseApp:           bApp,
@@ -440,6 +449,11 @@ func New(
 		metricCounter:     &map[string]float32{},
 		encodingConfig:    encodingConfig,
 	}
+
+	for _, option := range appOptions {
+		option(app)
+	}
+
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
 	// set the BaseApp's parameter store
@@ -596,9 +610,26 @@ func New(
 		wasmOpts...,
 	)
 
-	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
-		app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper,
-		app.TransferKeeper, wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
+	ssConfig := ssconfig.DefaultStateStoreConfig()
+	ssConfig.DedicatedChangelog = true
+	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
+	ssConfig.DBDirectory = receiptStorePath
+	ssConfig.KeepLastVersion = false
+	if app.receiptStore == nil {
+		app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssConfig)
+		if err != nil {
+			panic(fmt.Sprintf("error while creating receipt store: %s", err))
+		}
+	}
+	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
+		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
+		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+
+	bApp.SetPreCommitHandler(app.HandlePreCommit)
+	bApp.SetCloseHandler(app.HandleClose)
+
 	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
@@ -967,7 +998,22 @@ func New(
 	app.HardForkManager = upgrades.NewHardForkManager(app.ChainID)
 	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, upgrades.ChainIDSeiHardForkTest, app.WasmKeeper))
 
+	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
+
 	return app
+}
+
+// HandlePreCommit happens right before the block is committed
+func (app *App) HandlePreCommit(ctx sdk.Context) error {
+	return app.EvmKeeper.FlushTransientReceipts(ctx)
+}
+
+// Close closes all items that needs closing (called by baseapp)
+func (app *App) HandleClose() error {
+	if app.receiptStore != nil {
+		return app.receiptStore.Close()
+	}
+	return nil
 }
 
 // Add (or remove) keepers when they are introduced / removed in different versions
@@ -1545,6 +1591,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 
+	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
 
@@ -1554,6 +1601,11 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
+		if emsg := evmtypes.GetEVMTransactionMessage(prioritizedTypedTxs[relativePrioritizedIndex]); emsg != nil && !emsg.IsAssociateTx() {
+			evmTxs[originalIndex] = emsg
+		} else {
+			evmTxs[originalIndex] = nil
+		}
 	}
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
@@ -1566,8 +1618,14 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
+		if emsg := evmtypes.GetEVMTransactionMessage(otherTypedTxs[relativeOtherIndex]); emsg != nil && !emsg.IsAssociateTx() {
+			evmTxs[originalIndex] = emsg
+		} else {
+			evmTxs[originalIndex] = nil
+		}
 	}
 	app.EvmKeeper.SetTxResults(txResults)
+	app.EvmKeeper.SetMsgs(evmTxs)
 
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)

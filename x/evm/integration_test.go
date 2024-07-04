@@ -178,6 +178,8 @@ func TestCW721RoyaltiesPointerToERC721Royalties(t *testing.T) {
 	require.Nil(t, err)
 	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
+	err = k.FlushTransientReceipts(ctx)
+	require.NoError(t, err)
 	receipt, err := k.GetReceipt(ctx, tx.Hash())
 	require.Nil(t, err)
 	require.NotEmpty(t, receipt.ContractAddress)

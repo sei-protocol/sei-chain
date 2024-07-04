@@ -70,8 +70,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 				ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
 				telemetry.IncrCounter(1, types.ModuleName, "panics")
 			}
-			server.AppendErrorToEvmTxDeferredInfo(ctx, tx.Hash(), fmt.Sprintf("%s", pe))
-
 			panic(pe)
 		}
 		if err != nil {
@@ -255,7 +253,7 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 
 	receipt.From = origMsg.Derived.SenderEVMAddr.Hex()
 
-	return receipt, server.SetReceipt(ctx, tx.Hash(), receipt)
+	return receipt, server.SetTransientReceipt(ctx, tx.Hash(), receipt)
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {
