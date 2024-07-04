@@ -74,6 +74,7 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         string memory req = _curlyBrace(_formatPayload("balance_of_batch", ownerTokens));
         bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(req));
         bytes[] memory parseResponse = JsonPrecompile.extractAsBytesList(response, "balances");
+        require(parseResponse.length == accounts.length, "Invalid balance_of_batch response");
         balances = new uint256[](parseResponse.length);
         for(uint256 i = 0; i < parseResponse.length; i++){
             balances[i] = JsonPrecompile.extractAsUint256(parseResponse[i], "amount");
@@ -169,7 +170,6 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         require(to != address(0), "ERC1155: transfer to the zero address");
         require(msg.sender == from || isApprovedForAll(from, msg.sender), "ERC1155: caller is not approved to transfer");
         require(ids.length == amounts.length, "ERC1155: ids and amounts length mismatch");
-        require(ids.length > 0, "ERC1155: no tokens to transfer");
         address[] memory batchFrom = new address[](ids.length);
         for(uint256 i = 0; i < ids.length; i++){
             batchFrom[i] = from;
