@@ -344,11 +344,11 @@ require (
 )
 
 replace (
-	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.1.6-0.20240628152255-2bfa420e1aea
+	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.1.6-0.20240705204853-530874e3d241
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.23-0.20240627143224-e9ece1fe733c
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.23-0.20240705205022-c1d67504b815
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.9
-	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.0.0-20240627144046-05e91c0a6782
+	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.0.0-20240705205125-a57667f101f8
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-22
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.38

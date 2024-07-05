@@ -72,6 +72,32 @@ func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingCo
 	return genState.Validate()
 }
 
+func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
+	genesisStateCh := make(chan types.GenesisState)
+	var err error
+	doneCh := make(chan struct{})
+	go func() {
+		err = types.ValidateStream(genesisStateCh)
+		doneCh <- struct{}{}
+	}()
+	go func() {
+		defer close(genesisStateCh)
+		for genesis := range genesisCh {
+			var data types.GenesisState
+			err_ := cdc.UnmarshalJSON(genesis, &data)
+			if err_ != nil {
+				err = err_
+				doneCh <- struct{}{}
+				return
+			}
+			genesisStateCh <- data
+		}
+	}()
+	<-doneCh
+	fmt.Println("done with evm validating genesis stream")
+	return err
+}
+
 // RegisterRESTRoutes registers the capability module's REST service handlers.
 func (AppModuleBasic) RegisterRESTRoutes(_ client.Context, _ *mux.Router) {}
 
