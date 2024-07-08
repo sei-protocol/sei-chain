@@ -1036,8 +1036,8 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
-
-	if upgradeInfo.Name == "v6.9.0" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	// TODO: change this upgrade name if the planned upgrade version number ends up changing more
+	if upgradeInfo.Name == "v5.7.0" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		dexStoreKeyName := "dex"
 		storeUpgrades := storetypes.StoreUpgrades{
 			Deleted: []string{dexStoreKeyName},
