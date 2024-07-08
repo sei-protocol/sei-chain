@@ -441,9 +441,9 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 				return
 			}
 			if err != nil {
-				require.Equal(t, tt.wantErrMsg, err.Error())
-			}
-			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotRet))
+			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
 			if gotRemainingGas != tt.wantRemainingGas {
@@ -550,9 +550,9 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 				return
 			}
 			if err != nil {
-				require.Equal(t, tt.wantErrMsg, err.Error())
-			}
-			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotRet))
+			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
 			if gotRemainingGas != tt.wantRemainingGas {
@@ -674,9 +674,9 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 				return
 			}
 			if err != nil {
-				require.Equal(t, tt.wantErrMsg, err.Error())
-			}
-			if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotRet))
+			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
 				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
 			if gotRemainingGas != tt.wantRemainingGas {
