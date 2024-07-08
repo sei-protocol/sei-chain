@@ -157,7 +157,7 @@ func (gs GenesisState) Validate() error {
 	}
 
 	for j, cc := range gs.ClientsConsensus {
-		if j == 0 {
+		if j == 0 || cc.ClientId == "07-tendermint-0" {
 			continue
 		}
 		// check that consensus state is for a client in the genesis clients list
