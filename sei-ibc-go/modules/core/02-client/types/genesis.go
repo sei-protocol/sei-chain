@@ -174,6 +174,7 @@ func (gs GenesisState) Validate() error {
 			}
 
 			if err := cs.ValidateBasic(); err != nil {
+				fmt.Printf("consensus state: %+v\n", cs)
 				return fmt.Errorf("invalid client consensus state %v clientID %s index %d: %w", cs, cc.ClientId, i, err)
 			}
 
