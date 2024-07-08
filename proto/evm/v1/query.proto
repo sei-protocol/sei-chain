@@ -1,0 +1,105 @@
+syntax = "proto3";
+package sei.evm.v1;
+
+import "google/api/annotations.proto";
+import "evm/v1/enums.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
+
+// Query defines the gRPC querier service.
+service Query {
+    //  This endpoint is deprecated and will be removed in the future. Please use the `/sei/evm/v1/sei_address` instead.
+    rpc deprecated_SeiAddressByEVMAddress (QuerySeiAddressByEVMAddressRequest) returns (QuerySeiAddressByEVMAddressResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/sei_address";
+        option deprecated = true;
+    }
+    // SeiAddressByEVMAddress returns the sei cosmos address associated with an EVM address.
+    rpc SeiAddressByEVMAddress(QuerySeiAddressByEVMAddressRequest) returns (QuerySeiAddressByEVMAddressResponse) {
+        option (google.api.http).get = "/sei/evm/v1/sei_address";
+    }
+
+    //  This endpoint is deprecated and will be removed in the future. Please use the `/sei/evm/v1/evm_address` instead.
+    rpc deprecated_EVMAddressBySeiAddress (QueryEVMAddressBySeiAddressRequest) returns (QueryEVMAddressBySeiAddressResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/evm_address";
+        option deprecated = true;
+    }
+
+    // EVMAddressBySeiAddress returns the EVM address associated with the given sei cosmos address.
+    rpc EVMAddressBySeiAddress (QueryEVMAddressBySeiAddressRequest) returns (QueryEVMAddressBySeiAddressResponse) {
+        option (google.api.http).get = "/sei/evm/v1/evm_address";
+    }
+
+    //  This endpoint is deprecated and will be removed in the future. Please use the `/sei/evm/v1/static_call` instead.
+    rpc deprecated_StaticCall(QueryStaticCallRequest) returns (QueryStaticCallResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/static_call";
+        option deprecated = true;
+    }
+    rpc StaticCall(QueryStaticCallRequest) returns (QueryStaticCallResponse) {
+        option (google.api.http).get = "/sei/evm/v1/static_call";
+    }
+
+    // This endpoint is deprecated and will be removed in the future. Please use the `/sei/evm/v1/pointer` instead.
+    rpc deprecated_Pointer(QueryPointerRequest) returns (QueryPointerResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/pointer";
+        option deprecated = true;
+    }
+    rpc Pointer(QueryPointerRequest) returns (QueryPointerResponse) {
+        option (google.api.http).get = "/sei/evm/v1/pointer";
+    }
+
+    // This endpoint is deprecated and will be removed in the future. Please use the `/sei/evm/v1/pointer_version` instead.
+    rpc deprecated_PointerVersion(QueryPointerVersionRequest) returns (QueryPointerVersionResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/pointer_version";
+        option deprecated = true;
+    }
+    rpc PointerVersion(QueryPointerVersionRequest) returns (QueryPointerVersionResponse) {
+        option (google.api.http).get = "/sei/evm/v1/pointer_version";
+    }
+}
+
+message QuerySeiAddressByEVMAddressRequest {
+    string evm_address = 1;
+}
+
+message QuerySeiAddressByEVMAddressResponse {
+    string sei_address = 1;
+    bool associated = 2;
+}
+
+message QueryEVMAddressBySeiAddressRequest {
+    string sei_address = 1;
+}
+
+message QueryEVMAddressBySeiAddressResponse {
+    string evm_address = 1;
+    bool associated = 2;
+}
+
+message QueryStaticCallRequest {
+    bytes data = 1;
+    string to = 2;
+}
+
+message QueryStaticCallResponse {
+    bytes data = 1;
+}
+
+message QueryPointerRequest {
+    PointerType pointer_type = 1;
+    string pointee = 2;
+}
+
+message QueryPointerResponse {
+    string pointer = 1;
+    uint32 version = 2;
+    bool exists = 3;
+}
+
+message QueryPointerVersionRequest {
+    PointerType pointer_type = 1;
+}
+
+message QueryPointerVersionResponse {
+    uint32 version = 1;
+    uint64 cw_code_id = 2;
+}

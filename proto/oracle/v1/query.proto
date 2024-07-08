@@ -1,0 +1,237 @@
+syntax = "proto3";
+package sei.oracle.v1;
+
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "oracle/v1/oracle.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/oracle/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/oracle/v1/denoms/{denom}/exchange_rate` instead.
+  rpc deprecated_ExchangeRate(QueryExchangeRateRequest) returns (QueryExchangeRateResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/{denom}/exchange_rate";
+    option deprecated = true;
+  }
+  // ExchangeRate returns exchange rate of a denom
+  rpc ExchangeRate(QueryExchangeRateRequest) returns (QueryExchangeRateResponse) {
+    option (google.api.http).get = "/sei/oracle/v1/denoms/{denom}/exchange_rate";
+  }
+
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/oracle/v1/denoms/exchange_rates` instead.
+  rpc deprecated_ExchangeRates(QueryExchangeRatesRequest) returns (QueryExchangeRatesResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/exchange_rates";
+    option deprecated = true;
+  }
+  // ExchangeRates returns exchange rates of all denoms
+  rpc ExchangeRates(QueryExchangeRatesRequest) returns (QueryExchangeRatesResponse) {
+    option (google.api.http).get = "/sei/oracle/v1/denoms/exchange_rates";
+  }
+
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/oracle/v1/denoms/actives` instead.
+  rpc deprecated_Actives(QueryActivesRequest) returns (QueryActivesResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/actives";
+    option deprecated = true;
+  }
+  // Actives returns all active denoms
+  rpc Actives(QueryActivesRequest) returns (QueryActivesResponse) {
+    option (google.api.http).get = "/sei/oracle/v1/denoms/actives";
+  }
+
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/oracle/v1/denoms/vote_targets` instead.
+  rpc deprecated_VoteTargets(QueryVoteTargetsRequest) returns (QueryVoteTargetsResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/vote_targets";
+    option deprecated = true;
+  }
+  // VoteTargets returns all vote target denoms
+  rpc VoteTargets(QueryVoteTargetsRequest) returns (QueryVoteTargetsResponse) {
+    option (google.api.http).get = "/sei/oracle/v1/denoms/vote_targets";
+  }
+
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/oracle/v1/denoms/price_snapshot_history` instead.
+  rpc deprecated_PriceSnapshotHistory(QueryPriceSnapshotHistoryRequest) returns (QueryPriceSnapshotHistoryResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/price_snapshot_history";
+    option deprecated = true;
+  }
+  // PriceSnapshotHistory returns the history of price snapshots for all assets
+  rpc PriceSnapshotHistory(QueryPriceSnapshotHistoryRequest) returns (QueryPriceSnapshotHistoryResponse) {
+    option (google.api.http).get = "/sei/oracle/v1/denoms/price_snapshot_history";
+  }
+
+  //  This endpoint is deprecated and will be removed in the future. Please use the `/sei/oracle/v1/denoms/twaps/{lookback_seconds}` instead.
+  rpc deprecated_Twaps(QueryTwapsRequest) returns (QueryTwapsResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/denoms/twaps/{lookback_seconds}";
+    option deprecated = true;
+  }
+  rpc Twaps(QueryTwapsRequest) returns (QueryTwapsResponse) {
+    option (google.api.http).get = "/sei/oracle/v1/denoms/twaps/{lookback_seconds}";
+  }
+
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/oracle/v1/validators/{validator_addr}/feeder` instead.
+  rpc deprecated_FeederDelegation(QueryFeederDelegationRequest) returns (QueryFeederDelegationResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/feeder";
+    option deprecated = true;
+  }
+  // FeederDelegation returns feeder delegation of a validator
+  rpc FeederDelegation(QueryFeederDelegationRequest) returns (QueryFeederDelegationResponse) {
+    option (google.api.http).get = "/sei/oracle/v1/validators/{validator_addr}/feeder";
+  }
+
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/oracle/v1/validators/{validator_addr}/vote_penalty_counter` instead.
+  rpc deprecated_VotePenaltyCounter(QueryVotePenaltyCounterRequest) returns (QueryVotePenaltyCounterResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/validators/{validator_addr}/vote_penalty_counter";
+    option deprecated = true;
+  }
+  // MissCounter returns oracle miss counter of a validator
+  rpc VotePenaltyCounter(QueryVotePenaltyCounterRequest) returns (QueryVotePenaltyCounterResponse) {
+    option (google.api.http).get = "/sei/oracle/v1/validators/{validator_addr}/vote_penalty_counter";
+  }
+
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/oracle/v1/slash_window` instead.
+  rpc deprecated_SlashWindow(QuerySlashWindowRequest) returns (QuerySlashWindowResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/slash_window";
+    option deprecated = true;
+  }
+  // SlashWindow returns slash window information
+  rpc SlashWindow(QuerySlashWindowRequest) returns (QuerySlashWindowResponse) {
+    option (google.api.http).get = "/sei/oracle/v1/slash_window";
+  }
+
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/oracle/v1/params` instead.
+  rpc deprecated_Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/oracle/params";
+    option deprecated = true;
+  }
+  // Params queries all parameters.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sei-protocol/oracle/v1/params";
+  }
+}
+
+// QueryExchangeRateRequest is the request type for the Query/ExchangeRate RPC method.
+message QueryExchangeRateRequest {
+  option (gogoproto.equal)           = false;
+  option (gogoproto.goproto_getters) = false;
+
+  // denom defines the denomination to query for.
+  string denom = 1;
+}
+
+// QueryExchangeRateResponse is response type for the
+// Query/ExchangeRate RPC method.
+message QueryExchangeRateResponse {
+  // exchange_rate defines the exchange rate of Sei denominated in various Sei
+  OracleExchangeRate oracle_exchange_rate = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryExchangeRatesRequest is the request type for the Query/ExchangeRates RPC method.
+message QueryExchangeRatesRequest {}
+
+message DenomOracleExchangeRatePair {
+  string denom = 1;
+  OracleExchangeRate oracle_exchange_rate = 2 [(gogoproto.nullable) = false];
+}
+
+// QueryExchangeRatesResponse is response type for the
+// Query/ExchangeRates RPC method.
+message QueryExchangeRatesResponse {
+  // exchange_rates defines a list of the exchange rate for all whitelisted denoms.
+  repeated DenomOracleExchangeRatePair denom_oracle_exchange_rate_pairs = 1
+    [(gogoproto.castrepeated) = "DenomOracleExchangeRatePairs", (gogoproto.nullable) = false];
+}
+
+// QueryActivesRequest is the request type for the Query/Actives RPC method.
+message QueryActivesRequest {}
+
+// QueryActivesResponse is response type for the
+// Query/Actives RPC method.
+message QueryActivesResponse {
+  // actives defines a list of the denomination which oracle prices aggreed upon.
+  repeated string actives = 1;
+}
+
+// QueryVoteTargetsRequest is the request type for the Query/VoteTargets RPC method.
+message QueryVoteTargetsRequest {}
+
+// QueryVoteTargetsResponse is response type for the
+// Query/VoteTargets RPC method.
+message QueryVoteTargetsResponse {
+  // vote_targets defines a list of the denomination in which everyone
+  // should vote in the current vote period.
+  repeated string vote_targets = 1;
+}
+
+// request type for price snapshot history RPC method
+message QueryPriceSnapshotHistoryRequest {}
+
+message QueryPriceSnapshotHistoryResponse {
+  repeated PriceSnapshot price_snapshots = 1 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "PriceSnapshots"
+  ];
+}
+
+// request type for twap RPC method
+message QueryTwapsRequest {
+  uint64 lookback_seconds = 1;
+}
+
+message QueryTwapsResponse {
+  repeated OracleTwap oracle_twaps = 1 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "OracleTwaps"
+  ];
+}
+
+// QueryFeederDelegationRequest is the request type for the Query/FeederDelegation RPC method.
+message QueryFeederDelegationRequest {
+  option (gogoproto.equal)           = false;
+  option (gogoproto.goproto_getters) = false;
+
+  // validator defines the validator address to query for.
+  string validator_addr = 1;
+}
+
+// QueryFeederDelegationResponse is response type for the
+// Query/FeederDelegation RPC method.
+message QueryFeederDelegationResponse {
+  // feeder_addr defines the feeder delegation of a validator
+  string feeder_addr = 1;
+}
+
+// QueryVotePenaltyCounterRequest is the request type for the Query/MissCounter RPC method.
+message QueryVotePenaltyCounterRequest {
+  option (gogoproto.equal)           = false;
+  option (gogoproto.goproto_getters) = false;
+
+  // validator defines the validator address to query for.
+  string validator_addr = 1;
+}
+
+// QueryVotePenaltyCounterResponse is response type for the
+// Query/VotePenaltyCounter RPC method.
+message QueryVotePenaltyCounterResponse {
+  VotePenaltyCounter vote_penalty_counter = 1;
+}
+
+// QuerySlashWindow is the request type for the
+// Query/SlashWindow RPC method.
+message QuerySlashWindowRequest {}
+
+// QuerySlashWindowResponse is response type for the
+// Query/SlashWindow RPC method.
+message QuerySlashWindowResponse {
+  // window_progress defines the number of voting periods
+  // since the last slashing event would have taken place.
+  uint64 window_progress = 1;
+}
+
+// QueryParamsRequest is the request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is the response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params defines the parameters of the module.
+  Params params = 1 [(gogoproto.nullable) = false];
+}

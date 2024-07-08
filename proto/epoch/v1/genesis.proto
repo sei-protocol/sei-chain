@@ -1,0 +1,16 @@
+syntax = "proto3";
+package sei.epoch.v1;
+
+import "gogoproto/gogo.proto";
+import "epoch/v1/params.proto";
+import "epoch/v1/epoch.proto";
+// this line is used by starport scaffolding # genesis/proto/import
+
+option go_package = "github.com/sei-protocol/sei-chain/x/epoch/types";
+
+// GenesisState defines the epoch module's genesis state.
+message GenesisState {
+  Params params = 1 [(gogoproto.nullable) = false];
+  Epoch epoch = 2;
+  // this line is used by starport scaffolding # genesis/proto/state
+}

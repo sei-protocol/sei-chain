@@ -1,0 +1,36 @@
+syntax = "proto3";
+package sei.epoch.v1;
+
+import "gogoproto/gogo.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/epoch/types";
+
+message Epoch {
+
+    google.protobuf.Timestamp genesis_time = 1 [
+        (gogoproto.stdtime) = true,
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"genesis_time\""
+      ];
+    google.protobuf.Duration epoch_duration = 2 [
+        (gogoproto.nullable) = false,
+        (gogoproto.stdduration) = true,
+        (gogoproto.jsontag) = "duration,omitempty",
+        (gogoproto.moretags) = "yaml:\"epoch_duration\""
+      ];
+    uint64 current_epoch = 3 [
+      (gogoproto.jsontag) = "current_epoch",
+      (gogoproto.moretags) = "yaml:\"current_epoch\""
+    ];
+    google.protobuf.Timestamp current_epoch_start_time = 4 [
+        (gogoproto.stdtime) = true,
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"current_epoch_start_time\""
+      ];
+    int64 current_epoch_height = 5 [
+      (gogoproto.jsontag) = "current_epoch_height",
+      (gogoproto.moretags) = "yaml:\"current_epoch_height\""
+    ];
+}

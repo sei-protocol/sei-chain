@@ -128,6 +128,19 @@ paths:
                               - KV_DEX_SHORT_ORDER_COUNT
                               - KV_BANK_DEFERRED
                               - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                              - KV_EVM
+                              - KV_EVM_BALANCE
+                              - KV_EVM_TRANSIENT
+                              - KV_EVM_ACCOUNT_TRANSIENT
+                              - KV_EVM_MODULE_TRANSIENT
+                              - KV_EVM_NONCE
+                              - KV_EVM_RECEIPT
+                              - KV_EVM_S2E
+                              - KV_EVM_E2S
+                              - KV_EVM_CODE_HASH
+                              - KV_EVM_CODE
+                              - KV_EVM_CODE_SIZE
+                              - KV_BANK_WEI_BALANCE
                               - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                               - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                             default: ANY
@@ -220,6 +233,19 @@ paths:
                                - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                - KV_BANK_DEFERRED: child of KV
                                - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                               - KV_EVM: child of KV
+                               - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                               - KV_EVM_TRANSIENT: child of KV_EVM
+                               - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                               - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                               - KV_EVM_NONCE: child of KV_EVM
+                               - KV_EVM_RECEIPT: child of KV_EVM
+                               - KV_EVM_S2E: child of KV_EVM
+                               - KV_EVM_E2S: child of KV_EVM
+                               - KV_EVM_CODE_HASH: child of KV_EVM
+                               - KV_EVM_CODE: child of KV_EVM
+                               - KV_EVM_CODE_SIZE: child of KV_EVM
+                               - KV_BANK_WEI_BALANCE: child of KV_BANK
                                - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                           identifier_template:
@@ -371,6 +397,19 @@ paths:
                                   - KV_DEX_SHORT_ORDER_COUNT
                                   - KV_BANK_DEFERRED
                                   - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                                  - KV_EVM
+                                  - KV_EVM_BALANCE
+                                  - KV_EVM_TRANSIENT
+                                  - KV_EVM_ACCOUNT_TRANSIENT
+                                  - KV_EVM_MODULE_TRANSIENT
+                                  - KV_EVM_NONCE
+                                  - KV_EVM_RECEIPT
+                                  - KV_EVM_S2E
+                                  - KV_EVM_E2S
+                                  - KV_EVM_CODE_HASH
+                                  - KV_EVM_CODE
+                                  - KV_EVM_CODE_SIZE
+                                  - KV_BANK_WEI_BALANCE
                                   - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                                   - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                                 default: ANY
@@ -463,6 +502,19 @@ paths:
                                    - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                    - KV_BANK_DEFERRED: child of KV
                                    - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                                   - KV_EVM: child of KV
+                                   - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                                   - KV_EVM_TRANSIENT: child of KV_EVM
+                                   - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                                   - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                                   - KV_EVM_NONCE: child of KV_EVM
+                                   - KV_EVM_RECEIPT: child of KV_EVM
+                                   - KV_EVM_S2E: child of KV_EVM
+                                   - KV_EVM_E2S: child of KV_EVM
+                                   - KV_EVM_CODE_HASH: child of KV_EVM
+                                   - KV_EVM_CODE: child of KV_EVM
+                                   - KV_EVM_CODE_SIZE: child of KV_EVM
+                                   - KV_BANK_WEI_BALANCE: child of KV_BANK
                                    - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                    - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                               identifier_template:
@@ -601,6 +653,19 @@ paths:
                                         - KV_DEX_SHORT_ORDER_COUNT
                                         - KV_BANK_DEFERRED
                                         - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                                        - KV_EVM
+                                        - KV_EVM_BALANCE
+                                        - KV_EVM_TRANSIENT
+                                        - KV_EVM_ACCOUNT_TRANSIENT
+                                        - KV_EVM_MODULE_TRANSIENT
+                                        - KV_EVM_NONCE
+                                        - KV_EVM_RECEIPT
+                                        - KV_EVM_S2E
+                                        - KV_EVM_E2S
+                                        - KV_EVM_CODE_HASH
+                                        - KV_EVM_CODE
+                                        - KV_EVM_CODE_SIZE
+                                        - KV_BANK_WEI_BALANCE
                                         - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                                         - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                                       default: ANY
@@ -693,6 +758,19 @@ paths:
                                          - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                          - KV_BANK_DEFERRED: child of KV
                                          - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                                         - KV_EVM: child of KV
+                                         - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                                         - KV_EVM_TRANSIENT: child of KV_EVM
+                                         - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                                         - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                                         - KV_EVM_NONCE: child of KV_EVM
+                                         - KV_EVM_RECEIPT: child of KV_EVM
+                                         - KV_EVM_S2E: child of KV_EVM
+                                         - KV_EVM_E2S: child of KV_EVM
+                                         - KV_EVM_CODE_HASH: child of KV_EVM
+                                         - KV_EVM_CODE: child of KV_EVM
+                                         - KV_EVM_CODE_SIZE: child of KV_EVM
+                                         - KV_BANK_WEI_BALANCE: child of KV_BANK
                                          - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                          - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                                     identifier_template:
@@ -831,6 +909,19 @@ paths:
                                         - KV_DEX_SHORT_ORDER_COUNT
                                         - KV_BANK_DEFERRED
                                         - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                                        - KV_EVM
+                                        - KV_EVM_BALANCE
+                                        - KV_EVM_TRANSIENT
+                                        - KV_EVM_ACCOUNT_TRANSIENT
+                                        - KV_EVM_MODULE_TRANSIENT
+                                        - KV_EVM_NONCE
+                                        - KV_EVM_RECEIPT
+                                        - KV_EVM_S2E
+                                        - KV_EVM_E2S
+                                        - KV_EVM_CODE_HASH
+                                        - KV_EVM_CODE
+                                        - KV_EVM_CODE_SIZE
+                                        - KV_BANK_WEI_BALANCE
                                         - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                                         - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                                       default: ANY
@@ -923,6 +1014,19 @@ paths:
                                          - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                          - KV_BANK_DEFERRED: child of KV
                                          - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                                         - KV_EVM: child of KV
+                                         - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                                         - KV_EVM_TRANSIENT: child of KV_EVM
+                                         - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                                         - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                                         - KV_EVM_NONCE: child of KV_EVM
+                                         - KV_EVM_RECEIPT: child of KV_EVM
+                                         - KV_EVM_S2E: child of KV_EVM
+                                         - KV_EVM_E2S: child of KV_EVM
+                                         - KV_EVM_CODE_HASH: child of KV_EVM
+                                         - KV_EVM_CODE: child of KV_EVM
+                                         - KV_EVM_CODE_SIZE: child of KV_EVM
+                                         - KV_BANK_WEI_BALANCE: child of KV_BANK
                                          - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                          - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                                     identifier_template:
@@ -1186,6 +1290,19 @@ paths:
                             - KV_DEX_SHORT_ORDER_COUNT
                             - KV_BANK_DEFERRED
                             - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                            - KV_EVM
+                            - KV_EVM_BALANCE
+                            - KV_EVM_TRANSIENT
+                            - KV_EVM_ACCOUNT_TRANSIENT
+                            - KV_EVM_MODULE_TRANSIENT
+                            - KV_EVM_NONCE
+                            - KV_EVM_RECEIPT
+                            - KV_EVM_S2E
+                            - KV_EVM_E2S
+                            - KV_EVM_CODE_HASH
+                            - KV_EVM_CODE
+                            - KV_EVM_CODE_SIZE
+                            - KV_BANK_WEI_BALANCE
                             - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                             - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                           default: ANY
@@ -1278,6 +1395,19 @@ paths:
                              - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                              - KV_BANK_DEFERRED: child of KV
                              - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                             - KV_EVM: child of KV
+                             - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                             - KV_EVM_TRANSIENT: child of KV_EVM
+                             - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                             - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                             - KV_EVM_NONCE: child of KV_EVM
+                             - KV_EVM_RECEIPT: child of KV_EVM
+                             - KV_EVM_S2E: child of KV_EVM
+                             - KV_EVM_E2S: child of KV_EVM
+                             - KV_EVM_CODE_HASH: child of KV_EVM
+                             - KV_EVM_CODE: child of KV_EVM
+                             - KV_EVM_CODE_SIZE: child of KV_EVM
+                             - KV_BANK_WEI_BALANCE: child of KV_BANK
                              - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                              - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                         identifier_template:
@@ -1432,6 +1562,19 @@ paths:
                                 - KV_DEX_SHORT_ORDER_COUNT
                                 - KV_BANK_DEFERRED
                                 - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                                - KV_EVM
+                                - KV_EVM_BALANCE
+                                - KV_EVM_TRANSIENT
+                                - KV_EVM_ACCOUNT_TRANSIENT
+                                - KV_EVM_MODULE_TRANSIENT
+                                - KV_EVM_NONCE
+                                - KV_EVM_RECEIPT
+                                - KV_EVM_S2E
+                                - KV_EVM_E2S
+                                - KV_EVM_CODE_HASH
+                                - KV_EVM_CODE
+                                - KV_EVM_CODE_SIZE
+                                - KV_BANK_WEI_BALANCE
                                 - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                                 - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                               default: ANY
@@ -1524,6 +1667,19 @@ paths:
                                  - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                  - KV_BANK_DEFERRED: child of KV
                                  - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                                 - KV_EVM: child of KV
+                                 - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                                 - KV_EVM_TRANSIENT: child of KV_EVM
+                                 - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                                 - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                                 - KV_EVM_NONCE: child of KV_EVM
+                                 - KV_EVM_RECEIPT: child of KV_EVM
+                                 - KV_EVM_S2E: child of KV_EVM
+                                 - KV_EVM_E2S: child of KV_EVM
+                                 - KV_EVM_CODE_HASH: child of KV_EVM
+                                 - KV_EVM_CODE: child of KV_EVM
+                                 - KV_EVM_CODE_SIZE: child of KV_EVM
+                                 - KV_BANK_WEI_BALANCE: child of KV_BANK
                                  - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                  - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                             identifier_template:
@@ -1662,6 +1818,19 @@ paths:
                                       - KV_DEX_SHORT_ORDER_COUNT
                                       - KV_BANK_DEFERRED
                                       - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                                      - KV_EVM
+                                      - KV_EVM_BALANCE
+                                      - KV_EVM_TRANSIENT
+                                      - KV_EVM_ACCOUNT_TRANSIENT
+                                      - KV_EVM_MODULE_TRANSIENT
+                                      - KV_EVM_NONCE
+                                      - KV_EVM_RECEIPT
+                                      - KV_EVM_S2E
+                                      - KV_EVM_E2S
+                                      - KV_EVM_CODE_HASH
+                                      - KV_EVM_CODE
+                                      - KV_EVM_CODE_SIZE
+                                      - KV_BANK_WEI_BALANCE
                                       - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                                       - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                                     default: ANY
@@ -1754,6 +1923,19 @@ paths:
                                        - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                        - KV_BANK_DEFERRED: child of KV
                                        - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                                       - KV_EVM: child of KV
+                                       - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                                       - KV_EVM_TRANSIENT: child of KV_EVM
+                                       - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                                       - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                                       - KV_EVM_NONCE: child of KV_EVM
+                                       - KV_EVM_RECEIPT: child of KV_EVM
+                                       - KV_EVM_S2E: child of KV_EVM
+                                       - KV_EVM_E2S: child of KV_EVM
+                                       - KV_EVM_CODE_HASH: child of KV_EVM
+                                       - KV_EVM_CODE: child of KV_EVM
+                                       - KV_EVM_CODE_SIZE: child of KV_EVM
+                                       - KV_BANK_WEI_BALANCE: child of KV_BANK
                                        - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                        - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                                   identifier_template:
@@ -1892,6 +2074,19 @@ paths:
                                       - KV_DEX_SHORT_ORDER_COUNT
                                       - KV_BANK_DEFERRED
                                       - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                                      - KV_EVM
+                                      - KV_EVM_BALANCE
+                                      - KV_EVM_TRANSIENT
+                                      - KV_EVM_ACCOUNT_TRANSIENT
+                                      - KV_EVM_MODULE_TRANSIENT
+                                      - KV_EVM_NONCE
+                                      - KV_EVM_RECEIPT
+                                      - KV_EVM_S2E
+                                      - KV_EVM_E2S
+                                      - KV_EVM_CODE_HASH
+                                      - KV_EVM_CODE
+                                      - KV_EVM_CODE_SIZE
+                                      - KV_BANK_WEI_BALANCE
                                       - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                                       - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                                     default: ANY
@@ -1984,6 +2179,19 @@ paths:
                                        - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                        - KV_BANK_DEFERRED: child of KV
                                        - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                                       - KV_EVM: child of KV
+                                       - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                                       - KV_EVM_TRANSIENT: child of KV_EVM
+                                       - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                                       - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                                       - KV_EVM_NONCE: child of KV_EVM
+                                       - KV_EVM_RECEIPT: child of KV_EVM
+                                       - KV_EVM_S2E: child of KV_EVM
+                                       - KV_EVM_E2S: child of KV_EVM
+                                       - KV_EVM_CODE_HASH: child of KV_EVM
+                                       - KV_EVM_CODE: child of KV_EVM
+                                       - KV_EVM_CODE_SIZE: child of KV_EVM
+                                       - KV_BANK_WEI_BALANCE: child of KV_BANK
                                        - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                        - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                                   identifier_template:
@@ -19053,6 +19261,9 @@ paths:
                       during message
 
                       or handler execution.
+                  evmError:
+                    type: string
+                    title: EVM VM error during execution
             description: |-
               SimulateResponse is the response type for the
               Service.SimulateRPC method.
@@ -35962,8 +36173,10 @@ paths:
         - Query
   /sei-protocol/seichain/epoch/epoch:
     get:
-      summary: Query the epoch in the chain
-      operationId: SeiprotocolSeichainEpochEpoch
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/epoch/v1/epoch` instead.
+      operationId: SeiprotocolSeichainEpochdeprecated_Epoch
       responses:
         '200':
           description: A successful response.
@@ -36009,6 +36222,91 @@ paths:
         - Query
   /sei-protocol/seichain/epoch/params:
     get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/epoch/v1/params` instead.
+      operationId: SeiprotocolSeichainEpochdeprecated_Params
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              params:
+                description: params holds all the parameters of this module.
+                type: object
+            description: >-
+              QueryParamsResponse is response type for the Query/Params RPC
+              method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  /sei/epoch/v1/epoch:
+    get:
+      summary: Query the epoch in the chain
+      operationId: SeiprotocolSeichainEpochEpoch
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              epoch:
+                type: object
+                properties:
+                  genesis_time:
+                    type: string
+                    format: date-time
+                  epoch_duration:
+                    type: string
+                  current_epoch:
+                    type: string
+                    format: uint64
+                  current_epoch_start_time:
+                    type: string
+                    format: date-time
+                  current_epoch_height:
+                    type: string
+                    format: int64
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  /sei/epoch/v1/params:
+    get:
       summary: Parameters queries the parameters of the module.
       operationId: SeiprotocolSeichainEpochParams
       responses:
@@ -36045,7 +36343,10 @@ paths:
         - Query
   /sei-protocol/seichain/evm/evm_address:
     get:
-      operationId: SeiprotocolSeichainEvmEVMAddressBySeiAddress
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/evm/v1/evm_address` instead.
+      operationId: SeiprotocolSeichainEvmdeprecated_EVMAddressBySeiAddress
       responses:
         '200':
           description: A successful response.
@@ -36250,7 +36551,10 @@ paths:
         - Query
   /sei-protocol/seichain/evm/pointer:
     get:
-      operationId: SeiprotocolSeichainEvmPointer
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/evm/v1/pointer` instead.
+      operationId: SeiprotocolSeichainEvmdeprecated_Pointer
       responses:
         '200':
           description: A successful response.
@@ -36469,7 +36773,10 @@ paths:
         - Query
   /sei-protocol/seichain/evm/pointer_version:
     get:
-      operationId: SeiprotocolSeichainEvmPointerVersion
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/evm/v1/pointer_version` instead.
+      operationId: SeiprotocolSeichainEvmdeprecated_PointerVersion
       responses:
         '200':
           description: A successful response.
@@ -36683,7 +36990,10 @@ paths:
         - Query
   /sei-protocol/seichain/evm/sei_address:
     get:
-      operationId: SeiprotocolSeichainEvmSeiAddressByEVMAddress
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/evm/v1/sei_address` instead.
+      operationId: SeiprotocolSeichainEvmdeprecated_SeiAddressByEVMAddress
       responses:
         '200':
           description: A successful response.
@@ -36887,6 +37197,1067 @@ paths:
       tags:
         - Query
   /sei-protocol/seichain/evm/static_call:
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/evm/v1/static_call` instead.
+      operationId: SeiprotocolSeichainEvmdeprecated_StaticCall
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              data:
+                type: string
+                format: byte
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                      description: >-
+                        A URL/resource name that uniquely identifies the type of
+                        the serialized
+
+                        protocol buffer message. This string must contain at
+                        least
+
+                        one "/" character. The last segment of the URL's path
+                        must represent
+
+                        the fully qualified name of the type (as in
+
+                        `path/google.protobuf.Duration`). The name should be in
+                        a canonical form
+
+                        (e.g., leading "." is not accepted).
+
+
+                        In practice, teams usually precompile into the binary
+                        all types that they
+
+                        expect it to use in the context of Any. However, for
+                        URLs which use the
+
+                        scheme `http`, `https`, or no scheme, one can optionally
+                        set up a type
+
+                        server that maps type URLs to message definitions as
+                        follows:
+
+
+                        * If no scheme is provided, `https` is assumed.
+
+                        * An HTTP GET on the URL must yield a
+                        [google.protobuf.Type][]
+                          value in binary format, or produce an error.
+                        * Applications are allowed to cache lookup results based
+                        on the
+                          URL, or have them precompiled into a binary to avoid any
+                          lookup. Therefore, binary compatibility needs to be preserved
+                          on changes to types. (Use versioned type names to manage
+                          breaking changes.)
+
+                        Note: this functionality is not currently available in
+                        the official
+
+                        protobuf release, and it is not used for type URLs
+                        beginning with
+
+                        type.googleapis.com.
+
+
+                        Schemes other than `http`, `https` (or the empty scheme)
+                        might be
+
+                        used with implementation specific semantics.
+                  additionalProperties: {}
+                  description: >-
+                    `Any` contains an arbitrary serialized protocol buffer
+                    message along with a
+
+                    URL that describes the type of the serialized message.
+
+
+                    Protobuf library provides support to pack/unpack Any values
+                    in the form
+
+                    of utility functions or additional generated methods of the
+                    Any type.
+
+
+                    Example 1: Pack and unpack a message in C++.
+
+                        Foo foo = ...;
+                        Any any;
+                        any.PackFrom(foo);
+                        ...
+                        if (any.UnpackTo(&foo)) {
+                          ...
+                        }
+
+                    Example 2: Pack and unpack a message in Java.
+
+                        Foo foo = ...;
+                        Any any = Any.pack(foo);
+                        ...
+                        if (any.is(Foo.class)) {
+                          foo = any.unpack(Foo.class);
+                        }
+
+                     Example 3: Pack and unpack a message in Python.
+
+                        foo = Foo(...)
+                        any = Any()
+                        any.Pack(foo)
+                        ...
+                        if any.Is(Foo.DESCRIPTOR):
+                          any.Unpack(foo)
+                          ...
+
+                     Example 4: Pack and unpack a message in Go
+
+                         foo := &pb.Foo{...}
+                         any, err := anypb.New(foo)
+                         if err != nil {
+                           ...
+                         }
+                         ...
+                         foo := &pb.Foo{}
+                         if err := any.UnmarshalTo(foo); err != nil {
+                           ...
+                         }
+
+                    The pack methods provided by protobuf library will by
+                    default use
+
+                    'type.googleapis.com/full.type.name' as the type URL and the
+                    unpack
+
+                    methods only use the fully qualified type name after the
+                    last '/'
+
+                    in the type URL, for example "foo.bar.com/x/y.z" will yield
+                    type
+
+                    name "y.z".
+
+
+
+                    JSON
+
+                    ====
+
+                    The JSON representation of an `Any` value uses the regular
+
+                    representation of the deserialized, embedded message, with
+                    an
+
+                    additional field `@type` which contains the type URL.
+                    Example:
+
+                        package google.profile;
+                        message Person {
+                          string first_name = 1;
+                          string last_name = 2;
+                        }
+
+                        {
+                          "@type": "type.googleapis.com/google.profile.Person",
+                          "firstName": <string>,
+                          "lastName": <string>
+                        }
+
+                    If the embedded message type is well-known and has a custom
+                    JSON
+
+                    representation, that representation will be embedded adding
+                    a field
+
+                    `value` which holds the custom JSON in addition to the
+                    `@type`
+
+                    field. Example (for message [google.protobuf.Duration][]):
+
+                        {
+                          "@type": "type.googleapis.com/google.protobuf.Duration",
+                          "value": "1.212s"
+                        }
+      parameters:
+        - name: data
+          in: query
+          required: false
+          type: string
+          format: byte
+        - name: to
+          in: query
+          required: false
+          type: string
+      tags:
+        - Query
+  /sei/evm/v1/evm_address:
+    get:
+      summary: >-
+        EVMAddressBySeiAddress returns the EVM address associated with the given
+        sei cosmos address.
+      operationId: SeiprotocolSeichainEvmEVMAddressBySeiAddress
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              evm_address:
+                type: string
+              associated:
+                type: boolean
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                      description: >-
+                        A URL/resource name that uniquely identifies the type of
+                        the serialized
+
+                        protocol buffer message. This string must contain at
+                        least
+
+                        one "/" character. The last segment of the URL's path
+                        must represent
+
+                        the fully qualified name of the type (as in
+
+                        `path/google.protobuf.Duration`). The name should be in
+                        a canonical form
+
+                        (e.g., leading "." is not accepted).
+
+
+                        In practice, teams usually precompile into the binary
+                        all types that they
+
+                        expect it to use in the context of Any. However, for
+                        URLs which use the
+
+                        scheme `http`, `https`, or no scheme, one can optionally
+                        set up a type
+
+                        server that maps type URLs to message definitions as
+                        follows:
+
+
+                        * If no scheme is provided, `https` is assumed.
+
+                        * An HTTP GET on the URL must yield a
+                        [google.protobuf.Type][]
+                          value in binary format, or produce an error.
+                        * Applications are allowed to cache lookup results based
+                        on the
+                          URL, or have them precompiled into a binary to avoid any
+                          lookup. Therefore, binary compatibility needs to be preserved
+                          on changes to types. (Use versioned type names to manage
+                          breaking changes.)
+
+                        Note: this functionality is not currently available in
+                        the official
+
+                        protobuf release, and it is not used for type URLs
+                        beginning with
+
+                        type.googleapis.com.
+
+
+                        Schemes other than `http`, `https` (or the empty scheme)
+                        might be
+
+                        used with implementation specific semantics.
+                  additionalProperties: {}
+                  description: >-
+                    `Any` contains an arbitrary serialized protocol buffer
+                    message along with a
+
+                    URL that describes the type of the serialized message.
+
+
+                    Protobuf library provides support to pack/unpack Any values
+                    in the form
+
+                    of utility functions or additional generated methods of the
+                    Any type.
+
+
+                    Example 1: Pack and unpack a message in C++.
+
+                        Foo foo = ...;
+                        Any any;
+                        any.PackFrom(foo);
+                        ...
+                        if (any.UnpackTo(&foo)) {
+                          ...
+                        }
+
+                    Example 2: Pack and unpack a message in Java.
+
+                        Foo foo = ...;
+                        Any any = Any.pack(foo);
+                        ...
+                        if (any.is(Foo.class)) {
+                          foo = any.unpack(Foo.class);
+                        }
+
+                     Example 3: Pack and unpack a message in Python.
+
+                        foo = Foo(...)
+                        any = Any()
+                        any.Pack(foo)
+                        ...
+                        if any.Is(Foo.DESCRIPTOR):
+                          any.Unpack(foo)
+                          ...
+
+                     Example 4: Pack and unpack a message in Go
+
+                         foo := &pb.Foo{...}
+                         any, err := anypb.New(foo)
+                         if err != nil {
+                           ...
+                         }
+                         ...
+                         foo := &pb.Foo{}
+                         if err := any.UnmarshalTo(foo); err != nil {
+                           ...
+                         }
+
+                    The pack methods provided by protobuf library will by
+                    default use
+
+                    'type.googleapis.com/full.type.name' as the type URL and the
+                    unpack
+
+                    methods only use the fully qualified type name after the
+                    last '/'
+
+                    in the type URL, for example "foo.bar.com/x/y.z" will yield
+                    type
+
+                    name "y.z".
+
+
+
+                    JSON
+
+                    ====
+
+                    The JSON representation of an `Any` value uses the regular
+
+                    representation of the deserialized, embedded message, with
+                    an
+
+                    additional field `@type` which contains the type URL.
+                    Example:
+
+                        package google.profile;
+                        message Person {
+                          string first_name = 1;
+                          string last_name = 2;
+                        }
+
+                        {
+                          "@type": "type.googleapis.com/google.profile.Person",
+                          "firstName": <string>,
+                          "lastName": <string>
+                        }
+
+                    If the embedded message type is well-known and has a custom
+                    JSON
+
+                    representation, that representation will be embedded adding
+                    a field
+
+                    `value` which holds the custom JSON in addition to the
+                    `@type`
+
+                    field. Example (for message [google.protobuf.Duration][]):
+
+                        {
+                          "@type": "type.googleapis.com/google.protobuf.Duration",
+                          "value": "1.212s"
+                        }
+      parameters:
+        - name: sei_address
+          in: query
+          required: false
+          type: string
+      tags:
+        - Query
+  /sei/evm/v1/pointer:
+    get:
+      operationId: SeiprotocolSeichainEvmPointer
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              pointer:
+                type: string
+              version:
+                type: integer
+                format: int64
+              exists:
+                type: boolean
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                      description: >-
+                        A URL/resource name that uniquely identifies the type of
+                        the serialized
+
+                        protocol buffer message. This string must contain at
+                        least
+
+                        one "/" character. The last segment of the URL's path
+                        must represent
+
+                        the fully qualified name of the type (as in
+
+                        `path/google.protobuf.Duration`). The name should be in
+                        a canonical form
+
+                        (e.g., leading "." is not accepted).
+
+
+                        In practice, teams usually precompile into the binary
+                        all types that they
+
+                        expect it to use in the context of Any. However, for
+                        URLs which use the
+
+                        scheme `http`, `https`, or no scheme, one can optionally
+                        set up a type
+
+                        server that maps type URLs to message definitions as
+                        follows:
+
+
+                        * If no scheme is provided, `https` is assumed.
+
+                        * An HTTP GET on the URL must yield a
+                        [google.protobuf.Type][]
+                          value in binary format, or produce an error.
+                        * Applications are allowed to cache lookup results based
+                        on the
+                          URL, or have them precompiled into a binary to avoid any
+                          lookup. Therefore, binary compatibility needs to be preserved
+                          on changes to types. (Use versioned type names to manage
+                          breaking changes.)
+
+                        Note: this functionality is not currently available in
+                        the official
+
+                        protobuf release, and it is not used for type URLs
+                        beginning with
+
+                        type.googleapis.com.
+
+
+                        Schemes other than `http`, `https` (or the empty scheme)
+                        might be
+
+                        used with implementation specific semantics.
+                  additionalProperties: {}
+                  description: >-
+                    `Any` contains an arbitrary serialized protocol buffer
+                    message along with a
+
+                    URL that describes the type of the serialized message.
+
+
+                    Protobuf library provides support to pack/unpack Any values
+                    in the form
+
+                    of utility functions or additional generated methods of the
+                    Any type.
+
+
+                    Example 1: Pack and unpack a message in C++.
+
+                        Foo foo = ...;
+                        Any any;
+                        any.PackFrom(foo);
+                        ...
+                        if (any.UnpackTo(&foo)) {
+                          ...
+                        }
+
+                    Example 2: Pack and unpack a message in Java.
+
+                        Foo foo = ...;
+                        Any any = Any.pack(foo);
+                        ...
+                        if (any.is(Foo.class)) {
+                          foo = any.unpack(Foo.class);
+                        }
+
+                     Example 3: Pack and unpack a message in Python.
+
+                        foo = Foo(...)
+                        any = Any()
+                        any.Pack(foo)
+                        ...
+                        if any.Is(Foo.DESCRIPTOR):
+                          any.Unpack(foo)
+                          ...
+
+                     Example 4: Pack and unpack a message in Go
+
+                         foo := &pb.Foo{...}
+                         any, err := anypb.New(foo)
+                         if err != nil {
+                           ...
+                         }
+                         ...
+                         foo := &pb.Foo{}
+                         if err := any.UnmarshalTo(foo); err != nil {
+                           ...
+                         }
+
+                    The pack methods provided by protobuf library will by
+                    default use
+
+                    'type.googleapis.com/full.type.name' as the type URL and the
+                    unpack
+
+                    methods only use the fully qualified type name after the
+                    last '/'
+
+                    in the type URL, for example "foo.bar.com/x/y.z" will yield
+                    type
+
+                    name "y.z".
+
+
+
+                    JSON
+
+                    ====
+
+                    The JSON representation of an `Any` value uses the regular
+
+                    representation of the deserialized, embedded message, with
+                    an
+
+                    additional field `@type` which contains the type URL.
+                    Example:
+
+                        package google.profile;
+                        message Person {
+                          string first_name = 1;
+                          string last_name = 2;
+                        }
+
+                        {
+                          "@type": "type.googleapis.com/google.profile.Person",
+                          "firstName": <string>,
+                          "lastName": <string>
+                        }
+
+                    If the embedded message type is well-known and has a custom
+                    JSON
+
+                    representation, that representation will be embedded adding
+                    a field
+
+                    `value` which holds the custom JSON in addition to the
+                    `@type`
+
+                    field. Example (for message [google.protobuf.Duration][]):
+
+                        {
+                          "@type": "type.googleapis.com/google.protobuf.Duration",
+                          "value": "1.212s"
+                        }
+      parameters:
+        - name: pointer_type
+          in: query
+          required: false
+          type: string
+          enum:
+            - ERC20
+            - ERC721
+            - NATIVE
+            - CW20
+            - CW721
+          default: ERC20
+        - name: pointee
+          in: query
+          required: false
+          type: string
+      tags:
+        - Query
+  /sei/evm/v1/pointer_version:
+    get:
+      operationId: SeiprotocolSeichainEvmPointerVersion
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              version:
+                type: integer
+                format: int64
+              cw_code_id:
+                type: string
+                format: uint64
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                      description: >-
+                        A URL/resource name that uniquely identifies the type of
+                        the serialized
+
+                        protocol buffer message. This string must contain at
+                        least
+
+                        one "/" character. The last segment of the URL's path
+                        must represent
+
+                        the fully qualified name of the type (as in
+
+                        `path/google.protobuf.Duration`). The name should be in
+                        a canonical form
+
+                        (e.g., leading "." is not accepted).
+
+
+                        In practice, teams usually precompile into the binary
+                        all types that they
+
+                        expect it to use in the context of Any. However, for
+                        URLs which use the
+
+                        scheme `http`, `https`, or no scheme, one can optionally
+                        set up a type
+
+                        server that maps type URLs to message definitions as
+                        follows:
+
+
+                        * If no scheme is provided, `https` is assumed.
+
+                        * An HTTP GET on the URL must yield a
+                        [google.protobuf.Type][]
+                          value in binary format, or produce an error.
+                        * Applications are allowed to cache lookup results based
+                        on the
+                          URL, or have them precompiled into a binary to avoid any
+                          lookup. Therefore, binary compatibility needs to be preserved
+                          on changes to types. (Use versioned type names to manage
+                          breaking changes.)
+
+                        Note: this functionality is not currently available in
+                        the official
+
+                        protobuf release, and it is not used for type URLs
+                        beginning with
+
+                        type.googleapis.com.
+
+
+                        Schemes other than `http`, `https` (or the empty scheme)
+                        might be
+
+                        used with implementation specific semantics.
+                  additionalProperties: {}
+                  description: >-
+                    `Any` contains an arbitrary serialized protocol buffer
+                    message along with a
+
+                    URL that describes the type of the serialized message.
+
+
+                    Protobuf library provides support to pack/unpack Any values
+                    in the form
+
+                    of utility functions or additional generated methods of the
+                    Any type.
+
+
+                    Example 1: Pack and unpack a message in C++.
+
+                        Foo foo = ...;
+                        Any any;
+                        any.PackFrom(foo);
+                        ...
+                        if (any.UnpackTo(&foo)) {
+                          ...
+                        }
+
+                    Example 2: Pack and unpack a message in Java.
+
+                        Foo foo = ...;
+                        Any any = Any.pack(foo);
+                        ...
+                        if (any.is(Foo.class)) {
+                          foo = any.unpack(Foo.class);
+                        }
+
+                     Example 3: Pack and unpack a message in Python.
+
+                        foo = Foo(...)
+                        any = Any()
+                        any.Pack(foo)
+                        ...
+                        if any.Is(Foo.DESCRIPTOR):
+                          any.Unpack(foo)
+                          ...
+
+                     Example 4: Pack and unpack a message in Go
+
+                         foo := &pb.Foo{...}
+                         any, err := anypb.New(foo)
+                         if err != nil {
+                           ...
+                         }
+                         ...
+                         foo := &pb.Foo{}
+                         if err := any.UnmarshalTo(foo); err != nil {
+                           ...
+                         }
+
+                    The pack methods provided by protobuf library will by
+                    default use
+
+                    'type.googleapis.com/full.type.name' as the type URL and the
+                    unpack
+
+                    methods only use the fully qualified type name after the
+                    last '/'
+
+                    in the type URL, for example "foo.bar.com/x/y.z" will yield
+                    type
+
+                    name "y.z".
+
+
+
+                    JSON
+
+                    ====
+
+                    The JSON representation of an `Any` value uses the regular
+
+                    representation of the deserialized, embedded message, with
+                    an
+
+                    additional field `@type` which contains the type URL.
+                    Example:
+
+                        package google.profile;
+                        message Person {
+                          string first_name = 1;
+                          string last_name = 2;
+                        }
+
+                        {
+                          "@type": "type.googleapis.com/google.profile.Person",
+                          "firstName": <string>,
+                          "lastName": <string>
+                        }
+
+                    If the embedded message type is well-known and has a custom
+                    JSON
+
+                    representation, that representation will be embedded adding
+                    a field
+
+                    `value` which holds the custom JSON in addition to the
+                    `@type`
+
+                    field. Example (for message [google.protobuf.Duration][]):
+
+                        {
+                          "@type": "type.googleapis.com/google.protobuf.Duration",
+                          "value": "1.212s"
+                        }
+      parameters:
+        - name: pointer_type
+          in: query
+          required: false
+          type: string
+          enum:
+            - ERC20
+            - ERC721
+            - NATIVE
+            - CW20
+            - CW721
+          default: ERC20
+      tags:
+        - Query
+  /sei/evm/v1/sei_address:
+    get:
+      summary: >-
+        SeiAddressByEVMAddress returns the sei cosmos address associated with an
+        EVM address.
+      operationId: SeiprotocolSeichainEvmSeiAddressByEVMAddress
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              sei_address:
+                type: string
+              associated:
+                type: boolean
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                      description: >-
+                        A URL/resource name that uniquely identifies the type of
+                        the serialized
+
+                        protocol buffer message. This string must contain at
+                        least
+
+                        one "/" character. The last segment of the URL's path
+                        must represent
+
+                        the fully qualified name of the type (as in
+
+                        `path/google.protobuf.Duration`). The name should be in
+                        a canonical form
+
+                        (e.g., leading "." is not accepted).
+
+
+                        In practice, teams usually precompile into the binary
+                        all types that they
+
+                        expect it to use in the context of Any. However, for
+                        URLs which use the
+
+                        scheme `http`, `https`, or no scheme, one can optionally
+                        set up a type
+
+                        server that maps type URLs to message definitions as
+                        follows:
+
+
+                        * If no scheme is provided, `https` is assumed.
+
+                        * An HTTP GET on the URL must yield a
+                        [google.protobuf.Type][]
+                          value in binary format, or produce an error.
+                        * Applications are allowed to cache lookup results based
+                        on the
+                          URL, or have them precompiled into a binary to avoid any
+                          lookup. Therefore, binary compatibility needs to be preserved
+                          on changes to types. (Use versioned type names to manage
+                          breaking changes.)
+
+                        Note: this functionality is not currently available in
+                        the official
+
+                        protobuf release, and it is not used for type URLs
+                        beginning with
+
+                        type.googleapis.com.
+
+
+                        Schemes other than `http`, `https` (or the empty scheme)
+                        might be
+
+                        used with implementation specific semantics.
+                  additionalProperties: {}
+                  description: >-
+                    `Any` contains an arbitrary serialized protocol buffer
+                    message along with a
+
+                    URL that describes the type of the serialized message.
+
+
+                    Protobuf library provides support to pack/unpack Any values
+                    in the form
+
+                    of utility functions or additional generated methods of the
+                    Any type.
+
+
+                    Example 1: Pack and unpack a message in C++.
+
+                        Foo foo = ...;
+                        Any any;
+                        any.PackFrom(foo);
+                        ...
+                        if (any.UnpackTo(&foo)) {
+                          ...
+                        }
+
+                    Example 2: Pack and unpack a message in Java.
+
+                        Foo foo = ...;
+                        Any any = Any.pack(foo);
+                        ...
+                        if (any.is(Foo.class)) {
+                          foo = any.unpack(Foo.class);
+                        }
+
+                     Example 3: Pack and unpack a message in Python.
+
+                        foo = Foo(...)
+                        any = Any()
+                        any.Pack(foo)
+                        ...
+                        if any.Is(Foo.DESCRIPTOR):
+                          any.Unpack(foo)
+                          ...
+
+                     Example 4: Pack and unpack a message in Go
+
+                         foo := &pb.Foo{...}
+                         any, err := anypb.New(foo)
+                         if err != nil {
+                           ...
+                         }
+                         ...
+                         foo := &pb.Foo{}
+                         if err := any.UnmarshalTo(foo); err != nil {
+                           ...
+                         }
+
+                    The pack methods provided by protobuf library will by
+                    default use
+
+                    'type.googleapis.com/full.type.name' as the type URL and the
+                    unpack
+
+                    methods only use the fully qualified type name after the
+                    last '/'
+
+                    in the type URL, for example "foo.bar.com/x/y.z" will yield
+                    type
+
+                    name "y.z".
+
+
+
+                    JSON
+
+                    ====
+
+                    The JSON representation of an `Any` value uses the regular
+
+                    representation of the deserialized, embedded message, with
+                    an
+
+                    additional field `@type` which contains the type URL.
+                    Example:
+
+                        package google.profile;
+                        message Person {
+                          string first_name = 1;
+                          string last_name = 2;
+                        }
+
+                        {
+                          "@type": "type.googleapis.com/google.profile.Person",
+                          "firstName": <string>,
+                          "lastName": <string>
+                        }
+
+                    If the embedded message type is well-known and has a custom
+                    JSON
+
+                    representation, that representation will be embedded adding
+                    a field
+
+                    `value` which holds the custom JSON in addition to the
+                    `@type`
+
+                    field. Example (for message [google.protobuf.Duration][]):
+
+                        {
+                          "@type": "type.googleapis.com/google.protobuf.Duration",
+                          "value": "1.212s"
+                        }
+      parameters:
+        - name: evm_address
+          in: query
+          required: false
+          type: string
+      tags:
+        - Query
+  /sei/evm/v1/static_call:
     get:
       operationId: SeiprotocolSeichainEvmStaticCall
       responses:
@@ -37095,406 +38466,7 @@ paths:
           type: string
       tags:
         - Query
-  /seichain/mint/v1beta1/minter:
-    get:
-      summary: EpochProvisions current minting epoch provisions value.
-      operationId: SeiprotocolSeichainMintMinter
-      responses:
-        '200':
-          description: A successful response.
-          schema:
-            type: object
-            properties:
-              start_date:
-                type: string
-              end_date:
-                type: string
-              denom:
-                type: string
-              total_mint_amount:
-                type: string
-                format: uint64
-              remaining_mint_amount:
-                type: string
-                format: uint64
-              last_mint_amount:
-                type: string
-                format: uint64
-              last_mint_date:
-                type: string
-              last_mint_height:
-                type: string
-                format: uint64
-            description: |-
-              QueryMinterResponse is the response type for the
-              Query/Minter RPC method.
-        default:
-          description: An unexpected error response.
-          schema:
-            type: object
-            properties:
-              code:
-                type: integer
-                format: int32
-              message:
-                type: string
-              details:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    '@type':
-                      type: string
-                  additionalProperties: {}
-      tags:
-        - Query
-  /seichain/mint/v1beta1/params:
-    get:
-      summary: Params returns the total set of minting parameters.
-      operationId: SeiprotocolSeichainMintParams
-      responses:
-        '200':
-          description: A successful response.
-          schema:
-            type: object
-            properties:
-              params:
-                description: params defines the parameters of the module.
-                type: object
-                properties:
-                  mint_denom:
-                    type: string
-                    title: type of coin to mint
-                  token_release_schedule:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        start_date:
-                          type: string
-                          title: yyyy-mm-dd
-                        end_date:
-                          type: string
-                          title: yyyy-mm-dd
-                        token_release_amount:
-                          type: string
-                          format: uint64
-                    title: List of token release schedules
-            description: >-
-              QueryParamsResponse is the response type for the Query/Params RPC
-              method.
-        default:
-          description: An unexpected error response.
-          schema:
-            type: object
-            properties:
-              code:
-                type: integer
-                format: int32
-              message:
-                type: string
-              details:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    '@type':
-                      type: string
-                  additionalProperties: {}
-      tags:
-        - Query
-  /sei-protocol/sei-chain/oracle/denoms/actives:
-    get:
-      summary: Actives returns all active denoms
-      operationId: SeiprotocolSeichainOracleActives
-      responses:
-        '200':
-          description: A successful response.
-          schema:
-            type: object
-            properties:
-              actives:
-                type: array
-                items:
-                  type: string
-                description: >-
-                  actives defines a list of the denomination which oracle prices
-                  aggreed upon.
-            description: |-
-              QueryActivesResponse is response type for the
-              Query/Actives RPC method.
-        default:
-          description: An unexpected error response.
-          schema:
-            type: object
-            properties:
-              code:
-                type: integer
-                format: int32
-              message:
-                type: string
-              details:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    '@type':
-                      type: string
-                  additionalProperties: {}
-      tags:
-        - Query
-  /sei-protocol/sei-chain/oracle/denoms/exchange_rates:
-    get:
-      summary: ExchangeRates returns exchange rates of all denoms
-      operationId: SeiprotocolSeichainOracleExchangeRates
-      responses:
-        '200':
-          description: A successful response.
-          schema:
-            type: object
-            properties:
-              denom_oracle_exchange_rate_pairs:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    denom:
-                      type: string
-                    oracle_exchange_rate:
-                      type: object
-                      properties:
-                        exchange_rate:
-                          type: string
-                        last_update:
-                          type: string
-                        last_update_timestamp:
-                          type: string
-                          format: int64
-                description: >-
-                  exchange_rates defines a list of the exchange rate for all
-                  whitelisted denoms.
-            description: |-
-              QueryExchangeRatesResponse is response type for the
-              Query/ExchangeRates RPC method.
-        default:
-          description: An unexpected error response.
-          schema:
-            type: object
-            properties:
-              code:
-                type: integer
-                format: int32
-              message:
-                type: string
-              details:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    '@type':
-                      type: string
-                  additionalProperties: {}
-      tags:
-        - Query
-  /sei-protocol/sei-chain/oracle/denoms/price_snapshot_history:
-    get:
-      summary: >-
-        PriceSnapshotHistory returns the history of price snapshots for all
-        assets
-      operationId: SeiprotocolSeichainOraclePriceSnapshotHistory
-      responses:
-        '200':
-          description: A successful response.
-          schema:
-            type: object
-            properties:
-              price_snapshots:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    snapshot_timestamp:
-                      type: string
-                      format: int64
-                    price_snapshot_items:
-                      type: array
-                      items:
-                        type: object
-                        properties:
-                          denom:
-                            type: string
-                          oracle_exchange_rate:
-                            type: object
-                            properties:
-                              exchange_rate:
-                                type: string
-                              last_update:
-                                type: string
-                              last_update_timestamp:
-                                type: string
-                                format: int64
-        default:
-          description: An unexpected error response.
-          schema:
-            type: object
-            properties:
-              code:
-                type: integer
-                format: int32
-              message:
-                type: string
-              details:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    '@type':
-                      type: string
-                  additionalProperties: {}
-      tags:
-        - Query
-  '/sei-protocol/sei-chain/oracle/denoms/twaps/{lookback_seconds}':
-    get:
-      operationId: SeiprotocolSeichainOracleTwaps
-      responses:
-        '200':
-          description: A successful response.
-          schema:
-            type: object
-            properties:
-              oracle_twaps:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    denom:
-                      type: string
-                    twap:
-                      type: string
-                    lookback_seconds:
-                      type: string
-                      format: int64
-        default:
-          description: An unexpected error response.
-          schema:
-            type: object
-            properties:
-              code:
-                type: integer
-                format: int32
-              message:
-                type: string
-              details:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    '@type':
-                      type: string
-                  additionalProperties: {}
-      parameters:
-        - name: lookback_seconds
-          in: path
-          required: true
-          type: string
-          format: uint64
-      tags:
-        - Query
-  /sei-protocol/sei-chain/oracle/denoms/vote_targets:
-    get:
-      summary: VoteTargets returns all vote target denoms
-      operationId: SeiprotocolSeichainOracleVoteTargets
-      responses:
-        '200':
-          description: A successful response.
-          schema:
-            type: object
-            properties:
-              vote_targets:
-                type: array
-                items:
-                  type: string
-                description: >-
-                  vote_targets defines a list of the denomination in which
-                  everyone
-
-                  should vote in the current vote period.
-            description: |-
-              QueryVoteTargetsResponse is response type for the
-              Query/VoteTargets RPC method.
-        default:
-          description: An unexpected error response.
-          schema:
-            type: object
-            properties:
-              code:
-                type: integer
-                format: int32
-              message:
-                type: string
-              details:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    '@type':
-                      type: string
-                  additionalProperties: {}
-      tags:
-        - Query
-  '/sei-protocol/sei-chain/oracle/denoms/{denom}/exchange_rate':
-    get:
-      summary: ExchangeRate returns exchange rate of a denom
-      operationId: SeiprotocolSeichainOracleExchangeRate
-      responses:
-        '200':
-          description: A successful response.
-          schema:
-            type: object
-            properties:
-              oracle_exchange_rate:
-                type: object
-                properties:
-                  exchange_rate:
-                    type: string
-                  last_update:
-                    type: string
-                  last_update_timestamp:
-                    type: string
-                    format: int64
-                title: >-
-                  exchange_rate defines the exchange rate of Sei denominated in
-                  various Sei
-            description: |-
-              QueryExchangeRateResponse is response type for the
-              Query/ExchangeRate RPC method.
-        default:
-          description: An unexpected error response.
-          schema:
-            type: object
-            properties:
-              code:
-                type: integer
-                format: int32
-              message:
-                type: string
-              details:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    '@type':
-                      type: string
-                  additionalProperties: {}
-      parameters:
-        - name: denom
-          description: denom defines the denomination to query for.
-          in: path
-          required: true
-          type: string
-      tags:
-        - Query
-  /sei-protocol/sei-chain/oracle/params:
+  /sei-protocol/oracle/v1/params:
     get:
       summary: Params queries all parameters.
       operationId: SeiprotocolSeichainOracleParams
@@ -37569,7 +38541,817 @@ paths:
                   additionalProperties: {}
       tags:
         - Query
+  /sei-protocol/sei-chain/oracle/denoms/actives:
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/oracle/v1/denoms/actives` instead.
+      operationId: SeiprotocolSeichainOracledeprecated_Actives
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              actives:
+                type: array
+                items:
+                  type: string
+                description: >-
+                  actives defines a list of the denomination which oracle prices
+                  aggreed upon.
+            description: |-
+              QueryActivesResponse is response type for the
+              Query/Actives RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  /sei-protocol/sei-chain/oracle/denoms/exchange_rates:
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/oracle/v1/denoms/exchange_rates` instead.
+      operationId: SeiprotocolSeichainOracledeprecated_ExchangeRates
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              denom_oracle_exchange_rate_pairs:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    denom:
+                      type: string
+                    oracle_exchange_rate:
+                      type: object
+                      properties:
+                        exchange_rate:
+                          type: string
+                        last_update:
+                          type: string
+                        last_update_timestamp:
+                          type: string
+                          format: int64
+                description: >-
+                  exchange_rates defines a list of the exchange rate for all
+                  whitelisted denoms.
+            description: |-
+              QueryExchangeRatesResponse is response type for the
+              Query/ExchangeRates RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  /sei-protocol/sei-chain/oracle/denoms/price_snapshot_history:
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/oracle/v1/denoms/price_snapshot_history` instead.
+      operationId: SeiprotocolSeichainOracledeprecated_PriceSnapshotHistory
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              price_snapshots:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    snapshot_timestamp:
+                      type: string
+                      format: int64
+                    price_snapshot_items:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          denom:
+                            type: string
+                          oracle_exchange_rate:
+                            type: object
+                            properties:
+                              exchange_rate:
+                                type: string
+                              last_update:
+                                type: string
+                              last_update_timestamp:
+                                type: string
+                                format: int64
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  '/sei-protocol/sei-chain/oracle/denoms/twaps/{lookback_seconds}':
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/oracle/v1/denoms/twaps/{lookback_seconds}` instead.
+      operationId: SeiprotocolSeichainOracledeprecated_Twaps
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              oracle_twaps:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    denom:
+                      type: string
+                    twap:
+                      type: string
+                    lookback_seconds:
+                      type: string
+                      format: int64
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      parameters:
+        - name: lookback_seconds
+          in: path
+          required: true
+          type: string
+          format: uint64
+      tags:
+        - Query
+  /sei-protocol/sei-chain/oracle/denoms/vote_targets:
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/oracle/v1/denoms/vote_targets` instead.
+      operationId: SeiprotocolSeichainOracledeprecated_VoteTargets
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              vote_targets:
+                type: array
+                items:
+                  type: string
+                description: >-
+                  vote_targets defines a list of the denomination in which
+                  everyone
+
+                  should vote in the current vote period.
+            description: |-
+              QueryVoteTargetsResponse is response type for the
+              Query/VoteTargets RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  '/sei-protocol/sei-chain/oracle/denoms/{denom}/exchange_rate':
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/oracle/v1/denoms/{denom}/exchange_rate` instead.
+      operationId: SeiprotocolSeichainOracledeprecated_ExchangeRate
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              oracle_exchange_rate:
+                type: object
+                properties:
+                  exchange_rate:
+                    type: string
+                  last_update:
+                    type: string
+                  last_update_timestamp:
+                    type: string
+                    format: int64
+                title: >-
+                  exchange_rate defines the exchange rate of Sei denominated in
+                  various Sei
+            description: |-
+              QueryExchangeRateResponse is response type for the
+              Query/ExchangeRate RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      parameters:
+        - name: denom
+          description: denom defines the denomination to query for.
+          in: path
+          required: true
+          type: string
+      tags:
+        - Query
+  /sei-protocol/sei-chain/oracle/params:
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/oracle/v1/params` instead.
+      operationId: SeiprotocolSeichainOracledeprecated_Params
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              params:
+                description: params defines the parameters of the module.
+                type: object
+                properties:
+                  vote_period:
+                    type: string
+                    format: uint64
+                    description: >-
+                      The number of blocks per voting window, at the end of the
+                      vote period, the oracle votes are assessed and exchange
+                      rates are calculated. If the vote period is 1 this is
+                      equivalent to having oracle votes assessed and exchange
+                      rates calculated in each block.
+                  vote_threshold:
+                    type: string
+                  reward_band:
+                    type: string
+                  whitelist:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                  slash_fraction:
+                    type: string
+                  slash_window:
+                    type: string
+                    format: uint64
+                    description: >-
+                      The interval in blocks at which the oracle module will
+                      assess validator penalty counters, and penalize validators
+                      with too poor performance.
+                  min_valid_per_window:
+                    type: string
+                    description: >-
+                      The minimum percentage of voting windows for which a
+                      validator must have `success`es in order to not be
+                      penalized at the end of the slash window.
+                  lookback_duration:
+                    type: string
+                    format: uint64
+            description: >-
+              QueryParamsResponse is the response type for the Query/Params RPC
+              method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
   /sei-protocol/sei-chain/oracle/slash_window:
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/oracle/v1/slash_window` instead.
+      operationId: SeiprotocolSeichainOracledeprecated_SlashWindow
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              window_progress:
+                type: string
+                format: uint64
+                description: |-
+                  window_progress defines the number of voting periods
+                  since the last slashing event would have taken place.
+            description: |-
+              QuerySlashWindowResponse is response type for the
+              Query/SlashWindow RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  '/sei-protocol/sei-chain/oracle/validators/{validator_addr}/feeder':
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/oracle/v1/validators/{validator_addr}/feeder` instead.
+      operationId: SeiprotocolSeichainOracledeprecated_FeederDelegation
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              feeder_addr:
+                type: string
+                title: feeder_addr defines the feeder delegation of a validator
+            description: |-
+              QueryFeederDelegationResponse is response type for the
+              Query/FeederDelegation RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      parameters:
+        - name: validator_addr
+          description: validator defines the validator address to query for.
+          in: path
+          required: true
+          type: string
+      tags:
+        - Query
+  '/sei-protocol/sei-chain/oracle/validators/{validator_addr}/vote_penalty_counter':
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the
+        `/sei/oracle/v1/validators/{validator_addr}/vote_penalty_counter`
+        instead.
+      operationId: SeiprotocolSeichainOracledeprecated_VotePenaltyCounter
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              vote_penalty_counter:
+                type: object
+                properties:
+                  miss_count:
+                    type: string
+                    format: uint64
+                  abstain_count:
+                    type: string
+                    format: uint64
+                  success_count:
+                    type: string
+                    format: uint64
+            description: |-
+              QueryVotePenaltyCounterResponse is response type for the
+              Query/VotePenaltyCounter RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      parameters:
+        - name: validator_addr
+          description: validator defines the validator address to query for.
+          in: path
+          required: true
+          type: string
+      tags:
+        - Query
+  /sei/oracle/v1/denoms/actives:
+    get:
+      summary: Actives returns all active denoms
+      operationId: SeiprotocolSeichainOracleActives
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              actives:
+                type: array
+                items:
+                  type: string
+                description: >-
+                  actives defines a list of the denomination which oracle prices
+                  aggreed upon.
+            description: |-
+              QueryActivesResponse is response type for the
+              Query/Actives RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  /sei/oracle/v1/denoms/exchange_rates:
+    get:
+      summary: ExchangeRates returns exchange rates of all denoms
+      operationId: SeiprotocolSeichainOracleExchangeRates
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              denom_oracle_exchange_rate_pairs:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    denom:
+                      type: string
+                    oracle_exchange_rate:
+                      type: object
+                      properties:
+                        exchange_rate:
+                          type: string
+                        last_update:
+                          type: string
+                        last_update_timestamp:
+                          type: string
+                          format: int64
+                description: >-
+                  exchange_rates defines a list of the exchange rate for all
+                  whitelisted denoms.
+            description: |-
+              QueryExchangeRatesResponse is response type for the
+              Query/ExchangeRates RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  /sei/oracle/v1/denoms/price_snapshot_history:
+    get:
+      summary: >-
+        PriceSnapshotHistory returns the history of price snapshots for all
+        assets
+      operationId: SeiprotocolSeichainOraclePriceSnapshotHistory
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              price_snapshots:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    snapshot_timestamp:
+                      type: string
+                      format: int64
+                    price_snapshot_items:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          denom:
+                            type: string
+                          oracle_exchange_rate:
+                            type: object
+                            properties:
+                              exchange_rate:
+                                type: string
+                              last_update:
+                                type: string
+                              last_update_timestamp:
+                                type: string
+                                format: int64
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  '/sei/oracle/v1/denoms/twaps/{lookback_seconds}':
+    get:
+      operationId: SeiprotocolSeichainOracleTwaps
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              oracle_twaps:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    denom:
+                      type: string
+                    twap:
+                      type: string
+                    lookback_seconds:
+                      type: string
+                      format: int64
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      parameters:
+        - name: lookback_seconds
+          in: path
+          required: true
+          type: string
+          format: uint64
+      tags:
+        - Query
+  /sei/oracle/v1/denoms/vote_targets:
+    get:
+      summary: VoteTargets returns all vote target denoms
+      operationId: SeiprotocolSeichainOracleVoteTargets
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              vote_targets:
+                type: array
+                items:
+                  type: string
+                description: >-
+                  vote_targets defines a list of the denomination in which
+                  everyone
+
+                  should vote in the current vote period.
+            description: |-
+              QueryVoteTargetsResponse is response type for the
+              Query/VoteTargets RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      tags:
+        - Query
+  '/sei/oracle/v1/denoms/{denom}/exchange_rate':
+    get:
+      summary: ExchangeRate returns exchange rate of a denom
+      operationId: SeiprotocolSeichainOracleExchangeRate
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              oracle_exchange_rate:
+                type: object
+                properties:
+                  exchange_rate:
+                    type: string
+                  last_update:
+                    type: string
+                  last_update_timestamp:
+                    type: string
+                    format: int64
+                title: >-
+                  exchange_rate defines the exchange rate of Sei denominated in
+                  various Sei
+            description: |-
+              QueryExchangeRateResponse is response type for the
+              Query/ExchangeRate RPC method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      parameters:
+        - name: denom
+          description: denom defines the denomination to query for.
+          in: path
+          required: true
+          type: string
+      tags:
+        - Query
+  /sei/oracle/v1/slash_window:
     get:
       summary: SlashWindow returns slash window information
       operationId: SeiprotocolSeichainOracleSlashWindow
@@ -37608,7 +39390,7 @@ paths:
                   additionalProperties: {}
       tags:
         - Query
-  '/sei-protocol/sei-chain/oracle/validators/{validator_addr}/feeder':
+  '/sei/oracle/v1/validators/{validator_addr}/feeder':
     get:
       summary: FeederDelegation returns feeder delegation of a validator
       operationId: SeiprotocolSeichainOracleFeederDelegation
@@ -37650,7 +39432,7 @@ paths:
           type: string
       tags:
         - Query
-  '/sei-protocol/sei-chain/oracle/validators/{validator_addr}/vote_penalty_counter':
+  '/sei/oracle/v1/validators/{validator_addr}/vote_penalty_counter':
     get:
       summary: MissCounter returns oracle miss counter of a validator
       operationId: SeiprotocolSeichainOracleVotePenaltyCounter
@@ -37702,6 +39484,223 @@ paths:
       tags:
         - Query
   /sei-protocol/seichain/tokenfactory/denoms/metadata:
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/tokenfactory/v1/denoms/metadata` instead.
+      operationId: SeiprotocolSeichainTokenfactorydeprecated_DenomMetadata
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              metadata:
+                description: >-
+                  metadata describes and provides all the client information for
+                  the requested token.
+                type: object
+                properties:
+                  description:
+                    type: string
+                  denom_units:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        denom:
+                          type: string
+                          description: >-
+                            denom represents the string name of the given denom
+                            unit (e.g uatom).
+                        exponent:
+                          type: integer
+                          format: int64
+                          description: >-
+                            exponent represents power of 10 exponent that one
+                            must
+
+                            raise the base_denom to in order to equal the given
+                            DenomUnit's denom
+
+                            1 denom = 1^exponent base_denom
+
+                            (e.g. with a base_denom of uatom, one can create a
+                            DenomUnit of 'atom' with
+
+                            exponent = 6, thus: 1 atom = 10^6 uatom).
+                        aliases:
+                          type: array
+                          items:
+                            type: string
+                          title: >-
+                            aliases is a list of string aliases for the given
+                            denom
+                      description: |-
+                        DenomUnit represents a struct that describes a given
+                        denomination unit of the basic token.
+                    title: >-
+                      denom_units represents the list of DenomUnit's for a given
+                      coin
+                  base:
+                    type: string
+                    description: >-
+                      base represents the base denom (should be the DenomUnit
+                      with exponent = 0).
+                  display:
+                    type: string
+                    description: |-
+                      display indicates the suggested denom that should be
+                      displayed in clients.
+                  name:
+                    type: string
+                    description: 'Since: cosmos-sdk 0.43'
+                    title: 'name defines the name of the token (eg: Cosmos Atom)'
+                  symbol:
+                    type: string
+                    description: >-
+                      symbol is the token symbol usually shown on exchanges (eg:
+                      ATOM). This can
+
+                      be the same as the display.
+
+
+                      Since: cosmos-sdk 0.43
+            description: >-
+              QueryDenomMetadataResponse is the response type for the
+              Query/DenomMetadata gRPC
+
+              method.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      parameters:
+        - name: denom
+          description: denom is the coin denom to query the metadata for.
+          in: query
+          required: false
+          type: string
+      tags:
+        - Query
+  '/sei-protocol/seichain/tokenfactory/denoms/{denom}/authority_metadata':
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/tokenfactory/v1/denoms/{denom}/authority_metadata`
+        instead.
+      operationId: SeiprotocolSeichainTokenfactorydeprecated_DenomAuthorityMetadata
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              authority_metadata:
+                type: object
+                properties:
+                  admin:
+                    type: string
+                    title: 'Can be empty for no admin, or a valid sei address'
+                description: >-
+                  DenomAuthorityMetadata specifies metadata for addresses that
+                  have specific
+
+                  capabilities over a token factory denom. Right now there is
+                  only one Admin
+
+                  permission, but is planned to be extended to the future.
+            description: >-
+              QueryDenomAuthorityMetadataResponse defines the response structure
+              for the
+
+              DenomAuthorityMetadata gRPC query.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      parameters:
+        - name: denom
+          in: path
+          required: true
+          type: string
+      tags:
+        - Query
+  '/sei-protocol/seichain/tokenfactory/denoms_from_creator/{creator}':
+    get:
+      summary: >-
+        This endpoint is deprecated and will be removed in the future. Please
+        use the `/sei/tokenfactory/v1/denoms_from_creator/{creator}` instead.
+      operationId: SeiprotocolSeichainTokenfactorydeprecated_DenomsFromCreator
+      responses:
+        '200':
+          description: A successful response.
+          schema:
+            type: object
+            properties:
+              denoms:
+                type: array
+                items:
+                  type: string
+            description: >-
+              QueryDenomsFromCreatorRequest defines the response structure for
+              the
+
+              DenomsFromCreator gRPC query.
+        default:
+          description: An unexpected error response.
+          schema:
+            type: object
+            properties:
+              code:
+                type: integer
+                format: int32
+              message:
+                type: string
+              details:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    '@type':
+                      type: string
+                  additionalProperties: {}
+      parameters:
+        - name: creator
+          in: path
+          required: true
+          type: string
+      tags:
+        - Query
+  /sei/tokenfactory/v1/denoms/metadata:
     get:
       summary: |-
         DenomsMetadata defines a gRPC query method for fetching
@@ -37815,7 +39814,7 @@ paths:
           type: string
       tags:
         - Query
-  '/sei-protocol/seichain/tokenfactory/denoms/{denom}/authority_metadata':
+  '/sei/tokenfactory/v1/denoms/{denom}/authority_metadata':
     get:
       summary: |-
         DenomAuthorityMetadata defines a gRPC query method for fetching
@@ -37871,7 +39870,7 @@ paths:
           type: string
       tags:
         - Query
-  '/sei-protocol/seichain/tokenfactory/denoms_from_creator/{creator}':
+  '/sei/tokenfactory/v1/denoms_from_creator/{creator}':
     get:
       summary: |-
         DenomsFromCreator defines a gRPC query method for fetching all
@@ -37917,7 +39916,7 @@ paths:
           type: string
       tags:
         - Query
-  /sei-protocol/seichain/tokenfactory/params:
+  /sei/tokenfactory/v1/params:
     get:
       summary: >-
         Params defines a gRPC query method that returns the tokenfactory
@@ -38064,6 +40063,19 @@ definitions:
           - KV_DEX_SHORT_ORDER_COUNT
           - KV_BANK_DEFERRED
           - KV_BANK_DEFERRED_MODULE_TX_INDEX
+          - KV_EVM
+          - KV_EVM_BALANCE
+          - KV_EVM_TRANSIENT
+          - KV_EVM_ACCOUNT_TRANSIENT
+          - KV_EVM_MODULE_TRANSIENT
+          - KV_EVM_NONCE
+          - KV_EVM_RECEIPT
+          - KV_EVM_S2E
+          - KV_EVM_E2S
+          - KV_EVM_CODE_HASH
+          - KV_EVM_CODE
+          - KV_EVM_CODE_SIZE
+          - KV_BANK_WEI_BALANCE
           - KV_DEX_MEM_CONTRACTS_TO_PROCESS
           - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
         default: ANY
@@ -38156,6 +40168,19 @@ definitions:
            - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
            - KV_BANK_DEFERRED: child of KV
            - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+           - KV_EVM: child of KV
+           - KV_EVM_BALANCE: child of KV_EVM; deprecated
+           - KV_EVM_TRANSIENT: child of KV_EVM
+           - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+           - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+           - KV_EVM_NONCE: child of KV_EVM
+           - KV_EVM_RECEIPT: child of KV_EVM
+           - KV_EVM_S2E: child of KV_EVM
+           - KV_EVM_E2S: child of KV_EVM
+           - KV_EVM_CODE_HASH: child of KV_EVM
+           - KV_EVM_CODE: child of KV_EVM
+           - KV_EVM_CODE_SIZE: child of KV_EVM
+           - KV_BANK_WEI_BALANCE: child of KV_BANK
            - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
            - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
       identifier_template:
@@ -38295,6 +40320,19 @@ definitions:
                 - KV_DEX_SHORT_ORDER_COUNT
                 - KV_BANK_DEFERRED
                 - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                - KV_EVM
+                - KV_EVM_BALANCE
+                - KV_EVM_TRANSIENT
+                - KV_EVM_ACCOUNT_TRANSIENT
+                - KV_EVM_MODULE_TRANSIENT
+                - KV_EVM_NONCE
+                - KV_EVM_RECEIPT
+                - KV_EVM_S2E
+                - KV_EVM_E2S
+                - KV_EVM_CODE_HASH
+                - KV_EVM_CODE
+                - KV_EVM_CODE_SIZE
+                - KV_BANK_WEI_BALANCE
                 - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                 - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
               default: ANY
@@ -38387,6 +40425,19 @@ definitions:
                  - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                  - KV_BANK_DEFERRED: child of KV
                  - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                 - KV_EVM: child of KV
+                 - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                 - KV_EVM_TRANSIENT: child of KV_EVM
+                 - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                 - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                 - KV_EVM_NONCE: child of KV_EVM
+                 - KV_EVM_RECEIPT: child of KV_EVM
+                 - KV_EVM_S2E: child of KV_EVM
+                 - KV_EVM_E2S: child of KV_EVM
+                 - KV_EVM_CODE_HASH: child of KV_EVM
+                 - KV_EVM_CODE: child of KV_EVM
+                 - KV_EVM_CODE_SIZE: child of KV_EVM
+                 - KV_BANK_WEI_BALANCE: child of KV_BANK
                  - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                  - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
             identifier_template:
@@ -38488,6 +40539,19 @@ definitions:
       - KV_DEX_SHORT_ORDER_COUNT
       - KV_BANK_DEFERRED
       - KV_BANK_DEFERRED_MODULE_TX_INDEX
+      - KV_EVM
+      - KV_EVM_BALANCE
+      - KV_EVM_TRANSIENT
+      - KV_EVM_ACCOUNT_TRANSIENT
+      - KV_EVM_MODULE_TRANSIENT
+      - KV_EVM_NONCE
+      - KV_EVM_RECEIPT
+      - KV_EVM_S2E
+      - KV_EVM_E2S
+      - KV_EVM_CODE_HASH
+      - KV_EVM_CODE
+      - KV_EVM_CODE_SIZE
+      - KV_BANK_WEI_BALANCE
       - KV_DEX_MEM_CONTRACTS_TO_PROCESS
       - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
     default: ANY
@@ -38580,6 +40644,19 @@ definitions:
        - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
        - KV_BANK_DEFERRED: child of KV
        - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+       - KV_EVM: child of KV
+       - KV_EVM_BALANCE: child of KV_EVM; deprecated
+       - KV_EVM_TRANSIENT: child of KV_EVM
+       - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+       - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+       - KV_EVM_NONCE: child of KV_EVM
+       - KV_EVM_RECEIPT: child of KV_EVM
+       - KV_EVM_S2E: child of KV_EVM
+       - KV_EVM_E2S: child of KV_EVM
+       - KV_EVM_CODE_HASH: child of KV_EVM
+       - KV_EVM_CODE: child of KV_EVM
+       - KV_EVM_CODE_SIZE: child of KV_EVM
+       - KV_BANK_WEI_BALANCE: child of KV_BANK
        - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
        - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
   cosmos.accesscontrol.v1beta1.WasmAccessOperation:
@@ -38691,6 +40768,19 @@ definitions:
               - KV_DEX_SHORT_ORDER_COUNT
               - KV_BANK_DEFERRED
               - KV_BANK_DEFERRED_MODULE_TX_INDEX
+              - KV_EVM
+              - KV_EVM_BALANCE
+              - KV_EVM_TRANSIENT
+              - KV_EVM_ACCOUNT_TRANSIENT
+              - KV_EVM_MODULE_TRANSIENT
+              - KV_EVM_NONCE
+              - KV_EVM_RECEIPT
+              - KV_EVM_S2E
+              - KV_EVM_E2S
+              - KV_EVM_CODE_HASH
+              - KV_EVM_CODE
+              - KV_EVM_CODE_SIZE
+              - KV_BANK_WEI_BALANCE
               - KV_DEX_MEM_CONTRACTS_TO_PROCESS
               - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
             default: ANY
@@ -38783,6 +40873,19 @@ definitions:
                - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                - KV_BANK_DEFERRED: child of KV
                - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+               - KV_EVM: child of KV
+               - KV_EVM_BALANCE: child of KV_EVM; deprecated
+               - KV_EVM_TRANSIENT: child of KV_EVM
+               - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+               - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+               - KV_EVM_NONCE: child of KV_EVM
+               - KV_EVM_RECEIPT: child of KV_EVM
+               - KV_EVM_S2E: child of KV_EVM
+               - KV_EVM_E2S: child of KV_EVM
+               - KV_EVM_CODE_HASH: child of KV_EVM
+               - KV_EVM_CODE: child of KV_EVM
+               - KV_EVM_CODE_SIZE: child of KV_EVM
+               - KV_BANK_WEI_BALANCE: child of KV_BANK
                - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
           identifier_template:
@@ -38919,6 +41022,19 @@ definitions:
                     - KV_DEX_SHORT_ORDER_COUNT
                     - KV_BANK_DEFERRED
                     - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                    - KV_EVM
+                    - KV_EVM_BALANCE
+                    - KV_EVM_TRANSIENT
+                    - KV_EVM_ACCOUNT_TRANSIENT
+                    - KV_EVM_MODULE_TRANSIENT
+                    - KV_EVM_NONCE
+                    - KV_EVM_RECEIPT
+                    - KV_EVM_S2E
+                    - KV_EVM_E2S
+                    - KV_EVM_CODE_HASH
+                    - KV_EVM_CODE
+                    - KV_EVM_CODE_SIZE
+                    - KV_BANK_WEI_BALANCE
                     - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                     - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                   default: ANY
@@ -39011,6 +41127,19 @@ definitions:
                      - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                      - KV_BANK_DEFERRED: child of KV
                      - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                     - KV_EVM: child of KV
+                     - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                     - KV_EVM_TRANSIENT: child of KV_EVM
+                     - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                     - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                     - KV_EVM_NONCE: child of KV_EVM
+                     - KV_EVM_RECEIPT: child of KV_EVM
+                     - KV_EVM_S2E: child of KV_EVM
+                     - KV_EVM_E2S: child of KV_EVM
+                     - KV_EVM_CODE_HASH: child of KV_EVM
+                     - KV_EVM_CODE: child of KV_EVM
+                     - KV_EVM_CODE_SIZE: child of KV_EVM
+                     - KV_BANK_WEI_BALANCE: child of KV_BANK
                      - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                      - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                 identifier_template:
@@ -39182,6 +41311,19 @@ definitions:
                     - KV_DEX_SHORT_ORDER_COUNT
                     - KV_BANK_DEFERRED
                     - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                    - KV_EVM
+                    - KV_EVM_BALANCE
+                    - KV_EVM_TRANSIENT
+                    - KV_EVM_ACCOUNT_TRANSIENT
+                    - KV_EVM_MODULE_TRANSIENT
+                    - KV_EVM_NONCE
+                    - KV_EVM_RECEIPT
+                    - KV_EVM_S2E
+                    - KV_EVM_E2S
+                    - KV_EVM_CODE_HASH
+                    - KV_EVM_CODE
+                    - KV_EVM_CODE_SIZE
+                    - KV_BANK_WEI_BALANCE
                     - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                     - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                   default: ANY
@@ -39274,6 +41416,19 @@ definitions:
                      - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                      - KV_BANK_DEFERRED: child of KV
                      - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                     - KV_EVM: child of KV
+                     - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                     - KV_EVM_TRANSIENT: child of KV_EVM
+                     - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                     - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                     - KV_EVM_NONCE: child of KV_EVM
+                     - KV_EVM_RECEIPT: child of KV_EVM
+                     - KV_EVM_S2E: child of KV_EVM
+                     - KV_EVM_E2S: child of KV_EVM
+                     - KV_EVM_CODE_HASH: child of KV_EVM
+                     - KV_EVM_CODE: child of KV_EVM
+                     - KV_EVM_CODE_SIZE: child of KV_EVM
+                     - KV_BANK_WEI_BALANCE: child of KV_BANK
                      - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                      - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                 identifier_template:
@@ -39412,6 +41567,19 @@ definitions:
                           - KV_DEX_SHORT_ORDER_COUNT
                           - KV_BANK_DEFERRED
                           - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                          - KV_EVM
+                          - KV_EVM_BALANCE
+                          - KV_EVM_TRANSIENT
+                          - KV_EVM_ACCOUNT_TRANSIENT
+                          - KV_EVM_MODULE_TRANSIENT
+                          - KV_EVM_NONCE
+                          - KV_EVM_RECEIPT
+                          - KV_EVM_S2E
+                          - KV_EVM_E2S
+                          - KV_EVM_CODE_HASH
+                          - KV_EVM_CODE
+                          - KV_EVM_CODE_SIZE
+                          - KV_BANK_WEI_BALANCE
                           - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                           - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                         default: ANY
@@ -39504,6 +41672,19 @@ definitions:
                            - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                            - KV_BANK_DEFERRED: child of KV
                            - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                           - KV_EVM: child of KV
+                           - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                           - KV_EVM_TRANSIENT: child of KV_EVM
+                           - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                           - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                           - KV_EVM_NONCE: child of KV_EVM
+                           - KV_EVM_RECEIPT: child of KV_EVM
+                           - KV_EVM_S2E: child of KV_EVM
+                           - KV_EVM_E2S: child of KV_EVM
+                           - KV_EVM_CODE_HASH: child of KV_EVM
+                           - KV_EVM_CODE: child of KV_EVM
+                           - KV_EVM_CODE_SIZE: child of KV_EVM
+                           - KV_BANK_WEI_BALANCE: child of KV_BANK
                            - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                            - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                       identifier_template:
@@ -39642,6 +41823,19 @@ definitions:
                           - KV_DEX_SHORT_ORDER_COUNT
                           - KV_BANK_DEFERRED
                           - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                          - KV_EVM
+                          - KV_EVM_BALANCE
+                          - KV_EVM_TRANSIENT
+                          - KV_EVM_ACCOUNT_TRANSIENT
+                          - KV_EVM_MODULE_TRANSIENT
+                          - KV_EVM_NONCE
+                          - KV_EVM_RECEIPT
+                          - KV_EVM_S2E
+                          - KV_EVM_E2S
+                          - KV_EVM_CODE_HASH
+                          - KV_EVM_CODE
+                          - KV_EVM_CODE_SIZE
+                          - KV_BANK_WEI_BALANCE
                           - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                           - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                         default: ANY
@@ -39734,6 +41928,19 @@ definitions:
                            - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                            - KV_BANK_DEFERRED: child of KV
                            - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                           - KV_EVM: child of KV
+                           - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                           - KV_EVM_TRANSIENT: child of KV_EVM
+                           - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                           - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                           - KV_EVM_NONCE: child of KV_EVM
+                           - KV_EVM_RECEIPT: child of KV_EVM
+                           - KV_EVM_S2E: child of KV_EVM
+                           - KV_EVM_E2S: child of KV_EVM
+                           - KV_EVM_CODE_HASH: child of KV_EVM
+                           - KV_EVM_CODE: child of KV_EVM
+                           - KV_EVM_CODE_SIZE: child of KV_EVM
+                           - KV_BANK_WEI_BALANCE: child of KV_BANK
                            - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                            - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                       identifier_template:
@@ -39947,6 +42154,19 @@ definitions:
                       - KV_DEX_SHORT_ORDER_COUNT
                       - KV_BANK_DEFERRED
                       - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                      - KV_EVM
+                      - KV_EVM_BALANCE
+                      - KV_EVM_TRANSIENT
+                      - KV_EVM_ACCOUNT_TRANSIENT
+                      - KV_EVM_MODULE_TRANSIENT
+                      - KV_EVM_NONCE
+                      - KV_EVM_RECEIPT
+                      - KV_EVM_S2E
+                      - KV_EVM_E2S
+                      - KV_EVM_CODE_HASH
+                      - KV_EVM_CODE
+                      - KV_EVM_CODE_SIZE
+                      - KV_BANK_WEI_BALANCE
                       - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                       - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                     default: ANY
@@ -40039,6 +42259,19 @@ definitions:
                        - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                        - KV_BANK_DEFERRED: child of KV
                        - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                       - KV_EVM: child of KV
+                       - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                       - KV_EVM_TRANSIENT: child of KV_EVM
+                       - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                       - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                       - KV_EVM_NONCE: child of KV_EVM
+                       - KV_EVM_RECEIPT: child of KV_EVM
+                       - KV_EVM_S2E: child of KV_EVM
+                       - KV_EVM_E2S: child of KV_EVM
+                       - KV_EVM_CODE_HASH: child of KV_EVM
+                       - KV_EVM_CODE: child of KV_EVM
+                       - KV_EVM_CODE_SIZE: child of KV_EVM
+                       - KV_BANK_WEI_BALANCE: child of KV_BANK
                        - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                        - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                   identifier_template:
@@ -40164,6 +42397,19 @@ definitions:
                           - KV_DEX_SHORT_ORDER_COUNT
                           - KV_BANK_DEFERRED
                           - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                          - KV_EVM
+                          - KV_EVM_BALANCE
+                          - KV_EVM_TRANSIENT
+                          - KV_EVM_ACCOUNT_TRANSIENT
+                          - KV_EVM_MODULE_TRANSIENT
+                          - KV_EVM_NONCE
+                          - KV_EVM_RECEIPT
+                          - KV_EVM_S2E
+                          - KV_EVM_E2S
+                          - KV_EVM_CODE_HASH
+                          - KV_EVM_CODE
+                          - KV_EVM_CODE_SIZE
+                          - KV_BANK_WEI_BALANCE
                           - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                           - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                         default: ANY
@@ -40256,6 +42502,19 @@ definitions:
                            - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                            - KV_BANK_DEFERRED: child of KV
                            - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                           - KV_EVM: child of KV
+                           - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                           - KV_EVM_TRANSIENT: child of KV_EVM
+                           - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                           - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                           - KV_EVM_NONCE: child of KV_EVM
+                           - KV_EVM_RECEIPT: child of KV_EVM
+                           - KV_EVM_S2E: child of KV_EVM
+                           - KV_EVM_E2S: child of KV_EVM
+                           - KV_EVM_CODE_HASH: child of KV_EVM
+                           - KV_EVM_CODE: child of KV_EVM
+                           - KV_EVM_CODE_SIZE: child of KV_EVM
+                           - KV_BANK_WEI_BALANCE: child of KV_BANK
                            - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                            - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                       identifier_template:
@@ -40394,6 +42653,19 @@ definitions:
                                 - KV_DEX_SHORT_ORDER_COUNT
                                 - KV_BANK_DEFERRED
                                 - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                                - KV_EVM
+                                - KV_EVM_BALANCE
+                                - KV_EVM_TRANSIENT
+                                - KV_EVM_ACCOUNT_TRANSIENT
+                                - KV_EVM_MODULE_TRANSIENT
+                                - KV_EVM_NONCE
+                                - KV_EVM_RECEIPT
+                                - KV_EVM_S2E
+                                - KV_EVM_E2S
+                                - KV_EVM_CODE_HASH
+                                - KV_EVM_CODE
+                                - KV_EVM_CODE_SIZE
+                                - KV_BANK_WEI_BALANCE
                                 - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                                 - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                               default: ANY
@@ -40486,6 +42758,19 @@ definitions:
                                  - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                  - KV_BANK_DEFERRED: child of KV
                                  - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                                 - KV_EVM: child of KV
+                                 - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                                 - KV_EVM_TRANSIENT: child of KV_EVM
+                                 - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                                 - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                                 - KV_EVM_NONCE: child of KV_EVM
+                                 - KV_EVM_RECEIPT: child of KV_EVM
+                                 - KV_EVM_S2E: child of KV_EVM
+                                 - KV_EVM_E2S: child of KV_EVM
+                                 - KV_EVM_CODE_HASH: child of KV_EVM
+                                 - KV_EVM_CODE: child of KV_EVM
+                                 - KV_EVM_CODE_SIZE: child of KV_EVM
+                                 - KV_BANK_WEI_BALANCE: child of KV_BANK
                                  - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                  - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                             identifier_template:
@@ -40624,6 +42909,19 @@ definitions:
                                 - KV_DEX_SHORT_ORDER_COUNT
                                 - KV_BANK_DEFERRED
                                 - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                                - KV_EVM
+                                - KV_EVM_BALANCE
+                                - KV_EVM_TRANSIENT
+                                - KV_EVM_ACCOUNT_TRANSIENT
+                                - KV_EVM_MODULE_TRANSIENT
+                                - KV_EVM_NONCE
+                                - KV_EVM_RECEIPT
+                                - KV_EVM_S2E
+                                - KV_EVM_E2S
+                                - KV_EVM_CODE_HASH
+                                - KV_EVM_CODE
+                                - KV_EVM_CODE_SIZE
+                                - KV_BANK_WEI_BALANCE
                                 - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                                 - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                               default: ANY
@@ -40716,6 +43014,19 @@ definitions:
                                  - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                  - KV_BANK_DEFERRED: child of KV
                                  - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                                 - KV_EVM: child of KV
+                                 - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                                 - KV_EVM_TRANSIENT: child of KV_EVM
+                                 - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                                 - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                                 - KV_EVM_NONCE: child of KV_EVM
+                                 - KV_EVM_RECEIPT: child of KV_EVM
+                                 - KV_EVM_S2E: child of KV_EVM
+                                 - KV_EVM_E2S: child of KV_EVM
+                                 - KV_EVM_CODE_HASH: child of KV_EVM
+                                 - KV_EVM_CODE: child of KV_EVM
+                                 - KV_EVM_CODE_SIZE: child of KV_EVM
+                                 - KV_BANK_WEI_BALANCE: child of KV_BANK
                                  - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                  - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                             identifier_template:
@@ -40931,6 +43242,19 @@ definitions:
                     - KV_DEX_SHORT_ORDER_COUNT
                     - KV_BANK_DEFERRED
                     - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                    - KV_EVM
+                    - KV_EVM_BALANCE
+                    - KV_EVM_TRANSIENT
+                    - KV_EVM_ACCOUNT_TRANSIENT
+                    - KV_EVM_MODULE_TRANSIENT
+                    - KV_EVM_NONCE
+                    - KV_EVM_RECEIPT
+                    - KV_EVM_S2E
+                    - KV_EVM_E2S
+                    - KV_EVM_CODE_HASH
+                    - KV_EVM_CODE
+                    - KV_EVM_CODE_SIZE
+                    - KV_BANK_WEI_BALANCE
                     - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                     - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                   default: ANY
@@ -41023,6 +43347,19 @@ definitions:
                      - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                      - KV_BANK_DEFERRED: child of KV
                      - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                     - KV_EVM: child of KV
+                     - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                     - KV_EVM_TRANSIENT: child of KV_EVM
+                     - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                     - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                     - KV_EVM_NONCE: child of KV_EVM
+                     - KV_EVM_RECEIPT: child of KV_EVM
+                     - KV_EVM_S2E: child of KV_EVM
+                     - KV_EVM_E2S: child of KV_EVM
+                     - KV_EVM_CODE_HASH: child of KV_EVM
+                     - KV_EVM_CODE: child of KV_EVM
+                     - KV_EVM_CODE_SIZE: child of KV_EVM
+                     - KV_BANK_WEI_BALANCE: child of KV_BANK
                      - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                      - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                 identifier_template:
@@ -41146,6 +43483,19 @@ definitions:
                         - KV_DEX_SHORT_ORDER_COUNT
                         - KV_BANK_DEFERRED
                         - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                        - KV_EVM
+                        - KV_EVM_BALANCE
+                        - KV_EVM_TRANSIENT
+                        - KV_EVM_ACCOUNT_TRANSIENT
+                        - KV_EVM_MODULE_TRANSIENT
+                        - KV_EVM_NONCE
+                        - KV_EVM_RECEIPT
+                        - KV_EVM_S2E
+                        - KV_EVM_E2S
+                        - KV_EVM_CODE_HASH
+                        - KV_EVM_CODE
+                        - KV_EVM_CODE_SIZE
+                        - KV_BANK_WEI_BALANCE
                         - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                         - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                       default: ANY
@@ -41238,6 +43588,19 @@ definitions:
                          - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                          - KV_BANK_DEFERRED: child of KV
                          - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                         - KV_EVM: child of KV
+                         - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                         - KV_EVM_TRANSIENT: child of KV_EVM
+                         - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                         - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                         - KV_EVM_NONCE: child of KV_EVM
+                         - KV_EVM_RECEIPT: child of KV_EVM
+                         - KV_EVM_S2E: child of KV_EVM
+                         - KV_EVM_E2S: child of KV_EVM
+                         - KV_EVM_CODE_HASH: child of KV_EVM
+                         - KV_EVM_CODE: child of KV_EVM
+                         - KV_EVM_CODE_SIZE: child of KV_EVM
+                         - KV_BANK_WEI_BALANCE: child of KV_BANK
                          - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                          - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                     identifier_template:
@@ -41376,6 +43739,19 @@ definitions:
                               - KV_DEX_SHORT_ORDER_COUNT
                               - KV_BANK_DEFERRED
                               - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                              - KV_EVM
+                              - KV_EVM_BALANCE
+                              - KV_EVM_TRANSIENT
+                              - KV_EVM_ACCOUNT_TRANSIENT
+                              - KV_EVM_MODULE_TRANSIENT
+                              - KV_EVM_NONCE
+                              - KV_EVM_RECEIPT
+                              - KV_EVM_S2E
+                              - KV_EVM_E2S
+                              - KV_EVM_CODE_HASH
+                              - KV_EVM_CODE
+                              - KV_EVM_CODE_SIZE
+                              - KV_BANK_WEI_BALANCE
                               - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                               - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                             default: ANY
@@ -41468,6 +43844,19 @@ definitions:
                                - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                - KV_BANK_DEFERRED: child of KV
                                - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                               - KV_EVM: child of KV
+                               - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                               - KV_EVM_TRANSIENT: child of KV_EVM
+                               - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                               - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                               - KV_EVM_NONCE: child of KV_EVM
+                               - KV_EVM_RECEIPT: child of KV_EVM
+                               - KV_EVM_S2E: child of KV_EVM
+                               - KV_EVM_E2S: child of KV_EVM
+                               - KV_EVM_CODE_HASH: child of KV_EVM
+                               - KV_EVM_CODE: child of KV_EVM
+                               - KV_EVM_CODE_SIZE: child of KV_EVM
+                               - KV_BANK_WEI_BALANCE: child of KV_BANK
                                - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                           identifier_template:
@@ -41606,6 +43995,19 @@ definitions:
                               - KV_DEX_SHORT_ORDER_COUNT
                               - KV_BANK_DEFERRED
                               - KV_BANK_DEFERRED_MODULE_TX_INDEX
+                              - KV_EVM
+                              - KV_EVM_BALANCE
+                              - KV_EVM_TRANSIENT
+                              - KV_EVM_ACCOUNT_TRANSIENT
+                              - KV_EVM_MODULE_TRANSIENT
+                              - KV_EVM_NONCE
+                              - KV_EVM_RECEIPT
+                              - KV_EVM_S2E
+                              - KV_EVM_E2S
+                              - KV_EVM_CODE_HASH
+                              - KV_EVM_CODE
+                              - KV_EVM_CODE_SIZE
+                              - KV_BANK_WEI_BALANCE
                               - KV_DEX_MEM_CONTRACTS_TO_PROCESS
                               - KV_DEX_MEM_DOWNSTREAM_CONTRACTS
                             default: ANY
@@ -41698,6 +44100,19 @@ definitions:
                                - KV_DEX_SHORT_ORDER_COUNT: child of KV_DEX
                                - KV_BANK_DEFERRED: child of KV
                                - KV_BANK_DEFERRED_MODULE_TX_INDEX: child of KV_BANK_DEFERRED
+                               - KV_EVM: child of KV
+                               - KV_EVM_BALANCE: child of KV_EVM; deprecated
+                               - KV_EVM_TRANSIENT: child of KV_EVM
+                               - KV_EVM_ACCOUNT_TRANSIENT: child of KV_EVM
+                               - KV_EVM_MODULE_TRANSIENT: child of KV_EVM
+                               - KV_EVM_NONCE: child of KV_EVM
+                               - KV_EVM_RECEIPT: child of KV_EVM
+                               - KV_EVM_S2E: child of KV_EVM
+                               - KV_EVM_E2S: child of KV_EVM
+                               - KV_EVM_CODE_HASH: child of KV_EVM
+                               - KV_EVM_CODE: child of KV_EVM
+                               - KV_EVM_CODE_SIZE: child of KV_EVM
+                               - KV_BANK_WEI_BALANCE: child of KV_BANK
                                - KV_DEX_MEM_CONTRACTS_TO_PROCESS: child of KV_DEX_MEM
                                - KV_DEX_MEM_DOWNSTREAM_CONTRACTS: child of KV_DEX_MEM
                           identifier_template:
@@ -53998,6 +56413,9 @@ definitions:
           message
 
           or handler execution.
+      evmError:
+        type: string
+        title: EVM VM error during execution
     description: Result is the union of ResponseFormat and ResponseCheckTx.
   cosmos.base.abci.v1beta1.StringEvent:
     type: object
@@ -56072,6 +58490,9 @@ definitions:
               message
 
               or handler execution.
+          evmError:
+            type: string
+            title: EVM VM error during execution
     description: |-
       SimulateResponse is the response type for the
       Service.SimulateRPC method.
@@ -64400,92 +66821,6 @@ definitions:
       data:
         type: string
         format: byte
-  seiprotocol.seichain.mint.Params:
-    type: object
-    properties:
-      mint_denom:
-        type: string
-        title: type of coin to mint
-      token_release_schedule:
-        type: array
-        items:
-          type: object
-          properties:
-            start_date:
-              type: string
-              title: yyyy-mm-dd
-            end_date:
-              type: string
-              title: yyyy-mm-dd
-            token_release_amount:
-              type: string
-              format: uint64
-        title: List of token release schedules
-    description: Params holds parameters for the mint module.
-  seiprotocol.seichain.mint.QueryMinterResponse:
-    type: object
-    properties:
-      start_date:
-        type: string
-      end_date:
-        type: string
-      denom:
-        type: string
-      total_mint_amount:
-        type: string
-        format: uint64
-      remaining_mint_amount:
-        type: string
-        format: uint64
-      last_mint_amount:
-        type: string
-        format: uint64
-      last_mint_date:
-        type: string
-      last_mint_height:
-        type: string
-        format: uint64
-    description: |-
-      QueryMinterResponse is the response type for the
-      Query/Minter RPC method.
-  seiprotocol.seichain.mint.QueryParamsResponse:
-    type: object
-    properties:
-      params:
-        description: params defines the parameters of the module.
-        type: object
-        properties:
-          mint_denom:
-            type: string
-            title: type of coin to mint
-          token_release_schedule:
-            type: array
-            items:
-              type: object
-              properties:
-                start_date:
-                  type: string
-                  title: yyyy-mm-dd
-                end_date:
-                  type: string
-                  title: yyyy-mm-dd
-                token_release_amount:
-                  type: string
-                  format: uint64
-            title: List of token release schedules
-    description: QueryParamsResponse is the response type for the Query/Params RPC method.
-  seiprotocol.seichain.mint.ScheduledTokenRelease:
-    type: object
-    properties:
-      start_date:
-        type: string
-        title: yyyy-mm-dd
-      end_date:
-        type: string
-        title: yyyy-mm-dd
-      token_release_amount:
-        type: string
-        format: uint64
   seiprotocol.seichain.oracle.Denom:
     type: object
     properties:

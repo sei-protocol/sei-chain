@@ -1,5 +1,5 @@
 syntax = "proto3";
-package seiprotocol.seichain.mint;
+package sei.mint.v1beta1;
 
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
@@ -9,15 +9,24 @@ option go_package = "github.com/sei-protocol/sei-chain/x/mint/types";
 
 // Query provides defines the gRPC querier service.
 service Query {
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/mint/v1beta1/params` instead.
+  rpc deprecated_Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/seichain/mint/v1beta1/params";
+    option deprecated = true;
+  }
   // Params returns the total set of minting parameters.
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
-    option (google.api.http).get = "/seichain/mint/v1beta1/params";
+    option (google.api.http).get = "/sei/mint/v1beta1/params";
   }
 
-  // EpochProvisions current minting epoch provisions value.
-  rpc Minter(QueryMinterRequest)
-      returns (QueryMinterResponse) {
+  // This endpoint is deprecated and will be removed in the future. Please use the `/sei/mint/v1beta1/minter` instead.
+  rpc deprecated_Minter(QueryMinterRequest) returns (QueryMinterResponse) {
     option (google.api.http).get = "/seichain/mint/v1beta1/minter";
+    option deprecated = true;
+  }
+  // EpochProvisions current minting epoch provisions value.
+  rpc Minter(QueryMinterRequest) returns (QueryMinterResponse) {
+    option (google.api.http).get = "/sei/mint/v1beta1/minter";
   }
 }
 

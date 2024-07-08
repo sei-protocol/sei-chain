@@ -1,0 +1,133 @@
+syntax = "proto3";
+package sei.oracle.v1;
+
+import "gogoproto/gogo.proto";
+import "cosmos/base/v1beta1/coin.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/oracle/types";
+
+message Params {
+  option (gogoproto.equal)            = true;
+  option (gogoproto.goproto_stringer) = false;
+
+  // The number of blocks per voting window, at the end of the vote period, the oracle votes are assessed and exchange rates are calculated. If the vote period is 1 this is equivalent to having oracle votes assessed and exchange rates calculated in each block.
+  uint64 vote_period    = 1 [(gogoproto.moretags) = "yaml:\"vote_period\""];
+  string vote_threshold = 2 [
+    (gogoproto.moretags)   = "yaml:\"vote_threshold\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false
+  ];
+  string reward_band = 3 [
+    (gogoproto.moretags)   = "yaml:\"reward_band\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false
+  ];
+  repeated Denom whitelist                  = 4 [
+    (gogoproto.moretags)     = "yaml:\"whitelist\"",
+    (gogoproto.castrepeated) = "DenomList",
+    (gogoproto.nullable)     = false
+  ];
+  string slash_fraction = 5 [
+    (gogoproto.moretags)   = "yaml:\"slash_fraction\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false
+  ];
+  // The interval in blocks at which the oracle module will assess validator penalty counters, and penalize validators with too poor performance.
+  uint64 slash_window         = 6 [(gogoproto.moretags) = "yaml:\"slash_window\""];
+  // The minimum percentage of voting windows for which a validator must have `success`es in order to not be penalized at the end of the slash window.
+  string min_valid_per_window = 7 [
+    (gogoproto.moretags)   = "yaml:\"min_valid_per_window\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false
+  ];
+  uint64 lookback_duration = 9 [
+    (gogoproto.moretags)   = "yaml:\"lookback_duration\""
+  ];
+}
+
+message Denom {
+  option (gogoproto.equal)            = false;
+  option (gogoproto.goproto_getters)  = false;
+  option (gogoproto.goproto_stringer) = false;
+
+  string name      = 1 [(gogoproto.moretags) = "yaml:\"name\""];
+}
+
+message AggregateExchangeRateVote {
+  option (gogoproto.equal)            = false;
+  option (gogoproto.goproto_getters)  = false;
+  option (gogoproto.goproto_stringer) = false;
+
+  repeated ExchangeRateTuple exchange_rate_tuples = 1 [
+    (gogoproto.moretags)     = "yaml:\"exchange_rate_tuples\"",
+    (gogoproto.castrepeated) = "ExchangeRateTuples",
+    (gogoproto.nullable)     = false
+  ];
+
+  string voter = 2 [(gogoproto.moretags) = "yaml:\"voter\""];
+}
+
+message ExchangeRateTuple {
+  option (gogoproto.equal)            = false;
+  option (gogoproto.goproto_getters)  = false;
+  option (gogoproto.goproto_stringer) = false;
+
+  string denom         = 1 [(gogoproto.moretags) = "yaml:\"denom\""];
+  string exchange_rate = 2 [
+    (gogoproto.moretags)   = "yaml:\"exchange_rate\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false
+  ];
+}
+
+message OracleExchangeRate {
+  option (gogoproto.equal)            = false;
+  option (gogoproto.goproto_getters)  = false;
+  option (gogoproto.goproto_stringer) = false;
+
+  string exchange_rate = 1 [
+    (gogoproto.moretags)   = "yaml:\"exchange_rate\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false
+  ];
+  string last_update = 2 [
+    (gogoproto.moretags)   = "yaml:\"last_update\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+    (gogoproto.nullable)   = false
+  ];
+  int64 last_update_timestamp = 3 [
+    (gogoproto.moretags)   = "yaml:\"last_update_timestamp\""
+  ];
+}
+
+message PriceSnapshotItem {
+  string denom = 1;
+  OracleExchangeRate oracle_exchange_rate = 2 [(gogoproto.nullable) = false];
+}
+
+message PriceSnapshot {
+  int64 snapshot_timestamp = 1 [
+    (gogoproto.moretags)     = "yaml:\"snapshot_timestamp\""
+  ];
+  repeated PriceSnapshotItem price_snapshot_items = 2 [
+    (gogoproto.moretags)     = "yaml:\"price_snapshot_items\"",
+    (gogoproto.castrepeated) = "PriceSnapshotItems",
+    (gogoproto.nullable)     = false
+  ];
+}
+
+message OracleTwap {
+  string denom = 1;
+  string twap = 2 [
+      (gogoproto.moretags)   = "yaml:\"twap\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false
+  ];
+	int64 lookback_seconds = 3;
+}
+
+message VotePenaltyCounter {
+  uint64 miss_count = 1;
+  uint64 abstain_count = 2;
+  uint64 success_count = 3;
+}

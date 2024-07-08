@@ -1,5 +1,5 @@
 syntax = "proto3";
-package seiprotocol.seichain.mint;
+package sei.mint.v1beta1;
 
 option go_package = "github.com/sei-protocol/sei-chain/x/mint/types";
 

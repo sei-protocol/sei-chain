@@ -1,0 +1,12 @@
+syntax = "proto3";
+package sei.evm.v1;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
+
+enum PointerType {
+    ERC20 = 0;
+    ERC721 = 1;
+    NATIVE = 2;
+    CW20 = 3;
+    CW721 = 4;
+  }

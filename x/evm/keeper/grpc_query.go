@@ -27,6 +27,10 @@ func NewQuerier(k *Keeper) Querier {
 	return Querier{Keeper: k}
 }
 
+func (q Querier) Deprecated_SeiAddressByEVMAddress(c context.Context, req *types.QuerySeiAddressByEVMAddressRequest) (*types.QuerySeiAddressByEVMAddressResponse, error) {
+	return q.SeiAddressByEVMAddress(c, req)
+}
+
 func (q Querier) SeiAddressByEVMAddress(c context.Context, req *types.QuerySeiAddressByEVMAddressRequest) (*types.QuerySeiAddressByEVMAddressResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 	if req.EvmAddress == "" {
@@ -39,6 +43,10 @@ func (q Querier) SeiAddressByEVMAddress(c context.Context, req *types.QuerySeiAd
 	}
 
 	return &types.QuerySeiAddressByEVMAddressResponse{SeiAddress: addr.String(), Associated: true}, nil
+}
+
+func (q Querier) Deprecated_EVMAddressBySeiAddress(c context.Context, req *types.QueryEVMAddressBySeiAddressRequest) (*types.QueryEVMAddressBySeiAddressResponse, error) {
+	return q.EVMAddressBySeiAddress(c, req)
 }
 
 func (q Querier) EVMAddressBySeiAddress(c context.Context, req *types.QueryEVMAddressBySeiAddressRequest) (*types.QueryEVMAddressBySeiAddressResponse, error) {
@@ -58,6 +66,10 @@ func (q Querier) EVMAddressBySeiAddress(c context.Context, req *types.QueryEVMAd
 	return &types.QueryEVMAddressBySeiAddressResponse{EvmAddress: addr.Hex(), Associated: true}, nil
 }
 
+func (q Querier) Deprecated_StaticCall(c context.Context, req *types.QueryStaticCallRequest) (*types.QueryStaticCallResponse, error) {
+	return q.StaticCall(c, req)
+}
+
 func (q Querier) StaticCall(c context.Context, req *types.QueryStaticCallRequest) (*types.QueryStaticCallResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
 	if req.To == "" {
@@ -72,6 +84,10 @@ func (q Querier) StaticCall(c context.Context, req *types.QueryStaticCallRequest
 		return nil, err
 	}
 	return &types.QueryStaticCallResponse{Data: res}, nil
+}
+
+func (q Querier) Deprecated_Pointer(c context.Context, req *types.QueryPointerRequest) (*types.QueryPointerResponse, error) {
+	return q.Pointer(c, req)
 }
 
 func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*types.QueryPointerResponse, error) {
@@ -115,6 +131,10 @@ func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*ty
 	default:
 		return nil, errors.ErrUnsupported
 	}
+}
+
+func (q Querier) Deprecated_PointerVersion(c context.Context, req *types.QueryPointerVersionRequest) (*types.QueryPointerVersionResponse, error) {
+	return q.PointerVersion(c, req)
 }
 
 func (q Querier) PointerVersion(c context.Context, req *types.QueryPointerVersionRequest) (*types.QueryPointerVersionResponse, error) {
