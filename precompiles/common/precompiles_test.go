@@ -82,7 +82,7 @@ func TestPrecompileRun(t *testing.T) {
 	stateDB.WithCtx(ctx.WithEventManager(sdk.NewEventManager()))
 	precompile = common.NewPrecompile(newAbi, &MockPrecompileExecutor{throw: true}, ethcommon.Address{}, "test")
 	res, err = precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false)
-	require.Nil(t, res)
+	require.NotNil(t, res)
 	require.NotNil(t, err)
 	// should not emit any event
 	require.Empty(t, stateDB.Ctx().EventManager().Events())
@@ -122,7 +122,7 @@ func TestDynamicGasPrecompileRun(t *testing.T) {
 	stateDB.WithCtx(ctx.WithEventManager(sdk.NewEventManager()))
 	precompile = common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{throw: true, evmKeeper: k}, ethcommon.Address{}, "test")
 	res, _, err = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false)
-	require.Nil(t, res)
+	require.NotNil(t, res)
 	require.NotNil(t, err)
 	// should not emit any event
 	require.Empty(t, stateDB.Ctx().EventManager().Events())
