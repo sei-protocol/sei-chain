@@ -79,6 +79,17 @@ func MustGetEVMTransactionMessage(tx sdk.Tx) *MsgEVMTransaction {
 	return msg
 }
 
+func GetEVMTransactionMessage(tx sdk.Tx) *MsgEVMTransaction {
+	if len(tx.GetMsgs()) != 1 {
+		return nil
+	}
+	msg, ok := tx.GetMsgs()[0].(*MsgEVMTransaction)
+	if !ok {
+		return nil
+	}
+	return msg
+}
+
 func (res *MsgEVMTransactionResponse) DecorateSdkResult(sdkRes *sdk.Result) {
 	if res == nil {
 		return

@@ -68,6 +68,7 @@ func TestSimple(t *testing.T) {
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
 
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)

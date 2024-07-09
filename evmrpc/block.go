@@ -90,24 +90,26 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
-func (a *BlockAPI) GetBlockReceipts(ctx context.Context, number rpc.BlockNumber) (result []map[string]interface{}, returnErr error) {
+func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockReceipts", a.connectionType, startTime, returnErr == nil)
 	// Get height from params
-	heightPtr, err := getBlockNumber(ctx, a.tmClient, number)
+	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
-	// Get the block by height
+
 	block, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
 	if err != nil {
 		return nil, err
 	}
-	// Get all tx hashes for the block
-	height := LatestCtxHeight
-	if heightPtr != nil {
-		height = *heightPtr
+
+	if block == nil {
+		return nil, errors.New("could not retrieve block requested")
 	}
+
+	// Get all tx hashes for the block
+	height := block.Block.Header.Height
 	txHashes := a.keeper.GetTxHashesOnHeight(a.ctxProvider(height), height)
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}

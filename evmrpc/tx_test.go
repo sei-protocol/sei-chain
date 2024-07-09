@@ -24,7 +24,7 @@ func TestGetTxReceipt(t *testing.T) {
 	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"))
 	require.Nil(t, err)
 	receipt.To = ""
-	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"), receipt)
+	EVMKeeper.MockReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"), receipt)
 
 	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}"
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
@@ -68,7 +68,7 @@ func TestGetTxReceipt(t *testing.T) {
 	require.Nil(t, err)
 	receipt.ContractAddress = ""
 	receipt.To = "0x1234567890123456789012345678901234567890"
-	EVMKeeper.SetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"), receipt)
+	EVMKeeper.MockReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"), receipt)
 	body = "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}"
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -215,7 +215,7 @@ func TestGetTransactionCount(t *testing.T) {
 
 func TestGetTransactionError(t *testing.T) {
 	h := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
-	EVMKeeper.SetReceipt(Ctx, h, &types.Receipt{VmError: "test error"})
+	EVMKeeper.MockReceipt(Ctx, h, &types.Receipt{VmError: "test error"})
 	resObj := sendRequestGood(t, "getTransactionErrorByHash", "0x1111111111111111111111111111111111111111111111111111111111111111")
 	require.Equal(t, "test error", resObj["result"])
 

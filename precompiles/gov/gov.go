@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"errors"
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -24,8 +23,6 @@ const (
 const (
 	GovAddress = "0x0000000000000000000000000000000000001006"
 )
-
-var _ vm.PrecompiledContract = &Precompile{}
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -45,8 +42,7 @@ func GetABI() abi.ABI {
 	return newAbi
 }
 
-type Precompile struct {
-	pcommon.Precompile
+type PrecompileExecutor struct {
 	govKeeper  pcommon.GovKeeper
 	evmKeeper  pcommon.EVMKeeper
 	bankKeeper pcommon.BankKeeper
@@ -56,11 +52,10 @@ type Precompile struct {
 	DepositID []byte
 }
 
-func NewPrecompile(govKeeper pcommon.GovKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*Precompile, error) {
+func NewPrecompile(govKeeper pcommon.GovKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
 	newAbi := GetABI()
 
-	p := &Precompile{
-		Precompile: pcommon.Precompile{ABI: newAbi},
+	p := &PrecompileExecutor{
 		govKeeper:  govKeeper,
 		evmKeeper:  evmKeeper,
 		address:    common.HexToAddress(GovAddress),
@@ -76,19 +71,14 @@ func NewPrecompile(govKeeper pcommon.GovKeeper, evmKeeper pcommon.EVMKeeper, ban
 		}
 	}
 
-	return p, nil
+	return pcommon.NewPrecompile(newAbi, p, p.address, "gov"), nil
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID, err := pcommon.ExtractMethodID(input)
-	if err != nil {
-		return pcommon.UnknownMethodCallGas
-	}
-
-	if bytes.Equal(methodID, p.VoteID) {
+func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
+	if bytes.Equal(method.ID, p.VoteID) {
 		return 30000
-	} else if bytes.Equal(methodID, p.DepositID) {
+	} else if bytes.Equal(method.ID, p.DepositID) {
 		return 30000
 	}
 
@@ -96,26 +86,9 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	return pcommon.UnknownMethodCallGas
 }
 
-func (p Precompile) Address() common.Address {
-	return p.address
-}
-
-func (p Precompile) GetName() string {
-	return "gov"
-}
-
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
-	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
-	}()
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (bz []byte, err error) {
 	if readOnly {
 		return nil, errors.New("cannot call gov precompile from staticcall")
-	}
-	ctx, method, args, err := p.Prepare(evm, input)
-	if err != nil {
-		return nil, err
 	}
 	if caller.Cmp(callingContract) != 0 {
 		return nil, errors.New("cannot delegatecall gov")
@@ -130,7 +103,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	return
 }
 
-func (p Precompile) vote(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) vote(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -140,7 +113,7 @@ func (p Precompile) vote(ctx sdk.Context, method *abi.Method, caller common.Addr
 	}
 	voter, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, fmt.Errorf("voter %s is not associated", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	proposalID := args[0].(uint64)
 	voteOption := args[1].(int32)
@@ -151,13 +124,13 @@ func (p Precompile) vote(ctx sdk.Context, method *abi.Method, caller common.Addr
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) deposit(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
 	depositor, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
-		return nil, fmt.Errorf("depositor %s is not associated", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	proposalID := args[0].(uint64)
 	if value == nil || value.Sign() == 0 {

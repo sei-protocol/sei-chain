@@ -16,7 +16,9 @@ const (
 	// StoreKey is string representation of the store key for auth
 	StoreKey = "evm"
 
-	MemStoreKey = "evm_mem"
+	TransientStoreKey = "evm_transient"
+
+	ReceiptStoreKey = "receipt"
 
 	// QuerierRoute is the querier route for auth
 	QuerierRoute = ModuleName
@@ -38,9 +40,9 @@ var (
 	BlockBloomPrefix                           = []byte{0x0d}
 	TxHashesPrefix                             = []byte{0x0e}
 	WhitelistedCodeHashesForDelegateCallPrefix = []byte{0x0f}
-	//mem
-	TxHashPrefix  = []byte{0x10}
-	TxBloomPrefix = []byte{0x11}
+
+	// TxHashPrefix  = []byte{0x10}
+	// TxBloomPrefix = []byte{0x11}
 
 	ReplaySeenAddrPrefix = []byte{0x12}
 	ReplayedHeight       = []byte{0x13}
@@ -50,7 +52,8 @@ var (
 	PointerCWCodePrefix          = []byte{0x16}
 	PointerReverseRegistryPrefix = []byte{0x17}
 
-	AnteSurplusPrefix = []byte{0x18}
+	AnteSurplusPrefix  = []byte{0x18} // transient
+	DeferredInfoPrefix = []byte{0x19} // transient
 )
 
 var (

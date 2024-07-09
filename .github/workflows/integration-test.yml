@@ -32,11 +32,8 @@ jobs:
       matrix:
         test: [
           {
-            name: "Dex & Wasm Module",
+            name: "Wasm Module",
             scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_dex_contract.sh mars",
-              "python3 integration_test/scripts/runner.py integration_test/dex_module/place_order_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/dex_module/cancel_order_test.yaml",
               "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
               "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml",
