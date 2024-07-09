@@ -80,14 +80,24 @@ describe("ERC721 to CW721 Pointer", function () {
 
     describe("write", function(){
         it("approve", async function () {
+            const blockNumber = await ethers.provider.getBlockNumber();
             const approvedTxResp = await pointerAcc0.approve(accounts[1].evmAddress, 2)
             await approvedTxResp.wait()
             const approved = await pointerAcc0.getApproved(2); 
             expect(approved).to.equal(accounts[1].evmAddress);
 
-            await expect(approvedTxResp)
-                .to.emit(pointerAcc0, 'Approval')
-                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, 2);
+            const filter = {
+                fromBlock: blockNumber,
+                toBlock: 'latest',
+                address: await pointerAcc1.getAddress(),
+                topics: [ethers.id("Approval(address,address,uint256)")]
+            };
+            const logs = await ethers.provider.getLogs(filter);
+            expect(logs.length).to.equal(1);
+            expect(logs[0]["address"]).to.equal(await pointerAcc1.getAddress());
+            expect(logs[0]["topics"][0]).to.equal(ethers.id("Approval(address,address,uint256)"));
+            expect(logs[0]["topics"][1].substring(26)).to.equal(accounts[0].evmAddress.substring(2).toLowerCase());
+            expect(logs[0]["topics"][2].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
         });
 
         it("cannot approve token you don't own", async function () {
@@ -97,11 +107,21 @@ describe("ERC721 to CW721 Pointer", function () {
         it("transfer from", async function () {
             // accounts[0] should transfer token id 2 to accounts[1]
             await mine(pointerAcc0.approve(accounts[1].evmAddress, 2));
+            const blockNumber = await ethers.provider.getBlockNumber();
             transferTxResp = await pointerAcc1.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 2);
             await transferTxResp.wait();
-            await expect(transferTxResp)
-                .to.emit(pointerAcc0, 'Transfer')
-                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, 2);
+            const filter = {
+                fromBlock: blockNumber,
+                toBlock: 'latest',
+                address: await pointerAcc1.getAddress(),
+                topics: [ethers.id("Transfer(address,address,uint256)")]
+            };
+            const logs = await ethers.provider.getLogs(filter);
+            expect(logs.length).to.equal(1);
+            expect(logs[0]["address"]).to.equal(await pointerAcc1.getAddress());
+            expect(logs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
+            expect(logs[0]["topics"][1].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
+            expect(logs[0]["topics"][2].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
             const balance0 = await pointerAcc0.balanceOf(accounts[0].evmAddress);
             expect(balance0).to.equal(0);
             const balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress);

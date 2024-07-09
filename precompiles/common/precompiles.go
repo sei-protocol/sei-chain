@@ -58,6 +58,10 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	operation := fmt.Sprintf("%s_unknown", p.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
+		if err != nil {
+			bz = []byte(err.Error())
+			err = vm.ErrExecutionReverted
+		}
 	}()
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
@@ -144,6 +148,10 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	operation := fmt.Sprintf("%s_unknown", d.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
+		if err != nil {
+			ret = []byte(err.Error())
+			err = vm.ErrExecutionReverted
+		}
 	}()
 	ctx, method, args, err := d.Prepare(evm, input)
 	if err != nil {

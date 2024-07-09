@@ -128,7 +128,10 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block)
+				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) bool {
+					_, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
+					return err == nil
+				})
 				if err != nil {
 					mtx.Lock()
 					returnErr = err

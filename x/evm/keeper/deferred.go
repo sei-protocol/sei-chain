@@ -14,14 +14,14 @@ import (
 func (k *Keeper) GetAllEVMTxDeferredInfo(ctx sdk.Context) (res []*types.DeferredInfo) {
 	store := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix)
 	for txIdx, msg := range k.msgs {
-		if msg == nil {
-			continue
-		}
 		txRes := k.txResults[txIdx]
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, uint64(txIdx))
 		val := store.Get(key)
 		if val == nil {
+			if msg == nil {
+				continue
+			}
 			// this means the transaction got reverted during execution, either in ante handler
 			// or due to a panic in msg server
 			etx, _ := msg.AsTransaction()
