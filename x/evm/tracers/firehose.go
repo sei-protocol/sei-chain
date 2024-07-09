@@ -263,6 +263,8 @@ func (f *Firehose) newIsolatedTransactionTracer(traceId string) *Firehose {
 		hasherBuf:   common.Hash{},
 		tracerID:    traceId,
 
+		applyBackwardCompatibility: f.applyBackwardCompatibility,
+
 		// Block state
 		block:                  f.block,
 		blockBaseFee:           f.blockBaseFee,
@@ -309,6 +311,8 @@ func (f *Firehose) resetTransaction() {
 }
 
 func (f *Firehose) OnBlockchainInit(chainConfig *params.ChainConfig) {
+	firehoseInfo("blockchain init (chain_id=%d, apply_backward_compatibility=%s)", chainConfig.ChainID.Uint64(), (*boolPtrView)(f.applyBackwardCompatibility))
+
 	f.chainConfig = chainConfig
 
 	if wasNeverSent := f.initSent.CompareAndSwap(false, true); wasNeverSent {
@@ -320,6 +324,8 @@ func (f *Firehose) OnBlockchainInit(chainConfig *params.ChainConfig) {
 	if f.applyBackwardCompatibility == nil {
 		f.applyBackwardCompatibility = ptr(chainNeedsLegacyBackwardCompatibility(chainConfig.ChainID))
 	}
+
+	firehoseInfo("blockchain init end (apply_backward_compatibility=%s)", (*boolPtrView)(f.applyBackwardCompatibility))
 }
 
 var mainnetChainID = big.NewInt(1)
@@ -1978,6 +1984,16 @@ func (d *DeferredCallState) Reset() {
 	d.balanceChanges = nil
 	d.gasChanges = nil
 	d.nonceChanges = nil
+}
+
+type boolPtrView bool
+
+func (b *boolPtrView) String() string {
+	if b == nil {
+		return "<nil>"
+	}
+
+	return fmt.Sprintf("%t", *b)
 }
 
 type byteView []byte
