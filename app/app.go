@@ -1599,6 +1599,12 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 		wg.Add(1)
 		go func(idx int, encodedTx []byte) {
 			defer wg.Done()
+			defer func() {
+				if err := recover(); err != nil {
+					ctx.Logger().Error(fmt.Sprintf("encountered panic during transaction decoding: %s", err))
+					typedTxs[idx] = nil
+				}
+			}()
 			typedTx, err := app.txDecoder(encodedTx)
 			// get txkey from tx
 			if err != nil {
@@ -1897,6 +1903,11 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	}
 
 	return blacklistedAddrs
+}
+
+// test-only
+func (app *App) SetTxDecoder(txDecoder sdk.TxDecoder) {
+	app.txDecoder = txDecoder
 }
 
 func init() {

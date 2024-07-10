@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math/big"
+	"reflect"
+	"testing"
+	"time"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	cosmosConfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"math/big"
-	"reflect"
-	"testing"
-	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -360,6 +361,13 @@ func TestDecodeTransactionsConcurrently(t *testing.T) {
 	require.NotNil(t, typedTxs[0].GetMsgs()[0].(*evmtypes.MsgEVMTransaction).Derived)
 	require.Nil(t, typedTxs[1])
 	require.NotNil(t, typedTxs[2])
+
+	// test panic handling
+	testWrapper.App.SetTxDecoder(func(txBytes []byte) (sdk.Tx, error) { panic("test") })
+	typedTxs = testWrapper.App.DecodeTransactionsConcurrently(testWrapper.Ctx, [][]byte{evmtxbz, invalidbz, banktxbz})
+	require.Nil(t, typedTxs[0])
+	require.Nil(t, typedTxs[1])
+	require.Nil(t, typedTxs[2])
 }
 
 func TestApp_RegisterAPIRoutes(t *testing.T) {
