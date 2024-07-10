@@ -37,7 +37,7 @@
       "hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKo=",
       "from": "AAAAAAAAAAAAAAAAAAAAAAAAAAE=",
       "beginOrdinal": "1",
-      "endOrdinal": "4",
+      "endOrdinal": "5",
       "status": "SUCCEEDED",
       "receipt": {
         "logsBloom": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
@@ -48,8 +48,21 @@
           "callType": "CALL",
           "caller": "AAAAAAAAAAAAAAAAAAAAAAAAAAE=",
           "address": "AAAAAAAAAAAAAAAAAAAAAAAAAAI=",
+          "balanceChanges": [
+            {
+              "address": "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+              "oldValue": {
+                "bytes": "AQ=="
+              },
+              "newValue": {
+                "bytes": "Ag=="
+              },
+              "reason": "REASON_TRANSFER",
+              "ordinal": "3"
+            }
+          ],
           "beginOrdinal": "2",
-          "endOrdinal": "3"
+          "endOrdinal": "4"
         }
       ]
     },
@@ -68,8 +81,8 @@
       "index": 1,
       "hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALs=",
       "from": "AAAAAAAAAAAAAAAAAAAAAAAAAAE=",
-      "beginOrdinal": "5",
-      "endOrdinal": "8",
+      "beginOrdinal": "6",
+      "endOrdinal": "10",
       "status": "SUCCEEDED",
       "receipt": {
         "logsBloom": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
@@ -80,8 +93,21 @@
           "callType": "CALL",
           "caller": "AAAAAAAAAAAAAAAAAAAAAAAAAAE=",
           "address": "AAAAAAAAAAAAAAAAAAAAAAAAAAI=",
-          "beginOrdinal": "6",
-          "endOrdinal": "7"
+          "balanceChanges": [
+            {
+              "address": "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+              "oldValue": {
+                "bytes": "AQ=="
+              },
+              "newValue": {
+                "bytes": "Ag=="
+              },
+              "reason": "REASON_TRANSFER",
+              "ordinal": "8"
+            }
+          ],
+          "beginOrdinal": "7",
+          "endOrdinal": "9"
         }
       ]
     },
@@ -100,8 +126,8 @@
       "index": 2,
       "hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMw=",
       "from": "AAAAAAAAAAAAAAAAAAAAAAAAAAE=",
-      "beginOrdinal": "9",
-      "endOrdinal": "12",
+      "beginOrdinal": "11",
+      "endOrdinal": "15",
       "status": "SUCCEEDED",
       "receipt": {
         "logsBloom": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
@@ -112,8 +138,21 @@
           "callType": "CALL",
           "caller": "AAAAAAAAAAAAAAAAAAAAAAAAAAE=",
           "address": "AAAAAAAAAAAAAAAAAAAAAAAAAAI=",
-          "beginOrdinal": "10",
-          "endOrdinal": "11"
+          "balanceChanges": [
+            {
+              "address": "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+              "oldValue": {
+                "bytes": "AQ=="
+              },
+              "newValue": {
+                "bytes": "Ag=="
+              },
+              "reason": "REASON_TRANSFER",
+              "ordinal": "13"
+            }
+          ],
+          "beginOrdinal": "12",
+          "endOrdinal": "14"
         }
       ]
     }

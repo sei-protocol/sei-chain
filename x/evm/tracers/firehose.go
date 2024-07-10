@@ -468,11 +468,14 @@ func (f *Firehose) addIsolatedSystemCalls(isolatedCalls []*pbeth.Call) {
 	baseOrdinal := f.blockOrdinal.Peek()
 	firehoseDebug("adding isolated system calls & re-assigning ordinals (ordinal_base=%d)", baseOrdinal)
 
+	endOrdinal := baseOrdinal
 	for _, call := range isolatedCalls {
-		baseOrdinal = f.reorderCallOrdinals(call, baseOrdinal)
+		// Each call within the isolated system calls must be re-ordered against a single base ordinal,
+		// the base ordinal must **not** be update here as all calls are re-ordered against the same base
+		endOrdinal = f.reorderCallOrdinals(call, baseOrdinal)
 	}
 
-	f.blockOrdinal.Set(baseOrdinal)
+	f.blockOrdinal.Set(endOrdinal)
 	f.block.SystemCalls = append(f.block.SystemCalls, isolatedCalls...)
 }
 
