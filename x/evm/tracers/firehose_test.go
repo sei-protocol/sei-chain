@@ -295,44 +295,115 @@ func filter[S ~[]T, T any](s S, f func(T) bool) (out S) {
 }
 
 func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
+	addCall := func(tracer *Firehose, returnData []byte, oldBalance, newBalance int64) {
+		tracer.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
+		tracer.OnBalanceChange(empty, b(oldBalance), b(newBalance), tracing.BalanceChangeTransfer)
+		tracer.OnCallExit(0, returnData, 0, nil, false)
+	}
+	addTransaction := func(tracer *Firehose, index uint, hashHex string, returnData []byte, oldBalance, newBalance int64) {
+		tracer.onTxStart(txEvent(), hex2Hash(hashHex), from, to)
+		addCall(tracer, returnData, oldBalance, newBalance)
+		tracer.OnTxEnd(txReceiptEvent(index), nil)
+	}
+	addSystemCall := func(tracer *Firehose, returnData []byte, oldBalance, newBalance int64) {
+		tracer.OnSystemCallStart()
+		addCall(tracer, returnData, oldBalance, newBalance)
+		tracer.OnSystemCallEnd()
+	}
+
 	tests := []struct {
 		name              string
 		populate          func(t *Firehose)
 		expectedBlockFile string
 	}{
 		{
-			name: "empty",
-			populate: func(t *Firehose) {
-				t.OnBlockStart(blockEvent(1))
+			name: "transaction only",
+			populate: func(tracer *Firehose) {
+				tracer.OnBlockStart(blockEvent(1))
 
-				// Simulated GetTxTracer being called
-				t.blockReorderOrdinalOnce.Do(func() {
-					t.blockReorderOrdinal = true
-					t.blockReorderOrdinalSnapshot = t.blockOrdinal.value
-				})
+				ttCC := tracer.newIsolatedTransactionTracer("CC")
+				addTransaction(ttCC, 2, "CC", nil, 1, 2)
 
-				t.blockOrdinal.Reset()
-				t.onTxStart(txEvent(), hex2Hash("CC"), from, to)
-				t.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
-				t.OnBalanceChange(empty, b(1), b(2), 0)
-				t.OnCallExit(0, nil, 0, nil, false)
-				t.OnTxEnd(txReceiptEvent(2), nil)
+				ttAA := tracer.newIsolatedTransactionTracer("AA")
+				addTransaction(ttAA, 0, "AA", nil, 1, 2)
 
-				t.blockOrdinal.Reset()
-				t.onTxStart(txEvent(), hex2Hash("AA"), from, to)
-				t.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
-				t.OnBalanceChange(empty, b(1), b(2), 0)
-				t.OnCallExit(0, nil, 0, nil, false)
-				t.OnTxEnd(txReceiptEvent(0), nil)
+				ttBB := tracer.newIsolatedTransactionTracer("BB")
+				addTransaction(ttBB, 1, "BB", nil, 1, 2)
 
-				t.blockOrdinal.Reset()
-				t.onTxStart(txEvent(), hex2Hash("BB"), from, to)
-				t.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
-				t.OnBalanceChange(empty, b(1), b(2), 0)
-				t.OnCallExit(0, nil, 0, nil, false)
-				t.OnTxEnd(txReceiptEvent(1), nil)
+				tracer.addIsolatedTransaction(ttAA.transientTransaction)
+				tracer.addIsolatedTransaction(ttBB.transientTransaction)
+				tracer.addIsolatedTransaction(ttCC.transientTransaction)
+
+				// No OnBlockEnd, it would reset the current state
 			},
-			expectedBlockFile: "testdata/firehose/reorder-ordinals-empty.golden.json",
+			expectedBlockFile: "testdata/firehose/reorder-ordinals-transaction-only.golden.json",
+		},
+		{
+			name: "system calls only",
+			populate: func(tracer *Firehose) {
+				tracer.OnBlockStart(blockEvent(1))
+
+				// Simulate call before executing transactions
+				addSystemCall(tracer, hex2Bytes("FF"), 1, 2)
+
+				ttCC := tracer.newIsolatedTransactionTracer("CC")
+				addSystemCall(ttCC, hex2Bytes("CC"), 1, 2)
+
+				ttAA := tracer.newIsolatedTransactionTracer("AA")
+				addSystemCall(ttAA, hex2Bytes("AA"), 1, 2)
+
+				ttBB := tracer.newIsolatedTransactionTracer("BB")
+				addSystemCall(ttBB, hex2Bytes("BB"), 1, 2)
+
+				tracer.addIsolatedSystemCalls(ttAA.transientSystemCalls)
+				tracer.addIsolatedSystemCalls(ttBB.transientSystemCalls)
+				tracer.addIsolatedSystemCalls(ttCC.transientSystemCalls)
+
+				// Simulate call after executing transactions
+				addSystemCall(tracer, hex2Bytes("EE"), 1, 2)
+
+				// Block level balance change
+				tracer.OnBalanceChange(empty, b(4), b(5), tracing.BalanceIncreaseRewardMineBlock)
+
+				// No OnBlockEnd, it would reset the current state
+			},
+			expectedBlockFile: "testdata/firehose/reorder-ordinals-system-calls-only.golden.json",
+		},
+		{
+			name: "mixed full",
+			populate: func(tracer *Firehose) {
+				tracer.OnBlockStart(blockEvent(1))
+
+				// Simulate call before executing transactions
+				addSystemCall(tracer, hex2Bytes("FF"), 1, 2)
+
+				ttCC := tracer.newIsolatedTransactionTracer("CC")
+				addSystemCall(ttCC, hex2Bytes("CC"), 1, 2)
+
+				ttDD := tracer.newIsolatedTransactionTracer("DD")
+				addTransaction(ttDD, 1, "DD", nil, 1, 2)
+
+				ttAA := tracer.newIsolatedTransactionTracer("AA")
+				addTransaction(ttAA, 0, "AA", nil, 1, 2)
+
+				ttBB := tracer.newIsolatedTransactionTracer("BB")
+				addSystemCall(ttBB, hex2Bytes("BB01"), 1, 2)
+				addSystemCall(ttBB, hex2Bytes("BB02"), 1, 2)
+
+				tracer.addIsolatedTransaction(ttAA.transientTransaction)
+				tracer.addIsolatedSystemCalls(ttBB.transientSystemCalls)
+				tracer.addIsolatedSystemCalls(ttCC.transientSystemCalls)
+				tracer.addIsolatedTransaction(ttDD.transientTransaction)
+
+				// Simulate call after executing transactions
+				addSystemCall(tracer, hex2Bytes("EE"), 1, 2)
+
+				// Block level balance change
+				tracer.OnBalanceChange(empty, b(4), b(5), tracing.BalanceIncreaseRewardMineBlock)
+
+				// No OnBlockEnd, it would reset the current state
+			},
+			expectedBlockFile: "testdata/firehose/reorder-ordinals-mixed-full.golden.json",
 		},
 	}
 
@@ -345,13 +416,11 @@ func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
 
 			tt.populate(f)
 
-			f.reorderIsolatedTransactionsAndOrdinals()
-
 			goldenUpdate := os.Getenv("GOLDEN_UPDATE") == "true"
 			goldenPath := tt.expectedBlockFile
 
 			if !goldenUpdate && !fileExits(t, goldenPath) {
-				t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the intial version", goldenPath, t.Name())
+				t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the initial version", goldenPath, t.Name())
 			}
 
 			content, err := protojson.MarshalOptions{Indent: "  "}.Marshal(f.block)
@@ -391,12 +460,14 @@ func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
 			ordinals := maps.Keys(seenOrdinals)
 			slices.Sort(ordinals)
 
-			// All ordinals should be in stricly increasing order
+			// All ordinals should be in strictly increasing order
 			prev := -1
 			for _, ordinal := range ordinals {
 				if prev != -1 {
-					assert.Equal(t, prev+1, int(ordinal), "Ordinal %d is not in sequence", ordinal)
+					assert.Equal(t, prev+1, int(ordinal), "Ordinal %d is not in sequence, we jumped from %d to %d, expected %d to %d", ordinal, prev, ordinal, prev, prev+1)
 				}
+
+				prev = int(ordinal)
 			}
 		})
 	}
@@ -433,6 +504,7 @@ var b = big.NewInt
 var empty, from, to = common.HexToAddress("00"), common.HexToAddress("01"), common.HexToAddress("02")
 var emptyHash = common.Hash{}
 var hex2Hash = common.HexToHash
+var hex2Bytes = common.Hex2Bytes
 
 func fileExits(t *testing.T, path string) bool {
 	t.Helper()

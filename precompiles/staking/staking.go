@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"errors"
-	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -25,8 +24,6 @@ const (
 const (
 	StakingAddress = "0x0000000000000000000000000000000000001005"
 )
-
-var _ vm.PrecompiledContract = &Precompile{}
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -46,8 +43,7 @@ func GetABI() abi.ABI {
 	return newAbi
 }
 
-type Precompile struct {
-	pcommon.Precompile
+type PrecompileExecutor struct {
 	stakingKeeper pcommon.StakingKeeper
 	evmKeeper     pcommon.EVMKeeper
 	bankKeeper    pcommon.BankKeeper
@@ -58,11 +54,10 @@ type Precompile struct {
 	UndelegateID []byte
 }
 
-func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*Precompile, error) {
+func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
 	newAbi := GetABI()
 
-	p := &Precompile{
-		Precompile:    pcommon.Precompile{ABI: newAbi},
+	p := &PrecompileExecutor{
 		stakingKeeper: stakingKeeper,
 		evmKeeper:     evmKeeper,
 		bankKeeper:    bankKeeper,
@@ -80,21 +75,16 @@ func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKee
 		}
 	}
 
-	return p, nil
+	return pcommon.NewPrecompile(newAbi, p, p.address, "staking"), nil
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID, err := pcommon.ExtractMethodID(input)
-	if err != nil {
-		return pcommon.UnknownMethodCallGas
-	}
-
-	if bytes.Equal(methodID, p.DelegateID) {
+func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
+	if bytes.Equal(method.ID, p.DelegateID) {
 		return 50000
-	} else if bytes.Equal(methodID, p.RedelegateID) {
+	} else if bytes.Equal(method.ID, p.RedelegateID) {
 		return 70000
-	} else if bytes.Equal(methodID, p.UndelegateID) {
+	} else if bytes.Equal(method.ID, p.UndelegateID) {
 		return 50000
 	}
 
@@ -102,26 +92,9 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	return pcommon.UnknownMethodCallGas
 }
 
-func (p Precompile) Address() common.Address {
-	return p.address
-}
-
-func (p Precompile) GetName() string {
-	return "staking"
-}
-
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
-	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
-	}()
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (bz []byte, err error) {
 	if readOnly {
 		return nil, errors.New("cannot call staking precompile from staticcall")
-	}
-	ctx, method, args, err := p.Prepare(evm, input)
-	if err != nil {
-		return nil, err
 	}
 	if caller.Cmp(callingContract) != 0 {
 		return nil, errors.New("cannot delegatecall staking")
@@ -138,7 +111,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	return
 }
 
-func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
@@ -147,7 +120,7 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 	// there is no good way to merge delegations if it becomes associated)
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, fmt.Errorf("delegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	validatorBech32 := args[0].(string)
 	if value == nil || value.Sign() == 0 {
@@ -168,7 +141,7 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -178,7 +151,7 @@ func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller commo
 	}
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, fmt.Errorf("redelegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	srcValidatorBech32 := args[0].(string)
 	dstValidatorBech32 := args[1].(string)
@@ -195,7 +168,7 @@ func (p Precompile) redelegate(ctx sdk.Context, method *abi.Method, caller commo
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -205,7 +178,7 @@ func (p Precompile) undelegate(ctx sdk.Context, method *abi.Method, caller commo
 	}
 	delegator, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !associated {
-		return nil, fmt.Errorf("undelegator %s is not associated/doesn't have an Account set yet", caller.Hex())
+		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 	validatorBech32 := args[0].(string)
 	amount := args[1].(*big.Int)

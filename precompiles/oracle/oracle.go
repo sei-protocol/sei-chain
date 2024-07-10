@@ -11,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
@@ -23,8 +22,6 @@ const (
 const (
 	OracleAddress = "0x0000000000000000000000000000000000001008"
 )
-
-var _ vm.PrecompiledContract = &Precompile{}
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -44,11 +41,9 @@ func GetABI() abi.ABI {
 	return newAbi
 }
 
-type Precompile struct {
-	pcommon.Precompile
+type PrecompileExecutor struct {
 	evmKeeper    pcommon.EVMKeeper
 	oracleKeeper pcommon.OracleKeeper
-	address      common.Address
 
 	GetExchangeRatesId []byte
 	GetOracleTwapsId   []byte
@@ -72,13 +67,11 @@ type OracleTwap struct {
 	LookbackSeconds int64  `json:"lookbackSeconds"`
 }
 
-func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
 	newAbi := GetABI()
 
-	p := &Precompile{
-		Precompile:   pcommon.Precompile{ABI: newAbi},
+	p := &PrecompileExecutor{
 		evmKeeper:    evmKeeper,
-		address:      common.HexToAddress(OracleAddress),
 		oracleKeeper: oracleKeeper,
 	}
 
@@ -91,44 +84,15 @@ func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeepe
 		}
 	}
 
-	return p, nil
+	return pcommon.NewPrecompile(newAbi, p, common.HexToAddress(OracleAddress), "oracle"), nil
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
-func (p Precompile) RequiredGas(input []byte) uint64 {
-	methodID, err := pcommon.ExtractMethodID(input)
-	if err != nil {
-		return pcommon.UnknownMethodCallGas
-	}
-
-	method, err := p.ABI.MethodById(methodID)
-	if err != nil {
-		// This should never happen since this method is going to fail during Run
-		return pcommon.UnknownMethodCallGas
-	}
-
-	return p.Precompile.RequiredGas(input, p.IsTransaction(method.Name))
+func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
+	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
 }
 
-func (p Precompile) Address() common.Address {
-	return p.address
-}
-
-func (p Precompile) GetName() string {
-	return "oracle"
-}
-
-func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input []byte, value *big.Int, _ bool) (bz []byte, err error) {
-	defer func() {
-		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
-		}
-	}()
-	ctx, method, args, err := p.Prepare(evm, input)
-	if err != nil {
-		return nil, err
-	}
-
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (bz []byte, err error) {
 	switch method.Name {
 	case GetExchangeRatesMethod:
 		return p.getExchangeRates(ctx, method, args, value)
@@ -138,7 +102,7 @@ func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input [
 	return
 }
 
-func (p Precompile) getExchangeRates(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) getExchangeRates(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -155,7 +119,7 @@ func (p Precompile) getExchangeRates(ctx sdk.Context, method *abi.Method, args [
 	return method.Outputs.Pack(exchangeRates)
 }
 
-func (p Precompile) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -176,6 +140,6 @@ func (p Precompile) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []i
 	return method.Outputs.Pack(oracleTwaps)
 }
 
-func (Precompile) IsTransaction(string) bool {
+func (PrecompileExecutor) IsTransaction(string) bool {
 	return false
 }

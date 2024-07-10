@@ -1,6 +1,8 @@
 package evm_test
 
 import (
+	"context"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"math/big"
@@ -17,12 +19,15 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtracing "github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/tracers"
 	"github.com/sei-protocol/sei-chain/x/evm/tracing"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -91,6 +96,7 @@ func TestABCI(t *testing.T) {
 	require.Equal(t, sdk.ZeroInt(), surplus)
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(3), ethtypes.Bloom{}, common.Hash{3}, surplus)
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 0}})
+	k.SetMsgs([]*types.MsgEVMTransaction{nil, {}, nil, {}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
 	require.Equal(t, uint64(0), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
@@ -109,6 +115,7 @@ func TestABCI(t *testing.T) {
 	require.Equal(t, sdk.NewInt(1000000000000), surplus)
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{2}, surplus)
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}})
+	k.SetMsgs([]*types.MsgEVMTransaction{nil, nil, {}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
 	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
@@ -120,10 +127,14 @@ func TestABCI(t *testing.T) {
 
 	// third block
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
-	k.AppendErrorToEvmTxDeferredInfo(ctx.WithTxIndex(0), common.Hash{1}, "test error")
-	k.SetTxResults([]*abci.ExecTxResult{{Code: 1}})
+	msg := mockEVMTransactionMessage(t)
+	k.SetMsgs([]*types.MsgEVMTransaction{msg})
+	k.SetTxResults([]*abci.ExecTxResult{{Code: 1, Log: "test error"}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
-	receipt, err := k.GetReceipt(ctx, common.Hash{1})
+	err = k.FlushTransientReceipts(ctx)
+	require.NoError(t, err)
+	tx, _ := msg.AsTransaction()
+	receipt, err := k.GetReceipt(ctx, tx.Hash())
 	require.Nil(t, err)
 	require.Equal(t, receipt.BlockNumber, uint64(ctx.BlockHeight()))
 	require.Equal(t, receipt.VmError, "test error")
@@ -150,6 +161,7 @@ func TestABCI(t *testing.T) {
 	require.Nil(t, err)
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{}, surplus)
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}})
+	k.SetMsgs([]*types.MsgEVMTransaction{nil, nil, {}})
 	require.Equal(t, sdk.OneInt(), k.BankKeeper().SpendableCoins(ctx, coinbase).AmountOf("usei"))
 	m.EndBlock(ctx, abci.RequestEndBlock{}) // should not crash
 	require.Equal(t, sdk.OneInt(), k.BankKeeper().GetBalance(ctx, coinbase, "usei").Amount)
@@ -162,8 +174,10 @@ func TestABCI(t *testing.T) {
 }
 
 func TestAnteSurplus(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
-	m := evm.NewAppModule(nil, k)
+	a := app.Setup(false, false)
+	k := a.EvmKeeper
+	ctx := a.GetContextForDeliverTx([]byte{})
+	m := evm.NewAppModule(nil, &k)
 	// first block
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
 	k.AddAnteSurplus(ctx, common.BytesToHash([]byte("1234")), sdk.NewInt(1_000_000_000_001))
@@ -171,6 +185,8 @@ func TestAnteSurplus(t *testing.T) {
 	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(1), k.BankKeeper().GetWeiBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName)).Uint64())
 	// ante surplus should be cleared
+	a.SetDeliverStateToCommit()
+	a.Commit(context.Background())
 	require.Equal(t, uint64(0), k.GetAnteSurplusSum(ctx).Uint64())
 }
 
@@ -208,4 +224,31 @@ func balanceChangesValues(changes []evmBalanceChange) string {
 	}
 
 	return strings.Join(out, "\n")
+}
+func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
+	k, ctx := testkeeper.MockEVMKeeper()
+	chainID := k.ChainID(ctx)
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	to := new(common.Address)
+	txData := ethtypes.DynamicFeeTx{
+		Nonce:     1,
+		GasFeeCap: big.NewInt(10000000000000),
+		Gas:       1000,
+		To:        to,
+		Value:     big.NewInt(1000000000000000),
+		Data:      []byte("abc"),
+		ChainID:   chainID,
+	}
+
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	typedTx, err := ethtx.NewDynamicFeeTx(tx)
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+	return msg
 }

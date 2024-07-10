@@ -128,11 +128,6 @@ func newSeiFirehoseTracer(tracerURL *url.URL) (*seitracing.Hooks, error) {
 		OnSeiSystemCallEnd:   tracer.OnSystemCallEnd,
 
 		GetTxTracer: func(txIndex int) sdk.TxTracer {
-			tracer.blockReorderOrdinalOnce.Do(func() {
-				tracer.blockReorderOrdinal = true
-				tracer.blockReorderOrdinalSnapshot = tracer.blockOrdinal.value
-			})
-
 			// Created first so we can get the pointer id everywhere
 			isolatedTracer := &TxTracerHooks{}
 			isolatedTracerID := fmt.Sprintf("%03d-%p", txIndex, isolatedTracer)
@@ -141,23 +136,38 @@ func newSeiFirehoseTracer(tracerURL *url.URL) (*seitracing.Hooks, error) {
 			firehoseInfo("new isolated transaction tracer (tracer=%s)", isolatedTracerID)
 			isolatedTracer.Hooks = &seitracing.Hooks{
 				Hooks: newTracingHooksFromFirehose(isolatedTxTracer),
+
+				OnSeiSystemCallStart: isolatedTxTracer.OnSystemCallStart,
+				OnSeiSystemCallEnd:   isolatedTxTracer.OnSystemCallEnd,
 			}
 
 			isolatedTracer.OnTxReset = func() {
 				firehoseDebug("resetting isolated transaction tracer (tracer=%s)", isolatedTracerID)
-				isolatedTxTracer.resetTransaction()
+				isolatedTxTracer.resetTransactionAndTransient()
 			}
 
 			isolatedTracer.OnTxCommit = func() {
-				firehoseInfo("committing isolated transaction tracer (tracer=%s)", isolatedTracerID)
+				firehoseInfo("committing isolated transaction tracer (tracer=%p, transient{transaction=%t, system_calls=%d})", isolatedTxTracer, isolatedTxTracer.transientTransaction != nil, len(isolatedTxTracer.transientSystemCalls))
 
-				if isolatedTxTracer.transactionTransient == nil {
-					panic(fatal("hook OnTxCommit called without a transaction being completed, this is invalid (tracer=%s)", isolatedTracerID))
+				// The `TxCommit` callback can be called for WASM and EVM transactions, the `transactionTransient` in the
+				// case of a WASM execution, no EVM transaction will ever be started, so if `transactionTransient` is nil,
+				// we must skip it assuming it was indeed a WASM transaction.
+				//
+				// The `OnTxCommit` hook would need to pass this information for use to know if something failed
+				// to execute properly.
+				if isolatedTxTracer.transientTransaction != nil {
+					commitLock.Lock()
+					tracer.addIsolatedTransaction(isolatedTxTracer.transientTransaction)
+					commitLock.Unlock()
 				}
 
-				commitLock.Lock()
-				tracer.block.TransactionTraces = append(tracer.block.TransactionTraces, isolatedTxTracer.transactionTransient)
-				commitLock.Unlock()
+				if len(isolatedTxTracer.transientSystemCalls) > 0 {
+					commitLock.Lock()
+					tracer.addIsolatedSystemCalls(isolatedTxTracer.transientSystemCalls)
+					commitLock.Unlock()
+				}
+
+				isolatedTxTracer.resetTransactionAndTransient()
 			}
 
 			return isolatedTracer
@@ -201,14 +211,11 @@ type Firehose struct {
 	applyBackwardCompatibility *bool
 
 	// Block state
-	block                       *pbeth.Block
-	blockBaseFee                *big.Int
-	blockOrdinal                *Ordinal
-	blockFinality               *FinalityStatus
-	blockRules                  params.Rules
-	blockReorderOrdinal         bool
-	blockReorderOrdinalSnapshot uint64
-	blockReorderOrdinalOnce     sync.Once
+	block         *pbeth.Block
+	blockBaseFee  *big.Int
+	blockOrdinal  *Ordinal
+	blockFinality *FinalityStatus
+	blockRules    params.Rules
 
 	// Transaction state
 	evm                    *tracing.VMContext
@@ -217,7 +224,8 @@ type Firehose struct {
 	inSystemCall           bool
 	blockIsPrecompiledAddr func(addr common.Address) bool
 	transactionIsolated    bool
-	transactionTransient   *pbeth.TransactionTrace
+	transientTransaction   *pbeth.TransactionTrace
+	transientSystemCalls   []*pbeth.Call
 
 	// Call state
 	callStack               *CallStack
@@ -238,9 +246,8 @@ func NewFirehose(config *FirehoseConfig) *Firehose {
 		applyBackwardCompatibility: config.ApplyBackwardCompatibility,
 
 		// Block state
-		blockOrdinal:        &Ordinal{},
-		blockFinality:       &FinalityStatus{},
-		blockReorderOrdinal: false,
+		blockOrdinal:  &Ordinal{},
+		blockFinality: &FinalityStatus{},
 
 		// Transaction state
 		transactionLogIndex: 0,
@@ -262,6 +269,8 @@ func (f *Firehose) newIsolatedTransactionTracer(traceId string) *Firehose {
 		hasher:      crypto.NewKeccakState(),
 		hasherBuf:   common.Hash{},
 		tracerID:    traceId,
+
+		applyBackwardCompatibility: f.applyBackwardCompatibility,
 
 		// Block state
 		block:                  f.block,
@@ -290,9 +299,6 @@ func (f *Firehose) resetBlock() {
 	f.blockFinality.Reset()
 	f.blockIsPrecompiledAddr = nil
 	f.blockRules = params.Rules{}
-	f.blockReorderOrdinal = false
-	f.blockReorderOrdinalSnapshot = 0
-	f.blockReorderOrdinalOnce = sync.Once{}
 }
 
 // resetTransaction resets the transaction state and the call state in one shot
@@ -301,14 +307,25 @@ func (f *Firehose) resetTransaction() {
 	f.evm = nil
 	f.transactionLogIndex = 0
 	f.inSystemCall = false
-	f.transactionTransient = nil
+
+	// Transient transaction state are handled separately, we must not reset them here
 
 	f.callStack.Reset()
 	f.latestCallEnterSuicided = false
 	f.deferredCallState.Reset()
 }
 
+// resetTransactionAndTransient resets the transaction and transient state and the call state in one shot
+func (f *Firehose) resetTransactionAndTransient() {
+	f.resetTransaction()
+
+	f.transientTransaction = nil
+	f.transientSystemCalls = nil
+}
+
 func (f *Firehose) OnBlockchainInit(chainConfig *params.ChainConfig) {
+	firehoseInfo("blockchain init (chain_id=%d, apply_backward_compatibility=%s)", chainConfig.ChainID.Uint64(), (*boolPtrView)(f.applyBackwardCompatibility))
+
 	f.chainConfig = chainConfig
 
 	if wasNeverSent := f.initSent.CompareAndSwap(false, true); wasNeverSent {
@@ -320,6 +337,8 @@ func (f *Firehose) OnBlockchainInit(chainConfig *params.ChainConfig) {
 	if f.applyBackwardCompatibility == nil {
 		f.applyBackwardCompatibility = ptr(chainNeedsLegacyBackwardCompatibility(chainConfig.ChainID))
 	}
+
+	firehoseInfo("blockchain init end (apply_backward_compatibility=%s)", (*boolPtrView)(f.applyBackwardCompatibility))
 }
 
 var mainnetChainID = big.NewInt(1)
@@ -423,10 +442,6 @@ func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
 	if err == nil {
-		if f.blockReorderOrdinal {
-			f.reorderIsolatedTransactionsAndOrdinals()
-		}
-
 		f.ensureInBlockAndNotInTrx()
 		f.printBlockToFirehose(f.block, f.blockFinality)
 	} else {
@@ -440,55 +455,42 @@ func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block end")
 }
 
-// reorderIsolatedTransactionsAndOrdinals is called right after all transactions have completed execution. It will sort transactions
-// according to their index.
-//
-// But most importantly, will re-assign all the ordinals of each transaction recursively. When the parallel execution happened,
-// all ordinal were made relative to the transaction they were contained in. But now, we are going to re-assign them to the
-// global block ordinal by getting the current ordinal and ad it to the transaction ordinal and so forth.
-func (f *Firehose) reorderIsolatedTransactionsAndOrdinals() {
-	if !f.blockReorderOrdinal {
-		firehoseInfo("post process isolated transactions skipped (block_reorder_ordinals=false)")
-		return
+func (f *Firehose) addIsolatedTransaction(isolatedTrace *pbeth.TransactionTrace) {
+	baseOrdinal := f.blockOrdinal.Peek()
+	firehoseDebug("adding isolated transaction & re-assigning ordinals (ordinal_base=%d)", baseOrdinal)
+
+	f.blockOrdinal.Set(f.reorderTraceOrdinals(isolatedTrace, baseOrdinal))
+
+	f.block.TransactionTraces = append(f.block.TransactionTraces, isolatedTrace)
+}
+
+func (f *Firehose) addIsolatedSystemCalls(isolatedCalls []*pbeth.Call) {
+	baseOrdinal := f.blockOrdinal.Peek()
+	firehoseDebug("adding isolated system calls & re-assigning ordinals (ordinal_base=%d)", baseOrdinal)
+
+	endOrdinal := baseOrdinal
+	for _, call := range isolatedCalls {
+		// Each call within the isolated system calls must be re-ordered against a single base ordinal,
+		// the base ordinal must **not** be update here as all calls are re-ordered against the same base
+		endOrdinal = f.reorderCallOrdinals(call, baseOrdinal)
 	}
 
-	ordinalBase := f.blockReorderOrdinalSnapshot
-	firehoseInfo("post processing isolated transactions sorting & re-assigning ordinals (ordinal_base=%d)", ordinalBase)
+	f.blockOrdinal.Set(endOrdinal)
+	f.block.SystemCalls = append(f.block.SystemCalls, isolatedCalls...)
+}
 
-	slices.SortStableFunc(f.block.TransactionTraces, func(i, j *pbeth.TransactionTrace) int {
-		return int(i.Index) - int(j.Index)
-	})
-
-	baseline := ordinalBase
-	for _, trx := range f.block.TransactionTraces {
-		trx.BeginOrdinal += baseline
-		for _, call := range trx.Calls {
-			f.reorderCallOrdinals(call, baseline)
-		}
-
-		for _, log := range trx.Receipt.Logs {
-			log.Ordinal += baseline
-		}
-
-		trx.EndOrdinal += baseline
-		baseline = trx.EndOrdinal
+func (f *Firehose) reorderTraceOrdinals(trx *pbeth.TransactionTrace, ordinalBase uint64) (ordinalEnd uint64) {
+	trx.BeginOrdinal += ordinalBase
+	for _, call := range trx.Calls {
+		f.reorderCallOrdinals(call, ordinalBase)
 	}
 
-	for _, ch := range f.block.BalanceChanges {
-		if ch.Ordinal >= ordinalBase {
-			ch.Ordinal += baseline
-		}
+	for _, log := range trx.Receipt.Logs {
+		log.Ordinal += ordinalBase
 	}
-	for _, ch := range f.block.CodeChanges {
-		if ch.Ordinal >= ordinalBase {
-			ch.Ordinal += baseline
-		}
-	}
-	for _, call := range f.block.SystemCalls {
-		if call.BeginOrdinal >= ordinalBase {
-			f.reorderCallOrdinals(call, baseline)
-		}
-	}
+
+	trx.EndOrdinal += ordinalBase
+	return trx.EndOrdinal
 }
 
 func (f *Firehose) reorderCallOrdinals(call *pbeth.Call, ordinalBase uint64) (ordinalEnd uint64) {
@@ -528,7 +530,7 @@ func (f *Firehose) reorderCallOrdinals(call *pbeth.Call, ordinalBase uint64) (or
 }
 
 func (f *Firehose) OnSystemCallStart() {
-	firehoseInfo("system call start")
+	firehoseInfo("system call start (tracer=%s)", f.tracerID)
 	f.ensureInBlockAndNotInTrx()
 
 	f.inSystemCall = true
@@ -536,12 +538,17 @@ func (f *Firehose) OnSystemCallStart() {
 }
 
 func (f *Firehose) OnSystemCallEnd() {
-	firehoseInfo("system call end")
+	firehoseInfo("system call end (tracer=%s, isolated=%t)", f.tracerID, f.transactionIsolated)
 	f.ensureInBlockAndInTrx()
 	f.ensureInSystemCall()
 
-	f.block.SystemCalls = append(f.block.SystemCalls, f.transaction.Calls...)
+	if f.transactionIsolated {
+		f.transientSystemCalls = append(f.transientSystemCalls, f.transaction.Calls...)
+	} else {
+		f.block.SystemCalls = append(f.block.SystemCalls, f.transaction.Calls...)
+	}
 
+	// We must only reset transaction and **not** the transient state
 	f.resetTransaction()
 }
 
@@ -605,19 +612,17 @@ func (f *Firehose) OnTxEnd(receipt *types.Receipt, err error) {
 	// to a transient storage (and not in the block directly). Adding it to the block will be done by the
 	// `OnTxCommit` callback.
 	if f.transactionIsolated {
-		f.transactionTransient = trxTrace
-
-		// We must not reset transaction here. In the isolated transaction tracer, the transaction is reset
-		// by the `OnTxReset` callback which comes from outside the tracer. Second, resetting the transaction
-		// also resets the [f.transactionTransient] field which is the one we want to keep on completion
-		// of an isolated transaction.
+		f.transientTransaction = trxTrace
 	} else {
 		f.block.TransactionTraces = append(f.block.TransactionTraces, trxTrace)
-
-		// The reset must be done as the very last thing as the CallStack needs to be
-		// properly populated for the `completeTransaction` call above to complete correctly.
-		f.resetTransaction()
 	}
+
+	// We must only reset transaction and **not** the transient state.
+	//
+	// And more importantly, the reset must be done as the very last thing as the CallStack
+	// needs to be properly populated for the `completeTransaction` call above to complete
+	// correctly.
+	f.resetTransaction()
 
 	firehoseInfo("trx end (tracer=%s)", f.tracerID)
 }
@@ -794,7 +799,7 @@ func (f *Firehose) OnCallExit(depth int, output []byte, gasUsed uint64, err erro
 
 // OnOpcode implements the EVMLogger interface to trace a single step of VM execution.
 func (f *Firehose) OnOpcode(pc uint64, op byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
-	firehoseTrace("on opcode (op=%s gas=%d cost=%d, err=%s)", op, gas, cost, errorView(err))
+	firehoseTrace("on opcode (op=%s gas=%d cost=%d, err=%s)", vm.OpCode(op), gas, cost, errorView(err))
 
 	if activeCall := f.callStack.Peek(); activeCall != nil {
 		opCode := vm.OpCode(op)
@@ -1844,6 +1849,11 @@ type Ordinal struct {
 	value uint64
 }
 
+// Set the ordinal to a new value
+func (o *Ordinal) Set(updatedValue uint64) {
+	o.value = updatedValue
+}
+
 // Reset resets the ordinal to zero.
 func (o *Ordinal) Reset() {
 	o.value = 0
@@ -1978,6 +1988,16 @@ func (d *DeferredCallState) Reset() {
 	d.balanceChanges = nil
 	d.gasChanges = nil
 	d.nonceChanges = nil
+}
+
+type boolPtrView bool
+
+func (b *boolPtrView) String() string {
+	if b == nil {
+		return "<nil>"
+	}
+
+	return fmt.Sprintf("%t", *b)
 }
 
 type byteView []byte

@@ -8,10 +8,12 @@ import (
 	"math"
 	"math/big"
 	"runtime/debug"
+	"strings"
 
 	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	occtypes "github.com/cosmos/cosmos-sdk/types/occ"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -63,12 +65,11 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 	defer func() {
 		if pe := recover(); pe != nil {
-			// there is not supposed to be any panic
-			debug.PrintStack()
-			ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
-			telemetry.IncrCounter(1, types.ModuleName, "panics")
-			server.AppendErrorToEvmTxDeferredInfo(ctx, tx.Hash(), fmt.Sprintf("%s", pe))
-
+			if !strings.Contains(fmt.Sprintf("%s", pe), occtypes.ErrReadEstimate.Error()) {
+				debug.PrintStack()
+				ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
+				telemetry.IncrCounter(1, types.ModuleName, "panics")
+			}
 			panic(pe)
 		}
 		if err != nil {
@@ -321,7 +322,7 @@ func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTrans
 
 	receipt.From = origMsg.Derived.SenderEVMAddr.Hex()
 
-	return receipt, server.SetReceipt(ctx, tx.Hash(), receipt)
+	return receipt, server.SetTransientReceipt(ctx, tx.Hash(), receipt)
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {

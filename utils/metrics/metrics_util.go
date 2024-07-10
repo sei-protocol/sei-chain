@@ -1,12 +1,14 @@
 package metrics
 
 import (
+	"errors"
 	"math/big"
 	"strconv"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Measures the time taken to execute a sudo msg
@@ -273,6 +275,29 @@ func IncrementRpcRequestCounter(endpoint string, connectionType string, success 
 			telemetry.NewLabel("endpoint", endpoint),
 			telemetry.NewLabel("connection", connectionType),
 			telemetry.NewLabel("success", strconv.FormatBool(success)),
+		},
+	)
+}
+
+func IncrementErrorMetrics(scenario string, err error) {
+	if err == nil {
+		return
+	}
+	var assocErr types.AssociationMissingErr
+	if errors.As(err, &assocErr) {
+		IncrementAssociationError(scenario, assocErr)
+		return
+	}
+	// add other error types to handle as metrics
+}
+
+func IncrementAssociationError(scenario string, err types.AssociationMissingErr) {
+	telemetry.IncrCounterWithLabels(
+		[]string{"sei", "association", "error"},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("scenario", scenario),
+			telemetry.NewLabel("type", err.AddressType()),
 		},
 	)
 }

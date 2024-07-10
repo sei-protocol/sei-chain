@@ -5,6 +5,8 @@ import (
 	"errors"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
 	dexbindings "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
 	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
@@ -194,70 +196,77 @@ func (qp QueryPlugin) HandleTokenFactoryQuery(ctx sdk.Context, queryData json.Ra
 	}
 }
 
-func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
+func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage) (res []byte, err error) {
+	var queryType evmbindings.EVMQueryType
 	var parsedQuery evmbindings.SeiEVMQuery
 	if err := json.Unmarshal(queryData, &parsedQuery); err != nil {
 		return nil, errors.New("invalid EVM query")
 	}
-	switch {
-	case parsedQuery.StaticCall != nil:
+	queryType = parsedQuery.GetQueryType()
+
+	defer func() {
+		metrics.IncrementErrorMetrics(string(queryType), err)
+	}()
+
+	switch queryType {
+	case evmbindings.StaticCallType:
 		c := parsedQuery.StaticCall
 		return qp.evmHandler.HandleStaticCall(ctx, c.From, c.To, c.Data)
-	case parsedQuery.ERC20TransferPayload != nil:
+	case evmbindings.ERC20TransferType:
 		c := parsedQuery.ERC20TransferPayload
 		return qp.evmHandler.HandleERC20TransferPayload(ctx, c.Recipient, c.Amount)
-	case parsedQuery.ERC20TransferFromPayload != nil:
+	case evmbindings.ERC20TransferFromType:
 		c := parsedQuery.ERC20TransferFromPayload
 		return qp.evmHandler.HandleERC20TransferFromPayload(ctx, c.Owner, c.Recipient, c.Amount)
-	case parsedQuery.ERC20ApprovePayload != nil:
+	case evmbindings.ERC20ApproveType:
 		c := parsedQuery.ERC20ApprovePayload
 		return qp.evmHandler.HandleERC20ApprovePayload(ctx, c.Spender, c.Amount)
-	case parsedQuery.ERC20Allowance != nil:
+	case evmbindings.ERC20AllowanceType:
 		c := parsedQuery.ERC20Allowance
 		return qp.evmHandler.HandleERC20Allowance(ctx, c.ContractAddress, c.Owner, c.Spender)
-	case parsedQuery.ERC20TokenInfo != nil:
+	case evmbindings.ERC20TokenInfoType:
 		c := parsedQuery.ERC20TokenInfo
 		return qp.evmHandler.HandleERC20TokenInfo(ctx, c.ContractAddress, c.Caller)
-	case parsedQuery.ERC20Balance != nil:
+	case evmbindings.ERC20BalanceType:
 		c := parsedQuery.ERC20Balance
 		return qp.evmHandler.HandleERC20Balance(ctx, c.ContractAddress, c.Account)
-	case parsedQuery.ERC721Owner != nil:
+	case evmbindings.ERC721OwnerType:
 		c := parsedQuery.ERC721Owner
 		return qp.evmHandler.HandleERC721Owner(ctx, c.Caller, c.ContractAddress, c.TokenID)
-	case parsedQuery.ERC721TransferPayload != nil:
+	case evmbindings.ERC721TransferType:
 		c := parsedQuery.ERC721TransferPayload
 		return qp.evmHandler.HandleERC721TransferPayload(ctx, c.From, c.Recipient, c.TokenID)
-	case parsedQuery.ERC721ApprovePayload != nil:
+	case evmbindings.ERC721ApproveType:
 		c := parsedQuery.ERC721ApprovePayload
 		return qp.evmHandler.HandleERC721ApprovePayload(ctx, c.Spender, c.TokenID)
-	case parsedQuery.ERC721SetApprovalAllPayload != nil:
+	case evmbindings.ERC721SetApprovalAllType:
 		c := parsedQuery.ERC721SetApprovalAllPayload
 		return qp.evmHandler.HandleERC721SetApprovalAllPayload(ctx, c.To, c.Approved)
-	case parsedQuery.ERC721Approved != nil:
+	case evmbindings.ERC721ApprovedType:
 		c := parsedQuery.ERC721Approved
 		return qp.evmHandler.HandleERC721Approved(ctx, c.Caller, c.ContractAddress, c.TokenID)
-	case parsedQuery.ERC721IsApprovedForAll != nil:
+	case evmbindings.ERC721IsApprovedForAllType:
 		c := parsedQuery.ERC721IsApprovedForAll
 		return qp.evmHandler.HandleERC721IsApprovedForAll(ctx, c.Caller, c.ContractAddress, c.Owner, c.Operator)
-	case parsedQuery.ERC721TotalSupply != nil:
+	case evmbindings.ERC721TotalSupplyType:
 		c := parsedQuery.ERC721TotalSupply
 		return qp.evmHandler.HandleERC721TotalSupply(ctx, c.Caller, c.ContractAddress)
-	case parsedQuery.ERC721NameSymbol != nil:
+	case evmbindings.ERC721NameSymbolType:
 		c := parsedQuery.ERC721NameSymbol
 		return qp.evmHandler.HandleERC721NameSymbol(ctx, c.Caller, c.ContractAddress)
-	case parsedQuery.ERC721Uri != nil:
+	case evmbindings.ERC721UriType:
 		c := parsedQuery.ERC721Uri
 		return qp.evmHandler.HandleERC721Uri(ctx, c.Caller, c.ContractAddress, c.TokenID)
-	case parsedQuery.ERC721RoyaltyInfo != nil:
+	case evmbindings.ERC721RoyaltyInfoType:
 		c := parsedQuery.ERC721RoyaltyInfo
 		return qp.evmHandler.HandleERC721RoyaltyInfo(ctx, c.Caller, c.ContractAddress, c.TokenID, c.SalePrice)
-	case parsedQuery.GetEvmAddress != nil:
+	case evmbindings.GetEvmAddressType:
 		c := parsedQuery.GetEvmAddress
 		return qp.evmHandler.HandleGetEvmAddress(ctx, c.SeiAddress)
-	case parsedQuery.GetSeiAddress != nil:
+	case evmbindings.GetSeiAddressType:
 		c := parsedQuery.GetSeiAddress
 		return qp.evmHandler.HandleGetSeiAddress(ctx, c.EvmAddress)
-	case parsedQuery.SupportsInterface != nil:
+	case evmbindings.SupportsInterfaceType:
 		c := parsedQuery.SupportsInterface
 		return qp.evmHandler.HandleSupportsInterface(ctx, c.Caller, c.InterfaceID, c.ContractAddress)
 	default:

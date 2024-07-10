@@ -14,7 +14,6 @@ import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
@@ -27,8 +26,10 @@ import (
 	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/tests"
+	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -41,12 +42,13 @@ import (
 )
 
 type Keeper struct {
-	storeKey    sdk.StoreKey
-	memStoreKey sdk.StoreKey
-	Paramstore  paramtypes.Subspace
+	storeKey          sdk.StoreKey
+	transientStoreKey sdk.StoreKey
 
-	deferredInfo *sync.Map
-	txResults    []*abci.ExecTxResult
+	Paramstore paramtypes.Subspace
+
+	txResults []*abci.ExecTxResult
+	msgs      []*types.MsgEVMTransaction
 
 	bankKeeper     bankkeeper.Keeper
 	accountKeeper  *authkeeper.AccountKeeper
@@ -76,14 +78,8 @@ type Keeper struct {
 	DB          ethstate.Database
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
-}
 
-type EvmTxDeferredInfo struct {
-	TxIndx  int
-	TxHash  common.Hash
-	TxBloom ethtypes.Bloom
-	Surplus sdk.Int
-	Error   string
+	receiptStore seidbtypes.StateStore
 }
 
 type AddressNoncePair struct {
@@ -115,7 +111,7 @@ func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethty
 }
 
 func NewKeeper(
-	storeKey sdk.StoreKey, memStoreKey sdk.StoreKey, paramstore paramtypes.Subspace,
+	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore seidbtypes.StateStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
 	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
@@ -123,7 +119,7 @@ func NewKeeper(
 	}
 	k := &Keeper{
 		storeKey:                     storeKey,
-		memStoreKey:                  memStoreKey,
+		transientStoreKey:            transientStoreKey,
 		Paramstore:                   paramstore,
 		bankKeeper:                   bankKeeper,
 		accountKeeper:                accountKeeper,
@@ -135,7 +131,7 @@ func NewKeeper(
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
-		deferredInfo:                 &sync.Map{},
+		receiptStore:                 receiptStateStore,
 	}
 	return k
 }
@@ -189,11 +185,13 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	if err != nil {
 		return nil, err
 	}
+
+	// Use hash of block timestamp as info for PREVRANDAO
 	r, err := ctx.BlockHeader().Time.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
-	rh := common.BytesToHash(r)
+	rh := crypto.Keccak256Hash(r)
 
 	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
 		if IsPayablePrecompile(&recipient) {
@@ -237,43 +235,6 @@ func (k *Keeper) GetHashFn(ctx sdk.Context) vm.GetHashFunc {
 		// fetch historical hash from historical info
 		return k.getHistoricalHash(ctx, h)
 	}
-}
-
-func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []EvmTxDeferredInfo) {
-	k.deferredInfo.Range(func(key, value any) bool {
-		txIdx := key.(int)
-		if txIdx < 0 || txIdx >= len(k.txResults) {
-			ctx.Logger().Error(fmt.Sprintf("getting invalid tx index in EVM deferred info: %d, num of txs: %d", txIdx, len(k.txResults)))
-			return true
-		}
-		if k.txResults[txIdx].Code == 0 || k.txResults[txIdx].Code == sdkerrors.ErrEVMVMError.ABCICode() || value.(*EvmTxDeferredInfo).Error != "" {
-			res = append(res, *(value.(*EvmTxDeferredInfo)))
-		}
-		return true
-	})
-	sort.SliceStable(res, func(i, j int) bool { return res[i].TxIndx < res[j].TxIndx })
-	return
-}
-
-func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom, txHash common.Hash, surplus sdk.Int) {
-	k.deferredInfo.Store(ctx.TxIndex(), &EvmTxDeferredInfo{
-		TxIndx:  ctx.TxIndex(),
-		TxBloom: bloom,
-		TxHash:  txHash,
-		Surplus: surplus,
-	})
-}
-
-func (k *Keeper) AppendErrorToEvmTxDeferredInfo(ctx sdk.Context, txHash common.Hash, err string) {
-	k.deferredInfo.Store(ctx.TxIndex(), &EvmTxDeferredInfo{
-		TxIndx: ctx.TxIndex(),
-		TxHash: txHash,
-		Error:  err,
-	})
-}
-
-func (k *Keeper) ClearEVMTxDeferredInfo() {
-	k.deferredInfo = &sync.Map{}
 }
 
 func (k *Keeper) getHistoricalHash(ctx sdk.Context, h int64) common.Hash {
@@ -394,6 +355,10 @@ func (k *Keeper) RemovePendingNonce(key tmtypes.TxKey) {
 
 func (k *Keeper) SetTxResults(txResults []*abci.ExecTxResult) {
 	k.txResults = txResults
+}
+
+func (k *Keeper) SetMsgs(msgs []*types.MsgEVMTransaction) {
+	k.msgs = msgs
 }
 
 // Test use only

@@ -4,6 +4,96 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
+type EVMQueryType string
+
+const (
+	StaticCallType        EVMQueryType = "evm_query_static_call"
+	ERC20TransferType     EVMQueryType = "evm_query_erc20_transfer"
+	ERC20TransferFromType EVMQueryType = "evm_query_erc20_transfer_from"
+	ERC20ApproveType      EVMQueryType = "evm_query_erc20_approve"
+	ERC20AllowanceType    EVMQueryType = "evm_query_erc20_allowance"
+	// #nosec G101 -- the word Token triggers the credential detection
+	ERC20TokenInfoType         EVMQueryType = "evm_query_erc20_token_info"
+	ERC20BalanceType           EVMQueryType = "evm_query_erc20_balance"
+	ERC721OwnerType            EVMQueryType = "evm_query_erc721_owner"
+	ERC721TransferType         EVMQueryType = "evm_query_erc721_transfer"
+	ERC721ApproveType          EVMQueryType = "evm_query_erc721_approve"
+	ERC721SetApprovalAllType   EVMQueryType = "evm_query_erc721_set_approval_all"
+	ERC721ApprovedType         EVMQueryType = "evm_query_erc721_approved"
+	ERC721IsApprovedForAllType EVMQueryType = "evm_query_erc721_is_approved_for_all"
+	ERC721TotalSupplyType      EVMQueryType = "evm_query_erc721_total_supply"
+	ERC721NameSymbolType       EVMQueryType = "evm_query_erc721_name_symbol"
+	ERC721UriType              EVMQueryType = "evm_query_erc721_uri"
+	ERC721RoyaltyInfoType      EVMQueryType = "evm_query_erc721_royalty_info"
+	GetEvmAddressType          EVMQueryType = "evm_query_get_evm_address"
+	GetSeiAddressType          EVMQueryType = "evm_query_get_sei_address"
+	SupportsInterfaceType      EVMQueryType = "evm_query_supports_interface"
+)
+
+func (q *SeiEVMQuery) GetQueryType() EVMQueryType {
+	if q.StaticCall != nil {
+		return StaticCallType
+	}
+	if q.ERC20TransferPayload != nil {
+		return ERC20TransferType
+	}
+	if q.ERC20TransferFromPayload != nil {
+		return ERC20TransferFromType
+	}
+	if q.ERC20ApprovePayload != nil {
+		return ERC20ApproveType
+	}
+	if q.ERC20Allowance != nil {
+		return ERC20AllowanceType
+	}
+	if q.ERC20TokenInfo != nil {
+		return ERC20TokenInfoType
+	}
+	if q.ERC20Balance != nil {
+		return ERC20BalanceType
+	}
+	if q.ERC721Owner != nil {
+		return ERC721OwnerType
+	}
+	if q.ERC721TransferPayload != nil {
+		return ERC721TransferType
+	}
+	if q.ERC721ApprovePayload != nil {
+		return ERC721ApproveType
+	}
+	if q.ERC721SetApprovalAllPayload != nil {
+		return ERC721SetApprovalAllType
+	}
+	if q.ERC721Approved != nil {
+		return ERC721ApprovedType
+	}
+	if q.ERC721IsApprovedForAll != nil {
+		return ERC721IsApprovedForAllType
+	}
+	if q.ERC721TotalSupply != nil {
+		return ERC721TotalSupplyType
+	}
+	if q.ERC721NameSymbol != nil {
+		return ERC721NameSymbolType
+	}
+	if q.ERC721Uri != nil {
+		return ERC721UriType
+	}
+	if q.ERC721RoyaltyInfo != nil {
+		return ERC721RoyaltyInfoType
+	}
+	if q.GetEvmAddress != nil {
+		return GetEvmAddressType
+	}
+	if q.GetSeiAddress != nil {
+		return GetSeiAddressType
+	}
+	if q.SupportsInterface != nil {
+		return SupportsInterfaceType
+	}
+	return ""
+}
+
 type SeiEVMQuery struct {
 	StaticCall                  *StaticCallRequest                  `json:"static_call,omitempty"`
 	ERC20TransferPayload        *ERC20TransferPayloadRequest        `json:"erc20_transfer_payload,omitempty"`

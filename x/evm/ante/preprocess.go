@@ -22,6 +22,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -76,6 +77,7 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	} else if isAssociateTx {
 		// check if the account has enough balance (without charging)
 		if !p.IsAccountBalancePositive(ctx, seiAddr, evmAddr) {
+			metrics.IncrementAssociationError("associate_tx_insufficient_funds", evmtypes.NewAssociationMissingErr(seiAddr.String()))
 			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
 		}
 		if err := p.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
@@ -105,7 +107,7 @@ func (p *EVMPreprocessDecorator) AssociateAddresses(ctx sdk.Context, seiAddr sdk
 		}
 		p.accountKeeper.SetAccount(ctx, acc)
 	}
-	return migrateBalance(ctx, p.evmKeeper, evmAddr, seiAddr)
+	return MigrateBalance(ctx, p.evmKeeper, evmAddr, seiAddr)
 }
 
 func (p *EVMPreprocessDecorator) IsAccountBalancePositive(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address) bool {
@@ -330,9 +332,9 @@ func NewEVMAddressDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accountk
 	return &EVMAddressDecorator{evmKeeper: evmKeeper, accountKeeper: accountKeeper}
 }
 
-func migrateBalance(ctx sdk.Context, evmKeeper *evmkeeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) error {
+func MigrateBalance(ctx sdk.Context, evmKeeper *evmkeeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) error {
 	castAddr := sdk.AccAddress(evmAddr[:])
-	castAddrBalances := evmKeeper.BankKeeper().GetAllBalances(ctx, castAddr)
+	castAddrBalances := evmKeeper.BankKeeper().SpendableCoins(ctx, castAddr)
 	if !castAddrBalances.IsZero() {
 		if err := evmKeeper.BankKeeper().SendCoins(ctx, castAddr, seiAddr, castAddrBalances); err != nil {
 			return err
@@ -344,7 +346,9 @@ func migrateBalance(ctx sdk.Context, evmKeeper *evmkeeper.Keeper, evmAddr common
 			return err
 		}
 	}
-	evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
+	if evmKeeper.BankKeeper().LockedCoins(ctx, castAddr).IsZero() {
+		evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
+	}
 	return nil
 }
 
@@ -387,7 +391,7 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 			sdk.NewAttribute(evmtypes.AttributeKeyEvmAddress, evmAddr.Hex()),
 			sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 		p.evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
-		if err := migrateBalance(ctx, p.evmKeeper, evmAddr, signer); err != nil {
+		if err := MigrateBalance(ctx, p.evmKeeper, evmAddr, signer); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
 			return ctx, err
 		}
