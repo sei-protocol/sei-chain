@@ -305,32 +305,30 @@ func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
 			populate: func(t *Firehose) {
 				t.OnBlockStart(blockEvent(1))
 
-				// Simulated GetTxTracer being called
-				t.blockReorderOrdinalOnce.Do(func() {
-					t.blockReorderOrdinal = true
-					t.blockReorderOrdinalSnapshot = t.blockOrdinal.value
-				})
+				ttCC := t.newIsolatedTransactionTracer("CC")
+				ttCC.onTxStart(txEvent(), hex2Hash("CC"), from, to)
+				ttCC.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
+				ttCC.OnBalanceChange(empty, b(1), b(2), 0)
+				ttCC.OnCallExit(0, nil, 0, nil, false)
+				ttCC.OnTxEnd(txReceiptEvent(2), nil)
 
-				t.blockOrdinal.Reset()
-				t.onTxStart(txEvent(), hex2Hash("CC"), from, to)
-				t.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
-				t.OnBalanceChange(empty, b(1), b(2), 0)
-				t.OnCallExit(0, nil, 0, nil, false)
-				t.OnTxEnd(txReceiptEvent(2), nil)
+				ttAA := t.newIsolatedTransactionTracer("AA")
+				ttAA.onTxStart(txEvent(), hex2Hash("AA"), from, to)
+				ttAA.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
+				ttAA.OnBalanceChange(empty, b(1), b(2), 0)
+				ttAA.OnCallExit(0, nil, 0, nil, false)
+				ttAA.OnTxEnd(txReceiptEvent(0), nil)
 
-				t.blockOrdinal.Reset()
-				t.onTxStart(txEvent(), hex2Hash("AA"), from, to)
-				t.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
-				t.OnBalanceChange(empty, b(1), b(2), 0)
-				t.OnCallExit(0, nil, 0, nil, false)
-				t.OnTxEnd(txReceiptEvent(0), nil)
+				ttBB := t.newIsolatedTransactionTracer("BB")
+				ttBB.onTxStart(txEvent(), hex2Hash("BB"), from, to)
+				ttBB.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
+				ttBB.OnBalanceChange(empty, b(1), b(2), 0)
+				ttBB.OnCallExit(0, nil, 0, nil, false)
+				ttBB.OnTxEnd(txReceiptEvent(1), nil)
 
-				t.blockOrdinal.Reset()
-				t.onTxStart(txEvent(), hex2Hash("BB"), from, to)
-				t.OnCallEnter(0, byte(vm.CALL), from, to, nil, 0, nil)
-				t.OnBalanceChange(empty, b(1), b(2), 0)
-				t.OnCallExit(0, nil, 0, nil, false)
-				t.OnTxEnd(txReceiptEvent(1), nil)
+				t.addIsolatedTransaction(ttAA.transientTransaction)
+				t.addIsolatedTransaction(ttBB.transientTransaction)
+				t.addIsolatedTransaction(ttCC.transientTransaction)
 			},
 			expectedBlockFile: "testdata/firehose/reorder-ordinals-empty.golden.json",
 		},
@@ -344,8 +342,6 @@ func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
 			f.OnBlockchainInit(params.AllEthashProtocolChanges)
 
 			tt.populate(f)
-
-			f.reorderIsolatedTransactionsAndOrdinals()
 
 			goldenUpdate := os.Getenv("GOLDEN_UPDATE") == "true"
 			goldenPath := tt.expectedBlockFile
