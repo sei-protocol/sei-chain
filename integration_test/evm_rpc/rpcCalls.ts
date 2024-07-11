@@ -364,5 +364,4 @@ describe('Evm Rpc Calls', function (){
       expect(parseInt(usertxCount)).to.be.eq(parseInt(txCount));
     });
   });
-
 })
