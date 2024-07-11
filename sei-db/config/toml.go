@@ -66,8 +66,4 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 # defaults to 1
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 
-# KeepLastVersion defines whether to keep last version of a key during pruning or delete
-# defaults to true
-ss-keep-last-version = {{ .StateStore.KeepLastVersion }}
-
 `
