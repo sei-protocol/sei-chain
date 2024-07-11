@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"testing"
@@ -307,6 +308,33 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 		Height: 1,
 	}
 	res, err := ap.ProcessProposalHandler(ctx, &badProposal)
+	require.Nil(t, err)
+	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
+}
+
+func TestOverflowGas(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	ap := testWrapper.App
+	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+		Block: &types.BlockParams{MaxGas: math.MaxInt64},
+	})
+	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
+	emptyTxBuilder.SetGasLimit(uint64(math.MaxInt64))
+	emptyTx, _ := txEncoder(emptyTxBuilder.GetTx())
+
+	secondEmptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	secondEmptyTxBuilder.SetGasLimit(10)
+	secondTx, _ := txEncoder(secondEmptyTxBuilder.GetTx())
+
+	proposal := abci.RequestProcessProposal{
+		Txs:    [][]byte{emptyTx, secondTx},
+		Height: 1,
+	}
+	res, err := ap.ProcessProposalHandler(ctx, &proposal)
 	require.Nil(t, err)
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
 }
