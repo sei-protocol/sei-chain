@@ -23,8 +23,6 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// AddAssetMetadataProposal is a gov Content type for adding a new asset
-// to the dex module's asset list.
 type UpdateMinterProposal struct {
 	Title       string  `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty" yaml:"title"`
 	Description string  `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty" yaml:"description"`

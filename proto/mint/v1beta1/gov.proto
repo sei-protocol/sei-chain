@@ -6,8 +6,6 @@ import "mint/v1beta1/mint.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/mint/types";
 
-// AddAssetMetadataProposal is a gov Content type for adding a new asset
-// to the dex module's asset list.
 message UpdateMinterProposal {
     option (gogoproto.equal) = false;
     option (gogoproto.goproto_getters) = false;
