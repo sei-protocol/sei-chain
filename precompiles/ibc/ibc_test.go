@@ -284,12 +284,12 @@ func TestPrecompile_Run(t *testing.T) {
 				return
 			}
 			if err != nil {
-				require.Equal(t, tt.wantErrMsg, err.Error())
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotBz))
+			} else if !reflect.DeepEqual(gotBz, tt.wantBz) {
+				t.Errorf("Run() gotRet = %v, want %v", gotBz, tt.wantBz)
 			}
 
-			if !reflect.DeepEqual(gotBz, tt.wantBz) {
-				t.Errorf("Run() gotBz = %v, want %v", gotBz, tt.wantBz)
-			}
 			if !reflect.DeepEqual(gotRemainingGas, tt.wantRemainingGas) {
 				t.Errorf("Run() gotRemainingGas = %v, want %v", gotRemainingGas, tt.wantRemainingGas)
 			}
@@ -471,11 +471,10 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 				return
 			}
 			if err != nil {
-				require.Equal(t, tt.wantErrMsg, err.Error())
-			}
-
-			if !reflect.DeepEqual(gotBz, tt.wantBz) {
-				t.Errorf("Run() gotBz = %v, want %v", gotBz, tt.wantBz)
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotBz))
+			} else if !reflect.DeepEqual(gotBz, tt.wantBz) {
+				t.Errorf("Run() gotRet = %v, want %v", gotBz, tt.wantBz)
 			}
 			if !reflect.DeepEqual(gotRemainingGas, tt.wantRemainingGas) {
 				t.Errorf("Run() gotRemainingGas = %v, want %v", gotRemainingGas, tt.wantRemainingGas)
