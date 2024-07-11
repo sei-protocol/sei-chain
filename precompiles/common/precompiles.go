@@ -164,6 +164,10 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	}
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
 
+	if hooks != nil && hooks.OnGasChange != nil {
+		defer func() { hooks.OnGasChange(suppliedGas, remainingGas, tracing.GasChangeCallPrecompiledContract) }()
+	}
+
 	operation = method.Name
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())

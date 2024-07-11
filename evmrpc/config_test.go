@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ type opts struct {
 	maxBlocksForLog         interface{}
 	maxSubscriptionsNewHead interface{}
 	enableTestAPI           interface{}
+	liveEVMTracer           interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -96,7 +98,10 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.enable_test_api" {
 		return o.enableTestAPI
 	}
-	panic("unknown key")
+	if k == "evm.live_evm_tracer" {
+		return o.liveEVMTracer
+	}
+	panic(fmt.Errorf("unknown key: %s", k))
 }
 
 func TestReadConfig(t *testing.T) {
@@ -122,6 +127,7 @@ func TestReadConfig(t *testing.T) {
 		1000,
 		10000,
 		false,
+		"",
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)
