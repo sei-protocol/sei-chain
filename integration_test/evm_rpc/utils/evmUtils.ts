@@ -14,10 +14,8 @@ export async function sendFundsFromEvmClient(wallet: ethers.HDNodeWallet, recipi
     value: ethers.parseUnits('0.1', 'ether'),
   };
 
-  // Send the transaction
   const txResponse = await wallet.sendTransaction(tx);
 
-  // Wait for the transaction to be mined
   const receipt = await txResponse.wait();
   return [receipt?.hash, receipt?.blockNumber, receipt?.blockHash];
 }
