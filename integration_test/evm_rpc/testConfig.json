@@ -1,0 +1,6 @@
+{
+  "evmRpc": "http://127.0.0.1:8545",
+  "seiRpc": "http://127.0.0.1:26657",
+  "feeAccount": "0x27f7b8b8b5a4e71e8e9aa671f4e4031e3773303f",
+  "chainId": 713715
+}
