@@ -1,4 +1,6 @@
 import {ethers} from 'ethers';
+import abi from '../../../contracts/artifacts/src/BoxV2.sol/BoxV2.json';
+
 
 export async function createEvmProvider(rpcUrl: string) {
   return new ethers.JsonRpcProvider(rpcUrl)
@@ -18,4 +20,14 @@ export async function sendFundsFromEvmClient(wallet: ethers.HDNodeWallet, recipi
 
   const receipt = await txResponse.wait();
   return [receipt?.hash, receipt?.blockNumber, receipt?.blockHash];
+}
+
+
+export async function deployToChain(evmWallet: ethers.HDNodeWallet){
+  const contractFactory = new ethers.ContractFactory(abi.abi, abi.bytecode, evmWallet);
+  const contract = await contractFactory.deploy();
+  return {
+    address: contract.target,
+    bytecode: abi.deployedBytecode
+  };
 }

@@ -1,7 +1,7 @@
 import ExpectStatic = Chai.ExpectStatic;
 import {ethers, formatEther, toBeHex} from 'ethers';
 import { SigningStargateClient} from '@cosmjs/stargate';
-import {createEvmProvider, createEvmWallet, sendFundsFromEvmClient} from './utils/evmUtils';
+import {createEvmProvider, createEvmWallet, deployToChain, sendFundsFromEvmClient} from './utils/evmUtils';
 import {
   associateWallet,
   createSeiProvider,
@@ -50,7 +50,7 @@ describe('Evm Rpc Calls', function (){
     seiAddress = (await seiWallet.getAccounts())[0].address;
   })
 
-  describe('Association rpc tests', function (){
+  describe('Association rpc calls tests', function (){
     let txHash: string;
 
     it('Evm users can associate accounts', async () =>{
@@ -101,7 +101,7 @@ describe('Evm Rpc Calls', function (){
    * eth_getBlockByHash
    * eth_getBlockByNumber
    */
-  describe('Block json rpc calls test', function (){
+  describe('Block rpc calls test', function (){
     let blockNumber: string;
     let blockHash: string;
     let txHash: string;
@@ -170,7 +170,7 @@ describe('Evm Rpc Calls', function (){
    * eth_feeHistory
    * eth_maxPriorityFeePerGas
    */
-  describe('Users can query the chain info through json rpc calls', function() {
+  describe('Info rpc calls tests', function() {
 
     it('Users can query latest block number', async () =>{
       const blockNumber = await evmClient.send('eth_blockNumber', []);
@@ -221,7 +221,7 @@ describe('Evm Rpc Calls', function (){
    * eth_getBlockByNumber
    *
    */
-  describe('State rpc call tests', () =>{
+  describe('State rpc calls tests', () =>{
     let latestBlockNumber: number;
     let latestBalance: string;
     let previousBalance: string;
@@ -270,17 +270,16 @@ describe('Evm Rpc Calls', function (){
       expect(previousBalanceOnTransferBlock).to.be.eq(latestBalance);
     });
 
-    //ToDo Check the code get in detail
-    it.skip('Users can query byte code of a contract', async () =>{
-      const ibcPrecompileAddress = '0x0000000000000000000000000000000000001009';
-      const byteCode = await evmClient.send('eth_getCode', [ibcPrecompileAddress, 'latest']);
-      console.log(byteCode);
+    it('Users can query byte code of a contract', async () =>{
+      const {address, bytecode} = await deployToChain(evmWallet);
+      await waitFor(2);
+      const queriedByteCode = await evmClient.send('eth_getCode', [address, 'latest']);
+      expect(queriedByteCode).to.be.eq(bytecode);
     });
-
 
     it('Users can query next nonce', async () =>{
       const nonce = await evmClient.send('eth_getNonce', [evmAddress]);
-      expect(nonce).to.be.eq(previousNonce + 1);
+      expect(nonce).to.be.eq(previousNonce + 2);
     });
   });
 
@@ -313,6 +312,11 @@ describe('Evm Rpc Calls', function (){
 
       expect(receipt.from).to.be.eq(evmAddress.toLowerCase());
       expect(receipt.to).to.be.eq(evmSeiAddress.toLowerCase());
+    });
+
+    it('Users can query tx count from block number', async () =>{
+      usertxCount = await evmClient.send('eth_getTransactionCount', [evmAddress, ethers.toQuantity(blockNumber)]);
+      expect(parseInt(usertxCount)).to.be.gte(1);
     });
 
     it('Users can get transaction by hash', async () =>{
@@ -353,15 +357,11 @@ describe('Evm Rpc Calls', function (){
       expect(txDetails).to.be.null;
     });
 
-    it('Users can query tx count from block number', async () =>{
-      usertxCount = await evmClient.send('eth_getTransactionCount', [evmAddress, ethers.toQuantity(blockNumber)]);
-      expect(parseInt(usertxCount)).to.be.above(1);
-    });
-
     it('Users can query tx count from block hash', async () =>{
-      const txCount = await evmClient.send('eth_getTransactionCount', [evmAddress, blockHash]);
+      const block = await evmClient.send('eth_getBlockByNumber', ['latest', false]);
+      const txCount = await evmClient.send('eth_getTransactionCount', [evmAddress, block.hash]);
       expect(parseInt(txCount)).to.be.above(1);
-      expect(parseInt(usertxCount)).to.be.eq(parseInt(txCount));
+      expect(parseInt(usertxCount)).to.be.eq(parseInt(txCount) - 1);
     });
   });
 })
