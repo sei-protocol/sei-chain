@@ -186,7 +186,10 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(txIndex)]
 	// We need to find the ethIndex
-	evmTxIndex, found := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, b.txDecoder)
+	evmTxIndex, found := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, b.txDecoder, func(h common.Hash) bool {
+		_, err := b.keeper.GetReceipt(sdkCtx, h)
+		return err == nil
+	})
 	if !found {
 		return nil, common.Hash{}, 0, 0, errors.New("failed to find transaction in block")
 	}

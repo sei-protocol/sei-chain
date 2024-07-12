@@ -58,3 +58,9 @@ func ConvertEthLog(l *ethtypes.Log) *types.Log {
 		Index:   uint32(l.Index),
 	}
 }
+
+func ConvertSyntheticEthLog(l *ethtypes.Log) *types.Log {
+	log := ConvertEthLog(l)
+	log.Synthetic = true
+	return log
+}

@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math"
+	"math/big"
+	"reflect"
+	"testing"
+	"time"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	cosmosConfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"math/big"
-	"reflect"
-	"testing"
-	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -26,7 +28,6 @@ import (
 	"github.com/k0kubun/pp/v3"
 	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -135,25 +136,6 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 		Validator:     validator,
 	}
 
-	contractRegisterMsg := &dextypes.MsgRegisterContract{
-		Creator: account,
-		Contract: &dextypes.ContractInfoV2{
-			CodeId:            1,
-			ContractAddr:      "sei1dc34p57spmhguak2ns88u3vxmt73gnu3c0j6phqv5ukfytklkqjsgepv26",
-			NeedOrderMatching: true,
-		},
-	}
-
-	contractUnregisterMsg := &dextypes.MsgUnregisterContract{
-		Creator:      account,
-		ContractAddr: "sei1dc34p57spmhguak2ns88u3vxmt73gnu3c0j6phqv5ukfytklkqjsgepv26",
-	}
-
-	contractUnsuspendMsg := &dextypes.MsgUnsuspendContract{
-		Creator:      account,
-		ContractAddr: "sei1dc34p57spmhguak2ns88u3vxmt73gnu3c0j6phqv5ukfytklkqjsgepv26",
-	}
-
 	otherMsg := &stakingtypes.MsgDelegate{
 		DelegatorAddress: account,
 		ValidatorAddress: validator,
@@ -162,30 +144,12 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 
 	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
 	oracleTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
-	contractRegisterBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
-	contractUnregisterBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
-	contractUnsuspendBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	otherTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	mixedTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 
 	err := oracleTxBuilder.SetMsgs(oracleMsg)
 	require.NoError(t, err)
 	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
-	require.NoError(t, err)
-
-	err = contractRegisterBuilder.SetMsgs(contractRegisterMsg)
-	require.NoError(t, err)
-	contractRegisterTx, err := txEncoder(contractRegisterBuilder.GetTx())
-	require.NoError(t, err)
-
-	err = contractUnregisterBuilder.SetMsgs(contractUnregisterMsg)
-	require.NoError(t, err)
-	contractUnregisterTx, err := txEncoder(contractUnregisterBuilder.GetTx())
-	require.NoError(t, err)
-
-	err = contractUnsuspendBuilder.SetMsgs(contractUnsuspendMsg)
-	require.NoError(t, err)
-	contractSuspendTx, err := txEncoder(contractUnsuspendBuilder.GetTx())
 	require.NoError(t, err)
 
 	err = otherTxBuilder.SetMsgs(otherMsg)
@@ -201,52 +165,40 @@ func TestPartitionPrioritizedTxs(t *testing.T) {
 
 	txs := [][]byte{
 		oracleTx,
-		contractRegisterTx,
-		contractUnregisterTx,
-		contractSuspendTx,
 		otherTx,
 		mixedTx,
 	}
 	typedTxs := []sdk.Tx{
 		oracleTxBuilder.GetTx(),
-		contractRegisterBuilder.GetTx(),
-		contractUnregisterBuilder.GetTx(),
-		contractUnsuspendBuilder.GetTx(),
 		otherTxBuilder.GetTx(),
 		mixedTxBuilder.GetTx(),
 	}
 
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs := testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, txs, typedTxs)
-	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
+	require.Equal(t, [][]byte{oracleTx}, prioritizedTxs)
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
-	require.Equal(t, []int{0, 1, 2, 3}, prioIdxs)
-	require.Equal(t, []int{4, 5}, otherIdxs)
-	require.Equal(t, 4, len(prioritizedTypedTxs))
+	require.Equal(t, []int{0}, prioIdxs)
+	require.Equal(t, []int{1, 2}, otherIdxs)
+	require.Equal(t, 1, len(prioritizedTypedTxs))
 	require.Equal(t, 2, len(otherTypedTxs))
 
 	diffOrderTxs := [][]byte{
-		oracleTx,
 		otherTx,
-		contractRegisterTx,
-		contractUnregisterTx,
+		oracleTx,
 		mixedTx,
-		contractSuspendTx,
 	}
 	differOrderTypedTxs := []sdk.Tx{
-		oracleTxBuilder.GetTx(),
 		otherTxBuilder.GetTx(),
-		contractRegisterBuilder.GetTx(),
-		contractUnregisterBuilder.GetTx(),
+		oracleTxBuilder.GetTx(),
 		mixedTxBuilder.GetTx(),
-		contractUnsuspendBuilder.GetTx(),
 	}
 
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioIdxs, otherIdxs = testWrapper.App.PartitionPrioritizedTxs(testWrapper.Ctx, diffOrderTxs, differOrderTypedTxs)
-	require.Equal(t, [][]byte{oracleTx, contractRegisterTx, contractUnregisterTx, contractSuspendTx}, prioritizedTxs)
+	require.Equal(t, [][]byte{oracleTx}, prioritizedTxs)
 	require.Equal(t, [][]byte{otherTx, mixedTx}, otherTxs)
-	require.Equal(t, []int{0, 2, 3, 5}, prioIdxs)
-	require.Equal(t, []int{1, 4}, otherIdxs)
-	require.Equal(t, 4, len(prioritizedTypedTxs))
+	require.Equal(t, []int{1}, prioIdxs)
+	require.Equal(t, []int{0, 2}, otherIdxs)
+	require.Equal(t, 1, len(prioritizedTypedTxs))
 	require.Equal(t, 2, len(otherTypedTxs))
 }
 
@@ -360,6 +312,33 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
 }
 
+func TestOverflowGas(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	ap := testWrapper.App
+	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+		Block: &types.BlockParams{MaxGas: math.MaxInt64},
+	})
+	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
+	emptyTxBuilder.SetGasLimit(uint64(math.MaxInt64))
+	emptyTx, _ := txEncoder(emptyTxBuilder.GetTx())
+
+	secondEmptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	secondEmptyTxBuilder.SetGasLimit(10)
+	secondTx, _ := txEncoder(secondEmptyTxBuilder.GetTx())
+
+	proposal := abci.RequestProcessProposal{
+		Txs:    [][]byte{emptyTx, secondTx},
+		Height: 1,
+	}
+	res, err := ap.ProcessProposalHandler(ctx, &proposal)
+	require.Nil(t, err)
+	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
+}
+
 func TestDecodeTransactionsConcurrently(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
@@ -410,6 +389,13 @@ func TestDecodeTransactionsConcurrently(t *testing.T) {
 	require.NotNil(t, typedTxs[0].GetMsgs()[0].(*evmtypes.MsgEVMTransaction).Derived)
 	require.Nil(t, typedTxs[1])
 	require.NotNil(t, typedTxs[2])
+
+	// test panic handling
+	testWrapper.App.SetTxDecoder(func(txBytes []byte) (sdk.Tx, error) { panic("test") })
+	typedTxs = testWrapper.App.DecodeTransactionsConcurrently(testWrapper.Ctx, [][]byte{evmtxbz, invalidbz, banktxbz})
+	require.Nil(t, typedTxs[0])
+	require.Nil(t, typedTxs[1])
+	require.Nil(t, typedTxs[2])
 }
 
 func TestApp_RegisterAPIRoutes(t *testing.T) {

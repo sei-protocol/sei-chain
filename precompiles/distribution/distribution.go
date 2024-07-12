@@ -78,6 +78,12 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if readOnly {
+		return nil, 0, errors.New("cannot call distr precompile from staticcall")
+	}
+	if caller.Cmp(callingContract) != 0 {
+		return nil, 0, errors.New("cannot delegatecall distr")
+	}
 	switch method.Name {
 	case SetWithdrawAddressMethod:
 		return p.setWithdrawAddress(ctx, method, caller, args, value)
