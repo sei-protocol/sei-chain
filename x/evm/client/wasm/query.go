@@ -10,8 +10,8 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -585,7 +585,7 @@ func (h *EVMQueryHandler) HandleERC1155BatchTransferPayload(ctx sdk.Context, fro
 		return nil, err
 	}
 	if len(tokenIds) != len(amounts) {
-		return nil, errors.New("mismatched argument lenghts for tokenIds and amounts")
+		return nil, errors.New("mismatched argument lengths for tokenIds and amounts")
 	}
 	fromEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(from))
 	if !found {
@@ -707,7 +707,7 @@ func (h *EVMQueryHandler) HandleERC1155BalanceOf(ctx sdk.Context, caller string,
 
 func (h *EVMQueryHandler) HandleERC1155BalanceOfBatch(ctx sdk.Context, caller string, contractAddress string, accounts []string, tokenIds []string) ([]byte, error) {
 	if len(accounts) != len(tokenIds) {
-		return nil, errors.New("mismatched argument lenghts for accounts and tokenIds")
+		return nil, errors.New("mismatched argument lengths for accounts and tokenIds")
 	}
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {

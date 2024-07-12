@@ -17,7 +17,7 @@ const (
 	GetNativePointer = "getNativePointer"
 	GetCW20Pointer   = "getCW20Pointer"
 	GetCW721Pointer  = "getCW721Pointer"
-	GetCW1155Pointer  = "getCW1155Pointer"
+	GetCW1155Pointer = "getCW1155Pointer"
 )
 
 const PointerViewAddress = "0x000000000000000000000000000000000000100A"
@@ -33,7 +33,7 @@ type PrecompileExecutor struct {
 	GetNativePointerID []byte
 	GetCW20PointerID   []byte
 	GetCW721PointerID  []byte
-	GetCW1155PointerID  []byte
+	GetCW1155PointerID []byte
 }
 
 func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {

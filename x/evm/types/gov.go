@@ -12,13 +12,13 @@ import (
 )
 
 const (
-	ProposalTypeAddERCNativePointer = "AddERCNativePointer"
-	ProposalTypeAddERCCW20Pointer   = "AddERCCW20Pointer"
-	ProposalTypeAddERCCW721Pointer  = "AddERCCW721Pointer"
-	ProposalTypeAddERCCW1155Pointer = "AddERCCW1155Pointer"
-	ProposalTypeAddCWERC20Pointer   = "AddCWERC20Pointer"
-	ProposalTypeAddCWERC721Pointer  = "AddCWERC721Pointer"
-	ProposalTypeAddCWERC1155Pointer = "AddCWERC1155Pointer"
+	ProposalTypeAddERCNativePointer   = "AddERCNativePointer"
+	ProposalTypeAddERCCW20Pointer     = "AddERCCW20Pointer"
+	ProposalTypeAddERCCW721Pointer    = "AddERCCW721Pointer"
+	ProposalTypeAddERCCW1155Pointer   = "AddERCCW1155Pointer"
+	ProposalTypeAddCWERC20Pointer     = "AddCWERC20Pointer"
+	ProposalTypeAddCWERC721Pointer    = "AddCWERC721Pointer"
+	ProposalTypeAddCWERC1155Pointer   = "AddCWERC1155Pointer"
 	ProposalTypeAddERCNativePointerV2 = "AddERCNativePointerV2"
 )
 

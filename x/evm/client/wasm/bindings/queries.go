@@ -309,36 +309,36 @@ type ERC1155BalanceOfRequest struct {
 }
 
 type ERC1155BalanceOfBatchRequest struct {
-	Caller          string `json:"caller"`
-	ContractAddress string `json:"contract_address"`
+	Caller          string   `json:"caller"`
+	ContractAddress string   `json:"contract_address"`
 	Accounts        []string `json:"accounts"`
 	TokenIDs        []string `json:"token_ids"`
 }
 
 type ERC1155TotalSupplyRequest struct {
-	Caller string `json:"caller"`
+	Caller          string `json:"caller"`
 	ContractAddress string `json:"contract_address"`
 }
 
 type ERC1155TotalSupplyForTokenRequest struct {
-	Caller string   `json:"caller"`
+	Caller          string `json:"caller"`
 	ContractAddress string `json:"contract_address"`
 	TokenID         string `json:"token_id"`
 }
 
 type ERC1155TokenExistsRequest struct {
-	Caller string   `json:"caller"`
+	Caller          string `json:"caller"`
 	ContractAddress string `json:"contract_address"`
 	TokenID         string `json:"token_id"`
 }
 
 type ERC1155NameSymbolRequest struct {
-	Caller string   `json:"caller"`
+	Caller          string `json:"caller"`
 	ContractAddress string `json:"contract_address"`
 }
 
 type ERC1155UriRequest struct {
-	Caller string   `json:"caller"`
+	Caller          string `json:"caller"`
 	ContractAddress string `json:"contract_address"`
 	TokenID         string `json:"token_id"`
 }

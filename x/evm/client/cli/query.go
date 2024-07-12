@@ -17,9 +17,9 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -339,8 +339,7 @@ func CmdQueryERC1155Payload() *cobra.Command {
 				for _, n := range idsRaw {
 					id, ok := sdk.NewIntFromString(strings.Trim(n, " "))
 					if !ok {
-						err = errors.New("cannot parse array of int from: " + args[3])
-						break
+						return errors.New("cannot parse array of int from: " + args[3])
 					}
 					ids = append(ids, id.BigInt())
 				}
@@ -349,8 +348,7 @@ func CmdQueryERC1155Payload() *cobra.Command {
 				for _, n := range amtsRaw {
 					amt, ok := sdk.NewIntFromString(strings.Trim(n, " "))
 					if !ok {
-						err = errors.New("cannot parse array of int from: " + args[4])
-						break
+						return errors.New("cannot parse array of int from: " + args[4])
 					}
 					amts = append(amts, amt.BigInt())
 				}
