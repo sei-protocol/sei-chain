@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -20,6 +21,7 @@ const (
 	SetWithdrawAddressMethod                = "setWithdrawAddress"
 	WithdrawDelegationRewardsMethod         = "withdrawDelegationRewards"
 	WithdrawMultipleDelegationRewardsMethod = "withdrawMultipleDelegationRewards"
+	RewardsMethod                           = "rewards"
 )
 
 const (
@@ -52,6 +54,7 @@ type PrecompileExecutor struct {
 	SetWithdrawAddrID                   []byte
 	WithdrawDelegationRewardsID         []byte
 	WithdrawMultipleDelegationRewardsID []byte
+	RewardsID                           []byte
 }
 
 func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
@@ -71,6 +74,8 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 			p.WithdrawDelegationRewardsID = m.ID
 		case WithdrawMultipleDelegationRewardsMethod:
 			p.WithdrawMultipleDelegationRewardsID = m.ID
+		case RewardsMethod:
+			p.RewardsID = m.ID
 		}
 	}
 
@@ -91,7 +96,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.withdrawDelegationRewards(ctx, method, caller, args, value)
 	case WithdrawMultipleDelegationRewardsMethod:
 		return p.withdrawMultipleDelegationRewards(ctx, method, caller, args, value)
-
+	case RewardsMethod:
+		return p.rewards(ctx, method, args)
 	}
 	return
 }
@@ -245,4 +251,56 @@ func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) 
 		return nil, errors.New("cannot use an unassociated address as withdraw address")
 	}
 	return seiAddr, nil
+}
+
+type Coin struct {
+	Amount   *big.Int
+	Denom    string
+	Decimals string
+}
+
+func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		rerr = err
+		return
+	}
+	delegatorAddress, ok := args[0].(string)
+	if !ok {
+		rerr = errors.New("delegatorAddress is not a string")
+		return
+	}
+
+	req := &distrtypes.QueryDelegationTotalRewardsRequest{
+		DelegatorAddress: delegatorAddress,
+	}
+
+	response, err := p.distrKeeper.DelegationTotalRewards(ctx.Context(), req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	coins := make([]Coin, len(response.Rewards))
+	rewards := response.Rewards
+	for i, reward := range rewards {
+		coins[i] = Coin{}
+		for _, coin := range reward.Reward {
+			coins[i] = Coin{
+				Amount: coin.Amount.BigInt(),
+				Denom:  coin.Denom,
+			}
+		}
+	}
+	ret, rerr = method.Outputs.Pack(coins)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
 }

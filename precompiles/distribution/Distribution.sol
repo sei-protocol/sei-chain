@@ -14,4 +14,27 @@ interface IDistr {
     function withdrawDelegationRewards(string memory validator) external returns (bool success);
 
     function withdrawMultipleDelegationRewards(string[] memory validators) external returns (bool success);
+
+    // Queries
+    function rewards(address delegatorAddress) external view returns (uint256 amount);
+
+    struct Coin {
+        uint256 amount;
+        string denom;
+        uint decimals;
+    }
+
+    struct Reward {
+        Coin coin;
+        string validator_address;
+    }
+
+    struct TotalRewards {
+        Coin[] coins;
+    }
+
+    struct Rewards {
+        Reward[] rewards;
+        Coin[] total;
+    }
 }
