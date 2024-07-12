@@ -83,18 +83,24 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
-	if readOnly {
-		return nil, 0, errors.New("cannot call distr precompile from staticcall")
-	}
 	if caller.Cmp(callingContract) != 0 {
 		return nil, 0, errors.New("cannot delegatecall distr")
 	}
 	switch method.Name {
 	case SetWithdrawAddressMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
 		return p.setWithdrawAddress(ctx, method, caller, args, value)
 	case WithdrawDelegationRewardsMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
 		return p.withdrawDelegationRewards(ctx, method, caller, args, value)
 	case WithdrawMultipleDelegationRewardsMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
 		return p.withdrawMultipleDelegationRewards(ctx, method, caller, args, value)
 	case RewardsMethod:
 		return p.rewards(ctx, method, args)
@@ -256,7 +262,7 @@ func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) 
 type Coin struct {
 	Amount   *big.Int
 	Denom    string
-	Decimals string
+	Decimals int
 }
 
 func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
@@ -273,17 +279,19 @@ func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []
 		rerr = err
 		return
 	}
-	delegatorAddress, ok := args[0].(string)
-	if !ok {
-		rerr = errors.New("delegatorAddress is not a string")
+
+	seiDelegatorAddress, err := p.accAddressFromArg(ctx, args[0])
+	if err != nil {
+		rerr = err
 		return
 	}
 
 	req := &distrtypes.QueryDelegationTotalRewardsRequest{
-		DelegatorAddress: delegatorAddress,
+		DelegatorAddress: seiDelegatorAddress.String(),
 	}
 
-	response, err := p.distrKeeper.DelegationTotalRewards(ctx.Context(), req)
+	wrappedC := sdk.WrapSDKContext(ctx)
+	response, err := p.distrKeeper.DelegationTotalRewards(wrappedC, req)
 	if err != nil {
 		rerr = err
 		return
@@ -295,8 +303,9 @@ func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []
 		coins[i] = Coin{}
 		for _, coin := range reward.Reward {
 			coins[i] = Coin{
-				Amount: coin.Amount.BigInt(),
-				Denom:  coin.Denom,
+				Amount:   coin.Amount.BigInt(),
+				Denom:    coin.Denom,
+				Decimals: sdk.Precision,
 			}
 		}
 	}

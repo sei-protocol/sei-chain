@@ -1,7 +1,9 @@
 package distribution_test
 
 import (
+	"context"
 	"encoding/hex"
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 
 	"math/big"
 	"reflect"
@@ -656,7 +658,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 	_, notAssociatedCallerEvmAddress := testkeeper.MockAddressPair()
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
-	_, contactEvmAddress := testkeeper.MockAddressPair()
+	_, contractEvmAddress := testkeeper.MockAddressPair()
 
 	type fields struct {
 		Precompile                          pcommon.Precompile
@@ -752,7 +754,7 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			args: args{
 				addressToSet:    common.Address{},
 				caller:          callerEvmAddress,
-				callingContract: contactEvmAddress,
+				callingContract: contractEvmAddress,
 				suppliedGas:     uint64(1000000),
 			},
 			wantRet:          nil,
@@ -806,6 +808,112 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			inputs, err := setAddress.Inputs.Pack(tt.args.addressToSet)
 			require.Nil(t, err)
 			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).SetWithdrawAddrID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotRet))
+			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+			if gotRemainingGas != tt.wantRemainingGas {
+				t.Errorf("RunAndCalculateGas() gotRemainingGas = %v, want %v", gotRemainingGas, tt.wantRemainingGas)
+			}
+		})
+	}
+}
+
+type TestDistributionKeeper struct{}
+
+func (tk *TestDistributionKeeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error {
+	return nil
+}
+
+func (tk *TestDistributionKeeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error) {
+	// Return a hardcoded value for testing
+	return sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000))), nil
+}
+
+func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
+	// Return a hardcoded response for testing
+	rewards := []distrtypes.DelegationDelegatorReward{
+		{
+			ValidatorAddress: "validatorAddr1",
+			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(50000))),
+		},
+		{
+			ValidatorAddress: "validatorAddr2",
+			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(75000))),
+		}, // Add more DelegationDelegatorReward objects as needed
+	}
+	return &distrtypes.QueryDelegationTotalRewardsResponse{Rewards: rewards}, nil
+}
+
+func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	type fields struct {
+		Precompile                          pcommon.Precompile
+		distrKeeper                         pcommon.DistributionKeeper
+		evmKeeper                           pcommon.EVMKeeper
+		address                             common.Address
+		SetWithdrawAddrID                   []byte
+		WithdrawDelegationRewardsID         []byte
+		WithdrawMultipleDelegationRewardsID []byte
+	}
+	type args struct {
+		evm              *vm.EVM
+		delegatorAddress common.Address
+		caller           common.Address
+		callingContract  common.Address
+		suppliedGas      uint64
+		value            *big.Int
+		readOnly         bool
+	}
+	tests := []struct {
+		name             string
+		fields           fields
+		args             args
+		wantRet          []byte
+		wantRemainingGas uint64
+		wantErr          bool
+		wantErrMsg       string
+	}{
+		{
+			name: "should return delegator rewards",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				readOnly:         true,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 9941319,
+			wantErr:          false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB:   stateDb,
+				TxContext: vm.TxContext{Origin: callerEvmAddress},
+			}
+			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
+			rewards, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).RewardsID)
+			require.Nil(t, err)
+			inputs, err := rewards.Inputs.Pack(tt.args.delegatorAddress)
+			require.Nil(t, err)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).RewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
 				return
