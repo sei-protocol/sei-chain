@@ -30,19 +30,6 @@ const (
 //go:embed abi.json
 var f embed.FS
 
-func GetABI() abi.ABI {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		panic(err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		panic(err)
-	}
-	return newAbi
-}
-
 type PrecompileExecutor struct {
 	stakingKeeper pcommon.StakingKeeper
 	evmKeeper     pcommon.EVMKeeper
@@ -55,7 +42,7 @@ type PrecompileExecutor struct {
 }
 
 func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
-	newAbi := GetABI()
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
 		stakingKeeper: stakingKeeper,

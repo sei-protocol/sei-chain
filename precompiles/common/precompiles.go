@@ -1,6 +1,8 @@
 package common
 
 import (
+	"bytes"
+	"embed"
 	"errors"
 	"fmt"
 	"math/big"
@@ -247,4 +249,17 @@ func DefaultGasCost(input []byte, isTransaction bool) uint64 {
 	}
 
 	return storetypes.KVGasConfig().ReadCostFlat + (storetypes.KVGasConfig().ReadCostPerByte * uint64(len(input)))
+}
+
+func MustGetABI(f embed.FS, filename string) abi.ABI {
+	abiBz, err := f.ReadFile(filename)
+	if err != nil {
+		panic(err)
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	if err != nil {
+		panic(err)
+	}
+	return newAbi
 }
