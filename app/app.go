@@ -56,6 +56,7 @@ import (
 	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
@@ -382,6 +383,8 @@ type App struct {
 	encodingConfig        appparams.EncodingConfig
 	evmRPCConfig          evmrpc.Config
 	lightInvarianceConfig LightInvarianceConfig
+
+	genesisImportConfig genesistypes.GenesisImportConfig
 }
 
 // New returns a reference to an initialized blockchain app
@@ -630,6 +633,12 @@ func New(
 		panic(fmt.Sprintf("error reading light invariance config due to %s", err))
 	}
 	app.lightInvarianceConfig = lightInvarianceConfig
+
+	genesisImportConfig, err := ReadGenesisImportConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading genesis import config due to %s", err))
+	}
+	app.genesisImportConfig = genesisImportConfig
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
@@ -1057,14 +1066,16 @@ func (app *App) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.Respo
 }
 
 // InitChainer application update at chain initialization
+// JEREMYFLAG: InitChainer -- calls sei-cosmos's InitGenesis
 func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
 	var genesisState GenesisState
 	if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
 		panic(err)
 	}
+	// If: req.AppStateBytes is empty, then we are in streaming mode, so then can do channel stuff here
 	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	return app.mm.InitGenesis(ctx, app.appCodec, genesisState)
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
 
 func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {

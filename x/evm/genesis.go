@@ -95,6 +95,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 		seiAddrMappingStart := time.Now()
 		k.IterateSeiAddressMapping(ctx, func(evmAddr common.Address, seiAddr sdk.AccAddress) bool {
 			var genesis types.GenesisState
+			genesis.Params = k.GetParams(ctx)
 			genesis.AddressAssociations = append(genesis.AddressAssociations, &types.AddressAssociation{
 				SeiAddress: seiAddr.String(),
 				EthAddress: evmAddr.Hex(),
@@ -108,6 +109,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 		codeStart := time.Now()
 		k.IterateAllCode(ctx, func(addr common.Address, code []byte) bool {
 			var genesis types.GenesisState
+			genesis.Params = k.GetParams(ctx)
 			genesis.Codes = append(genesis.Codes, &types.Code{
 				Address: addr.Hex(),
 				Code:    code,
@@ -121,6 +123,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 		stateStart := time.Now()
 		k.IterateState(ctx, func(addr common.Address, key, val common.Hash) bool {
 			var genesis types.GenesisState
+			genesis.Params = k.GetParams(ctx)
 			genesis.States = append(genesis.States, &types.ContractState{
 				Address: addr.Hex(),
 				Key:     key[:],
@@ -135,6 +138,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 		nonceStart := time.Now()
 		k.IterateAllNonces(ctx, func(addr common.Address, nonce uint64) bool {
 			var genesis types.GenesisState
+			genesis.Params = k.GetParams(ctx)
 			genesis.Nonces = append(genesis.Nonces, &types.Nonce{
 				Address: addr.Hex(),
 				Nonce:   nonce,
@@ -154,6 +158,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 			types.PointerReverseRegistryPrefix,
 		} {
 			var genesis types.GenesisState
+			genesis.Params = k.GetParams(ctx)
 			serializedStart := time.Now()
 			k.IterateAll(ctx, prefix, func(key, val []byte) bool {
 				genesis.Serialized = append(genesis.Serialized, &types.Serialized{

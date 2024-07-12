@@ -344,9 +344,9 @@ require (
 )
 
 replace (
-	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.1.6-0.20240705204853-530874e3d241
+	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.1.6-0.20240712133057-a2211778f3e1
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.23-0.20240709224731-0177e036b745
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.23-0.20240712134451-f8685be7ca2c
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.1.9
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.0.0-20240709035435-b323aef67d0a
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-22
@@ -354,7 +354,7 @@ replace (
 	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.38
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.3.5-0.20240709230620-9f023218cdec
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.3.5-0.20240712134733-8d571dfd4265
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )
