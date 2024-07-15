@@ -858,6 +858,8 @@ func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, re
 
 func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	_, notAssociatedCallerEvmAddress := testkeeper.MockAddressPair()
+	_, contractEvmAddress := testkeeper.MockAddressPair()
 	pre, _ := distribution.NewPrecompile(nil, nil)
 	rewardsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*distribution.PrecompileExecutor).RewardsID)
 	coin1 := distribution.Coin{
@@ -949,6 +951,22 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 			wantErrMsg:       "invalid addr",
 		},
 		{
+			name: "fails if delegator not associated",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: notAssociatedCallerEvmAddress,
+				caller:           notAssociatedCallerEvmAddress,
+				callingContract:  notAssociatedCallerEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "cannot use an unassociated address as withdraw address",
+		},
+		{
 			name: "fails if delegator address is invalid",
 			fields: fields{
 				distrKeeper: &TestDistributionKeeper{},
@@ -963,6 +981,37 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 			wantRemainingGas: 0,
 			wantErr:          true,
 			wantErrMsg:       "invalid addr",
+		},
+		{
+			name: "fails if caller != callingContract",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: common.Address{},
+				caller:           callerEvmAddress,
+				callingContract:  contractEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "cannot delegatecall distr",
+		},
+		{
+			name: "fails if caller != callingContract with callingContract not set",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: common.Address{},
+				caller:           callerEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "cannot delegatecall distr",
 		},
 		{
 			name: "should return delegator rewards",
