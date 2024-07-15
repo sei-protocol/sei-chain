@@ -69,23 +69,35 @@
       {
         "components": [
           {
-            "internalType": "uint256",
-            "name": "amount",
-            "type": "uint256"
-          },
-          {
-            "internalType": "unit256",
-            "name": "decimals",
-            "type": "uint256"
+            "components": [
+              {
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "decimals",
+                "type": "uint256"
+              },
+              {
+                "internalType": "string",
+                "name": "denom",
+                "type": "string"
+              }
+            ],
+            "internalType": "struct IDistr.Coin[]",
+            "name": "coins",
+            "type": "tuple[]"
           },
           {
             "internalType": "string",
-            "name": "denom",
+            "name": "validator_address",
             "type": "string"
           }
         ],
-        "internalType": "struct IDistr.Coin[]",
-        "name": "response",
+        "internalType": "struct IDistr.Reward[]",
+        "name": "rewards",
         "type": "tuple[]"
       }
     ],

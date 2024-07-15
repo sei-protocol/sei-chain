@@ -265,6 +265,11 @@ type Coin struct {
 	Decimals *big.Int
 }
 
+type Reward struct {
+	ValidatorAddress string
+	Coins            []Coin
+}
+
 func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -297,19 +302,22 @@ func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []
 		return
 	}
 
-	coins := make([]Coin, len(response.Rewards))
-	rewards := response.Rewards
-	for i, reward := range rewards {
-		coins[i] = Coin{}
-		for _, coin := range reward.Reward {
-			coins[i] = Coin{
+	var rewards []Reward
+	for _, rewardInfo := range response.Rewards {
+		var coins []Coin
+		for _, coin := range rewardInfo.Reward {
+			coins = append(coins, Coin{
 				Amount:   coin.Amount.BigInt(),
 				Denom:    coin.Denom,
 				Decimals: big.NewInt(sdk.Precision),
-			}
+			})
 		}
+		rewards = append(rewards, Reward{
+			ValidatorAddress: rewardInfo.ValidatorAddress,
+			Coins:            coins,
+		})
 	}
-	ret, rerr = method.Outputs.Pack(coins)
+	ret, rerr = method.Outputs.Pack(rewards)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }

@@ -840,7 +840,10 @@ func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, re
 	rewards := []distrtypes.DelegationDelegatorReward{
 		{
 			ValidatorAddress: "seivaloper1wuj3xg3yrw4ryxn9vygwuz0necs4klj7j9nay6",
-			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(5))),
+			Reward: sdk.NewDecCoins(
+				sdk.NewDecCoin("uatom", sdk.NewInt(1)),
+				sdk.NewDecCoin("usei", sdk.NewInt(5)),
+			),
 		},
 		{
 			ValidatorAddress: "seivaloper16znh8ktn33dwnxxc9q0jmxmjf6hsz4tl0s6vxh",
@@ -855,17 +858,34 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	pre, _ := distribution.NewPrecompile(nil, nil)
 	rewards, _ := pre.ABI.MethodById(pre.GetExecutor().(*distribution.PrecompileExecutor).RewardsID)
 	coin1 := distribution.Coin{
+		Amount:   big.NewInt(1_000_000_000_000_000_000),
+		Denom:    "uatom",
+		Decimals: big.NewInt(18),
+	}
+	coin2 := distribution.Coin{
 		Amount:   big.NewInt(5_000_000_000_000_000_000),
 		Denom:    "usei",
 		Decimals: big.NewInt(18),
 	}
-	coin2 := distribution.Coin{
+
+	coin3 := distribution.Coin{
 		Amount:   big.NewInt(7_000_000_000_000_000_000),
 		Denom:    "usei",
 		Decimals: big.NewInt(18),
 	}
-	coins := []distribution.Coin{coin1, coin2}
-	packedOutput, _ := rewards.Outputs.Pack(coins)
+	coinsVal1 := []distribution.Coin{coin1, coin2}
+	coinsVal2 := []distribution.Coin{coin3}
+	rewardVal1 := distribution.Reward{
+		ValidatorAddress: "seivaloper1wuj3xg3yrw4ryxn9vygwuz0necs4klj7j9nay6",
+		Coins:            coinsVal1,
+	}
+	rewardVal2 := distribution.Reward{
+		ValidatorAddress: "seivaloper16znh8ktn33dwnxxc9q0jmxmjf6hsz4tl0s6vxh",
+		Coins:            coinsVal2,
+	}
+	rewardsOutput := []distribution.Reward{rewardVal1, rewardVal2}
+
+	packedOutput, _ := rewards.Outputs.Pack(rewardsOutput)
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         pcommon.DistributionKeeper
