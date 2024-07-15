@@ -71,6 +71,40 @@
           {
             "components": [
               {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "amount",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "decimals",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "string",
+                    "name": "denom",
+                    "type": "string"
+                  }
+                ],
+                "internalType": "struct Coin[]",
+                "name": "coins",
+                "type": "tuple[]"
+              },
+              {
+                "internalType": "string",
+                "name": "validator_address",
+                "type": "string"
+              }
+            ],
+            "internalType": "struct Reward[]",
+            "name": "rewards",
+            "type": "tuple[]"
+          },
+          {
+            "components": [
+              {
                 "internalType": "uint256",
                 "name": "amount",
                 "type": "uint256"
@@ -86,19 +120,14 @@
                 "type": "string"
               }
             ],
-            "internalType": "struct IDistr.Coin[]",
-            "name": "coins",
+            "internalType": "struct Coin[]",
+            "name": "total",
             "type": "tuple[]"
-          },
-          {
-            "internalType": "string",
-            "name": "validator_address",
-            "type": "string"
           }
         ],
-        "internalType": "struct IDistr.Reward[]",
+        "internalType": "struct Rewards",
         "name": "rewards",
-        "type": "tuple[]"
+        "type": "tuple"
       }
     ],
     "stateMutability": "view",

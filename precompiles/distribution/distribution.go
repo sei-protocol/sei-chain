@@ -270,6 +270,11 @@ type Reward struct {
 	Coins            []Coin
 }
 
+type Rewards struct {
+	Rewards []Reward
+	Total   []Coin
+}
+
 func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -317,7 +322,21 @@ func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []
 			Coins:            coins,
 		})
 	}
-	ret, rerr = method.Outputs.Pack(rewards)
+
+	var totalCoins []Coin
+	for _, coin := range response.Total {
+		totalCoins = append(totalCoins, Coin{
+			Amount:   coin.Amount.BigInt(),
+			Denom:    coin.Denom,
+			Decimals: big.NewInt(sdk.Precision),
+		})
+	}
+
+	rewardsOutput := Rewards{
+		Rewards: rewards,
+		Total:   totalCoins,
+	}
+	ret, rerr = method.Outputs.Pack(rewardsOutput)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
