@@ -905,7 +905,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 		Total:   totalCoins,
 	}
 
-	packedOutput, _ := rewardsMethod.Outputs.Pack(rewardsOutput)
+	happyPathPackedOutput, _ := rewardsMethod.Outputs.Pack(rewardsOutput)
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         pcommon.DistributionKeeper
@@ -934,6 +934,37 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 		wantErrMsg       string
 	}{
 		{
+			name: "fails if delegator is not passed",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				caller:          callerEvmAddress,
+				callingContract: callerEvmAddress,
+				suppliedGas:     uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "invalid addr",
+		},
+		{
+			name: "fails if delegator address is invalid",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: common.Address{},
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "invalid addr",
+		},
+		{
 			name: "should return delegator rewards",
 			fields: fields{
 				distrKeeper: &TestDistributionKeeper{},
@@ -945,7 +976,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 				callingContract:  callerEvmAddress,
 				suppliedGas:      uint64(1000000),
 			},
-			wantRet:          packedOutput,
+			wantRet:          happyPathPackedOutput,
 			wantRemainingGas: 994319,
 			wantErr:          false,
 		},
