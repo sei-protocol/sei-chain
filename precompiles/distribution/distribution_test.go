@@ -842,16 +842,16 @@ func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, re
 			ValidatorAddress: "seivaloper1wuj3xg3yrw4ryxn9vygwuz0necs4klj7j9nay6",
 			Reward: sdk.NewDecCoins(
 				sdk.NewDecCoin("uatom", sdk.NewInt(1)),
-				sdk.NewDecCoin("usei", sdk.NewInt(2)),
+				sdk.NewDecCoin("usei", sdk.NewInt(5)),
 			),
 		},
 		{
 			ValidatorAddress: "seivaloper16znh8ktn33dwnxxc9q0jmxmjf6hsz4tl0s6vxh",
-			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(3))),
+			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(7))),
 		}, // Add more DelegationDelegatorReward objects as needed
 	}
 
-	allDecCoins := sdk.NewDecCoins(sdk.NewDecCoin("uatom", sdk.NewInt(1)), sdk.NewDecCoin("usei", sdk.NewInt(5)))
+	allDecCoins := sdk.NewDecCoins(sdk.NewDecCoin("uatom", sdk.NewInt(1)), sdk.NewDecCoin("usei", sdk.NewInt(12)))
 
 	return &distrtypes.QueryDelegationTotalRewardsResponse{Rewards: rewards, Total: allDecCoins}, nil
 }
@@ -866,13 +866,13 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 		Decimals: big.NewInt(18),
 	}
 	coin2 := distribution.Coin{
-		Amount:   big.NewInt(2_000_000_000_000_000_000),
+		Amount:   big.NewInt(5_000_000_000_000_000_000),
 		Denom:    "usei",
 		Decimals: big.NewInt(18),
 	}
 
 	coin3 := distribution.Coin{
-		Amount:   big.NewInt(3_000_000_000_000_000_000),
+		Amount:   big.NewInt(7_000_000_000_000_000_000),
 		Denom:    "usei",
 		Decimals: big.NewInt(18),
 	}
@@ -887,6 +887,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 		Coins:            coinsVal2,
 	}
 	rewards := []distribution.Reward{rewardVal1, rewardVal2}
+	coin2Amount, _ := new(big.Int).SetString("12000000000000000000", 10)
 	totalCoins := []distribution.Coin{
 		{
 			Amount:   big.NewInt(1_000_000_000_000_000_000),
@@ -894,7 +895,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 			Decimals: big.NewInt(18),
 		},
 		{
-			Amount:   big.NewInt(5_000_000_000_000_000_000),
+			Amount:   coin2Amount,
 			Denom:    "usei",
 			Decimals: big.NewInt(18),
 		},
