@@ -1192,3 +1192,66 @@ func (s *StorageTestSuite) TestDatabaseParallelIterationVersions() {
 	close(triggerStartCh)
 	wg.Wait()
 }
+
+func (s *StorageTestSuite) TestDatabaseImport() {
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
+	s.Require().NoError(err)
+	defer db.Close()
+
+	ch := make(chan types.SnapshotNode, 10)
+	go func() {
+		for i := 0; i < 10; i++ {
+			ch <- types.SnapshotNode{
+				StoreKey: "store1",
+				Key:      []byte(fmt.Sprintf("key%03d", i)),
+				Value:    []byte(fmt.Sprintf("value%03d", i)),
+			}
+		}
+		close(ch)
+	}()
+
+	s.Require().NoError(db.Import(1, ch))
+
+	for i := 0; i < 10; i++ {
+		val, err := db.Get("store1", 1, []byte(fmt.Sprintf("key%03d", i)))
+		s.Require().NoError(err)
+		s.Require().Equal([]byte(fmt.Sprintf("value%03d", i)), val)
+	}
+}
+
+func (s *StorageTestSuite) TestDatabaseRawImport() {
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
+	s.Require().NoError(err)
+	defer db.Close()
+
+	ch := make(chan types.RawSnapshotNode, 10)
+	var wg sync.WaitGroup
+
+	// Launch goroutine for each version
+	for i := 10; i >= 0; i-- {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done() // Decrement the counter when the goroutine completes
+			ch <- types.RawSnapshotNode{
+				StoreKey: "store1",
+				Key:      []byte(fmt.Sprintf("key%03d", i)),
+				Value:    []byte(fmt.Sprintf("value%03d", i)),
+				Version:  int64(i + 1),
+			}
+		}(i)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	// Execute the import
+	s.Require().NoError(db.RawImport(ch))
+
+	for i := 0; i <= 10; i++ {
+		val, err := db.Get("store1", int64(i+1), []byte(fmt.Sprintf("key%03d", i)))
+		s.Require().NoError(err)
+		s.Require().Equal([]byte(fmt.Sprintf("value%03d", i)), val)
+	}
+}
