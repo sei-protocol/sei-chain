@@ -20,7 +20,7 @@ interface IDistr {
 
     struct Coin {
         uint256 amount;
-        int decimals;
+        uint256 decimals;
         string denom;
     }
 

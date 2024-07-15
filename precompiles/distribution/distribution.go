@@ -262,7 +262,7 @@ func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) 
 type Coin struct {
 	Amount   *big.Int
 	Denom    string
-	Decimals int
+	Decimals *big.Int
 }
 
 func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
@@ -305,7 +305,7 @@ func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []
 			coins[i] = Coin{
 				Amount:   coin.Amount.BigInt(),
 				Denom:    coin.Denom,
-				Decimals: sdk.Precision,
+				Decimals: big.NewInt(sdk.Precision),
 			}
 		}
 	}

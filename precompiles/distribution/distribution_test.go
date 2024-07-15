@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
-
 	"math/big"
 	"reflect"
 	"testing"
@@ -840,12 +839,12 @@ func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, re
 	// Return a hardcoded response for testing
 	rewards := []distrtypes.DelegationDelegatorReward{
 		{
-			ValidatorAddress: "validatorAddr1",
-			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(50000))),
+			ValidatorAddress: "seivaloper1wuj3xg3yrw4ryxn9vygwuz0necs4klj7j9nay6",
+			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(5))),
 		},
 		{
-			ValidatorAddress: "validatorAddr2",
-			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(75000))),
+			ValidatorAddress: "seivaloper16znh8ktn33dwnxxc9q0jmxmjf6hsz4tl0s6vxh",
+			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(7))),
 		}, // Add more DelegationDelegatorReward objects as needed
 	}
 	return &distrtypes.QueryDelegationTotalRewardsResponse{Rewards: rewards}, nil
@@ -853,6 +852,20 @@ func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, re
 
 func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	pre, _ := distribution.NewPrecompile(nil, nil)
+	rewards, _ := pre.ABI.MethodById(pre.GetExecutor().(*distribution.PrecompileExecutor).RewardsID)
+	coin1 := distribution.Coin{
+		Amount:   big.NewInt(5_000_000_000_000_000_000),
+		Denom:    "usei",
+		Decimals: big.NewInt(18),
+	}
+	coin2 := distribution.Coin{
+		Amount:   big.NewInt(7_000_000_000_000_000_000),
+		Denom:    "usei",
+		Decimals: big.NewInt(18),
+	}
+	coins := []distribution.Coin{coin1, coin2}
+	packedOutput, _ := rewards.Outputs.Pack(coins)
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         pcommon.DistributionKeeper
@@ -892,8 +905,8 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 				callingContract:  callerEvmAddress,
 				suppliedGas:      uint64(1000000),
 			},
-			wantRet:          nil,
-			wantRemainingGas: 9941319,
+			wantRet:          packedOutput,
+			wantRemainingGas: 994319,
 			wantErr:          false,
 		},
 	}

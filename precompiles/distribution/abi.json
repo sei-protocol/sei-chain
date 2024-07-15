@@ -74,6 +74,11 @@
             "type": "uint256"
           },
           {
+            "internalType": "unit256",
+            "name": "decimals",
+            "type": "uint256"
+          },
+          {
             "internalType": "string",
             "name": "denom",
             "type": "string"
