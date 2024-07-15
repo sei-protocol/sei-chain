@@ -1227,11 +1227,11 @@ func (s *StorageTestSuite) TestDatabaseRawImport() {
 	ch := make(chan types.RawSnapshotNode, 10)
 	var wg sync.WaitGroup
 
-	// Launch goroutine for each version
+	// Write versions in reverse order intentionally
 	for i := 10; i >= 0; i-- {
 		wg.Add(1)
 		go func(i int) {
-			defer wg.Done() // Decrement the counter when the goroutine completes
+			defer wg.Done()
 			ch <- types.RawSnapshotNode{
 				StoreKey: "store1",
 				Key:      []byte(fmt.Sprintf("key%03d", i)),
@@ -1246,7 +1246,6 @@ func (s *StorageTestSuite) TestDatabaseRawImport() {
 		close(ch)
 	}()
 
-	// Execute the import
 	s.Require().NoError(db.RawImport(ch))
 
 	for i := 0; i <= 10; i++ {
