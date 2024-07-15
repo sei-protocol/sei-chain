@@ -542,6 +542,53 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
 	return nil
 }
 
+func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
+	var wg sync.WaitGroup
+
+	worker := func() {
+		defer wg.Done()
+		batch, err := NewRawBatch(db.storage)
+		if err != nil {
+			panic(err)
+		}
+
+		var counter int
+		for entry := range ch {
+			err := batch.Set(entry.StoreKey, entry.Key, entry.Value, entry.Version)
+			if err != nil {
+				panic(err)
+			}
+
+			counter++
+			if counter%ImportCommitBatchSize == 0 {
+				if err := batch.Write(); err != nil {
+					panic(err)
+				}
+
+				batch, err = NewRawBatch(db.storage)
+				if err != nil {
+					panic(err)
+				}
+			}
+		}
+
+		if batch.Size() > 0 {
+			if err := batch.Write(); err != nil {
+				panic(err)
+			}
+		}
+	}
+
+	wg.Add(db.config.ImportNumWorkers)
+	for i := 0; i < db.config.ImportNumWorkers; i++ {
+		go worker()
+	}
+
+	wg.Wait()
+
+	return nil
+}
+
 // RawIterate iterates over all keys and values for a store
 func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte, version int64) bool) (bool, error) {
 	// Iterate through all keys and values for a store
