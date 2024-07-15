@@ -496,63 +496,50 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
 func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
-	// Re route to RawImport
-	rawCh := make(chan types.RawSnapshotNode, db.config.ImportNumWorkers)
-	go func() {
-		defer close(rawCh)
-		for entry := range ch {
-			rawCh <- types.GetRawSnapshotNode(entry, version)
+	var wg sync.WaitGroup
+
+	worker := func() {
+		defer wg.Done()
+		batch, err := NewBatch(db.storage, version)
+		if err != nil {
+			panic(err)
 		}
-	}()
 
-	return db.RawImport(rawCh)
+		var counter int
+		for entry := range ch {
+			err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
+			if err != nil {
+				panic(err)
+			}
 
-	// TODO: Revert. This is just for testing RawImport End to End temporarily
+			counter++
+			if counter%ImportCommitBatchSize == 0 {
+				if err := batch.Write(); err != nil {
+					panic(err)
+				}
 
-	// var wg sync.WaitGroup
+				batch, err = NewBatch(db.storage, version)
+				if err != nil {
+					panic(err)
+				}
+			}
+		}
 
-	// worker := func() {
-	// 	defer wg.Done()
-	// 	batch, err := NewBatch(db.storage, version)
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
+		if batch.Size() > 0 {
+			if err := batch.Write(); err != nil {
+				panic(err)
+			}
+		}
+	}
 
-	// 	var counter int
-	// 	for entry := range ch {
-	// 		err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
-	// 		if err != nil {
-	// 			panic(err)
-	// 		}
+	wg.Add(db.config.ImportNumWorkers)
+	for i := 0; i < db.config.ImportNumWorkers; i++ {
+		go worker()
+	}
 
-	// 		counter++
-	// 		if counter%ImportCommitBatchSize == 0 {
-	// 			if err := batch.Write(); err != nil {
-	// 				panic(err)
-	// 			}
+	wg.Wait()
 
-	// 			batch, err = NewBatch(db.storage, version)
-	// 			if err != nil {
-	// 				panic(err)
-	// 			}
-	// 		}
-	// 	}
-
-	// 	if batch.Size() > 0 {
-	// 		if err := batch.Write(); err != nil {
-	// 			panic(err)
-	// 		}
-	// 	}
-	// }
-
-	// wg.Add(db.config.ImportNumWorkers)
-	// for i := 0; i < db.config.ImportNumWorkers; i++ {
-	// 	go worker()
-	// }
-
-	// wg.Wait()
-
-	// return nil
+	return nil
 }
 
 func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
