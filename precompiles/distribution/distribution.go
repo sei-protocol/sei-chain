@@ -308,6 +308,13 @@ func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []
 		return
 	}
 
+	rewardsOutput := getResponseOutput(response)
+	ret, rerr = method.Outputs.Pack(rewardsOutput)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func getResponseOutput(response *distrtypes.QueryDelegationTotalRewardsResponse) Rewards {
 	rewards := make([]Reward, 0, len(response.Rewards))
 	for _, rewardInfo := range response.Rewards {
 		coins := make([]Coin, 0, len(rewardInfo.Reward))
@@ -333,11 +340,8 @@ func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []
 		})
 	}
 
-	rewardsOutput := Rewards{
+	return Rewards{
 		Rewards: rewards,
 		Total:   totalCoins,
 	}
-	ret, rerr = method.Outputs.Pack(rewardsOutput)
-	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
-	return
 }

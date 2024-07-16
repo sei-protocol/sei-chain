@@ -858,6 +858,23 @@ func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, re
 	return &distrtypes.QueryDelegationTotalRewardsResponse{Rewards: rewards, Total: allDecCoins}, nil
 }
 
+type TestEmptyRewardsDistributionKeeper struct{}
+
+func (tk *TestEmptyRewardsDistributionKeeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error {
+	return nil
+}
+
+func (tk *TestEmptyRewardsDistributionKeeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error) {
+	return nil, nil
+}
+
+func (tk *TestEmptyRewardsDistributionKeeper) DelegationTotalRewards(ctx context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
+	rewards := []distrtypes.DelegationDelegatorReward{}
+	allDecCoins := sdk.NewDecCoins()
+
+	return &distrtypes.QueryDelegationTotalRewardsResponse{Rewards: rewards, Total: allDecCoins}, nil
+}
+
 func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
 	_, notAssociatedCallerEvmAddress := testkeeper.MockAddressPair()
@@ -910,6 +927,10 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	}
 
 	happyPathPackedOutput, _ := rewardsMethod.Outputs.Pack(rewardsOutput)
+	emptyCasePackedOutput, _ := rewardsMethod.Outputs.Pack(distribution.Rewards{
+		Rewards: []distribution.Reward{},
+		Total:   []distribution.Coin{},
+	})
 	type fields struct {
 		Precompile                          pcommon.Precompile
 		distrKeeper                         pcommon.DistributionKeeper
@@ -1010,6 +1031,22 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 			wantRemainingGas: 0,
 			wantErr:          true,
 			wantErrMsg:       "cannot delegatecall distr",
+		},
+		{
+			name: "should return empty delegator rewards if no rewards",
+			fields: fields{
+				distrKeeper: &TestEmptyRewardsDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				readOnly:         true,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRet:          emptyCasePackedOutput,
+			wantRemainingGas: 994319,
+			wantErr:          false,
 		},
 		{
 			name: "should return delegator rewards",
