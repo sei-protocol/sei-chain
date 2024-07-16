@@ -94,7 +94,7 @@ func (m *Migrator) Migrate(height uint64) error {
 	snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDirectory)
 	manager := snapshots.NewManager(snapshotStore, m.storeV1, log.NewNopLogger())
 	fmt.Printf("Start creating snapshot in %s for height %d\n", snapshotDirectory, height)
-	snapshot, err := manager.Create(height)
+	snapshot, err := manager.CreateAndMaybeWait(height, true)
 	if err != nil {
 		return fmt.Errorf("failed to create state snapshot")
 	}
