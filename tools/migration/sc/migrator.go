@@ -36,12 +36,11 @@ import (
 )
 
 type Migrator struct {
-	dataDir string
 	storeV1 store.CommitMultiStore
 	storeV2 store.CommitMultiStore
 }
 
-func NewMigrator(homeDir string) *Migrator {
+func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	keys := sdk.NewKVStoreKeys(
 		acltypes.StoreKey, authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
@@ -49,17 +48,12 @@ func NewMigrator(homeDir string) *Migrator {
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
 	)
-	dataDir := filepath.Join(homeDir, "data")
-	db, err := dbm.NewGoLevelDB("application.db", dataDir)
-	if err != nil {
-		panic(err)
-	}
 	// Creating CMS for store V1
 	cmsV1 := rootmulti.NewStore(db, log.NewNopLogger())
 	for _, key := range keys {
 		cmsV1.MountStoreWithDB(key, sdk.StoreTypeIAVL, db)
 	}
-	err = cmsV1.LoadLatestVersion()
+	err := cmsV1.LoadLatestVersion()
 	if err != nil {
 		panic(err)
 	}
@@ -78,23 +72,23 @@ func NewMigrator(homeDir string) *Migrator {
 		panic(err)
 	}
 	return &Migrator{
-		dataDir: dataDir,
 		storeV1: cmsV1,
 		storeV2: cmsV2,
 	}
 }
 
-func (m *Migrator) Migrate(height uint64) error {
+func (m *Migrator) Migrate(version int64, homeDir string) error {
 	// Create a snapshot
-	snapshotDirectory := filepath.Join(m.dataDir, "snapshots")
+	dataDir := filepath.Join(homeDir, "data")
+	snapshotDirectory := filepath.Join(dataDir, "snapshots")
 	snapshotDB, err := sdk.NewLevelDB("metadata", snapshotDirectory)
 	if err != nil {
 		panic(err)
 	}
 	snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDirectory)
 	manager := snapshots.NewManager(snapshotStore, m.storeV1, log.NewNopLogger())
-	fmt.Printf("Start creating snapshot in %s for height %d\n", snapshotDirectory, height)
-	snapshot, err := manager.CreateAndMaybeWait(height, true)
+	fmt.Printf("Start creating snapshot in %s for height %d\n", snapshotDirectory, version)
+	snapshot, err := manager.CreateAndMaybeWait(uint64(version), true)
 	if err != nil {
 		return fmt.Errorf("failed to create state snapshot")
 	}

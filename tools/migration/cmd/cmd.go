@@ -1,38 +1,47 @@
 package cmd
 
 import (
+	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/sei-protocol/sei-chain/tools/migration/sc"
 	"github.com/spf13/cobra"
+	dbm "github.com/tendermint/tm-db"
+	"path/filepath"
 )
 
 func MigrateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "migrate-iavl",
-		Short: "A tool to migrate full IAVL data store to SeiDB",
+		Short: "A tool to migrate full IAVL data store to SeiDB. Use this tool to migrate IAVL to SeiDB SC and SS database.",
 		Run:   execute,
 	}
-	cmd.PersistentFlags().Int64("height", 0, "Start height")
 	cmd.PersistentFlags().String("home-dir", "~/.sei", "Sei home directory")
-	cmd.PersistentFlags().String("target", "SS", "Whether to migrate SS or SC")
+	cmd.PersistentFlags().String("target-db", "SS", "Available options: [SS, SC]")
 	return cmd
 }
 
 func execute(cmd *cobra.Command, _ []string) {
 	homeDir, _ := cmd.Flags().GetString("home-dir")
-	height, _ := cmd.Flags().GetInt64("height")
 	target, _ := cmd.Flags().GetString("target")
+	dataDir := filepath.Join(homeDir, "data")
+	db, err := dbm.NewGoLevelDB("application.db", dataDir)
+	if err != nil {
+		panic(err)
+	}
+	latestVersion := rootmulti.GetLatestVersion(db)
 	if target == "SS" {
-		migrateSS(uint64(height), homeDir)
+		migrateSS(latestVersion, homeDir, db)
 	} else if target == "SC" {
-		migrateSC(uint64(height), homeDir)
+		migrateSC(latestVersion, homeDir, db)
+	} else {
+		panic("Invalid target DB, either SS or SC should be provided")
 	}
 }
 
-func migrateSC(height uint64, homeDir string) error {
-	migrator := sc.NewMigrator(homeDir)
-	return migrator.Migrate(height)
+func migrateSC(version int64, homeDir string, db dbm.DB) error {
+	migrator := sc.NewMigrator(homeDir, db)
+	return migrator.Migrate(version, homeDir)
 }
 
-func migrateSS(height uint64, homeDir string) {
+func migrateSS(version int64, homeDir string, db dbm.DB) {
 
 }
