@@ -1069,8 +1069,10 @@ func (app *App) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.Respo
 // JEREMYFLAG: InitChainer -- calls sei-cosmos's InitGenesis
 func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
 	var genesisState GenesisState
-	if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
-		panic(err)
+	if !app.genesisImportConfig.StreamGenesisImport {
+		if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
+			panic(err)
+		}
 	}
 	// If: req.AppStateBytes is empty, then we are in streaming mode, so then can do channel stuff here
 	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
