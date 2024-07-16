@@ -113,6 +113,9 @@ type MultiStore interface {
 	// each stored is loaded at a specific version (height).
 	CacheMultiStoreWithVersion(version int64) (CacheMultiStore, error)
 
+	// CacheMultiStoreForExport create a cache multistore specifically for state export
+	CacheMultiStoreForExport(version int64) (CacheMultiStore, error)
+
 	// Convenience for fetching substores.
 	// If the store does not exist, panics.
 	GetStore(StoreKey) Store
@@ -159,6 +162,8 @@ type CacheMultiStore interface {
 
 	// Writes operations to underlying KVStore
 	Write()
+
+	Close()
 }
 
 // CommitMultiStore is an interface for a MultiStore without cache capabilities.

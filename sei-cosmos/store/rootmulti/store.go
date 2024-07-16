@@ -587,6 +587,10 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	return cachemulti.NewStore(rs.db, cachedStores, rs.keysByName, rs.traceWriter, rs.getTracingContext(), rs.listeners), nil
 }
 
+func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
+	return rs.CacheMultiStoreWithVersion(version)
+}
+
 // GetStore returns a mounted Store for a given StoreKey. If the StoreKey does
 // not exist, it will panic. If the Store is wrapped in an inter-block cache, it
 // will be unwrapped prior to being returned.

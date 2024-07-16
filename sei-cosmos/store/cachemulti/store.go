@@ -30,6 +30,7 @@ type Store struct {
 	traceContext types.TraceContext
 
 	listeners map[types.StoreKey][]types.WriteListener
+	closers   []io.Closer
 }
 
 var _ types.CacheMultiStore = Store{}
@@ -52,6 +53,7 @@ func NewFromKVStore(
 		traceWriter:  traceWriter,
 		traceContext: traceContext,
 		listeners:    listeners,
+		closers:      []io.Closer{},
 	}
 
 	for key, store := range stores {
@@ -224,4 +226,18 @@ func (cms Store) SetKVStores(handler func(sk types.StoreKey, s types.KVStore) ty
 		cms.stores[k] = handler(k, s.(types.KVStore))
 	}
 	return cms
+}
+
+func (cms Store) CacheMultiStoreForExport(_ int64) (types.CacheMultiStore, error) {
+	panic("Not implemented")
+}
+
+func (cms Store) AddCloser(closer io.Closer) {
+	cms.closers = append(cms.closers, closer)
+}
+
+func (cms Store) Close() {
+	for _, closer := range cms.closers {
+		closer.Close()
+	}
 }

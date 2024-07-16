@@ -29,6 +29,10 @@ func (ms multiStore) CacheMultiStoreWithVersion(_ int64) (sdk.CacheMultiStore, e
 	panic("not implemented")
 }
 
+func (ms multiStore) CacheMultiStoreForExport(version int64) (store.CacheMultiStore, error) {
+	panic("not implemented")
+}
+
 func (ms multiStore) CacheWrap(_ store.StoreKey) sdk.CacheWrap {
 	panic("not implemented")
 }
