@@ -293,7 +293,7 @@ func IncrementErrorMetrics(scenario string, err error) {
 
 func IncrementAssociationError(scenario string, err types.AssociationMissingErr) {
 	telemetry.IncrCounterWithLabels(
-		[]string{"sei", "helpers", "error"},
+		[]string{"sei", "association", "error"},
 		1,
 		[]metrics.Label{
 			telemetry.NewLabel("scenario", scenario),

@@ -152,7 +152,7 @@ func RegisterEvmPointerCmd() *cobra.Command {
 func AssociateContractAddressCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "associate-contract-address [cw-address]",
-		Short: `Set address helpers for a CosmWasm contract.`,
+		Short: `Set address association for a CosmWasm contract.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
@@ -181,7 +181,7 @@ func AssociateContractAddressCmd() *cobra.Command {
 func NativeAssociateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "native-associate [custom msg]",
-		Short: `Set address helpers for the sender.`,
+		Short: `Set address association for the sender.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)

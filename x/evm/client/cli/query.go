@@ -51,7 +51,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 func CmdQuerySeiAddress() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sei-addr",
-		Short: "gets sei address (sei...) by EVM address (0x...) if account has helpers set",
+		Short: "gets sei address (sei...) by EVM address (0x...) if account has association set",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -78,7 +78,7 @@ func CmdQuerySeiAddress() *cobra.Command {
 func CmdQueryEVMAddress() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "evm-addr",
-		Short: "gets evm address (0x...) by Sei address (sei...) if account has helpers set",
+		Short: "gets evm address (0x...) by Sei address (sei...) if account has association set",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)

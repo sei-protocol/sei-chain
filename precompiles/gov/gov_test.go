@@ -92,7 +92,7 @@ func TestGovPrecompile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "helpers missing for vote",
+			name: "association missing for vote",
 			args: args{
 				method:   "vote",
 				proposal: proposal.ProposalId,
@@ -108,7 +108,7 @@ func TestGovPrecompile(t *testing.T) {
 			avoidAssociate: true,
 		},
 		{
-			name: "helpers missing for deposit",
+			name: "association missing for deposit",
 			args: args{
 				method:   "deposit",
 				proposal: proposal2.ProposalId,

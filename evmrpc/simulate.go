@@ -299,9 +299,9 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		// set block context time as of the block time (block time is the time of the CURRENT block)
 		blockContext.Time = block.Time()
 
-		// set address helpers for the sender if not present. Note that here we take the shortcut
+		// set address association for the sender if not present. Note that here we take the shortcut
 		// of querying from the latest height with the assumption that if this tx has been processed
-		// at all then its helpers must be present in the latest height
+		// at all then its association must be present in the latest height
 		_, associated := b.keeper.GetSeiAddress(statedb.Ctx(), msg.From)
 		if !associated {
 			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)
@@ -338,9 +338,9 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 	for _, tx := range block.Transactions() {
 		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
 
-		// set address helpers for the sender if not present. Note that here we take the shortcut
+		// set address association for the sender if not present. Note that here we take the shortcut
 		// of querying from the latest height with the assumption that if this tx has been processed
-		// at all then its helpers must be present in the latest height
+		// at all then its association must be present in the latest height
 		_, associated := b.keeper.GetSeiAddress(statedb.Ctx(), msg.From)
 		if !associated {
 			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)

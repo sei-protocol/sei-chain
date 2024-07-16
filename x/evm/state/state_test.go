@@ -120,7 +120,7 @@ func TestSelfDestructAssociated(t *testing.T) {
 	require.Equal(t, big.NewInt(1), statedb.GetBalance(evmAddr))
 	statedb.Finalize()
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, key))
-	// helpers should also be removed
+	// association should also be removed
 	_, ok := k.GetSeiAddress(statedb.Ctx(), evmAddr)
 	require.False(t, ok)
 	// balance in destructed account should be cleared and transferred to coinbase

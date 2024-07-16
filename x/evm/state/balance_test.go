@@ -19,7 +19,7 @@ func TestAddBalance(t *testing.T) {
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))
 	db.AddBalance(evmAddr, big.NewInt(0), tracing.BalanceChangeUnspecified)
 
-	// set helpers
+	// set association
 	k.SetAddressMapping(db.Ctx(), seiAddr, evmAddr)
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))
 	db.AddBalance(evmAddr, big.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
@@ -46,7 +46,7 @@ func TestSubBalance(t *testing.T) {
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))
 	db.SubBalance(evmAddr, big.NewInt(0), tracing.BalanceChangeUnspecified)
 
-	// set helpers
+	// set association
 	k.SetAddressMapping(db.Ctx(), seiAddr, evmAddr)
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(20)))

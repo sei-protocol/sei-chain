@@ -174,6 +174,11 @@ func (p PrecompileExecutor) associateWithGas(ctx sdk.Context, method *abi.Method
 	return method.Outputs.Pack(true)
 }
 
-func (PrecompileExecutor) IsTransaction(string) bool {
-	return false
+func (PrecompileExecutor) IsTransaction(method string) bool {
+	switch method {
+	case AssociateWithGas:
+		return true
+	default:
+		return false
+	}
 }
