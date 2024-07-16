@@ -1,8 +1,13 @@
 package staking_test
 
 import (
+	"context"
 	"encoding/hex"
+	"github.com/ethereum/go-ethereum/core/vm"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"math/big"
+	"reflect"
 	"testing"
 	"time"
 
@@ -245,4 +250,119 @@ func setupValidator(t *testing.T, ctx sdk.Context, a *app.App, bondStatus stakin
 	a.SlashingKeeper.SetValidatorSigningInfo(ctx, consAddr, signingInfo)
 
 	return valAddr
+}
+
+type TestStakingQuerier struct {
+	Response *stakingtypes.QueryDelegationResponse
+	Err      error
+}
+
+// Delegation mocks the Delegation method of the StakingQuerier interface
+func (tq *TestStakingQuerier) Delegation(c context.Context, _ *stakingtypes.QueryDelegationRequest) (*stakingtypes.QueryDelegationResponse, error) {
+	return tq.Response, tq.Err
+}
+
+func TestPrecompile_Run_Delegation(t *testing.T) {
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
+	pre, _ := staking.NewPrecompile(nil, nil, nil, nil)
+	delegationMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).DelegationID)
+	delegationResponse := &stakingtypes.QueryDelegationResponse{
+		DelegationResponse: &stakingtypes.DelegationResponse{
+			Delegation: stakingtypes.Delegation{
+				DelegatorAddress: callerSeiAddress.String(),
+				ValidatorAddress: validatorAddress,
+				Shares:           sdk.NewDec(1),
+			},
+			Balance: sdk.NewCoin("usei", sdk.NewInt(1)),
+		},
+	}
+	hundredSharesValue := new(big.Int)
+	hundredSharesValue.SetString("1000000000000000000", 10)
+	delegation := staking.Delegation{
+		Balance: staking.Balance{
+			Amount: big.NewInt(1),
+			Denom:  "usei",
+		},
+		Delegation: staking.DelegationDetails{
+			DelegatorAddress: callerSeiAddress.String(),
+			Shares:           hundredSharesValue,
+			Decimals:         big.NewInt(sdk.Precision),
+			ValidatorAddress: validatorAddress,
+		},
+	}
+
+	happyPathPackedOutput, _ := delegationMethod.Outputs.Pack(delegation)
+
+	type fields struct {
+		Precompile     pcommon.Precompile
+		stakingKeeper  pcommon.StakingKeeper
+		stakingQuerier pcommon.StakingQuerier
+		evmKeeper      pcommon.EVMKeeper
+	}
+	type args struct {
+		evm              *vm.EVM
+		delegatorAddress common.Address
+		validatorAddress string
+		caller           common.Address
+		callingContract  common.Address
+		value            *big.Int
+		readOnly         bool
+	}
+
+	tests := []struct {
+		name       string
+		fields     fields
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+
+		{
+			name: "should return delegation details",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				validatorAddress: validatorAddress,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+			},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB:   stateDb,
+				TxContext: vm.TxContext{Origin: callerEvmAddress},
+			}
+			p, _ := staking.NewPrecompile(tt.fields.stakingKeeper, tt.fields.stakingQuerier, k, nil)
+			delegation, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID)
+			require.Nil(t, err)
+			inputs, err := delegation.Inputs.Pack(tt.args.delegatorAddress, tt.args.validatorAddress)
+			require.Nil(t, err)
+			gotRet, err := p.Run(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID, inputs...), tt.args.value, tt.args.readOnly)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotRet))
+			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
 }
