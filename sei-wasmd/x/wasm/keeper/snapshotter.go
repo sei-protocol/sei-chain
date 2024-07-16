@@ -48,10 +48,11 @@ func (ws *WasmSnapshotter) SupportedFormats() []uint32 {
 }
 
 func (ws *WasmSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) error {
-	cacheMS, err := ws.cms.CacheMultiStoreWithVersion(int64(height))
+	cacheMS, err := ws.cms.CacheMultiStoreForExport(int64(height))
 	if err != nil {
 		return err
 	}
+	defer cacheMS.Close()
 
 	ctx := sdk.NewContext(cacheMS, tmproto.Header{}, false, log.NewNopLogger())
 	seenBefore := make(map[string]bool)
@@ -87,7 +88,6 @@ func (ws *WasmSnapshotter) Snapshot(height uint64, protoWriter protoio.Writer) e
 
 		return false
 	})
-
 	return rerr
 }
 

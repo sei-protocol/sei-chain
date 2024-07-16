@@ -21,6 +21,9 @@ type mockCMS struct {
 	committed *bool
 }
 
+func (m *mockCMS) Close() {
+}
+
 func (m *mockCMS) Write() {
 	*m.committed = true
 }
