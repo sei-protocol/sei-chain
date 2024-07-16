@@ -65,7 +65,7 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 func (s *DBImpl) SelfDestruct(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
-		// remove the association
+		// remove the helpers
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
 	}
 

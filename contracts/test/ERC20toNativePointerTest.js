@@ -96,7 +96,7 @@ describe("ERC20 to Native Pointer", function () {
             expect(await pointer.balanceOf(recipient)).to.equal(BigInt(0));
             expect(await pointer.balanceOf(sender.evmAddress)).to.equal(startBal);
 
-            // confirm association actually happened
+            // confirm helpers actually happened
             const seiAddress = await getSeiAddress(recipient)
             expect(seiAddress.indexOf("sei")).to.equal(0)
         });

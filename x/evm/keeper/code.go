@@ -29,7 +29,7 @@ func (k *Keeper) SetCode(ctx sdk.Context, addr common.Address, code []byte) {
 	k.PrefixStore(ctx, types.CodeSizeKeyPrefix).Set(addr[:], length)
 	h := crypto.Keccak256Hash(code)
 	k.PrefixStore(ctx, types.CodeHashKeyPrefix).Set(addr[:], h[:])
-	// set association with direct cast Sei address for the contract address
+	// set helpers with direct cast Sei address for the contract address
 	k.SetAddressMapping(ctx, k.GetSeiAddressOrDefault(ctx, addr), addr)
 }
 

@@ -2,13 +2,12 @@ package ante
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"math/big"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -29,7 +28,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
-// Accounts need to have at least 1Sei to force association. Note that account won't be charged.
+// Accounts need to have at least 1Sei to force helpers. Note that account won't be charged.
 const BalanceThreshold uint64 = 1000000
 
 var BigBalanceThreshold *big.Int = new(big.Int).SetUint64(BalanceThreshold)
@@ -71,24 +70,26 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 		sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, seiAddr.String())))
 	pubkey := derived.PubKey
 	isAssociateTx := derived.IsAssociate
+	associateHelper := helpers.NewAssociationHelper(p.evmKeeper, p.evmKeeper.BankKeeper(), p.accountKeeper)
 	_, isAssociated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
 	if isAssociateTx && isAssociated {
-		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
+		return ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has helpers set")
 	} else if isAssociateTx {
 		// check if the account has enough balance (without charging)
 		if !p.IsAccountBalancePositive(ctx, seiAddr, evmAddr) {
 			metrics.IncrementAssociationError("associate_tx_insufficient_funds", evmtypes.NewAssociationMissingErr(seiAddr.String()))
-			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force helpers")
 		}
-		if err := p.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
+		if err := associateHelper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
 			return ctx, err
 		}
+
 		return ctx.WithPriority(antedecorators.EVMAssociatePriority), nil // short-circuit without calling next
 	} else if isAssociated {
 		// noop; for readability
 	} else {
 		// not associatedTx and not already associated
-		if err := p.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
+		if err := associateHelper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey); err != nil {
 			return ctx, err
 		}
 		if p.evmKeeper.EthReplayConfig.Enabled {
@@ -97,17 +98,6 @@ func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate
 	}
 
 	return next(ctx, tx, simulate)
-}
-
-func (p *EVMPreprocessDecorator) AssociateAddresses(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address, pubkey cryptotypes.PubKey) error {
-	p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
-	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
-		if err := acc.SetPubKey(pubkey); err != nil {
-			return err
-		}
-		p.accountKeeper.SetAccount(ctx, acc)
-	}
-	return MigrateBalance(ctx, p.evmKeeper, evmAddr, seiAddr)
 }
 
 func (p *EVMPreprocessDecorator) IsAccountBalancePositive(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address) bool {
@@ -144,7 +134,7 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 		V = new(big.Int).Add(V, utils.Big27)
 		// Hash custom message passed in
 		customMessageHash := crypto.Keccak256Hash([]byte(atx.CustomMessage))
-		evmAddr, seiAddr, pubkey, err := getAddresses(V, R, S, customMessageHash)
+		evmAddr, seiAddr, pubkey, err := helpers.GetAddresses(V, R, S, customMessageHash)
 		if err != nil {
 			return err
 		}
@@ -176,7 +166,7 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	} else {
 		txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
 	}
-	evmAddr, seiAddr, seiPubkey, err := getAddresses(V, R, S, txHash)
+	evmAddr, seiAddr, seiPubkey, err := helpers.GetAddresses(V, R, S, txHash)
 	if err != nil {
 		return err
 	}
@@ -243,55 +233,6 @@ func (p *EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, 
 	}), tx, txIndex)
 }
 
-func getAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
-	pubkey, err := recoverPubkey(data, R, S, V, true)
-	if err != nil {
-		return common.Address{}, sdk.AccAddress{}, nil, err
-	}
-	evmAddr, err := pubkeyToEVMAddress(pubkey)
-	if err != nil {
-		return common.Address{}, sdk.AccAddress{}, nil, err
-	}
-	seiPubkey := pubkeyBytesToSeiPubKey(pubkey)
-	seiAddr := sdk.AccAddress(seiPubkey.Address())
-	return evmAddr, seiAddr, &seiPubkey, nil
-}
-
-// first half of go-ethereum/core/types/transaction_signing.go:recoverPlain
-func recoverPubkey(sighash common.Hash, R, S, Vb *big.Int, homestead bool) ([]byte, error) {
-	if Vb.BitLen() > 8 {
-		return []byte{}, ethtypes.ErrInvalidSig
-	}
-	V := byte(Vb.Uint64() - 27)
-	if !crypto.ValidateSignatureValues(V, R, S, homestead) {
-		return []byte{}, ethtypes.ErrInvalidSig
-	}
-	// encode the signature in uncompressed format
-	r, s := R.Bytes(), S.Bytes()
-	sig := make([]byte, crypto.SignatureLength)
-	copy(sig[32-len(r):32], r)
-	copy(sig[64-len(s):64], s)
-	sig[64] = V
-	// recover the public key from the signature
-	return crypto.Ecrecover(sighash[:], sig)
-}
-
-// second half of go-ethereum/core/types/transaction_signing.go:recoverPlain
-func pubkeyToEVMAddress(pub []byte) (common.Address, error) {
-	if len(pub) == 0 || pub[0] != 4 {
-		return common.Address{}, errors.New("invalid public key")
-	}
-	var addr common.Address
-	copy(addr[:], crypto.Keccak256(pub[1:])[12:])
-	return addr, nil
-}
-
-func pubkeyBytesToSeiPubKey(pub []byte) secp256k1.PubKey {
-	pubKey, _ := crypto.UnmarshalPubkey(pub)
-	pubkeyObj := (*btcec.PublicKey)(pubKey)
-	return secp256k1.PubKey{Key: pubkeyObj.SerializeCompressed()}
-}
-
 func isTxTypeAllowed(version derived.SignerVersion, txType uint8) bool {
 	for _, t := range AllowedTxTypes[version] {
 		if t == txType {
@@ -332,26 +273,6 @@ func NewEVMAddressDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accountk
 	return &EVMAddressDecorator{evmKeeper: evmKeeper, accountKeeper: accountKeeper}
 }
 
-func MigrateBalance(ctx sdk.Context, evmKeeper *evmkeeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) error {
-	castAddr := sdk.AccAddress(evmAddr[:])
-	castAddrBalances := evmKeeper.BankKeeper().SpendableCoins(ctx, castAddr)
-	if !castAddrBalances.IsZero() {
-		if err := evmKeeper.BankKeeper().SendCoins(ctx, castAddr, seiAddr, castAddrBalances); err != nil {
-			return err
-		}
-	}
-	castAddrWei := evmKeeper.BankKeeper().GetWeiBalance(ctx, castAddr)
-	if !castAddrWei.IsZero() {
-		if err := evmKeeper.BankKeeper().SendCoinsAndWei(ctx, castAddr, seiAddr, sdk.ZeroInt(), castAddrWei); err != nil {
-			return err
-		}
-	}
-	if evmKeeper.BankKeeper().LockedCoins(ctx, castAddr).IsZero() {
-		evmKeeper.AccountKeeper().RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
-	}
-	return nil
-}
-
 //nolint:revive
 func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	sigTx, ok := tx.(authsigning.SigVerifiableTx)
@@ -380,7 +301,7 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
-		evmAddr, err := pubkeyToEVMAddress(pk.SerializeUncompressed())
+		evmAddr, err := helpers.PubkeyToEVMAddress(pk.SerializeUncompressed())
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to get EVM address from pubkey due to %s", err))
 			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,
@@ -391,14 +312,15 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 			sdk.NewAttribute(evmtypes.AttributeKeyEvmAddress, evmAddr.Hex()),
 			sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 		p.evmKeeper.SetAddressMapping(ctx, signer, evmAddr)
-		if err := MigrateBalance(ctx, p.evmKeeper, evmAddr, signer); err != nil {
+		associationHelper := helpers.NewAssociationHelper(p.evmKeeper, p.evmKeeper.BankKeeper(), p.accountKeeper)
+		if err := associationHelper.MigrateBalance(ctx, evmAddr, signer); err != nil {
 			ctx.Logger().Error(fmt.Sprintf("failed to migrate EVM address balance (%s) %s", evmAddr.Hex(), err))
 			return ctx, err
 		}
 		if evmtypes.IsTxMsgAssociate(tx) {
 			// check if there is non-zero balance
 			if !p.evmKeeper.BankKeeper().GetBalance(ctx, signer, sdk.MustGetBaseDenom()).IsPositive() && !p.evmKeeper.BankKeeper().GetWeiBalance(ctx, signer).IsPositive() {
-				return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force association")
+				return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, "account needs to have at least 1 wei to force helpers")
 			}
 		}
 	}

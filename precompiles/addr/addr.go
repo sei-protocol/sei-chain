@@ -3,13 +3,11 @@ package addr
 import (
 	"bytes"
 	"embed"
-	"errors"
 	"fmt"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -17,8 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -144,29 +140,33 @@ func (p PrecompileExecutor) associateWithGas(ctx sdk.Context, method *abi.Method
 	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
 		return nil, err
 	}
-
-	v := args[0].(*big.Int)
-	r := args[1].(*big.Int)
-	s := args[2].(*big.Int)
+	v := args[0].(uint8)
+	r := args[1].([32]uint8)
+	s := args[2].([32]uint8)
 	customMessage := args[3].(string)
 
+	vBig := new(big.Int).SetUint64(uint64(v))
+	rBig := new(big.Int).SetBytes(r[:])
+	sBig := new(big.Int).SetBytes(s[:])
+
 	// Derive addresses
-	v = new(big.Int).Add(v, utils.Big27)
+	vBig = new(big.Int).Add(vBig, utils.Big27)
 
 	customMessageHash := crypto.Keccak256Hash([]byte(customMessage))
-	evmAddr, seiAddr, pubkey, err := getAddresses(v, r, s, customMessageHash)
+	evmAddr, seiAddr, pubkey, err := helpers.GetAddresses(vBig, rBig, sBig, customMessageHash)
 	if err != nil {
 		return nil, err
 	}
 
 	// Check that address is not already associated
-	evmAddr, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
+	_, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
 	if found {
 		return nil, fmt.Errorf("address %s is already associated with evm address %s", seiAddr, evmAddr)
 	}
 
 	// Associate Addresses:
-	err = p.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey)
+	associationHelper := helpers.NewAssociationHelper(p.evmKeeper, p.bankKeeper, p.accountKeeper)
+	err = associationHelper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey)
 	if err != nil {
 		return nil, err
 	}
@@ -176,85 +176,4 @@ func (p PrecompileExecutor) associateWithGas(ctx sdk.Context, method *abi.Method
 
 func (PrecompileExecutor) IsTransaction(string) bool {
 	return false
-}
-
-// TODO: The methods below are adapted from preprocess.go antehandler. We should find a way to avoid code duplication.
-func (p PrecompileExecutor) AssociateAddresses(ctx sdk.Context, seiAddr sdk.AccAddress, evmAddr common.Address, pubkey cryptotypes.PubKey) error {
-	p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
-	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
-		if err := acc.SetPubKey(pubkey); err != nil {
-			return err
-		}
-		p.accountKeeper.SetAccount(ctx, acc)
-	}
-	return p.MigrateBalance(ctx, evmAddr, seiAddr)
-}
-
-func (p PrecompileExecutor) MigrateBalance(ctx sdk.Context, evmAddr common.Address, seiAddr sdk.AccAddress) error {
-	castAddr := sdk.AccAddress(evmAddr[:])
-	castAddrBalances := p.bankKeeper.SpendableCoins(ctx, castAddr)
-	if !castAddrBalances.IsZero() {
-		if err := p.bankKeeper.SendCoins(ctx, castAddr, seiAddr, castAddrBalances); err != nil {
-			return err
-		}
-	}
-	castAddrWei := p.bankKeeper.GetWeiBalance(ctx, castAddr)
-	if !castAddrWei.IsZero() {
-		if err := p.bankKeeper.SendCoinsAndWei(ctx, castAddr, seiAddr, sdk.ZeroInt(), castAddrWei); err != nil {
-			return err
-		}
-	}
-	if p.bankKeeper.LockedCoins(ctx, castAddr).IsZero() {
-		p.accountKeeper.RemoveAccount(ctx, authtypes.NewBaseAccountWithAddress(castAddr))
-	}
-	return nil
-}
-
-func getAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
-	pubkey, err := recoverPubkey(data, R, S, V, true)
-	if err != nil {
-		return common.Address{}, sdk.AccAddress{}, nil, err
-	}
-	evmAddr, err := pubkeyToEVMAddress(pubkey)
-	if err != nil {
-		return common.Address{}, sdk.AccAddress{}, nil, err
-	}
-	seiPubkey := pubkeyBytesToSeiPubKey(pubkey)
-	seiAddr := sdk.AccAddress(seiPubkey.Address())
-	return evmAddr, seiAddr, &seiPubkey, nil
-}
-
-// first half of go-ethereum/core/types/transaction_signing.go:recoverPlain
-func recoverPubkey(sighash common.Hash, R, S, Vb *big.Int, homestead bool) ([]byte, error) {
-	if Vb.BitLen() > 8 {
-		return []byte{}, ethtypes.ErrInvalidSig
-	}
-	V := byte(Vb.Uint64() - 27)
-	if !crypto.ValidateSignatureValues(V, R, S, homestead) {
-		return []byte{}, ethtypes.ErrInvalidSig
-	}
-	// encode the signature in uncompressed format
-	r, s := R.Bytes(), S.Bytes()
-	sig := make([]byte, crypto.SignatureLength)
-	copy(sig[32-len(r):32], r)
-	copy(sig[64-len(s):64], s)
-	sig[64] = V
-	// recover the public key from the signature
-	return crypto.Ecrecover(sighash[:], sig)
-}
-
-// second half of go-ethereum/core/types/transaction_signing.go:recoverPlain
-func pubkeyToEVMAddress(pub []byte) (common.Address, error) {
-	if len(pub) == 0 || pub[0] != 4 {
-		return common.Address{}, errors.New("invalid public key")
-	}
-	var addr common.Address
-	copy(addr[:], crypto.Keccak256(pub[1:])[12:])
-	return addr, nil
-}
-
-func pubkeyBytesToSeiPubKey(pub []byte) secp256k1.PubKey {
-	pubKey, _ := crypto.UnmarshalPubkey(pub)
-	pubkeyObj := (*btcec.PublicKey)(pubKey)
-	return secp256k1.PubKey{Key: pubkeyObj.SerializeCompressed()}
 }

@@ -45,7 +45,7 @@ func TestHandlePrecompileError(t *testing.T) {
 
 	// assert no panic under various conditions
 	common.HandlePrecompileError(nil, evm, "no_error")
-	common.HandlePrecompileError(types.NewAssociationMissingErr(evmAddr.Hex()), evm, "association")
+	common.HandlePrecompileError(types.NewAssociationMissingErr(evmAddr.Hex()), evm, "helpers")
 	common.HandlePrecompileError(errors.New("other error"), evm, "other")
 }
 
