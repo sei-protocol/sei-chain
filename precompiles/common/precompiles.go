@@ -3,6 +3,7 @@ package common
 import (
 	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -247,4 +248,20 @@ func DefaultGasCost(input []byte, isTransaction bool) uint64 {
 	}
 
 	return storetypes.KVGasConfig().ReadCostFlat + (storetypes.KVGasConfig().ReadCostPerByte * uint64(len(input)))
+}
+
+func GetSeiAddressByEvmAddress(ctx sdk.Context, evmAddress common.Address, evmKeeper EVMKeeper) (sdk.AccAddress, error) {
+	seiAddr, associated := evmKeeper.GetSeiAddress(ctx, evmAddress)
+	if !associated {
+		return nil, types.NewAssociationMissingErr(evmAddress.Hex())
+	}
+	return seiAddr, nil
+}
+
+func GetSeiAddressFromArg(ctx sdk.Context, arg interface{}, evmKeeper EVMKeeper) (sdk.AccAddress, error) {
+	addr := arg.(common.Address)
+	if addr == (common.Address{}) {
+		return nil, errors.New("invalid addr")
+	}
+	return GetSeiAddressByEvmAddress(ctx, addr, evmKeeper)
 }

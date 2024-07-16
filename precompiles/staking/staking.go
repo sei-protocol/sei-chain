@@ -19,6 +19,7 @@ const (
 	DelegateMethod   = "delegate"
 	RedelegateMethod = "redelegate"
 	UndelegateMethod = "undelegate"
+	DelegationMethod = "delegation"
 )
 
 const (
@@ -44,24 +45,27 @@ func GetABI() abi.ABI {
 }
 
 type PrecompileExecutor struct {
-	stakingKeeper pcommon.StakingKeeper
-	evmKeeper     pcommon.EVMKeeper
-	bankKeeper    pcommon.BankKeeper
-	address       common.Address
+	stakingKeeper  pcommon.StakingKeeper
+	stakingQuerier pcommon.StakingQuerier
+	evmKeeper      pcommon.EVMKeeper
+	bankKeeper     pcommon.BankKeeper
+	address        common.Address
 
 	DelegateID   []byte
 	RedelegateID []byte
 	UndelegateID []byte
+	DelegationID []byte
 }
 
-func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(stakingKeeper pcommon.StakingKeeper, stakingQuerier pcommon.StakingQuerier, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
 	newAbi := GetABI()
 
 	p := &PrecompileExecutor{
-		stakingKeeper: stakingKeeper,
-		evmKeeper:     evmKeeper,
-		bankKeeper:    bankKeeper,
-		address:       common.HexToAddress(StakingAddress),
+		stakingKeeper:  stakingKeeper,
+		stakingQuerier: stakingQuerier,
+		evmKeeper:      evmKeeper,
+		bankKeeper:     bankKeeper,
+		address:        common.HexToAddress(StakingAddress),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -72,6 +76,8 @@ func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKee
 			p.RedelegateID = m.ID
 		case UndelegateMethod:
 			p.UndelegateID = m.ID
+		case DelegationMethod:
+			p.DelegationID = m.ID
 		}
 	}
 
@@ -107,6 +113,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.redelegate(ctx, method, caller, args, value)
 	case UndelegateMethod:
 		return p.undelegate(ctx, method, caller, args, value)
+	case DelegationMethod:
+		return p.delegation(ctx, method, args, value)
 	}
 	return
 }
@@ -191,4 +199,62 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 		return nil, err
 	}
 	return method.Outputs.Pack(true)
+}
+
+type Delegation struct {
+	Balance    Balance
+	Delegation DelegationDetails
+}
+
+type Balance struct {
+	Amount *big.Int
+	Denom  string
+}
+
+type DelegationDetails struct {
+	DelegatorAddress string
+	Shares           *big.Int
+	Decimals         *big.Int
+	ValidatorAddress string
+}
+
+func (p PrecompileExecutor) delegation(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, err
+	}
+
+	seiDelegatorAddress, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, err
+	}
+
+	validatorBech32 := args[1].(string)
+	delegationRequest := &stakingtypes.QueryDelegationRequest{
+		DelegatorAddr: seiDelegatorAddress.String(),
+		ValidatorAddr: validatorBech32,
+	}
+
+	delegationResponse, err := p.stakingQuerier.Delegation(sdk.WrapSDKContext(ctx), delegationRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	delegation := Delegation{
+		Balance: Balance{
+			Amount: delegationResponse.GetDelegationResponse().GetBalance().Amount.BigInt(),
+			Denom:  delegationResponse.GetDelegationResponse().GetBalance().Denom,
+		},
+		Delegation: DelegationDetails{
+			DelegatorAddress: delegationResponse.GetDelegationResponse().GetDelegation().DelegatorAddress,
+			Shares:           delegationResponse.GetDelegationResponse().GetDelegation().Shares.BigInt(),
+			Decimals:         big.NewInt(sdk.Precision),
+			ValidatorAddress: delegationResponse.GetDelegationResponse().GetDelegation().ValidatorAddress,
+		},
+	}
+
+	return method.Outputs.Pack(delegation)
 }

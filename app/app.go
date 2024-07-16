@@ -690,6 +690,7 @@ func New(
 			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
 			app.WasmKeeper,
 			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
+			stakingkeeper.Querier{Keeper: app.StakingKeeper},
 			app.GovKeeper,
 			app.DistrKeeper,
 			app.OracleKeeper,
