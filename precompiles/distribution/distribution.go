@@ -5,8 +5,9 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"math/big"
+
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -307,9 +308,9 @@ func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []
 		return
 	}
 
-	var rewards []Reward
+	rewards := make([]Reward, 0, len(response.Rewards))
 	for _, rewardInfo := range response.Rewards {
-		var coins []Coin
+		coins := make([]Coin, 0, len(rewardInfo.Reward))
 		for _, coin := range rewardInfo.Reward {
 			coins = append(coins, Coin{
 				Amount:   coin.Amount.BigInt(),
@@ -323,7 +324,7 @@ func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []
 		})
 	}
 
-	var totalCoins []Coin
+	totalCoins := make([]Coin, 0, len(response.Total))
 	for _, coin := range response.Total {
 		totalCoins = append(totalCoins, Coin{
 			Amount:   coin.Amount.BigInt(),
