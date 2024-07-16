@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math"
+	"math/big"
+	"reflect"
+	"testing"
+	"time"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	cosmosConfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"math/big"
-	"reflect"
-	"testing"
-	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -310,6 +312,33 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
 }
 
+func TestOverflowGas(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	ap := testWrapper.App
+	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+		Block: &types.BlockParams{MaxGas: math.MaxInt64},
+	})
+	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
+	emptyTxBuilder.SetGasLimit(uint64(math.MaxInt64))
+	emptyTx, _ := txEncoder(emptyTxBuilder.GetTx())
+
+	secondEmptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	secondEmptyTxBuilder.SetGasLimit(10)
+	secondTx, _ := txEncoder(secondEmptyTxBuilder.GetTx())
+
+	proposal := abci.RequestProcessProposal{
+		Txs:    [][]byte{emptyTx, secondTx},
+		Height: 1,
+	}
+	res, err := ap.ProcessProposalHandler(ctx, &proposal)
+	require.Nil(t, err)
+	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
+}
+
 func TestDecodeTransactionsConcurrently(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
@@ -360,6 +389,13 @@ func TestDecodeTransactionsConcurrently(t *testing.T) {
 	require.NotNil(t, typedTxs[0].GetMsgs()[0].(*evmtypes.MsgEVMTransaction).Derived)
 	require.Nil(t, typedTxs[1])
 	require.NotNil(t, typedTxs[2])
+
+	// test panic handling
+	testWrapper.App.SetTxDecoder(func(txBytes []byte) (sdk.Tx, error) { panic("test") })
+	typedTxs = testWrapper.App.DecodeTransactionsConcurrently(testWrapper.Ctx, [][]byte{evmtxbz, invalidbz, banktxbz})
+	require.Nil(t, typedTxs[0])
+	require.Nil(t, typedTxs[1])
+	require.Nil(t, typedTxs[2])
 }
 
 func TestApp_RegisterAPIRoutes(t *testing.T) {
