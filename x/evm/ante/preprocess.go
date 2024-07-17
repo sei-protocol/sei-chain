@@ -3,8 +3,9 @@ package ante
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"math/big"
+
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"

@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"math/big"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
