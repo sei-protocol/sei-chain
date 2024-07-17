@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"path/filepath"
+
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/sei-protocol/sei-chain/tools/migration/sc"
+	"github.com/sei-protocol/sei-chain/tools/migration/ss"
 	"github.com/spf13/cobra"
 	dbm "github.com/tendermint/tm-db"
-	"path/filepath"
 )
 
 func MigrateCmd() *cobra.Command {
@@ -42,6 +44,7 @@ func migrateSC(version int64, homeDir string, db dbm.DB) error {
 	return migrator.Migrate(version, homeDir)
 }
 
-func migrateSS(version int64, homeDir string, db dbm.DB) {
-
+func migrateSS(version int64, homeDir string, db dbm.DB) error {
+	migrator := ss.NewMigrator(homeDir, db)
+	return migrator.Migrate(version, homeDir)
 }

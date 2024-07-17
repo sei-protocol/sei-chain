@@ -2,10 +2,11 @@ package sc
 
 import (
 	"fmt"
+	"path/filepath"
+
 	"github.com/cosmos/cosmos-sdk/store"
 	rootmulti2 "github.com/cosmos/cosmos-sdk/storev2/rootmulti"
 	"github.com/sei-protocol/sei-db/config"
-	"path/filepath"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/cosmos/cosmos-sdk/snapshots"
