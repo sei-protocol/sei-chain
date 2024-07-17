@@ -270,21 +270,22 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
 	pre, _ := staking.NewPrecompile(nil, nil, nil, nil)
 	delegationMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).DelegationID)
+	shares := 100
 	delegationResponse := &stakingtypes.QueryDelegationResponse{
 		DelegationResponse: &stakingtypes.DelegationResponse{
 			Delegation: stakingtypes.Delegation{
 				DelegatorAddress: callerSeiAddress.String(),
 				ValidatorAddress: validatorAddress,
-				Shares:           sdk.NewDec(1),
+				Shares:           sdk.NewDec(int64(shares)),
 			},
-			Balance: sdk.NewCoin("usei", sdk.NewInt(1)),
+			Balance: sdk.NewCoin("usei", sdk.NewInt(int64(shares))),
 		},
 	}
 	hundredSharesValue := new(big.Int)
-	hundredSharesValue.SetString("1000000000000000000", 10)
+	hundredSharesValue.SetString("100000000000000000000", 10)
 	delegation := staking.Delegation{
 		Balance: staking.Balance{
-			Amount: big.NewInt(1),
+			Amount: big.NewInt(int64(shares)),
 			Denom:  "usei",
 		},
 		Delegation: staking.DelegationDetails{
