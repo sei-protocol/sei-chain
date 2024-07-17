@@ -1167,7 +1167,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
-
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
 	app.SetDeliverStateToCommit()
@@ -1440,6 +1439,25 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs [
 	return results, ctx
 }
 
+func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) *sdk.DeliverTxEntry {
+	deliverTxEntry := &sdk.DeliverTxEntry{
+		Request:       abci.RequestDeliverTx{Tx: bz},
+		SdkTx:         tx,
+		Checksum:      sha256.Sum256(bz),
+		AbsoluteIndex: absoluateIndex,
+	}
+	if tx == nil {
+		return deliverTxEntry
+	}
+	// get prefill estimate
+	estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, tx)
+	// if no error, then we assign the mapped writesets for prefill estimate
+	if err == nil {
+		deliverTxEntry.EstimatedWritesets = estimatedWritesets
+	}
+	return deliverTxEntry
+}
+
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
@@ -1452,19 +1470,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 		wg.Add(1)
 		go func(txIndex int, tx []byte) {
 			defer wg.Done()
-			deliverTxEntry := &sdk.DeliverTxEntry{
-				Request:       abci.RequestDeliverTx{Tx: tx},
-				SdkTx:         typedTxs[txIndex],
-				Checksum:      sha256.Sum256(tx),
-				AbsoluteIndex: absoluteTxIndices[txIndex],
-			}
-			// get prefill estimate
-			estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, typedTxs[txIndex])
-			// if no error, then we assign the mapped writesets for prefill estimate
-			if err == nil {
-				deliverTxEntry.EstimatedWritesets = estimatedWritesets
-			}
-			entries[txIndex] = deliverTxEntry
+			entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
 		}(txIndex, tx)
 	}
 
@@ -1553,14 +1559,24 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
 
 	// run the prioritized txs
-	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
-	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
-		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
-		if emsg := evmtypes.GetEVMTransactionMessage(prioritizedTypedTxs[relativePrioritizedIndex]); emsg != nil && !emsg.IsAssociateTx() {
+	evmTxSetter := func(txs []sdk.Tx, originalIndex int, relativeIndex int) {
+		defer func() {
+			if err := recover(); err != nil {
+				evmTxs[originalIndex] = nil
+			}
+		}()
+		if txs[relativeIndex] == nil {
+			evmTxs[originalIndex] = nil
+		} else if emsg := evmtypes.GetEVMTransactionMessage(txs[relativeIndex]); emsg != nil && !emsg.IsAssociateTx() {
 			evmTxs[originalIndex] = emsg
 		} else {
 			evmTxs[originalIndex] = nil
 		}
+	}
+	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
+	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
+		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
+		evmTxSetter(prioritizedTypedTxs, originalIndex, relativePrioritizedIndex)
 	}
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
@@ -1573,11 +1589,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
-		if emsg := evmtypes.GetEVMTransactionMessage(otherTypedTxs[relativeOtherIndex]); emsg != nil && !emsg.IsAssociateTx() {
-			evmTxs[originalIndex] = emsg
-		} else {
-			evmTxs[originalIndex] = nil
-		}
+		evmTxSetter(otherTypedTxs, originalIndex, relativeOtherIndex)
 	}
 	app.EvmKeeper.SetTxResults(txResults)
 	app.EvmKeeper.SetMsgs(evmTxs)
