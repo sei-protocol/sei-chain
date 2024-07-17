@@ -3,6 +3,7 @@ package staking_test
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -264,6 +265,7 @@ func (tq *TestStakingQuerier) Delegation(c context.Context, _ *stakingtypes.Quer
 
 func TestPrecompile_Run_Delegation(t *testing.T) {
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	_, contractEvmAddress := testkeeper.MockAddressPair()
 	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
 	pre, _ := staking.NewPrecompile(nil, nil, nil, nil)
 	delegationMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).DelegationID)
@@ -318,7 +320,74 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 		wantErr    bool
 		wantErrMsg string
 	}{
-
+		{
+			name: "fails if value passed",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				validatorAddress: validatorAddress,
+				value:            big.NewInt(100),
+			},
+			wantRet:    happyPathPackedOutput,
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "fails if caller != callingContract",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				caller:           callerEvmAddress,
+				callingContract:  contractEvmAddress,
+				delegatorAddress: callerEvmAddress,
+				validatorAddress: validatorAddress,
+				value:            big.NewInt(100),
+			},
+			wantRet:    happyPathPackedOutput,
+			wantErr:    true,
+			wantErrMsg: "cannot delegatecall staking",
+		},
+		{
+			name: "fails if delegator address is invalid",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				delegatorAddress: common.Address{},
+				validatorAddress: validatorAddress,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+			},
+			wantRet:    happyPathPackedOutput,
+			wantErr:    true,
+			wantErrMsg: "invalid addr",
+		},
+		{
+			name: "should return error if delegation not found",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Err: fmt.Errorf("delegation with delegator %s not found for validator", callerSeiAddress.String()),
+				},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				validatorAddress: validatorAddress,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+			},
+			wantRet:    happyPathPackedOutput,
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("delegation with delegator %s not found for validator", callerSeiAddress.String()),
+		},
 		{
 			name: "should return delegation details",
 			fields: fields{
@@ -331,6 +400,23 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 				validatorAddress: validatorAddress,
 				caller:           callerEvmAddress,
 				callingContract:  callerEvmAddress,
+			},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+		{
+			name: "should allow static call",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				validatorAddress: validatorAddress,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+				readOnly:         true,
 			},
 			wantRet: happyPathPackedOutput,
 			wantErr: false,

@@ -99,19 +99,24 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (bz []byte, err error) {
-	if readOnly {
-		return nil, errors.New("cannot call staking precompile from staticcall")
-	}
 	if caller.Cmp(callingContract) != 0 {
 		return nil, errors.New("cannot delegatecall staking")
 	}
-
 	switch method.Name {
 	case DelegateMethod:
+		if readOnly {
+			return nil, errors.New("cannot call staking precompile from staticcall")
+		}
 		return p.delegate(ctx, method, caller, args, value)
 	case RedelegateMethod:
+		if readOnly {
+			return nil, errors.New("cannot call staking precompile from staticcall")
+		}
 		return p.redelegate(ctx, method, caller, args, value)
 	case UndelegateMethod:
+		if readOnly {
+			return nil, errors.New("cannot call staking precompile from staticcall")
+		}
 		return p.undelegate(ctx, method, caller, args, value)
 	case DelegationMethod:
 		return p.delegation(ctx, method, args, value)
