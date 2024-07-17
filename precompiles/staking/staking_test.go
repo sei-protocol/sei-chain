@@ -265,6 +265,7 @@ func (tq *TestStakingQuerier) Delegation(c context.Context, _ *stakingtypes.Quer
 
 func TestPrecompile_Run_Delegation(t *testing.T) {
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	_, unassociatedEvmAddress := testkeeper.MockAddressPair()
 	_, contractEvmAddress := testkeeper.MockAddressPair()
 	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
 	pre, _ := staking.NewPrecompile(nil, nil, nil, nil)
@@ -350,9 +351,24 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 				validatorAddress: validatorAddress,
 				value:            big.NewInt(100),
 			},
-			wantRet:    happyPathPackedOutput,
 			wantErr:    true,
 			wantErrMsg: "cannot delegatecall staking",
+		},
+		{
+			name: "fails if delegator address unassociated",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+				delegatorAddress: unassociatedEvmAddress,
+				validatorAddress: validatorAddress,
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not linked", unassociatedEvmAddress.String()),
 		},
 		{
 			name: "fails if delegator address is invalid",
@@ -367,7 +383,6 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 				caller:           callerEvmAddress,
 				callingContract:  callerEvmAddress,
 			},
-			wantRet:    happyPathPackedOutput,
 			wantErr:    true,
 			wantErrMsg: "invalid addr",
 		},
@@ -384,7 +399,6 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 				caller:           callerEvmAddress,
 				callingContract:  callerEvmAddress,
 			},
-			wantRet:    happyPathPackedOutput,
 			wantErr:    true,
 			wantErrMsg: fmt.Sprintf("delegation with delegator %s not found for validator", callerSeiAddress.String()),
 		},
