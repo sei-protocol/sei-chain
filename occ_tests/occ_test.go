@@ -140,8 +140,6 @@ func assertEqualExecTxResults(t *testing.T, expected, actual []*types.ExecTxResu
 // between both parallel and sequential executions
 func TestParallelTransactions(t *testing.T) {
 	runs := 3
-	largeAmt := big.NewInt(0)
-	largeAmt.SetString("2500000000000000000000000000000", 10)
 
 	tests := []struct {
 		name       string
@@ -201,6 +199,9 @@ func TestParallelTransactions(t *testing.T) {
 			runs:       1,
 			expectFail: true,
 			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				largeAmt := big.NewInt(0)
+				largeAmt.SetString("2500000000000000000000000000000", 10)
+
 				return utils.JoinMsgs(
 					// will produce one success, one out of funds and one nonce-too-high
 					messages.EVMTransferWithAmount(tCtx, largeAmt, 3),
