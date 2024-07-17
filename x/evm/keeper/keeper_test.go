@@ -1,7 +1,10 @@
 package keeper_test
 
 import (
+	"context"
+	"encoding/hex"
 	"math"
+	"math/big"
 	"sync"
 	"testing"
 
@@ -9,10 +12,14 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/rand"
@@ -198,27 +205,37 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 }
 
 func TestDeferredInfo(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	a := app.Setup(false, false)
+	k := a.EvmKeeper
+	ctx := a.GetContextForDeliverTx([]byte{})
 	ctx = ctx.WithTxIndex(1)
 	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{1, 2, 3}, common.Hash{4, 5, 6}, sdk.NewInt(1))
 	ctx = ctx.WithTxIndex(2)
 	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{7, 8}, common.Hash{9, 0}, sdk.NewInt(1))
-	ctx = ctx.WithTxIndex(3) // should be ignored because txResult has non-zero code
-	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{11, 12}, common.Hash{13, 14}, sdk.NewInt(1))
-	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 1}})
-	infoList := k.GetEVMTxDeferredInfo(ctx)
-	require.Equal(t, 2, len(infoList))
-	require.Equal(t, 1, infoList[0].TxIndx)
-	require.Equal(t, ethtypes.Bloom{1, 2, 3}, infoList[0].TxBloom)
-	require.Equal(t, common.Hash{4, 5, 6}, infoList[0].TxHash)
+	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 1, Log: "test error"}})
+	msg := mockEVMTransactionMessage(t)
+	k.SetMsgs([]*types.MsgEVMTransaction{nil, {}, {}, msg})
+	infoList := k.GetAllEVMTxDeferredInfo(ctx)
+	require.Equal(t, 3, len(infoList))
+	require.Equal(t, uint32(1), infoList[0].TxIndex)
+	require.Equal(t, ethtypes.Bloom{1, 2, 3}, ethtypes.BytesToBloom(infoList[0].TxBloom))
+	require.Equal(t, common.Hash{4, 5, 6}, common.BytesToHash(infoList[0].TxHash))
 	require.Equal(t, sdk.NewInt(1), infoList[0].Surplus)
-	require.Equal(t, 2, infoList[1].TxIndx)
-	require.Equal(t, ethtypes.Bloom{7, 8}, infoList[1].TxBloom)
-	require.Equal(t, common.Hash{9, 0}, infoList[1].TxHash)
+	require.Equal(t, uint32(2), infoList[1].TxIndex)
+	require.Equal(t, ethtypes.Bloom{7, 8}, ethtypes.BytesToBloom(infoList[1].TxBloom))
+	require.Equal(t, common.Hash{9, 0}, common.BytesToHash(infoList[1].TxHash))
 	require.Equal(t, sdk.NewInt(1), infoList[1].Surplus)
+	require.Equal(t, uint32(3), infoList[2].TxIndex)
+	require.Equal(t, ethtypes.Bloom{}, ethtypes.BytesToBloom(infoList[2].TxBloom))
+	etx, _ := msg.AsTransaction()
+	require.Equal(t, etx.Hash(), common.BytesToHash(infoList[2].TxHash))
+	require.Equal(t, "test error", infoList[2].Error)
 	// test clear tx deferred info
-	k.ClearEVMTxDeferredInfo()
-	infoList = k.GetEVMTxDeferredInfo(ctx)
+	a.SetDeliverStateToCommit()
+	a.Commit(context.Background()) // commit would clear transient stores
+	k.SetTxResults([]*abci.ExecTxResult{})
+	k.SetMsgs([]*types.MsgEVMTransaction{})
+	infoList = k.GetAllEVMTxDeferredInfo(ctx)
 	require.Empty(t, len(infoList))
 }
 
@@ -241,4 +258,32 @@ func TestAddPendingNonce(t *testing.T) {
 	require.Equal(t, common.HexToAddress("123"), keyToNonce[tmtypes.TxKey{3}].Address)
 	require.Equal(t, uint64(2), keyToNonce[tmtypes.TxKey{3}].Nonce)
 	require.NotContains(t, keyToNonce, tmtypes.TxKey{2})
+}
+
+func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
+	k, ctx := testkeeper.MockEVMKeeper()
+	chainID := k.ChainID(ctx)
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	to := new(common.Address)
+	txData := ethtypes.DynamicFeeTx{
+		Nonce:     1,
+		GasFeeCap: big.NewInt(10000000000000),
+		Gas:       1000,
+		To:        to,
+		Value:     big.NewInt(1000000000000000),
+		Data:      []byte("abc"),
+		ChainID:   chainID,
+	}
+
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	typedTx, err := ethtx.NewDynamicFeeTx(tx)
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+	return msg
 }

@@ -224,10 +224,9 @@ func (AppModule) ConsensusVersion() uint64 { return 8 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
-	// clear tx responses from last block
+	// clear tx/tx responses from last block
+	am.keeper.SetMsgs([]*types.MsgEVMTransaction{})
 	am.keeper.SetTxResults([]*abci.ExecTxResult{})
-	// clear the TxDeferredInfo
-	am.keeper.ClearEVMTxDeferredInfo()
 	// mock beacon root if replaying
 	if am.keeper.EthReplayConfig.Enabled {
 		if beaconRoot := am.keeper.ReplayBlock.BeaconRoot(); beaconRoot != nil {
@@ -263,20 +262,21 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 	} else {
 		coinbase = am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 	}
-	evmTxDeferredInfoList := am.keeper.GetEVMTxDeferredInfo(ctx)
+	evmTxDeferredInfoList := am.keeper.GetAllEVMTxDeferredInfo(ctx)
 	denom := am.keeper.GetBaseDenom(ctx)
 	surplus := am.keeper.GetAnteSurplusSum(ctx)
 	for _, deferredInfo := range evmTxDeferredInfoList {
-		if deferredInfo.Error != "" && deferredInfo.TxHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
-			_ = am.keeper.SetReceipt(ctx, deferredInfo.TxHash, &types.Receipt{
-				TxHashHex:        deferredInfo.TxHash.Hex(),
-				TransactionIndex: uint32(deferredInfo.TxIndx),
+		txHash := common.BytesToHash(deferredInfo.TxHash)
+		if deferredInfo.Error != "" && txHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
+			_ = am.keeper.SetTransientReceipt(ctx, txHash, &types.Receipt{
+				TxHashHex:        txHash.Hex(),
+				TransactionIndex: deferredInfo.TxIndex,
 				VmError:          deferredInfo.Error,
 				BlockNumber:      uint64(ctx.BlockHeight()),
 			})
 			continue
 		}
-		idx := deferredInfo.TxIndx
+		idx := int(deferredInfo.TxIndex)
 		coinbaseAddress := state.GetCoinbaseAddress(idx)
 		balance := am.keeper.BankKeeper().SpendableCoins(ctx, coinbaseAddress).AmountOf(denom)
 		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
@@ -300,8 +300,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 			}
 		}
 	}
-	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Filter(utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) common.Hash { return i.TxHash }), func(h common.Hash) bool { return h.Cmp(ethtypes.EmptyTxsHash) != 0 }))
-	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i keeper.EvmTxDeferredInfo) ethtypes.Bloom { return i.TxBloom }))
-	am.keeper.DeleteAllAnteSurplus(ctx)
+	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Filter(utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) common.Hash { return common.BytesToHash(i.TxHash) }), func(h common.Hash) bool { return h.Cmp(ethtypes.EmptyTxsHash) != 0 }))
+	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) ethtypes.Bloom { return ethtypes.BytesToBloom(i.TxBloom) }))
 	return []abci.ValidatorUpdate{}
 }

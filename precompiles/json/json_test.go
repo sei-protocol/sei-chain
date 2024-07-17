@@ -18,7 +18,7 @@ func TestExtractAsBytes(t *testing.T) {
 	evm := &vm.EVM{StateDB: stateDB}
 	p, err := json.NewPrecompile()
 	require.Nil(t, err)
-	method, err := p.MethodById(p.ExtractAsBytesID)
+	method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID)
 	require.Nil(t, err)
 	for _, test := range []struct {
 		body           []byte
@@ -40,7 +40,7 @@ func TestExtractAsBytes(t *testing.T) {
 	} {
 		args, err := method.Inputs.Pack(test.body, "key")
 		require.Nil(t, err)
-		input := append(p.ExtractAsBytesID, args...)
+		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID, args...)
 		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true)
 		require.Nil(t, err)
 		output, err := method.Outputs.Unpack(res)
@@ -56,7 +56,7 @@ func TestExtractAsBytesList(t *testing.T) {
 	evm := &vm.EVM{StateDB: stateDB}
 	p, err := json.NewPrecompile()
 	require.Nil(t, err)
-	method, err := p.MethodById(p.ExtractAsBytesListID)
+	method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID)
 	require.Nil(t, err)
 	for _, test := range []struct {
 		body           []byte
@@ -78,7 +78,7 @@ func TestExtractAsBytesList(t *testing.T) {
 	} {
 		args, err := method.Inputs.Pack(test.body, "key")
 		require.Nil(t, err)
-		input := append(p.ExtractAsBytesListID, args...)
+		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID, args...)
 		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true)
 		require.Nil(t, err)
 		output, err := method.Outputs.Unpack(res)
@@ -94,7 +94,7 @@ func TestExtractAsUint256(t *testing.T) {
 	evm := &vm.EVM{StateDB: stateDB}
 	p, err := json.NewPrecompile()
 	require.Nil(t, err)
-	method, err := p.MethodById(p.ExtractAsUint256ID)
+	method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsUint256ID)
 	require.Nil(t, err)
 	n := new(big.Int)
 	n.SetString("12345678901234567890", 10)
@@ -112,7 +112,7 @@ func TestExtractAsUint256(t *testing.T) {
 	} {
 		args, err := method.Inputs.Pack(test.body, "key")
 		require.Nil(t, err)
-		input := append(p.ExtractAsUint256ID, args...)
+		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsUint256ID, args...)
 		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true)
 		require.Nil(t, err)
 		output, err := method.Outputs.Unpack(res)

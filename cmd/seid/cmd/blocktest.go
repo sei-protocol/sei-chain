@@ -81,6 +81,7 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 					),
 				},
 				[]aclkeeper.Option{},
+				app.EmptyAppOptions,
 				baseapp.SetPruning(storetypes.PruneEverything),
 				baseapp.SetMinGasPrices(cast.ToString(serverCtx.Viper.Get(server.FlagMinGasPrices))),
 				baseapp.SetMinRetainBlocks(cast.ToUint64(serverCtx.Viper.Get(server.FlagMinRetainBlocks))),

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,8 +15,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/gorilla/mux"
 	"github.com/rakyll/statik/fs"
+	"github.com/sei-protocol/sei-db/ss"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
@@ -25,14 +28,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-
-	"github.com/sei-protocol/sei-chain/aclmapping"
-	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
-	appparams "github.com/sei-protocol/sei-chain/app/params"
-	"github.com/sei-protocol/sei-chain/app/upgrades"
-	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
-	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/wasmbinding"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -49,11 +44,6 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/cosmos-sdk/x/auth"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
-	"github.com/cosmos/cosmos-sdk/x/authz"
-	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
-	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
@@ -62,6 +52,8 @@ import (
 	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	"github.com/cosmos/cosmos-sdk/x/auth"
+	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	authrest "github.com/cosmos/cosmos-sdk/x/auth/client/rest"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsims "github.com/cosmos/cosmos-sdk/x/auth/simulation"
@@ -69,6 +61,9 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
 	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
+	"github.com/cosmos/cosmos-sdk/x/authz"
+	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
+	authzmodule "github.com/cosmos/cosmos-sdk/x/authz/module"
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -119,11 +114,13 @@ import (
 	ibcporttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
-	"github.com/sei-protocol/sei-chain/x/mint"
-	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
-	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
-	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-
+	"github.com/sei-protocol/sei-chain/aclmapping"
+	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
+	appparams "github.com/sei-protocol/sei-chain/app/params"
+	"github.com/sei-protocol/sei-chain/app/upgrades"
+	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/wasmbinding"
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
@@ -131,6 +128,11 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/mint"
+	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
+	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	seidb "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -140,12 +142,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/utils/metrics"
-
-	dexmodule "github.com/sei-protocol/sei-chain/x/dex"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
-	dexmodulekeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
-	dexmoduletypes "github.com/sei-protocol/sei-chain/x/dex/types"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 
 	oraclemodule "github.com/sei-protocol/sei-chain/x/oracle"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
@@ -167,6 +163,8 @@ import (
 
 	// unnamed import of statik for openapi/swagger UI support
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
+
+	ssconfig "github.com/sei-protocol/sei-db/config"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -216,7 +214,6 @@ var (
 		oraclemodule.AppModuleBasic{},
 		evm.AppModuleBasic{},
 		wasm.AppModuleBasic{},
-		dexmodule.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
 		tokenfactorymodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
@@ -235,7 +232,6 @@ var (
 		oracletypes.ModuleName:         nil,
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
-		dexmoduletypes.ModuleName:      {authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
@@ -265,7 +261,8 @@ var (
 	// EmptyAclmOpts defines a type alias for a list of wasm options.
 	EmptyACLOpts []aclkeeper.Option
 	// EnableOCC allows tests to override default OCC enablement behavior
-	EnableOCC = true
+	EnableOCC       = true
+	EmptyAppOptions []AppOption
 )
 
 var (
@@ -348,8 +345,6 @@ type App struct {
 	ScopedTransferKeeper capabilitykeeper.ScopedKeeper
 	ScopedWasmKeeper     capabilitykeeper.ScopedKeeper
 
-	DexKeeper dexmodulekeeper.Keeper
-
 	EpochKeeper epochmodulekeeper.Keeper
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
@@ -374,10 +369,6 @@ type App struct {
 
 	mounter func()
 
-	CheckTxMemState         *dexcache.MemState
-	ProcessProposalMemState *dexcache.MemState
-	MemState                *dexcache.MemState
-
 	HardForkManager *upgrades.HardForkManager
 
 	encodingConfig        appparams.EncodingConfig
@@ -385,7 +376,11 @@ type App struct {
 	lightInvarianceConfig LightInvarianceConfig
 
 	genesisImportConfig genesistypes.GenesisImportConfig
+
+	receiptStore seidb.StateStore
 }
+
+type AppOption func(*App)
 
 // New returns a reference to an initialized blockchain app
 func New(
@@ -403,6 +398,7 @@ func New(
 	appOpts servertypes.AppOptions,
 	wasmOpts []wasm.Option,
 	aclOpts []aclkeeper.Option,
+	appOptions []AppOption,
 	baseAppOptions ...func(*baseapp.BaseApp),
 ) *App {
 	appCodec := encodingConfig.Marshaler
@@ -410,6 +406,7 @@ func New(
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
 	bAppOptions := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
+
 	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
@@ -421,13 +418,12 @@ func New(
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
 		evmtypes.StoreKey, wasm.StoreKey,
-		dexmoduletypes.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
-	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey)
-	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, dexmoduletypes.MemStoreKey, banktypes.DeferredCacheStoreKey, evmtypes.MemStoreKey, oracletypes.MemStoreKey)
+	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
+	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
 		BaseApp:           bApp,
@@ -443,6 +439,11 @@ func New(
 		metricCounter:     &map[string]float32{},
 		encodingConfig:    encodingConfig,
 	}
+
+	for _, option := range appOptions {
+		option(app)
+	}
+
 	app.ParamsKeeper = initParamsKeeper(appCodec, cdc, keys[paramstypes.StoreKey], tkeys[paramstypes.TStoreKey])
 
 	// set the BaseApp's parameter store
@@ -539,15 +540,7 @@ func New(
 		app.GetSubspace(epochmoduletypes.ModuleName),
 	).SetHooks(epochmoduletypes.NewMultiEpochHooks(
 		app.MintKeeper.Hooks()))
-	app.DexKeeper = *dexmodulekeeper.NewKeeper(
-		appCodec,
-		keys[dexmoduletypes.StoreKey],
-		memKeys[dexmoduletypes.MemStoreKey],
-		app.GetSubspace(dexmoduletypes.ModuleName),
-		app.EpochKeeper,
-		app.BankKeeper,
-		app.AccountKeeper,
-	)
+
 	app.TokenFactoryKeeper = tokenfactorykeeper.NewKeeper(
 		appCodec,
 		app.keys[tokenfactorytypes.StoreKey],
@@ -563,7 +556,6 @@ func New(
 	wasmOpts = append(
 		wasmbinding.RegisterCustomPlugins(
 			&app.OracleKeeper,
-			&app.DexKeeper,
 			&app.EpochKeeper,
 			&app.TokenFactoryKeeper,
 			&app.AccountKeeper,
@@ -599,9 +591,26 @@ func New(
 		wasmOpts...,
 	)
 
-	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey], memKeys[evmtypes.MemStoreKey],
-		app.GetSubspace(evmtypes.ModuleName), app.BankKeeper, &app.AccountKeeper, &app.StakingKeeper,
-		app.TransferKeeper, wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
+	ssConfig := ssconfig.DefaultStateStoreConfig()
+	ssConfig.DedicatedChangelog = true
+	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
+	ssConfig.DBDirectory = receiptStorePath
+	ssConfig.KeepLastVersion = false
+	if app.receiptStore == nil {
+		app.receiptStore, err = ss.NewStateStore(logger, receiptStorePath, ssConfig)
+		if err != nil {
+			panic(fmt.Sprintf("error while creating receipt store: %s", err))
+		}
+	}
+	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
+		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
+		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+
+	bApp.SetPreCommitHandler(app.HandlePreCommit)
+	bApp.SetCloseHandler(app.HandleClose)
+
 	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
@@ -652,8 +661,6 @@ func New(
 		aclOpts...,
 	)
 
-	app.DexKeeper.SetWasmKeeper(&app.WasmKeeper)
-	dexModule := dexmodule.NewAppModule(appCodec, app.DexKeeper, app.AccountKeeper, app.BankKeeper, app.WasmKeeper, app.GetBaseApp().TracingInfo)
 	epochModule := epochmodule.NewAppModule(appCodec, app.EpochKeeper, app.AccountKeeper, app.BankKeeper)
 
 	// register the proposal types
@@ -663,7 +670,6 @@ func New(
 		AddRoute(distrtypes.RouterKey, distr.NewCommunityPoolSpendProposalHandler(app.DistrKeeper)).
 		AddRoute(upgradetypes.RouterKey, upgrade.NewSoftwareUpgradeProposalHandler(app.UpgradeKeeper)).
 		AddRoute(ibcclienttypes.RouterKey, ibcclient.NewClientProposalHandler(app.IBCKeeper.ClientKeeper)).
-		AddRoute(dexmoduletypes.RouterKey, dexmodule.NewProposalHandler(app.DexKeeper)).
 		AddRoute(minttypes.RouterKey, mint.NewProposalHandler(app.MintKeeper)).
 		AddRoute(tokenfactorytypes.RouterKey, tokenfactorymodule.NewProposalHandler(app.TokenFactoryKeeper)).
 		AddRoute(acltypes.ModuleName, aclmodule.NewProposalHandler(app.AccessControlKeeper)).
@@ -741,7 +747,6 @@ func New(
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
 		evm.NewAppModule(appCodec, &app.EvmKeeper),
 		transferModule,
-		dexModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
@@ -773,7 +778,6 @@ func New(
 		ibchost.ModuleName,
 		ibctransfertypes.ModuleName,
 		oracletypes.ModuleName,
-		dexmoduletypes.ModuleName,
 		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
@@ -805,7 +809,6 @@ func New(
 		ibctransfertypes.ModuleName,
 		oracletypes.ModuleName,
 		epochmoduletypes.ModuleName,
-		dexmoduletypes.ModuleName,
 		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
@@ -831,7 +834,6 @@ func New(
 		vestingtypes.ModuleName,
 		crisistypes.ModuleName,
 		ibchost.ModuleName,
-		dexmoduletypes.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
 		ibctransfertypes.ModuleName,
@@ -868,7 +870,6 @@ func New(
 		wasm.NewAppModule(appCodec, &app.WasmKeeper, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
 		ibc.NewAppModule(app.IBCKeeper),
 		transferModule,
-		dexModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
@@ -885,10 +886,6 @@ func New(
 		app.MountMemoryStores(memKeys)
 	}
 	app.mounter()
-
-	app.CheckTxMemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
-	app.ProcessProposalMemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
-	app.MemState = dexcache.NewMemState(app.GetMemKey(dexmoduletypes.MemStoreKey))
 
 	// initialize BaseApp
 	app.SetInitChainer(app.InitChainer)
@@ -913,11 +910,9 @@ func New(
 			WasmConfig:          &wasmConfig,
 			WasmKeeper:          &app.WasmKeeper,
 			OracleKeeper:        &app.OracleKeeper,
-			DexKeeper:           &app.DexKeeper,
 			EVMKeeper:           &app.EvmKeeper,
 			TracingInfo:         app.GetBaseApp().TracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
-			CheckTxMemState:     app.CheckTxMemState,
 			LatestCtxGetter: func() sdk.Context {
 				return app.GetCheckCtx()
 			},
@@ -976,7 +971,22 @@ func New(
 	app.HardForkManager = upgrades.NewHardForkManager(app.ChainID)
 	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, upgrades.ChainIDSeiHardForkTest, app.WasmKeeper))
 
+	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
+
 	return app
+}
+
+// HandlePreCommit happens right before the block is committed
+func (app *App) HandlePreCommit(ctx sdk.Context) error {
+	return app.EvmKeeper.FlushTransientReceipts(ctx)
+}
+
+// Close closes all items that needs closing (called by baseapp)
+func (app *App) HandleClose() error {
+	if app.receiptStore != nil {
+		return app.receiptStore.Close()
+	}
+	return nil
 }
 
 // Add (or remove) keepers when they are introduced / removed in different versions
@@ -1037,6 +1047,16 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
+	// TODO: change this upgrade name if the planned upgrade version number ends up changing more
+	if upgradeInfo.Name == "v5.7.0" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		dexStoreKeyName := "dex"
+		storeUpgrades := storetypes.StoreUpgrades{
+			Deleted: []string{dexStoreKeyName},
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
 }
 
 // AppName returns the name of the App
@@ -1074,8 +1094,6 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 			panic(err)
 		}
 	}
-	// If: req.AppStateBytes is empty, then we are in streaming mode, so then can do channel stuff here
-	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
 	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
@@ -1122,7 +1140,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			app.optimisticProcessingInfo.Completion <- struct{}{}
 		} else {
 			go func() {
-				ctx = ctx.WithContext(app.decorateProcessProposalContextWithDexMemState(ctx.Context()))
 				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
 				optimisticProcessingInfo.Events = events
 				optimisticProcessingInfo.TxRes = txResults
@@ -1162,7 +1179,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
-	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
 
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
@@ -1372,7 +1388,6 @@ func (app *App) ProcessTxs(
 		dependencyDag.TxMsgAccessOpMapping,
 		absoluteTxIndices,
 	)
-	oldDexMemState := dexutils.GetMemState(ctx.Context()).DeepCopy()
 	if ok {
 		// Write the results back to the concurrent contexts - if concurrent execution fails,
 		// this should not be called and the state is rolled back and retried with synchronous execution
@@ -1382,13 +1397,6 @@ func (app *App) ProcessTxs(
 	// we need to add the wasm dependencies before we process synchronous otherwise it never gets included
 	ctx = app.addBadWasmDependenciesToContext(ctx, concurrentResults)
 	ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
-
-	oldDexMemStateCtx := context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, oldDexMemState)
-	ctx = ctx.WithContext(oldDexMemStateCtx)
-
-	dexMemState := dexutils.GetMemState(ctx.Context())
-	dexMemState.Clear(ctx)
-	dexMemState.ClearContractToDependencies(ctx)
 
 	txResults := app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
 	processBlockCache.Write()
@@ -1414,12 +1422,6 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 		for _, msg := range typedTxs[idx].GetMsgs() {
 			switch msg.(type) {
 			case *oracletypes.MsgAggregateExchangeRateVote:
-				prioritized = true
-			case *dexmoduletypes.MsgRegisterContract:
-				prioritized = true
-			case *dexmoduletypes.MsgUnregisterContract:
-				prioritized = true
-			case *dexmoduletypes.MsgUnsuspendContract:
 				prioritized = true
 			default:
 				prioritized = false
@@ -1530,8 +1532,6 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
-	goCtx := app.decorateContextWithDexMemState(ctx.Context())
-	ctx = ctx.WithContext(goCtx)
 
 	events := []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{
@@ -1558,6 +1558,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
 
+	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
 
@@ -1567,6 +1568,11 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
+		if emsg := evmtypes.GetEVMTransactionMessage(prioritizedTypedTxs[relativePrioritizedIndex]); emsg != nil && !emsg.IsAssociateTx() {
+			evmTxs[originalIndex] = emsg
+		} else {
+			evmTxs[originalIndex] = nil
+		}
 	}
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
@@ -1579,8 +1585,14 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
+		if emsg := evmtypes.GetEVMTransactionMessage(otherTypedTxs[relativeOtherIndex]); emsg != nil && !emsg.IsAssociateTx() {
+			evmTxs[originalIndex] = emsg
+		} else {
+			evmTxs[originalIndex] = nil
+		}
 	}
 	app.EvmKeeper.SetTxResults(txResults)
+	app.EvmKeeper.SetMsgs(evmTxs)
 
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
@@ -1601,6 +1613,12 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 		wg.Add(1)
 		go func(idx int, encodedTx []byte) {
 			defer wg.Done()
+			defer func() {
+				if err := recover(); err != nil {
+					ctx.Logger().Error(fmt.Sprintf("encountered panic during transaction decoding: %s", err))
+					typedTxs[idx] = nil
+				}
+			}()
 			typedTx, err := app.txDecoder(encodedTx)
 			// get txkey from tx
 			if err != nil {
@@ -1840,7 +1858,13 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		if isGasless {
 			continue
 		}
-		totalGasWanted += feeTx.GetGas()
+		// Check for overflow before adding
+		gasWanted := feeTx.GetGas()
+		if int64(gasWanted) < 0 || int64(totalGasWanted) > math.MaxInt64-int64(gasWanted) {
+			return false
+		}
+
+		totalGasWanted += gasWanted
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
 			// early return
 			return false
@@ -1880,7 +1904,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(oracletypes.ModuleName)
 	paramsKeeper.Subspace(wasm.ModuleName)
 	paramsKeeper.Subspace(evmtypes.ModuleName)
-	paramsKeeper.Subspace(dexmoduletypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
@@ -1902,12 +1925,9 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	return blacklistedAddrs
 }
 
-func (app *App) decorateProcessProposalContextWithDexMemState(base context.Context) context.Context {
-	return context.WithValue(base, dexutils.DexMemStateContextKey, app.ProcessProposalMemState)
-}
-
-func (app *App) decorateContextWithDexMemState(base context.Context) context.Context {
-	return context.WithValue(base, dexutils.DexMemStateContextKey, app.MemState)
+// test-only
+func (app *App) SetTxDecoder(txDecoder sdk.TxDecoder) {
+	app.txDecoder = txDecoder
 }
 
 func init() {

@@ -21,7 +21,7 @@ func TestExportImportGenesis(t *testing.T) {
 	keeper.SetCode(ctx, codeAddr, []byte("abcde"))
 	keeper.SetState(ctx, codeAddr, common.BytesToHash([]byte("123")), common.BytesToHash([]byte("456")))
 	keeper.SetNonce(ctx, evmAddr, 2)
-	keeper.SetReceipt(ctx, common.BytesToHash([]byte("789")), &types.Receipt{TxType: 2})
+	keeper.MockReceipt(ctx, common.BytesToHash([]byte("789")), &types.Receipt{TxType: 2})
 	keeper.SetBlockBloom(ctx, 5, []ethtypes.Bloom{{1}})
 	keeper.SetTxHashesOnHeight(ctx, 5, []common.Hash{common.BytesToHash([]byte("123"))})
 	keeper.SetERC20CW20Pointer(ctx, "cw20addr", codeAddr)

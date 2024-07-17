@@ -21,8 +21,6 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -69,8 +67,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 				ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
 				telemetry.IncrCounter(1, types.ModuleName, "panics")
 			}
-			server.AppendErrorToEvmTxDeferredInfo(ctx, tx.Hash(), fmt.Sprintf("%s", pe))
-
 			panic(pe)
 		}
 		if err != nil {
@@ -85,7 +81,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
-		receipt, rerr := server.writeReceipt(ctx, msg, tx, emsg, serverRes, stateDB)
+		receipt, rerr := server.WriteReceipt(ctx, stateDB, emsg, uint32(tx.Type()), tx.Hash(), serverRes.GasUsed, serverRes.VmError)
 		if rerr != nil {
 			err = rerr
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
@@ -210,51 +206,6 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
 	res, err := st.TransitionDb()
 	return res, err
-}
-
-func (server msgServer) writeReceipt(ctx sdk.Context, origMsg *types.MsgEVMTransaction, tx *ethtypes.Transaction, msg *core.Message, response *types.MsgEVMTransactionResponse, stateDB *state.DBImpl) (*types.Receipt, error) {
-	ethLogs := stateDB.GetAllLogs()
-	bloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: ethLogs}})
-	receipt := &types.Receipt{
-		TxType:            uint32(tx.Type()),
-		CumulativeGasUsed: uint64(0),
-		TxHashHex:         tx.Hash().Hex(),
-		GasUsed:           response.GasUsed,
-		BlockNumber:       uint64(ctx.BlockHeight()),
-		TransactionIndex:  uint32(ctx.TxIndex()),
-		EffectiveGasPrice: tx.GasPrice().Uint64(),
-		VmError:           response.VmError,
-		Logs:              utils.Map(ethLogs, ConvertEthLog),
-		LogsBloom:         bloom[:],
-	}
-
-	if msg.To == nil {
-		receipt.ContractAddress = crypto.CreateAddress(msg.From, msg.Nonce).Hex()
-	} else {
-		receipt.To = msg.To.Hex()
-		if len(msg.Data) > 0 {
-			receipt.ContractAddress = msg.To.Hex()
-		}
-	}
-
-	if response.VmError == "" {
-		receipt.Status = uint32(ethtypes.ReceiptStatusSuccessful)
-	} else {
-		receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
-	}
-
-	if perr := stateDB.GetPrecompileError(); perr != nil {
-		if receipt.Status > 0 {
-			ctx.Logger().Error(fmt.Sprintf("Transaction %s succeeded in execution but has precompile error %s", receipt.TxHashHex, perr.Error()))
-		} else {
-			// append precompile error to VM error
-			receipt.VmError = fmt.Sprintf("%s|%s", receipt.VmError, perr.Error())
-		}
-	}
-
-	receipt.From = origMsg.Derived.SenderEVMAddr.Hex()
-
-	return receipt, server.SetReceipt(ctx, tx.Hash(), receipt)
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {

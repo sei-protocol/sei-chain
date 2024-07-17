@@ -26,7 +26,42 @@ Types of changes (Stanzas):
 Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
-# Changelog## v5.5.5
+# Changelog
+
+## v5.6.0
+sei-chain
+* [#1690](https://github.com/sei-protocol/sei-chain/pull/1690) Use transient store for EVM deferred info
+* [#1742](https://github.com/sei-protocol/sei-chain/pull/1742) \[EVM\] Add transient receipts with eventual flush to store
+* [#1744](https://github.com/sei-protocol/sei-chain/pull/1744) Only emit cosmos events if no error in precompiles
+* [#1737](https://github.com/sei-protocol/sei-chain/pull/1737) Only send unlocked tokens upon address association
+* [#1740](https://github.com/sei-protocol/sei-chain/pull/1740) Update Random to Hash of Block Timestamp
+* [#1734](https://github.com/sei-protocol/sei-chain/pull/1734) Add migration to unwind dex state
+* [#1736](https://github.com/sei-protocol/sei-chain/pull/1736) Create account for sendNative receiver
+* [#1738](https://github.com/sei-protocol/sei-chain/pull/1738) Reduce Default TTL configs
+* [#1733](https://github.com/sei-protocol/sei-chain/pull/1733) Update getBlockReceipts to accept block hash
+* [#1732](https://github.com/sei-protocol/sei-chain/pull/1732) Show empty trace on insufficient funds error
+* [#1727](https://github.com/sei-protocol/sei-chain/pull/1727) \[EVM\] Add association error metric
+* [#1728](https://github.com/sei-protocol/sei-chain/pull/1728) Make occ caused evm panics less noisy
+* [#1719](https://github.com/sei-protocol/sei-chain/pull/1719) Fixes local network in /scripts/run-node.py
+
+
+sei-cosmos
+* [#521](https://github.com/sei-protocol/sei-cosmos/pull/521) add DeliverTx hook
+* [#520](https://github.com/sei-protocol/sei-cosmos/pull/520) Add callback for receipt storage
+* [#517](https://github.com/sei-protocol/sei-cosmos/pull/517) Fix metric name for chain state size
+* [#516](https://github.com/sei-protocol/sei-cosmos/pull/516) add EVM event manager to context
+
+
+sei-wasmd
+* [#54](https://github.com/sei-protocol/sei-wasmd/pull/54) Update wasm query behavior upon error
+
+
+sei-tendermint
+* [238](https://github.com/sei-protocol/sei-tendermint/pull/238) Make RPC timeout configurable
+* [219](https://github.com/sei-protocol/sei-tendermint/pull/219) Add metrics for mempool change
+
+
+## v5.5.5
 sei-chain
 * [#1726](https://github.com/sei-protocol/sei-chain/pull/1726) Handle VM error code properly
 * [#1713](https://github.com/sei-protocol/sei-chain/pull/1713) RPC Get Evm Hash

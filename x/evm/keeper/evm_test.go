@@ -25,7 +25,7 @@ func TestInternalCallCreateContract(t *testing.T) {
 	contractData := append(bytecode, args...)
 
 	k := testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	ctx := testkeeper.EVMTestApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2).WithTxSum([32]byte{1, 2, 3})
 	testAddr, _ := testkeeper.MockAddressPair()
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))))
@@ -35,9 +35,15 @@ func TestInternalCallCreateContract(t *testing.T) {
 		Data:   contractData,
 	}
 	// circular interop call
+	ctx = ctx.WithIsEVM(true)
+	_, err = k.HandleInternalEVMCall(ctx, req)
+	require.Equal(t, "sei does not support EVM->CW->EVM call pattern", err.Error())
 	ctx = ctx.WithIsEVM(false)
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
+	receipt, err := k.GetTransientReceipt(ctx, [32]byte{1, 2, 3})
+	require.Nil(t, err)
+	require.NotNil(t, receipt)
 }
 
 func TestInternalCall(t *testing.T) {
@@ -59,6 +65,9 @@ func TestInternalCall(t *testing.T) {
 		Sender: testAddr.String(),
 		Data:   contractData,
 	}
+	ctx = ctx.WithIsEVM(true)
+	_, err = k.HandleInternalEVMCall(ctx, req)
+	require.Equal(t, "sei does not support EVM->CW->EVM call pattern", err.Error())
 	ctx = ctx.WithIsEVM(false)
 	ret, err := k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)

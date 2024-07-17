@@ -10,3 +10,14 @@ message Whitelist {
       (gogoproto.moretags) = "yaml:\"hashes\""
     ];
 }
+
+message DeferredInfo {
+  uint32 tx_index = 1;
+  bytes tx_hash = 2;
+  bytes tx_bloom = 3;
+  string surplus = 4 [
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+        (gogoproto.nullable)   = false
+  ];
+  string error = 5;
+}

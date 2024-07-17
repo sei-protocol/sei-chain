@@ -540,7 +540,7 @@ func generateTxData() {
 	MultiTxBlockTx4 = txBuilder4.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	TxNonEvm = app.TestTx{}
-	if err := EVMKeeper.SetReceipt(Ctx, tx1.Hash(), &types.Receipt{
+	if err := EVMKeeper.MockReceipt(Ctx, tx1.Hash(), &types.Receipt{
 		From:              "0x1234567890123456789012345678901234567890",
 		To:                "0x1234567890123456789012345678901234567890",
 		TransactionIndex:  0,
@@ -646,7 +646,7 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
 		},
 	}}}})
-	EVMKeeper.SetReceipt(Ctx, multiTxBlockTx1.Hash(), &types.Receipt{
+	EVMKeeper.MockReceipt(Ctx, multiTxBlockTx1.Hash(), &types.Receipt{
 		BlockNumber:      MultiTxBlockHeight,
 		TransactionIndex: 1, // start at 1 bc 0 is the non-evm tx
 		TxHashHex:        multiTxBlockTx1.Hash().Hex(),
@@ -666,7 +666,7 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
 		},
 	}}}})
-	EVMKeeper.SetReceipt(Ctx, multiTxBlockTx2.Hash(), &types.Receipt{
+	EVMKeeper.MockReceipt(Ctx, multiTxBlockTx2.Hash(), &types.Receipt{
 		BlockNumber:      MultiTxBlockHeight,
 		TransactionIndex: 3,
 		TxHashHex:        multiTxBlockTx2.Hash().Hex(),
@@ -683,7 +683,7 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
 		},
 	}}}})
-	EVMKeeper.SetReceipt(Ctx, multiTxBlockTx3.Hash(), &types.Receipt{
+	EVMKeeper.MockReceipt(Ctx, multiTxBlockTx3.Hash(), &types.Receipt{
 		BlockNumber:      MultiTxBlockHeight,
 		TransactionIndex: 4,
 		TxHashHex:        multiTxBlockTx3.Hash().Hex(),
@@ -700,7 +700,7 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
 		},
 	}}}})
-	EVMKeeper.SetReceipt(Ctx, multiTxBlockTx4.Hash(), &types.Receipt{
+	EVMKeeper.MockReceipt(Ctx, multiTxBlockTx4.Hash(), &types.Receipt{
 		BlockNumber:      MockHeight,
 		TransactionIndex: 0,
 		TxHashHex:        multiTxBlockTx4.Hash().Hex(),
@@ -710,7 +710,7 @@ func setupLogs() {
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
 		}},
 	})
-	EVMKeeper.SetReceipt(Ctx, common.HexToHash(DebugTraceHashHex), &types.Receipt{
+	EVMKeeper.MockReceipt(Ctx, common.HexToHash(DebugTraceHashHex), &types.Receipt{
 		BlockNumber:      DebugTraceMockHeight,
 		TransactionIndex: 0,
 		TxHashHex:        DebugTraceHashHex,

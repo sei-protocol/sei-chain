@@ -3,6 +3,7 @@ package ante_test
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"math/big"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -287,4 +289,22 @@ func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 
 	// Since the handler logs the error but does not stop processing, we expect no error returned
 	require.Nil(t, err, "Expected no error from AnteHandle despite inability to parse public key")
+}
+
+func TestMigrateBalance(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	admin, _ := testkeeper.MockAddressPair()
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
+	k.BankKeeper().AddCoins(ctx, sdk.AccAddress(evmAddr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(2))), false)
+	// set a vesting account of 1
+	k.AccountKeeper().SetAccount(ctx, vestingtypes.NewDelayedVestingAccountRaw(
+		vestingtypes.NewBaseVestingAccount(
+			k.AccountKeeper().NewAccountWithAddress(ctx, sdk.AccAddress(evmAddr[:])).(*authtypes.BaseAccount),
+			sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))), math.MaxInt64, admin),
+	))
+	require.Nil(t, ante.MigrateBalance(ctx, k, evmAddr, seiAddr))
+	require.Equal(t, int64(1), k.BankKeeper().SpendableCoins(ctx, seiAddr).AmountOf("usei").Int64())
+	require.Equal(t, int64(0), k.BankKeeper().LockedCoins(ctx, seiAddr).AmountOf("usei").Int64())
+	require.Equal(t, int64(0), k.BankKeeper().SpendableCoins(ctx, sdk.AccAddress(evmAddr[:])).AmountOf("usei").Int64())
+	require.Equal(t, int64(1), k.BankKeeper().LockedCoins(ctx, sdk.AccAddress(evmAddr[:])).AmountOf("usei").Int64())
 }

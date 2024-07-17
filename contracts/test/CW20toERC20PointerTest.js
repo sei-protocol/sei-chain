@@ -1,6 +1,6 @@
 const {getAdmin, queryWasm, executeWasm, associateWasm, deployEvmContract, setupSigners, deployErc20PointerForCw20, deployWasm, WASM,
     registerPointerForERC20,
-    proposeCW20toERC20Upgrade, callWasmViaPrecompile
+    proposeCW20toERC20Upgrade
 } = require("./lib");
 const { expect } = require("chai");
 
@@ -98,7 +98,19 @@ describe("CW20 to ERC20 Pointer", function () {
                     const respBefore = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
                     const balanceBefore = respBefore.data.balance;
 
-                    await executeWasm(pointer,  { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
+                    const res = await executeWasm(pointer,  { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
+                    const txHash = res["txhash"];
+                    const receipt = await ethers.provider.getTransactionReceipt(`0x${txHash}`); 
+                    expect(receipt).not.to.be.null;
+                    const filter = {
+                        fromBlock: receipt["blockNumber"],
+                        toBlock: 'latest',
+                        address: receipt["to"],
+                        topics: [ethers.id("Transfer(address,address,uint256)")]
+                    };
+                    const logs = await ethers.provider.getLogs(filter);
+                    expect(logs.length).to.equal(1);
+                    expect(logs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
                     const respAfter = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
                     const balanceAfter = respAfter.data.balance;
 
@@ -151,27 +163,6 @@ describe("CW20 to ERC20 Pointer", function () {
                     const respAfter = await queryWasm(pointer, "balance", {address: accounts[0].seiAddress});
                     const balanceAfter = respAfter.data.balance;
                     expect(balanceAfter).to.equal((parseInt(balanceBefore) - 100).toString());
-                });
-
-                it("should be callable via wasmd precompile", async function() {
-                    const respBefore = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
-                    const balanceBefore = respBefore.data.balance;
-
-                    const receipt = await callWasmViaPrecompile(ethers.provider, pointer, { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
-                    const respAfter = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
-                    const balanceAfter = respAfter.data.balance;
-
-                    expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString());
-
-                    // make sure log is emitted
-                    console.log(receipt);
-                    const filter = {
-                        fromBlock: receipt["blockNumber"],
-                        toBlock: 'latest',
-                        topics: [ethers.id("Transfer(address,address,uint256)")]
-                    };
-                    const logs = await ethers.provider.getLogs(filter);
-                    expect(logs.length).to.equal(1)
                 });
             });
         });

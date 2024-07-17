@@ -60,6 +60,10 @@ describe("EVM Precompile Tester", function () {
             const receipt = await setWithdraw.wait();
             expect(receipt.status).to.equal(1);
         });
+        it("Should query rewards and get non null response", async function () {
+            const rewards = await distribution.rewards(accounts[0].evmAddress)
+            expect(rewards).to.not.be.null;
+        });
     });
 
     // TODO: Update when we add staking query precompiles

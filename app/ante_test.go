@@ -99,10 +99,8 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 			WasmConfig:          &wasmConfig,
 			WasmKeeper:          &suite.App.WasmKeeper,
 			OracleKeeper:        &suite.App.OracleKeeper,
-			DexKeeper:           &suite.App.DexKeeper,
 			AccessControlKeeper: &suite.App.AccessControlKeeper,
 			TracingInfo:         tracingInfo,
-			CheckTxMemState:     suite.App.CheckTxMemState,
 			EVMKeeper:           &suite.App.EvmKeeper,
 			LatestCtxGetter:     func() sdk.Context { return suite.Ctx },
 		},
@@ -259,8 +257,10 @@ func TestEvmAnteErrorHandler(t *testing.T) {
 	require.NotEqual(t, 0, res.Code)
 	testkeeper.EVMTestApp.EvmKeeper.SetTxResults([]*abci.ExecTxResult{{
 		Code: res.Code,
+		Log:  "nonce too high",
 	}})
-	deferredInfo := testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	testkeeper.EVMTestApp.EvmKeeper.SetMsgs([]*evmtypes.MsgEVMTransaction{req})
+	deferredInfo := testkeeper.EVMTestApp.EvmKeeper.GetAllEVMTxDeferredInfo(ctx)
 	require.Equal(t, 1, len(deferredInfo))
 	require.Contains(t, deferredInfo[0].Error, "nonce too high")
 }

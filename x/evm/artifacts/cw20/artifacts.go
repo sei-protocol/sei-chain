@@ -13,7 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 )
 
-const currentVersion uint16 = 1
+const currentVersion uint16 = 2
 
 var versionOverride uint16
 

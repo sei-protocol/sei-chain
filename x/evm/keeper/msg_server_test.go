@@ -2,7 +2,6 @@ package keeper_test
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"math/big"
@@ -11,6 +10,7 @@ import (
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/ethereum/go-ethereum/common"
@@ -20,8 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/example/contracts/sendall"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
@@ -94,6 +92,7 @@ func TestEVMTransaction(t *testing.T) {
 	require.NotEmpty(t, res.Hash)
 	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64())
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -128,6 +127,7 @@ func TestEVMTransaction(t *testing.T) {
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -179,6 +179,7 @@ func TestEVMTransactionError(t *testing.T) {
 	require.NotEmpty(t, res.VmError)
 	// gas should be charged and receipt should be created
 	require.Equal(t, uint64(800000), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
@@ -284,6 +285,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
 	require.LessOrEqual(t, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64(), uint64(1000000)-res.GasUsed)
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -342,6 +344,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.NotEmpty(t, res.Hash)
 	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64())
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -385,6 +388,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -457,6 +461,7 @@ func TestEVMBlockEnv(t *testing.T) {
 	require.NotEmpty(t, res.Hash)
 	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64())
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -491,6 +496,7 @@ func TestEVMBlockEnv(t *testing.T) {
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -639,6 +645,7 @@ func TestEvmError(t *testing.T) {
 
 	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.EvmTxInfo.TxHash))
 	require.Nil(t, err)
 
@@ -670,7 +677,8 @@ func TestEvmError(t *testing.T) {
 	require.Nil(t, err)
 
 	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
-	require.Equal(t, uint32(45), res.Code)
+	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.Equal(t, sdkerrors.ErrEVMVMError.ABCICode(), res.Code)
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.EvmTxInfo.TxHash))
 	require.Nil(t, err)
 	require.Equal(t, receipt.VmError, res.EvmTxInfo.VmError)
@@ -715,9 +723,6 @@ func TestAssociateContractAddress(t *testing.T) {
 
 func TestAssociate(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithChainID("sei-test").WithBlockHeight(1)
-	ctx = ctx.WithContext(
-		context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, &dexcache.MemState{}),
-	)
 	privKey := testkeeper.MockPrivateKey()
 	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	acc := testkeeper.EVMTestApp.AccountKeeper.NewAccountWithAddress(ctx, seiAddr)

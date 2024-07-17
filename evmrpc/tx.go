@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"math/big"
 	"strings"
@@ -39,11 +40,11 @@ func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, homeDir: homeDir, connectionType: connectionType}
 }
 
-func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hashStr string) (result map[string]interface{}, returnErr error) {
-	hash := common.HexToHash(hashStr)
+func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getTransactionReceipt", t.connectionType, startTime, returnErr == nil)
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
+	sdkctx := t.ctxProvider(LatestCtxHeight)
+	receipt, err := t.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			// When the transaction doesn't exist, the RPC method should return JSON null
@@ -57,7 +58,10 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hashStr stri
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(receipt, t.txConfig.TxDecoder(), block)
+	return encodeReceipt(receipt, t.txConfig.TxDecoder(), block, func(h common.Hash) bool {
+		_, err := t.keeper.GetReceipt(sdkctx, h)
+		return err == nil
+	})
 }
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
@@ -241,36 +245,33 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 
 // Gets the EVM tx index based on the tx index (typically from receipt.TransactionIndex
 // Essentially loops through and calculates the index if we ignore cosmos txs
-func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder) (index int, found bool) {
-	evmTxIndex := 0
-	foundTx := false
+func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, receiptChecker func(common.Hash) bool) (index int, found bool) {
+	var evmTxIndex int
 	for i, tx := range txs {
 		etx := getEthTxForTxBz(tx, decoder)
-		if etx == nil { // cosmos tx, skip
+		// does not exist and has no receipt (cosmos)
+		if etx == nil && !receiptChecker(sha256.Sum256(tx)) {
 			continue
 		}
+
+		// found the index
 		if i == int(txIndex) {
-			foundTx = true
-			break
+			return evmTxIndex, true
 		}
+
 		evmTxIndex++
 	}
-	if !foundTx {
-		return -1, false
-	} else {
-		return evmTxIndex, true
-
-	}
+	return -1, false
 }
 
-func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock) (map[string]interface{}, error) {
+func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock, receiptChecker func(common.Hash) bool) (map[string]interface{}, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	logs := keeper.GetLogsForTx(receipt)
 	for _, log := range logs {
 		log.BlockHash = bh
 	}
-	evmTxIndex, foundTx := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, decoder)
+	evmTxIndex, foundTx := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, decoder, receiptChecker)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")
