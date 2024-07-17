@@ -2,17 +2,49 @@ package occ
 
 import (
 	"fmt"
+	"math/big"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/server/config"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/occ_tests/messages"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/abci/types"
 )
+
+func assertReceiptStatuses(t *testing.T, tc *utils.TestContext, results []*types.ExecTxResult, txs []*utils.TestMessage) {
+	for i, tx := range txs {
+		if tx.IsEVM {
+			r, err := tc.TestApp.EvmKeeper.GetTransientReceipt(tc.Ctx, tx.EVMTransaction.Hash())
+			require.NoError(t, err)
+			if results[i].Code == 0 {
+				require.Equal(t, uint32(1), r.Status, "EVM transaction should have a successful receipt")
+			} else {
+				require.Equal(t, uint32(0), r.Status, "EVM transaction should have a failed receipt")
+			}
+		}
+	}
+}
+
+func assertNonces(t *testing.T, tc *utils.TestContext, txs []*utils.TestMessage) {
+	nonces := make(map[common.Address]uint64)
+	for _, tx := range txs {
+		if tx.IsEVM {
+			highest, _ := nonces[tx.EVMSigner.EvmAddress]
+			if tx.EVMTransaction.Nonce() > highest {
+				nonces[tx.EVMSigner.EvmAddress] = tx.EVMTransaction.Nonce()
+			}
+		}
+	}
+	for addr, latestNonce := range nonces {
+		nonce := tc.TestApp.EvmKeeper.GetNonce(tc.Ctx, addr)
+		require.Equal(t, latestNonce+1, nonce, "Nonce does not match for address %s", addr)
+	}
+}
 
 func assertEqualState(t *testing.T, expectedCtx sdk.Context, actualCtx sdk.Context, testName string) {
 	expectedStoreKeys := expectedCtx.MultiStore().StoreKeys()
@@ -79,6 +111,13 @@ func assertExecTxResultCode(t *testing.T, expected, actual []*types.ExecTxResult
 	}
 }
 
+func assertSameResultCodes(t *testing.T, expected, actual []*types.ExecTxResult, testName string) {
+	require.Equal(t, len(expected), len(actual), testName)
+	for i, e := range expected {
+		require.Equal(t, e.Code, actual[i].Code, "%s: Expected code %d, got %d", testName, e.Code, e.Code)
+	}
+}
+
 // assertEqualExecTxResults checks if both slices have the same transaction results, regardless of order.
 func assertEqualExecTxResults(t *testing.T, expected, actual []*types.ExecTxResult, testName string) {
 	require.Equal(t, len(expected), len(actual), "%s: Number of transaction results do not match", testName)
@@ -101,12 +140,16 @@ func assertEqualExecTxResults(t *testing.T, expected, actual []*types.ExecTxResu
 // between both parallel and sequential executions
 func TestParallelTransactions(t *testing.T) {
 	runs := 3
+	largeAmt := big.NewInt(0)
+	largeAmt.SetString("2500000000000000000000000000000", 10)
+
 	tests := []struct {
-		name    string
-		runs    int
-		shuffle bool
-		before  func(tCtx *utils.TestContext)
-		txs     func(tCtx *utils.TestContext) []*utils.TestMessage
+		name       string
+		runs       int
+		shuffle    bool
+		expectFail bool
+		before     func(tCtx *utils.TestContext)
+		txs        func(tCtx *utils.TestContext) []*utils.TestMessage
 	}{
 		{
 			name: "Test wasm instantiations",
@@ -150,6 +193,17 @@ func TestParallelTransactions(t *testing.T) {
 			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
 				return utils.JoinMsgs(
 					messages.EVMTransferConflicting(tCtx, 10),
+				)
+			},
+		},
+		{
+			name:       "Test evm out of funds",
+			runs:       1,
+			expectFail: true,
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				return utils.JoinMsgs(
+					// will produce one success, one out of funds and one nonce-too-high
+					messages.EVMTransferWithAmount(tCtx, largeAmt, 3),
 				)
 			},
 		},
@@ -199,10 +253,24 @@ func TestParallelTransactions(t *testing.T) {
 				require.NoError(t, pErr, tt.name)
 				require.Len(t, pResults, len(txs))
 
-				assertExecTxResultCode(t, sResults, pResults, 0, tt.name)
+				if !tt.expectFail {
+					// should be zero (so if it fails on both this will discover it)
+					assertExecTxResultCode(t, sResults, pResults, 0, tt.name)
+				}
+
+				// should match synchronous & parallel results
+				assertSameResultCodes(t, sResults, pResults, tt.name)
 				assertEqualEvents(t, sEvts, pEvts, tt.name)
 				assertEqualExecTxResults(t, sResults, pResults, tt.name)
 				assertEqualState(t, sCtx.Ctx, pCtx.Ctx, tt.name)
+
+				// should have correct receipt status
+				assertReceiptStatuses(t, sCtx, sResults, txs)
+				assertReceiptStatuses(t, pCtx, pResults, txs)
+
+				// should always update nonce
+				assertNonces(t, pCtx, txs)
+				assertNonces(t, sCtx, txs)
 			}
 		})
 	}

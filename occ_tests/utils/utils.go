@@ -44,10 +44,11 @@ var ignoredStoreKeys = map[string]struct{}{
 }
 
 type TestMessage struct {
-	Msg       sdk.Msg
-	Type      string
-	EVMSigner TestAcct
-	IsEVM     bool
+	EVMTransaction *ethtypes.Transaction
+	Msg            sdk.Msg
+	Type           string
+	EVMSigner      TestAcct
+	IsEVM          bool
 }
 
 type TestContext struct {
