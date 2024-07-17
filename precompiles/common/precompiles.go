@@ -3,8 +3,9 @@ package common
 import (
 	"errors"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"math/big"
+
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
