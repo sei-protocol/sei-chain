@@ -34,6 +34,7 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 }
 
 func (m *Migrator) Migrate(version int64, homeDir string) error {
+	// TODO: Set earliest / latest version
 	// TODO: Read in capacity of this buffered channel as param
 	ch := make(chan types.RawSnapshotNode, 1000)
 	errCh := make(chan error, 2)
