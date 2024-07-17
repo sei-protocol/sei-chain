@@ -152,6 +152,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 		nonceEnd := time.Since(nonceStart)
 		fmt.Println("IterateAllNonces time: ", nonceEnd)
 
+		i := 1
 		for _, prefix := range [][]byte{
 			types.ReceiptKeyPrefix,
 			types.BlockBloomPrefix,
@@ -173,6 +174,8 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 					ch <- &genesis
 					genesis = types.GenesisState{}
 					genesis.Params = k.GetParams(ctx)
+					fmt.Println("Flushed serialized genesis i = ", i)
+					i += 1
 				}
 				return false
 			})
