@@ -258,7 +258,6 @@ type TestStakingQuerier struct {
 	Err      error
 }
 
-// Delegation mocks the Delegation method of the StakingQuerier interface
 func (tq *TestStakingQuerier) Delegation(c context.Context, _ *stakingtypes.QueryDelegationRequest) (*stakingtypes.QueryDelegationResponse, error) {
 	return tq.Response, tq.Err
 }
