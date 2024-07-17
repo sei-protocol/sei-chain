@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -14,6 +15,10 @@ func TestCode(t *testing.T) {
 	k, ctx := keeper.MockEVMKeeper()
 	_, addr := keeper.MockAddressPair()
 
+	require.Equal(t, common.Hash{}, k.GetCodeHash(ctx, addr))
+
+	k.BankKeeper().MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, "evm", sdk.AccAddress(addr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())))
 	require.Equal(t, ethtypes.EmptyCodeHash, k.GetCodeHash(ctx, addr))
 	require.Nil(t, k.GetCode(ctx, addr))
 	require.Equal(t, 0, k.GetCodeSize(ctx, addr))

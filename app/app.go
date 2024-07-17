@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1599,6 +1600,12 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 		wg.Add(1)
 		go func(idx int, encodedTx []byte) {
 			defer wg.Done()
+			defer func() {
+				if err := recover(); err != nil {
+					ctx.Logger().Error(fmt.Sprintf("encountered panic during transaction decoding: %s", err))
+					typedTxs[idx] = nil
+				}
+			}()
 			typedTx, err := app.txDecoder(encodedTx)
 			// get txkey from tx
 			if err != nil {
@@ -1838,7 +1845,13 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		if isGasless {
 			continue
 		}
-		totalGasWanted += feeTx.GetGas()
+		// Check for overflow before adding
+		gasWanted := feeTx.GetGas()
+		if int64(gasWanted) < 0 || int64(totalGasWanted) > math.MaxInt64-int64(gasWanted) {
+			return false
+		}
+
+		totalGasWanted += gasWanted
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
 			// early return
 			return false
@@ -1897,6 +1910,11 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	}
 
 	return blacklistedAddrs
+}
+
+// test-only
+func (app *App) SetTxDecoder(txDecoder sdk.TxDecoder) {
+	app.txDecoder = txDecoder
 }
 
 func init() {
