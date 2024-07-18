@@ -2,14 +2,15 @@ package sc
 
 import (
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/store"
-	rootmulti2 "github.com/cosmos/cosmos-sdk/storev2/rootmulti"
-	"github.com/sei-protocol/sei-db/config"
-	"path/filepath"
+	"io"
+	"os"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	"github.com/cosmos/cosmos-sdk/snapshots"
+	"github.com/cosmos/cosmos-sdk/snapshots/types"
+	"github.com/cosmos/cosmos-sdk/store"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
+	rootmulti2 "github.com/cosmos/cosmos-sdk/storev2/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -31,16 +32,19 @@ import (
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"github.com/sei-protocol/sei-db/config"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 
 type Migrator struct {
+	logger  log.Logger
 	storeV1 store.CommitMultiStore
 	storeV2 store.CommitMultiStore
 }
 
 func NewMigrator(homeDir string, db dbm.DB) *Migrator {
+	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 	keys := sdk.NewKVStoreKeys(
 		acltypes.StoreKey, authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
@@ -49,9 +53,9 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 		evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
 	)
 	// Creating CMS for store V1
-	cmsV1 := rootmulti.NewStore(db, log.NewNopLogger())
+	cmsV1 := rootmulti.NewStore(db, logger)
 	for _, key := range keys {
-		cmsV1.MountStoreWithDB(key, sdk.StoreTypeIAVL, db)
+		cmsV1.MountStoreWithDB(key, sdk.StoreTypeIAVL, nil)
 	}
 	err := cmsV1.LoadLatestVersion()
 	if err != nil {
@@ -63,7 +67,7 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	scConfig.Enable = true
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Enable = false
-	cmsV2 := rootmulti2.NewStore(homeDir, log.NewNopLogger(), scConfig, ssConfig)
+	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig)
 	for _, key := range keys {
 		cmsV2.MountStoreWithDB(key, sdk.StoreTypeIAVL, db)
 	}
@@ -72,36 +76,40 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 		panic(err)
 	}
 	return &Migrator{
+		logger:  logger,
 		storeV1: cmsV1,
 		storeV2: cmsV2,
 	}
 }
 
-func (m *Migrator) Migrate(version int64, homeDir string) error {
+func (m *Migrator) Migrate(version int64) error {
 	// Create a snapshot
-	dataDir := filepath.Join(homeDir, "data")
-	snapshotDirectory := filepath.Join(dataDir, "snapshots")
-	snapshotDB, err := sdk.NewLevelDB("metadata", snapshotDirectory)
-	if err != nil {
-		panic(err)
-	}
-	snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDirectory)
-	manager := snapshots.NewManager(snapshotStore, m.storeV1, log.NewNopLogger())
-	fmt.Printf("Start creating snapshot in %s for height %d\n", snapshotDirectory, version)
-	snapshot, err := manager.CreateAndMaybeWait(uint64(version), true)
-	if err != nil {
-		return fmt.Errorf("failed to create state snapshot")
-	}
-	fmt.Printf("Finished creating snapshot in %s for height %d\n", snapshotDirectory, snapshot.Height)
-	manager.Close()
-
-	// Restore from a snapshot
-	manager = snapshots.NewManager(snapshotStore, m.storeV2, log.NewNopLogger())
-	fmt.Printf("Start restoring from snapshot height %d\n", snapshot.Height)
-	err = manager.Restore(*snapshot)
+	chunks := make(chan io.ReadCloser)
+	go m.createSnapshot(uint64(version), chunks)
+	streamReader, err := snapshots.NewStreamReader(chunks)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Finished restoring SC store from snapshot height %d\n", snapshot.Height)
+	fmt.Printf("Start restoring SC store for height: %d\n", version)
+	nextItem, err := m.storeV2.Restore(uint64(version), types.CurrentFormat, streamReader)
+	for {
+		if nextItem.Item == nil {
+			// end of stream
+			break
+		}
+		// TODO add extension
+	}
+	fmt.Printf("Finished restoring SC store for height: %d\n", version)
 	return nil
+}
+
+func (m *Migrator) createSnapshot(height uint64, chunks chan<- io.ReadCloser) {
+	streamWriter := snapshots.NewStreamWriter(chunks)
+	defer streamWriter.Close()
+	fmt.Printf("Start creating snapshot for height: %d\n", height)
+	if err := m.storeV1.Snapshot(height, streamWriter); err != nil {
+		m.logger.Error("Snapshot creation failed", "err", err)
+		streamWriter.CloseWithError(err)
+	}
+	// TODO: add extension
 }
