@@ -72,8 +72,6 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 // Export leaf nodes of iavl
 func ExportLeafNodes(db dbm.DB, ch chan<- types.RawSnapshotNode) error {
 	// Module by module, TODO: Potentially parallelize
-	db = dbm.NewPrefixDB(db, []byte("s/k:acc/n"))
-
 	count := 0
 	leafNodeCount := 0
 	fmt.Println("Scanning database and exporting leaf nodes...")
