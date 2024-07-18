@@ -77,8 +77,9 @@ func ExportLeafNodes(db dbm.DB, ch chan<- types.RawSnapshotNode) error {
 	for _, module := range modules {
 		fmt.Printf("Iterating through %s module...\n", module)
 
-		db = dbm.NewPrefixDB(db, []byte(buildPrefix(module)))
-		itr, err := db.Iterator(nil, nil)
+		// Can't use the previous, have to create an inner
+		prefixDB := dbm.NewPrefixDB(db, []byte(buildPrefix(module)))
+		itr, err := prefixDB.Iterator(nil, nil)
 		if err != nil {
 			fmt.Printf("error Export Leaf Nodes %+v\n", err)
 			return fmt.Errorf("failed to create iterator: %w", err)
