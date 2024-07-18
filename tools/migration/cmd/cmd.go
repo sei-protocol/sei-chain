@@ -21,7 +21,7 @@ func MigrateCmd() *cobra.Command {
 
 func execute(cmd *cobra.Command, _ []string) {
 	homeDir, _ := cmd.Flags().GetString("home-dir")
-	target, _ := cmd.Flags().GetString("target")
+	target, _ := cmd.Flags().GetString("target-db")
 	dataDir := filepath.Join(homeDir, "data")
 	db, err := dbm.NewGoLevelDB("application.db", dataDir)
 	if err != nil {
@@ -33,7 +33,7 @@ func execute(cmd *cobra.Command, _ []string) {
 	} else if target == "SC" {
 		migrateSC(latestVersion, homeDir, db)
 	} else {
-		panic("Invalid target DB, either SS or SC should be provided")
+		panic("Invalid target-db, either SS or SC should be provided")
 	}
 }
 
