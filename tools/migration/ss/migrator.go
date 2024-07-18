@@ -86,14 +86,12 @@ func ExportLeafNodes(db dbm.DB, ch chan<- types.RawSnapshotNode) error {
 		defer itr.Close()
 
 		for ; itr.Valid(); itr.Next() {
-			key := bytes.Clone(itr.Key())
 			value := bytes.Clone(itr.Value())
 
 			node, err := iavl.MakeNode(value)
 
-			node.GetNodeKey()
-			node.GetValue()
 			if err != nil {
+				fmt.Printf("failed to make node err: %+v\n", err)
 				return fmt.Errorf("failed to make node: %w", err)
 			}
 
@@ -102,8 +100,6 @@ func ExportLeafNodes(db dbm.DB, ch chan<- types.RawSnapshotNode) error {
 				leafNodeCount++
 				fmt.Printf("itr.Key %+v itr.Value %+v version %+v\n", string(itr.Key()), string(itr.Value()), node.GetVersion())
 				fmt.Printf("leaf node Key %+v Value %+v \n\n", string(node.GetNodeKey()), string(node.GetValue()))
-				first, second, err := extractPrefix(key, `^s/[^/]+/[^/]+/n`)
-				fmt.Printf("REGEX first %+v second %+v err %+v\n\n", first, second, err)
 				ch <- types.RawSnapshotNode{
 					// TODO: Likely need to clone
 					StoreKey: module,
@@ -120,6 +116,7 @@ func ExportLeafNodes(db dbm.DB, ch chan<- types.RawSnapshotNode) error {
 		}
 
 		if err := itr.Error(); err != nil {
+			fmt.Printf("iterator error: %+v\n", err)
 			return fmt.Errorf("iterator error: %w", err)
 		}
 
