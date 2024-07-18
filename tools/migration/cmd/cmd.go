@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
@@ -23,13 +24,15 @@ func MigrateCmd() *cobra.Command {
 
 func execute(cmd *cobra.Command, _ []string) {
 	homeDir, _ := cmd.Flags().GetString("home-dir")
-	target, _ := cmd.Flags().GetString("target")
+	target, _ := cmd.Flags().GetString("target-db")
 	dataDir := filepath.Join(homeDir, "data")
-	db, err := dbm.NewGoLevelDB("application.db", dataDir)
+	fmt.Printf("dataDir %+v\n", dataDir)
+	db, err := dbm.NewGoLevelDB("application", dataDir)
 	if err != nil {
 		panic(err)
 	}
 	latestVersion := rootmulti.GetLatestVersion(db)
+	fmt.Printf("target %+v homeDir %+v dataDir %+v latestVersion %+v\n", target, homeDir, dataDir, latestVersion)
 	if target == "SS" {
 		migrateSS(latestVersion, homeDir, db)
 	} else if target == "SC" {
