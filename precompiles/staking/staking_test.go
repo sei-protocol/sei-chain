@@ -1,8 +1,8 @@
 package staking_test
 
 import (
-	"embed"
 	"context"
+	"embed"
 	"encoding/hex"
 	"fmt"
 	"math/big"
