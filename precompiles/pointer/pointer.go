@@ -1,7 +1,6 @@
 package pointer
 
 import (
-	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -41,24 +40,8 @@ type PrecompileExecutor struct {
 	AddCW721PointerID  []byte
 }
 
-func ABI() (*ethabi.ABI, error) {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		return nil, fmt.Errorf("error loading the pointer ABI %s", err)
-	}
-
-	newAbi, err := ethabi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		return nil, err
-	}
-	return &newAbi, nil
-}
-
 func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, wasmdKeeper pcommon.WasmdViewKeeper) (*pcommon.DynamicGasPrecompile, error) {
-	newAbi, err := ABI()
-	if err != nil {
-		return nil, err
-	}
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
 		evmKeeper:   evmKeeper,
@@ -77,7 +60,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, w
 		}
 	}
 
-	return pcommon.NewDynamicGasPrecompile(*newAbi, p, common.HexToAddress(PointerAddress), PrecompileName), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, p, common.HexToAddress(PointerAddress), PrecompileName), nil
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {

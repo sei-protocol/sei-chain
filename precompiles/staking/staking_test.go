@@ -1,6 +1,7 @@
 package staking_test
 
 import (
+	"embed"
 	"encoding/hex"
 	"math/big"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
@@ -27,6 +29,9 @@ import (
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
+//go:embed abi.json
+var f embed.FS
+
 func TestStaking(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
@@ -37,7 +42,7 @@ func TestStaking(t *testing.T) {
 	val2 := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub2)
 
 	// delegate
-	abi := staking.GetABI()
+	abi := pcommon.MustGetABI(f, "abi.json")
 	args, err := abi.Pack("delegate", val.String())
 	require.Nil(t, err)
 
@@ -146,7 +151,7 @@ func TestStakingError(t *testing.T) {
 	val := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub1)
 	val2 := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub2)
 
-	abi := staking.GetABI()
+	abi := pcommon.MustGetABI(f, "abi.json")
 	args, err := abi.Pack("undelegate", val.String(), big.NewInt(100))
 	require.Nil(t, err)
 

@@ -1,7 +1,6 @@
 package oracle
 
 import (
-	"bytes"
 	"embed"
 	"math/big"
 
@@ -27,19 +26,6 @@ const (
 //
 //go:embed abi.json
 var f embed.FS
-
-func GetABI() abi.ABI {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		panic(err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		panic(err)
-	}
-	return newAbi
-}
 
 type PrecompileExecutor struct {
 	evmKeeper    pcommon.EVMKeeper
@@ -68,7 +54,7 @@ type OracleTwap struct {
 }
 
 func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
-	newAbi := GetABI()
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
 		evmKeeper:    evmKeeper,
