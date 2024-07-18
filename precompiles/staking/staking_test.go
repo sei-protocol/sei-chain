@@ -1,9 +1,12 @@
 package staking_test
 
 import (
+	"context"
 	"embed"
 	"encoding/hex"
+	"fmt"
 	"math/big"
+	"reflect"
 	"testing"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
@@ -22,6 +26,7 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
@@ -250,4 +255,218 @@ func setupValidator(t *testing.T, ctx sdk.Context, a *app.App, bondStatus stakin
 	a.SlashingKeeper.SetValidatorSigningInfo(ctx, consAddr, signingInfo)
 
 	return valAddr
+}
+
+type TestStakingQuerier struct {
+	Response *stakingtypes.QueryDelegationResponse
+	Err      error
+}
+
+func (tq *TestStakingQuerier) Delegation(c context.Context, _ *stakingtypes.QueryDelegationRequest) (*stakingtypes.QueryDelegationResponse, error) {
+	return tq.Response, tq.Err
+}
+
+func TestPrecompile_Run_Delegation(t *testing.T) {
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	_, unassociatedEvmAddress := testkeeper.MockAddressPair()
+	_, contractEvmAddress := testkeeper.MockAddressPair()
+	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
+	pre, _ := staking.NewPrecompile(nil, nil, nil, nil)
+	delegationMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).DelegationID)
+	shares := 100
+	delegationResponse := &stakingtypes.QueryDelegationResponse{
+		DelegationResponse: &stakingtypes.DelegationResponse{
+			Delegation: stakingtypes.Delegation{
+				DelegatorAddress: callerSeiAddress.String(),
+				ValidatorAddress: validatorAddress,
+				Shares:           sdk.NewDec(int64(shares)),
+			},
+			Balance: sdk.NewCoin("usei", sdk.NewInt(int64(shares))),
+		},
+	}
+	hundredSharesValue := new(big.Int)
+	hundredSharesValue.SetString("100000000000000000000", 10)
+	delegation := staking.Delegation{
+		Balance: staking.Balance{
+			Amount: big.NewInt(int64(shares)),
+			Denom:  "usei",
+		},
+		Delegation: staking.DelegationDetails{
+			DelegatorAddress: callerSeiAddress.String(),
+			Shares:           hundredSharesValue,
+			Decimals:         big.NewInt(sdk.Precision),
+			ValidatorAddress: validatorAddress,
+		},
+	}
+
+	happyPathPackedOutput, _ := delegationMethod.Outputs.Pack(delegation)
+
+	type fields struct {
+		Precompile     pcommon.Precompile
+		stakingKeeper  pcommon.StakingKeeper
+		stakingQuerier pcommon.StakingQuerier
+		evmKeeper      pcommon.EVMKeeper
+	}
+	type args struct {
+		evm              *vm.EVM
+		delegatorAddress common.Address
+		validatorAddress string
+		caller           common.Address
+		callingContract  common.Address
+		value            *big.Int
+		readOnly         bool
+	}
+
+	tests := []struct {
+		name       string
+		fields     fields
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "fails if value passed",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				validatorAddress: validatorAddress,
+				value:            big.NewInt(100),
+			},
+			wantRet:    happyPathPackedOutput,
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "fails if caller != callingContract",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				caller:           callerEvmAddress,
+				callingContract:  contractEvmAddress,
+				delegatorAddress: callerEvmAddress,
+				validatorAddress: validatorAddress,
+				value:            big.NewInt(100),
+			},
+			wantErr:    true,
+			wantErrMsg: "cannot delegatecall staking",
+		},
+		{
+			name: "fails if delegator address unassociated",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+				delegatorAddress: unassociatedEvmAddress,
+				validatorAddress: validatorAddress,
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not linked", unassociatedEvmAddress.String()),
+		},
+		{
+			name: "fails if delegator address is invalid",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				delegatorAddress: common.Address{},
+				validatorAddress: validatorAddress,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid addr",
+		},
+		{
+			name: "should return error if delegation not found",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Err: fmt.Errorf("delegation with delegator %s not found for validator", callerSeiAddress.String()),
+				},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				validatorAddress: validatorAddress,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("delegation with delegator %s not found for validator", callerSeiAddress.String()),
+		},
+		{
+			name: "should return delegation details",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				validatorAddress: validatorAddress,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+			},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+		{
+			name: "should allow static call",
+			fields: fields{
+				stakingQuerier: &TestStakingQuerier{
+					Response: delegationResponse,
+				},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				validatorAddress: validatorAddress,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+				readOnly:         true,
+			},
+			wantRet: happyPathPackedOutput,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB:   stateDb,
+				TxContext: vm.TxContext{Origin: callerEvmAddress},
+			}
+			p, _ := staking.NewPrecompile(tt.fields.stakingKeeper, tt.fields.stakingQuerier, k, nil)
+			delegation, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID)
+			require.Nil(t, err)
+			inputs, err := delegation.Inputs.Pack(tt.args.delegatorAddress, tt.args.validatorAddress)
+			require.Nil(t, err)
+			gotRet, err := p.Run(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID, inputs...), tt.args.value, tt.args.readOnly)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotRet))
+			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+		})
+	}
 }

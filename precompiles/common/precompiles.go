@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const UnknownMethodCallGas uint64 = 3000
@@ -262,4 +263,20 @@ func MustGetABI(f embed.FS, filename string) abi.ABI {
 		panic(err)
 	}
 	return newAbi
+}
+
+func GetSeiAddressByEvmAddress(ctx sdk.Context, evmAddress common.Address, evmKeeper EVMKeeper) (sdk.AccAddress, error) {
+	seiAddr, associated := evmKeeper.GetSeiAddress(ctx, evmAddress)
+	if !associated {
+		return nil, types.NewAssociationMissingErr(evmAddress.Hex())
+	}
+	return seiAddr, nil
+}
+
+func GetSeiAddressFromArg(ctx sdk.Context, arg interface{}, evmKeeper EVMKeeper) (sdk.AccAddress, error) {
+	addr := arg.(common.Address)
+	if addr == (common.Address{}) {
+		return nil, errors.New("invalid addr")
+	}
+	return GetSeiAddressByEvmAddress(ctx, addr, evmKeeper)
 }

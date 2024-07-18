@@ -19,6 +19,7 @@ const (
 	DelegateMethod   = "delegate"
 	RedelegateMethod = "redelegate"
 	UndelegateMethod = "undelegate"
+	DelegationMethod = "delegation"
 )
 
 const (
@@ -31,24 +32,27 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	stakingKeeper pcommon.StakingKeeper
-	evmKeeper     pcommon.EVMKeeper
-	bankKeeper    pcommon.BankKeeper
-	address       common.Address
+	stakingKeeper  pcommon.StakingKeeper
+	stakingQuerier pcommon.StakingQuerier
+	evmKeeper      pcommon.EVMKeeper
+	bankKeeper     pcommon.BankKeeper
+	address        common.Address
 
 	DelegateID   []byte
 	RedelegateID []byte
 	UndelegateID []byte
+	DelegationID []byte
 }
 
-func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(stakingKeeper pcommon.StakingKeeper, stakingQuerier pcommon.StakingQuerier, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		stakingKeeper: stakingKeeper,
-		evmKeeper:     evmKeeper,
-		bankKeeper:    bankKeeper,
-		address:       common.HexToAddress(StakingAddress),
+		stakingKeeper:  stakingKeeper,
+		stakingQuerier: stakingQuerier,
+		evmKeeper:      evmKeeper,
+		bankKeeper:     bankKeeper,
+		address:        common.HexToAddress(StakingAddress),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -59,6 +63,8 @@ func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKee
 			p.RedelegateID = m.ID
 		case UndelegateMethod:
 			p.UndelegateID = m.ID
+		case DelegationMethod:
+			p.DelegationID = m.ID
 		}
 	}
 
@@ -80,20 +86,27 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (bz []byte, err error) {
-	if readOnly {
-		return nil, errors.New("cannot call staking precompile from staticcall")
-	}
 	if caller.Cmp(callingContract) != 0 {
 		return nil, errors.New("cannot delegatecall staking")
 	}
-
 	switch method.Name {
 	case DelegateMethod:
+		if readOnly {
+			return nil, errors.New("cannot call staking precompile from staticcall")
+		}
 		return p.delegate(ctx, method, caller, args, value)
 	case RedelegateMethod:
+		if readOnly {
+			return nil, errors.New("cannot call staking precompile from staticcall")
+		}
 		return p.redelegate(ctx, method, caller, args, value)
 	case UndelegateMethod:
+		if readOnly {
+			return nil, errors.New("cannot call staking precompile from staticcall")
+		}
 		return p.undelegate(ctx, method, caller, args, value)
+	case DelegationMethod:
+		return p.delegation(ctx, method, args, value)
 	}
 	return
 }
@@ -178,4 +191,62 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 		return nil, err
 	}
 	return method.Outputs.Pack(true)
+}
+
+type Delegation struct {
+	Balance    Balance
+	Delegation DelegationDetails
+}
+
+type Balance struct {
+	Amount *big.Int
+	Denom  string
+}
+
+type DelegationDetails struct {
+	DelegatorAddress string
+	Shares           *big.Int
+	Decimals         *big.Int
+	ValidatorAddress string
+}
+
+func (p PrecompileExecutor) delegation(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, err
+	}
+
+	seiDelegatorAddress, err := pcommon.GetSeiAddressFromArg(ctx, args[0], p.evmKeeper)
+	if err != nil {
+		return nil, err
+	}
+
+	validatorBech32 := args[1].(string)
+	delegationRequest := &stakingtypes.QueryDelegationRequest{
+		DelegatorAddr: seiDelegatorAddress.String(),
+		ValidatorAddr: validatorBech32,
+	}
+
+	delegationResponse, err := p.stakingQuerier.Delegation(sdk.WrapSDKContext(ctx), delegationRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	delegation := Delegation{
+		Balance: Balance{
+			Amount: delegationResponse.GetDelegationResponse().GetBalance().Amount.BigInt(),
+			Denom:  delegationResponse.GetDelegationResponse().GetBalance().Denom,
+		},
+		Delegation: DelegationDetails{
+			DelegatorAddress: delegationResponse.GetDelegationResponse().GetDelegation().DelegatorAddress,
+			Shares:           delegationResponse.GetDelegationResponse().GetDelegation().Shares.BigInt(),
+			Decimals:         big.NewInt(sdk.Precision),
+			ValidatorAddress: delegationResponse.GetDelegationResponse().GetDelegation().ValidatorAddress,
+		},
+	}
+
+	return method.Outputs.Pack(delegation)
 }
