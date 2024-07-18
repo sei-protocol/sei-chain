@@ -121,6 +121,9 @@ type MultiStore interface {
 	GetStore(StoreKey) Store
 	GetKVStore(StoreKey) KVStore
 
+	// Get the earliest available version for state store
+	GetEarliestVersion() int64
+
 	// TracingEnabled returns if tracing is enabled for the MultiStore.
 	TracingEnabled() bool
 

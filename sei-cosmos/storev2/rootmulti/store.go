@@ -854,10 +854,23 @@ func (*Store) SetKVStores(handler func(key types.StoreKey, s types.KVStore) type
 }
 
 // StoreKeys implements types.CommitMultiStore.
-func (s *Store) StoreKeys() []types.StoreKey {
-	res := make([]types.StoreKey, len(s.storeKeys))
-	for _, sk := range s.storeKeys {
+func (rs *Store) StoreKeys() []types.StoreKey {
+	res := make([]types.StoreKey, len(rs.storeKeys))
+	for _, sk := range rs.storeKeys {
 		res = append(res, sk)
 	}
 	return res
+}
+
+// GetEarliestVersion return earliest version for SS or latestVersion if only SC is enabled
+func (rs *Store) GetEarliestVersion() int64 {
+	latestVersion := rs.lastCommitInfo.Version
+	if rs.ssStore != nil {
+		version, err := rs.ssStore.GetEarliestVersion()
+		if err != nil {
+			return latestVersion
+		}
+		return version
+	}
+	return latestVersion
 }

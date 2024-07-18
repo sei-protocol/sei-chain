@@ -241,3 +241,7 @@ func (cms Store) Close() {
 		closer.Close()
 	}
 }
+
+func (cms Store) GetEarliestVersion() int64 {
+	panic("not implemented")
+}

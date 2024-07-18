@@ -61,6 +61,7 @@ type Store struct {
 	pruneHeights        []int64
 	initialVersion      int64
 	archivalVersion     int64
+	earliestVersion     int64
 	orphanOpts          *iavltree.Options
 
 	traceWriter       io.Writer
@@ -525,6 +526,9 @@ func (rs *Store) PruneStores(clearStorePruningHeights bool, pruningHeights []int
 				}
 			}
 		}
+	}
+	if len(pruningHeights) > 0 {
+		rs.earliestVersion = pruningHeights[len(pruningHeights)-1]
 	}
 
 	if clearStorePruningHeights {
@@ -1216,4 +1220,8 @@ func (rs *Store) StoreKeys() []types.StoreKey {
 		res = append(res, sk)
 	}
 	return res
+}
+
+func (rs *Store) GetEarliestVersion() int64 {
+	return rs.earliestVersion
 }
