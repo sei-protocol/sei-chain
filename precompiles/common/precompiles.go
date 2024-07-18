@@ -1,11 +1,11 @@
 package common
 
 import (
+	"bytes"
+	"embed"
 	"errors"
 	"fmt"
 	"math/big"
-
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const UnknownMethodCallGas uint64 = 3000
@@ -249,6 +250,19 @@ func DefaultGasCost(input []byte, isTransaction bool) uint64 {
 	}
 
 	return storetypes.KVGasConfig().ReadCostFlat + (storetypes.KVGasConfig().ReadCostPerByte * uint64(len(input)))
+}
+
+func MustGetABI(f embed.FS, filename string) abi.ABI {
+	abiBz, err := f.ReadFile(filename)
+	if err != nil {
+		panic(err)
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	if err != nil {
+		panic(err)
+	}
+	return newAbi
 }
 
 func GetSeiAddressByEvmAddress(ctx sdk.Context, evmAddress common.Address, evmKeeper EVMKeeper) (sdk.AccAddress, error) {
