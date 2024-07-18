@@ -33,8 +33,6 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 		panic(err)
 	}
 
-	db = dbm.NewPrefixDB(db, []byte("s/k:acc/n"))
-
 	return &Migrator{
 		iavlDB:     db,
 		stateStore: stateStore,
