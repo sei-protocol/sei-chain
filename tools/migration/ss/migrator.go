@@ -3,7 +3,6 @@ package ss
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/config"
@@ -125,17 +124,6 @@ func ExportLeafNodes(db dbm.DB, ch chan<- types.RawSnapshotNode) error {
 
 	fmt.Printf("DB contains %d entries, exported %d leaf nodes\n", count, leafNodeCount)
 	return nil
-}
-
-func extractPrefix(data []byte, prefix string) ([]byte, []byte, error) {
-	re := regexp.MustCompile(prefix)
-	loc := re.FindIndex(data)
-
-	if loc == nil {
-		return nil, data, fmt.Errorf("prefix not found")
-	}
-
-	return data[:loc[1]], data[loc[1]:], nil
 }
 
 func buildPrefix(moduleName string) string {
