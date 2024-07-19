@@ -1,7 +1,6 @@
 package distribution
 
 import (
-	"bytes"
 	"embed"
 	"errors"
 	"fmt"
@@ -34,19 +33,6 @@ const (
 //go:embed abi.json
 var f embed.FS
 
-func GetABI() abi.ABI {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		panic(err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		panic(err)
-	}
-	return newAbi
-}
-
 type PrecompileExecutor struct {
 	distrKeeper pcommon.DistributionKeeper
 	evmKeeper   pcommon.EVMKeeper
@@ -59,7 +45,7 @@ type PrecompileExecutor struct {
 }
 
 func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
-	newAbi := GetABI()
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
 		distrKeeper: distrKeeper,
@@ -111,10 +97,6 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 
 func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
 	return p.evmKeeper
-}
-
-func (p PrecompileExecutor) GetName() string {
-	return "distribution"
 }
 
 func (p PrecompileExecutor) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {

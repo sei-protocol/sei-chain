@@ -1,7 +1,6 @@
 package addr
 
 import (
-	"bytes"
 	"embed"
 	"encoding/hex"
 	"fmt"
@@ -48,21 +47,15 @@ type PrecompileExecutor struct {
 	AssociateWithGasID []byte
 }
 
+<<<<<<< HEAD
 type AddrPair struct {
 	SeiAddr string
 	EvmAddr common.Address
 }
 
 func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		return nil, fmt.Errorf("error loading the addr ABI %s", err)
-	}
 
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		return nil, err
-	}
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
 		evmKeeper:     evmKeeper,

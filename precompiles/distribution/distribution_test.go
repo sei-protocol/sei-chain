@@ -2,6 +2,7 @@ package distribution_test
 
 import (
 	"context"
+	"embed"
 	"encoding/hex"
 	"math/big"
 	"reflect"
@@ -37,6 +38,10 @@ import (
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
+//go:embed abi.json
+//go:embed staking_abi.json
+var f embed.FS
+
 func TestWithdraw(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
@@ -48,7 +53,7 @@ func TestWithdraw(t *testing.T) {
 	val := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub1)
 
 	// delegate
-	abi := staking.GetABI()
+	abi := pcommon.MustGetABI(f, "staking_abi.json")
 	args, err := abi.Pack("delegate", val.String())
 	require.Nil(t, err)
 
@@ -96,7 +101,7 @@ func TestWithdraw(t *testing.T) {
 	// set withdraw addr
 	withdrawSeiAddr, withdrawAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, withdrawSeiAddr, withdrawAddr)
-	abi = distribution.GetABI()
+	abi = pcommon.MustGetABI(f, "abi.json")
 	args, err = abi.Pack("setWithdrawAddress", withdrawAddr)
 	require.Nil(t, err)
 	addr = common.HexToAddress(distribution.DistrAddress)
@@ -162,7 +167,7 @@ func TestWithdrawMultipleDelegationRewards(t *testing.T) {
 		getValidator(t, ctx, testApp),
 		getValidator(t, ctx, testApp)}
 
-	abi := staking.GetABI()
+	abi := pcommon.MustGetABI(f, "staking_abi.json")
 	privKey := testkeeper.MockPrivateKey()
 	addr := common.HexToAddress(staking.StakingAddress)
 	chainID := k.ChainID(ctx)
@@ -242,7 +247,7 @@ func setWithdrawAddressAndWithdraw(
 ) {
 	withdrawSeiAddr, withdrawAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, withdrawSeiAddr, withdrawAddr)
-	abi := distribution.GetABI()
+	abi := pcommon.MustGetABI(f, "abi.json")
 	args, err := abi.Pack("setWithdrawAddress", withdrawAddr)
 	require.Nil(t, err)
 	addr = common.HexToAddress(distribution.DistrAddress)

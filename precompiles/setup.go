@@ -45,6 +45,7 @@ func InitializePrecompiles(
 	wasmdKeeper common.WasmdKeeper,
 	wasmdViewKeeper common.WasmdViewKeeper,
 	stakingKeeper common.StakingKeeper,
+	stakingQuerier common.StakingQuerier,
 	govKeeper common.GovKeeper,
 	distrKeeper common.DistributionKeeper,
 	oracleKeeper common.OracleKeeper,
@@ -75,7 +76,7 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
-	stakingp, err := staking.NewPrecompile(stakingKeeper, evmKeeper, bankKeeper)
+	stakingp, err := staking.NewPrecompile(stakingKeeper, stakingQuerier, evmKeeper, bankKeeper)
 	if err != nil {
 		return err
 	}
@@ -134,7 +135,7 @@ func InitializePrecompiles(
 func GetPrecompileInfo(name string) PrecompileInfo {
 	if !Initialized {
 		// Precompile Info does not require any keeper state
-		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}
 	i, ok := PrecompileNamesToInfo[name]
 	if !ok {
