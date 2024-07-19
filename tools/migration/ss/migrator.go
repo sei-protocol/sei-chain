@@ -98,8 +98,6 @@ func ExportLeafNodes(db dbm.DB, ch chan<- types.RawSnapshotNode) error {
 			// leaf node
 			if node.GetHeight() == 0 {
 				leafNodeCount++
-				fmt.Printf("itr.Key %+v itr.Value %+v version %+v\n", string(itr.Key()), string(itr.Value()), node.GetVersion())
-				fmt.Printf("leaf node Key %+v Value %+v \n\n", string(node.GetNodeKey()), string(node.GetValue()))
 				ch <- types.RawSnapshotNode{
 					// TODO: Likely need to clone
 					StoreKey: module,
@@ -114,6 +112,8 @@ func ExportLeafNodes(db dbm.DB, ch chan<- types.RawSnapshotNode) error {
 				fmt.Printf("Total scanned: %d, leaf nodes exported: %d\n", count, leafNodeCount)
 			}
 		}
+
+		fmt.Printf("Finished scanning module %s Total scanned: %d, leaf nodes exported: %d\n", module, count, leafNodeCount)
 
 		if err := itr.Error(); err != nil {
 			fmt.Printf("iterator error: %+v\n", err)
