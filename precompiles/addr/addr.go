@@ -1,6 +1,7 @@
 package addr
 
 import (
+	"bytes"
 	"embed"
 	"encoding/hex"
 	"fmt"
@@ -47,7 +48,6 @@ type PrecompileExecutor struct {
 	AssociateWithGasID []byte
 }
 
-<<<<<<< HEAD
 type AddrPair struct {
 	SeiAddr string
 	EvmAddr common.Address
