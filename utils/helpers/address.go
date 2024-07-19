@@ -18,6 +18,7 @@ func GetAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.
 	if err != nil {
 		return common.Address{}, sdk.AccAddress{}, nil, err
 	}
+
 	evmAddr, err := PubkeyToEVMAddress(pubkey)
 	if err != nil {
 		return common.Address{}, sdk.AccAddress{}, nil, err
@@ -42,6 +43,7 @@ func RecoverPubkey(sighash common.Hash, R, S, Vb *big.Int, homestead bool) ([]by
 	copy(sig[32-len(r):32], r)
 	copy(sig[64-len(s):64], s)
 	sig[64] = V
+
 	// recover the public key from the signature
 	return crypto.Ecrecover(sighash[:], sig)
 }

@@ -3,7 +3,9 @@ package addr
 import (
 	"bytes"
 	"embed"
+	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"math/big"
 
@@ -46,6 +48,11 @@ type PrecompileExecutor struct {
 	AssociateWithGasID []byte
 }
 
+type AddrPair struct {
+	SeiAddr string
+	EvmAddr common.Address
+}
+
 func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
@@ -79,6 +86,9 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, a
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
+	if bytes.Equal(method.ID, p.AssociateWithGasID) {
+		return 50000
+	}
 	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
 }
 
@@ -141,14 +151,27 @@ func (p PrecompileExecutor) associateWithGas(ctx sdk.Context, method *abi.Method
 	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
 		return nil, err
 	}
-	v := args[0].(uint8)
-	r := args[1].([32]uint8)
-	s := args[2].([32]uint8)
+	v := args[0].(string)
+	r := args[1].(string)
+	s := args[2].(string)
 	customMessage := args[3].(string)
 
-	vBig := new(big.Int).SetUint64(uint64(v))
-	rBig := new(big.Int).SetBytes(r[:])
-	sBig := new(big.Int).SetBytes(s[:])
+	rBytes, err := decodeHexString(r)
+	if err != nil {
+		return nil, err
+	}
+	sBytes, err := decodeHexString(s)
+	if err != nil {
+		return nil, err
+	}
+	vBytes, err := decodeHexString(v)
+	if err != nil {
+		return nil, err
+	}
+
+	vBig := new(big.Int).SetBytes(vBytes)
+	rBig := new(big.Int).SetBytes(rBytes)
+	sBig := new(big.Int).SetBytes(sBytes)
 
 	// Derive addresses
 	vBig = new(big.Int).Add(vBig, utils.Big27)
@@ -172,7 +195,7 @@ func (p PrecompileExecutor) associateWithGas(ctx sdk.Context, method *abi.Method
 		return nil, err
 	}
 
-	return method.Outputs.Pack(true)
+	return method.Outputs.Pack(AddrPair{SeiAddr: seiAddr.String(), EvmAddr: evmAddr})
 }
 
 func (PrecompileExecutor) IsTransaction(method string) bool {
@@ -182,4 +205,12 @@ func (PrecompileExecutor) IsTransaction(method string) bool {
 	default:
 		return false
 	}
+}
+
+func decodeHexString(hexString string) ([]byte, error) {
+	trimmed := strings.TrimPrefix(hexString, "0x")
+	if len(trimmed)%2 != 0 {
+		trimmed = "0" + trimmed
+	}
+	return hex.DecodeString(trimmed)
 }

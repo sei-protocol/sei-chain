@@ -3,11 +3,12 @@ package distribution_test
 import (
 	"context"
 	"encoding/hex"
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"math/big"
 	"reflect"
 	"testing"
 	"time"
+
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"

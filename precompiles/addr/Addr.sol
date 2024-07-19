@@ -10,13 +10,18 @@ IAddr constant ADDR_CONTRACT = IAddr(
 interface IAddr {
     // Transactions
     function associateWithGas(
-        uint8 v,
-        bytes32 r,
-        bytes32 s,
+        string memory v,
+        string memory r,
+        string memory s,
         string memory customMessage
-    ) external returns (bool success);
+    ) external returns (AddrPair associated);
 
     // Queries
     function getSeiAddr(address addr) external view returns (string memory response);
     function getEvmAddr(string memory addr) external view returns (address response);
+
+    struct AddrPair {
+        string seiAddr;
+        address evmAddr;
+    }
 }
