@@ -118,7 +118,7 @@ func (m *Migrator) Migrate(version int64) error {
 		if metadata == nil {
 			return sdkerrors.Wrapf(sdkerrors.ErrLogic, "unknown snapshot item %T", next.Item)
 		}
-		wasmSnapshotter := CreatWasmSnapshotter(m.storeV2, m.homeDir)
+		wasmSnapshotter := CreateWasmSnapshotter(m.storeV2, m.homeDir)
 		extension := wasmSnapshotter
 		fmt.Printf("Start restoring wasm extension for height: %d\n", version)
 		next, err = extension.Restore(uint64(version), metadata.Format, streamReader)
@@ -140,7 +140,7 @@ func (m *Migrator) createSnapshot(height uint64, chunks chan<- io.ReadCloser) er
 	}
 
 	// Handle wasm snapshot export
-	wasmSnapshotter := CreatWasmSnapshotter(m.storeV1, m.homeDir)
+	wasmSnapshotter := CreateWasmSnapshotter(m.storeV1, m.homeDir)
 	extension := wasmSnapshotter
 	// write extension metadata
 	err := streamWriter.WriteMsg(&types.SnapshotItem{
@@ -165,7 +165,7 @@ func (m *Migrator) createSnapshot(height uint64, chunks chan<- io.ReadCloser) er
 
 }
 
-func CreatWasmSnapshotter(cms sdk.MultiStore, homeDir string) *keeper.WasmSnapshotter {
+func CreateWasmSnapshotter(cms sdk.MultiStore, homeDir string) *keeper.WasmSnapshotter {
 	var (
 		keyParams  = sdk.NewKVStoreKey(paramtypes.StoreKey)
 		tkeyParams = sdk.NewTransientStoreKey(paramtypes.TStoreKey)
