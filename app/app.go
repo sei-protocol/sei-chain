@@ -1167,7 +1167,6 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
-
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
 
 	app.SetDeliverStateToCommit()
@@ -1440,6 +1439,30 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs [
 	return results, ctx
 }
 
+func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
+	res = &sdk.DeliverTxEntry{
+		Request:       abci.RequestDeliverTx{Tx: bz},
+		SdkTx:         tx,
+		Checksum:      sha256.Sum256(bz),
+		AbsoluteIndex: absoluateIndex,
+	}
+	if tx == nil {
+		return
+	}
+	defer func() {
+		if err := recover(); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("panic when generating estimated writeset for %X: %s", bz, err))
+		}
+	}()
+	// get prefill estimate
+	estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, tx)
+	// if no error, then we assign the mapped writesets for prefill estimate
+	if err == nil {
+		res.EstimatedWritesets = estimatedWritesets
+	}
+	return
+}
+
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
@@ -1452,19 +1475,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 		wg.Add(1)
 		go func(txIndex int, tx []byte) {
 			defer wg.Done()
-			deliverTxEntry := &sdk.DeliverTxEntry{
-				Request:       abci.RequestDeliverTx{Tx: tx},
-				SdkTx:         typedTxs[txIndex],
-				Checksum:      sha256.Sum256(tx),
-				AbsoluteIndex: absoluteTxIndices[txIndex],
-			}
-			// get prefill estimate
-			estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, typedTxs[txIndex])
-			// if no error, then we assign the mapped writesets for prefill estimate
-			if err == nil {
-				deliverTxEntry.EstimatedWritesets = estimatedWritesets
-			}
-			entries[txIndex] = deliverTxEntry
+			entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
 		}(txIndex, tx)
 	}
 
@@ -1556,11 +1567,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
-		if emsg := evmtypes.GetEVMTransactionMessage(prioritizedTypedTxs[relativePrioritizedIndex]); emsg != nil && !emsg.IsAssociateTx() {
-			evmTxs[originalIndex] = emsg
-		} else {
-			evmTxs[originalIndex] = nil
-		}
+		evmTxs[originalIndex] = app.GetEVMMsg(prioritizedTypedTxs[relativePrioritizedIndex])
 	}
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
@@ -1573,11 +1580,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
-		if emsg := evmtypes.GetEVMTransactionMessage(otherTypedTxs[relativeOtherIndex]); emsg != nil && !emsg.IsAssociateTx() {
-			evmTxs[originalIndex] = emsg
-		} else {
-			evmTxs[originalIndex] = nil
-		}
+		evmTxs[originalIndex] = app.GetEVMMsg(otherTypedTxs[relativeOtherIndex])
 	}
 	app.EvmKeeper.SetTxResults(txResults)
 	app.EvmKeeper.SetMsgs(evmTxs)
@@ -1592,6 +1595,21 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	events = append(events, endBlockResp.Events...)
 	return events, txResults, endBlockResp, nil
+}
+
+func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {
+	defer func() {
+		if err := recover(); err != nil {
+			res = nil
+		}
+	}()
+	if tx == nil {
+		return nil
+	} else if emsg := evmtypes.GetEVMTransactionMessage(tx); emsg != nil && !emsg.IsAssociateTx() {
+		return emsg
+	} else {
+		return nil
+	}
 }
 
 func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []sdk.Tx {
