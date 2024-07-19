@@ -97,7 +97,12 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 func (m *Migrator) Migrate(version int64) error {
 	// Create a snapshot
 	chunks := make(chan io.ReadCloser)
-	go m.createSnapshot(uint64(version), chunks)
+	go func() {
+		err := m.createSnapshot(uint64(version), chunks)
+		if err != nil {
+			panic(err)
+		}
+	}()
 	streamReader, err := snapshots.NewStreamReader(chunks)
 	if err != nil {
 		return err
@@ -113,7 +118,7 @@ func (m *Migrator) Migrate(version int64) error {
 		if metadata == nil {
 			return sdkerrors.Wrapf(sdkerrors.ErrLogic, "unknown snapshot item %T", next.Item)
 		}
-		wasmSnapshotter := CreatWasmSnapshotter(m.storeV1, m.homeDir)
+		wasmSnapshotter := CreatWasmSnapshotter(m.storeV2, m.homeDir)
 		extension := wasmSnapshotter
 		fmt.Printf("Start restoring wasm extension for height: %d\n", version)
 		next, err = extension.Restore(uint64(version), metadata.Format, streamReader)
@@ -125,7 +130,7 @@ func (m *Migrator) Migrate(version int64) error {
 	return nil
 }
 
-func (m *Migrator) createSnapshot(height uint64, chunks chan<- io.ReadCloser) {
+func (m *Migrator) createSnapshot(height uint64, chunks chan<- io.ReadCloser) error {
 	streamWriter := snapshots.NewStreamWriter(chunks)
 	defer streamWriter.Close()
 	fmt.Printf("Start creating snapshot for height: %d\n", height)
@@ -146,14 +151,17 @@ func (m *Migrator) createSnapshot(height uint64, chunks chan<- io.ReadCloser) {
 			},
 		},
 	})
+	fmt.Printf("Finished writting extension metadata for height: %d\n", height)
 	if err != nil {
 		streamWriter.CloseWithError(err)
-		return
+		return err
 	}
-	if err := extension.Snapshot(height, streamWriter); err != nil {
+	fmt.Printf("Start extension snapshot for height: %d\n", height)
+	if err = extension.Snapshot(height, streamWriter); err != nil {
 		streamWriter.CloseWithError(err)
-		return
+		return err
 	}
+	return nil
 
 }
 
@@ -161,13 +169,12 @@ func CreatWasmSnapshotter(cms sdk.MultiStore, homeDir string) *keeper.WasmSnapsh
 	var (
 		keyParams  = sdk.NewKVStoreKey(paramtypes.StoreKey)
 		tkeyParams = sdk.NewTransientStoreKey(paramtypes.TStoreKey)
-		keyWasm    = sdk.NewKVStoreKey(wasm.StoreKey)
 	)
 	encodingConfig := params.MakeEncodingConfig()
 	pk := paramskeeper.NewKeeper(encodingConfig.Marshaler, encodingConfig.Amino, keyParams, tkeyParams)
 	wasmKeeper := keeper.NewKeeper(
 		encodingConfig.Marshaler,
-		keyWasm,
+		Keys[wasm.StoreKey],
 		paramskeeper.Keeper{},
 		pk.Subspace("wasm"),
 		authkeeper.AccountKeeper{},
