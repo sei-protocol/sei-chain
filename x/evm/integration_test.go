@@ -3,6 +3,7 @@ package evm_test
 import (
 	"bytes"
 	"crypto/sha256"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
@@ -25,6 +27,9 @@ import (
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
+
+//go:embed pointer_abi.json
+var f embed.FS
 
 func TestERC2981PointerToCW2981(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
@@ -65,8 +70,7 @@ func TestERC2981PointerToCW2981(t *testing.T) {
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	to := common.HexToAddress(pointer.PointerAddress)
-	abi, err := pointer.ABI()
-	require.Nil(t, err)
+	abi := pcommon.MustGetABI(f, "pointer_abi.json")
 	data, err := abi.Pack("addCW721Pointer", cw2981Addr.String())
 	require.Nil(t, err)
 	txData := ethtypes.LegacyTx{
@@ -98,12 +102,12 @@ func TestERC2981PointerToCW2981(t *testing.T) {
 	require.True(t, exists)
 	require.NotEmpty(t, pointerAddr)
 	// call pointer to get royalty info
-	abi, err = cw721.Cw721MetaData.GetAbi()
+	cw721abi, err := cw721.Cw721MetaData.GetAbi()
 	require.Nil(t, err)
-	data, err = abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
+	data, err = cw721abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
-		Nonce:    2,
+		Nonce:    1,
 		GasPrice: big.NewInt(1000000000),
 		Gas:      1000000,
 		To:       &pointerAddr,
@@ -126,7 +130,7 @@ func TestERC2981PointerToCW2981(t *testing.T) {
 	require.Nil(t, typedTxData.Unmarshal(res.Data))
 	typedMsgData := types.MsgEVMTransactionResponse{}
 	require.Nil(t, typedMsgData.Unmarshal(typedTxData.Data[0].Data))
-	ret, err := abi.Unpack("royaltyInfo", typedMsgData.ReturnData)
+	ret, err := cw721abi.Unpack("royaltyInfo", typedMsgData.ReturnData)
 	require.Nil(t, err)
 	require.Equal(t, big.NewInt(10), ret[1].(*big.Int))
 	require.Equal(t, adminEvmAddr.Hex(), ret[0].(common.Address).Hex())

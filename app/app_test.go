@@ -450,6 +450,52 @@ func TestApp_RegisterAPIRoutes(t *testing.T) {
 	}
 }
 
+func TestGetEVMMsg(t *testing.T) {
+	a := &app.App{}
+	require.Nil(t, a.GetEVMMsg(nil))
+	require.Nil(t, a.GetEVMMsg(app.MakeEncodingConfig().TxConfig.NewTxBuilder().GetTx()))
+	tb := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	tb.SetMsgs(&evmtypes.MsgEVMTransaction{}) // invalid msg
+	require.Nil(t, a.GetEVMMsg(tb.GetTx()))
+
+	tb = app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	txData := ethtypes.LegacyTx{}
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(big.NewInt(config.DefaultChainID))
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), uint64(123))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	ethtxdata, _ := ethtx.NewTxDataFromTx(tx)
+	if err != nil {
+		return
+	}
+	msg, _ := evmtypes.NewMsgEVMTransaction(ethtxdata)
+	tb.SetMsgs(msg)
+	require.NotNil(t, a.GetEVMMsg(tb.GetTx()))
+}
+
+func TestGetDeliverTxEntry(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	ap := testWrapper.App
+	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+		Block: &types.BlockParams{MaxGas: 10},
+	})
+	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
+	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
+	emptyTxBuilder.SetGasLimit(10)
+	tx := emptyTxBuilder.GetTx()
+	bz, _ := txEncoder(tx)
+
+	require.NotNil(t, ap.GetDeliverTxEntry(ctx, 0, 0, bz, tx))
+
+	require.NotNil(t, ap.GetDeliverTxEntry(ctx, 0, 0, bz, nil))
+}
+
 func isSwaggerRouteAdded(router *mux.Router) bool {
 	var isAdded bool
 	err := router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
