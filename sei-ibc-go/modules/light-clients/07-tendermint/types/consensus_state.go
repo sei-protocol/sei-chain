@@ -1,7 +1,6 @@
 package types
 
 import (
-	fmt "fmt"
 	"time"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -50,7 +49,6 @@ func (cs ConsensusState) ValidateBasic() error {
 		return sdkerrors.Wrap(clienttypes.ErrInvalidConsensus, "root cannot be empty")
 	}
 	if err := tmtypes.ValidateHash(cs.NextValidatorsHash); err != nil {
-		fmt.Println("invalid next validators hash = ", cs.NextValidatorsHash)
 		return sdkerrors.Wrap(err, "next validators hash is invalid")
 	}
 	if cs.Timestamp.Unix() <= 0 {

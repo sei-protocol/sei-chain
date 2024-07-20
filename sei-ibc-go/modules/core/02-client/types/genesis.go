@@ -107,7 +107,6 @@ func (gs GenesisState) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 
 // Validate performs basic genesis state validation returning an error upon any
 // failure.
-// JEREMYFLAG - main validate
 func (gs GenesisState) Validate() error {
 	// keep track of the max sequence to ensure it is less than
 	// the next sequence used in creating client identifers.
@@ -120,7 +119,6 @@ func (gs GenesisState) Validate() error {
 	validClients := make(map[string]string)
 
 	for i, client := range gs.Clients {
-		fmt.Println("client.ClientId: ", client.ClientId)
 		if err := host.ClientIdentifierValidator(client.ClientId); err != nil {
 			return fmt.Errorf("invalid client consensus state identifier %s index %d: %w", client.ClientId, i, err)
 		}
@@ -170,15 +168,12 @@ func (gs GenesisState) Validate() error {
 				return fmt.Errorf("consensus state height cannot be zero")
 			}
 
-			// JEREMYFLAG - unmarshalling
 			cs, ok := consensusState.ConsensusState.GetCachedValue().(exported.ConsensusState)
-			fmt.Println("unmarshalling cs: ", cs)
 			if !ok {
 				return fmt.Errorf("invalid consensus state with client ID %s at height %s", cc.ClientId, consensusState.Height)
 			}
 
 			if err := cs.ValidateBasic(); err != nil {
-				fmt.Printf("consensus state: %+v\n", cs)
 				return fmt.Errorf("invalid client consensus state %v clientID %s index %d: %w", cs, cc.ClientId, i, err)
 			}
 

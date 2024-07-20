@@ -169,6 +169,8 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 	return cdc.MustMarshalJSON(ExportGenesis(ctx, *am.keeper))
 }
 
+// StreamGenesis returns the exported genesis state as raw bytes for the ibc
+// module in a streaing fashion
 func (am AppModule) StreamGenesis(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
 	ch := make(chan json.RawMessage)
 	go func() {
