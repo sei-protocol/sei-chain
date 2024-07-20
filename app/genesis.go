@@ -4,28 +4,34 @@ import (
 	"encoding/json"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/server"
+	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/spf13/cast"
 )
 
+var DefaultGenesisConfig = genesistypes.GenesisImportConfig{
+	StreamGenesisImport: false,
+	GenesisStreamFile:   "",
+}
+
+const (
+	flagGenesisStreamImport = "genesis.stream-import"
+	flagGenesisImportFile   = "genesis.import-file"
+)
+
 func ReadGenesisImportConfig(opts servertypes.AppOptions) (genesistypes.GenesisImportConfig, error) {
-	cfg := genesistypes.GenesisImportConfig{
-		StreamGenesisImport: false,
-		GenesisStreamFile:   "",
-	}
+	cfg := DefaultGenesisConfig // copy
 	var err error
-	if v := opts.Get(server.FlagGenesisImportStream); v != nil {
+	if v := opts.Get(flagGenesisStreamImport); v != nil {
 		if cfg.StreamGenesisImport, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
-	if v := opts.Get(server.FlagGenesisImportFile); v != nil {
+	if v := opts.Get(flagGenesisImportFile); v != nil {
 		cfg.GenesisStreamFile = v.(string)
 	}
 	return cfg, nil
