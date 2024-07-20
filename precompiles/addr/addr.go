@@ -26,7 +26,7 @@ import (
 const (
 	GetSeiAddressMethod = "getSeiAddr"
 	GetEvmAddressMethod = "getEvmAddr"
-	AssociateWithGas    = "associateWithGas"
+	Associate           = "associate"
 )
 
 const (
@@ -43,14 +43,9 @@ type PrecompileExecutor struct {
 	bankKeeper    pcommon.BankKeeper
 	accountKeeper pcommon.AccountKeeper
 
-	GetSeiAddressID    []byte
-	GetEvmAddressID    []byte
-	AssociateWithGasID []byte
-}
-
-type AddrPair struct {
-	SeiAddr string
-	EvmAddr common.Address
+	GetSeiAddressID []byte
+	GetEvmAddressID []byte
+	AssociateID     []byte
 }
 
 func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
@@ -69,8 +64,8 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, a
 			p.GetSeiAddressID = m.ID
 		case GetEvmAddressMethod:
 			p.GetEvmAddressID = m.ID
-		case AssociateWithGas:
-			p.AssociateWithGasID = m.ID
+		case Associate:
+			p.AssociateID = m.ID
 		}
 	}
 
@@ -79,7 +74,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, a
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
-	if bytes.Equal(method.ID, p.AssociateWithGasID) {
+	if bytes.Equal(method.ID, p.AssociateID) {
 		return 50000
 	}
 	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
@@ -91,8 +86,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ commo
 		return p.getSeiAddr(ctx, method, args, value)
 	case GetEvmAddressMethod:
 		return p.getEvmAddr(ctx, method, args, value)
-	case AssociateWithGas:
-		return p.associateWithGas(ctx, method, args, value)
+	case Associate:
+		return p.associate(ctx, method, args, value)
 	}
 	return
 }
@@ -136,7 +131,7 @@ func (p PrecompileExecutor) getEvmAddr(ctx sdk.Context, method *abi.Method, args
 	return method.Outputs.Pack(evmAddr)
 }
 
-func (p PrecompileExecutor) associateWithGas(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) associate(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -144,6 +139,9 @@ func (p PrecompileExecutor) associateWithGas(ctx sdk.Context, method *abi.Method
 	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
 		return nil, err
 	}
+
+	// v, r and s are components of a signature over the customMessage sent.
+	// We use the signature to construct the user's pubkey to obtain their addresses.
 	v := args[0].(string)
 	r := args[1].(string)
 	s := args[2].(string)
@@ -188,12 +186,12 @@ func (p PrecompileExecutor) associateWithGas(ctx sdk.Context, method *abi.Method
 		return nil, err
 	}
 
-	return method.Outputs.Pack(AddrPair{SeiAddr: seiAddr.String(), EvmAddr: evmAddr})
+	return method.Outputs.Pack(seiAddr.String(), evmAddr)
 }
 
 func (PrecompileExecutor) IsTransaction(method string) bool {
 	switch method {
-	case AssociateWithGas:
+	case Associate:
 		return true
 	default:
 		return false

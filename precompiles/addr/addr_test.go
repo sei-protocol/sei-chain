@@ -17,13 +17,13 @@ import (
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-func TestAssociateWithGas(t *testing.T) {
+func TestAssociate(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
 	pre, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
-	associateWithGas, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).AssociateWithGasID)
+	associate, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).AssociateID)
 
 	// Target refers to the address that the caller is trying to associate.
 	targetPrivKey := testkeeper.MockPrivateKey()
@@ -55,7 +55,7 @@ func TestAssociateWithGas(t *testing.T) {
 	callerS := fmt.Sprintf("0x%v", new(big.Int).SetBytes(callerSig[32:64]).Text(16))
 	callerV := fmt.Sprintf("0x%v", new(big.Int).SetBytes([]byte{callerSig[64]}).Text(16))
 
-	happyPathOutput, _ := associateWithGas.Outputs.Pack(addr.AddrPair{SeiAddr: targetSeiAddress.String(), EvmAddr: targetEvmAddress})
+	happyPathOutput, _ := associate.Outputs.Pack(targetSeiAddress.String(), targetEvmAddress)
 
 	type args struct {
 		evm    *vm.EVM
@@ -88,10 +88,8 @@ func TestAssociateWithGas(t *testing.T) {
 				msg:    prefixedMessage,
 				value:  big.NewInt(10),
 			},
-			wantRet:    nil,
 			wantErr:    true,
 			wantErrMsg: "sending funds to a non-payable function",
-			wrongRet:   false,
 		},
 		{
 			name: "fails if input is not hex",
@@ -107,10 +105,8 @@ func TestAssociateWithGas(t *testing.T) {
 				msg:    prefixedMessage,
 				value:  big.NewInt(0),
 			},
-			wantRet:    nil,
 			wantErr:    true,
 			wantErrMsg: "encoding/hex: invalid byte: U+006E 'n'",
-			wrongRet:   false,
 		},
 		{
 			name: "fails if addresses are already associated",
@@ -126,7 +122,6 @@ func TestAssociateWithGas(t *testing.T) {
 				msg:    prefixedMessage,
 				value:  big.NewInt(0),
 			},
-			wantRet:    nil,
 			wantErr:    true,
 			wantErrMsg: fmt.Sprintf("address %s is already associated with evm address %s", callerSeiAddress, callerEvmAddress),
 		},
@@ -144,10 +139,8 @@ func TestAssociateWithGas(t *testing.T) {
 				msg:    prefixedMessage,
 				value:  big.NewInt(0),
 			},
-			wantRet:    happyPathOutput,
-			wantErr:    false,
-			wantErrMsg: "",
-			wrongRet:   true,
+			wantRet:  happyPathOutput,
+			wrongRet: true,
 		},
 		{
 			name: "associates wrong address if invalid signature (different message)",
@@ -163,13 +156,11 @@ func TestAssociateWithGas(t *testing.T) {
 				msg:    "Not the signed message",
 				value:  big.NewInt(0),
 			},
-			wantRet:    happyPathOutput,
-			wantErr:    false,
-			wantErrMsg: "",
-			wrongRet:   true,
+			wantRet:  happyPathOutput,
+			wrongRet: true,
 		},
 		{
-			name: "happy path",
+			name: "happy path - associates addresses if signature is correct",
 			args: args{
 				evm: &vm.EVM{
 					StateDB:   state.NewDBImpl(ctx, k, true),
@@ -192,11 +183,11 @@ func TestAssociateWithGas(t *testing.T) {
 			// Create the precompile and inputs
 			p, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
 			require.Nil(t, err)
-			inputs, err := associateWithGas.Inputs.Pack(tt.args.v, tt.args.r, tt.args.s, tt.args.msg)
+			inputs, err := associate.Inputs.Pack(tt.args.v, tt.args.r, tt.args.s, tt.args.msg)
 			require.Nil(t, err)
 
-			// Make the call to associateWithGas.
-			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateWithGasID, inputs...), tt.args.value, false)
+			// Make the call to associate.
+			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateID, inputs...), tt.args.value, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return
