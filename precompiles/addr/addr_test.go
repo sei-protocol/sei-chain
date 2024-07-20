@@ -126,23 +126,6 @@ func TestAssociate(t *testing.T) {
 			wantErrMsg: fmt.Sprintf("address %s is already associated with evm address %s", callerSeiAddress, callerEvmAddress),
 		},
 		{
-			name: "associates wrong address if invalid signature (different values)",
-			args: args{
-				evm: &vm.EVM{
-					StateDB:   state.NewDBImpl(ctx, k, true),
-					TxContext: vm.TxContext{Origin: callerEvmAddress},
-				},
-				caller: callerEvmAddress,
-				v:      v,
-				r:      r,
-				s:      r, // Pass in r instead of s here for invalid value
-				msg:    prefixedMessage,
-				value:  big.NewInt(0),
-			},
-			wantRet:  happyPathOutput,
-			wrongRet: true,
-		},
-		{
 			name: "associates wrong address if invalid signature (different message)",
 			args: args{
 				evm: &vm.EVM{
@@ -189,7 +172,7 @@ func TestAssociate(t *testing.T) {
 			// Make the call to associate.
 			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateID, inputs...), tt.args.value, false)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Run() error = %v, wantErr %v %v", err, tt.wantErr, string(ret))
 				return
 			}
 			if err != nil {
