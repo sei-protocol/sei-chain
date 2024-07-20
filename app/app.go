@@ -1087,7 +1087,6 @@ func (app *App) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.Respo
 }
 
 // InitChainer application update at chain initialization
-// JEREMYFLAG: InitChainer -- calls sei-cosmos's InitGenesis
 func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
 	var genesisState GenesisState
 	if !app.genesisImportConfig.StreamGenesisImport {
