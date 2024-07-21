@@ -131,7 +131,6 @@ func initRootCmd(
 			app.DefaultNodeHome,
 		),
 		genutilcli.ValidateGenesisCmd(app.ModuleBasics),
-		genutilcli.ValidateGenesisStreamCmd(app.ModuleBasics),
 		AddGenesisAccountCmd(app.DefaultNodeHome),
 		AddGenesisWasmMsgCmd(app.DefaultNodeHome),
 		tmcli.NewCompletionCmd(rootCmd, true),
