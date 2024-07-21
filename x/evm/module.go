@@ -217,8 +217,8 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 	return cdc.MustMarshalJSON(genState)
 }
 
-// StreamGenesis returns the evm module's exported genesis state as raw JSON bytes in a streaming fashion.
-func (am AppModule) StreamGenesis(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
+// ExportGenesisStream returns the evm module's exported genesis state as raw JSON bytes in a streaming fashion.
+func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
 	ch := ExportGenesisStream(ctx, am.keeper)
 	chRaw := make(chan json.RawMessage)
 	go func() {
