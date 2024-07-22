@@ -168,6 +168,16 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 		}
 		return migrations.MigrateERCCW721Pointers(ctx, am.keeper)
 	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 9, func(ctx sdk.Context) error {
+		if err := migrations.StoreCWPointerCode(ctx, am.keeper, true, true); err != nil {
+			return err
+		}
+		if err := migrations.MigrateCWERC20Pointers(ctx, am.keeper); err != nil {
+			return err
+		}
+		return migrations.MigrateCWERC721Pointers(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -192,7 +202,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 9 }
+func (AppModule) ConsensusVersion() uint64 { return 10 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {

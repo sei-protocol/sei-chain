@@ -2,7 +2,7 @@ package erc721
 
 import "embed"
 
-const CurrentVersion uint16 = 5
+const CurrentVersion uint16 = 6
 
 //go:embed cwerc721.wasm
 var f embed.FS
