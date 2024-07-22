@@ -31,7 +31,10 @@ type SendKeeper interface {
 	IsSendEnabledCoins(ctx sdk.Context, coins ...sdk.Coin) error
 
 	BlockedAddr(addr sdk.AccAddress) bool
+	RegisterRecipientChecker(RecipientChecker)
 }
+
+type RecipientChecker = func(ctx sdk.Context, recipient sdk.AccAddress) bool
 
 var _ SendKeeper = (*BaseSendKeeper)(nil)
 var OneUseiInWei sdk.Int = sdk.NewInt(1_000_000_000_000)
@@ -47,7 +50,8 @@ type BaseSendKeeper struct {
 	paramSpace paramtypes.Subspace
 
 	// list of addresses that are restricted from receiving transactions
-	blockedAddrs map[string]bool
+	blockedAddrs      map[string]bool
+	recipientCheckers *[]RecipientChecker
 }
 
 func NewBaseSendKeeper(
@@ -55,12 +59,13 @@ func NewBaseSendKeeper(
 ) BaseSendKeeper {
 
 	return BaseSendKeeper{
-		BaseViewKeeper: NewBaseViewKeeper(cdc, storeKey, ak),
-		cdc:            cdc,
-		ak:             ak,
-		storeKey:       storeKey,
-		paramSpace:     paramSpace,
-		blockedAddrs:   blockedAddrs,
+		BaseViewKeeper:    NewBaseViewKeeper(cdc, storeKey, ak),
+		cdc:               cdc,
+		ak:                ak,
+		storeKey:          storeKey,
+		paramSpace:        paramSpace,
+		blockedAddrs:      blockedAddrs,
+		recipientCheckers: &[]RecipientChecker{},
 	}
 }
 
@@ -232,6 +237,9 @@ func (k BaseSendKeeper) SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, a
 // AddCoins increase the addr balance by the given amt. Fails if the provided amt is invalid.
 // It emits a coin received event.
 func (k BaseSendKeeper) AddCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error {
+	if !k.CanSendTo(ctx, addr) {
+		return sdkerrors.ErrInvalidRecipient
+	}
 	if !amt.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amt.String())
 	}
@@ -360,6 +368,9 @@ func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int
 }
 
 func (k BaseSendKeeper) AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) (err error) {
+	if !k.CanSendTo(ctx, addr) {
+		return sdkerrors.ErrInvalidRecipient
+	}
 	if amt.Equal(sdk.ZeroInt()) {
 		return nil
 	}
@@ -403,6 +414,19 @@ func (k BaseSendKeeper) SendCoinsAndWei(ctx sdk.Context, from sdk.AccAddress, to
 		return k.SendCoinsWithoutAccCreation(ctx, from, to, sdk.NewCoins(sdk.NewCoin(sdk.MustGetBaseDenom(), amt)))
 	}
 	return nil
+}
+
+func (k BaseSendKeeper) RegisterRecipientChecker(rc RecipientChecker) {
+	*k.recipientCheckers = append(*k.recipientCheckers, rc)
+}
+
+func (k BaseSendKeeper) CanSendTo(ctx sdk.Context, recipient sdk.AccAddress) bool {
+	for _, rc := range *k.recipientCheckers {
+		if !rc(ctx, recipient) {
+			return false
+		}
+	}
+	return true
 }
 
 func SplitUseiWeiAmount(amt sdk.Int) (sdk.Int, sdk.Int) {

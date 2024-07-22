@@ -1361,6 +1361,24 @@ func (suite *IntegrationTestSuite) TestSetDenomMetaData() {
 	suite.Require().Equal(metadata[1].GetDenomUnits()[1].GetAliases(), actualMetadata.GetDenomUnits()[1].GetAliases())
 }
 
+func (suite *IntegrationTestSuite) TestCanSendTo() {
+	app, ctx := suite.app, suite.ctx
+	badAddr := sdk.AccAddress([]byte("addr1_______________"))
+	goodAddr := sdk.AccAddress([]byte("addr2_______________"))
+	sourceAddr := sdk.AccAddress([]byte("addr3_______________"))
+	app.AccountKeeper.SetAccount(ctx, app.AccountKeeper.NewAccountWithAddress(ctx, badAddr))
+	app.AccountKeeper.SetAccount(ctx, app.AccountKeeper.NewAccountWithAddress(ctx, goodAddr))
+	app.AccountKeeper.SetAccount(ctx, app.AccountKeeper.NewAccountWithAddress(ctx, sourceAddr))
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, sourceAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100)))))
+	checker := func(_ sdk.Context, addr sdk.AccAddress) bool { return !addr.Equals(badAddr) }
+	app.BankKeeper.RegisterRecipientChecker(checker)
+	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
+	suite.Require().Nil(app.BankKeeper.SendCoins(ctx, sourceAddr, goodAddr, amt))
+	suite.Require().NotNil(app.BankKeeper.SendCoins(ctx, sourceAddr, badAddr, amt))
+	suite.Require().Nil(app.BankKeeper.SendCoinsAndWei(ctx, sourceAddr, goodAddr, sdk.OneInt(), sdk.ZeroInt()))
+	suite.Require().NotNil(app.BankKeeper.SendCoinsAndWei(ctx, sourceAddr, badAddr, sdk.OneInt(), sdk.ZeroInt()))
+}
+
 func (suite *IntegrationTestSuite) TestIterateAllDenomMetaData() {
 	app, ctx := suite.app, suite.ctx
 
