@@ -50,3 +50,39 @@ func migrateSS(version int64, homeDir string, db dbm.DB) error {
 	migrator := ss.NewMigrator(homeDir, db)
 	return migrator.Migrate(version, homeDir)
 }
+
+func verifySS(version int64, homeDir string, db dbm.DB) error {
+	migrator := ss.NewMigrator(homeDir, db)
+	return migrator.Verify(version, homeDir)
+}
+
+func VerifyMigrationCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "verify-migration",
+		Short: "A tool to verify migration of a IAVL data store to SeiDB at a particular height.",
+		Run:   verify,
+	}
+	cmd.PersistentFlags().Int("height", -1, "Height to run migration verification on")
+	cmd.PersistentFlags().String("home-dir", "/root/.sei", "Sei home directory")
+	cmd.PersistentFlags().String("target-db", "", "Available options: [SS, SC]")
+	return cmd
+}
+
+func verify(cmd *cobra.Command, _ []string) {
+	homeDir, _ := cmd.Flags().GetString("home-dir")
+	version, _ := cmd.Flags().GetInt64("version")
+	dataDir := filepath.Join(homeDir, "data")
+	db, err := dbm.NewGoLevelDB("application", dataDir)
+	if err != nil {
+		panic(err)
+	}
+	latestVersion := rootmulti.GetLatestVersion(db)
+	fmt.Printf("latest version: %d\n", latestVersion)
+	err = verifySS(version, homeDir, db)
+	if err != nil {
+		fmt.Printf("Verification Failed with err: %s\n", err.Error())
+		return
+	}
+
+	fmt.Println("Verification Succeeded")
+}
