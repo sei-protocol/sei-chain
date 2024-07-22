@@ -2,8 +2,6 @@ package evm
 
 import (
 	"encoding/json"
-	"fmt"
-	"time"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -95,7 +93,6 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 		genesis.Params = k.GetParams(ctx)
 		ch <- genesis
 
-		seiAddrMappingStart := time.Now()
 		k.IterateSeiAddressMapping(ctx, func(evmAddr common.Address, seiAddr sdk.AccAddress) bool {
 			var genesis types.GenesisState
 			genesis.Params = k.GetParams(ctx)
@@ -106,10 +103,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 			ch <- &genesis
 			return false
 		})
-		seiAddrMappingEnd := time.Since(seiAddrMappingStart)
-		fmt.Println("IterateSeiAddressMapping time: ", seiAddrMappingEnd)
 
-		codeStart := time.Now()
 		k.IterateAllCode(ctx, func(addr common.Address, code []byte) bool {
 			var genesis types.GenesisState
 			genesis.Params = k.GetParams(ctx)
@@ -120,10 +114,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 			ch <- &genesis
 			return false
 		})
-		codeEnd := time.Since(codeStart)
-		fmt.Println("IterateAllCode time: ", codeEnd)
 
-		stateStart := time.Now()
 		k.IterateState(ctx, func(addr common.Address, key, val common.Hash) bool {
 			var genesis types.GenesisState
 			genesis.Params = k.GetParams(ctx)
@@ -135,10 +126,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 			ch <- &genesis
 			return false
 		})
-		stateEnd := time.Since(stateStart)
-		fmt.Println("IterateState time: ", stateEnd)
 
-		nonceStart := time.Now()
 		k.IterateAllNonces(ctx, func(addr common.Address, nonce uint64) bool {
 			var genesis types.GenesisState
 			genesis.Params = k.GetParams(ctx)
@@ -149,10 +137,7 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 			ch <- &genesis
 			return false
 		})
-		nonceEnd := time.Since(nonceStart)
-		fmt.Println("IterateAllNonces time: ", nonceEnd)
 
-		i := 1
 		for _, prefix := range [][]byte{
 			types.ReceiptKeyPrefix,
 			types.BlockBloomPrefix,
@@ -163,7 +148,6 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 		} {
 			var genesis types.GenesisState
 			genesis.Params = k.GetParams(ctx)
-			serializedStart := time.Now()
 			k.IterateAll(ctx, prefix, func(key, val []byte) bool {
 				genesis.Serialized = append(genesis.Serialized, &types.Serialized{
 					Prefix: prefix,
@@ -174,14 +158,9 @@ func ExportGenesisStream(ctx sdk.Context, k *keeper.Keeper) <-chan *types.Genesi
 					ch <- &genesis
 					genesis = types.GenesisState{}
 					genesis.Params = k.GetParams(ctx)
-					fmt.Println("Flushed serialized genesis i = ", i)
-					i += 1
 				}
 				return false
 			})
-			serializedEnd := time.Since(serializedStart)
-			fmt.Println("IterateAll time: ", serializedEnd, " for prefix: ", prefix)
-			fmt.Println("length of genesis.Serialized: ", len(genesis.Serialized))
 			ch <- &genesis
 		}
 		close(ch)

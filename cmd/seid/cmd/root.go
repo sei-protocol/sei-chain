@@ -151,7 +151,6 @@ func initRootCmd(
 		app.DefaultNodeHome,
 		newApp,
 		appExport,
-		appExportToFile,
 		addModuleInitFlags,
 		tracingProviderOpts,
 	)
@@ -314,29 +313,6 @@ func appExport(
 	forZeroHeight bool,
 	jailAllowedAddrs []string,
 	appOpts servertypes.AppOptions,
-) (servertypes.ExportedApp, error) {
-	exportableApp, err := getExportableApp(
-		logger,
-		db,
-		traceStore,
-		height,
-		appOpts,
-	)
-	if err != nil {
-		return servertypes.ExportedApp{}, err
-	}
-
-	return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
-}
-
-func appExportToFile(
-	logger log.Logger,
-	db dbm.DB,
-	traceStore io.Writer,
-	height int64,
-	forZeroHeight bool,
-	jailAllowedAddrs []string,
-	appOpts servertypes.AppOptions,
 	file *os.File,
 ) (servertypes.ExportedApp, error) {
 	exportableApp, err := getExportableApp(
@@ -350,7 +326,11 @@ func appExportToFile(
 		return servertypes.ExportedApp{}, err
 	}
 
-	return exportableApp.ExportAppToFileStateAndValidators(forZeroHeight, jailAllowedAddrs, file)
+	if file == nil {
+		return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
+	} else {
+		return exportableApp.ExportAppToFileStateAndValidators(forZeroHeight, jailAllowedAddrs, file)
+	}
 }
 
 func getExportableApp(
