@@ -4,7 +4,9 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
@@ -17,12 +19,24 @@ import (
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 )
 
+type routerWithContext struct {
+	router *baseapp.MsgServiceRouter
+}
+
+func (rc routerWithContext) Handler(msg sdk.Msg) wasmkeeper.MsgHandler {
+	h := rc.router.Handler(msg)
+	return func(ctx sdk.Context, req sdk.Msg) (sdk.Context, *sdk.Result, error) {
+		result, err := h(ctx, msg)
+		return ctx, result, err
+	}
+}
+
 func RegisterCustomPlugins(
 	oracle *oraclekeeper.Keeper,
 	epoch *epochkeeper.Keeper,
 	tokenfactory *tokenfactorykeeper.Keeper,
 	_ *authkeeper.AccountKeeper,
-	router wasmkeeper.MessageRouter,
+	router *baseapp.MsgServiceRouter,
 	channelKeeper wasmtypes.ChannelKeeper,
 	capabilityKeeper wasmtypes.CapabilityKeeper,
 	bankKeeper wasmtypes.Burner,
@@ -40,8 +54,9 @@ func RegisterCustomPlugins(
 	queryPluginOpt := wasmkeeper.WithQueryPlugins(&wasmkeeper.QueryPlugins{
 		Custom: CustomQuerier(wasmQueryPlugin),
 	})
+	routerWithCtx := routerWithContext{router}
 	messengerHandlerOpt := wasmkeeper.WithMessageHandler(
-		CustomMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, evmKeeper, unpacker, portSource, aclKeeper),
+		CustomMessageHandler(routerWithCtx, channelKeeper, capabilityKeeper, bankKeeper, evmKeeper, unpacker, portSource, aclKeeper),
 	)
 
 	return []wasm.Option{

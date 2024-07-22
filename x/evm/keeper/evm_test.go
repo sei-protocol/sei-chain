@@ -34,12 +34,8 @@ func TestInternalCallCreateContract(t *testing.T) {
 		Sender: testAddr.String(),
 		Data:   contractData,
 	}
-	// circular interop call
-	ctx = ctx.WithIsEVM(true)
-	_, err = k.HandleInternalEVMCall(ctx, req)
-	require.Equal(t, "sei does not support EVM->CW->EVM call pattern", err.Error())
 	ctx = ctx.WithIsEVM(false)
-	_, err = k.HandleInternalEVMCall(ctx, req)
+	_, _, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
 	receipt, err := k.GetTransientReceipt(ctx, [32]byte{1, 2, 3})
 	require.Nil(t, err)
@@ -65,17 +61,16 @@ func TestInternalCall(t *testing.T) {
 		Sender: testAddr.String(),
 		Data:   contractData,
 	}
-	ctx = ctx.WithIsEVM(true)
-	_, err = k.HandleInternalEVMCall(ctx, req)
-	require.Equal(t, "sei does not support EVM->CW->EVM call pattern", err.Error())
 	ctx = ctx.WithIsEVM(false)
-	ret, err := k.HandleInternalEVMCall(ctx, req)
+	resCtx, ret, err := k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
 	contractAddr := crypto.CreateAddress(senderEvmAddr, 0)
 	require.NotEmpty(t, k.GetCode(ctx, contractAddr))
 	require.Equal(t, ret.Data, k.GetCode(ctx, contractAddr))
 	k.SetERC20NativePointer(ctx, "test", contractAddr)
 
+	ctx = resCtx
+	require.NotNil(t, types.GetCtxEVM(ctx))
 	receiverAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, receiverAddr, evmAddr)
 	args, err = abi.Pack("transfer", evmAddr, big.NewInt(1000))
@@ -89,9 +84,9 @@ func TestInternalCall(t *testing.T) {
 		Data:   args,
 		Value:  &val,
 	}
-	_, err = k.HandleInternalEVMCall(ctx, req)
+	resCtx, _, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
-	require.Equal(t, int64(1000), testkeeper.EVMTestApp.BankKeeper.GetBalance(ctx, receiverAddr, "test").Amount.Int64())
+	require.Equal(t, int64(1000), testkeeper.EVMTestApp.BankKeeper.GetBalance(resCtx, receiverAddr, "test").Amount.Int64())
 }
 
 func TestStaticCall(t *testing.T) {
@@ -113,7 +108,7 @@ func TestStaticCall(t *testing.T) {
 		Sender: testAddr.String(),
 		Data:   contractData,
 	}
-	ret, err := k.HandleInternalEVMCall(ctx, req)
+	_, ret, err := k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
 	contractAddr := crypto.CreateAddress(senderEvmAddr, 0)
 	require.NotEmpty(t, k.GetCode(ctx, contractAddr))
@@ -163,7 +158,7 @@ func TestNegativeTransfer(t *testing.T) {
 	require.Zero(t, preAttackerBal)
 	require.Equal(t, steal_amount, preVictimBal)
 
-	_, err := k.HandleInternalEVMCall(ctx, req)
+	_, _, err := k.HandleInternalEVMCall(ctx, req)
 	require.ErrorContains(t, err, "invalid coins")
 
 	// post verification
@@ -179,7 +174,7 @@ func TestNegativeTransfer(t *testing.T) {
 		Value:  &zeroVal,
 	}
 
-	_, err = k.HandleInternalEVMCall(ctx, req2)
+	_, _, err = k.HandleInternalEVMCall(ctx, req2)
 	require.ErrorContains(t, err, "max initcode size exceeded")
 }
 
@@ -205,6 +200,6 @@ func TestHandleInternalEVMDelegateCall_AssociationError(t *testing.T) {
 		FromContract: string(contractAddr.Bytes()),
 		To:           castedAddr.Hex(),
 	}
-	_, err := k.HandleInternalEVMDelegateCall(ctx, req)
+	_, _, err := k.HandleInternalEVMDelegateCall(ctx, req)
 	require.Equal(t, err.Error(), types.NewAssociationMissingErr(testAddr.String()).Error())
 }
