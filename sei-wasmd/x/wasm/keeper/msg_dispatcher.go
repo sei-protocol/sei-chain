@@ -14,7 +14,7 @@ import (
 // Messenger is an extension point for custom wasmd message handling
 type Messenger interface {
 	// DispatchMsg encodes the wasmVM message and dispatches it.
-	DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error)
+	DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (resCtx sdk.Context, events []sdk.Event, data [][]byte, err error)
 }
 
 // replyer is a subset of keeper that can handle replies to submessages
@@ -36,7 +36,7 @@ func NewMessageDispatcher(messenger Messenger, keeper replyer) *MessageDispatche
 // DispatchMessages sends all messages.
 func (d MessageDispatcher) DispatchMessages(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msgs []wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) error {
 	for _, msg := range msgs {
-		events, _, err := d.messenger.DispatchMsg(ctx, contractAddr, ibcPort, msg, info, codeInfo)
+		_, events, _, err := d.messenger.DispatchMsg(ctx, contractAddr, ibcPort, msg, info, codeInfo)
 		if err != nil {
 			return err
 		}
@@ -47,7 +47,7 @@ func (d MessageDispatcher) DispatchMessages(ctx sdk.Context, contractAddr sdk.Ac
 }
 
 // dispatchMsgWithGasLimit sends a message with gas limit applied
-func (d MessageDispatcher) dispatchMsgWithGasLimit(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msg wasmvmtypes.CosmosMsg, gasLimit uint64, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
+func (d MessageDispatcher) dispatchMsgWithGasLimit(ctx sdk.Context, contractAddr sdk.AccAddress, ibcPort string, msg wasmvmtypes.CosmosMsg, gasLimit uint64, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (resCtx sdk.Context, events []sdk.Event, data [][]byte, err error) {
 	limitedMeter := sdk.NewGasMeterWithMultiplier(ctx, gasLimit)
 	subCtx := ctx.WithGasMeter(limitedMeter)
 
@@ -64,13 +64,13 @@ func (d MessageDispatcher) dispatchMsgWithGasLimit(ctx sdk.Context, contractAddr
 			err = sdkerrors.Wrap(sdkerrors.ErrOutOfGas, "SubMsg hit gas limit")
 		}
 	}()
-	events, data, err = d.messenger.DispatchMsg(subCtx, contractAddr, ibcPort, msg, info, codeInfo)
+	resCtx, events, data, err = d.messenger.DispatchMsg(subCtx, contractAddr, ibcPort, msg, info, codeInfo)
 
 	// make sure we charge the parent what was spent
 	spent := subCtx.GasMeter().GasConsumed()
 	ctx.GasMeter().ConsumeGas(spent, "From limited Sub-Message")
 
-	return events, data, err
+	return resCtx, events, data, err
 }
 
 // DispatchSubmessages builds a sandbox to execute these messages and returns the execution result to the contract
@@ -96,9 +96,9 @@ func (d MessageDispatcher) DispatchSubmessages(ctx sdk.Context, contractAddr sdk
 		var events []sdk.Event
 		var data [][]byte
 		if limitGas {
-			events, data, err = d.dispatchMsgWithGasLimit(subCtx, contractAddr, ibcPort, msg.Msg, *msg.GasLimit, info, codeInfo)
+			ctx, events, data, err = d.dispatchMsgWithGasLimit(subCtx, contractAddr, ibcPort, msg.Msg, *msg.GasLimit, info, codeInfo)
 		} else {
-			events, data, err = d.messenger.DispatchMsg(subCtx, contractAddr, ibcPort, msg.Msg, info, codeInfo)
+			ctx, events, data, err = d.messenger.DispatchMsg(subCtx, contractAddr, ibcPort, msg.Msg, info, codeInfo)
 		}
 
 		// if it succeeds, commit state changes from submessage, and pass on events to Event Manager
