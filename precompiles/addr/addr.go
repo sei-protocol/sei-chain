@@ -1,9 +1,17 @@
 package addr
 
 import (
+	"bytes"
 	"embed"
+	"encoding/hex"
 	"fmt"
+	"strings"
+
 	"math/big"
+
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -18,6 +26,7 @@ import (
 const (
 	GetSeiAddressMethod = "getSeiAddr"
 	GetEvmAddressMethod = "getEvmAddr"
+	Associate           = "associate"
 )
 
 const (
@@ -30,17 +39,23 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper pcommon.EVMKeeper
+	evmKeeper     pcommon.EVMKeeper
+	bankKeeper    pcommon.BankKeeper
+	accountKeeper pcommon.AccountKeeper
 
 	GetSeiAddressID []byte
 	GetEvmAddressID []byte
+	AssociateID     []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
+
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		evmKeeper: evmKeeper,
+		evmKeeper:     evmKeeper,
+		bankKeeper:    bankKeeper,
+		accountKeeper: accountKeeper,
 	}
 
 	for name, m := range newAbi.Methods {
@@ -49,6 +64,8 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
 			p.GetSeiAddressID = m.ID
 		case GetEvmAddressMethod:
 			p.GetEvmAddressID = m.ID
+		case Associate:
+			p.AssociateID = m.ID
 		}
 	}
 
@@ -57,6 +74,9 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
+	if bytes.Equal(method.ID, p.AssociateID) {
+		return 50000
+	}
 	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
 }
 
@@ -66,6 +86,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ commo
 		return p.getSeiAddr(ctx, method, args, value)
 	case GetEvmAddressMethod:
 		return p.getEvmAddr(ctx, method, args, value)
+	case Associate:
+		return p.associate(ctx, method, args, value)
 	}
 	return
 }
@@ -109,6 +131,77 @@ func (p PrecompileExecutor) getEvmAddr(ctx sdk.Context, method *abi.Method, args
 	return method.Outputs.Pack(evmAddr)
 }
 
-func (PrecompileExecutor) IsTransaction(string) bool {
-	return false
+func (p PrecompileExecutor) associate(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
+		return nil, err
+	}
+
+	// v, r and s are components of a signature over the customMessage sent.
+	// We use the signature to construct the user's pubkey to obtain their addresses.
+	v := args[0].(string)
+	r := args[1].(string)
+	s := args[2].(string)
+	customMessage := args[3].(string)
+
+	rBytes, err := decodeHexString(r)
+	if err != nil {
+		return nil, err
+	}
+	sBytes, err := decodeHexString(s)
+	if err != nil {
+		return nil, err
+	}
+	vBytes, err := decodeHexString(v)
+	if err != nil {
+		return nil, err
+	}
+
+	vBig := new(big.Int).SetBytes(vBytes)
+	rBig := new(big.Int).SetBytes(rBytes)
+	sBig := new(big.Int).SetBytes(sBytes)
+
+	// Derive addresses
+	vBig = new(big.Int).Add(vBig, utils.Big27)
+
+	customMessageHash := crypto.Keccak256Hash([]byte(customMessage))
+	evmAddr, seiAddr, pubkey, err := helpers.GetAddresses(vBig, rBig, sBig, customMessageHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check that address is not already associated
+	_, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
+	if found {
+		return nil, fmt.Errorf("address %s is already associated with evm address %s", seiAddr, evmAddr)
+	}
+
+	// Associate Addresses:
+	associationHelper := helpers.NewAssociationHelper(p.evmKeeper, p.bankKeeper, p.accountKeeper)
+	err = associationHelper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	return method.Outputs.Pack(seiAddr.String(), evmAddr)
+}
+
+func (PrecompileExecutor) IsTransaction(method string) bool {
+	switch method {
+	case Associate:
+		return true
+	default:
+		return false
+	}
+}
+
+func decodeHexString(hexString string) ([]byte, error) {
+	trimmed := strings.TrimPrefix(hexString, "0x")
+	if len(trimmed)%2 != 0 {
+		trimmed = "0" + trimmed
+	}
+	return hex.DecodeString(trimmed)
 }
