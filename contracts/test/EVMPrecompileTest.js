@@ -60,6 +60,10 @@ describe("EVM Precompile Tester", function () {
             const receipt = await setWithdraw.wait();
             expect(receipt.status).to.equal(1);
         });
+        it("Should query rewards and get non null response", async function () {
+            const rewards = await distribution.rewards(accounts[0].evmAddress)
+            expect(rewards).to.not.be.null;
+        });
     });
 
     // TODO: Update when we add staking query precompiles
@@ -86,7 +90,21 @@ describe("EVM Precompile Tester", function () {
             });
             const receipt = await delegate.wait();
             expect(receipt.status).to.equal(1);
-            // TODO: Add staking query precompile here
+
+            const delegation = await staking.delegation(accounts[0].evmAddress, validatorAddr);
+            expect(delegation).to.not.be.null;
+            expect(delegation[0][0]).to.equal(10000n);
+
+            const undelegate = await staking.undelegate(validatorAddr, delegation[0][0]);
+            const undelegateReceipt = await undelegate.wait();
+            expect(undelegateReceipt.status).to.equal(1);
+
+            try {
+                await staking.delegation(accounts[0].evmAddress, validatorAddr);
+                expect.fail("Expected an error here since we undelegated the amount and delegation should not exist anymore.");
+            } catch (error) {
+                expect(error).to.have.property('message').that.includes('execution reverted');
+            }
         });
     });
 

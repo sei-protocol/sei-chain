@@ -1,12 +1,15 @@
 package distribution_test
 
 import (
+	"context"
+	"embed"
 	"encoding/hex"
-
 	"math/big"
 	"reflect"
 	"testing"
 	"time"
+
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
@@ -35,6 +38,10 @@ import (
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
+//go:embed abi.json
+//go:embed staking_abi.json
+var f embed.FS
+
 func TestWithdraw(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
@@ -46,7 +53,7 @@ func TestWithdraw(t *testing.T) {
 	val := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub1)
 
 	// delegate
-	abi := staking.GetABI()
+	abi := pcommon.MustGetABI(f, "staking_abi.json")
 	args, err := abi.Pack("delegate", val.String())
 	require.Nil(t, err)
 
@@ -94,7 +101,7 @@ func TestWithdraw(t *testing.T) {
 	// set withdraw addr
 	withdrawSeiAddr, withdrawAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, withdrawSeiAddr, withdrawAddr)
-	abi = distribution.GetABI()
+	abi = pcommon.MustGetABI(f, "abi.json")
 	args, err = abi.Pack("setWithdrawAddress", withdrawAddr)
 	require.Nil(t, err)
 	addr = common.HexToAddress(distribution.DistrAddress)
@@ -160,7 +167,7 @@ func TestWithdrawMultipleDelegationRewards(t *testing.T) {
 		getValidator(t, ctx, testApp),
 		getValidator(t, ctx, testApp)}
 
-	abi := staking.GetABI()
+	abi := pcommon.MustGetABI(f, "staking_abi.json")
 	privKey := testkeeper.MockPrivateKey()
 	addr := common.HexToAddress(staking.StakingAddress)
 	chainID := k.ChainID(ctx)
@@ -240,7 +247,7 @@ func setWithdrawAddressAndWithdraw(
 ) {
 	withdrawSeiAddr, withdrawAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, withdrawSeiAddr, withdrawAddr)
-	abi := distribution.GetABI()
+	abi := pcommon.MustGetABI(f, "abi.json")
 	args, err := abi.Pack("setWithdrawAddress", withdrawAddr)
 	require.Nil(t, err)
 	addr = common.HexToAddress(distribution.DistrAddress)
@@ -656,7 +663,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 	_, notAssociatedCallerEvmAddress := testkeeper.MockAddressPair()
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
-	_, contactEvmAddress := testkeeper.MockAddressPair()
+	_, contractEvmAddress := testkeeper.MockAddressPair()
 
 	type fields struct {
 		Precompile                          pcommon.Precompile
@@ -752,7 +759,7 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			args: args{
 				addressToSet:    common.Address{},
 				caller:          callerEvmAddress,
-				callingContract: contactEvmAddress,
+				callingContract: contractEvmAddress,
 				suppliedGas:     uint64(1000000),
 			},
 			wantRet:          nil,
@@ -806,6 +813,281 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			inputs, err := setAddress.Inputs.Pack(tt.args.addressToSet)
 			require.Nil(t, err)
 			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).SetWithdrawAddrID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotRet))
+			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("RunAndCalculateGas() gotRet = %v, want %v", gotRet, tt.wantRet)
+			}
+			if gotRemainingGas != tt.wantRemainingGas {
+				t.Errorf("RunAndCalculateGas() gotRemainingGas = %v, want %v", gotRemainingGas, tt.wantRemainingGas)
+			}
+		})
+	}
+}
+
+type TestDistributionKeeper struct{}
+
+func (tk *TestDistributionKeeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error {
+	return nil
+}
+
+func (tk *TestDistributionKeeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error) {
+	return nil, nil
+}
+
+func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
+	uatomCoins := 1
+	val1useiCoins := 5
+	val2useiCoins := 7
+	rewards := []distrtypes.DelegationDelegatorReward{
+		{
+			ValidatorAddress: "seivaloper1wuj3xg3yrw4ryxn9vygwuz0necs4klj7j9nay6",
+			Reward: sdk.NewDecCoins(
+				sdk.NewDecCoin("uatom", sdk.NewInt(int64(uatomCoins))),
+				sdk.NewDecCoin("usei", sdk.NewInt(int64(val1useiCoins))),
+			),
+		},
+		{
+			ValidatorAddress: "seivaloper16znh8ktn33dwnxxc9q0jmxmjf6hsz4tl0s6vxh",
+			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(int64(val2useiCoins)))),
+		},
+	}
+
+	allDecCoins := sdk.NewDecCoins(sdk.NewDecCoin("uatom", sdk.NewInt(int64(uatomCoins))),
+		sdk.NewDecCoin("usei", sdk.NewInt(int64(val1useiCoins+val2useiCoins))))
+
+	return &distrtypes.QueryDelegationTotalRewardsResponse{Rewards: rewards, Total: allDecCoins}, nil
+}
+
+type TestEmptyRewardsDistributionKeeper struct{}
+
+func (tk *TestEmptyRewardsDistributionKeeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, withdrawAddr sdk.AccAddress) error {
+	return nil
+}
+
+func (tk *TestEmptyRewardsDistributionKeeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error) {
+	return nil, nil
+}
+
+func (tk *TestEmptyRewardsDistributionKeeper) DelegationTotalRewards(ctx context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
+	rewards := []distrtypes.DelegationDelegatorReward{}
+	allDecCoins := sdk.NewDecCoins()
+
+	return &distrtypes.QueryDelegationTotalRewardsResponse{Rewards: rewards, Total: allDecCoins}, nil
+}
+
+func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	_, notAssociatedCallerEvmAddress := testkeeper.MockAddressPair()
+	_, contractEvmAddress := testkeeper.MockAddressPair()
+	pre, _ := distribution.NewPrecompile(nil, nil)
+	rewardsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*distribution.PrecompileExecutor).RewardsID)
+	coin1 := distribution.Coin{
+		Amount:   big.NewInt(1_000_000_000_000_000_000),
+		Denom:    "uatom",
+		Decimals: big.NewInt(18),
+	}
+	coin2 := distribution.Coin{
+		Amount:   big.NewInt(5_000_000_000_000_000_000),
+		Denom:    "usei",
+		Decimals: big.NewInt(18),
+	}
+
+	coin3 := distribution.Coin{
+		Amount:   big.NewInt(7_000_000_000_000_000_000),
+		Denom:    "usei",
+		Decimals: big.NewInt(18),
+	}
+	coinsVal1 := []distribution.Coin{coin1, coin2}
+	coinsVal2 := []distribution.Coin{coin3}
+	rewardVal1 := distribution.Reward{
+		ValidatorAddress: "seivaloper1wuj3xg3yrw4ryxn9vygwuz0necs4klj7j9nay6",
+		Coins:            coinsVal1,
+	}
+	rewardVal2 := distribution.Reward{
+		ValidatorAddress: "seivaloper16znh8ktn33dwnxxc9q0jmxmjf6hsz4tl0s6vxh",
+		Coins:            coinsVal2,
+	}
+	rewards := []distribution.Reward{rewardVal1, rewardVal2}
+	coin2Amount, _ := new(big.Int).SetString("12000000000000000000", 10)
+	totalCoins := []distribution.Coin{
+		{
+			Amount:   big.NewInt(1_000_000_000_000_000_000),
+			Denom:    "uatom",
+			Decimals: big.NewInt(18),
+		},
+		{
+			Amount:   coin2Amount,
+			Denom:    "usei",
+			Decimals: big.NewInt(18),
+		},
+	}
+	rewardsOutput := distribution.Rewards{
+		Rewards: rewards,
+		Total:   totalCoins,
+	}
+
+	happyPathPackedOutput, _ := rewardsMethod.Outputs.Pack(rewardsOutput)
+	emptyCasePackedOutput, _ := rewardsMethod.Outputs.Pack(distribution.Rewards{
+		Rewards: []distribution.Reward{},
+		Total:   []distribution.Coin{},
+	})
+	type fields struct {
+		Precompile                          pcommon.Precompile
+		distrKeeper                         pcommon.DistributionKeeper
+		evmKeeper                           pcommon.EVMKeeper
+		address                             common.Address
+		SetWithdrawAddrID                   []byte
+		WithdrawDelegationRewardsID         []byte
+		WithdrawMultipleDelegationRewardsID []byte
+	}
+	type args struct {
+		evm              *vm.EVM
+		delegatorAddress common.Address
+		caller           common.Address
+		callingContract  common.Address
+		suppliedGas      uint64
+		value            *big.Int
+		readOnly         bool
+	}
+	tests := []struct {
+		name             string
+		fields           fields
+		args             args
+		wantRet          []byte
+		wantRemainingGas uint64
+		wantErr          bool
+		wantErrMsg       string
+	}{
+		{
+			name: "fails if delegator is not passed",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				caller:          callerEvmAddress,
+				callingContract: callerEvmAddress,
+				suppliedGas:     uint64(1000000),
+			},
+			wantRet:          nil,
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "invalid addr",
+		},
+		{
+			name: "fails if delegator not associated",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: notAssociatedCallerEvmAddress,
+				caller:           notAssociatedCallerEvmAddress,
+				callingContract:  notAssociatedCallerEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "cannot use an unassociated address as withdraw address",
+		},
+		{
+			name: "fails if delegator address is invalid",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: common.Address{},
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "invalid addr",
+		},
+		{
+			name: "fails if caller != callingContract",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: common.Address{},
+				caller:           callerEvmAddress,
+				callingContract:  contractEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "cannot delegatecall distr",
+		},
+		{
+			name: "fails if caller != callingContract with callingContract not set",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: common.Address{},
+				caller:           callerEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRemainingGas: 0,
+			wantErr:          true,
+			wantErrMsg:       "cannot delegatecall distr",
+		},
+		{
+			name: "should return empty delegator rewards if no rewards",
+			fields: fields{
+				distrKeeper: &TestEmptyRewardsDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				readOnly:         true,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRet:          emptyCasePackedOutput,
+			wantRemainingGas: 994319,
+			wantErr:          false,
+		},
+		{
+			name: "should return delegator rewards",
+			fields: fields{
+				distrKeeper: &TestDistributionKeeper{},
+			},
+			args: args{
+				delegatorAddress: callerEvmAddress,
+				readOnly:         true,
+				caller:           callerEvmAddress,
+				callingContract:  callerEvmAddress,
+				suppliedGas:      uint64(1000000),
+			},
+			wantRet:          happyPathPackedOutput,
+			wantRemainingGas: 994319,
+			wantErr:          false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, callerSeiAddress, callerEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB:   stateDb,
+				TxContext: vm.TxContext{Origin: callerEvmAddress},
+			}
+			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
+			rewards, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).RewardsID)
+			require.Nil(t, err)
+			inputs, err := rewards.Inputs.Pack(tt.args.delegatorAddress)
+			require.Nil(t, err)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).RewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -1,7 +1,6 @@
 package pointerview
 
 import (
-	"bytes"
 	"embed"
 	"fmt"
 	"math/big"
@@ -37,15 +36,7 @@ type PrecompileExecutor struct {
 }
 
 func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		return nil, fmt.Errorf("error loading the pointer ABI %s", err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		return nil, err
-	}
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
 		evmKeeper: evmKeeper,
@@ -73,6 +64,9 @@ func (p PrecompileExecutor) RequiredGas([]byte, *abi.Method) uint64 {
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (ret []byte, err error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
 	switch method.Name {
 	case GetNativePointer:
 		return p.GetNative(ctx, method, args)

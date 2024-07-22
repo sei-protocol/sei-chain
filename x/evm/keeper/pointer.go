@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"encoding/binary"
-	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -19,6 +18,9 @@ import (
 	artifactsutils "github.com/sei-protocol/sei-chain/x/evm/artifacts/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+type PointerGetter func(sdk.Context, string) (common.Address, uint16, bool)
+type PointerSetter func(sdk.Context, string, common.Address) error
 
 var ErrorPointerToPointerNotAllowed = sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "cannot create a pointer to a pointer")
 
@@ -291,10 +293,6 @@ func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, vers
 }
 
 func (k *Keeper) setPointerInfo(ctx sdk.Context, pref []byte, addr []byte, version uint16) error {
-	existingAddr, existingVersion, exists := k.GetPointerInfo(ctx, pref)
-	if exists && existingVersion >= version {
-		return fmt.Errorf("pointer at %X with version %d exists when trying to set pointer for version %d", string(existingAddr), existingVersion, version)
-	}
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
 	versionBz := make([]byte, 2)
 	binary.BigEndian.PutUint16(versionBz, version)
