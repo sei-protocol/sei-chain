@@ -72,8 +72,6 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 }
 
 func (m *Migrator) Verify(version int64, homeDir string) error {
-	// TODO: Call into Read Tree and run pebbleDB Get() for each key
-	// Do vice versa as well?
 	var verifyErr error
 	for _, module := range modules {
 		tree, err := ReadTree(m.iavlDB, version, []byte(buildTreePrefix(module)))
@@ -82,7 +80,7 @@ func (m *Migrator) Verify(version int64, homeDir string) error {
 			return err
 		}
 		tree.Iterate(func(key []byte, value []byte) bool {
-			// Run Get against PebbleDB
+			// Run Get() against PebbleDB and verify values match
 			val, err := m.stateStore.Get(module, version, key)
 			fmt.Printf("Verify Tree Iterate: key %s value %s pebbledb val %s\n", string(key), string(value), string(val))
 			if err != nil {
