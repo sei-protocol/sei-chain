@@ -14,8 +14,8 @@ import (
 )
 
 func TestBasicDecorator(t *testing.T) {
-	_, ctx := testkeeper.MockEVMKeeper()
-	a := ante.NewBasicDecorator()
+	k, ctx := testkeeper.MockEVMKeeper()
+	a := ante.NewBasicDecorator(k)
 	msg, _ := types.NewMsgEVMTransaction(&ethtx.LegacyTx{})
 	ctx, err := a.AnteHandle(ctx, &mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
