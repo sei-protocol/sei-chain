@@ -202,6 +202,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cw-address-like"
+version = "1.0.4"
+source = "git+https://github.com/public-awesome/cw-plus-plus.git?rev=28c1a09bfc6b4f1942fefe3eb0b50faf9d3b1523#28c1a09bfc6b4f1942fefe3eb0b50faf9d3b1523"
+dependencies = [
+ "cosmwasm-std",
+]
+
+[[package]]
 name = "cw-ownable"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -209,8 +217,22 @@ checksum = "093dfb4520c48b5848274dd88ea99e280a04bc08729603341c7fb0d758c74321"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
- "cw-address-like",
- "cw-ownable-derive",
+ "cw-address-like 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cw-ownable-derive 0.5.1",
+ "cw-storage-plus 1.2.0",
+ "cw-utils 1.0.3",
+ "thiserror",
+]
+
+[[package]]
+name = "cw-ownable"
+version = "0.6.0"
+source = "git+https://github.com/public-awesome/cw-plus-plus.git?rev=28c1a09bfc6b4f1942fefe3eb0b50faf9d3b1523#28c1a09bfc6b4f1942fefe3eb0b50faf9d3b1523"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw-address-like 1.0.4 (git+https://github.com/public-awesome/cw-plus-plus.git?rev=28c1a09bfc6b4f1942fefe3eb0b50faf9d3b1523)",
+ "cw-ownable-derive 0.6.0",
  "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
  "thiserror",
@@ -221,6 +243,16 @@ name = "cw-ownable-derive"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d3bf2e0f341bb6cc100d7d441d31cf713fbd3ce0c511f91e79f14b40a889af"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "cw-ownable-derive"
+version = "0.6.0"
+source = "git+https://github.com/public-awesome/cw-plus-plus.git?rev=28c1a09bfc6b4f1942fefe3eb0b50faf9d3b1523#28c1a09bfc6b4f1942fefe3eb0b50faf9d3b1523"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -281,15 +313,16 @@ dependencies = [
 
 [[package]]
 name = "cw1155"
-version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7#d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7"
+version = "0.19.0"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=e076bd12860d2912380405d06f65a9d56601ae29#e076bd12860d2912380405d06f65a9d56601ae29"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
- "cw-ownable",
+ "cw-ownable 0.6.0",
+ "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
  "cw2 1.1.2",
- "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7)",
+ "cw721 0.19.0",
  "schemars",
  "serde",
  "thiserror",
@@ -297,32 +330,32 @@ dependencies = [
 
 [[package]]
 name = "cw1155-base"
-version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7#d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7"
+version = "0.19.0"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=e076bd12860d2912380405d06f65a9d56601ae29#e076bd12860d2912380405d06f65a9d56601ae29"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
- "cw-ownable",
+ "cw-ownable 0.6.0",
  "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
  "cw1155",
  "cw2 1.1.2",
- "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7)",
- "cw721-base 0.18.0 (git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7)",
+ "cw721 0.19.0",
+ "cw721-base 0.19.0",
  "schemars",
  "serde",
 ]
 
 [[package]]
 name = "cw1155-royalties"
-version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7#d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7"
+version = "0.19.0"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=e076bd12860d2912380405d06f65a9d56601ae29#e076bd12860d2912380405d06f65a9d56601ae29"
 dependencies = [
  "cosmwasm-std",
  "cw1155",
  "cw1155-base",
  "cw2 1.1.2",
- "cw2981-royalties 0.18.0 (git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7)",
+ "cw2981-royalties 0.19.0",
  "schemars",
  "serde",
  "thiserror",
@@ -365,8 +398,8 @@ dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
  "cw2 1.1.2",
- "cw721 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "cw721-base 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cw721 0.18.0",
+ "cw721-base 0.18.0",
  "schemars",
  "serde",
  "thiserror",
@@ -374,14 +407,15 @@ dependencies = [
 
 [[package]]
 name = "cw2981-royalties"
-version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7#d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7"
+version = "0.19.0"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=e076bd12860d2912380405d06f65a9d56601ae29#e076bd12860d2912380405d06f65a9d56601ae29"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
+ "cw-ownable 0.6.0",
  "cw2 1.1.2",
- "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7)",
- "cw721-base 0.18.0 (git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7)",
+ "cw721 0.19.0",
+ "cw721-base 0.19.0",
  "schemars",
  "serde",
  "thiserror",
@@ -392,6 +426,18 @@ name = "cw721"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94a1ea6e6277bdd6dfc043a9b1380697fe29d6e24b072597439523658d21d791"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw-utils 0.16.0",
+ "schemars",
+ "serde",
+]
+
+[[package]]
+name = "cw721"
+version = "0.16.0"
+source = "git+https://github.com/CosmWasm/cw-nfts?tag=v0.16.0#2cad1d3e15e0a34d466a0b51e02c58b82ebe5ecd"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -415,14 +461,19 @@ dependencies = [
 
 [[package]]
 name = "cw721"
-version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7#d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7"
+version = "0.19.0"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=e076bd12860d2912380405d06f65a9d56601ae29#e076bd12860d2912380405d06f65a9d56601ae29"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
+ "cw-ownable 0.6.0",
+ "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
+ "cw2 1.1.2",
+ "cw721 0.16.0 (git+https://github.com/CosmWasm/cw-nfts?tag=v0.16.0)",
  "schemars",
  "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -436,7 +487,7 @@ dependencies = [
  "cw-storage-plus 0.16.0",
  "cw-utils 0.16.0",
  "cw2 0.16.0",
- "cw721 0.16.0",
+ "cw721 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "schemars",
  "serde",
  "thiserror",
@@ -450,11 +501,11 @@ checksum = "da518d9f68bfda7d972cbaca2e8fcf04651d0edc3de72b04ae2bcd9289c81614"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
- "cw-ownable",
+ "cw-ownable 0.5.1",
  "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
  "cw2 1.1.2",
- "cw721 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cw721 0.18.0",
  "cw721-base 0.16.0",
  "schemars",
  "serde",
@@ -463,20 +514,15 @@ dependencies = [
 
 [[package]]
 name = "cw721-base"
-version = "0.18.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7#d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7"
+version = "0.19.0"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=e076bd12860d2912380405d06f65a9d56601ae29#e076bd12860d2912380405d06f65a9d56601ae29"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
- "cw-ownable",
- "cw-storage-plus 1.2.0",
- "cw-utils 1.0.3",
+ "cw-ownable 0.6.0",
  "cw2 1.1.2",
- "cw721 0.18.0 (git+https://github.com/palletexchange/cw-nfts.git?rev=d1e6c9d1d44cbdd8b993d6cca839fd32aa5e0bc7)",
- "cw721-base 0.16.0",
- "schemars",
+ "cw721 0.19.0",
  "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -488,9 +534,9 @@ dependencies = [
  "cw-storage-plus 1.2.0",
  "cw1155",
  "cw1155-royalties",
- "cw2981-royalties 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "cw721 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "cw721-base 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "cw2981-royalties 0.18.0",
+ "cw721 0.18.0",
+ "cw721-base 0.18.0",
  "itertools",
  "schemars",
  "serde",
