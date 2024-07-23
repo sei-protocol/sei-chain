@@ -166,7 +166,10 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 		if err := migrations.MigrateERCCW20Pointers(ctx, am.keeper); err != nil {
 			return err
 		}
-		return migrations.MigrateERCCW721Pointers(ctx, am.keeper)
+		if err := migrations.MigrateERCCW721Pointers(ctx, am.keeper); err != nil {
+			return err
+		}
+		return migrations.MigrateERCCW1155Pointers(ctx, am.keeper)
 	})
 }
 

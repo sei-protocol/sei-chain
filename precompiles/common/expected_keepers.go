@@ -54,10 +54,10 @@ type EVMKeeper interface {
 	) (contractAddr common.Address, remainingGas uint64, err error)
 	UpsertERCCW721Pointer(
 		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw721Addr string, metadata utils.ERCMetadata,
-	) (contractAddr commzon.Address, remainingGas uint64, err error)
+	) (contractAddr common.Address, remainingGas uint64, err error)
 	UpsertERCCW1155Pointer(
 		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw1155Addr string, metadata utils.ERCMetadata,
-	) (contractAddr commzon.Address, remainingGas uint64, err error)
+	) (contractAddr common.Address, remainingGas uint64, err error)
 }
 
 type AccountKeeper interface {
