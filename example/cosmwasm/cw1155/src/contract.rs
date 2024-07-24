@@ -99,7 +99,7 @@ pub fn execute_send_single(
     } else {
         info.sender.clone()
     };
-    res = res.add_event(TransferEvent::new(&info, Some(from), &recipient, vec![TokenAmount{ token_id, amount }]).into());
+    res = res.add_attributes(TransferEvent::new(&info, Some(from), &recipient, vec![TokenAmount{ token_id, amount }]));
     Ok(res)
 }
 
@@ -140,7 +140,7 @@ pub fn execute_send_batch(
     } else {
         info.sender.clone()
     };
-    res = res.add_event(TransferEvent::new(&info, Some(from), &recipient, batch).into());
+    res = res.add_attributes(TransferEvent::new(&info, Some(from), &recipient, batch));
     Ok(res)
 }
 
@@ -161,14 +161,14 @@ pub fn execute_approve_all(
 
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
     let event = if approved {
-        ApproveAllEvent::new(&info.sender, &deps.api.addr_validate(&to)?).into()
+        ApproveAllEvent::new(&info.sender, &deps.api.addr_validate(&to)?).into_iter()
     } else {
-        RevokeAllEvent::new(&info.sender, &deps.api.addr_validate(&to)?).into()
+        RevokeAllEvent::new(&info.sender, &deps.api.addr_validate(&to)?).into_iter()
     };
 
     let res = Response::new()
         .add_message(msg)
-        .add_event(event);
+        .add_attributes(event);
 
     Ok(res)
 }
