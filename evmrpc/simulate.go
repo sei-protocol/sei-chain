@@ -7,6 +7,8 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/utils/helpers"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -24,7 +26,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -186,7 +187,10 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(txIndex)]
 	// We need to find the ethIndex
-	evmTxIndex, found := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, b.txDecoder)
+	evmTxIndex, found := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, b.txDecoder, func(h common.Hash) bool {
+		_, err := b.keeper.GetReceipt(sdkCtx, h)
+		return err == nil
+	})
 	if !found {
 		return nil, common.Hash{}, 0, 0, errors.New("failed to find transaction in block")
 	}
@@ -307,7 +311,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 				metrics.IncrementAssociationError("state_at_tx", err)
 				return nil, vm.BlockContext{}, nil, nil, err
 			}
-			if err := ante.NewEVMPreprocessDecorator(b.keeper, b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
+			if err := helpers.NewAssociationHelper(b.keeper, b.keeper.BankKeeper(), b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
 				return nil, vm.BlockContext{}, nil, nil, err
 			}
 		}
@@ -346,7 +350,7 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 				metrics.IncrementAssociationError("state_at_block", err)
 				return nil, emptyRelease, err
 			}
-			if err := ante.NewEVMPreprocessDecorator(b.keeper, b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
+			if err := helpers.NewAssociationHelper(b.keeper, b.keeper.BankKeeper(), b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
 				return nil, emptyRelease, err
 			}
 		}
@@ -359,7 +363,11 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	if blockCtx == nil {
 		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
 	}
-	return vm.NewEVM(*blockCtx, txContext, stateDB, b.ChainConfig(), *vmConfig)
+	evm := vm.NewEVM(*blockCtx, txContext, stateDB, b.ChainConfig(), *vmConfig)
+	if dbImpl, ok := stateDB.(*state.DBImpl); ok {
+		dbImpl.SetEVM(evm)
+	}
+	return evm
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {

@@ -73,7 +73,6 @@ contract CW20ERC20Pointer is ERC20 {
             string memory req = _curlyBrace(_formatPayload("increase_allowance", _curlyBrace(_join(spenderAddr, amt, ","))));
             _execute(bytes(req));
         }
-        emit Approval(msg.sender, spender, amount);
         return true;
     }
 
@@ -83,7 +82,6 @@ contract CW20ERC20Pointer is ERC20 {
         string memory amt = _formatPayload("amount", _doubleQuotes(Strings.toString(amount)));
         string memory req = _curlyBrace(_formatPayload("transfer", _curlyBrace(_join(recipient, amt, ","))));
         _execute(bytes(req));
-        emit Transfer(msg.sender, to, amount);
         return true;
     }
 
@@ -94,7 +92,6 @@ contract CW20ERC20Pointer is ERC20 {
         string memory amt = _formatPayload("amount", _doubleQuotes(Strings.toString(amount)));
         string memory req = _curlyBrace(_formatPayload("transfer_from", _curlyBrace(_join(_join(sender, recipient, ","), amt, ","))));
         _execute(bytes(req));
-        emit Transfer(from, to, amount);
         return true;
     }
 

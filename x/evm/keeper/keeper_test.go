@@ -215,7 +215,7 @@ func TestDeferredInfo(t *testing.T) {
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 1, Log: "test error"}})
 	msg := mockEVMTransactionMessage(t)
 	k.SetMsgs([]*types.MsgEVMTransaction{nil, {}, {}, msg})
-	infoList := k.GetEVMTxDeferredInfo(ctx)
+	infoList := k.GetAllEVMTxDeferredInfo(ctx)
 	require.Equal(t, 3, len(infoList))
 	require.Equal(t, uint32(1), infoList[0].TxIndex)
 	require.Equal(t, ethtypes.Bloom{1, 2, 3}, ethtypes.BytesToBloom(infoList[0].TxBloom))
@@ -235,7 +235,7 @@ func TestDeferredInfo(t *testing.T) {
 	a.Commit(context.Background()) // commit would clear transient stores
 	k.SetTxResults([]*abci.ExecTxResult{})
 	k.SetMsgs([]*types.MsgEVMTransaction{})
-	infoList = k.GetEVMTxDeferredInfo(ctx)
+	infoList = k.GetAllEVMTxDeferredInfo(ctx)
 	require.Empty(t, len(infoList))
 }
 

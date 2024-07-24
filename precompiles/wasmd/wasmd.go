@@ -1,7 +1,6 @@
 package wasmd
 
 import (
-	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -53,15 +52,7 @@ type ExecuteMsg struct {
 }
 
 func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.DynamicGasPrecompile, error) {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		return nil, fmt.Errorf("error loading the wasmd ABI %s", err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		return nil, err
-	}
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	executor := &PrecompileExecutor{
 		wasmdKeeper:     wasmdKeeper,

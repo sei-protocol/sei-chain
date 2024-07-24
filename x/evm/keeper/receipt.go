@@ -9,6 +9,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-db/proto"
 
+	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -21,6 +26,19 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 	}
 	store.Set(types.ReceiptKey(txHash), bz)
 	return nil
+}
+
+func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
+	store := ctx.TransientStore(k.transientStoreKey)
+	bz := store.Get(types.ReceiptKey(txHash))
+	if bz == nil {
+		return nil, errors.New("not found")
+	}
+	r := &types.Receipt{}
+	if err := r.Unmarshal(bz); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // GetReceipt returns a data structure that stores EVM specific transaction metadata.
@@ -86,4 +104,57 @@ func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
 	changesets = append(changesets, ncs)
 
 	return k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
+}
+
+func (k *Keeper) WriteReceipt(
+	ctx sdk.Context,
+	stateDB *state.DBImpl,
+	msg *core.Message,
+	txType uint32,
+	txHash common.Hash,
+	gasUsed uint64,
+	vmError string,
+) (*types.Receipt, error) {
+	ethLogs := stateDB.GetAllLogs()
+	bloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: ethLogs}})
+	receipt := &types.Receipt{
+		TxType:            txType,
+		CumulativeGasUsed: uint64(0),
+		TxHashHex:         txHash.Hex(),
+		GasUsed:           gasUsed,
+		BlockNumber:       uint64(ctx.BlockHeight()),
+		TransactionIndex:  uint32(ctx.TxIndex()),
+		EffectiveGasPrice: msg.GasPrice.Uint64(),
+		VmError:           vmError,
+		Logs:              utils.Map(ethLogs, ConvertEthLog),
+		LogsBloom:         bloom[:],
+	}
+
+	if msg.To == nil {
+		receipt.ContractAddress = crypto.CreateAddress(msg.From, msg.Nonce).Hex()
+	} else {
+		receipt.To = msg.To.Hex()
+		if len(msg.Data) > 0 {
+			receipt.ContractAddress = msg.To.Hex()
+		}
+	}
+
+	if vmError == "" {
+		receipt.Status = uint32(ethtypes.ReceiptStatusSuccessful)
+	} else {
+		receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
+	}
+
+	if perr := stateDB.GetPrecompileError(); perr != nil {
+		if receipt.Status > 0 {
+			ctx.Logger().Error(fmt.Sprintf("Transaction %s succeeded in execution but has precompile error %s", receipt.TxHashHex, perr.Error()))
+		} else {
+			// append precompile error to VM error
+			receipt.VmError = fmt.Sprintf("%s|%s", receipt.VmError, perr.Error())
+		}
+	}
+
+	receipt.From = msg.From.Hex()
+
+	return receipt, k.SetTransientReceipt(ctx, txHash, receipt)
 }

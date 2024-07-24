@@ -2,7 +2,6 @@ package keeper_test
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"math/big"
@@ -11,6 +10,7 @@ import (
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/ethereum/go-ethereum/common"
@@ -20,8 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/example/contracts/sendall"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
-	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
@@ -602,6 +600,21 @@ func TestRegisterPointer(t *testing.T) {
 		hasRegisteredEvent = true
 	}
 	require.False(t, hasRegisteredEvent)
+
+	// upgrade
+	k.DeleteCW721ERC721Pointer(ctx, pointee, version)
+	k.SetCW721ERC721PointerWithVersion(ctx, pointee, pointer.String(), version-1)
+	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC721,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.Nil(t, err)
+	newPointer, version, exists := k.GetCW721ERC721Pointer(ctx, pointee)
+	require.True(t, exists)
+	require.Equal(t, erc721.CurrentVersion, version)
+	require.Equal(t, newPointer.String(), res.PointerAddress)
+	require.Equal(t, newPointer.String(), pointer.String()) // should retain the existing contract address
 }
 
 func TestEvmError(t *testing.T) {
@@ -679,8 +692,8 @@ func TestEvmError(t *testing.T) {
 	require.Nil(t, err)
 
 	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
-	require.Equal(t, uint32(45), res.Code)
 	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.Equal(t, sdkerrors.ErrEVMVMError.ABCICode(), res.Code)
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.EvmTxInfo.TxHash))
 	require.Nil(t, err)
 	require.Equal(t, receipt.VmError, res.EvmTxInfo.VmError)
@@ -725,9 +738,6 @@ func TestAssociateContractAddress(t *testing.T) {
 
 func TestAssociate(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithChainID("sei-test").WithBlockHeight(1)
-	ctx = ctx.WithContext(
-		context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, &dexcache.MemState{}),
-	)
 	privKey := testkeeper.MockPrivateKey()
 	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	acc := testkeeper.EVMTestApp.AccountKeeper.NewAccountWithAddress(ctx, seiAddr)

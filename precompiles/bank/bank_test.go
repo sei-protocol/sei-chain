@@ -1,6 +1,7 @@
 package bank_test
 
 import (
+	"embed"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -17,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -28,6 +30,9 @@ import (
 	"github.com/stretchr/testify/require"
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
+
+//go:embed abi.json
+var f embed.FS
 
 type mockTx struct {
 	msgs    []sdk.Msg
@@ -113,7 +118,7 @@ func TestRun(t *testing.T) {
 
 	// Send native 10_000_000_000_100, split into 10 usei 100wei
 	// Test payable with eth LegacyTx
-	abi := bank.GetABI()
+	abi := pcommon.MustGetABI(f, "abi.json")
 	argsNative, err := abi.Pack(bank.SendNativeMethod, seiAddr.String())
 	require.Nil(t, err)
 	require.Nil(t, err)
