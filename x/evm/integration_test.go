@@ -292,8 +292,7 @@ func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	to := common.HexToAddress(pointer.PointerAddress)
-	abi, err := pointer.ABI()
-	require.Nil(t, err)
+	abi := pcommon.MustGetABI(f, "pointer_abi.json")
 	data, err := abi.Pack("addCW1155Pointer", cw2981Addr.String())
 	require.Nil(t, err)
 	txData := ethtypes.LegacyTx{
@@ -325,9 +324,9 @@ func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
 	require.True(t, exists)
 	require.NotEmpty(t, pointerAddr)
 	// call pointer to get royalty info
-	abi, err = cw1155.Cw1155MetaData.GetAbi()
+	cw1155abi, err := cw1155.Cw1155MetaData.GetAbi()
 	require.Nil(t, err)
-	data, err = abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
+	data, err = cw1155abi.Pack("royaltyInfo", big.NewInt(1), big.NewInt(1000))
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
 		Nonce:    2,
@@ -353,7 +352,7 @@ func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
 	require.Nil(t, typedTxData.Unmarshal(res.Data))
 	typedMsgData := types.MsgEVMTransactionResponse{}
 	require.Nil(t, typedMsgData.Unmarshal(typedTxData.Data[0].Data))
-	ret, err := abi.Unpack("royaltyInfo", typedMsgData.ReturnData)
+	ret, err := cw1155abi.Unpack("royaltyInfo", typedMsgData.ReturnData)
 	require.Nil(t, err)
 	require.Equal(t, big.NewInt(10), ret[1].(*big.Int))
 	require.Equal(t, adminEvmAddr.Hex(), ret[0].(common.Address).Hex())

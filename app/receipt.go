@@ -294,7 +294,7 @@ func (app *App) translateCW1155Event(ctx sdk.Context, wasmEvent abci.Event, poin
 		fromHash := EmptyHash
 		toHash := EmptyHash
 		if action != "mint_single" {
-			fromHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "from")
+			fromHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "owner")
 		}
 		if action != "burn_single" {
 			toHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient")
@@ -324,7 +324,7 @@ func (app *App) translateCW1155Event(ctx sdk.Context, wasmEvent abci.Event, poin
 		fromHash := EmptyHash
 		toHash := EmptyHash
 		if action != "mint_single" {
-			fromHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "from")
+			fromHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "owner")
 		}
 		if action != "burn_single" {
 			toHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient")
