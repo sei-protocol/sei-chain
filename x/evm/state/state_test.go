@@ -7,7 +7,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
-	"github.com/ethereum/go-ethereum/core/vm"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -166,17 +165,4 @@ func TestSnapshot(t *testing.T) {
 	// prev state DB committed except for transient states
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, val, newStateDB.GetState(evmAddr, key))
-}
-
-func TestSetEVM(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
-	statedb := state.NewDBImpl(ctx, k, false)
-	rev1 := statedb.Snapshot()
-	statedb.SetEVM(&vm.EVM{})
-	rev2 := statedb.Snapshot()
-	require.NotNil(t, types.GetCtxEVM(statedb.Ctx()))
-	statedb.RevertToSnapshot(rev2)
-	require.NotNil(t, types.GetCtxEVM(statedb.Ctx()))
-	statedb.RevertToSnapshot(rev1)
-	require.NotNil(t, types.GetCtxEVM(statedb.Ctx()))
 }

@@ -7,7 +7,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // Initialized for each transaction individually
@@ -73,10 +72,8 @@ func (s *DBImpl) SetLogger(logger *tracing.Hooks) {
 	s.logger = logger
 }
 
-func (s *DBImpl) SetEVM(evm *vm.EVM) {
-	s.ctx = types.SetCtxEVM(s.ctx, evm)
-	s.snapshottedCtxs = utils.Map(s.snapshottedCtxs, func(ctx sdk.Context) sdk.Context { return types.SetCtxEVM(ctx, evm) })
-}
+// for interface compliance
+func (s *DBImpl) SetEVM(evm *vm.EVM) {}
 
 // AddPreimage records a SHA3 preimage seen by the VM.
 // AddPreimage performs a no-op since the EnablePreimageRecording flag is disabled
@@ -108,8 +105,6 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
 		s.flushCtx(s.snapshottedCtxs[i])
 	}
-	s.ctx = s.snapshottedCtxs[0]
-	s.snapshottedCtxs = []sdk.Context{}
 
 	surplus = s.tempStateCurrent.surplus
 	for _, ts := range s.tempStatesHist {
