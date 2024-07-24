@@ -1,7 +1,8 @@
 use cosmwasm_std::{CosmosMsg, CustomMsg, CustomQuery, Uint128};
 use schemars::JsonSchema;
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cw1155::Cw1155QueryMsg;
+use cw1155::msg::Cw1155QueryMsg;
+use cw2981_royalties::Extension;
 use serde::{Deserialize, Serialize};
 
 #[cw_serde]
@@ -9,7 +10,7 @@ pub struct InstantiateMsg {
     pub erc1155_address: String,
 }
 
-pub type QueryMsg = Cw1155QueryMsg<CwErc1155QueryMsg>;
+pub type QueryMsg = Cw1155QueryMsg<Extension, CwErc1155QueryMsg>;
 
 /// SeiRoute is enum type to represent sei query route path
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

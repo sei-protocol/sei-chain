@@ -1,5 +1,5 @@
 use cosmwasm_std::{QuerierWrapper, StdResult, Uint128};
-use cw1155::OwnerToken;
+use cw1155::msg::OwnerToken;
 
 use crate::msg::{Route, EvmQuery, EvmQueryWrapper, ErcPayloadResponse, Erc1155BalanceOfResponse, Erc1155IsApprovedForAllResponse, Erc1155NameSymbolResponse, Erc1155UriResponse, Erc1155RoyaltyInfoResponse, SupportsInterfaceResponse, Erc1155TotalSupplyResponse, Erc1155BalanceOfBatchResponse};
 

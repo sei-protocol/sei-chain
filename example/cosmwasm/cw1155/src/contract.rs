@@ -9,7 +9,9 @@ use crate::querier::{EvmQuerier};
 use crate::error::ContractError;
 use crate::state::ERC1155_ADDRESS;
 use std::str::FromStr;
-use cw1155::{ApproveAllEvent, Balance, BalanceResponse, BalancesResponse, Cw1155BatchReceiveMsg, Cw1155ReceiveMsg, IsApprovedForAllResponse, OwnerToken, RevokeAllEvent, TokenAmount, TransferEvent};
+use cw1155::msg::{Balance, BalanceResponse, BalancesResponse, IsApprovedForAllResponse, OwnerToken, TokenAmount};
+use cw1155::event::{ApproveAllEvent, RevokeAllEvent, TransferEvent};
+use cw1155::receiver::{Cw1155BatchReceiveMsg, Cw1155ReceiveMsg};
 use cw1155_royalties::Cw1155RoyaltiesExecuteMsg;
 use itertools::izip;
 
@@ -84,15 +86,20 @@ pub fn execute_send_single(
     if let Some(msg) = msg {
         let send = Cw1155ReceiveMsg {
             operator: info.sender.to_string(),
-            from,
+            from: from.clone(),
             token_id: token_id.to_string(),
             amount,
             msg,
         };
-        res = res.add_message(send.into_cosmos_msg(recipient.to_string())?)
+        res = res.add_message(send.into_cosmos_msg(&info, recipient.to_string())?)
     }
 
-    res = res.add_event(TransferEvent::new(&info.sender, &recipient, vec![TokenAmount{ token_id, amount }]).into());
+    let from = if let Some(from) = from {
+        deps.api.addr_validate(&from)?
+    } else {
+        info.sender.clone()
+    };
+    res = res.add_attributes(TransferEvent::new(&info, Some(from), &recipient, vec![TokenAmount{ token_id, amount }]));
     Ok(res)
 }
 
@@ -121,14 +128,19 @@ pub fn execute_send_batch(
     if let Some(msg) = msg {
         let send = Cw1155BatchReceiveMsg {
             operator: info.sender.to_string(),
-            from,
+            from: from.clone(),
             batch: batch.to_vec(),
             msg,
         };
-        res = res.add_message(send.into_cosmos_msg(recipient.to_string())?);
+        res = res.add_message(send.into_cosmos_msg(&info, recipient.to_string())?);
     }
 
-    res = res.add_event(TransferEvent::new(&info.sender, &recipient, batch).into());
+    let from = if let Some(from) = from {
+        deps.api.addr_validate(&from)?
+    } else {
+        info.sender.clone()
+    };
+    res = res.add_attributes(TransferEvent::new(&info, Some(from), &recipient, batch));
     Ok(res)
 }
 
@@ -149,14 +161,14 @@ pub fn execute_approve_all(
 
     let msg = EvmMsg::DelegateCallEvm { to: erc_addr, data: payload.encoded_payload };
     let event = if approved {
-        ApproveAllEvent::new(&info.sender, &deps.api.addr_validate(&to)?).into()
+        ApproveAllEvent::new(&info.sender, &deps.api.addr_validate(&to)?).into_iter()
     } else {
-        RevokeAllEvent::new(&info.sender, &deps.api.addr_validate(&to)?).into()
+        RevokeAllEvent::new(&info.sender, &deps.api.addr_validate(&to)?).into_iter()
     };
 
     let res = Response::new()
         .add_message(msg)
-        .add_event(event);
+        .add_attributes(event);
 
     Ok(res)
 }
@@ -220,7 +232,7 @@ pub fn query(deps: Deps<EvmQueryWrapper>, env: Env, msg: QueryMsg) -> Result<Bin
         QueryMsg::Ownership {} => to_json_binary(&query_ownership()?),
         QueryMsg::ContractInfo {} => to_json_binary(&query_contract_info(deps, env)?),
         QueryMsg::TokenInfo { token_id } => to_json_binary(&query_nft_info(deps, env, token_id)?),
-        QueryMsg::Extension { msg } => match msg {
+        QueryMsg::Extension { msg, .. } => match msg {
             CwErc1155QueryMsg::EvmAddress {} => {
                 to_json_binary(&ERC1155_ADDRESS.load(deps.storage)?)
             }
