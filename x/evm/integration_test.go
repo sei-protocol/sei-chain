@@ -20,8 +20,8 @@ import (
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -270,8 +270,8 @@ func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
 		"mint": map[string]interface{}{
 			"recipient": adminSeiAddr.String(),
 			"msg": map[string]interface{}{
-				"token_id": "1",
-				"amount": "10",
+				"token_id":  "1",
+				"amount":    "10",
 				"token_uri": "testuri1",
 				"extension": map[string]interface{}{
 					"royalty_percentage":      1,

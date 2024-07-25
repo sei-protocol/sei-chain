@@ -323,10 +323,10 @@ func (app *App) translateCW1155Event(ctx sdk.Context, wasmEvent abci.Event, poin
 	case "transfer_batch", "mint_batch", "burn_batch":
 		fromHash := EmptyHash
 		toHash := EmptyHash
-		if action != "mint_single" {
+		if action != "mint_batch" {
 			fromHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "owner")
 		}
-		if action != "burn_single" {
+		if action != "burn_batch" {
 			toHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient")
 		}
 		topics = []common.Hash{
@@ -350,22 +350,27 @@ func (app *App) translateCW1155Event(ctx sdk.Context, wasmEvent abci.Event, poin
 			Topics:  topics,
 			Data:    value,
 		}, true
-	case "approve_all", "revoke_all":
+	case "approve_all":
 		topics = []common.Hash{
 			ERC1155ApprovalForAllTopic,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "operator"),
 		}
-		var dataHash []byte
-		if action == "approve_all" {
-			dataHash = TrueHash.Bytes()
-		} else {
-			dataHash = EmptyHash.Bytes()
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    TrueHash.Bytes(),
+		}, true
+	case "revoke_all":
+		topics = []common.Hash{
+			ERC1155ApprovalForAllTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "operator"),
 		}
 		return &ethtypes.Log{
 			Address: pointerAddr,
 			Topics:  topics,
-			Data:    dataHash,
+			Data:    EmptyHash.Bytes(),
 		}, true
 	}
 	return nil, false
@@ -413,7 +418,7 @@ func GetAmountAttribute(event abci.Event) (*big.Int, bool) {
 }
 
 func GetAmountsAttribute(event abci.Event) ([]*big.Int, bool) {
-	var results []*big.Int
+	results := []*big.Int{}
 	amounts, found := GetAttributeValue(event, "amounts")
 	if !found {
 		return results, false
@@ -441,7 +446,7 @@ func GetTokenIDAttribute(event abci.Event) *big.Int {
 }
 
 func GetTokenIDsAttribute(event abci.Event) ([]*big.Int, bool) {
-	var results []*big.Int
+	results := []*big.Int{}
 	tokenIDs, found := GetAttributeValue(event, "token_ids")
 	if !found {
 		return results, false

@@ -453,14 +453,14 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...) // length of token_ids array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...) // token id 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...) // token id 2
+	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...) // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(3)).Bytes()...) // amount 3
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(4)).Bytes()...) // amount 4
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(3)).Bytes()...)  // amount 3
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(4)).Bytes()...)  // amount 4
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
@@ -516,14 +516,14 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
-	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...) // length of token_ids array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...) // token id 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...) // token id 2
+	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...) // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...) // amount 2
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...) // amount 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // amount 2
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
 	// approve all
@@ -629,14 +629,14 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
-	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...) // length of token_ids array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...) // token id 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...) // token id 2
+	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...) // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...) // amount 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...) // amount 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 }
 
