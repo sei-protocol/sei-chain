@@ -314,7 +314,7 @@ dependencies = [
 [[package]]
 name = "cw1155"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=45fc627681681e28a36149459f0d2ea7fff73629#45fc627681681e28a36149459f0d2ea7fff73629"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -331,7 +331,7 @@ dependencies = [
 [[package]]
 name = "cw1155-base"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=45fc627681681e28a36149459f0d2ea7fff73629#45fc627681681e28a36149459f0d2ea7fff73629"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -349,7 +349,7 @@ dependencies = [
 [[package]]
 name = "cw1155-royalties"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=45fc627681681e28a36149459f0d2ea7fff73629#45fc627681681e28a36149459f0d2ea7fff73629"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
 dependencies = [
  "cosmwasm-std",
  "cw1155",
@@ -408,7 +408,7 @@ dependencies = [
 [[package]]
 name = "cw2981-royalties"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=45fc627681681e28a36149459f0d2ea7fff73629#45fc627681681e28a36149459f0d2ea7fff73629"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -462,7 +462,7 @@ dependencies = [
 [[package]]
 name = "cw721"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=45fc627681681e28a36149459f0d2ea7fff73629#45fc627681681e28a36149459f0d2ea7fff73629"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -515,7 +515,7 @@ dependencies = [
 [[package]]
 name = "cw721-base"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=45fc627681681e28a36149459f0d2ea7fff73629#45fc627681681e28a36149459f0d2ea7fff73629"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",

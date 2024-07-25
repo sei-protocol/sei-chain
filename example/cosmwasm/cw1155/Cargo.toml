@@ -17,8 +17,8 @@ library = []
 cosmwasm-schema = "1.5.0"
 cosmwasm-std = { version = "1.3.1", features = ["staking", "stargate"] }
 cw-storage-plus = "1.2.0"
-cw1155-royalties = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "45fc627681681e28a36149459f0d2ea7fff73629" }
-cw1155 = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "45fc627681681e28a36149459f0d2ea7fff73629" }
+cw1155-royalties = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "5b888092be361dea919f19107de5187a04fb10ec" }
+cw1155 = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "5b888092be361dea919f19107de5187a04fb10ec" }
 cw2981-royalties = "0.18.0"
 cw721 = "0.18.0"
 cw721-base = "0.18.0"
@@ -26,3 +26,17 @@ itertools = "0.13"
 schemars = "0.8.16"
 serde = "1.0.195"
 thiserror = "1.0.56"
+
+[package.metadata.scripts]
+optimize="""
+if [[ $(arch) == "arm64" ]]; then
+  image="cosmwasm/optimizer-arm64"
+else
+  image="cosmwasm/optimizer"
+fi
+
+docker run --rm -v "$(pwd)":/code \
+  --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
+  --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
+  ${image}:0.15.1
+"""
