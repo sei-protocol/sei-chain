@@ -10,6 +10,9 @@ pub struct InstantiateMsg {
     pub erc1155_address: String,
 }
 
+#[cw_serde]
+pub struct MigrateMsg {}
+
 pub type QueryMsg = Cw1155QueryMsg<Extension, CwErc1155QueryMsg>;
 
 /// SeiRoute is enum type to represent sei query route path

@@ -166,20 +166,21 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 		if err := migrations.MigrateERCCW20Pointers(ctx, am.keeper); err != nil {
 			return err
 		}
-		if err := migrations.MigrateERCCW721Pointers(ctx, am.keeper); err != nil {
-			return err
-		}
-		return migrations.MigrateERCCW1155Pointers(ctx, am.keeper)
+		return migrations.MigrateERCCW721Pointers(ctx, am.keeper)
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 9, func(ctx sdk.Context) error {
-		if err := migrations.StoreCWPointerCode(ctx, am.keeper, true, true); err != nil {
+		if err := migrations.StoreCWPointerCode(ctx, am.keeper, true, true, false); err != nil {
 			return err
 		}
 		if err := migrations.MigrateCWERC20Pointers(ctx, am.keeper); err != nil {
 			return err
 		}
 		return migrations.MigrateCWERC721Pointers(ctx, am.keeper)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 10, func(ctx sdk.Context) error {
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, false, true)
 	})
 }
 
