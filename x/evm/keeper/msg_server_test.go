@@ -564,6 +564,21 @@ func TestRegisterPointer(t *testing.T) {
 		hasRegisteredEvent = true
 	}
 	require.False(t, hasRegisteredEvent)
+
+	// upgrade ERC20 pointer
+	k.DeleteCW20ERC20Pointer(ctx, pointee, version)
+	k.SetCW20ERC20PointerWithVersion(ctx, pointee, pointer.String(), version-1)
+	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.Nil(t, err)
+	newPointer, version, exists := k.GetCW20ERC20Pointer(ctx, pointee)
+	require.True(t, exists)
+	require.Equal(t, erc20.CurrentVersion, version)
+	require.Equal(t, newPointer.String(), res.PointerAddress)
+	require.Equal(t, newPointer.String(), pointer.String()) // should retain the existing contract address
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 
 	// Test register-pointer for ERC721
@@ -604,6 +619,21 @@ func TestRegisterPointer(t *testing.T) {
 		hasRegisteredEvent = true
 	}
 	require.False(t, hasRegisteredEvent)
+
+	// upgrade ERC721 pointer
+	k.DeleteCW721ERC721Pointer(ctx, pointee, version)
+	k.SetCW721ERC721PointerWithVersion(ctx, pointee, pointer.String(), version-1)
+	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC721,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.Nil(t, err)
+	newPointer, version, exists = k.GetCW721ERC721Pointer(ctx, pointee)
+	require.True(t, exists)
+	require.Equal(t, erc721.CurrentVersion, version)
+	require.Equal(t, newPointer.String(), res.PointerAddress)
+	require.Equal(t, newPointer.String(), pointer.String()) // should retain the existing contract address
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 
 	// Test register-pointer for ERC1155
@@ -644,6 +674,22 @@ func TestRegisterPointer(t *testing.T) {
 		hasRegisteredEvent = true
 	}
 	require.False(t, hasRegisteredEvent)
+
+	// upgrade ERC1155 pointer
+	k.DeleteCW1155ERC1155Pointer(ctx, pointee, version)
+	k.SetCW1155ERC1155PointerWithVersion(ctx, pointee, pointer.String(), version-1)
+	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC1155,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.Nil(t, err)
+	newPointer, version, exists = k.GetCW1155ERC1155Pointer(ctx, pointee)
+	require.True(t, exists)
+	require.Equal(t, erc1155.CurrentVersion, version)
+	require.Equal(t, newPointer.String(), res.PointerAddress)
+	require.Equal(t, newPointer.String(), pointer.String()) // should retain the existing contract address
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
 }
 
 func TestEvmError(t *testing.T) {

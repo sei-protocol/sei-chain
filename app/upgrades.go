@@ -103,6 +103,8 @@ var upgradesList = []string{
 	"v5.5.2",
 	"v5.5.5",
 	"v5.6.0",
+	"v5.7.0",
+	"v5.7.1",
 }
 
 // if there is an override list, use that instead, for integration tests

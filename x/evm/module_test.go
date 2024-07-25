@@ -53,13 +53,13 @@ func TestModuleExportGenesis(t *testing.T) {
 	module := evm.NewAppModule(nil, k)
 	jsonMsg := module.ExportGenesis(ctx, types.ModuleCdc)
 	jsonStr := string(jsonMsg)
-	assert.Equal(t, "{\"params\":{\"priority_normalizer\":\"1.000000000000000000\",\"base_fee_per_gas\":\"0.000000000000000000\",\"minimum_fee_per_gas\":\"1000000000.000000000000000000\",\"whitelisted_cw_code_hashes_for_delegate_call\":[]},\"address_associations\":[{\"sei_address\":\"sei17xpfvakm2amg962yls6f84z3kell8c5la4jkdu\",\"eth_address\":\"0x27F7B8B8B5A4e71E8E9aA671f4e4031E3773303F\"}],\"codes\":[],\"states\":[],\"nonces\":[],\"serialized\":[{\"prefix\":\"Fg==\",\"key\":\"AwAB\",\"value\":\"AAAAAAAAAAQ=\"},{\"prefix\":\"Fg==\",\"key\":\"BAAF\",\"value\":\"AAAAAAAAAAU=\"},{\"prefix\":\"Fg==\",\"key\":\"BgAB\",\"value\":\"AAAAAAAAAAY=\"}]}", jsonStr)
+	assert.Equal(t, "{\"params\":{\"priority_normalizer\":\"1.000000000000000000\",\"base_fee_per_gas\":\"0.000000000000000000\",\"minimum_fee_per_gas\":\"1000000000.000000000000000000\",\"whitelisted_cw_code_hashes_for_delegate_call\":[]},\"address_associations\":[{\"sei_address\":\"sei17xpfvakm2amg962yls6f84z3kell8c5la4jkdu\",\"eth_address\":\"0x27F7B8B8B5A4e71E8E9aA671f4e4031E3773303F\"}],\"codes\":[],\"states\":[],\"nonces\":[],\"serialized\":[{\"prefix\":\"Fg==\",\"key\":\"AwAC\",\"value\":\"AAAAAAAAAAQ=\"},{\"prefix\":\"Fg==\",\"key\":\"BAAG\",\"value\":\"AAAAAAAAAAU=\"},{\"prefix\":\"Fg==\",\"key\":\"BgAB\",\"value\":\"AAAAAAAAAAY=\"}]}", jsonStr)
 }
 
 func TestConsensusVersion(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
-	assert.Equal(t, uint64(9), module.ConsensusVersion())
+	assert.Equal(t, uint64(10), module.ConsensusVersion())
 }
 
 func TestABCI(t *testing.T) {

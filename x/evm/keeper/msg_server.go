@@ -257,12 +257,20 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 		panic("unknown pointer type")
 	}
 	codeID := server.GetStoredPointerCodeID(ctx, msg.PointerType)
-	bz, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
 	moduleAcct := server.accountKeeper.GetModuleAddress(types.ModuleName)
-	pointerAddr, _, err := server.wasmKeeper.Instantiate(ctx, codeID, moduleAcct, moduleAcct, bz, fmt.Sprintf("Pointer of %s", msg.ErcAddress), sdk.NewCoins())
+	var err error
+	var pointerAddr sdk.AccAddress
+	if exists {
+		bz, _ := json.Marshal(map[string]interface{}{})
+		pointerAddr = existingPointer
+		_, err = server.wasmKeeper.Migrate(ctx, existingPointer, moduleAcct, codeID, bz)
+	} else {
+		bz, jerr := json.Marshal(payload)
+		if jerr != nil {
+			return nil, jerr
+		}
+		pointerAddr, _, err = server.wasmKeeper.Instantiate(ctx, codeID, moduleAcct, moduleAcct, bz, fmt.Sprintf("Pointer of %s", msg.ErcAddress), sdk.NewCoins())
+	}
 	if err != nil {
 		return nil, err
 	}

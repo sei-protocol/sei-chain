@@ -28,12 +28,15 @@ type BankKeeper interface {
 	GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int
 	GetDenomMetaData(ctx sdk.Context, denom string) (banktypes.Metadata, bool)
 	GetSupply(ctx sdk.Context, denom string) sdk.Coin
+	LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
 }
 
 type EVMKeeper interface {
 	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
 	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress // only used for getting precompile Sei addresses
 	GetEVMAddress(sdk.Context, sdk.AccAddress) (common.Address, bool)
+	SetAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
 	GetCodeHash(sdk.Context, common.Address) common.Hash
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
@@ -61,8 +64,10 @@ type EVMKeeper interface {
 }
 
 type AccountKeeper interface {
+	GetAccount(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
 	HasAccount(ctx sdk.Context, addr sdk.AccAddress) bool
 	SetAccount(ctx sdk.Context, acc authtypes.AccountI)
+	RemoveAccount(ctx sdk.Context, acc authtypes.AccountI)
 	NewAccountWithAddress(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
 }
 
