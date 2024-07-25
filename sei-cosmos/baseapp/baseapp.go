@@ -945,6 +945,11 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			// gas there too.
 			ctx = newCtx.WithMultiStore(ms)
 		}
+		defer func() {
+			if newCtx.DeliverTxCallback() != nil {
+				newCtx.DeliverTxCallback()(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)))
+			}
+		}()
 
 		events := ctx.EventManager().Events()
 

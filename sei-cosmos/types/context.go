@@ -24,28 +24,29 @@ but please do not over-use it. We try to keep all data structured
 and standard additions here would be better just to add to the Context struct
 */
 type Context struct {
-	ctx              context.Context
-	ms               MultiStore
-	header           tmproto.Header
-	headerHash       tmbytes.HexBytes
-	chainID          string
-	txBytes          []byte
-	txSum            [32]byte
-	logger           log.Logger
-	voteInfo         []abci.VoteInfo
-	gasMeter         GasMeter
-	occEnabled       bool
-	blockGasMeter    GasMeter
-	checkTx          bool
-	recheckTx        bool // if recheckTx == true, then checkTx must also be true
-	minGasPrice      DecCoins
-	consParams       *tmproto.ConsensusParams
-	eventManager     *EventManager
-	evmEventManager  *EVMEventManager
-	priority         int64                 // The tx priority, only relevant in CheckTx
-	pendingTxChecker abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
-	checkTxCallback  func(Context, error)  // callback to make at the end of CheckTx. Input param is the error (nil-able) of `runMsgs`
-	expireTxHandler  func()                // callback that the mempool invokes when a tx is expired
+	ctx               context.Context
+	ms                MultiStore
+	header            tmproto.Header
+	headerHash        tmbytes.HexBytes
+	chainID           string
+	txBytes           []byte
+	txSum             [32]byte
+	logger            log.Logger
+	voteInfo          []abci.VoteInfo
+	gasMeter          GasMeter
+	occEnabled        bool
+	blockGasMeter     GasMeter
+	checkTx           bool
+	recheckTx         bool // if recheckTx == true, then checkTx must also be true
+	minGasPrice       DecCoins
+	consParams        *tmproto.ConsensusParams
+	eventManager      *EventManager
+	evmEventManager   *EVMEventManager
+	priority          int64                 // The tx priority, only relevant in CheckTx
+	pendingTxChecker  abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
+	checkTxCallback   func(Context, error)  // callback to make at the end of CheckTx. Input param is the error (nil-able) of `runMsgs`
+	deliverTxCallback func(Context)         // callback to make at the end of DeliverTx.
+	expireTxHandler   func()                // callback that the mempool invokes when a tx is expired
 
 	txBlockingChannels   acltypes.MessageAccessOpsChannelMapping
 	txCompletionChannels acltypes.MessageAccessOpsChannelMapping
@@ -167,6 +168,10 @@ func (c Context) PendingTxChecker() abci.PendingTxChecker {
 
 func (c Context) CheckTxCallback() func(Context, error) {
 	return c.checkTxCallback
+}
+
+func (c Context) DeliverTxCallback() func(Context) {
+	return c.deliverTxCallback
 }
 
 func (c Context) TxCompletionChannels() acltypes.MessageAccessOpsChannelMapping {
@@ -445,6 +450,11 @@ func (c Context) WithPendingTxChecker(checker abci.PendingTxChecker) Context {
 
 func (c Context) WithCheckTxCallback(checkTxCallback func(Context, error)) Context {
 	c.checkTxCallback = checkTxCallback
+	return c
+}
+
+func (c Context) WithDeliverTxCallback(deliverTxCallback func(Context)) Context {
+	c.deliverTxCallback = deliverTxCallback
 	return c
 }
 
