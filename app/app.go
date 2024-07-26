@@ -603,6 +603,7 @@ func New(
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
 	bApp.SetCloseHandler(app.HandleClose)

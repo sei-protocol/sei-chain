@@ -25,6 +25,9 @@ func (k *Keeper) GetAllEVMTxDeferredInfo(ctx sdk.Context) (res []*types.Deferred
 			// this means the transaction got reverted during execution, either in ante handler
 			// or due to a panic in msg server
 			etx, _ := msg.AsTransaction()
+			if etx == nil {
+				panic("etx is nil for EVM DeferredInfo msg.AsTransaction(). This should never happen.")
+			}
 			if txRes.Code == 0 {
 				ctx.Logger().Error(fmt.Sprintf("transaction %s has code 0 but no deferred info", etx.Hash().Hex()))
 			}

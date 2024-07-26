@@ -144,7 +144,10 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
 	}
-
+	// create empty filter if filter does not exist
+	if filter == nil {
+		filter = &filters.FilterCriteria{}
+	}
 	rpcSub := notifier.CreateSubscription()
 
 	if filter.BlockHash != nil {

@@ -89,6 +89,9 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	var bloom ethtypes.Bloom
 	if r, err := app.EvmKeeper.GetTransientReceipt(ctx, txHash); err == nil && r != nil {
 		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)...)
+		for i, l := range r.Logs {
+			l.Index = uint32(i)
+		}
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r)}})
 		r.LogsBloom = bloom[:]
 		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, r)
