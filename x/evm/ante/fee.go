@@ -124,6 +124,8 @@ func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.T
 	priority := sdk.NewDecFromBigInt(gp).Quo(fc.evmKeeper.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if priority.Cmp(big.NewInt(antedecorators.MaxPriority)) > 0 {
 		priority = big.NewInt(antedecorators.MaxPriority)
+	} else if priority.Sign() < 0 {
+		priority = big.NewInt(0)
 	}
 	return priority
 }
