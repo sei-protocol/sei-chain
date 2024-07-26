@@ -720,6 +720,7 @@ loop:
 				restoreErr = err
 				break loop
 			}
+			rs.logger.Info(fmt.Sprintf("Start restoring store: %s", storeKey))
 		case *snapshottypes.SnapshotItem_IAVL:
 			if item.IAVL.Height > math.MaxInt8 {
 				restoreErr = errors.Wrapf(sdkerrors.ErrLogic, "node height %v cannot exceed %v",

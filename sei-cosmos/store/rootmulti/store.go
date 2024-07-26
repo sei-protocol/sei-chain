@@ -803,7 +803,7 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		if err != nil {
 			return err
 		}
-
+		rs.logger.Info(fmt.Sprintf("Exporting snapshot for store %s", store.name))
 		for {
 			node, err := exporter.Next()
 			if err == iavltree.ExportDone {
