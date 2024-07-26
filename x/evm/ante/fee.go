@@ -98,6 +98,8 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	// only set priority if it is valid
 	if priority.IsInt64() {
 		ctx = ctx.WithPriority(priority.Int64())
+	} else {
+		ctx = ctx.WithPriority(0)
 	}
 
 	return next(ctx, tx, simulate)
