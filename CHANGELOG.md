@@ -29,10 +29,17 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v5.7.1 & v5.7.2
 sei-chain
+* [#1779](https://github.com/sei-protocol/sei-chain/pull/1779) Fix subscribe logs empty params crash
+* [#1783](https://github.com/sei-protocol/sei-chain/pull/1783) Add meaningful message for eth_call balance override overflow
+* [#1783](https://github.com/sei-protocol/sei-chain/pull/1784) Fix log index on synthetic receipt
+* [#1775](https://github.com/sei-protocol/sei-chain/pull/1775) Disallow sending to direct cast addr after association
 
 sei-wasmd
+* [60](https://github.com/sei-protocol/sei-wasmd/pull/60) Query penalty fixes
 
 sei-tendermint
+* [#237](https://github.com/sei-protocol/sei-tendermint/pull/237) Add metrics for total txs bytes in mempool
+
 ## v5.7.0
 sei-chain
 * [#1731](https://github.com/sei-protocol/sei-chain/pull/1731) Remove 1-hop limit
