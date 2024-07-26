@@ -13,6 +13,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtracers "github.com/sei-protocol/sei-chain/x/evm/tracers"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
@@ -36,6 +37,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	if response.Code > 0 {
 		return
 	}
+
 	wasmEvents := GetEventsOfType(response, wasmtypes.WasmModuleEventType)
 	logs := []*ethtypes.Log{}
 	for _, wasmEvent := range wasmEvents {
@@ -67,25 +69,39 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	if len(logs) == 0 {
 		return
 	}
+
 	txHash := common.BytesToHash(checksum[:])
 	if response.EvmTxInfo != nil {
 		txHash = common.HexToHash(response.EvmTxInfo.TxHash)
 	}
+
+	fmt.Printf("AddCosmosEventsToEVMReceiptIfApplicable on tx %s (EVM? %t) with log count %d\n", txHash, response.EvmTxInfo != nil, len(logs))
+
+	addedLogs := utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)
+
 	var bloom ethtypes.Bloom
-	if r, err := app.EvmKeeper.GetTransientReceipt(ctx, txHash); err == nil && r != nil {
-		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)...)
-		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r)}})
-		r.LogsBloom = bloom[:]
-		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, r)
+	if receipt, err := app.EvmKeeper.GetTransientReceipt(ctx, txHash); err == nil && receipt != nil {
+		fmt.Printf(" - Had transient receipt already with log count %d\n", len(receipt.Logs))
+
+		receipt.Logs = append(receipt.Logs, addedLogs...)
+		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(receipt)}})
+		receipt.LogsBloom = bloom[:]
+		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, receipt)
+
+		if tracer := evmtracers.GetCtxBlockchainTracer(ctx); tracer != nil && tracer.OnSeiPostTxCosmosEvents != nil {
+			tracer.OnSeiPostTxCosmosEvents(addedLogs, receipt, true)
+		}
 	} else {
+		fmt.Printf(" - To previous transient receipt found\n")
+
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: logs}})
-		receipt := &evmtypes.Receipt{
+		receipt = &evmtypes.Receipt{
 			TxType:           ShellEVMTxType,
 			TxHashHex:        txHash.Hex(),
 			GasUsed:          ctx.GasMeter().GasConsumed(),
 			BlockNumber:      uint64(ctx.BlockHeight()),
 			TransactionIndex: uint32(ctx.TxIndex()),
-			Logs:             utils.Map(logs, evmkeeper.ConvertSyntheticEthLog),
+			Logs:             addedLogs,
 			LogsBloom:        bloom[:],
 			Status:           uint32(ethtypes.ReceiptStatusSuccessful), // we don't create shell receipt for failed Cosmos tx since there is no event anyway
 		}
@@ -95,6 +111,10 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			receipt.From = app.EvmKeeper.GetEVMAddressOrDefault(ctx, sigTx.GetSigners()[0]).Hex()
 		}
 		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, receipt)
+
+		if tracer := evmtracers.GetCtxBlockchainTracer(ctx); tracer != nil && tracer.OnSeiPostTxCosmosEvents != nil {
+			tracer.OnSeiPostTxCosmosEvents(addedLogs, receipt, false)
+		}
 	}
 	if d, found := app.EvmKeeper.GetEVMTxDeferredInfo(ctx); found {
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, d.Surplus)

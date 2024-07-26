@@ -34,6 +34,7 @@ import (
 	"github.com/holiman/uint256"
 	pbeth "github.com/sei-protocol/sei-chain/pb/sf/ethereum/type/v2"
 	seitracing "github.com/sei-protocol/sei-chain/x/evm/tracing"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 	"google.golang.org/protobuf/proto"
@@ -127,6 +128,8 @@ func newSeiFirehoseTracer(tracerURL *url.URL) (*seitracing.Hooks, error) {
 		OnSeiSystemCallStart: tracer.OnSystemCallStart,
 		OnSeiSystemCallEnd:   tracer.OnSystemCallEnd,
 
+		OnSeiPostTxCosmosEvents: tracer.OnPostTxCosmosEvents,
+
 		GetTxTracer: func(txIndex int) sdk.TxTracer {
 			// Created first so we can get the pointer id everywhere
 			isolatedTracer := &TxTracerHooks{}
@@ -139,6 +142,8 @@ func newSeiFirehoseTracer(tracerURL *url.URL) (*seitracing.Hooks, error) {
 
 				OnSeiSystemCallStart: isolatedTxTracer.OnSystemCallStart,
 				OnSeiSystemCallEnd:   isolatedTxTracer.OnSystemCallEnd,
+
+				OnSeiPostTxCosmosEvents: isolatedTxTracer.OnPostTxCosmosEvents,
 			}
 
 			isolatedTracer.OnTxReset = func() {
@@ -439,7 +444,7 @@ func getActivePrecompilesChecker(rules params.Rules) func(addr common.Address) b
 }
 
 func (f *Firehose) OnBlockEnd(err error) {
-	firehoseInfo("block ending (err=%s)", errorView(err))
+	firehoseInfo("block ending (trx=%d, err=%s)", len(f.block.TransactionTraces), errorView(err))
 
 	if err == nil {
 		f.ensureInBlockAndNotInTrx()
@@ -757,6 +762,54 @@ func (f *Firehose) assignOrdinalAndIndexToReceiptLogs() {
 
 		receiptsLog.Index = callLog.Index
 		receiptsLog.Ordinal = callLog.Ordinal
+	}
+}
+
+func (f *Firehose) OnPostTxCosmosEvents(addedLogs []*evmtypes.Log, newReceipt *evmtypes.Receipt, onEvmTransaction bool) {
+	firehoseInfo("post tx cosmos events (tracer=%s, added_logs=%d)", f.tracerID, len(addedLogs))
+
+	if !onEvmTransaction {
+		firehoseInfo("ignoring post tx cosmos events ")
+		return
+	}
+
+	transaction := f.transaction
+	if f.transactionIsolated {
+		transaction = f.transientTransaction
+	}
+
+	if transaction == nil {
+		f.panicInvalidState("transaction (or transient transaction) must be set at this point", 1)
+	}
+
+	for _, addedLog := range addedLogs {
+		firehoseDebug("adding post log to tx (tracer=%s, address=%s [receipt has already %d logs])", f.tracerID, addedLog.Address, len(transaction.Receipt.Logs))
+		transaction.Receipt.Logs = append(transaction.Receipt.Logs, f.newLogFromCosmos(addedLog))
+	}
+
+	transaction.Receipt.LogsBloom = newReceipt.LogsBloom
+}
+
+func (f *Firehose) newLogFromCosmos(log *evmtypes.Log) *pbeth.Log {
+	address := common.HexToAddress(log.Address)
+	var topics [][]byte
+	if len(log.Topics) > 0 {
+		topics = make([][]byte, len(log.Topics))
+		for i, topic := range log.Topics {
+			topics[i] = common.Hex2Bytes(topic)
+		}
+	}
+
+	return &pbeth.Log{
+		Address: address[:],
+		Topics:  topics,
+		Data:    log.Data,
+
+		// This is actually transaction index, we can probably fixed that too.
+		Index:      log.Index,
+		BlockIndex: log.Index,
+
+		Ordinal: f.blockOrdinal.Next(),
 	}
 }
 

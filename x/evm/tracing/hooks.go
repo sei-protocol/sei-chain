@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 // BlockEvent is emitted upon tracing an incoming block.
@@ -27,23 +28,25 @@ type (
 	// convey how chain is progressing. E.g. known blocks will be skipped
 	// when node is started after a crash.
 	OnSeiBlockStartHook = func(hash []byte, size uint64, b *types.Header)
-	// OnSeiBlockEnd is called after executing `block` and receives the error
+	// OnSeiBlockEndHook is called after executing `block` and receives the error
 	// that occurred during processing. If an `err` is received in the callback,
 	// it means the block should be discarded (optimistic execution failed for example).
-	OnSeiBlockEnd = func(err error)
+	OnSeiBlockEndHook = func(err error)
 
 	// OnSeiSystemCallStart is called before executing a system call in Sei context. CoWasm
 	// contract execution that invokes the EVM from one ore another are examples of system calls.
 	//
 	// You can use this hook to route upcoming `OnEnter/OnExit` EVM tracing hook to be appended
 	// to a system call bucket for the purpose of tracing the system calls.
-	OnSeiSystemCallStart = func(err error)
+	OnSeiSystemCallStartHook = func()
 
 	// OnSeiSystemCallStart is called after executing a system call in Sei context. CoWasm
 	// contract execution that invokes the EVM from one ore another are examples of system calls.
 	//
 	// You can use this hook to terminate special handling of `OnEnter/OnExit`.
-	OnSeiSystemCallEnd = func(err error)
+	OnSeiSystemCallEndHook = func()
+
+	OnSeiPostTxCosmosEventsHook = func(addedLogs []*evmtypes.Log, newReceipt *evmtypes.Receipt, onEvmTransaction bool)
 )
 
 // Hooks is used to collect traces during chain processing. It's a similar
@@ -56,10 +59,12 @@ type Hooks struct {
 
 	OnSeiBlockchainInit OnSeiBlockchainInitHook
 	OnSeiBlockStart     OnSeiBlockStartHook
-	OnSeiBlockEnd       OnSeiBlockEnd
+	OnSeiBlockEnd       OnSeiBlockEndHook
 
-	OnSeiSystemCallStart func()
+	OnSeiSystemCallStart OnSeiSystemCallStartHook
 	OnSeiSystemCallEnd   func()
+
+	OnSeiPostTxCosmosEvents OnSeiPostTxCosmosEventsHook
 
 	GetTxTracer func(txIndex int) sdk.TxTracer
 }

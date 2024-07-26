@@ -257,6 +257,106 @@ describe("ERC20 to CW20 Pointer", function () {
                     await (await pointer.approve(spender.evmAddress, 0)).wait()
                 });
             });
+
+            describe("CW20 event logs", function () {
+              it("has correct amount of block logs", async function () {
+                let sender = accounts[0];
+                let recipient = accounts[1];
+
+                console.log("ERC20 Pointer Address",await pointer.getAddress());
+
+                expect(await pointer.balanceOf(sender.evmAddress)).to.equal(
+                  balances.account0
+                );
+                expect(await pointer.balanceOf(recipient.evmAddress)).to.equal(
+                  balances.account1
+                );
+
+                const txCount = 10;
+                const nonce = await ethers.provider.getTransactionCount(
+                  sender.evmAddress
+                );
+
+                // const transfer = async (index) => { console.log("Starting", index); await delay(index * 500); console.log("Terminated", index) }
+
+                const transfer = async (index) => {
+                  console.log("Transfer starting", index)
+                  let tx
+                  try {
+                    tx = await pointer.transfer(recipient.evmAddress, 1, {
+                      nonce: nonce + (index - 1),
+                    });
+                  } catch (error) {
+                      console.log(`Transfer ${index} send transaction failed`, error);
+                  }
+
+                  console.log(`Transfer ${index} tx hash: ${tx.hash}`);
+
+                  let receipt
+                  try {
+                    receipt = await tx.wait();
+                  } catch (error) {
+                      console.log(`Transfer ${index} send transaction failed`, error);
+                  }
+
+                  console.log(`Transfer receipt ${index} ${receipt.status}`);
+                };
+
+                let promises = [];
+                for (let i = 1; i <= txCount; i++) {
+                  promises.push(transfer(i));
+                }
+
+                const blockNumber = await ethers.provider.getBlockNumber();
+
+                const start = Date.now();
+                console.log("Waiting for all transfers to complete", promises.length);
+                await Promise.all(promises);
+                console.log(`All transactions took ${Date.now() - start} ms`);
+
+                expect(await pointer.balanceOf(sender.evmAddress)).to.equal(
+                  balances.account0 - txCount
+                );
+                expect(await pointer.balanceOf(recipient.evmAddress)).to.equal(
+                  balances.account1 + txCount
+                );
+
+                // check logs
+                const filter = {
+                  fromBlock: blockNumber,
+                  toBlock: "latest",
+                  address: await pointer.getAddress(),
+                  topics: [ethers.id("Transfer(address,address,uint256)")],
+                };
+                const logs = await ethers.provider.getLogs(filter);
+                expect(logs.length).to.equal(txCount);
+
+                const byBlock = {};
+                logs.forEach((log) => {
+                  const blockNumber = parseInt(log.blockNumber, 16);
+                  if (!byBlock[blockNumber]) {
+                    byBlock[blockNumber] = [];
+                  }
+
+                  byBlock[blockNumber].push(log);
+                });
+
+                Object.entries(byBlock).forEach(([blockNumber, logs]) => {
+                  console.log("Block", blockNumber, "Logs", logs.length);
+                })
+
+                expect(
+                  Object.entries(byBlock).some(
+                    ([blockNumber, logs]) => logs.length > 1
+                  )
+                ).to.be.true;
+
+                const cleanupTx = await pointer
+                  .connect(recipient.signer)
+                  .transfer(sender.evmAddress, txCount);
+                await cleanupTx.wait();
+              });
+            })
         });
     }
 
