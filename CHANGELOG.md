@@ -27,6 +27,12 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v5.7.1 & v5.7.2
+sei-chain
+
+sei-wasmd
+
+sei-tendermint
 ## v5.7.0
 sei-chain
 * [#1731](https://github.com/sei-protocol/sei-chain/pull/1731) Remove 1-hop limit
