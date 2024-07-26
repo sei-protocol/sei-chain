@@ -603,6 +603,7 @@ func New(
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
 	bApp.SetCloseHandler(app.HandleClose)
@@ -1039,7 +1040,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
 	// TODO: change this upgrade name if the planned upgrade version number ends up changing more
-	if upgradeInfo.Name == "v5.7.0" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	if upgradeInfo.Name == "v5.7.1" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		dexStoreKeyName := "dex"
 		storeUpgrades := storetypes.StoreUpgrades{
 			Deleted: []string{dexStoreKeyName},

@@ -3,6 +3,7 @@ package wasmbinding
 import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -18,14 +19,14 @@ type CustomRouter struct {
 	evmKeeper *evmkeeper.Keeper
 }
 
-func (r *CustomRouter) Handler(msg sdk.Msg) wasmkeeper.MsgHandler {
+func (r *CustomRouter) Handler(msg sdk.Msg) baseapp.MsgServiceHandler {
 	switch m := msg.(type) {
 	case *evmtypes.MsgInternalEVMCall:
-		return func(ctx sdk.Context, _ sdk.Msg) (sdk.Context, *sdk.Result, error) {
+		return func(ctx sdk.Context, _ sdk.Msg) (*sdk.Result, error) {
 			return r.evmKeeper.HandleInternalEVMCall(ctx, m)
 		}
 	case *evmtypes.MsgInternalEVMDelegateCall:
-		return func(ctx sdk.Context, _ sdk.Msg) (sdk.Context, *sdk.Result, error) {
+		return func(ctx sdk.Context, _ sdk.Msg) (*sdk.Result, error) {
 			return r.evmKeeper.HandleInternalEVMDelegateCall(ctx, m)
 		}
 	default:
