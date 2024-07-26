@@ -641,8 +641,10 @@ func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []b
 	queryResult, gasUsed, qErr := k.wasmVM.Query(codeInfo.CodeHash, env, req, prefixStore, cosmwasmAPI, querier, k.gasMeter(ctx), k.runtimeGasForContract(ctx), costJSONDeserialization)
 	k.consumeRuntimeGas(ctx, gasUsed)
 	if qErr != nil {
-		// consume ALL remaining gas on error
-		k.consumeRemainingGas(ctx)
+		// consume ALL remaining gas on error if the gasUsed is 0 due to error in consuming correct gas amount
+		if gasUsed == 0 {
+			k.consumeRemainingGas(ctx)
+		}
 		return nil, sdkerrors.Wrap(types.ErrQueryFailed, qErr.Error())
 	}
 
