@@ -190,27 +190,22 @@ func MigrateCWERC721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 	moduleAcct := k.AccountKeeper().GetModuleAddress(types.ModuleName)
 	codeID := k.GetStoredPointerCodeID(ctx, types.PointerType_ERC721)
 	seen := map[string]struct{}{}
-	fmt.Println("about to iterate")
 	for ; iter.Valid(); iter.Next() {
-		fmt.Println(iter.Key())
 		evmAddr := string(iter.Key()[:len(iter.Key())-2]) // last two bytes are version
 		if _, ok := seen[evmAddr]; ok {
 			continue
 		}
-		fmt.Println(evmAddr)
 		seen[evmAddr] = struct{}{}
 		addr, err := sdk.AccAddressFromBech32(string(iter.Value()))
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("error parsing cw-erc721 pointer %s address %s", string(iter.Value()), err))
 			return err
 		}
-		fmt.Println(addr)
 		_, err = k.WasmKeeper().Migrate(ctx, addr, moduleAcct, codeID, bz)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("error migrating cw-erc721 pointer %s to code ID %d due to %s", addr.String(), codeID, err))
 			return err
 		}
-		fmt.Println("no error from wasmkeeper-migrate")
 	}
 	return nil
 }

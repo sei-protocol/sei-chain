@@ -352,7 +352,6 @@ func CmdQueryERC1155Payload() *cobra.Command {
 					}
 					amts = append(amts, amt.BigInt())
 				}
-				fmt.Println(ids, amts)
 				bz, err = abi.Pack(args[0], from, to, ids, amts, []byte(args[5]))
 			case "setApprovalForAll":
 				if len(args) != 3 {
