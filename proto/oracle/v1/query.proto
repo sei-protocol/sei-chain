@@ -105,7 +105,7 @@ service Query {
   }
   // Params queries all parameters.
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
-    option (google.api.http).get = "/sei-protocol/oracle/v1/params";
+    option (google.api.http).get = "/sei/oracle/v1/params";
   }
 }
 

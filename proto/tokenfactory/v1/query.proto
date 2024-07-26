@@ -14,7 +14,7 @@ option go_package = "github.com/sei-protocol/sei-chain/x/tokenfactory/types";
 service Query {
   // This endpoint is deprecated and will be removed in the future. Please use the `/sei/tokenfactory/v1/params` instead.
   rpc deprecated_Params(QueryParamsRequest) returns (QueryParamsResponse) {
-    option (google.api.http).get = "/sei/tokenfactory/v1/params";
+    option (google.api.http).get = "/sei-protocol/seichain/tokenfactory/params";
     option deprecated = true;
   }
   // Params defines a gRPC query method that returns the tokenfactory module's
