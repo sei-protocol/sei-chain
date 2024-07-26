@@ -1,18 +1,17 @@
 package wasmtesting
 
 import (
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-type MsgHandler = func(ctx sdk.Context, req sdk.Msg) (sdk.Context, *sdk.Result, error)
-
 // MockMessageRouter mock for testing
 type MockMessageRouter struct {
-	HandlerFn func(msg sdk.Msg) MsgHandler
+	HandlerFn func(msg sdk.Msg) baseapp.MsgServiceHandler
 }
 
 // Handler is the entry point
-func (m MockMessageRouter) Handler(msg sdk.Msg) MsgHandler {
+func (m MockMessageRouter) Handler(msg sdk.Msg) baseapp.MsgServiceHandler {
 	if m.HandlerFn == nil {
 		panic("not expected to be called")
 	}
@@ -20,9 +19,9 @@ func (m MockMessageRouter) Handler(msg sdk.Msg) MsgHandler {
 }
 
 // MessageRouterFunc convenient type to match the keeper.MessageRouter interface
-type MessageRouterFunc func(msg sdk.Msg) MsgHandler
+type MessageRouterFunc func(msg sdk.Msg) baseapp.MsgServiceHandler
 
 // Handler is the entry point
-func (m MessageRouterFunc) Handler(msg sdk.Msg) MsgHandler {
+func (m MessageRouterFunc) Handler(msg sdk.Msg) baseapp.MsgServiceHandler {
 	return m(msg)
 }
