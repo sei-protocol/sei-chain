@@ -363,11 +363,7 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	if blockCtx == nil {
 		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight), core.GasPool(b.RPCGasCap()))
 	}
-	evm := vm.NewEVM(*blockCtx, txContext, stateDB, b.ChainConfig(), *vmConfig)
-	if dbImpl, ok := stateDB.(*state.DBImpl); ok {
-		dbImpl.SetEVM(evm)
-	}
-	return evm
+	return vm.NewEVM(*blockCtx, txContext, stateDB, b.ChainConfig(), *vmConfig)
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
