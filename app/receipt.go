@@ -75,14 +75,10 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		txHash = common.HexToHash(response.EvmTxInfo.TxHash)
 	}
 
-	fmt.Printf("AddCosmosEventsToEVMReceiptIfApplicable on tx %s (EVM? %t) with log count %d\n", txHash, response.EvmTxInfo != nil, len(logs))
-
 	addedLogs := utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)
 
 	var bloom ethtypes.Bloom
 	if receipt, err := app.EvmKeeper.GetTransientReceipt(ctx, txHash); err == nil && receipt != nil {
-		fmt.Printf(" - Had transient receipt already with log count %d\n", len(receipt.Logs))
-
 		receipt.Logs = append(receipt.Logs, addedLogs...)
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(receipt)}})
 		receipt.LogsBloom = bloom[:]
@@ -92,8 +88,6 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			tracer.OnSeiPostTxCosmosEvents(addedLogs, receipt, true)
 		}
 	} else {
-		fmt.Printf(" - To previous transient receipt found\n")
-
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: logs}})
 		receipt = &evmtypes.Receipt{
 			TxType:           ShellEVMTxType,
