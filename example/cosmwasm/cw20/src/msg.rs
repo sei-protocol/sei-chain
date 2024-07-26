@@ -11,6 +11,9 @@ pub struct InstantiateMsg {
     pub erc20_address: String,
 }
 
+#[cw_serde]
+pub struct MigrateMsg {}
+
 /// SeiRoute is enum type to represent sei query route path
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]

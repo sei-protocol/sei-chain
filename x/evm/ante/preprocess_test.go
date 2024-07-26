@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/utils/helpers"
+
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -302,7 +304,8 @@ func TestMigrateBalance(t *testing.T) {
 			k.AccountKeeper().NewAccountWithAddress(ctx, sdk.AccAddress(evmAddr[:])).(*authtypes.BaseAccount),
 			sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))), math.MaxInt64, admin),
 	))
-	require.Nil(t, ante.MigrateBalance(ctx, k, evmAddr, seiAddr))
+	associateHelper := helpers.NewAssociationHelper(k, k.BankKeeper(), k.AccountKeeper())
+	require.Nil(t, associateHelper.MigrateBalance(ctx, evmAddr, seiAddr))
 	require.Equal(t, int64(1), k.BankKeeper().SpendableCoins(ctx, seiAddr).AmountOf("usei").Int64())
 	require.Equal(t, int64(0), k.BankKeeper().LockedCoins(ctx, seiAddr).AmountOf("usei").Int64())
 	require.Equal(t, int64(0), k.BankKeeper().SpendableCoins(ctx, sdk.AccAddress(evmAddr[:])).AmountOf("usei").Int64())

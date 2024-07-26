@@ -1,11 +1,12 @@
 package distribution
 
 import (
-	"bytes"
 	"embed"
 	"errors"
 	"fmt"
 	"math/big"
+
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -20,6 +21,7 @@ const (
 	SetWithdrawAddressMethod                = "setWithdrawAddress"
 	WithdrawDelegationRewardsMethod         = "withdrawDelegationRewards"
 	WithdrawMultipleDelegationRewardsMethod = "withdrawMultipleDelegationRewards"
+	RewardsMethod                           = "rewards"
 )
 
 const (
@@ -31,19 +33,6 @@ const (
 //go:embed abi.json
 var f embed.FS
 
-func GetABI() abi.ABI {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		panic(err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		panic(err)
-	}
-	return newAbi
-}
-
 type PrecompileExecutor struct {
 	distrKeeper pcommon.DistributionKeeper
 	evmKeeper   pcommon.EVMKeeper
@@ -52,10 +41,11 @@ type PrecompileExecutor struct {
 	SetWithdrawAddrID                   []byte
 	WithdrawDelegationRewardsID         []byte
 	WithdrawMultipleDelegationRewardsID []byte
+	RewardsID                           []byte
 }
 
 func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
-	newAbi := GetABI()
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
 		distrKeeper: distrKeeper,
@@ -71,6 +61,8 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 			p.WithdrawDelegationRewardsID = m.ID
 		case WithdrawMultipleDelegationRewardsMethod:
 			p.WithdrawMultipleDelegationRewardsID = m.ID
+		case RewardsMethod:
+			p.RewardsID = m.ID
 		}
 	}
 
@@ -78,24 +70,33 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if caller.Cmp(callingContract) != 0 {
+		return nil, 0, errors.New("cannot delegatecall distr")
+	}
 	switch method.Name {
 	case SetWithdrawAddressMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
 		return p.setWithdrawAddress(ctx, method, caller, args, value)
 	case WithdrawDelegationRewardsMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
 		return p.withdrawDelegationRewards(ctx, method, caller, args, value)
 	case WithdrawMultipleDelegationRewardsMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
 		return p.withdrawMultipleDelegationRewards(ctx, method, caller, args, value)
-
+	case RewardsMethod:
+		return p.rewards(ctx, method, args)
 	}
 	return
 }
 
 func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
 	return p.evmKeeper
-}
-
-func (p PrecompileExecutor) GetName() string {
-	return "distribution"
 }
 
 func (p PrecompileExecutor) setWithdrawAddress(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
@@ -239,4 +240,90 @@ func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) 
 		return nil, errors.New("cannot use an unassociated address as withdraw address")
 	}
 	return seiAddr, nil
+}
+
+type Coin struct {
+	Amount   *big.Int
+	Denom    string
+	Decimals *big.Int
+}
+
+type Reward struct {
+	ValidatorAddress string
+	Coins            []Coin
+}
+
+type Rewards struct {
+	Rewards []Reward
+	Total   []Coin
+}
+
+func (p PrecompileExecutor) rewards(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		rerr = err
+		return
+	}
+
+	seiDelegatorAddress, err := p.accAddressFromArg(ctx, args[0])
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	req := &distrtypes.QueryDelegationTotalRewardsRequest{
+		DelegatorAddress: seiDelegatorAddress.String(),
+	}
+
+	wrappedC := sdk.WrapSDKContext(ctx)
+	response, err := p.distrKeeper.DelegationTotalRewards(wrappedC, req)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	rewardsOutput := getResponseOutput(response)
+	ret, rerr = method.Outputs.Pack(rewardsOutput)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func getResponseOutput(response *distrtypes.QueryDelegationTotalRewardsResponse) Rewards {
+	rewards := make([]Reward, 0, len(response.Rewards))
+	for _, rewardInfo := range response.Rewards {
+		coins := make([]Coin, 0, len(rewardInfo.Reward))
+		for _, coin := range rewardInfo.Reward {
+			coins = append(coins, Coin{
+				Amount:   coin.Amount.BigInt(),
+				Denom:    coin.Denom,
+				Decimals: big.NewInt(sdk.Precision),
+			})
+		}
+		rewards = append(rewards, Reward{
+			ValidatorAddress: rewardInfo.ValidatorAddress,
+			Coins:            coins,
+		})
+	}
+
+	totalCoins := make([]Coin, 0, len(response.Total))
+	for _, coin := range response.Total {
+		totalCoins = append(totalCoins, Coin{
+			Amount:   coin.Amount.BigInt(),
+			Denom:    coin.Denom,
+			Decimals: big.NewInt(sdk.Precision),
+		})
+	}
+
+	return Rewards{
+		Rewards: rewards,
+		Total:   totalCoins,
+	}
 }
