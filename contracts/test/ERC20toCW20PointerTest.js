@@ -259,11 +259,14 @@ describe("ERC20 to CW20 Pointer", function () {
             });
 
             describe("CW20 event logs", function () {
-              it("has correct amount of block logs", async function () {
+              it("correctly handle synthetic log indexes", async function () {
+                const ERC20PreTransferFromWrapper = await ethers.getContractFactory("ERC20PreTransferFromWrapper")
+                const wrappedPointer = await ERC20PreTransferFromWrapper.deploy(await pointer.getAddress());
+
+                await wrappedPointer.waitForDeployment()
+
                 let sender = accounts[0];
                 let recipient = accounts[1];
-
-                console.log("ERC20 Pointer Address",await pointer.getAddress());
 
                 expect(await pointer.balanceOf(sender.evmAddress)).to.equal(
                   balances.account0
@@ -272,34 +275,33 @@ describe("ERC20 to CW20 Pointer", function () {
                   balances.account1
                 );
 
-                const txCount = 10;
+                const txCount = 15;
+
+                const tx = await pointer.approve(await wrappedPointer.getAddress(), txCount);
+                const receipt = await tx.wait();
+
                 const nonce = await ethers.provider.getTransactionCount(
-                  sender.evmAddress
+                    sender.evmAddress
                 );
 
-                // const transfer = async (index) => { console.log("Starting", index); await delay(index * 500); console.log("Terminated", index) }
-
                 const transfer = async (index) => {
-                  console.log("Transfer starting", index)
                   let tx
                   try {
-                    tx = await pointer.transfer(recipient.evmAddress, 1, {
+                    tx = await wrappedPointer.transferFrom(sender.evmAddress, recipient.evmAddress, 1, {
                       nonce: nonce + (index - 1),
                     });
                   } catch (error) {
                       console.log(`Transfer ${index} send transaction failed`, error);
+                      throw error;
                   }
-
-                  console.log(`Transfer ${index} tx hash: ${tx.hash}`);
 
                   let receipt
                   try {
                     receipt = await tx.wait();
                   } catch (error) {
                       console.log(`Transfer ${index} send transaction failed`, error);
+                      throw error;
                   }
-
-                  console.log(`Transfer receipt ${index} ${receipt.status}`);
                 };
 
                 let promises = [];
@@ -308,11 +310,9 @@ describe("ERC20 to CW20 Pointer", function () {
                 }
 
                 const blockNumber = await ethers.provider.getBlockNumber();
+                console.log("Fetch block number", blockNumber, typeof blockNumber);
 
-                const start = Date.now();
-                console.log("Waiting for all transfers to complete", promises.length);
                 await Promise.all(promises);
-                console.log(`All transactions took ${Date.now() - start} ms`);
 
                 expect(await pointer.balanceOf(sender.evmAddress)).to.equal(
                   balances.account0 - txCount
@@ -328,30 +328,37 @@ describe("ERC20 to CW20 Pointer", function () {
                   address: await pointer.getAddress(),
                   topics: [ethers.id("Transfer(address,address,uint256)")],
                 };
+
                 const logs = await ethers.provider.getLogs(filter);
                 expect(logs.length).to.equal(txCount);
 
                 const byBlock = {};
                 logs.forEach((log) => {
-                  const blockNumber = parseInt(log.blockNumber, 16);
-                  if (!byBlock[blockNumber]) {
-                    byBlock[blockNumber] = [];
+                  if (!byBlock[log.blockNumber]) {
+                    byBlock[log.blockNumber] = [];
                   }
 
-                  byBlock[blockNumber].push(log);
+                  byBlock[log.blockNumber].push(log);
                 });
 
-                Object.entries(byBlock).forEach(([blockNumber, logs]) => {
-                  console.log("Block", blockNumber, "Logs", logs.length);
-                })
-
+                // Sanity check to ensure we were able to generate a block with multiple logs
                 expect(
                   Object.entries(byBlock).some(
                     ([blockNumber, logs]) => logs.length > 1
                   )
                 ).to.be.true;
 
-                const cleanupTx = await pointer
+                Object.entries(byBlock).forEach(
+                    ([blockNumber, logs]) => {
+                        const logIndexes = {}
+                        logs.forEach((log, index) => {
+                            expect(logIndexes[log.index], `all log indexes in block #${blockNumber} should be unique but log's Index value ${log.index} for log at position ${index} has already been seen`).to.be.undefined;
+                            logIndexes[log.index] = index
+                        })
+                    }
+                  )
+
+                const cleanupTx = await wrappedPointer
                   .connect(recipient.signer)
                   .transfer(sender.evmAddress, txCount);
                 await cleanupTx.wait();
