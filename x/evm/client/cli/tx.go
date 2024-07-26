@@ -231,11 +231,11 @@ func CmdDeployContract() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			code, err := os.ReadFile(args[0])
 			if err != nil {
-				panic("failed to read contract binary")
+				panic(fmt.Errorf("failed to read contract binary: %w", err))
 			}
 			bz, err := hex.DecodeString(string(code))
 			if err != nil {
-				panic("failed to decode contract binary")
+				panic(fmt.Errorf("failed to decode contract binary: %w", err))
 			}
 
 			key, err := getPrivateKey(cmd)
