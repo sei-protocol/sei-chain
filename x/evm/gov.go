@@ -18,9 +18,19 @@ func HandleAddERCNativePointerProposalV2(ctx sdk.Context, k *keeper.Keeper, p *t
 		// should always be the case given validation
 		decimals = uint8(p.Decimals)
 	}
+	gasMultipler := k.GetPriorityNormalizer(ctx)
+	var evmGas uint64 = math.MaxUint64
+	if ctx.GasMeter() != nil && ctx.GasMeter().Limit() > 0 {
+		cosmosGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumed()
+		evmGas = sdk.NewDecFromInt(sdk.NewIntFromUint64(cosmosGasRemaining)).Quo(gasMultipler).TruncateInt().Uint64()
+	}
+	meter := ctx.GasMeter()
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	return k.RunWithOneOffEVMInstance(
 		ctx, func(e *vm.EVM) error {
-			_, _, err := k.UpsertERCNativePointer(ctx, e, math.MaxUint64, p.Token, utils.ERCMetadata{Name: p.Name, Symbol: p.Symbol, Decimals: decimals})
+			_, remainingGas, err := k.UpsertERCNativePointer(ctx, e, evmGas, p.Token, utils.ERCMetadata{Name: p.Name, Symbol: p.Symbol, Decimals: decimals})
+			gasConsumed := sdk.NewDecFromInt(sdk.NewIntFromUint64(evmGas - remainingGas)).Mul(gasMultipler).TruncateInt().BigInt()
+			meter.ConsumeGas(gasConsumed.Uint64(), "one-off EVM instance")
 			return err
 		}, func(s1, s2 string) {
 			logNativeV2Error(ctx, p, s1, s2)
