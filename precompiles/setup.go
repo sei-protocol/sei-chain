@@ -72,7 +72,7 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
-	addrp, err := addr.NewPrecompile(evmKeeper)
+	addrp, err := addr.NewPrecompile(evmKeeper, bankKeeper, accountKeeper)
 	if err != nil {
 		return err
 	}

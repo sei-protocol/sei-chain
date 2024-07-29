@@ -17,6 +17,44 @@ describe("EVM Precompile Tester", function () {
         admin = await getAdmin();
     })
 
+    describe("EVM Addr Precompile Tester", function () {
+        const AddrPrecompileContract = '0x0000000000000000000000000000000000001004';
+        let addr;
+
+        before(async function () {
+            const signer = accounts[0].signer
+            const contractABIPath = '../../precompiles/addr/abi.json';
+            const contractABI = require(contractABIPath);
+            // Get a contract instance
+            addr = new ethers.Contract(AddrPrecompileContract, contractABI, signer);
+        });
+
+        it("Assosciates successfully", async function () {
+            const unassociatedWallet = hre.ethers.Wallet.createRandom();
+            try {
+                await addr.getSeiAddr(unassociatedWallet.address);
+                expect.fail("Expected an error here since we look up an unassociated address");
+            } catch (error) {
+                expect(error).to.have.property('message').that.includes('execution reverted');
+            }
+            
+            const message = `Please sign this message to link your EVM and Sei addresses. No SEI will be spent as a result of this signature.\n\n`;
+            const messageLength = Buffer.from(message, 'utf8').length;
+            const signatureHex = await unassociatedWallet.signMessage(message);
+
+            const sig = hre.ethers.Signature.from(signatureHex);
+            
+            const appendedMessage = `\x19Ethereum Signed Message:\n${messageLength}${message}`;
+            const associatedAddrs = await addr.associate(`0x${sig.v-27}`, sig.r, sig.s, appendedMessage)
+            const addrs = await associatedAddrs.wait();
+            expect(addrs).to.not.be.null;
+
+            // Verify that addresses are now associated.
+            const seiAddr = await addr.getSeiAddr(unassociatedWallet.address);
+            expect(seiAddr).to.not.be.null;
+        });
+    });
+
     describe("EVM Gov Precompile Tester", function () {
         const GovPrecompileContract = '0x0000000000000000000000000000000000001006';
         let gov;
