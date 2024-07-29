@@ -57,7 +57,7 @@ func migrateSS(version int64, homeDir string, db dbm.DB) error {
 
 func verifySS(version int64, homeDir string, db dbm.DB) error {
 	migrator := ss.NewMigrator(homeDir, db)
-	return migrator.Verify(version, homeDir)
+	return migrator.Verify(version)
 }
 
 func VerifyMigrationCmd() *cobra.Command {

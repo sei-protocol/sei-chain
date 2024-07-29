@@ -71,7 +71,7 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 	return nil
 }
 
-func (m *Migrator) Verify(version int64, homeDir string) error {
+func (m *Migrator) Verify(version int64) error {
 	var verifyErr error
 	for _, module := range modules {
 		tree, err := ReadTree(m.iavlDB, version, []byte(buildTreePrefix(module)))
