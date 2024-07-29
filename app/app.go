@@ -42,9 +42,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/version"
+
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
@@ -373,6 +375,8 @@ type App struct {
 	evmRPCConfig          evmrpc.Config
 	lightInvarianceConfig LightInvarianceConfig
 
+	genesisImportConfig genesistypes.GenesisImportConfig
+
 	receiptStore seidb.StateStore
 }
 
@@ -639,6 +643,12 @@ func New(
 		panic(fmt.Sprintf("error reading light invariance config due to %s", err))
 	}
 	app.lightInvarianceConfig = lightInvarianceConfig
+
+	genesisImportConfig, err := ReadGenesisImportConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading genesis import config due to %s", err))
+	}
+	app.genesisImportConfig = genesisImportConfig
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
@@ -1040,7 +1050,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
 	// TODO: change this upgrade name if the planned upgrade version number ends up changing more
-	if upgradeInfo.Name == "v5.7.1" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	if ((app.ChainID == "arctic-1" && upgradeInfo.Name == "v5.7.1") || (app.ChainID != "arctic-1" && upgradeInfo.Name == "v5.7.2")) && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		dexStoreKeyName := "dex"
 		storeUpgrades := storetypes.StoreUpgrades{
 			Deleted: []string{dexStoreKeyName},
@@ -1080,11 +1090,13 @@ func (app *App) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.Respo
 // InitChainer application update at chain initialization
 func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
 	var genesisState GenesisState
-	if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
-		panic(err)
+	if !app.genesisImportConfig.StreamGenesisImport {
+		if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
+			panic(err)
+		}
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	return app.mm.InitGenesis(ctx, app.appCodec, genesisState)
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
 
 func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
