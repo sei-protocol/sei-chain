@@ -5,7 +5,7 @@ use cosmwasm_std::{
 };
 use cw20::{Cw20ReceiveMsg, AllowanceResponse};
 use cw_utils::Expiration;
-use crate::msg::{cw20receive_into_cosmos_msg, EvmMsg, EvmQueryWrapper, ExecuteMsg, QueryMsg, InstantiateMsg};
+use crate::msg::{cw20receive_into_cosmos_msg, EvmMsg, EvmQueryWrapper, ExecuteMsg, QueryMsg, InstantiateMsg, MigrateMsg};
 use crate::querier::EvmQuerier;
 use crate::error::ContractError;
 use crate::state::ERC20_ADDRESS;
@@ -18,6 +18,15 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     ERC20_ADDRESS.save(deps.storage, &msg.erc20_address)?;
+    Ok(Response::default())
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(
+    _deps: DepsMut,
+    _env: Env,
+    _msg: MigrateMsg,
+) -> Result<Response, ContractError> {
     Ok(Response::default())
 }
 

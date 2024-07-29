@@ -600,6 +600,21 @@ func TestRegisterPointer(t *testing.T) {
 		hasRegisteredEvent = true
 	}
 	require.False(t, hasRegisteredEvent)
+
+	// upgrade
+	k.DeleteCW721ERC721Pointer(ctx, pointee, version)
+	k.SetCW721ERC721PointerWithVersion(ctx, pointee, pointer.String(), version-1)
+	res, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC721,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.Nil(t, err)
+	newPointer, version, exists := k.GetCW721ERC721Pointer(ctx, pointee)
+	require.True(t, exists)
+	require.Equal(t, erc721.CurrentVersion, version)
+	require.Equal(t, newPointer.String(), res.PointerAddress)
+	require.Equal(t, newPointer.String(), pointer.String()) // should retain the existing contract address
 }
 
 func TestEvmError(t *testing.T) {

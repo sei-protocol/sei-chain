@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"crypto/sha256"
+	"embed"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -20,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -27,6 +29,9 @@ import (
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
+
+//go:embed wasm_abi.json
+var f embed.FS
 
 func TestEvmEventsForCw20(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
@@ -74,8 +79,7 @@ func TestEvmEventsForCw20(t *testing.T) {
 	require.True(t, found)
 
 	// calling from wasmd precompile
-	abi, err := wasmd.GetABI()
-	require.Nil(t, err)
+	abi := pcommon.MustGetABI(f, "wasm_abi.json")
 	emptyCoins, err := sdk.NewCoins().MarshalJSON()
 	require.Nil(t, err)
 	data, err := abi.Pack("execute", contractAddr.String(), payload, emptyCoins)
@@ -189,8 +193,7 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.True(t, found)
 
 	// calling from wasmd precompile
-	abi, err := wasmd.GetABI()
-	require.Nil(t, err)
+	abi := pcommon.MustGetABI(f, "wasm_abi.json")
 	emptyCoins, err := sdk.NewCoins().MarshalJSON()
 	require.Nil(t, err)
 	payload = []byte(fmt.Sprintf("{\"mint\":{\"token_id\":\"2\",\"owner\":\"%s\"}}", creator.String()))
@@ -254,6 +257,7 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
+	require.Equal(t, uint32(0), receipt.Logs[0].Index)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
 	require.Equal(t, common.HexToHash("0x2").Bytes(), receipt.Logs[0].Data)

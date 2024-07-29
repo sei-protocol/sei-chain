@@ -1,7 +1,6 @@
 package bank
 
 import (
-	"bytes"
 	"embed"
 	"errors"
 	"fmt"
@@ -37,19 +36,6 @@ const (
 //go:embed abi.json
 var f embed.FS
 
-func GetABI() abi.ABI {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		panic(err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		panic(err)
-	}
-	return newAbi
-}
-
 type PrecompileExecutor struct {
 	accountKeeper pcommon.AccountKeeper
 	bankKeeper    pcommon.BankKeeper
@@ -72,7 +58,7 @@ type CoinBalance struct {
 }
 
 func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
-	newAbi := GetABI()
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 	p := &PrecompileExecutor{
 		bankKeeper:    bankKeeper,
 		evmKeeper:     evmKeeper,
