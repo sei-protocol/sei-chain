@@ -63,13 +63,39 @@ func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 	return cdc.MustMarshalJSON(types.DefaultGenesis())
 }
 
-// ValidateGenesis performs genesis state validation for the capability module.
+// ValidateGenesis performs genesis state validation for the evm module.
 func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
 	var genState types.GenesisState
 	if err := cdc.UnmarshalJSON(bz, &genState); err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
 	}
 	return genState.Validate()
+}
+
+// ValidateGenesisStream performs genesis state validation for the evm module in a streaming fashion.
+func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
+	genesisStateCh := make(chan types.GenesisState)
+	var err error
+	doneCh := make(chan struct{})
+	go func() {
+		err = types.ValidateStream(genesisStateCh)
+		doneCh <- struct{}{}
+	}()
+	go func() {
+		defer close(genesisStateCh)
+		for genesis := range genesisCh {
+			var data types.GenesisState
+			err_ := cdc.UnmarshalJSON(genesis, &data)
+			if err_ != nil {
+				err = err_
+				doneCh <- struct{}{}
+				return
+			}
+			genesisStateCh <- data
+		}
+	}()
+	<-doneCh
+	return err
 }
 
 // RegisterRESTRoutes registers the capability module's REST service handlers.
@@ -203,6 +229,19 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, gs json.Ra
 func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
 	genState := ExportGenesis(ctx, am.keeper)
 	return cdc.MustMarshalJSON(genState)
+}
+
+// ExportGenesisStream returns the evm module's exported genesis state as raw JSON bytes in a streaming fashion.
+func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
+	ch := ExportGenesisStream(ctx, am.keeper)
+	chRaw := make(chan json.RawMessage)
+	go func() {
+		for genState := range ch {
+			chRaw <- cdc.MustMarshalJSON(genState)
+		}
+		close(chRaw)
+	}()
+	return chRaw
 }
 
 // ConsensusVersion implements ConsensusVersion.
