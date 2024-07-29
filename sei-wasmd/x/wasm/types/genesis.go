@@ -40,6 +40,33 @@ func (s GenesisState) ValidateBasic() error {
 	return nil
 }
 
+func (s GenesisState) ValidateBasicStream(dataCh chan GenesisState) error {
+	if err := s.Params.ValidateBasic(); err != nil {
+		return sdkerrors.Wrap(err, "params")
+	}
+	for i := range s.Codes {
+		if err := s.Codes[i].ValidateBasic(); err != nil {
+			return sdkerrors.Wrapf(err, "code: %d", i)
+		}
+	}
+	for i := range s.Contracts {
+		if err := s.Contracts[i].ValidateBasic(); err != nil {
+			return sdkerrors.Wrapf(err, "contract: %d", i)
+		}
+	}
+	for i := range s.Sequences {
+		if err := s.Sequences[i].ValidateBasic(); err != nil {
+			return sdkerrors.Wrapf(err, "sequence: %d", i)
+		}
+	}
+	for i := range s.GenMsgs {
+		if err := s.GenMsgs[i].ValidateBasic(); err != nil {
+			return sdkerrors.Wrapf(err, "gen message: %d", i)
+		}
+	}
+	return nil
+}
+
 func (c Code) ValidateBasic() error {
 	if c.CodeID == 0 {
 		return sdkerrors.Wrap(ErrEmpty, "code id")
@@ -98,6 +125,49 @@ func (m GenesisState_GenMsgs) ValidateBasic() error {
 // error for any failed validation criteria.
 func ValidateGenesis(data GenesisState) error {
 	return data.ValidateBasic()
+}
+
+// ValidateGenesisStream performs basic validation of wasm genesis data over a stream
+// of wasm genesis states. It needs to pass the params validation at least one chunk and
+// other checks on every chunk of the stream.
+func ValidateGenesisStream(genesisStateCh <-chan GenesisState) error {
+	passedParamsCheck := false
+	var paramCheckErr error
+	var otherErr error
+	for s := range genesisStateCh {
+		if otherErr != nil {
+			continue
+		}
+		if err := s.Params.ValidateBasic(); err != nil {
+			paramCheckErr = sdkerrors.Wrap(err, "params")
+		} else {
+			passedParamsCheck = true
+		}
+		for i := range s.Codes {
+			if err := s.Codes[i].ValidateBasic(); err != nil {
+				otherErr = sdkerrors.Wrapf(err, "code: %d", i)
+			}
+		}
+		for i := range s.Contracts {
+			if err := s.Contracts[i].ValidateBasic(); err != nil {
+				otherErr = sdkerrors.Wrapf(err, "contract: %d", i)
+			}
+		}
+		for i := range s.Sequences {
+			if err := s.Sequences[i].ValidateBasic(); err != nil {
+				otherErr = sdkerrors.Wrapf(err, "sequence: %d", i)
+			}
+		}
+		for i := range s.GenMsgs {
+			if err := s.GenMsgs[i].ValidateBasic(); err != nil {
+				otherErr = sdkerrors.Wrapf(err, "gen message: %d", i)
+			}
+		}
+	}
+	if !passedParamsCheck {
+		return paramCheckErr
+	}
+	return otherErr
 }
 
 var _ codectypes.UnpackInterfacesMessage = GenesisState{}

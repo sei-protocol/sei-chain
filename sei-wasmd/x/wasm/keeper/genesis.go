@@ -126,3 +126,76 @@ func ExportGenesis(ctx sdk.Context, keeper *Keeper) *types.GenesisState {
 
 	return &genState
 }
+
+const GENSIS_STATE_STREAM_BUF_THRESHOLD = 50000
+
+func ExportGenesisStream(ctx sdk.Context, keeper *Keeper) <-chan *types.GenesisState {
+	ch := make(chan *types.GenesisState)
+	go func() {
+		var genState types.GenesisState
+		genState.Params = keeper.GetParams(ctx)
+		ch <- &genState
+
+		// Needs to be first because there are invariant checks when importing that need sequences info
+		for _, k := range [][]byte{types.KeyLastCodeID, types.KeyLastInstanceID} {
+			var genState types.GenesisState
+			genState.Params = keeper.GetParams(ctx)
+			genState.Sequences = append(genState.Sequences, types.Sequence{
+				IDKey: k,
+				Value: keeper.PeekAutoIncrementID(ctx, k),
+			})
+			ch <- &genState
+		}
+
+		keeper.IterateCodeInfos(ctx, func(codeID uint64, info types.CodeInfo) bool {
+			var genState types.GenesisState
+			genState.Params = keeper.GetParams(ctx)
+			bytecode, err := keeper.GetByteCode(ctx, codeID)
+			if err != nil {
+				panic(err)
+			}
+			genState.Codes = append(genState.Codes, types.Code{
+				CodeID:    codeID,
+				CodeInfo:  info,
+				CodeBytes: bytecode,
+				Pinned:    keeper.IsPinnedCode(ctx, codeID),
+			})
+			ch <- &genState
+			return false
+		})
+
+		keeper.IterateContractInfo(ctx, func(addr sdk.AccAddress, contract types.ContractInfo) bool {
+			// redact contract info
+			contract.Created = nil
+			var state []types.Model
+			keeper.IterateContractState(ctx, addr, func(key, value []byte) bool {
+				state = append(state, types.Model{Key: key, Value: value})
+				if len(state) > GENSIS_STATE_STREAM_BUF_THRESHOLD {
+					var genState types.GenesisState
+					genState.Params = keeper.GetParams(ctx)
+					genState.Contracts = append(genState.Contracts, types.Contract{
+						ContractAddress: addr.String(),
+						ContractInfo:    contract,
+						ContractState:   state,
+					})
+					ch <- &genState
+					state = nil
+				}
+				return false
+			})
+			// flush any remaining state
+			var genState types.GenesisState
+			genState.Params = keeper.GetParams(ctx)
+			genState.Contracts = append(genState.Contracts, types.Contract{
+				ContractAddress: addr.String(),
+				ContractInfo:    contract,
+				ContractState:   state,
+			})
+			ch <- &genState
+			return false
+		})
+
+		close(ch)
+	}()
+	return ch
+}

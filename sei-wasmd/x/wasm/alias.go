@@ -52,6 +52,7 @@ var (
 	DefaultParams             = types.DefaultParams
 	InitGenesis               = keeper.InitGenesis
 	ExportGenesis             = keeper.ExportGenesis
+	ExportGenesisStream       = keeper.ExportGenesisStream
 	NewMessageHandler         = keeper.NewDefaultMessageHandler
 	DefaultEncoders           = keeper.DefaultEncoders
 	EncodeBankMsg             = keeper.EncodeBankMsg
