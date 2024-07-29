@@ -21,7 +21,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -128,7 +131,7 @@ func newSeiFirehoseTracer(tracerURL *url.URL) (*seitracing.Hooks, error) {
 		OnSeiSystemCallStart: tracer.OnSystemCallStart,
 		OnSeiSystemCallEnd:   tracer.OnSystemCallEnd,
 
-		OnSeiPostTxCosmosEvents: tracer.OnPostTxCosmosEvents,
+		OnSeiPostTxCosmosEvents: tracer.OnSeiPostTxCosmosEvents,
 
 		GetTxTracer: func(txIndex int) sdk.TxTracer {
 			// Created first so we can get the pointer id everywhere
@@ -143,7 +146,7 @@ func newSeiFirehoseTracer(tracerURL *url.URL) (*seitracing.Hooks, error) {
 				OnSeiSystemCallStart: isolatedTxTracer.OnSystemCallStart,
 				OnSeiSystemCallEnd:   isolatedTxTracer.OnSystemCallEnd,
 
-				OnSeiPostTxCosmosEvents: isolatedTxTracer.OnPostTxCosmosEvents,
+				OnSeiPostTxCosmosEvents: isolatedTxTracer.OnSeiPostTxCosmosEvents,
 			}
 
 			isolatedTracer.OnTxReset = func() {
@@ -152,7 +155,7 @@ func newSeiFirehoseTracer(tracerURL *url.URL) (*seitracing.Hooks, error) {
 			}
 
 			isolatedTracer.OnTxCommit = func() {
-				firehoseInfo("committing isolated transaction tracer (tracer=%p, transient{transaction=%t, system_calls=%d})", isolatedTxTracer, isolatedTxTracer.transientTransaction != nil, len(isolatedTxTracer.transientSystemCalls))
+				firehoseInfo("committing isolated transaction tracer (tracer=%s, transient{transaction=%t, system_calls=%d})", isolatedTracerID, isolatedTxTracer.transientTransaction != nil, len(isolatedTxTracer.transientSystemCalls))
 
 				// The `TxCommit` callback can be called for WASM and EVM transactions, the `transactionTransient` in the
 				// case of a WASM execution, no EVM transaction will ever be started, so if `transactionTransient` is nil,
@@ -217,6 +220,7 @@ type Firehose struct {
 
 	// Block state
 	block         *pbeth.Block
+	blockHash     common.Hash
 	blockBaseFee  *big.Int
 	blockOrdinal  *Ordinal
 	blockFinality *FinalityStatus
@@ -299,6 +303,7 @@ func (f *Firehose) newIsolatedTransactionTracer(traceId string) *Firehose {
 // resetBlock resets the block state only, do not reset transaction or call state
 func (f *Firehose) resetBlock() {
 	f.block = nil
+	f.blockHash = emptyCommonHash
 	f.blockBaseFee = nil
 	f.blockOrdinal.Reset()
 	f.blockFinality.Reset()
@@ -334,7 +339,7 @@ func (f *Firehose) OnBlockchainInit(chainConfig *params.ChainConfig) {
 	f.chainConfig = chainConfig
 
 	if wasNeverSent := f.initSent.CompareAndSwap(false, true); wasNeverSent {
-		printToFirehose("INIT", FirehoseProtocolVersion, "geth", params.Version)
+		printToFirehose("INIT", FirehoseProtocolVersion, "sei-evm", "geth-"+params.Version)
 	} else {
 		f.panicInvalidState("The OnBlockchainInit callback was called more than once", 0)
 	}
@@ -369,6 +374,7 @@ func (f *Firehose) OnSeiBlockStart(hash []byte, size uint64, b *types.Header) {
 		Size:   size,
 		Ver:    4,
 	}
+	f.blockHash.SetBytes(hash)
 
 	if f.block.Header.BaseFeePerGas != nil {
 		f.blockBaseFee = f.block.Header.BaseFeePerGas.Native()
@@ -386,8 +392,9 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 	f.blockRules = f.chainConfig.Rules(b.Number(), f.chainConfig.TerminalTotalDifficultyPassed, b.Time())
 	f.blockIsPrecompiledAddr = getActivePrecompilesChecker(f.blockRules)
 
+	f.blockHash = b.Hash()
 	f.block = &pbeth.Block{
-		Hash:   b.Hash().Bytes(),
+		Hash:   f.blockHash.Bytes(),
 		Number: b.Number().Uint64(),
 		Header: newBlockHeaderFromChainHeader(b.Header(), firehoseBigIntFromNative(new(big.Int).Add(event.TD, b.Difficulty()))),
 		Size:   b.Size(),
@@ -444,7 +451,8 @@ func getActivePrecompilesChecker(rules params.Rules) func(addr common.Address) b
 }
 
 func (f *Firehose) OnBlockEnd(err error) {
-	firehoseInfo("block ending (trx=%d, err=%s)", len(f.block.TransactionTraces), errorView(err))
+	blockNumber := f.block.Number
+	firehoseInfo("block ending (number=%d, trx=%d, err=%s)", blockNumber, len(f.block.TransactionTraces), errorView(err))
 
 	if err == nil {
 		f.ensureInBlockAndNotInTrx()
@@ -457,7 +465,7 @@ func (f *Firehose) OnBlockEnd(err error) {
 	f.resetBlock()
 	f.resetTransaction()
 
-	firehoseInfo("block end")
+	firehoseInfo("block end (number=%d)", blockNumber)
 }
 
 func (f *Firehose) addIsolatedTransaction(isolatedTrace *pbeth.TransactionTrace) {
@@ -765,13 +773,13 @@ func (f *Firehose) assignOrdinalAndIndexToReceiptLogs() {
 	}
 }
 
-func (f *Firehose) OnPostTxCosmosEvents(addedLogs []*evmtypes.Log, newReceipt *evmtypes.Receipt, onEvmTransaction bool) {
-	firehoseInfo("post tx cosmos events (tracer=%s, added_logs=%d)", f.tracerID, len(addedLogs))
-
-	if !onEvmTransaction {
-		firehoseInfo("ignoring post tx cosmos events ")
+func (f *Firehose) OnSeiPostTxCosmosEvents(event seitracing.SeiPostTxCosmosEvent) {
+	if !event.OnEVMTransaction {
+		f.onPostTxCosmosEventsCoWasmTx(event)
 		return
 	}
+
+	firehoseInfo("post tx cosmos events on EVM transaction (tracer=%s, added_logs=%d, isolated=%t)", f.tracerID, len(event.AddedLogs), f.transactionIsolated)
 
 	transaction := f.transaction
 	if f.transactionIsolated {
@@ -782,21 +790,161 @@ func (f *Firehose) OnPostTxCosmosEvents(addedLogs []*evmtypes.Log, newReceipt *e
 		f.panicInvalidState("transaction (or transient transaction) must be set at this point", 1)
 	}
 
-	for _, addedLog := range addedLogs {
-		firehoseDebug("adding post log to tx (tracer=%s, address=%s [receipt has already %d logs])", f.tracerID, addedLog.Address, len(transaction.Receipt.Logs))
-		transaction.Receipt.Logs = append(transaction.Receipt.Logs, f.newLogFromCosmos(addedLog))
+	if len(transaction.Calls) == 0 {
+		f.panicInvalidState("transaction must have at least one call at this point", 1)
 	}
 
-	transaction.Receipt.LogsBloom = newReceipt.LogsBloom
+	// Ok, we are adding new logs to the transaction, as such, we must update the `EndOrdinal` of the transaction.
+	// Indeed, when the method we are in is called, the transaction is actually already ended, so the `EndOrdinal` of
+	// the transaction is already "closed".
+	//
+	// We are kind of re-opening the transaction here and adding new ordinals that will be > than the transaction
+	// 'EndOrdinal'. The solution to this is to "rewind" the block ordinal by one, just like if `OnTxEnd` was not called.
+	//
+	// While adding the logs, we create Firehose logs and use `f.blockOrdinal.Next()` to assign the ordinal to the logs. Those
+	// will be set just like if the transaction was still open.
+	//
+	// At the end of this method, we will set again the `EndOrdinal` of the transaction to the next ordinal available
+	// right now, effectively closing the transaction again with the correct new final ordinal.
+	//
+	// Integration test `FirehoseTracerTest.js#CW20 transfer performed through ERC20 pointer contract` is testing this
+	// and verifying that the ordinals are correctly assigned.
+	f.blockOrdinal.Set(f.blockOrdinal.Peek() - 1)
+
+	rootCall := transaction.Calls[0]
+
+	for _, addedLog := range event.AddedLogs {
+		firehoseDebug("adding post log to tx (tracer=%s, address=%s [receipt has already %d logs])", f.tracerID, addedLog.Address, len(transaction.Receipt.Logs))
+		firehoseLog := f.newFirehoseLogFromCosmos(addedLog)
+
+		if rootCall != nil {
+			rootCall.Logs = append(rootCall.Logs, firehoseLog)
+		}
+		transaction.Receipt.Logs = append(transaction.Receipt.Logs, firehoseLog)
+
+		f.transactionLogIndex += 1
+	}
+
+	transaction.Receipt.LogsBloom = event.NewReceipt.LogsBloom
+	transaction.EndOrdinal = f.blockOrdinal.Next()
 }
 
-func (f *Firehose) newLogFromCosmos(log *evmtypes.Log) *pbeth.Log {
+func (f *Firehose) onPostTxCosmosEventsCoWasmTx(event seitracing.SeiPostTxCosmosEvent) {
+	firehoseInfo("post tx cosmos events on CoWasm (non-EVM) transaction (tracer=%s, added_logs=%d)", f.tracerID, len(event.AddedLogs))
+
+	firehoseInfo("trx start (tracer=%s hash=%s isolated=%t", f.tracerID, event.TxHash, f.transactionIsolated)
+	f.ensureInBlockAndNotInTrxAndNotInCall()
+
+	if len(event.NewReceipt.Logs) == 0 {
+		f.panicInvalidState(fmt.Sprintf("no logs added to the transaction %s via trace %s", event.TxHash.Bytes(), f.tracerID), 1)
+	}
+
+	from := common.Address{}
+	to := common.HexToAddress(event.NewReceipt.Logs[0].Address)
+
+	if event.NewReceipt.From != "" {
+		// The AddCosmosEventsToEVMReceiptIfApplicable sets the `From` field to the `NewReceipt.From` field when possible
+		// if sets, the `From` will be the EVM string address in hex.
+		from = common.HexToAddress(event.NewReceipt.From)
+	}
+
+	f.transaction = &pbeth.TransactionTrace{
+		BeginOrdinal: f.blockOrdinal.Next(),
+		Hash:         event.TxHash[:],
+		From:         from.Bytes(),
+		To:           to.Bytes(),
+	}
+
+	if isFirehoseInfoEnabled {
+		// Logging to check if we could bridge CoWasm to EVM input
+		for _, msg := range event.Tx.GetMsgs() {
+			if v, ok := msg.(*wasmtypes.MsgExecuteContract); ok {
+				firehoseInfo("input from CoWasm transaction (input=%s)", string(v.Msg))
+				break
+			}
+		}
+	}
+
+	if sigTx, ok := event.Tx.(authsigning.SigVerifiableTx); ok && len(sigTx.GetSigners()) > 0 {
+		if r, s, v, data, err := extractCoWasmTxFirstSignature(sigTx); err != nil {
+			firehoseInfo("signature from CoWasm transaction (error=%s)", err)
+		} else {
+			firehoseInfo("signature from CoWasm transaction (r=%s, s=%s, v=%d, cowasm{signature=%s, sign_mode=%d))", byteView(r), byteView(s), byteView(v), byteView(data.Signature), data.SignMode)
+			f.transaction.R = normalizeSignaturePoint(r)
+			f.transaction.S = normalizeSignaturePoint(s)
+			f.transaction.V = emptyBytesToNil(v)
+		}
+	}
+
+	f.OnCallEnter(0, 0, from, to, f.transaction.Input, f.transaction.GasLimit, nil)
+	for _, addedLog := range event.AddedLogs {
+		f.onLog(f.newFirehoseLogFromCosmos(addedLog))
+	}
+	f.OnCallExit(0, nil, 0, nil, false)
+
+	receipt := event.NewReceipt
+	receiptLogs := make([]*types.Log, len(event.AddedLogs))
+	for i, addedLog := range event.AddedLogs {
+		receiptLogs[i] = f.newEthLogFromCosmos(addedLog, receipt)
+	}
+	f.OnTxEnd(&types.Receipt{
+		// We cannot translate Sei transaction type encoded in a uint32 and set to `math.Uint32` to a uint8. So
+		// we simply set it to the maximum value of a uint8 and we will update the transaction type in the Firehose
+		// transaction trace Protobuf message so that 255 is assigned to Sei "SHELL_TYPE" and cross fingers that
+		// it's not in conflict already with another transaction type.
+		Type:              math.MaxUint8,
+		Status:            types.ReceiptStatusSuccessful,
+		CumulativeGasUsed: 0,
+		Bloom:             types.Bloom(receipt.LogsBloom),
+		Logs:              receiptLogs,
+		TxHash:            event.TxHash,
+		ContractAddress:   common.Address{},
+		GasUsed:           0,
+		EffectiveGasPrice: nil,
+
+		BlockHash:        f.blockHash,
+		BlockNumber:      big.NewInt(int64(receipt.BlockNumber)),
+		TransactionIndex: uint(receipt.TransactionIndex),
+	}, nil)
+}
+
+func extractCoWasmTxFirstSignature(tx authsigning.SigVerifiableTx) (r, s []byte, v []byte, data *signing.SingleSignatureData, err error) {
+	signatures, err := tx.GetSignaturesV2()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	for _, signature := range signatures {
+		if single, ok := signature.Data.(*signing.SingleSignatureData); ok {
+			data = single
+			break
+		}
+
+		if multi, ok := signature.Data.(*signing.MultiSignatureData); ok && len(multi.Signatures) > 0 {
+			if first, ok := multi.Signatures[0].(*signing.SingleSignatureData); ok {
+				data = first
+				break
+			}
+		}
+	}
+
+	if data == nil {
+		return nil, nil, nil, nil, errors.New("no signature found")
+	}
+
+	r = data.Signature[0:32]
+	s = data.Signature[32:64]
+	v = []byte{byte(data.SignMode - 27)}
+	return
+}
+
+func (f *Firehose) newFirehoseLogFromCosmos(log *evmtypes.Log) *pbeth.Log {
 	address := common.HexToAddress(log.Address)
 	var topics [][]byte
 	if len(log.Topics) > 0 {
 		topics = make([][]byte, len(log.Topics))
 		for i, topic := range log.Topics {
-			topics[i] = common.Hex2Bytes(topic)
+			topics[i] = common.FromHex(topic)
 		}
 	}
 
@@ -805,11 +953,43 @@ func (f *Firehose) newLogFromCosmos(log *evmtypes.Log) *pbeth.Log {
 		Topics:  topics,
 		Data:    log.Data,
 
-		// This is actually transaction index, we can probably fixed that too.
+		// In the Sei case, there the log.Index set is actually the transaction log's index, not the block log's index.
+		// This is because transactions are actually executed in parallel, so computing the block index would be possible
+		// only when the transaction is committed to the block or on block end.
+		//
+		// For now, we will use the same value for both as it fits the JSON-RPC of Sei.
 		Index:      log.Index,
 		BlockIndex: log.Index,
 
 		Ordinal: f.blockOrdinal.Next(),
+	}
+}
+
+func (f *Firehose) newEthLogFromCosmos(log *evmtypes.Log, receipt *evmtypes.Receipt) *types.Log {
+	address := common.HexToAddress(log.Address)
+	var topics []common.Hash
+	if len(log.Topics) > 0 {
+		topics = make([]common.Hash, len(log.Topics))
+		for i, topic := range log.Topics {
+			topics[i] = common.HexToHash(topic)
+		}
+	}
+
+	return &types.Log{
+		Address: address,
+		Topics:  topics,
+		Data:    log.Data,
+
+		// This is actually the block index, but in Sei the block index is actual the transaction index
+		Index:   uint(log.Index),
+		TxIndex: uint(receipt.TransactionIndex),
+
+		BlockNumber: receipt.BlockNumber,
+		TxHash:      common.HexToHash(receipt.TxHashHex),
+
+		// We cannot compute the block hash, but it's fine as we do not use in Firehose tracer
+		BlockHash: common.Hash{},
+		Removed:   false,
 	}
 }
 
@@ -1295,10 +1475,7 @@ func (f *Firehose) OnLog(l *types.Log) {
 		topics[i] = topic.Bytes()
 	}
 
-	activeCall := f.callStack.Peek()
-	firehoseTrace("adding log to call (address=%s call=%d [has already %d logs])", l.Address, activeCall.Index, len(activeCall.Logs))
-
-	activeCall.Logs = append(activeCall.Logs, &pbeth.Log{
+	f.onLog(&pbeth.Log{
 		Address:    l.Address.Bytes(),
 		Topics:     topics,
 		Data:       l.Data,
@@ -1306,6 +1483,13 @@ func (f *Firehose) OnLog(l *types.Log) {
 		BlockIndex: uint32(l.Index),
 		Ordinal:    f.blockOrdinal.Next(),
 	})
+}
+
+func (f *Firehose) onLog(l *pbeth.Log) {
+	activeCall := f.callStack.Peek()
+	firehoseDebug("adding log to call (address=%s call=%d topics=%d [has already %d logs])", byteView(l.Address), activeCall.Index, len(l.Topics), len(activeCall.Logs))
+
+	activeCall.Logs = append(activeCall.Logs, l)
 
 	f.transactionLogIndex++
 }
@@ -1484,11 +1668,6 @@ func (f *Firehose) panicInvalidState(msg string, callerSkip int) string {
 //
 // It flushes this through [flushToFirehose] to the `os.Stdout` writer.
 func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *FinalityStatus) {
-	marshalled, err := proto.Marshal(block)
-	if err != nil {
-		panic(fatal("failed to marshal block: %w", err))
-	}
-
 	f.outputBuffer.Reset()
 
 	previousHash := block.PreviousID()
@@ -1511,13 +1690,18 @@ func (f *Firehose) printBlockToFirehose(block *pbeth.Block, finalityStatus *Fina
 	// **Important* The final space in the Sprintf template is mandatory!
 	f.outputBuffer.WriteString(fmt.Sprintf("FIRE BLOCK %d %s %d %s %d %d ", block.Number, hex.EncodeToString(block.Hash), previousNum, previousHash, libNum, block.Time().UnixNano()))
 
+	marshalled, err := proto.Marshal(block)
+	if err != nil {
+		panic(fatal("failed to marshal block: %w", err))
+	}
+
 	encoder := base64.NewEncoder(base64.StdEncoding, f.outputBuffer)
 	if _, err = encoder.Write(marshalled); err != nil {
-		panic(fatal("write to encoder should have been infaillible: %w", err))
+		panic(fatal("write to encoder should have been infallible: %w", err))
 	}
 
 	if err := encoder.Close(); err != nil {
-		panic(fatal("closing encoder should have been infaillible: %w", err))
+		panic(fatal("closing encoder should have been infallible: %w", err))
 	}
 
 	f.outputBuffer.WriteString("\n")
@@ -1919,7 +2103,7 @@ func (o *Ordinal) Peek() (out uint64) {
 }
 
 // Next gives you the next sequential ordinal value that you should
-// use to assign to your exeuction trace (block, transaction, call, etc).
+// use to assign to your execution trace (block, transaction, call, etc).
 func (o *Ordinal) Next() (out uint64) {
 	o.value++
 

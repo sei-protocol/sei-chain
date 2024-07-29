@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtracers "github.com/sei-protocol/sei-chain/x/evm/tracers"
+	"github.com/sei-protocol/sei-chain/x/evm/tracing"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
@@ -88,7 +89,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, receipt)
 
 		if tracer := evmtracers.GetCtxBlockchainTracer(ctx); tracer != nil && tracer.OnSeiPostTxCosmosEvents != nil {
-			tracer.OnSeiPostTxCosmosEvents(addedLogs, receipt, true)
+			app.traceSeiPostTxCosmosEvents(ctx, tracer, tx, txHash, addedLogs, receipt, true)
 		}
 	} else {
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: logs}})
@@ -110,7 +111,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, receipt)
 
 		if tracer := evmtracers.GetCtxBlockchainTracer(ctx); tracer != nil && tracer.OnSeiPostTxCosmosEvents != nil {
-			tracer.OnSeiPostTxCosmosEvents(addedLogs, receipt, false)
+			app.traceSeiPostTxCosmosEvents(ctx, tracer, tx, txHash, addedLogs, receipt, false)
 		}
 	}
 	if d, found := app.EvmKeeper.GetEVMTxDeferredInfo(ctx); found {
@@ -118,6 +119,27 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	} else {
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, sdk.ZeroInt())
 	}
+}
+
+func (app *App) traceSeiPostTxCosmosEvents(
+	ctx sdk.Context,
+	tracer *tracing.Hooks,
+	tx sdk.Tx,
+	txHash common.Hash,
+	addedLogs []*evmtypes.Log,
+	newReceipt *evmtypes.Receipt,
+	onEvmTransaction bool,
+) {
+	tracer.OnSeiPostTxCosmosEvents(tracing.SeiPostTxCosmosEvent{
+		TxHash:           txHash,
+		Tx:               tx,
+		AddedLogs:        addedLogs,
+		NewReceipt:       newReceipt,
+		OnEVMTransaction: onEvmTransaction,
+		EVMAddressOrDefault: func(address sdk.AccAddress) common.Address {
+			return app.EvmKeeper.GetEVMAddressOrDefault(ctx, address)
+		},
+	})
 }
 
 func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string) (*ethtypes.Log, bool) {

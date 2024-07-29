@@ -46,8 +46,17 @@ type (
 	// You can use this hook to terminate special handling of `OnEnter/OnExit`.
 	OnSeiSystemCallEndHook = func()
 
-	OnSeiPostTxCosmosEventsHook = func(addedLogs []*evmtypes.Log, newReceipt *evmtypes.Receipt, onEvmTransaction bool)
+	OnSeiPostTxCosmosEventsHook = func(event SeiPostTxCosmosEvent)
 )
+
+type SeiPostTxCosmosEvent struct {
+	Tx                  sdk.Tx
+	TxHash              common.Hash
+	AddedLogs           []*evmtypes.Log
+	NewReceipt          *evmtypes.Receipt
+	OnEVMTransaction    bool
+	EVMAddressOrDefault func(address sdk.AccAddress) common.Address
+}
 
 // Hooks is used to collect traces during chain processing. It's a similar
 // interface as the go-ethereum's [tracing.Hooks] but adapted to Sei particularities.
