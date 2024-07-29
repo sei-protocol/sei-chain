@@ -72,3 +72,41 @@ func TestHexBytes_String(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Define a struct to match the JSON structure
+type ValidatorsHash struct {
+	NextValidatorsHash HexBytes `json:"next_validators_hash"`
+}
+
+func TestMarshalBasic(t *testing.T) {
+	var vh ValidatorsHash
+	vh.NextValidatorsHash = []byte("abc")
+	bz, err := json.Marshal(vh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, string(bz), "{\"next_validators_hash\":\"616263\"}")
+}
+
+func TestUnmarshalBasic(t *testing.T) {
+	jsonData := []byte(`{"next_validators_hash":"616263"}`)
+	var vh ValidatorsHash
+	err := json.Unmarshal(jsonData, &vh)
+	if err != nil {
+		t.Fatalf("Error unmarshalling JSON: %v", err)
+		return
+	}
+	assert.Equal(t, string(vh.NextValidatorsHash), "abc")
+}
+
+func TestUnmarshalExample(t *testing.T) {
+	jsonData := []byte(`{"next_validators_hash":"20021C2FB4B2DDFF6E8C484A2ED5862910E3AD7074FC6AD1C972AD34891AE3A4"}`)
+	expectedLength := 32
+	var vh ValidatorsHash
+	err := json.Unmarshal(jsonData, &vh)
+	if err != nil {
+		t.Fatalf("Error unmarshalling JSON: %v", err)
+		return
+	}
+	assert.Equal(t, expectedLength, len(vh.NextValidatorsHash))
+}
