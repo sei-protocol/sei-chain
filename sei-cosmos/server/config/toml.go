@@ -246,6 +246,20 @@ snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 # default is emtpy which will then store under the app home directory same as before.
 snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
 
+###############################################################################
+###                         Genesis Configuration                           ###
+###############################################################################
+
+
+# Genesis config allows configuring whether to stream from an genesis json file in streamed form
+[genesis]
+
+# stream-import specifies whether to the stream the import from the genesis json file. The genesis
+# file must be in stream form and exported in a streaming fashion.
+stream-import = {{ .Genesis.StreamImport }}
+
+# genesis-stream-file specifies the path of the genesis json file to stream from.
+genesis-stream-file = "{{ .Genesis.GenesisStreamFile }}"
 ` + config.DefaultConfigTemplate
 
 var configTemplate *template.Template

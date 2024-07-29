@@ -192,6 +192,15 @@ type StateSyncConfig struct {
 	SnapshotDirectory string `mapstructure:"snapshot-directory"`
 }
 
+// GenesisConfig defines the genesis export, validation, and import configuration
+type GenesisConfig struct {
+	// StreamImport defines if the genesis.json is in stream form or not.
+	StreamImport bool `mapstructure:"stream-import"`
+
+	// GenesisStreamFile sets the genesis json file from which to stream from
+	GenesisStreamFile string `mapstructure:"genesis-stream-file"`
+}
+
 // Config defines the server's top level configuration
 type Config struct {
 	BaseConfig `mapstructure:",squash"`
@@ -205,6 +214,7 @@ type Config struct {
 	StateSync   StateSyncConfig          `mapstructure:"state-sync"`
 	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
 	StateStore  config.StateStoreConfig  `mapstructure:"state-store"`
+	Genesis     GenesisConfig            `mapstructure:genesis`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -288,6 +298,10 @@ func DefaultConfig() *Config {
 		},
 		StateCommit: config.DefaultStateCommitConfig(),
 		StateStore:  config.DefaultStateStoreConfig(),
+		Genesis: GenesisConfig{
+			StreamImport:      false,
+			GenesisStreamFile: "",
+		},
 	}
 }
 
@@ -390,6 +404,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			KeepRecent:           v.GetInt("state-store.keep-recent"),
 			PruneIntervalSeconds: v.GetInt("state-store.prune-interval-seconds"),
 			ImportNumWorkers:     v.GetInt("state-store.import-num-workers"),
+		},
+		Genesis: GenesisConfig{
+			StreamImport:      v.GetBool("genesis.stream-import"),
+			GenesisStreamFile: v.GetString("genesis.genesis-stream-file"),
 		},
 	}, nil
 }

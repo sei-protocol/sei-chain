@@ -147,7 +147,7 @@ func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, *t
 	app.Commit(context.Background())
 
 	cmd := server.ExportCmd(
-		func(_ log.Logger, _ dbm.DB, _ io.Writer, height int64, forZeroHeight bool, jailAllowedAddrs []string, appOptons types.AppOptions) (types.ExportedApp, error) {
+		func(_ log.Logger, _ dbm.DB, _ io.Writer, height int64, forZeroHeight bool, jailAllowedAddrs []string, appOptons types.AppOptions, file *os.File) (types.ExportedApp, error) {
 			encCfg := simapp.MakeTestEncodingConfig()
 
 			var simApp *simapp.SimApp

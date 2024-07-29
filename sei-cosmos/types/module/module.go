@@ -45,6 +45,7 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 )
 
 // AppModuleBasic is the standard form for basic non-dependant elements of an application module.
@@ -55,6 +56,7 @@ type AppModuleBasic interface {
 
 	DefaultGenesis(codec.JSONCodec) json.RawMessage
 	ValidateGenesis(codec.JSONCodec, client.TxEncodingConfig, json.RawMessage) error
+	ValidateGenesisStream(codec.JSONCodec, client.TxEncodingConfig, <-chan json.RawMessage) error
 
 	// client functionality
 	RegisterRESTRoutes(client.Context, *mux.Router)
@@ -110,6 +112,32 @@ func (bm BasicManager) ValidateGenesis(cdc codec.JSONCodec, txEncCfg client.TxEn
 	return nil
 }
 
+// ValidateGenesisStream performs genesis state validation on all modules in a streaming fashion.
+func (bm BasicManager) ValidateGenesisStream(cdc codec.JSONCodec, txEncCfg client.TxEncodingConfig, moduleName string, genesisCh <-chan json.RawMessage, doneCh <-chan struct{}, errCh chan<- error) {
+	moduleGenesisCh := make(chan json.RawMessage)
+	moduleDoneCh := make(chan struct{})
+
+	var err error
+
+	go func() {
+		err = bm[moduleName].ValidateGenesisStream(cdc, txEncCfg, moduleGenesisCh)
+		if err != nil {
+			errCh <- err
+		}
+		moduleDoneCh <- struct{}{}
+	}()
+
+	for {
+		select {
+		case <-doneCh:
+			close(moduleGenesisCh)
+			return
+		case genesisChunk := <-genesisCh:
+			moduleGenesisCh <- genesisChunk
+		}
+	}
+}
+
 // RegisterRESTRoutes registers all module rest routes
 func (bm BasicManager) RegisterRESTRoutes(clientCtx client.Context, rtr *mux.Router) {
 	for _, b := range bm {
@@ -154,6 +182,7 @@ type AppModuleGenesis interface {
 
 	InitGenesis(sdk.Context, codec.JSONCodec, json.RawMessage) []abci.ValidatorUpdate
 	ExportGenesis(sdk.Context, codec.JSONCodec) json.RawMessage
+	ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage
 }
 
 // AppModule is the standard form for an application module
@@ -330,23 +359,80 @@ func (m *Manager) RegisterServices(cfg Configurator) {
 	}
 }
 
+type AppState struct {
+	Module string          `json:"module"`
+	Data   json.RawMessage `json:"data"`
+}
+
+type ModuleState struct {
+	AppState AppState `json:"app_state"`
+}
+
+func parseModule(jsonStr string) (*ModuleState, error) {
+	var module ModuleState
+	err := json.Unmarshal([]byte(jsonStr), &module)
+	if err != nil {
+		return nil, err
+	}
+	if module.AppState.Module == "" {
+		return nil, fmt.Errorf("module name is empty")
+	}
+	return &module, nil
+}
+
 // InitGenesis performs init genesis functionality for modules
-func (m *Manager) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, genesisData map[string]json.RawMessage) abci.ResponseInitChain {
+func (m *Manager) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, genesisData map[string]json.RawMessage, genesisImportConfig genesistypes.GenesisImportConfig) abci.ResponseInitChain {
 	var validatorUpdates []abci.ValidatorUpdate
-	for _, moduleName := range m.OrderInitGenesis {
-		if genesisData[moduleName] == nil {
-			continue
-		}
-
-		moduleValUpdates := m.Modules[moduleName].InitGenesis(ctx, cdc, genesisData[moduleName])
-
-		// use these validator updates if provided, the module manager assumes
-		// only one module will update the validator set
-		if len(moduleValUpdates) > 0 {
-			if len(validatorUpdates) > 0 {
-				panic("validator InitGenesis updates already set by a previous module")
+	if genesisImportConfig.StreamGenesisImport {
+		lines := genesistypes.IngestGenesisFileLineByLine(genesisImportConfig.GenesisStreamFile)
+		errCh := make(chan error, 1)
+		seenModules := make(map[string]bool)
+		var moduleName string
+		go func() {
+			for line := range lines {
+				moduleState, err := parseModule(line)
+				if err != nil {
+					moduleName = "genesisDoc"
+				} else {
+					moduleName = moduleState.AppState.Module
+				}
+				if moduleName == "genesisDoc" {
+					continue
+				}
+				if seenModules[moduleName] {
+					errCh <- fmt.Errorf("module %s seen twice in genesis file", moduleName)
+					return
+				}
+				moduleValUpdates := m.Modules[moduleName].InitGenesis(ctx, cdc, moduleState.AppState.Data)
+				if len(moduleValUpdates) > 0 {
+					if len(validatorUpdates) > 0 {
+						panic("validator InitGenesis updates already set by a previous module")
+					}
+					validatorUpdates = moduleValUpdates
+				}
 			}
-			validatorUpdates = moduleValUpdates
+			errCh <- nil
+		}()
+		err := <-errCh
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		for _, moduleName := range m.OrderInitGenesis {
+			if genesisData[moduleName] == nil {
+				continue
+			}
+
+			moduleValUpdates := m.Modules[moduleName].InitGenesis(ctx, cdc, genesisData[moduleName])
+
+			// use these validator updates if provided, the module manager assumes
+			// only one module will update the validator set
+			if len(moduleValUpdates) > 0 {
+				if len(validatorUpdates) > 0 {
+					panic("validator InitGenesis updates already set by a previous module")
+				}
+				validatorUpdates = moduleValUpdates
+			}
 		}
 	}
 
@@ -363,6 +449,22 @@ func (m *Manager) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) map[string
 	}
 
 	return genesisData
+}
+
+func (m *Manager) ProcessGenesisPerModule(ctx sdk.Context, cdc codec.JSONCodec, process func(string, json.RawMessage) error) error {
+	// It's important that we use OrderInitGenesis here instead of OrderExportGenesis because the order of exporting
+	// doesn't matter much but the order of importing does due to invariant checks and how we are streaming the genesis
+	// file here
+	for _, moduleName := range m.OrderInitGenesis {
+		ch := m.Modules[moduleName].ExportGenesisStream(ctx, cdc)
+		for msg := range ch {
+			err := process(moduleName, msg)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // assertNoForgottenModules checks that we didn't forget any modules in the

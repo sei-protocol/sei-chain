@@ -15,23 +15,10 @@ func (gs GenesisState) Validate() error {
 		return err
 	}
 
-	seenBalances := make(map[string]bool)
 	seenMetadatas := make(map[string]bool)
-
-	totalSupply := sdk.Coins{}
-
-	for _, balance := range gs.Balances {
-		if seenBalances[balance.Address] {
-			return fmt.Errorf("duplicate balance for address %s", balance.Address)
-		}
-
-		if err := balance.Validate(); err != nil {
-			return err
-		}
-
-		seenBalances[balance.Address] = true
-
-		totalSupply = totalSupply.Add(balance.Coins...)
+	totalSupply, err := getTotalSupply(&gs)
+	if err != nil {
+		return err
 	}
 
 	for _, metadata := range gs.DenomMetadata {
@@ -59,6 +46,48 @@ func (gs GenesisState) Validate() error {
 	}
 
 	return nil
+}
+
+func getTotalSupply(genState *GenesisState) (sdk.Coins, error) {
+	totalSupply := sdk.Coins{}
+	totalWeiBalance := sdk.ZeroInt()
+
+	genState.Balances = SanitizeGenesisBalances(genState.Balances)
+	seenBalances := make(map[string]bool)
+	for _, balance := range genState.Balances {
+		if seenBalances[balance.Address] {
+			return nil, fmt.Errorf("duplicate balance for address %s", balance.Address)
+		}
+		seenBalances[balance.Address] = true
+		coins := balance.Coins
+		err := balance.Validate()
+		if err != nil {
+			return nil, err
+		}
+		totalSupply = totalSupply.Add(coins...)
+	}
+	for _, weiBalance := range genState.WeiBalances {
+		totalWeiBalance = totalWeiBalance.Add(weiBalance.Amount)
+	}
+	weiInUsei, weiRemainder := SplitUseiWeiAmount(totalWeiBalance)
+	if !weiRemainder.IsZero() {
+		return nil, fmt.Errorf("non-zero wei remainder %s", weiRemainder)
+	}
+	baseDenom, err := sdk.GetBaseDenom()
+	if err != nil {
+		if !weiInUsei.IsZero() {
+			return nil, fmt.Errorf("base denom is not registered %s yet there exists wei balance %s", err, weiInUsei)
+		}
+	} else {
+		totalSupply = totalSupply.Add(sdk.NewCoin(baseDenom, weiInUsei))
+	}
+	return totalSupply, nil
+}
+
+var OneUseiInWei sdk.Int = sdk.NewInt(1_000_000_000_000)
+
+func SplitUseiWeiAmount(amt sdk.Int) (sdk.Int, sdk.Int) {
+	return amt.Quo(OneUseiInWei), amt.Mod(OneUseiInWei)
 }
 
 // NewGenesisState creates a new genesis state.

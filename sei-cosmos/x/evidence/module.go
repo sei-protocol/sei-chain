@@ -74,6 +74,16 @@ func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config client.TxEncod
 	return gs.Validate()
 }
 
+func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
+	for genesis := range genesisCh {
+		err := am.ValidateGenesis(cdc, config, genesis)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // RegisterRESTRoutes registers the evidence module's REST service handlers.
 func (a AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, rtr *mux.Router) {
 	evidenceRESTHandlers := make([]rest.EvidenceRESTHandler, len(a.evidenceHandlers))
@@ -173,6 +183,15 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, bz json.Ra
 // ExportGenesis returns the evidence module's exported genesis state as raw JSON bytes.
 func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
 	return cdc.MustMarshalJSON(ExportGenesis(ctx, am.keeper))
+}
+
+func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
+	ch := make(chan json.RawMessage)
+	go func() {
+		ch <- am.ExportGenesis(ctx, cdc)
+		close(ch)
+	}()
+	return ch
 }
 
 // ConsensusVersion implements AppModule/ConsensusVersion.

@@ -11,6 +11,7 @@ import (
 
 	abci "github.com/tendermint/tendermint/abci/types"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdkclient "github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -79,6 +80,16 @@ func (a AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, config sdkclient.Tx
 	}
 
 	return feegrant.ValidateGenesis(data)
+}
+
+func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
+	for genesis := range genesisCh {
+		err := am.ValidateGenesis(cdc, config, genesis)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RegisterRESTRoutes registers the REST routes for the feegrant module.
@@ -168,6 +179,15 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 	}
 
 	return cdc.MustMarshalJSON(gs)
+}
+
+func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
+	ch := make(chan json.RawMessage)
+	go func() {
+		ch <- am.ExportGenesis(ctx, cdc)
+		close(ch)
+	}()
+	return ch
 }
 
 // ConsensusVersion implements AppModule/ConsensusVersion.

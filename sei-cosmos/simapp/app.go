@@ -32,6 +32,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/streaming"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/utils"
 	"github.com/cosmos/cosmos-sdk/version"
@@ -594,7 +595,7 @@ func (app *SimApp) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.
 		panic(err)
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	return app.mm.InitGenesis(ctx, app.appCodec, genesisState)
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, genesistypes.GenesisImportConfig{})
 }
 
 // LoadHeight loads a particular height

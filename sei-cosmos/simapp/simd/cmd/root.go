@@ -313,7 +313,7 @@ func (a appCreator) newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, t
 // and exports state.
 func (a appCreator) appExport(
 	logger log.Logger, db dbm.DB, traceStore io.Writer, height int64, forZeroHeight bool, jailAllowedAddrs []string,
-	appOpts servertypes.AppOptions) (servertypes.ExportedApp, error) {
+	appOpts servertypes.AppOptions, file *os.File) (servertypes.ExportedApp, error) {
 
 	var simApp *simapp.SimApp
 	homePath, ok := appOpts.Get(flags.FlagHome).(string)

@@ -3,8 +3,9 @@ package module_test
 import (
 	"encoding/json"
 	"errors"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"testing"
+
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/tests/mocks"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/cosmos/cosmos-sdk/types/module"
 )
 
@@ -210,7 +212,7 @@ func TestManager_InitGenesis(t *testing.T) {
 	genesisData := map[string]json.RawMessage{"module1": json.RawMessage(`{"key": "value"}`)}
 
 	mockAppModule1.EXPECT().InitGenesis(gomock.Eq(ctx), gomock.Eq(cdc), gomock.Eq(genesisData["module1"])).Times(1).Return(nil)
-	require.Equal(t, abci.ResponseInitChain{Validators: []abci.ValidatorUpdate(nil)}, mm.InitGenesis(ctx, cdc, genesisData))
+	require.Equal(t, abci.ResponseInitChain{Validators: []abci.ValidatorUpdate(nil)}, mm.InitGenesis(ctx, cdc, genesisData, genesis.GenesisImportConfig{}))
 
 	// test panic
 	genesisData = map[string]json.RawMessage{
@@ -218,7 +220,7 @@ func TestManager_InitGenesis(t *testing.T) {
 		"module2": json.RawMessage(`{"key": "value"}`)}
 	mockAppModule1.EXPECT().InitGenesis(gomock.Eq(ctx), gomock.Eq(cdc), gomock.Eq(genesisData["module1"])).Times(1).Return([]abci.ValidatorUpdate{{}})
 	mockAppModule2.EXPECT().InitGenesis(gomock.Eq(ctx), gomock.Eq(cdc), gomock.Eq(genesisData["module2"])).Times(1).Return([]abci.ValidatorUpdate{{}})
-	require.Panics(t, func() { mm.InitGenesis(ctx, cdc, genesisData) })
+	require.Panics(t, func() { mm.InitGenesis(ctx, cdc, genesisData, genesis.GenesisImportConfig{}) })
 }
 
 func TestManager_ExportGenesis(t *testing.T) {

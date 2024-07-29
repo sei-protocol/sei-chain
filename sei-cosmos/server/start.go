@@ -13,6 +13,7 @@ import (
 
 	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 
+	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/spf13/cobra"
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/abci/server"
@@ -170,11 +171,6 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 			serverCtx.Viper.Set(flags.FlagChainID, chainID)
 
-			genesisFile, _ := tmtypes.GenesisDocFromFile(serverCtx.Config.GenesisFile())
-			if genesisFile.ChainID != clientCtx.ChainID {
-				panic(fmt.Sprintf("genesis file chain-id=%s does not equal config.toml chain-id=%s", genesisFile.ChainID, clientCtx.ChainID))
-			}
-
 			if enableTracing, _ := cmd.Flags().GetBool(tracing.FlagTracing); !enableTracing {
 				serverCtx.Logger.Info("--tracing not passed in, tracing is not enabled")
 				tracerProviderOptions = []trace.TracerProviderOption{}
@@ -196,6 +192,12 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 			apiMetrics, err := telemetry.New(config.Telemetry)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telemetry: %w", err)
+			}
+			if !config.Genesis.StreamImport {
+				genesisFile, _ := tmtypes.GenesisDocFromFile(serverCtx.Config.GenesisFile())
+				if genesisFile.ChainID != clientCtx.ChainID {
+					panic(fmt.Sprintf("genesis file chain-id=%s does not equal config.toml chain-id=%s", genesisFile.ChainID, clientCtx.ChainID))
+				}
 			}
 
 			restartCoolDownDuration := time.Second * time.Duration(serverCtx.Config.SelfRemediation.RestartCooldownSeconds)
@@ -386,13 +388,27 @@ func startInProcess(
 		config.GRPC.Enable = true
 	} else {
 		ctx.Logger.Info("starting node with ABCI Tendermint in-process")
+		var gen *tmtypes.GenesisDoc
+		if config.Genesis.StreamImport {
+			lines := genesistypes.IngestGenesisFileLineByLine(config.Genesis.GenesisStreamFile)
+			for line := range lines {
+				genDoc, err := tmtypes.GenesisDocFromJSON([]byte(line))
+				if err != nil {
+					return err
+				}
+				if gen != nil {
+					return fmt.Errorf("error: multiple genesis docs found in stream")
+				}
+				gen = genDoc
+			}
+		}
 		tmNode, err = node.New(
 			goCtx,
 			ctx.Config,
 			ctx.Logger,
 			restartCh,
 			abciclient.NewLocalClient(ctx.Logger, app),
-			nil,
+			gen,
 			tracerProviderOptions,
 			nodeMetricsProvider,
 		)
