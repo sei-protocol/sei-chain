@@ -33,9 +33,13 @@ func execute(cmd *cobra.Command, _ []string) {
 	latestVersion := rootmulti.GetLatestVersion(db)
 	fmt.Printf("latest version: %d\n", latestVersion)
 	if target == "SS" {
-		migrateSS(latestVersion, homeDir, db)
+		if err = migrateSS(latestVersion, homeDir, db); err != nil {
+			panic(err)
+		}
 	} else if target == "SC" {
-		migrateSC(latestVersion, homeDir, db)
+		if err = migrateSC(latestVersion, homeDir, db); err != nil {
+			panic(err)
+		}
 	} else {
 		panic("Invalid target-db, either SS or SC should be provided")
 	}
@@ -75,7 +79,7 @@ func verify(cmd *cobra.Command, _ []string) {
 
 	fmt.Printf("version %d\n", version)
 
-	if version == -1 {
+	if version <= 0 {
 		panic("Must specify version for verification")
 	}
 
