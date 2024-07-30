@@ -74,3 +74,13 @@ func (k *Keeper) IterateSeiAddressMapping(ctx sdk.Context, cb func(evmAddr commo
 		}
 	}
 }
+
+// A sdk.AccAddress may not receive funds from bank if it's the result of direct-casting
+// from an EVM address AND the originating EVM address has already been associated with
+// a true (i.e. derived from the same pubkey) sdk.AccAddress.
+func (k *Keeper) CanAddressReceive(ctx sdk.Context, addr sdk.AccAddress) bool {
+	directCast := common.BytesToAddress(addr) // casting goes both directions since both address formats have 20 bytes
+	associatedAddr, isAssociated := k.GetSeiAddress(ctx, directCast)
+	// if the associated address is the cast address itself, allow the address to receive (e.g. EVM contract addresses)
+	return associatedAddr.Equals(addr) || !isAssociated // this means it's either a cast address that's not associated yet, or not a cast address at all.
+}

@@ -20,7 +20,8 @@ func (k *Keeper) GetFeeCollectorAddress(ctx sdk.Context) (common.Address, error)
 		return *cache, nil
 	}
 	moduleAddr := k.accountKeeper.GetModuleAddress(authtypes.FeeCollectorName)
-	evmAddr, ok := k.GetEVMAddress(ctx, moduleAddr)
+	// we don't want to charge gas for this query, since it could cause non-determinism
+	evmAddr, ok := k.GetEVMAddress(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), moduleAddr)
 	if !ok {
 		return common.Address{}, errors.New("fee collector's EVM address not found")
 	}

@@ -83,6 +83,24 @@ func TestSubscribeNewHeads(t *testing.T) {
 	}
 }
 
+func TestSubscribeEmptyLogs(t *testing.T) {
+	t.Parallel()
+	recvCh, done := sendWSRequestGood(t, "subscribe", "logs")
+	defer func() { done <- struct{}{} }()
+
+	timer := time.NewTimer(2 * time.Second)
+
+	// just testing to see that we don't crash when no params are provided
+	for {
+		select {
+		case _ = <-recvCh:
+			return
+		case <-timer.C:
+			t.Fatal("No message received within 5 seconds")
+		}
+	}
+}
+
 func TestSubscribeNewLogs(t *testing.T) {
 	t.Parallel()
 	data := map[string]interface{}{

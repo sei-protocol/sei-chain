@@ -67,28 +67,27 @@ func SetupSeiDB(
 }
 
 func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
-	return config.StateCommitConfig{
-		Enable:              cast.ToBool(appOpts.Get(FlagSCEnable)),
-		Directory:           cast.ToString(appOpts.Get(FlagSCDirectory)),
-		ZeroCopy:            cast.ToBool(appOpts.Get(FlagSCZeroCopy)),
-		AsyncCommitBuffer:   cast.ToInt(appOpts.Get(FlagSCAsyncCommitBuffer)),
-		SnapshotKeepRecent:  cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent)),
-		SnapshotInterval:    cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval)),
-		SnapshotWriterLimit: cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit)),
-		CacheSize:           cast.ToInt(appOpts.Get(FlagSCCacheSize)),
-	}
+	scConfig := config.DefaultStateCommitConfig()
+	scConfig.Enable = cast.ToBool(appOpts.Get(FlagSCEnable))
+	scConfig.Directory = cast.ToString(appOpts.Get(FlagSCDirectory))
+	scConfig.ZeroCopy = cast.ToBool(appOpts.Get(FlagSCZeroCopy))
+	scConfig.AsyncCommitBuffer = cast.ToInt(appOpts.Get(FlagSCAsyncCommitBuffer))
+	scConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
+	scConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
+	scConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
+	return scConfig
 }
 
 func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
-	return config.StateStoreConfig{
-		Enable:               cast.ToBool(appOpts.Get(FlagSSEnable)),
-		Backend:              cast.ToString(appOpts.Get(FlagSSBackend)),
-		AsyncWriteBuffer:     cast.ToInt(appOpts.Get(FlagSSAsyncWriterBuffer)),
-		KeepRecent:           cast.ToInt(appOpts.Get(FlagSSKeepRecent)),
-		PruneIntervalSeconds: cast.ToInt(appOpts.Get(FlagSSPruneInterval)),
-		ImportNumWorkers:     cast.ToInt(appOpts.Get(FlagSSImportNumWorkers)),
-		DBDirectory:          cast.ToString(appOpts.Get(FlagSSDirectory)),
-	}
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Enable = cast.ToBool(appOpts.Get(FlagSSEnable))
+	ssConfig.Backend = cast.ToString(appOpts.Get(FlagSSBackend))
+	ssConfig.AsyncWriteBuffer = cast.ToInt(appOpts.Get(FlagSSAsyncWriterBuffer))
+	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(FlagSSKeepRecent))
+	ssConfig.PruneIntervalSeconds = cast.ToInt(appOpts.Get(FlagSSPruneInterval))
+	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
+	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
+	return ssConfig
 }
 
 func validateConfigs(appOpts servertypes.AppOptions) {

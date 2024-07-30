@@ -2,7 +2,9 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
+	"os"
 
 	"github.com/cosmos/cosmos-sdk/types/kv"
 
@@ -43,6 +45,41 @@ func (app *App) ExportAppStateAndValidators(
 	}
 	return servertypes.ExportedApp{
 		AppState:        appState,
+		Validators:      validators,
+		Height:          height,
+		ConsensusParams: app.BaseApp.GetConsensusParams(ctx),
+	}, nil
+}
+
+func (app *App) ExportAppToFileStateAndValidators(
+	forZeroHeight bool, jailAllowedAddrs []string, file *os.File,
+) (servertypes.ExportedApp, error) {
+	// as if they could withdraw from the start of the next block
+	ctx := app.NewContext(true, tmproto.Header{Height: app.LastBlockHeight()})
+
+	// We export at last height + 1, because that's the height at which
+	// Tendermint will start InitChain.
+	height := app.LastBlockHeight() + 1
+	if forZeroHeight {
+		height = 0
+		app.prepForZeroHeightGenesis(ctx, jailAllowedAddrs)
+	}
+	err := app.mm.ProcessGenesisPerModule(ctx, app.appCodec, func(moduleName string, moduleJson json.RawMessage) error {
+		_, err := file.Write([]byte(fmt.Sprintf("{\"app_state\": {\"module\":\"%s\",\"data\":%s}}\n", moduleName, string(moduleJson))))
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return servertypes.ExportedApp{}, err
+	}
+	validators, err := staking.WriteValidators(ctx, app.StakingKeeper)
+	if err != nil {
+		return servertypes.ExportedApp{}, err
+	}
+
+	return servertypes.ExportedApp{
 		Validators:      validators,
 		Height:          height,
 		ConsensusParams: app.BaseApp.GetConsensusParams(ctx),

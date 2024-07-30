@@ -257,6 +257,7 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
+	require.Equal(t, uint32(0), receipt.Logs[0].Index)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
 	require.Equal(t, common.HexToHash("0x2").Bytes(), receipt.Logs[0].Data)

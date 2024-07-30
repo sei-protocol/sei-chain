@@ -132,6 +132,31 @@ func TestCall(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(8)
 }
 
+func TestEthCallHighAmount(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	_, from := testkeeper.MockAddressPair()
+	_, to := testkeeper.MockAddressPair()
+	txArgs := map[string]interface{}{
+		"from":    from.Hex(),
+		"to":      to.Hex(),
+		"value":   "0x0",
+		"nonce":   "0x2",
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+	}
+
+	overrides := map[string]map[string]interface{}{
+		from.Hex(): {"balance": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+	}
+	resObj := sendRequestGood(t, "call", txArgs, "latest", overrides)
+	fmt.Println("resObj = ", resObj)
+	errMap := resObj["error"].(map[string]interface{})
+	result := errMap["message"]
+	fmt.Println("res = ", result)
+	require.Equal(t, result, "error: balance override overflow")
+
+	Ctx = Ctx.WithBlockHeight(8)
+}
+
 func TestNewRevertError(t *testing.T) {
 	err := evmrpc.NewRevertError(&core.ExecutionResult{})
 	require.NotNil(t, err)
