@@ -5,8 +5,9 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
 	"strings"
+
+	"github.com/btcsuite/btcd/btcec"
 
 	"math/big"
 
