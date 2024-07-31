@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"github.com/btcsuite/btcd/btcec"
 	"strings"
 
 	"math/big"
@@ -18,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -27,6 +29,7 @@ const (
 	GetSeiAddressMethod = "getSeiAddr"
 	GetEvmAddressMethod = "getEvmAddr"
 	Associate           = "associate"
+	AssociatePubKey     = "associatePubKey"
 )
 
 const (
@@ -43,9 +46,10 @@ type PrecompileExecutor struct {
 	bankKeeper    pcommon.BankKeeper
 	accountKeeper pcommon.AccountKeeper
 
-	GetSeiAddressID []byte
-	GetEvmAddressID []byte
-	AssociateID     []byte
+	GetSeiAddressID   []byte
+	GetEvmAddressID   []byte
+	AssociateID       []byte
+	AssociatePubKeyID []byte
 }
 
 func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
@@ -66,6 +70,8 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, a
 			p.GetEvmAddressID = m.ID
 		case Associate:
 			p.AssociateID = m.ID
+		case AssociatePubKey:
+			p.AssociatePubKeyID = m.ID
 		}
 	}
 
@@ -74,7 +80,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, a
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
-	if bytes.Equal(method.ID, p.AssociateID) {
+	if bytes.Equal(method.ID, p.AssociateID) || bytes.Equal(method.ID, p.AssociatePubKeyID) {
 		return 50000
 	}
 	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
@@ -88,6 +94,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ commo
 		return p.getEvmAddr(ctx, method, args, value)
 	case Associate:
 		return p.associate(ctx, method, args, value)
+	case AssociatePubKey:
+		return p.associatePublicKey(ctx, method, args, value)
 	}
 	return
 }
@@ -173,6 +181,44 @@ func (p PrecompileExecutor) associate(ctx sdk.Context, method *abi.Method, args 
 		return nil, err
 	}
 
+	return p.associateAddresses(ctx, method, evmAddr, seiAddr, pubkey)
+}
+
+func (p PrecompileExecutor) associatePublicKey(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
+
+	// Takes a single argument, a pubkey in hex format
+	pubKeyHex := args[0].(string)
+
+	pubKeyBytes, err := hex.DecodeString(pubKeyHex)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the compressed public key
+	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to uncompressed public key
+	uncompressedPubKey := pubKey.SerializeUncompressed()
+
+	evmAddr, seiAddr, pubkey, err := helpers.GetAddressesFromPubkeyBytes(uncompressedPubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return p.associateAddresses(ctx, method, evmAddr, seiAddr, pubkey)
+}
+
+func (p PrecompileExecutor) associateAddresses(ctx sdk.Context, method *abi.Method, evmAddr common.Address, seiAddr sdk.AccAddress, pubkey cryptotypes.PubKey) ([]byte, error) {
 	// Check that address is not already associated
 	_, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
 	if found {
@@ -181,7 +227,7 @@ func (p PrecompileExecutor) associate(ctx sdk.Context, method *abi.Method, args 
 
 	// Associate Addresses:
 	associationHelper := helpers.NewAssociationHelper(p.evmKeeper, p.bankKeeper, p.accountKeeper)
-	err = associationHelper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey)
+	err := associationHelper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey)
 	if err != nil {
 		return nil, err
 	}

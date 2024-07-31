@@ -53,6 +53,25 @@ describe("EVM Precompile Tester", function () {
             const seiAddr = await addr.getSeiAddr(unassociatedWallet.address);
             expect(seiAddr).to.not.be.null;
         });
+
+        it("Assosciates with Public Key successfully", async function () {
+            const unassociatedWallet = hre.ethers.Wallet.createRandom();
+            try {
+                await addr.getSeiAddr(unassociatedWallet.address);
+                expect.fail("Expected an error here since we look up an unassociated address");
+            } catch (error) {
+                expect(error).to.have.property('message').that.includes('execution reverted');
+            }
+
+            const appendedMessage = `\x19Ethereum Signed Message:\n${messageLength}${message}`;
+            const associatedAddrs = await addr.associatePubKey(unassociatedWallet.publicKey)
+            const addrs = await associatedAddrs.wait();
+            expect(addrs).to.not.be.null;
+
+            // Verify that addresses are now associated.
+            const seiAddr = await addr.getSeiAddr(unassociatedWallet.address);
+            expect(seiAddr).to.not.be.null;
+        });
     });
 
     describe("EVM Gov Precompile Tester", function () {
