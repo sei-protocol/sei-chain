@@ -27,6 +27,8 @@ const (
 
 const WasmdAddress = "0x0000000000000000000000000000000000001002"
 
+var Address = common.HexToAddress(WasmdAddress)
+
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
 //go:embed abi.json
@@ -51,15 +53,19 @@ type ExecuteMsg struct {
 	Coins           []byte `json:"coins"`
 }
 
+func GetABI() abi.ABI {
+	return pcommon.MustGetABI(f, "abi.json")
+}
+
 func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.DynamicGasPrecompile, error) {
-	newAbi := pcommon.MustGetABI(f, "abi.json")
+	newAbi := GetABI()
 
 	executor := &PrecompileExecutor{
 		wasmdKeeper:     wasmdKeeper,
 		wasmdViewKeeper: wasmdViewKeeper,
 		evmKeeper:       evmKeeper,
 		bankKeeper:      bankKeeper,
-		address:         common.HexToAddress(WasmdAddress),
+		address:         Address,
 	}
 
 	for name, m := range newAbi.Methods {
@@ -74,7 +80,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 			executor.QueryID = m.ID
 		}
 	}
-	return pcommon.NewDynamicGasPrecompile(newAbi, executor, common.HexToAddress(WasmdAddress), "wasmd"), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, executor, Address, "wasmd"), nil
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
@@ -451,4 +457,8 @@ func (p PrecompileExecutor) query(ctx sdk.Context, method *abi.Method, args []in
 	ret, rerr = method.Outputs.Pack(res)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
+}
+
+func IsWasmdCall(to *common.Address) bool {
+	return to != nil && (to.Cmp(Address) == 0)
 }
