@@ -7,6 +7,8 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
+	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochkeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
@@ -19,6 +21,7 @@ import (
 
 func RegisterCustomPlugins(
 	oracle *oraclekeeper.Keeper,
+	dex *dexkeeper.Keeper,
 	epoch *epochkeeper.Keeper,
 	tokenfactory *tokenfactorykeeper.Keeper,
 	_ *authkeeper.AccountKeeper,
@@ -31,11 +34,12 @@ func RegisterCustomPlugins(
 	aclKeeper aclkeeper.Keeper,
 	evmKeeper *evmkeeper.Keeper,
 ) []wasmkeeper.Option {
+	dexHandler := dexwasm.NewDexWasmQueryHandler(dex)
 	oracleHandler := oraclewasm.NewOracleWasmQueryHandler(oracle)
 	epochHandler := epochwasm.NewEpochWasmQueryHandler(epoch)
 	tokenfactoryHandler := tokenfactorywasm.NewTokenFactoryWasmQueryHandler(tokenfactory)
 	evmHandler := evmwasm.NewEVMQueryHandler(evmKeeper)
-	wasmQueryPlugin := NewQueryPlugin(oracleHandler, epochHandler, tokenfactoryHandler, evmHandler)
+	wasmQueryPlugin := NewQueryPlugin(oracleHandler, dexHandler, epochHandler, tokenfactoryHandler, evmHandler)
 
 	queryPluginOpt := wasmkeeper.WithQueryPlugins(&wasmkeeper.QueryPlugins{
 		Custom: CustomQuerier(wasmQueryPlugin),

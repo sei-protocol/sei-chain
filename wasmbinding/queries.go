@@ -7,6 +7,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/sei-protocol/sei-chain/utils/metrics"
+	dexwasm "github.com/sei-protocol/sei-chain/x/dex/client/wasm"
+	dexbindings "github.com/sei-protocol/sei-chain/x/dex/client/wasm/bindings"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbindings "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -22,15 +25,17 @@ import (
 
 type QueryPlugin struct {
 	oracleHandler       oraclewasm.OracleWasmQueryHandler
+	dexHandler          dexwasm.DexWasmQueryHandler
 	epochHandler        epochwasm.EpochWasmQueryHandler
 	tokenfactoryHandler tokenfactorywasm.TokenFactoryWasmQueryHandler
 	evmHandler          evmwasm.EVMQueryHandler
 }
 
 // NewQueryPlugin returns a reference to a new QueryPlugin.
-func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler, eh *epochwasm.EpochWasmQueryHandler, th *tokenfactorywasm.TokenFactoryWasmQueryHandler, evmh *evmwasm.EVMQueryHandler) *QueryPlugin {
+func NewQueryPlugin(oh *oraclewasm.OracleWasmQueryHandler, dh *dexwasm.DexWasmQueryHandler, eh *epochwasm.EpochWasmQueryHandler, th *tokenfactorywasm.TokenFactoryWasmQueryHandler, evmh *evmwasm.EVMQueryHandler) *QueryPlugin {
 	return &QueryPlugin{
 		oracleHandler:       *oh,
+		dexHandler:          *dh,
 		epochHandler:        *eh,
 		tokenfactoryHandler: *th,
 		evmHandler:          *evmh,
@@ -67,6 +72,72 @@ func (qp QueryPlugin) HandleOracleQuery(ctx sdk.Context, queryData json.RawMessa
 		return bz, nil
 	default:
 		return nil, oracletypes.ErrUnknownSeiOracleQuery
+	}
+}
+
+func (qp QueryPlugin) HandleDexQuery(ctx sdk.Context, queryData json.RawMessage) ([]byte, error) {
+	var parsedQuery dexbindings.SeiDexQuery
+	if err := json.Unmarshal(queryData, &parsedQuery); err != nil {
+		return nil, dextypes.ErrParsingSeiDexQuery
+	}
+	switch {
+	case parsedQuery.DexTwaps != nil:
+		res, err := qp.dexHandler.GetDexTwap(ctx, parsedQuery.DexTwaps)
+		if err != nil {
+			return nil, err
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, dextypes.ErrEncodingDexTwaps
+		}
+
+		return bz, nil
+	case parsedQuery.GetOrders != nil:
+		res, err := qp.dexHandler.GetOrders(ctx, parsedQuery.GetOrders)
+		if err != nil {
+			return nil, err
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, dextypes.ErrEncodingOrders
+		}
+
+		return bz, nil
+	case parsedQuery.GetOrderByID != nil:
+		res, err := qp.dexHandler.GetOrderByID(ctx, parsedQuery.GetOrderByID)
+		if err != nil {
+			return nil, err
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, dextypes.ErrEncodingOrder
+		}
+
+		return bz, nil
+	case parsedQuery.GetOrderSimulation != nil:
+		res, err := qp.dexHandler.GetOrderSimulation(ctx, parsedQuery.GetOrderSimulation)
+		if err != nil {
+			return nil, err
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, dextypes.ErrEncodingOrderSimulation
+		}
+
+		return bz, nil
+	case parsedQuery.GetLatestPrice != nil:
+		res, err := qp.dexHandler.GetLatestPrice(ctx, parsedQuery.GetLatestPrice)
+		if err != nil {
+			return nil, err
+		}
+		bz, err := json.Marshal(res)
+		if err != nil {
+			return nil, dextypes.ErrEncodingLatestPrice
+		}
+
+		return bz, nil
+	default:
+		return nil, dextypes.ErrUnknownSeiDexQuery
 	}
 }
 

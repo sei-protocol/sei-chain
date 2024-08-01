@@ -1,0 +1,21 @@
+syntax = "proto3";
+package seiprotocol.seichain.dex;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
+
+message DepositInfoEntry {
+    string creator = 1 [
+        (gogoproto.jsontag)    = "creator"
+    ];
+    string denom = 2 [
+        (gogoproto.jsontag)    = "denom"
+    ];
+    string amount = 3 [
+        (gogoproto.moretags)   = "yaml:\"amount\"",
+        (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+        (gogoproto.nullable)   = false,
+        (gogoproto.jsontag)    = "amount"
+    ];
+}
