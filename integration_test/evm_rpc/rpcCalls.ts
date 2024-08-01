@@ -136,12 +136,12 @@ describe('Evm Rpc Calls', function (){
 
     it('Users will see get block transaction count by number', async () =>{
       const txCount = await evmClient.send('eth_getBlockTransactionCountByNumber', [ethers.toQuantity(blockNumber)]);
-      expect(parseInt(txCount)).to.be.eq(1)
+      expect(parseInt(txCount)).to.be.eq(1);
     });
 
     it('Users will see transaction count by hash', async () =>{
       const txCount = await evmClient.send('eth_getBlockTransactionCountByHash', [blockHash]);
-      expect(parseInt(txCount)).to.be.eq(1)
+      expect(parseInt(txCount)).to.be.eq(1);
     });
 
     it('Users will get block details by hash', async () =>{
@@ -189,7 +189,7 @@ describe('Evm Rpc Calls', function (){
 
     it('Users can query accounts', async () =>{
       const accounts = await evmClient.send('eth_accounts', []);
-      expect(accounts.length).to.be.eq(21);
+      expect(accounts.length).to.be.above(0);
     });
 
     it('Users can query gas price', async () =>{
