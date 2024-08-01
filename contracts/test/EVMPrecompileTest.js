@@ -29,7 +29,7 @@ describe("EVM Precompile Tester", function () {
             addr = new ethers.Contract(AddrPrecompileContract, contractABI, signer);
         });
 
-        it("Assosciates successfully", async function () {
+        it("Associates successfully", async function () {
             const unassociatedWallet = hre.ethers.Wallet.createRandom();
             try {
                 await addr.getSeiAddr(unassociatedWallet.address);
@@ -54,7 +54,7 @@ describe("EVM Precompile Tester", function () {
             expect(seiAddr).to.not.be.null;
         });
 
-        it("Assosciates with Public Key successfully", async function () {
+        it("Associates with Public Key successfully", async function () {
             const unassociatedWallet = hre.ethers.Wallet.createRandom();
             try {
                 await addr.getSeiAddr(unassociatedWallet.address);
@@ -63,7 +63,6 @@ describe("EVM Precompile Tester", function () {
                 expect(error).to.have.property('message').that.includes('execution reverted');
             }
 
-            const appendedMessage = `\x19Ethereum Signed Message:\n${messageLength}${message}`;
             const associatedAddrs = await addr.associatePubKey(unassociatedWallet.publicKey)
             const addrs = await associatedAddrs.wait();
             expect(addrs).to.not.be.null;
