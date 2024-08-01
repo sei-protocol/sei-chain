@@ -1,0 +1,40 @@
+syntax = "proto3";
+package seiprotocol.seichain.dex;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
+import "gogoproto/gogo.proto";
+
+message SettlementEntry {
+  string account = 1 [(gogoproto.jsontag) = "account"];
+  string priceDenom = 2 [(gogoproto.jsontag) = "price_denom"];
+  string assetDenom = 3 [(gogoproto.jsontag) = "asset_denom"];
+  string quantity = 4 [
+		(gogoproto.moretags)   = "yaml:\"quantity\"",
+		(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+		(gogoproto.nullable)   = false,
+    (gogoproto.jsontag) = "quantity"
+	];
+  string executionCostOrProceed = 5 [
+		(gogoproto.moretags)   = "yaml:\"execution_cost_or_proceed\"",
+		(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+		(gogoproto.nullable)   = false,
+    (gogoproto.jsontag) = "execution_cost_or_proceed"
+	];
+  string expectedCostOrProceed = 6 [
+		(gogoproto.moretags)   = "yaml:\"expected_cost_or_proceed\"",
+		(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+		(gogoproto.nullable)   = false,
+    (gogoproto.jsontag) = "expected_cost_or_proceed"
+	];
+  string positionDirection = 7 [(gogoproto.jsontag) = "position_direction"];
+  string orderType = 8 [(gogoproto.jsontag) = "order_type"];
+  uint64 orderId = 9 [(gogoproto.jsontag) = "order_id"];
+  uint64 timestamp = 10 [(gogoproto.jsontag) = "timestamp"];
+  uint64 height = 11 [(gogoproto.jsontag) = "height"];
+  uint64 settlementId = 12 [(gogoproto.jsontag) = "settlement_id"];
+}
+
+message Settlements {
+  int64 epoch = 1 [(gogoproto.jsontag) = "epoch"];
+  repeated SettlementEntry entries = 2 [(gogoproto.jsontag) = "entries"];
+}

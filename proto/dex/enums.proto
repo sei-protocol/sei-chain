@@ -1,0 +1,42 @@
+syntax = "proto3";
+package seiprotocol.seichain.dex;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
+
+enum PositionDirection {
+    LONG = 0;
+    SHORT = 1;
+}
+
+enum PositionEffect {
+    OPEN = 0;
+    CLOSE = 1;
+}
+
+enum OrderType {
+    LIMIT = 0;
+    MARKET = 1;
+    FOKMARKET = 3; // fill-or-kill market order
+    FOKMARKETBYVALUE = 4; // fill-or-kill market by value order
+    STOPLOSS = 5;
+    STOPLIMIT = 6;
+}
+
+enum Unit {
+    STANDARD = 0;
+    MILLI = 1;
+    MICRO = 2;
+    NANO = 3;
+}
+
+enum OrderStatus {
+    PLACED = 0;
+    FAILED_TO_PLACE = 1;
+    CANCELLED = 2;
+    FULFILLED = 3;
+}
+
+enum CancellationInitiator {
+    USER = 0;
+    LIQUIDATED = 1;
+}
