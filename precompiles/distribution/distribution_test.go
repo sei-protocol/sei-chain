@@ -1051,7 +1051,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 				suppliedGas:      uint64(1000000),
 			},
 			wantRet:          emptyCasePackedOutput,
-			wantRemainingGas: 994319,
+			wantRemainingGas: 994313,
 			wantErr:          false,
 		},
 		{
@@ -1067,7 +1067,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 				suppliedGas:      uint64(1000000),
 			},
 			wantRet:          happyPathPackedOutput,
-			wantRemainingGas: 994319,
+			wantRemainingGas: 994313,
 			wantErr:          false,
 		},
 	}

@@ -202,7 +202,7 @@ func TestEvmEventsForCw721(t *testing.T) {
 	wasmAddr := common.HexToAddress(wasmd.WasmdAddress)
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
-		GasPrice: big.NewInt(1000000000),
+		GasPrice: big.NewInt(333000000000),
 		Gas:      1000000,
 		To:       &wasmAddr,
 		Data:     data,
