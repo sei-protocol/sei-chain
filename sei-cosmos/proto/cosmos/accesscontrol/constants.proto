@@ -27,12 +27,12 @@ enum ResourceType {
     ANY = 0;
     KV = 1; // child of ANY
     Mem = 2; // child of ANY
-    reserved 3; // dex deprecated
+    DexMem = 3; // child of MEM
     KV_BANK = 4; // child of KV
     KV_STAKING = 5; // child of KV
     KV_WASM = 6; // child of KV
     KV_ORACLE = 7; // child of KV
-    reserved 8; // dex deprecated
+    KV_DEX = 8; // child of KV
     KV_EPOCH = 9; // child of KV
     KV_TOKENFACTORY = 10; // child of KV
     KV_ORACLE_VOTE_TARGETS = 11; // child of KV_ORACLE
@@ -78,7 +78,26 @@ enum ResourceType {
     KV_DISTRIBUTION_VAL_ACCUM_COMMISSION = 49; // child of KV_DISTRIBUTION
     KV_DISTRIBUTION_SLASH_EVENT = 50; // child of KV_DISTRIBUTION
 
-    reserved 51 to 70; // dex deprecated
+    KV_DEX_CONTRACT_LONGBOOK = 51; // child of KV_DEX
+    KV_DEX_CONTRACT_SHORTBOOK = 52; // child of KV_DEX
+    KV_DEX_SETTLEMENT = 53; // child of KV_DEX
+    KV_DEX_PAIR_PREFIX = 54; // child of KV_DEX
+    KV_DEX_TWAP = 55; // child of KV_DEX
+    KV_DEX_PRICE = 56; // child of KV_DEX
+    KV_DEX_SETTLEMENT_ENTRY = 57; // child of KV_DEX
+    KV_DEX_REGISTERED_PAIR = 58; // child of KV_DEX
+    reserved 59;  // KV_DEX_PRICE_TICK_SIZE deprecated // child of KV_DEX
+    KV_DEX_ORDER = 60; // child of KV_DEX
+    KV_DEX_CANCEL = 61; // child of KV_DEX
+    KV_DEX_ACCOUNT_ACTIVE_ORDERS = 62; // child of KV_DEX
+    reserved 63; // KV_DEX_REGISTERED_PAIR_COUNT deprecated // child of KV_DEX
+    KV_DEX_ASSET_LIST = 64; // child of KV_DEX
+    KV_DEX_NEXT_ORDER_ID = 65; // child of KV_DEX
+    KV_DEX_NEXT_SETTLEMENT_ID = 66; // child of KV_DEX
+    KV_DEX_MATCH_RESULT = 67; // child of KV_DEX
+    KV_DEX_SETTLEMENT_ORDER_ID = 68; // child of KV_DEX
+    KV_DEX_ORDER_BOOK = 69; // child of KV_DEX
+    reserved 70; // KV_DEX_QUANTITY_TICK_SIZE deprecated // child of KV_DEX
 
     KV_ACCESSCONTROL = 71; // child of KV
     KV_ACCESSCONTROL_WASM_DEPENDENCY_MAPPING = 72; // child of KV_ACCESSCONTROL
@@ -102,7 +121,13 @@ enum ResourceType {
     KV_SLASHING_VAL_SIGNING_INFO = 85; // child of KV_SLASHING
     KV_SLASHING_ADDR_PUBKEY_RELATION_KEY = 86; // child of KV_SLASHING
 
-    reserved 87 to 92; // dex deprecated
+    KV_DEX_MEM_ORDER = 87;
+    KV_DEX_MEM_CANCEL = 88;
+    KV_DEX_MEM_DEPOSIT = 89;
+
+    KV_DEX_CONTRACT = 90; // child of KV_DEX
+    KV_DEX_LONG_ORDER_COUNT = 91; // child of KV_DEX
+    KV_DEX_SHORT_ORDER_COUNT = 92; // child of KV_DEX
 
     KV_BANK_DEFERRED = 93; // child of KV
     reserved 94;
@@ -123,7 +148,8 @@ enum ResourceType {
 
     KV_BANK_WEI_BALANCE = 108; // child of KV_BANK
 
-    reserved 109, 110; // dex deprecated
+    KV_DEX_MEM_CONTRACTS_TO_PROCESS = 109; // child of KV_DEX_MEM
+    KV_DEX_MEM_DOWNSTREAM_CONTRACTS = 110; // child of KV_DEX_MEM
 }
 
 enum WasmMessageSubtype {
