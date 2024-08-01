@@ -51,6 +51,56 @@ async function main() {
     const router = await SwapRouter.deploy(factoryAddress, wethAddress);
     await router.deployed();
     console.log("SwapRouter deployed to:", router.address);
+
+    // Create WETH9 x MockToken liquidity pool
+    console.log("Deploying SwapRouter with the account:", deployer.address);
+    const fee = 3000; // Fee tier (0.3%)
+    const sqrtPriceX96 = BigInt(Math.sqrt(1)) * BigInt(2) ** BigInt(96); // Initial price (1:1)
+
+    const poolTx = await manager.createAndInitializePoolIfNecessary(
+        token.address,
+        weth9.address,
+        fee,
+        sqrtPriceX96
+    );
+    await poolTx.wait();
+    console.log("Pool created and initialized");
+
+    // Add Liquidity to pool
+    // Define the amount of tokens to be approved and added as liquidity
+    const amountETH = hre.ethers.utils.parseEther("10000");
+    const amountToken = hre.ethers.utils.parseEther("10000");
+
+    // Approve the NonfungiblePositionManager to spend the specified amount of the mock token
+    await token.approve(positionManagerAddress, amountToken);
+
+    // Wrap ETH to WETH by depositing ETH into the WETH9 contract
+    const txWrap = await WETH.deposit({ value: amountETH });
+    await txWrap.wait();
+    console.log(`Deposited ${amountETH.toString()} ETH to WETH9`);
+
+    // Approve the NonfungiblePositionManager to spend the specified amount of WETH
+    const approveWETHTx = await WETH.approve(positionManagerAddress, amountETH);
+    await approveWETHTx.wait();
+    console.log(`Approved ${amountETH.toString()} WETH to the NonfungiblePositionManager`);
+
+    // Add liquidity to the pool
+    const liquidityTx = await NonfungiblePositionManager.mint({
+        token0: token.address,
+        token1: weth9.address,
+        fee: 3000, // Fee tier (0.3%)
+        tickLower: -887220,
+        tickUpper: 887220,
+        amount0Desired: amountToken,
+        amount1Desired: amountETH,
+        amount0Min: 0,
+        amount1Min: 0,
+        recipient: deployer.address,
+        deadline: Math.floor(Date.now() / 1000) + 60 * 10 // 10 minutes from now
+    });
+    
+    await tx.wait();
+    console.log("Liquidity added");
   }
   
   main()
