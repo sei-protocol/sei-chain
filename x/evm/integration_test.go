@@ -158,7 +158,7 @@ func TestCW2981PointerToERC2981(t *testing.T) {
 	require.Nil(t, err)
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
-		GasPrice: big.NewInt(1000000000),
+		GasPrice: big.NewInt(333000000000),
 		Gas:      5000000,
 		To:       nil,
 		Data:     append(bz, data...),
@@ -193,7 +193,7 @@ func TestCW2981PointerToERC2981(t *testing.T) {
 	to := common.HexToAddress(receipt.ContractAddress)
 	txData = ethtypes.LegacyTx{
 		Nonce:    1,
-		GasPrice: big.NewInt(1000000000),
+		GasPrice: big.NewInt(333000000000),
 		Gas:      1000000,
 		To:       &to,
 		Data:     data,
