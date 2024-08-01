@@ -63,7 +63,8 @@ describe("EVM Precompile Tester", function () {
                 expect(error).to.have.property('message').that.includes('execution reverted');
             }
 
-            const associatedAddrs = await addr.associatePubKey(unassociatedWallet.publicKey)
+            // Use the PublicKey without the '0x' prefix.
+            const associatedAddrs = await addr.associatePubKey(unassociatedWallet.publicKey.slice(2))
             const addrs = await associatedAddrs.wait();
             expect(addrs).to.not.be.null;
 
