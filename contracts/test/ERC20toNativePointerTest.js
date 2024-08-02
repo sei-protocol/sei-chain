@@ -1,5 +1,6 @@
 const {setupSigners, deployErc20PointerNative, getAdmin, createTokenFactoryTokenAndMint, ABI, generateWallet,
-    fundAddress, getSeiAddress
+    fundAddress, getSeiAddress,
+    delay
 } = require("./lib");
 const {expect} = require("chai");
 
@@ -89,10 +90,13 @@ describe("ERC20 to Native Pointer", function () {
             expect(await pointer.balanceOf(recipient)).to.equal(amount);
 
             // fund address so it can transact
-            await fundAddress(recipient)
+            await fundAddress(recipient, "1000000000000000000000")
+            await delay()
 
             // unlinked wallet can send balance back to sender (becomes linked at this moment)
-            await (await pointer.connect(recipientWallet).transfer(sender.evmAddress, amount)).wait()
+            await (await pointer.connect(recipientWallet).transfer(sender.evmAddress, amount, {
+                gasPrice: ethers.parseUnits('333', 'gwei')
+            })).wait()
             expect(await pointer.balanceOf(recipient)).to.equal(BigInt(0));
             expect(await pointer.balanceOf(sender.evmAddress)).to.equal(startBal);
 
