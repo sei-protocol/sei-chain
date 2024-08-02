@@ -73,6 +73,16 @@ func (k *Keeper) UpsertERCCW721Pointer(
 	)
 }
 
+func (k *Keeper) UpsertERCCW1155Pointer(
+	ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw1155Addr string, metadata utils.ERCMetadata,
+) (contractAddr common.Address, remainingGas uint64, err error) {
+	return k.UpsertERCPointer(
+		ctx, evm, suppliedGas, "cw1155", []interface{}{
+			cw1155Addr, metadata.Name, metadata.Symbol,
+		}, k.GetERC1155CW1155Pointer, k.SetERC1155CW1155Pointer,
+	)
+}
+
 func (k *Keeper) UpsertERCPointer(
 	ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, typ string, args []interface{}, getter PointerGetter, setter PointerSetter,
 ) (contractAddr common.Address, remainingGas uint64, err error) {

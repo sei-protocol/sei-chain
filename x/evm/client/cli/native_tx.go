@@ -59,7 +59,7 @@ func NativeSendTxCmd() *cobra.Command {
 func RegisterCwPointerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "register-cw-pointer [pointer type] [erc address]",
-		Short: `Register a CosmWasm pointer for an ERC20/721 contract. Pointer type is either ERC20 or ERC721.`,
+		Short: `Register a CosmWasm pointer for an ERC20/721/1155 contract. Pointer type is either ERC20, ERC721, or ERC1155.`,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
@@ -88,7 +88,7 @@ func RegisterCwPointerCmd() *cobra.Command {
 func RegisterEvmPointerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "register-evm-pointer [pointer type] [cw-address] --gas-fee-cap=<cap> --gas-limit=<limit> --evm-rpc=<url>",
-		Short: `Register an EVM pointer for a CosmWasm contract. Pointer type is either CW20, CW721, or NATIVE.`,
+		Short: `Register an EVM pointer for a CosmWasm contract. Pointer type is either CW20, CW721, CW1155, or NATIVE.`,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pInfo := precompiles.GetPrecompileInfo(pointer.PrecompileName)
@@ -99,6 +99,8 @@ func RegisterEvmPointerCmd() *cobra.Command {
 				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddCW20Pointer, args[1]})
 			case "CW721":
 				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddCW721Pointer, args[1]})
+			case "CW1155":
+				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddCW1155Pointer, args[1]})
 			case "NATIVE":
 				payload, err = getMethodPayload(pInfo.ABI, []string{pointer.AddNativePointer, args[1]})
 			default:

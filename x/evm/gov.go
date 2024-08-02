@@ -45,10 +45,18 @@ func HandleAddERCCW721PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *type
 	return errors.New("proposal type deprecated")
 }
 
+func HandleAddERCCW1155PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *types.AddERCCW1155PointerProposal) error {
+	return errors.New("proposal type deprecated")
+}
+
 func HandleAddCWERC20PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *types.AddCWERC20PointerProposal) error {
 	return errors.New("proposal type deprecated")
 }
 
 func HandleAddCWERC721PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *types.AddCWERC721PointerProposal) error {
+	return errors.New("proposal type deprecated")
+}
+
+func HandleAddCWERC1155PointerProposal(ctx sdk.Context, k *keeper.Keeper, p *types.AddCWERC1155PointerProposal) error {
 	return errors.New("proposal type deprecated")
 }

@@ -113,3 +113,28 @@ func TestUpsertERC721Pointer(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, addr, newAddr)
 }
+
+func TestUpsertERC1155Pointer(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	var addr common.Address
+	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
+		a, _, err := k.UpsertERCCW1155Pointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
+			Name:   "test",
+			Symbol: "test",
+		})
+		addr = a
+		return err
+	}, func(s1, s2 string) {})
+	require.Nil(t, err)
+	var newAddr common.Address
+	err = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
+		a, _, err := k.UpsertERCCW1155Pointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
+			Name:   "test2",
+			Symbol: "test2",
+		})
+		newAddr = a
+		return err
+	}, func(s1, s2 string) {})
+	require.Nil(t, err)
+	require.Equal(t, addr, newAddr)
+}

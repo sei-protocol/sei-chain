@@ -46,6 +46,8 @@ type EVMKeeper interface {
 	GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool)
 	SetERC721CW721Pointer(ctx sdk.Context, cw721Address string, addr common.Address) error
 	GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool)
+	SetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string, addr common.Address) error
+	GetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string) (addr common.Address, version uint16, exists bool)
 	SetCode(ctx sdk.Context, addr common.Address, code []byte)
 	UpsertERCNativePointer(
 		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, token string, metadata utils.ERCMetadata,
@@ -55,6 +57,9 @@ type EVMKeeper interface {
 	) (contractAddr common.Address, remainingGas uint64, err error)
 	UpsertERCCW721Pointer(
 		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw721Addr string, metadata utils.ERCMetadata,
+	) (contractAddr common.Address, remainingGas uint64, err error)
+	UpsertERCCW1155Pointer(
+		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw1155Addr string, metadata utils.ERCMetadata,
 	) (contractAddr common.Address, remainingGas uint64, err error)
 }
 

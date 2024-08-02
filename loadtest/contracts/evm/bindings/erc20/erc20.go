@@ -757,4 +757,3 @@ func (_Erc20 *Erc20Filterer) ParseTransfer(log types.Log) (*Erc20Transfer, error
 	event.Raw = log
 	return event, nil
 }
-

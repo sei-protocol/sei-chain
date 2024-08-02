@@ -324,4 +324,3 @@ func (_Univ2Swapper *Univ2SwapperSession) Swap() (*types.Transaction, error) {
 func (_Univ2Swapper *Univ2SwapperTransactorSession) Swap() (*types.Transaction, error) {
 	return _Univ2Swapper.Contract.Swap(&_Univ2Swapper.TransactOpts)
 }
-

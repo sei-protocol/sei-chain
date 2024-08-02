@@ -66,7 +66,7 @@ func TestInstantiate(t *testing.T) {
 	outputs, err := instantiateMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(outputs))
-	require.Equal(t, "sei1hrpna9v7vs3stzyd4z3xf00676kf78zpe2u5ksvljswn2vnjp3yslucc3n", outputs[0].(string))
+	require.Equal(t, "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau", outputs[0].(string))
 	require.Empty(t, outputs[1].([]byte))
 	require.NotZero(t, g)
 
@@ -89,7 +89,7 @@ func TestInstantiate(t *testing.T) {
 	outputs, err = instantiateMethod.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(outputs))
-	require.Equal(t, "sei1hrpna9v7vs3stzyd4z3xf00676kf78zpe2u5ksvljswn2vnjp3yslucc3n", outputs[0].(string))
+	require.Equal(t, "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau", outputs[0].(string))
 	require.Empty(t, outputs[1].([]byte))
 	require.NotZero(t, g)
 
