@@ -6,15 +6,14 @@ module.exports = {
   solidity: {
     version: "0.8.20",
     settings: {
-      evmVersion: "cancun",
       optimizer: {
         enabled: true,
         runs: 1000,
       },
     },
   },
-  paths: {
-    sources: "./src", // contracts are in ./src
+  mocha: {
+    timeout: 100000000,
   },
   networks: {
     seilocal: {
