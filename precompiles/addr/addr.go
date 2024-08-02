@@ -194,7 +194,7 @@ func (p PrecompileExecutor) associatePublicKey(ctx sdk.Context, method *abi.Meth
 		return nil, err
 	}
 
-	// Takes a single argument, a pubkey in hex format
+	// Takes a single argument, a compressed pubkey in hex format, excluding the '0x'
 	pubKeyHex := args[0].(string)
 
 	pubKeyBytes, err := hex.DecodeString(pubKeyHex)
