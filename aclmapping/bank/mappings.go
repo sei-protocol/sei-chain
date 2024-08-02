@@ -18,6 +18,7 @@ var ErrorInvalidMsgType = fmt.Errorf("invalid message received for bank module")
 func GetBankDepedencyGenerator() aclkeeper.DependencyGeneratorMap {
 	dependencyGeneratorMap := make(aclkeeper.DependencyGeneratorMap)
 
+	// dex place orders
 	placeOrdersKey := acltypes.GenerateMessageKey(&banktypes.MsgSend{})
 	dependencyGeneratorMap[placeOrdersKey] = MsgSendDependencyGenerator
 

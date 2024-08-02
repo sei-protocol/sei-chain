@@ -16,6 +16,7 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto/ed25519"
@@ -39,6 +40,7 @@ type KeeperTestHelper struct {
 func (s *KeeperTestHelper) Setup() {
 	s.App = app.Setup(false, false)
 	s.Ctx = s.App.BaseApp.NewContext(false, tmtypes.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
+	s.Ctx = s.Ctx.WithContext(context.WithValue(s.Ctx.Context(), dexutils.DexMemStateContextKey, s.App.MemState))
 	s.QueryHelper = &baseapp.QueryServiceTestHelper{
 		GRPCQueryRouter: s.App.GRPCQueryRouter(),
 		Ctx:             s.Ctx,

@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
+	"github.com/sei-protocol/sei-chain/x/dex/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -41,7 +42,7 @@ func TestPriorityAnteDecoratorTooHighPriority(t *testing.T) {
 		ctx.WithPriority(math.MaxInt64-50),
 		FakeTx{
 			FakeMsgs: []sdk.Msg{
-				&oracletypes.MsgDelegateFeedConsent{},
+				&types.MsgPlaceOrders{},
 			},
 		},
 		false,
