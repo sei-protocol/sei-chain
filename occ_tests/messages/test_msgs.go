@@ -63,7 +63,7 @@ func EVMTransferNonConflicting(tCtx *utils.TestContext, count int) []*utils.Test
 	var msgs []*utils.TestMessage
 	for i := 0; i < count; i++ {
 		testAcct := utils.NewSigner()
-		msgs = append(msgs, evmTransfer(testAcct, testAcct.EvmAddress, "EVMTransferNonConflicting"))
+		msgs = append(msgs, evmTransfer(testAcct, testAcct.EvmAddress, "EVMTransferNonConflicting", big.NewInt(1), 0))
 	}
 	return msgs
 }
@@ -73,22 +73,31 @@ func EVMTransferConflicting(tCtx *utils.TestContext, count int) []*utils.TestMes
 	var msgs []*utils.TestMessage
 	for i := 0; i < count; i++ {
 		testAcct := utils.NewSigner()
-		msgs = append(msgs, evmTransfer(testAcct, tCtx.TestAccounts[0].EvmAddress, "EVMTransferConflicting"))
+		msgs = append(msgs, evmTransfer(testAcct, tCtx.TestAccounts[0].EvmAddress, "EVMTransferConflicting", big.NewInt(1), 0))
+	}
+	return msgs
+}
+
+func EVMTransferWithAmount(tCtx *utils.TestContext, amount *big.Int, count int) []*utils.TestMessage {
+	var msgs []*utils.TestMessage
+	testAcct := utils.NewSigner()
+	for i := 0; i < count; i++ {
+		msgs = append(msgs, evmTransfer(testAcct, tCtx.TestAccounts[0].EvmAddress, "EVMTransferOutOfFunds", amount, uint64(i)))
 	}
 	return msgs
 }
 
 // EVMTransferNonConflicting generates a list of EVM transfer messages that do not conflict with each other
 // each message will have a brand new address
-func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *utils.TestMessage {
+func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string, amount *big.Int, nonce uint64) *utils.TestMessage {
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		GasFeeCap: new(big.Int).SetUint64(1000000000000),
 		GasTipCap: new(big.Int).SetUint64(1000000000000),
 		Gas:       21000,
 		ChainID:   big.NewInt(config.DefaultChainID),
 		To:        &to,
-		Value:     big.NewInt(1),
-		Nonce:     0,
+		Value:     amount,
+		Nonce:     nonce,
 	}), testAcct.EvmSigner, testAcct.EvmPrivateKey)
 
 	if err != nil {
@@ -106,10 +115,11 @@ func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *u
 	}
 
 	return &utils.TestMessage{
-		Msg:       msg,
-		IsEVM:     true,
-		EVMSigner: testAcct,
-		Type:      scenario,
+		EVMTransaction: signedTx,
+		Msg:            msg,
+		IsEVM:          true,
+		EVMSigner:      testAcct,
+		Type:           scenario,
 	}
 }
 
