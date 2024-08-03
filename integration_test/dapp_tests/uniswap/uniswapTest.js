@@ -6,48 +6,7 @@ const { abi: DESCRIPTOR_ABI, bytecode: DESCRIPTOR_BYTECODE } = require("@uniswap
 const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
 const {exec} = require("child_process");
-
-function execCommand(command) {
-    return new Promise((resolve, reject) => {
-        exec(command, (error, stdout, stderr) => {
-            if (error) {
-                reject(error);
-                return;
-            }
-            if (stderr) {
-                reject(new Error(stderr));
-                return;
-            }
-            resolve(stdout);
-        });
-    })
-}
-
-async function isDocker() {
-    return new Promise((resolve, reject) => {
-        exec("docker ps --filter 'name=sei-node-0' --format '{{.Names}}'", (error, stdout, stderr) => {
-            if (stdout.includes('sei-node-0')) {
-                resolve(true)
-            } else {
-                resolve(false)
-            }
-        });
-    });
-}
-
-async function execute(command, interaction=`printf "12345678\\n"`){
-    if (await isDocker()) {
-        command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
-        command = command.replace("/sei-protocol/sei-chain//sei-protocol/sei-chain/", "/sei-protocol/sei-chain/")
-        command = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
-    }
-    return await execCommand(command);
-}
-
-async function evmSend(addr, fromKey="admin", amount="100000000000000000000000") {
-    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b block -y`);
-    return output.replace(/.*0x/, "0x").trim()
-}
+const { evmSend } = require("../../../contracts/test/lib.js");
 
 describe("EVM Test", async function () {
     let weth9;
@@ -58,6 +17,7 @@ describe("EVM Test", async function () {
     before(async function () {
         [deployer] = await hre.ethers.getSigners();
 
+        await deployNativeToken("rolid")
         await evmSend(deployer.address)
 
         // Deploy Required Tokens
