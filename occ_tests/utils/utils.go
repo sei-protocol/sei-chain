@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"math/big"
@@ -31,6 +32,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	utils2 "github.com/sei-protocol/sei-chain/utils"
+	dexcache "github.com/sei-protocol/sei-chain/x/dex/cache"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
+	dexutils "github.com/sei-protocol/sei-chain/x/dex/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	types2 "github.com/sei-protocol/sei-chain/x/evm/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
@@ -125,6 +129,7 @@ func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, wor
 	})
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), dexutils.DexMemStateContextKey, dexcache.NewMemState(testApp.GetMemKey(dextypes.MemStoreKey))))
 	ctx = ctx.WithBlockHeader(tmproto.Header{Height: ctx.BlockHeader().Height, ChainID: ctx.BlockHeader().ChainID, Time: blockTime})
 	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
 	bankkeeper := testApp.BankKeeper
