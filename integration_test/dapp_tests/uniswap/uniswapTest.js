@@ -6,7 +6,7 @@ const { abi: DESCRIPTOR_ABI, bytecode: DESCRIPTOR_BYTECODE } = require("@uniswap
 const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
 const {exec} = require("child_process");
-const { evmSend, deployNativeToken } = require("../../../contracts/test/lib.js");
+const { fundAddress } = require("../../../contracts/test/lib.js");
 
 describe("EVM Test", async function () {
     let weth9;
@@ -17,7 +17,7 @@ describe("EVM Test", async function () {
     before(async function () {
         [deployer] = await hre.ethers.getSigners();
 
-        await evmSend(deployer.address, "admin", 1000000000)
+        await fundAddress(deployer.address)
 
         // Deploy Required Tokens
     
