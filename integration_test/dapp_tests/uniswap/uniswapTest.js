@@ -6,7 +6,9 @@ const { abi: DESCRIPTOR_ABI, bytecode: DESCRIPTOR_BYTECODE } = require("@uniswap
 const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
 const {exec} = require("child_process");
-const { fundAddress } = require("../../../contracts/test/lib.js");
+const { fundAddress, setupSigners, createTokenFactoryTokenAndMint, deployErc20PointerNative } = require("../../../contracts/test/lib.js");
+
+const { expect } = require("chai");
 
 describe("EVM Test", async function () {
     let weth9;
@@ -15,12 +17,20 @@ describe("EVM Test", async function () {
     let manager;
     let deployer;
     before(async function () {
-        [deployer] = await hre.ethers.getSigners();
+        [deployerObj] = await setupSigners(await hre.ethers.getSigners());
+        deployer = deployerObj.signer
 
         await fundAddress(deployer.address, amount="2000000000000000000000")
 
         // Deploy Required Tokens
-    
+
+        // Deploy TokenFactory token with ERC20 pointer
+        const tokenName = "tokenfactorytest"
+        const denom = await createTokenFactoryTokenAndMint(tokenName, 10000000, deployerObj.seiAddress)
+        console.log("DENOM", denom)
+        const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, denom)
+        console.log("Pointer Addr", pointerAddr);
+
         // Deploy WETH9 Token (ETH representation on Uniswap)
         console.log("Deploying WETH9 with the account:", deployer.address);
         const WETH9 = new hre.ethers.ContractFactory(WETH9_ABI, WETH9_BYTECODE, deployer);
@@ -138,13 +148,13 @@ describe("EVM Test", async function () {
     })
 
     describe("Swaps", async function () {
-        it("Should swap successfully", async function () {
+        it("Unassociated account should swap successfully", async function () {
 
             const userWallet = ethers.Wallet.createRandom();
             const user = userWallet.connect(ethers.provider);
 
             // Fund the user account from the deployer account
-            const fundAmount = hre.ethers.utils.parseEther("100"); // Amount of ETH to fund the user with
+            const fundAmount = hre.ethers.utils.parseEther("10"); // Amount of ETH to fund the user with
             const txFund = await deployer.sendTransaction({
                 to: user.address,
                 value: fundAmount
@@ -152,7 +162,7 @@ describe("EVM Test", async function () {
             await txFund.wait();
 
             const currSeiBal = await user.getBalance()
-            console.log(`Funded user account ${user.address} with ${hre.ethers.utils.formatEther(currSeiBal)} sei`);
+            console.log(`Funded user account ${user.addrses} with ${hre.ethers.utils.formatEther(currSeiBal)} sei`);
 
             const fee = 3000; // Fee tier (0.3%)
 
@@ -165,14 +175,14 @@ describe("EVM Test", async function () {
 
             const weth9balance = await weth9.connect(user).balanceOf(user.address);
             // Change to expect
-            console.log("weth9balance", weth9balance)
+            expect(weth9balance).to.equal(amountIn)
 
             const approval = await weth9.connect(user).approve(router.address, amountIn);
             await approval.wait();
 
             const allowance = await weth9.allowance(user.address, router.address);
             // Change to expect
-            console.log("allowance", allowance)
+            expect(allowance).to.equal(amountIn)
             
             const tx = await router.connect(user).exactInputSingle({
                 tokenIn: weth9.address,
@@ -189,8 +199,8 @@ describe("EVM Test", async function () {
 
             // Check User's MockToken Balance
             const balance = await token.balanceOf(user.address);
-            // Change to expect
-            console.log("User's MockToken balance after swap:", ethers.utils.formatEther(balance));
+            // Check that it's more than 0 (no specified amount since there might be slippage)
+            expect(balance).to.greaterThan(0)
         })
 
     })
