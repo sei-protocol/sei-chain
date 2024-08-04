@@ -17,7 +17,7 @@ describe("EVM Test", async function () {
     before(async function () {
         [deployer] = await hre.ethers.getSigners();
 
-        await fundAddress(deployer.address)
+        await fundAddress(deployer.address, amount="2000000000000000000000")
 
         // Deploy Required Tokens
     
