@@ -16,16 +16,22 @@ describe("EVM Test", async function () {
     let router;
     let manager;
     let deployer;
+    let user;
     before(async function () {
         [deployerObj] = await setupSigners(await hre.ethers.getSigners());
         deployer = deployerObj.signer
-
         await fundAddress(deployer.address, amount="2000000000000000000000")
 
+        // Fund user account
+        const userWallet = ethers.Wallet.createRandom();
+        user = userWallet.connect(ethers.provider);
+
+        await fundAddress(user.address)
         // Deploy Required Tokens
 
         // Deploy TokenFactory token with ERC20 pointer
-        const tokenName = "tokenfactorytest"
+        const time = Date.now().toString();
+        const tokenName = `test${time}`
         const denom = await createTokenFactoryTokenAndMint(tokenName, 10000000, deployerObj.seiAddress)
         console.log("DENOM", denom)
         const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, denom)
@@ -37,21 +43,21 @@ describe("EVM Test", async function () {
         weth9 = await WETH9.deploy();
         await weth9.deployed();
         console.log("WETH9 deployed to:", weth9.address);
-    
+
         // Deploy MockToken
         console.log("Deploying MockToken with the account:", deployer.address);
         const MockERC20 = await hre.ethers.getContractFactory("MockERC20");
         token = await MockERC20.deploy("MockToken", "MKT", hre.ethers.utils.parseEther("1000000"));
         await token.deployed();
         console.log("MockToken deployed to:", token.address);
-    
+
         // Deploy NFT Descriptor. These NFTs are used by the NonFungiblePositionManager to represent liquidity positions.
         console.log("Deploying NFT Descriptor with the account:", deployer.address);
         const NFTDescriptor = new hre.ethers.ContractFactory(DESCRIPTOR_ABI, DESCRIPTOR_BYTECODE, deployer);
         descriptor = await NFTDescriptor.deploy();
         await descriptor.deployed();
         console.log("NFTDescriptor deployed to:", descriptor.address);
-    
+
         // Deploy Uniswap Contracts
         // Create UniswapV3 Factory
         console.log("Deploying Factory Contract with the account:", deployer.address);
@@ -59,25 +65,25 @@ describe("EVM Test", async function () {
         const factory = await FactoryContract.deploy();
         await factory.deployed();
         console.log("Uniswap V3 Factory deployed to:", factory.address);
-    
+
         // Deploy NonFungiblePositionManager
         const NonfungiblePositionManager = new hre.ethers.ContractFactory(MANAGER_ABI, MANAGER_BYTECODE, deployer);
         manager = await NonfungiblePositionManager.deploy(factory.address, weth9.address, descriptor.address);
         await manager.deployed();
         console.log("NonfungiblePositionManager deployed to:", manager.address);
-    
+
         // Deploy SwapRouter
         console.log("Deploying SwapRouter with the account:", deployer.address);
         const SwapRouter = new hre.ethers.ContractFactory(SWAP_ROUTER_ABI, SWAP_ROUTER_BYTECODE, deployer);
         router = await SwapRouter.deploy(factory.address, weth9.address);
         await router.deployed();
         console.log("SwapRouter deployed to:", router.address);
-    
+
         // Create WETH9 x MockToken liquidity pool
         console.log("Deploying SwapRouter with the account:", deployer.address);
         const fee = 3000; // Fee tier (0.3%)
         const sqrtPriceX96 = BigInt(Math.sqrt(1)) * BigInt(2) ** BigInt(96); // Initial price (1:1)
-    
+
         // token0 addr must be < token1 addr
         let token0addr;
         let token1addr;
@@ -96,13 +102,13 @@ describe("EVM Test", async function () {
         );
         await poolTx.wait();
         console.log("Pool created and initialized");
-    
+
         // Add Liquidity to pool
         // Define the amount of tokens to be approved and added as liquidity
         console.log("Supplying liquidity to pool")
-        const amountETH = hre.ethers.utils.parseEther("10000");
-        const amountToken = hre.ethers.utils.parseEther("10000");
-    
+        const amountETH = hre.ethers.utils.parseEther("100");
+        const amountToken = hre.ethers.utils.parseEther("100");
+
         let token0amt;
         let token1amt;
         if (token0addr === weth9.address) {
@@ -115,18 +121,18 @@ describe("EVM Test", async function () {
 
         // Approve the NonfungiblePositionManager to spend the specified amount of the mock token
         await token.approve(manager.address, amountToken);
-    
+
         // Wrap ETH to WETH by depositing ETH into the WETH9 contract
         const txWrap = await weth9.deposit({ value: amountETH });
         await txWrap.wait();
         console.log(`Deposited ${amountETH.toString()} ETH to WETH9`);
-    
+
         // Approve the NonfungiblePositionManager to spend the specified amount of WETH
         const approveWETHTx = await weth9.approve(manager.address, amountETH);
         await approveWETHTx.wait();
         console.log(`Approved ${amountETH.toString()} WETH to the NonfungiblePositionManager`);
 
-        
+
         // Add liquidity to the pool
         const liquidityTx = await manager.mint({
             token0: token0addr,
@@ -144,25 +150,13 @@ describe("EVM Test", async function () {
 
         await liquidityTx.wait();
         console.log("Liquidity added");
-
     })
 
     describe("Swaps", async function () {
-        it("Unassociated account should swap successfully", async function () {
+        it("Associated account should swap successfully", async function () {
 
-            const userWallet = ethers.Wallet.createRandom();
-            const user = userWallet.connect(ethers.provider);
-
-            // Fund the user account from the deployer account
-            const fundAmount = hre.ethers.utils.parseEther("10"); // Amount of ETH to fund the user with
-            const txFund = await deployer.sendTransaction({
-                to: user.address,
-                value: fundAmount
-            });
-            await txFund.wait();
-
-            const currSeiBal = await user.getBalance()
-            console.log(`Funded user account ${user.addrses} with ${hre.ethers.utils.formatEther(currSeiBal)} sei`);
+            let currSeiBal = await user.getBalance()
+            console.log(`Funded user account ${user.address} with ${hre.ethers.utils.formatEther(currSeiBal)} sei`);
 
             const fee = 3000; // Fee tier (0.3%)
 
@@ -170,20 +164,22 @@ describe("EVM Test", async function () {
             const amountIn = hre.ethers.utils.parseEther("1");
             const amountOutMin = hre.ethers.utils.parseEther("0"); // Minimum amount of MockToken expected
 
-            const deposit = await weth9.connect(user).deposit({ value: amountIn });
+            const gasLimit = hre.ethers.utils.hexlify(1000000); // Example gas limit
+            const gasPrice = await hre.ethers.provider.getGasPrice();
+
+            const deposit = await weth9.connect(user).deposit({ value: amountIn, gasLimit, gasPrice });
             await deposit.wait();
 
             const weth9balance = await weth9.connect(user).balanceOf(user.address);
-            // Change to expect
-            expect(weth9balance).to.equal(amountIn)
+            expect(weth9balance).to.equal(amountIn.toString(), "weth9 balance should be equal to value passed in")
 
-            const approval = await weth9.connect(user).approve(router.address, amountIn);
+            const approval = await weth9.connect(user).approve(router.address, amountIn, {gasLimit, gasPrice});
             await approval.wait();
 
             const allowance = await weth9.allowance(user.address, router.address);
             // Change to expect
-            expect(allowance).to.equal(amountIn)
-            
+            expect(allowance).to.equal(amountIn.toString(), "weth9 allowance for router should be equal to value passed in")
+
             const tx = await router.connect(user).exactInputSingle({
                 tokenIn: weth9.address,
                 tokenOut: token.address,
@@ -193,14 +189,64 @@ describe("EVM Test", async function () {
                 amountIn,
                 amountOutMinimum: amountOutMin,
                 sqrtPriceLimitX96: 0
+            }, {gasLimit, gasPrice});
+
+            await tx.wait();
+
+            // Check User's MockToken Balance
+            const balance = BigInt(await token.balanceOf(user.address));
+            // Check that it's more than 0 (no specified amount since there might be slippage)
+            expect(Number(balance)).to.greaterThan(0, "mocktoken should have been swapped successfully.")
+        });
+
+        it("Unassociated account should receive tokens successfully", async function () {
+            const unassocUserWallet = ethers.Wallet.createRandom();
+            const unassocUser = unassocUserWallet.connect(ethers.provider);
+
+            // Fund the user account
+            await fundAddress(unassocUser.address)
+
+            const currSeiBal = await unassocUser.getBalance()
+
+            const fee = 3000; // Fee tier (0.3%)
+
+            // Perform a Swap
+            const amountIn = hre.ethers.utils.parseEther("1");
+            const amountOutMin = hre.ethers.utils.parseEther("0"); // Minimum amount of MockToken expected
+
+            const deposit = await weth9.deposit({ value: amountIn });
+            await deposit.wait();
+
+            const weth9balance = await weth9.balanceOf(deployer.address);
+
+            // Check that deployer has amountIn amount of weth9
+            expect(weth9balance).to.equal(amountIn, "weth9 balance should be received by user")
+
+            const approval = await weth9.approve(router.address, amountIn);
+            await approval.wait();
+
+            const allowance = await weth9.allowance(deployer.address, router.address);
+
+            // Check that deployer has approved amountIn amount of weth9 to be used by router
+            expect(allowance).to.equal(amountIn, "weth9 allowance to router should be set correctly by user")
+
+            const tx = await router.exactInputSingle({
+                tokenIn: weth9.address,
+                tokenOut: token.address,
+                fee,
+                recipient: unassocUser.address,
+                deadline: Math.floor(Date.now() / 1000) + 60 * 10, // 10 minutes from now
+                amountIn,
+                amountOutMinimum: amountOutMin,
+                sqrtPriceLimitX96: 0
             });
 
             await tx.wait();
 
             // Check User's MockToken Balance
-            const balance = await token.balanceOf(user.address);
+            const balance = await token.balanceOf(unassocUser.address);
             // Check that it's more than 0 (no specified amount since there might be slippage)
-            expect(balance).to.greaterThan(0)
+            expect(Number(balance)).to.greaterThan(0, "User should have received some mocktoken")
         })
 
     })
