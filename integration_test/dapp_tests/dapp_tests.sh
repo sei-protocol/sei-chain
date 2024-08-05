@@ -7,9 +7,9 @@ npm ci
 
 cd ..
 
-cd integration_test/dapp_tests/uniswap
+cd integration_test/dapp_tests
 npm ci
 
 npx hardhat compile
 
-npx hardhat test --network seilocal uniswapTest.js
+npx hardhat test --network seilocal uniswap/uniswapTest.js
