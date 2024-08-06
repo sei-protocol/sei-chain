@@ -1,9 +1,9 @@
 {
-  "name": "uniswapv3-deployment",
+  "name": "dapp-tests",
   "version": "1.0.0",
-  "description": "Deployment scripts for uniswap",
+  "description": "Project for dapp based integration tests",
   "main": "index.js",
-  "author": "mj850",
+  "author": "",
   "license": "MIT",
   "dependencies": {
     "@nomiclabs/hardhat-ethers": "^2.2.3",
