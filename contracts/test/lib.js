@@ -101,6 +101,7 @@ async function importKey(name, keyfile) {
     }
 }
 
+/** @type {(keyName: string) => { seiAddress: string, evmAddress: string }} */
 async function getNativeAccount(keyName) {
     await associateKey(adminKeyName)
     const seiAddress = await getKeySeiAddress(keyName)
@@ -375,6 +376,7 @@ async function queryWasm(contractAddress, operation, args={}){
     return JSON.parse(output)
 }
 
+/** @type {<T, R = unknown>(contractAddress: string, msg: T, coins: string) => R} */
 async function executeWasm(contractAddress, msg, coins = "0usei") {
     const jsonString = JSON.stringify(msg).replace(/"/g, '\\"'); // Properly escape JSON string
     const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
@@ -423,14 +425,14 @@ async function execute(command, interaction=`printf "12345678\\n"`){
     return await execCommand(command);
 }
 
-function execCommand(command) {
+async function execCommand(command, options = {errorOnAnyStderrContent: true}) {
     return new Promise((resolve, reject) => {
         exec(command, (error, stdout, stderr) => {
             if (error) {
                 reject(error);
                 return;
             }
-            if (stderr) {
+            if (stderr && options.errorOnAnyStderrContent) {
                 reject(new Error(stderr));
                 return;
             }
@@ -457,6 +459,7 @@ module.exports = {
     instantiateWasm,
     createTokenFactoryTokenAndMint,
     execute,
+    execCommand,
     getSeiAddress,
     getEvmAddress,
     queryWasm,

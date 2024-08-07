@@ -114,7 +114,17 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	if err != nil {
 		return nil, err
 	}
-	k.AppendToEvmTxDeferredInfo(ctx, ethtypes.Bloom{}, ethtypes.EmptyTxsHash, surplus)
+	vmErr := ""
+	if res.Err != nil {
+		vmErr = res.Err.Error()
+	}
+	receipt, err := k.WriteReceipt(ctx, stateDB, evmMsg, ethtypes.LegacyTxType, ctx.TxSum(), res.UsedGas, vmErr)
+	if err != nil {
+		return nil, err
+	}
+	bloom := ethtypes.Bloom{}
+	bloom.SetBytes(receipt.LogsBloom)
+	k.AppendToEvmTxDeferredInfo(ctx, bloom, ctx.TxSum(), surplus)
 	return res.ReturnData, nil
 }
 

@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
+
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -24,7 +27,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -89,6 +91,15 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	defer func() {
+		if r := recover(); r != nil {
+			if strings.Contains(fmt.Sprintf("%s", r), "Int overflow") {
+				returnErr = errors.New("error: balance override overflow")
+			} else {
+				returnErr = fmt.Errorf("something went wrong: %v", r)
+			}
+		}
+	}()
 	if blockNrOrHash == nil {
 		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 		blockNrOrHash = &latest
@@ -186,7 +197,10 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(txIndex)]
 	// We need to find the ethIndex
-	evmTxIndex, found := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, b.txDecoder)
+	evmTxIndex, found := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, b.txDecoder, func(h common.Hash) bool {
+		_, err := b.keeper.GetReceipt(sdkCtx, h)
+		return err == nil
+	})
 	if !found {
 		return nil, common.Hash{}, 0, 0, errors.New("failed to find transaction in block")
 	}
@@ -307,7 +321,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 				metrics.IncrementAssociationError("state_at_tx", err)
 				return nil, vm.BlockContext{}, nil, nil, err
 			}
-			if err := ante.NewEVMPreprocessDecorator(b.keeper, b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
+			if err := helpers.NewAssociationHelper(b.keeper, b.keeper.BankKeeper(), b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
 				return nil, vm.BlockContext{}, nil, nil, err
 			}
 		}
@@ -346,7 +360,7 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 				metrics.IncrementAssociationError("state_at_block", err)
 				return nil, emptyRelease, err
 			}
-			if err := ante.NewEVMPreprocessDecorator(b.keeper, b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
+			if err := helpers.NewAssociationHelper(b.keeper, b.keeper.BankKeeper(), b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
 				return nil, emptyRelease, err
 			}
 		}
@@ -396,12 +410,14 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 }
 
 func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
+	zeroExcessBlobGas := uint64(0)
 	header := &ethtypes.Header{
-		Difficulty: common.Big0,
-		Number:     blockNumber,
-		BaseFee:    b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
-		GasLimit:   b.config.GasCap,
-		Time:       uint64(time.Now().Unix()),
+		Difficulty:    common.Big0,
+		Number:        blockNumber,
+		BaseFee:       b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
+		GasLimit:      b.config.GasCap,
+		Time:          uint64(time.Now().Unix()),
+		ExcessBlobGas: &zeroExcessBlobGas,
 	}
 	number := blockNumber.Int64()
 	block, err := blockByNumber(context.Background(), b.tmClient, &number)

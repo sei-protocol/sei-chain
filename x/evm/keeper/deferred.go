@@ -11,20 +11,23 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (res []*types.DeferredInfo) {
+func (k *Keeper) GetAllEVMTxDeferredInfo(ctx sdk.Context) (res []*types.DeferredInfo) {
 	store := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix)
 	for txIdx, msg := range k.msgs {
-		if msg == nil {
-			continue
-		}
 		txRes := k.txResults[txIdx]
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, uint64(txIdx))
 		val := store.Get(key)
 		if val == nil {
+			if msg == nil {
+				continue
+			}
 			// this means the transaction got reverted during execution, either in ante handler
 			// or due to a panic in msg server
 			etx, _ := msg.AsTransaction()
+			if etx == nil {
+				panic("etx is nil for EVM DeferredInfo msg.AsTransaction(). This should never happen.")
+			}
 			if txRes.Code == 0 {
 				ctx.Logger().Error(fmt.Sprintf("transaction %s has code 0 but no deferred info", etx.Hash().Hex()))
 			}
@@ -62,4 +65,19 @@ func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom
 		panic(err)
 	}
 	prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix).Set(key, bz)
+}
+
+func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (*types.DeferredInfo, bool) {
+	key := make([]byte, 8)
+	binary.BigEndian.PutUint64(key, uint64(ctx.TxIndex()))
+	val := &types.DeferredInfo{}
+	bz := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix).Get(key)
+	if bz == nil {
+		return nil, false
+	}
+	if err := val.Unmarshal(bz); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("failed to unmarshal EVM deferred info: %s", err))
+		return nil, false
+	}
+	return val, true
 }

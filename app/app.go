@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net/http"
 	"os"
@@ -46,9 +47,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/version"
+
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
@@ -394,6 +397,8 @@ type App struct {
 	evmTracer             *tracing.Hooks
 	lightInvarianceConfig LightInvarianceConfig
 
+	genesisImportConfig genesistypes.GenesisImportConfig
+
 	receiptStore seidb.StateStore
 }
 
@@ -634,6 +639,7 @@ func New(
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
 		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
 	bApp.SetCloseHandler(app.HandleClose)
@@ -669,6 +675,12 @@ func New(
 		panic(fmt.Sprintf("error reading light invariance config due to %s", err))
 	}
 	app.lightInvarianceConfig = lightInvarianceConfig
+
+	genesisImportConfig, err := ReadGenesisImportConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading genesis import config due to %s", err))
+	}
+	app.genesisImportConfig = genesisImportConfig
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
@@ -724,6 +736,7 @@ func New(
 			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
 			app.WasmKeeper,
 			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
+			stakingkeeper.Querier{Keeper: app.StakingKeeper},
 			app.GovKeeper,
 			app.DistrKeeper,
 			app.OracleKeeper,
@@ -1006,6 +1019,8 @@ func New(
 	app.HardForkManager = upgrades.NewHardForkManager(app.ChainID)
 	app.HardForkManager.RegisterHandler(v0upgrade.NewHardForkUpgradeHandler(100_000, upgrades.ChainIDSeiHardForkTest, app.WasmKeeper))
 
+	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
+
 	if app.evmRPCConfig.LiveEVMTracer != "" {
 		chainConfig := evmtypes.DefaultChainConfig().EthereumConfig(app.EvmKeeper.ChainID(app.GetCheckCtx()))
 		evmTracer, err := evmtracers.NewBlockchainTracer(evmtracers.GlobalLiveTracerRegistry, app.evmRPCConfig.LiveEVMTracer, chainConfig)
@@ -1120,12 +1135,14 @@ func (app *App) EndBlocker(ctx sdk.Context, req abci.RequestEndBlock) abci.Respo
 // InitChainer application update at chain initialization
 func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
 	var genesisState GenesisState
-	if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
-		panic(err)
+	if !app.genesisImportConfig.StreamGenesisImport {
+		if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
+			panic(err)
+		}
 	}
 	ctx = ctx.WithContext(app.decorateContextWithDexMemState(ctx.Context()))
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.mm.GetVersionMap())
-	return app.mm.InitGenesis(ctx, app.appCodec, genesisState)
+	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
 
 func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
@@ -1498,6 +1515,39 @@ func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs [
 	return results, ctx
 }
 
+func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex int, bz []byte, tx sdk.Tx) (res *sdk.DeliverTxEntry) {
+	var txTracer sdk.TxTracer
+	if app.evmTracer != nil {
+		txTracer = app.evmTracer
+		if app.evmTracer.GetTxTracer != nil {
+			txTracer = app.evmTracer.GetTxTracer(absoluateIndex)
+		}
+	}
+
+	res = &sdk.DeliverTxEntry{
+		Request:       abci.RequestDeliverTx{Tx: bz},
+		SdkTx:         tx,
+		Checksum:      sha256.Sum256(bz),
+		AbsoluteIndex: absoluateIndex,
+		TxTracer:      txTracer,
+	}
+	if tx == nil {
+		return
+	}
+	defer func() {
+		if err := recover(); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("panic when generating estimated writeset for %X: %s", bz, err))
+		}
+	}()
+	// get prefill estimate
+	estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, tx)
+	// if no error, then we assign the mapped writesets for prefill estimate
+	if err == nil {
+		res.EstimatedWritesets = estimatedWritesets
+	}
+	return
+}
+
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
@@ -1510,30 +1560,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 		wg.Add(1)
 		go func(txIndex int, tx []byte) {
 			defer wg.Done()
-
-			var txTracer sdk.TxTracer
-			if app.evmTracer != nil {
-				txTracer = app.evmTracer
-				if app.evmTracer.GetTxTracer != nil {
-					txTracer = app.evmTracer.GetTxTracer(absoluteTxIndices[txIndex])
-				}
-			}
-
-			deliverTxEntry := &sdk.DeliverTxEntry{
-				Request:       abci.RequestDeliverTx{Tx: tx},
-				SdkTx:         typedTxs[txIndex],
-				Checksum:      sha256.Sum256(tx),
-				AbsoluteIndex: absoluteTxIndices[txIndex],
-				TxTracer:      txTracer,
-			}
-
-			// get prefill estimate
-			estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, typedTxs[txIndex])
-			// if no error, then we assign the mapped writesets for prefill estimate
-			if err == nil {
-				deliverTxEntry.EstimatedWritesets = estimatedWritesets
-			}
-			entries[txIndex] = deliverTxEntry
+			entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
 		}(txIndex, tx)
 	}
 
@@ -1589,7 +1616,6 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
-
 	goCtx := app.decorateContextWithDexMemState(ctx.Context())
 	ctx = ctx.WithContext(goCtx)
 
@@ -1639,11 +1665,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
-		if emsg := evmtypes.GetEVMTransactionMessage(prioritizedTypedTxs[relativePrioritizedIndex]); emsg != nil && !emsg.IsAssociateTx() {
-			evmTxs[originalIndex] = emsg
-		} else {
-			evmTxs[originalIndex] = nil
-		}
+		evmTxs[originalIndex] = app.GetEVMMsg(prioritizedTypedTxs[relativePrioritizedIndex])
 	}
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
@@ -1656,11 +1678,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
-		if emsg := evmtypes.GetEVMTransactionMessage(otherTypedTxs[relativeOtherIndex]); emsg != nil && !emsg.IsAssociateTx() {
-			evmTxs[originalIndex] = emsg
-		} else {
-			evmTxs[originalIndex] = nil
-		}
+		evmTxs[originalIndex] = app.GetEVMMsg(otherTypedTxs[relativeOtherIndex])
 	}
 	app.EvmKeeper.SetTxResults(txResults)
 	app.EvmKeeper.SetMsgs(evmTxs)
@@ -1677,6 +1695,21 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	return events, txResults, endBlockResp, nil
 }
 
+func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {
+	defer func() {
+		if err := recover(); err != nil {
+			res = nil
+		}
+	}()
+	if tx == nil {
+		return nil
+	} else if emsg := evmtypes.GetEVMTransactionMessage(tx); emsg != nil && !emsg.IsAssociateTx() {
+		return emsg
+	} else {
+		return nil
+	}
+}
+
 func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []sdk.Tx {
 	typedTxs := make([]sdk.Tx, len(txs))
 	wg := sync.WaitGroup{}
@@ -1684,6 +1717,12 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 		wg.Add(1)
 		go func(idx int, encodedTx []byte) {
 			defer wg.Done()
+			defer func() {
+				if err := recover(); err != nil {
+					ctx.Logger().Error(fmt.Sprintf("encountered panic during transaction decoding: %s", err))
+					typedTxs[idx] = nil
+				}
+			}()
 			typedTx, err := app.txDecoder(encodedTx)
 			// get txkey from tx
 			if err != nil {
@@ -1923,7 +1962,13 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		if isGasless {
 			continue
 		}
-		totalGasWanted += feeTx.GetGas()
+		// Check for overflow before adding
+		gasWanted := feeTx.GetGas()
+		if int64(gasWanted) < 0 || int64(totalGasWanted) > math.MaxInt64-int64(gasWanted) {
+			return false
+		}
+
+		totalGasWanted += gasWanted
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
 			// early return
 			return false
@@ -1983,6 +2028,11 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	}
 
 	return blacklistedAddrs
+}
+
+// test-only
+func (app *App) SetTxDecoder(txDecoder sdk.TxDecoder) {
+	app.txDecoder = txDecoder
 }
 
 func (app *App) decorateProcessProposalContextWithDexMemState(base context.Context) context.Context {

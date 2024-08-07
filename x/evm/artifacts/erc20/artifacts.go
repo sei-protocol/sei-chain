@@ -2,7 +2,7 @@ package erc20
 
 import "embed"
 
-const CurrentVersion uint16 = 1
+const CurrentVersion uint16 = 2
 
 //go:embed cwerc20.wasm
 var f embed.FS

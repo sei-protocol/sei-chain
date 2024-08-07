@@ -158,7 +158,6 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
         string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
         string memory req = _curlyBrace(_formatPayload("transfer_nft", _curlyBrace(_join(recipient, tId, ","))));
         _execute(bytes(req));
-        emit Transfer(from, to, tokenId);
     }
 
     function approve(address approved, uint256 tokenId) public override {
@@ -166,7 +165,6 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
         string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
         string memory req = _curlyBrace(_formatPayload("approve", _curlyBrace(_join(spender, tId, ","))));
         _execute(bytes(req));
-        emit Approval(ownerOf(tokenId), approved, tokenId);
     }
 
     function setApprovalForAll(address operator, bool approved) public override {
@@ -176,7 +174,6 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
         } else {
             _execute(bytes(_curlyBrace(_formatPayload("revoke_all", op))));
         }
-        emit ApprovalForAll(msg.sender, operator, approved);
     }
 
     function _execute(bytes memory req) internal returns (bytes memory) {

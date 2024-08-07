@@ -6,7 +6,7 @@ use cosmwasm_std::{
 use cw721::{Cw721ReceiveMsg, OwnerOfResponse, Approval, ApprovalResponse, ApprovalsResponse, OperatorResponse, ContractInfoResponse, NftInfoResponse, AllNftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
 use cw2981_royalties::msg::{RoyaltiesInfoResponse, CheckRoyaltiesResponse};
 use cw2981_royalties::{Metadata as Cw2981Metadata, Extension as Cw2981Extension};
-use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, ExecuteMsg, QueryMsg, CwErc721QueryMsg};
+use crate::msg::{EvmQueryWrapper, EvmMsg, InstantiateMsg, ExecuteMsg, QueryMsg, CwErc721QueryMsg, MigrateMsg};
 use crate::querier::{EvmQuerier, DEFAULT_LIMIT, MAX_LIMIT};
 use crate::error::ContractError;
 use crate::state::ERC721_ADDRESS;
@@ -22,6 +22,15 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     ERC721_ADDRESS.save(deps.storage, &msg.erc721_address)?;
+    Ok(Response::default())
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(
+    _deps: DepsMut,
+    _env: Env,
+    _msg: MigrateMsg,
+) -> Result<Response, ContractError> {
     Ok(Response::default())
 }
 

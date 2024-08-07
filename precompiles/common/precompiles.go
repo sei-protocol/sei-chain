@@ -1,6 +1,8 @@
 package common
 
 import (
+	"bytes"
+	"embed"
 	"errors"
 	"fmt"
 	"math/big"
@@ -14,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const UnknownMethodCallGas uint64 = 3000
@@ -58,6 +61,10 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	operation := fmt.Sprintf("%s_unknown", p.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
+		if err != nil {
+			bz = []byte(err.Error())
+			err = vm.ErrExecutionReverted
+		}
 	}()
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
@@ -144,6 +151,10 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	operation := fmt.Sprintf("%s_unknown", d.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
+		if err != nil {
+			ret = []byte(err.Error())
+			err = vm.ErrExecutionReverted
+		}
 	}()
 	ctx, method, args, err := d.Prepare(evm, input)
 	if err != nil {
@@ -243,4 +254,33 @@ func DefaultGasCost(input []byte, isTransaction bool) uint64 {
 	}
 
 	return storetypes.KVGasConfig().ReadCostFlat + (storetypes.KVGasConfig().ReadCostPerByte * uint64(len(input)))
+}
+
+func MustGetABI(f embed.FS, filename string) abi.ABI {
+	abiBz, err := f.ReadFile(filename)
+	if err != nil {
+		panic(err)
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	if err != nil {
+		panic(err)
+	}
+	return newAbi
+}
+
+func GetSeiAddressByEvmAddress(ctx sdk.Context, evmAddress common.Address, evmKeeper EVMKeeper) (sdk.AccAddress, error) {
+	seiAddr, associated := evmKeeper.GetSeiAddress(ctx, evmAddress)
+	if !associated {
+		return nil, types.NewAssociationMissingErr(evmAddress.Hex())
+	}
+	return seiAddr, nil
+}
+
+func GetSeiAddressFromArg(ctx sdk.Context, arg interface{}, evmKeeper EVMKeeper) (sdk.AccAddress, error) {
+	addr := arg.(common.Address)
+	if addr == (common.Address{}) {
+		return nil, errors.New("invalid addr")
+	}
+	return GetSeiAddressByEvmAddress(ctx, addr, evmKeeper)
 }
