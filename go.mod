@@ -2,6 +2,8 @@ module github.com/sei-protocol/sei-chain
 
 go 1.21
 
+replace github.com/ledgerwatch/interfaces => github.com/ledgerwatch/interfaces v0.0.0-20240802131416-fd1e1f60b2d7
+
 require (
 	github.com/BurntSushi/toml v1.3.2
 	github.com/CosmWasm/wasmd v0.27.0
