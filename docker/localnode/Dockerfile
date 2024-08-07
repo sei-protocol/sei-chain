@@ -1,5 +1,5 @@
 FROM ubuntu:latest
-ENV HOME="/home/ubuntu" PATH="$HOME/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
+ENV HOME="/home/ubuntu" PATH="/home/ubuntu/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
 RUN apt-get update && \
     apt-get install -y make git build-essential jq python3 curl vim uuid-runtime nodejs
 RUN curl -L https://go.dev/dl/go1.22.4.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
