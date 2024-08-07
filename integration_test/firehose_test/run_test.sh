@@ -32,7 +32,7 @@ main() {
     fi
 
     if [[ $start_firehose == "true" ]]; then
-        echo "Running Firehose instrumented Sei node via 'fireeth'"
+        echo "Running Sei node with Firehose tracer activated via 'fireeth'"
         rm -rf "$data_dir"
 
         ("$fireeth" \
@@ -72,8 +72,7 @@ wait_for_firehose_ready() {
     firehose_log="$1"
 
     for i in {1..8}; do
-        # First wait for log to show processing block #5
-        if grep -q 'processing block {"block_number": 5' "$firehose_log"; then
+        if grep -q '(firehose) launching gRPC server' "$firehose_log"; then
             break
         fi
 
@@ -87,28 +86,8 @@ wait_for_firehose_ready() {
         sleep $i
     done
 
-    for i in {1..8}; do
-        set +e
-        # We must use a block a bit higher, too recent blocks are stored but not seen by the
-        # live source yet to due to timing issue when booting a fresh chain from scratch. The boot
-        # takes usually around 5 blocks to happen so we request a block a bit higher than that at 5
-        # as our readiness probe.
-        output=`fireeth tools firehose-client -p localhost:8089 "5:+0" 2> /dev/null`
-        set -e
-        height=`extract "$output" '.block.number'`
-        if [[ "$height" == "5" ]]; then
-            break
-        fi
-
-        if [[ $i -eq 8 ]]; then
-            >&2 echo "The 'fireeth' instance did not start within ~30s which is not expected."
-            >&2 echo ""
-            show_logs_preview "$firehose_log"
-            kill -s TERM $TOP_PID
-        fi
-
-        sleep $i
-    done
+    # Sleep a bit again to ensure the server is fully started
+    sleep 1
 }
 
 # usage <name> <pid> <process_log>
