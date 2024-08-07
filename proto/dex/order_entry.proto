@@ -1,0 +1,46 @@
+syntax = "proto3";
+package seiprotocol.seichain.dex;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/dex/types";
+
+message OrderEntry {
+  
+  string price = 1 [
+      (gogoproto.moretags)   = "yaml:\"price\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false,
+      (gogoproto.jsontag) = "price"
+  ];
+  string quantity = 2 [
+      (gogoproto.moretags)   = "yaml:\"quantity\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false,
+      (gogoproto.jsontag) = "quantity"
+  ];
+  repeated Allocation allocations = 3 [
+    (gogoproto.jsontag) = "allocations"
+  ];
+  string priceDenom = 4 [
+    (gogoproto.jsontag) = "price_denom"
+  ];
+  string assetDenom = 5 [
+    (gogoproto.jsontag) = "asset_denom"
+  ];
+}
+
+message Allocation {
+  uint64 orderId = 1 [
+      (gogoproto.jsontag) = "order_id"
+  ];
+  string quantity = 2 [
+      (gogoproto.moretags)   = "yaml:\"quantity\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false,
+      (gogoproto.jsontag) = "quantity"
+  ];
+  string account = 3 [
+    (gogoproto.jsontag) = "account"
+  ];
+}

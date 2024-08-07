@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/utils/helpers"
@@ -90,6 +91,15 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	defer func() {
+		if r := recover(); r != nil {
+			if strings.Contains(fmt.Sprintf("%s", r), "Int overflow") {
+				returnErr = errors.New("error: balance override overflow")
+			} else {
+				returnErr = fmt.Errorf("something went wrong: %v", r)
+			}
+		}
+	}()
 	if blockNrOrHash == nil {
 		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 		blockNrOrHash = &latest
@@ -400,12 +410,14 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 }
 
 func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
+	zeroExcessBlobGas := uint64(0)
 	header := &ethtypes.Header{
-		Difficulty: common.Big0,
-		Number:     blockNumber,
-		BaseFee:    b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
-		GasLimit:   b.config.GasCap,
-		Time:       uint64(time.Now().Unix()),
+		Difficulty:    common.Big0,
+		Number:        blockNumber,
+		BaseFee:       b.keeper.GetBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).BigInt(),
+		GasLimit:      b.config.GasCap,
+		Time:          uint64(time.Now().Unix()),
+		ExcessBlobGas: &zeroExcessBlobGas,
 	}
 	number := blockNumber.Int64()
 	block, err := blockByNumber(context.Background(), b.tmClient, &number)
