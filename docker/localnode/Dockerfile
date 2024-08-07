@@ -1,14 +1,13 @@
 FROM ubuntu:latest
 ENV HOME="/home/ubuntu" PATH="$HOME/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
 RUN apt-get update && \
-    apt-get install -y make git build-essential jq python3 curl vim uuid-runtime
+    apt-get install -y make git build-essential jq python3 curl vim uuid-runtime nodejs
 RUN curl -L https://go.dev/dl/go1.22.4.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
 RUN curl -L https://foundry.paradigm.xyz | bash
-RUN /home/ubuntu/.foundry/bin/foundryup
 RUN curl -sL https://deb.nodesource.com/setup_16.x | bash
-RUN apt-get install -y nodejs
+RUN /home/ubuntu/.foundry/bin/foundryup
 RUN mkdir -p /home/ubuntu/.config && \
-    mkdir -p /home/ubuntu/go && \
+    mkdir -p /home/ubuntu/go/pkg/mod && \
     chown -R ubuntu:ubuntu /home/ubuntu && \
     chmod -R a+rwX /home/ubuntu
 SHELL ["/bin/bash", "-c"]
