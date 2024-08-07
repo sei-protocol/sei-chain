@@ -21,7 +21,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
@@ -855,26 +854,21 @@ func (f *Firehose) onPostTxCosmosEventsCoWasmTx(event seitracing.SeiPostTxCosmos
 		To:           to.Bytes(),
 	}
 
-	if isFirehoseInfoEnabled {
-		// Logging to check if we could bridge CoWasm to EVM input
-		for _, msg := range event.Tx.GetMsgs() {
-			if v, ok := msg.(*wasmtypes.MsgExecuteContract); ok {
-				firehoseInfo("input from CoWasm transaction (input=%s)", string(v.Msg))
-				break
-			}
-		}
-	}
-
-	if sigTx, ok := event.Tx.(authsigning.SigVerifiableTx); ok && len(sigTx.GetSigners()) > 0 {
-		if r, s, v, data, err := extractCoWasmTxFirstSignature(sigTx); err != nil {
-			firehoseInfo("signature from CoWasm transaction (error=%s)", err)
-		} else {
-			firehoseInfo("signature from CoWasm transaction (r=%s, s=%s, v=%d, cowasm{signature=%s, sign_mode=%d))", byteView(r), byteView(s), byteView(v), byteView(data.Signature), data.SignMode)
-			f.transaction.R = normalizeSignaturePoint(r)
-			f.transaction.S = normalizeSignaturePoint(s)
-			f.transaction.V = emptyBytesToNil(v)
-		}
-	}
+	_ = extractCoWasmTxFirstSignature
+	// We haven't got the time to get this validated by Sei team if it was to correct way to extract
+	// R, S and V from the CoWasm transaction, so we are commenting it out for now. The R and S seems
+	// correct but the way to extract V is not clear, current logic in 'extractCoWasmTxFirstSignature'
+	// seems broken.
+	// if sigTx, ok := event.Tx.(authsigning.SigVerifiableTx); ok && len(sigTx.GetSigners()) > 0 {
+	// 	if r, s, v, data, err := extractCoWasmTxFirstSignature(sigTx); err != nil {
+	// 		firehoseInfo("signature from CoWasm transaction (error=%s)", err)
+	// 	} else {
+	// 		firehoseInfo("signature from CoWasm transaction (r=%s, s=%s, v=%d, cowasm{signature=%s, sign_mode=%d))", byteView(r), byteView(s), byteView(v), byteView(data.Signature), data.SignMode)
+	// 		f.transaction.R = normalizeSignaturePoint(r)
+	// 		f.transaction.S = normalizeSignaturePoint(s)
+	// 		f.transaction.V = emptyBytesToNil(v)
+	// 	}
+	// }
 
 	f.OnCallEnter(0, 0, from, to, f.transaction.Input, f.transaction.GasLimit, nil)
 	for _, addedLog := range event.AddedLogs {
