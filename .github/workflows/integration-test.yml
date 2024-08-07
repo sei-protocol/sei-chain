@@ -121,6 +121,12 @@ jobs:
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
             ]
           },
+          {
+            name: "dApp Tests",
+            scripts: [
+              "./integration_test/dapp_tests/dapp_tests.sh"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
@@ -142,6 +148,12 @@ jobs:
         uses: actions/setup-go@v3
         with:
           go-version: 1.21
+
+      - name: Install Docker Compose
+        run: |
+          sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+          docker-compose --version
 
       - name: Start 4 node docker cluster
         run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
