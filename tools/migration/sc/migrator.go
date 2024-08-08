@@ -57,7 +57,7 @@ var Keys = sdk.NewKVStoreKeys(
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 	govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
 	evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
-	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
+	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey, "dex",
 )
 
 func NewMigrator(homeDir string, db dbm.DB) *Migrator {
@@ -189,7 +189,7 @@ func CreateWasmSnapshotter(cms sdk.MultiStore, homeDir string) *keeper.WasmSnaps
 		nil,
 		filepath.Join(homeDir, "wasm"),
 		wasm.DefaultWasmConfig(),
-		"iterator,staking,stargate",
+		"iterator,staking,stargate,sei",
 	)
 	return keeper.NewWasmSnapshotter(cms, &wasmKeeper)
 

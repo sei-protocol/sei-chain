@@ -1,7 +1,6 @@
 package wasmd
 
 import (
-	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -52,24 +51,8 @@ type ExecuteMsg struct {
 	Coins           []byte `json:"coins"`
 }
 
-func GetABI() (*abi.ABI, error) {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		return nil, fmt.Errorf("error loading the wasmd ABI %s", err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		return nil, err
-	}
-	return &newAbi, err
-}
-
 func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.DynamicGasPrecompile, error) {
-	newAbi, err := GetABI()
-	if err != nil {
-		return nil, err
-	}
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	executor := &PrecompileExecutor{
 		wasmdKeeper:     wasmdKeeper,
@@ -91,7 +74,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 			executor.QueryID = m.ID
 		}
 	}
-	return pcommon.NewDynamicGasPrecompile(*newAbi, executor, common.HexToAddress(WasmdAddress), "wasmd"), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, executor, common.HexToAddress(WasmdAddress), "wasmd"), nil
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {

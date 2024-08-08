@@ -1,6 +1,7 @@
 package gov_test
 
 import (
+	"embed"
 	"encoding/hex"
 	"math/big"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
@@ -20,6 +22,9 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
+
+//go:embed abi.json
+var f embed.FS
 
 func TestGovPrecompile(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
@@ -34,7 +39,7 @@ func TestGovPrecompile(t *testing.T) {
 	testApp.GovKeeper.ActivateVotingPeriod(ctx, proposal2)
 
 	k := &testApp.EvmKeeper
-	abi := gov.GetABI()
+	abi := pcommon.MustGetABI(f, "abi.json")
 
 	type args struct {
 		method   string

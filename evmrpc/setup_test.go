@@ -871,6 +871,12 @@ func formatParam(p interface{}) string {
 			kvs = append(kvs, fmt.Sprintf("\"%s\":%s", k, formatParam(v)))
 		}
 		return fmt.Sprintf("{%s}", strings.Join(kvs, ","))
+	case map[string]map[string]interface{}:
+		kvs := []string{}
+		for k, v := range v {
+			kvs = append(kvs, fmt.Sprintf("\"%s\":%s", k, formatParam(v)))
+		}
+		return fmt.Sprintf("{%s}", strings.Join(kvs, ","))
 	default:
 		panic("did not match on type")
 	}

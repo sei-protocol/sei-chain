@@ -1,7 +1,6 @@
 package json
 
 import (
-	"bytes"
 	"embed"
 	gjson "encoding/json"
 	"errors"
@@ -37,24 +36,8 @@ type PrecompileExecutor struct {
 	ExtractAsUint256ID   []byte
 }
 
-func ABI() (*abi.ABI, error) {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		return nil, fmt.Errorf("error loading the json ABI %s", err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		return nil, err
-	}
-	return &newAbi, nil
-}
-
 func NewPrecompile() (*pcommon.Precompile, error) {
-	newAbi, err := ABI()
-	if err != nil {
-		return nil, err
-	}
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{}
 
@@ -69,7 +52,7 @@ func NewPrecompile() (*pcommon.Precompile, error) {
 		}
 	}
 
-	return pcommon.NewPrecompile(*newAbi, p, common.HexToAddress(JSONAddress), "json"), nil
+	return pcommon.NewPrecompile(newAbi, p, common.HexToAddress(JSONAddress), "json"), nil
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.

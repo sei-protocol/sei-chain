@@ -126,7 +126,6 @@ func TestEVMtoCWPointers(t *testing.T) {
 			addr, _, exists := handlers.evmGetter(ctx, cwAddress.String())
 			require.Equal(t, evmAddress, addr)
 			require.True(t, exists)
-			require.NotNil(t, handlers.evmSetter(ctx, cwAddress.String(), evmAddress))
 
 			// should delete
 			var version uint16 = 1
@@ -231,7 +230,6 @@ func TestCWtoEVMPointers(t *testing.T) {
 			addr, _, exists := handlers.cwGetter(ctx, evmAddress)
 			require.Equal(t, cwAddress, addr)
 			require.True(t, exists)
-			require.NotNil(t, handlers.cwSetter(ctx, evmAddress, cwAddress.String()))
 
 			// create new address to test prevention logic
 			cwAddress2, evmAddress2 := testkeeper.MockAddressPair()

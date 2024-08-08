@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.25;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
@@ -172,6 +172,13 @@ contract EVMCompatibilityTester {
     function setBytesVar(bytes memory value) public {
         bytesVar = value;
         emit BytesSet(msg.sender, value);
+    }
+
+    function getBlobBaseFee() public view returns (uint256 fee) {
+        assembly {
+            fee := blobbasefee()
+        }
+        return fee;
     }
 }
 

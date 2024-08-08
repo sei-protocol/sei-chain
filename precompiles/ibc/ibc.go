@@ -1,7 +1,6 @@
 package ibc
 
 import (
-	"bytes"
 	"embed"
 	"errors"
 	"fmt"
@@ -34,19 +33,6 @@ const (
 //go:embed abi.json
 var f embed.FS
 
-func GetABI() abi.ABI {
-	abiBz, err := f.ReadFile("abi.json")
-	if err != nil {
-		panic(err)
-	}
-
-	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
-	if err != nil {
-		panic(err)
-	}
-	return newAbi
-}
-
 type PrecompileExecutor struct {
 	transferKeeper   pcommon.TransferKeeper
 	evmKeeper        pcommon.EVMKeeper
@@ -64,7 +50,7 @@ func NewPrecompile(
 	clientKeeper pcommon.ClientKeeper,
 	connectionKeeper pcommon.ConnectionKeeper,
 	channelKeeper pcommon.ChannelKeeper) (*pcommon.DynamicGasPrecompile, error) {
-	newAbi := GetABI()
+	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
 		transferKeeper:   transferKeeper,

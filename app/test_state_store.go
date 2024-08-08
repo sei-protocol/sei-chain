@@ -213,6 +213,37 @@ func (s *InMemoryStateStore) Import(version int64, ch <-chan types.SnapshotNode)
 	return nil
 }
 
+func (s *InMemoryStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var latestVersion int64
+
+	for node := range ch {
+		storeKey := node.StoreKey
+		key := node.Key
+		value := node.Value
+		version := node.Version
+
+		if s.data[storeKey] == nil {
+			s.data[storeKey] = make(map[int64]map[string][]byte)
+		}
+
+		if s.data[storeKey][version] == nil {
+			s.data[storeKey][version] = make(map[string][]byte)
+		}
+
+		s.data[storeKey][version][string(key)] = value
+
+		if version > latestVersion {
+			latestVersion = version
+		}
+	}
+
+	s.latestVersion = latestVersion
+	return nil
+}
+
 func (s *InMemoryStateStore) Prune(version int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

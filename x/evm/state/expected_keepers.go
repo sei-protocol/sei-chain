@@ -1,6 +1,8 @@
 package state
 
 import (
+	"math/big"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
@@ -26,4 +28,5 @@ type EVMKeeper interface {
 	GetNonce(sdk.Context, common.Address) uint64
 	SetNonce(sdk.Context, common.Address, uint64)
 	PrepareReplayedAddr(ctx sdk.Context, addr common.Address)
+	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
 }

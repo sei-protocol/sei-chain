@@ -23,4 +23,27 @@ interface IStaking {
         string memory valAddress,
         uint256 amount
     ) external returns (bool success);
+
+    // Queries
+    function delegation(
+        address delegator,
+        string memory valAddress
+    ) external view returns (Delegation delegation);
+
+    struct Delegation {
+        Balance balance;
+        DelegationDetails delegation;
+    }
+
+    struct Balance {
+        uint256 amount;
+        string denom;
+    }
+
+    struct DelegationDetails {
+        string delegator_address;
+        uint256 shares;
+        uint256 decimals;
+        string validator_address;
+    }
 }
