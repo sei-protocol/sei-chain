@@ -6,8 +6,7 @@ RUN curl -L https://go.dev/dl/go1.22.4.linux-amd64.tar.gz | tar xvzf - -C /usr/l
 RUN curl -L https://foundry.paradigm.xyz | bash
 RUN curl -sL https://deb.nodesource.com/setup_16.x | bash
 RUN /root/.foundry/bin/foundryup
-RUN mkdir -p /root/.config && \
-    mkdir -p /root/go/pkg/mod && \
+RUN mkdir -p /root/go/pkg/mod && \
     chmod -R a+rwX /root
 SHELL ["/bin/bash", "-c"]
 

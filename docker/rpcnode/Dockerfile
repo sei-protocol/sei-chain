@@ -1,13 +1,12 @@
 FROM ubuntu:latest
+ENV HOME="/root" PATH="/root/go/bin:$PATH"
 RUN apt-get update && \
-    apt-get install -y make git wget build-essential jq python3 curl vim uuid-runtime
-RUN wget https://go.dev/dl/go1.21.4.linux-amd64.tar.gz
-RUN tar -xvf go1.21.4.linux-amd64.tar.gz
-RUN mv go /usr/local/
+    apt-get install -y make git build-essential jq python3 curl vim uuid-runtime
+RUN curl -L https://go.dev/dl/go1.21.4.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
+RUN mkdir -p /root/go/pkg/mod && \
+    chmod -R a+rwX /root
 SHELL ["/bin/bash", "-c"]
 
-VOLUME [ "/sei-protocol" ]
-VOLUME [ "/root/go/pkg/mod" ]
 WORKDIR /sei-protocol/sei-chain
 
 EXPOSE 26656 26657 26658 9090 9091
@@ -20,4 +19,3 @@ COPY scripts/deploy.sh /usr/bin/deploy.sh
 COPY scripts/step0_build.sh /usr/bin/build.sh
 COPY scripts/step1_configure_init.sh /usr/bin/configure_init.sh
 COPY scripts/step2_start_sei.sh /usr/bin/start_sei.sh
-ENV PATH "$PATH:$HOME/go/bin"

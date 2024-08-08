@@ -138,8 +138,10 @@ run-local-node: kill-sei-node build-docker-node
 	docker run --rm \
 	--name sei-node \
 	--network host \
+	--user="$(shell id -u):$(shell id -g)" \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	--platform linux/x86_64 \
 	sei-chain/localnode
 .PHONY: run-local-node
@@ -149,11 +151,13 @@ run-rpc-node: build-rpc-node
 	docker run --rm \
 	--name sei-rpc-node \
 	--network docker_localnet \
+	--user="$(shell id -u):$(shell id -g)" \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
     -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
     -v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
 	sei-chain/rpcnode
@@ -163,11 +167,13 @@ run-rpc-node-skipbuild: build-rpc-node
 	docker run --rm \
 	--name sei-rpc-node \
 	--network docker_localnet \
+	--user="$(shell id -u):$(shell id -g)" \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
     -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
     -v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
 	--env SKIP_BUILD=true \
@@ -175,10 +181,10 @@ run-rpc-node-skipbuild: build-rpc-node
 .PHONY: run-rpc-node
 
 kill-sei-node:
-	docker ps --filter name=sei-node --filter status=running -aq | xargs docker kill
+	docker ps --filter name=sei-node --filter status=running -aq | xargs docker kill 2> /dev/null || true
 
 kill-rpc-node:
-	docker ps --filter name=sei-rpc-node --filter status=running -aq | xargs docker kill
+	docker ps --filter name=sei-rpc-node --filter status=running -aq | xargs docker kill 2> /dev/null || true
 
 # Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
