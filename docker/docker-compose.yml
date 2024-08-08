@@ -23,8 +23,8 @@ services:
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
-      - "${GO_PKG_PATH}/mod:/home/ubuntu/go/pkg/mod:Z"
-      - "${GOCACHE}:/home/ubuntu/.cache/go-build:Z"
+      - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
+      - "${GOCACHE}:/root/.cache/go-build:Z"
     networks:
       localnet:
         ipv4_address: 192.168.10.10
@@ -50,8 +50,8 @@ services:
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
-      - "${GO_PKG_PATH}/mod:/home/ubuntu/go/pkg/mod:Z"
-      - "${GOCACHE}:/home/ubuntu/.cache/go-build:Z"
+      - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
+      - "${GOCACHE}:/root/.cache/go-build:Z"
     networks:
       localnet:
         ipv4_address: 192.168.10.11
@@ -77,8 +77,8 @@ services:
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
-      - "${GO_PKG_PATH}/mod:/home/ubuntu/go/pkg/mod:Z"
-      - "${GOCACHE}:/home/ubuntu/.cache/go-build:Z"
+      - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
+      - "${GOCACHE}:/root/.cache/go-build:Z"
     networks:
       localnet:
         ipv4_address: 192.168.10.12
@@ -104,8 +104,8 @@ services:
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
-      - "${GO_PKG_PATH}/mod:/home/ubuntu/go/pkg/mod:Z"
-      - "${GOCACHE}:/home/ubuntu/.cache/go-build:Z"
+      - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
+      - "${GOCACHE}:/root/.cache/go-build:Z"
     networks:
       localnet:
         ipv4_address: 192.168.10.13
