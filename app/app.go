@@ -1751,7 +1751,7 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 			Evidence: &tmproto.EvidenceParams{
 				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
 				MaxAgeDuration:  endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeDuration,
-				MaxBytes:        endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				MaxBytes:        endBlockResp.ConsensusParamUpdates.Evidence.MaxBytes,
 			},
 			Validator: &tmproto.ValidatorParams{
 				PubKeyTypes: endBlockResp.ConsensusParamUpdates.Validator.PubKeyTypes,
