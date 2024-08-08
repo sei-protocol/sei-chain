@@ -7,6 +7,7 @@ RUN curl -L https://foundry.paradigm.xyz | bash
 RUN curl -sL https://deb.nodesource.com/setup_16.x | bash
 RUN /root/.foundry/bin/foundryup
 RUN mkdir -p /root/go/pkg/mod && \
+    mkdir -p /root/.cache && \
     chmod -R a+rwX /root
 SHELL ["/bin/bash", "-c"]
 
