@@ -81,6 +81,13 @@ func (s *DBImpl) SetEVM(evm *vm.EVM) {}
 // to the database.
 func (s *DBImpl) AddPreimage(_ common.Hash, _ []byte) {}
 
+func (s *DBImpl) Cleanup() {
+	s.tempStateCurrent = nil
+	s.tempStatesHist = []*TemporaryState{}
+	s.logger = nil
+	s.snapshottedCtxs = nil
+}
+
 func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	if s.simulation {
 		panic("should never call finalize on a simulation DB")
@@ -199,6 +206,7 @@ type TemporaryState struct {
 	transientStates       map[string]map[string]common.Hash
 	transientAccounts     map[string][]byte
 	transientModuleStates map[string][]byte
+	transientAccessLists  *accessList
 	surplus               sdk.Int // in wei
 }
 
@@ -208,6 +216,7 @@ func NewTemporaryState() *TemporaryState {
 		transientStates:       make(map[string]map[string]common.Hash),
 		transientAccounts:     make(map[string][]byte),
 		transientModuleStates: make(map[string][]byte),
+		transientAccessLists:  &accessList{Addresses: make(map[common.Address]int), Slots: []map[common.Hash]struct{}{}},
 		surplus:               utils.Sdk0,
 	}
 }
