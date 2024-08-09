@@ -8,11 +8,18 @@ set -e
 main() {
     trap "exit 1" TERM
 
+    if ! command -v "sd" &> /dev/null; then
+        echo "The 'sd' command is required for this script, please install it"
+        echo "by following instructions at https://github.com/chmln/sd?tab=readme-ov-file#installation"
+        exit 1
+    fi
+
     data_dir="$ROOT/.firehose-data"
     seid="${SEID:-seid}"
     seid_args="start --home \"$HOME/.sei\" --trace --chain-id sei-chain"
     fireeth_log="$ROOT/.fireeth.log"
     start_firehose="true"
+    parallel_tx_enabled=${PARALLEL_TX_ENABLED:-"true"}
 
     while getopts "s" opt; do
         case $opt in
@@ -23,16 +30,16 @@ main() {
 
     fireeth="fireeth"
     if ! command -v "$fireeth" &> /dev/null; then
-        echo "The '$fireeth' could not be found, you can install it through one of those means."
+        echo "The '$fireeth' binary could not be found, you can install it through one of those means:"
         echo ""
         echo "- By running 'brew install streamingfast/tap/firehose-ethereum' on Mac or Linux system (with Homebrew installed)"
-        echo "- By downloading a pre-compiled binary from https://github.com/streamingfast/firehose-ethereum/releases"
         echo "- By building it from source cloning https://github.com/streamingfast/firehose-ethereum.git and then 'go install ./cmd/fireeth'"
+        echo "- By downloading a pre-compiled binary from https://github.com/streamingfast/firehose-ethereum/releases"
         exit 1
     fi
 
     if [[ $start_firehose == "true" ]]; then
-        echo "Running Sei node with Firehose tracer activated via 'fireeth'"
+        echo "Running Sei node with Firehose tracer activated via 'fireeth' and parallel tx enabled: $parallel_tx_enabled"
         rm -rf "$data_dir"
 
         ("$fireeth" \
@@ -43,7 +50,7 @@ main() {
             --common-first-streamable-block=1 \
             --reader-node-path="$seid" \
             --reader-node-arguments="$seid_args" \
-            --reader-node-bootstrap-data-url="bash://$ROOT/bootstrap.sh" \
+            --reader-node-bootstrap-data-url="bash://$ROOT/bootstrap.sh?env_PARALLEL_TX_ENABLED=${parallel_tx_enabled}" \
             --firehose-grpc-listen-addr="localhost:8089" &> "$fireeth_log") &
         fireeth_pid=$!
         trap "cleanup" EXIT
@@ -117,9 +124,12 @@ show_logs_preview() {
     log_file="$1"
 
     >&2 echo "Here the first 25 lines followed by the last 25 lines of the log:"
-    >&2 head -n 25 "$log_file"
-    >&2 echo "\n...\n"
-    >&2 tail -n 25 "$log_file"
+    >&2 echo ""
+
+    >&2 echo "  ..."
+    head -n 25 "$log_file" | >&2 sd '^(.)' '  |    $1'
+    >&2 echo "  .\n  ."
+    tail -n 25 "$log_file" | >&2 sd '^(.)' '  |    $1'
 
     >&2 echo ""
     >&2 echo "See full logs with 'less `relpath $log_file`'"
