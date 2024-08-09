@@ -1050,7 +1050,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
 	// TODO: change this upgrade name if the planned upgrade version number ends up changing more
-	if ((app.ChainID == "arctic-1" && upgradeInfo.Name == "v5.7.1") || (app.ChainID != "arctic-1" && upgradeInfo.Name == "v5.7.2")) && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+	if (upgradeInfo.Name == "v5.8.0") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		dexStoreKeyName := "dex"
 		storeUpgrades := storetypes.StoreUpgrades{
 			Deleted: []string{dexStoreKeyName},
