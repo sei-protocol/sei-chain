@@ -15,6 +15,7 @@
     "@uniswap/v3-periphery": "^1.4.4",
     "chai": "^4.2.0",
     "ethers": "^5.7.2",
-    "hardhat": "^2.22.6"
+    "hardhat": "^2.22.6",
+    "uuid": "^10.0.0"
   }
 }
