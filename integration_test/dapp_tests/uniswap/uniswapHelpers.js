@@ -102,7 +102,7 @@ function tokenOrder(firstTokenAddr, secondTokenAddr, firstTokenAmount=0, secondT
 }
 
 async function deployCw20WithPointer(deployerSeiAddr, signer, time) {
-    const cw20Address = await deployWasm('./dapp_tests/uniswap/cw20_base.wasm', deployerSeiAddr, "cw20", {
+    const cw20Address = await deployWasm('../integration_test/dapp_tests/uniswap/cw20_base.wasm', deployerSeiAddr, "cw20", {
         name: `testCw20${time}`,
         symbol: "TEST",
         decimals: 6,
