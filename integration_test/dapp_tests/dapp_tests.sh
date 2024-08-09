@@ -12,3 +12,4 @@ npm ci
 npx hardhat compile
 
 npx hardhat test --network seilocal uniswap/uniswapTest.js
+npx hardhat test --network seilocal steak/SteakTests.js
