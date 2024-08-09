@@ -6,53 +6,77 @@ const { abi: DESCRIPTOR_ABI, bytecode: DESCRIPTOR_BYTECODE } = require("@uniswap
 const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
 const {exec} = require("child_process");
-const { fundAddress, setupSigners, createTokenFactoryTokenAndMint, deployErc20PointerNative, ABI } = require("../../../contracts/test/lib.js");
-const { deployTokenPool, supplyLiquidity, deployCw20WithPointer } = require("./uniswapHelpers.js")
+const { fundAddress, setupSigners, createTokenFactoryTokenAndMint, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, ABI } = require("../../../contracts/test/lib.js");
+const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds } = require("./uniswapHelpers.js")
+const {cw20Addresses, tokenFactoryDenoms} = require("./constants")
 const { expect } = require("chai");
-const {deployCw20Pointer} = require("./uniswapHelpers");
+
 require("it-each")({ testPerIteration: true });
+
+// TODO: Make this dynamically read from env
+const testChain = "local";
 
 describe("EVM Test", function () {
     let weth9;
     let token;
     let erc20TokenFactory;
+    let tokenFactoryDenom;
     let erc20cw20;
+    let cw20Address;
     let router;
     let manager;
     let deployer;
     let user;
     before(async function () {
-        [deployerObj] = await setupSigners(await hre.ethers.getSigners());
-        deployer = deployerObj.signer
-        await fundAddress(deployer.address, amount="2000000000000000000000")
+        [deployer] = await hre.ethers.getSigners();
+
+        // const account = hre.config.networks.hardhat.accounts;
+        // const deployerKeyName = "deployer"
+        // const deployerAddr = await addDeployerKey(deployerKeyName, account.mnemonic, account.path);
+        // console.log(deployerAddr);
+        await fundAddress(deployer.address, amount="2000000000000000000000");
 
         // Fund user account
-        const userWallet = ethers.Wallet.createRandom();
-        user = userWallet.connect(ethers.provider);
+        const userWallet = hre.ethers.Wallet.createRandom();
+        user = userWallet.connect(hre.ethers.provider);
 
-        await fundAddress(user.address)
+        if (testChain === 'local') {
+            await sendFunds("20", user.address, deployer)
+        }
+
+        const deployerSeiAddr = await getSeiAddress(deployer.address);
+
         // Deploy Required Tokens
-
-        // Deploy TokenFactory token with ERC20 pointer
+        // If local chain, deployer should have received all the tokens on first mint.
+        // Otherwise, deployer needs to own all the tokens before this test is run.
         const time = Date.now().toString();
-        const tokenName = `test${time}`
-        const denom = await createTokenFactoryTokenAndMint(tokenName, 1000000000, deployerObj.seiAddress)
-        console.log("DENOM", denom)
-        const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, denom)
-        console.log("Pointer Addr", pointerAddr);
-        erc20TokenFactory = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
 
-        // Deploy CW20 token with ERC20 pointer
-        erc20cw20= await deployCw20WithPointer(deployerObj, time)
-        const cwBal = await erc20cw20.balanceOf(deployer.address);
-        console.log("cwBAL", cwBal)
+        if (testChain === 'local') {
+            // Deploy TokenFactory token with ERC20 pointer
+            const tokenName = `dappTests${time}`
+            tokenFactoryDenom = await createTokenFactoryTokenAndMint(tokenName, 10000000000, deployerSeiAddr)
+            console.log("DENOM", tokenFactoryDenom)
+            const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, tokenFactoryDenom)
+            console.log("Pointer Addr", pointerAddr);
+            erc20TokenFactory = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
+        } else {
+            tokenFactoryDenom = tokenFactoryDenoms[testChain]
+            const pointerAddr = await getPointerForNative(tokenFactoryDenom);
+            erc20TokenFactory = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
+        }
+
+        if (testChain === 'local') {
+            // Deploy CW20 token with ERC20 pointer
+            const cw20Details = await deployCw20WithPointer(deployerSeiAddr, deployer, time)
+            erc20cw20 = cw20Details.pointerContract;
+            cw20Address = cw20Details.cw20Address;
+        } else {
+            cw20Address = cw20Addresses[testChain]
+            erc20cw20 = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
+        }
 
         // Deploy WETH9 Token (ETH representation on Uniswap)
-        console.log("Deploying WETH9 with the account:", deployer.address);
-        const WETH9 = new hre.ethers.ContractFactory(WETH9_ABI, WETH9_BYTECODE, deployer);
-        weth9 = await WETH9.deploy();
-        await weth9.deployed();
-        console.log("WETH9 deployed to:", weth9.address);
+        weth9 = await deployEthersContract("WETH9", WETH9_ABI, WETH9_BYTECODE, deployer);
 
         // Deploy MockToken
         console.log("Deploying MockToken with the account:", deployer.address);
@@ -62,32 +86,17 @@ describe("EVM Test", function () {
         console.log("MockToken deployed to:", token.address);
 
         // Deploy NFT Descriptor. These NFTs are used by the NonFungiblePositionManager to represent liquidity positions.
-        console.log("Deploying NFT Descriptor with the account:", deployer.address);
-        const NFTDescriptor = new hre.ethers.ContractFactory(DESCRIPTOR_ABI, DESCRIPTOR_BYTECODE, deployer);
-        descriptor = await NFTDescriptor.deploy();
-        await descriptor.deployed();
-        console.log("NFTDescriptor deployed to:", descriptor.address);
+        const descriptor = await deployEthersContract("NFT Descriptor", DESCRIPTOR_ABI, DESCRIPTOR_BYTECODE, deployer);
 
         // Deploy Uniswap Contracts
         // Create UniswapV3 Factory
-        console.log("Deploying Factory Contract with the account:", deployer.address);
-        const FactoryContract = new hre.ethers.ContractFactory(FACTORY_ABI, FACTORY_BYTECODE, deployer);
-        const factory = await FactoryContract.deploy();
-        await factory.deployed();
-        console.log("Uniswap V3 Factory deployed to:", factory.address);
+        const factory = await deployEthersContract("Uniswap V3 Factory", FACTORY_ABI, FACTORY_BYTECODE, deployer);
 
         // Deploy NonFungiblePositionManager
-        const NonfungiblePositionManager = new hre.ethers.ContractFactory(MANAGER_ABI, MANAGER_BYTECODE, deployer);
-        manager = await NonfungiblePositionManager.deploy(factory.address, weth9.address, descriptor.address);
-        await manager.deployed();
-        console.log("NonfungiblePositionManager deployed to:", manager.address);
+        manager = await deployEthersContract("NonfungiblePositionManager", MANAGER_ABI, MANAGER_BYTECODE, deployer, deployParams=[factory.address, weth9.address, descriptor.address]);
 
         // Deploy SwapRouter
-        console.log("Deploying SwapRouter with the account:", deployer.address);
-        const SwapRouter = new hre.ethers.ContractFactory(SWAP_ROUTER_ABI, SWAP_ROUTER_BYTECODE, deployer);
-        router = await SwapRouter.deploy(factory.address, weth9.address);
-        await router.deployed();
-        console.log("SwapRouter deployed to:", router.address);
+        router = await deployEthersContract("SwapRouter", SWAP_ROUTER_ABI, SWAP_ROUTER_BYTECODE, deployer, deployParams=[factory.address, weth9.address]);
 
         const amountETH = hre.ethers.utils.parseEther("300")
 
@@ -103,8 +112,8 @@ describe("EVM Test", function () {
 
         // Add Liquidity to pools
         await supplyLiquidity(manager, deployer.address, weth9, token, hre.ethers.utils.parseEther("100"), hre.ethers.utils.parseEther("100"))
-        await supplyLiquidity(manager, deployer.address, weth9, erc20TokenFactory, hre.ethers.utils.parseEther("100"), 100000000)
-        await supplyLiquidity(manager, deployer.address, weth9, erc20cw20, hre.ethers.utils.parseEther("100"), 1000000000, 100000000)
+        await supplyLiquidity(manager, deployer.address, weth9, erc20TokenFactory, hre.ethers.utils.parseEther("100"), 1000000000)
+        await supplyLiquidity(manager, deployer.address, weth9, erc20cw20, hre.ethers.utils.parseEther("100"), 1000000000)
     })
 
     describe("Swaps", function () {
@@ -142,7 +151,7 @@ describe("EVM Test", function () {
                     amountIn,
                     amountOutMinimum: amountOutMin,
                     sqrtPriceLimitX96: 0
-                }, {gasLimit, gasPrice})).to.be.revertedWithoutReason();
+                }, {gasLimit, gasPrice})).to.be.reverted;
             } else {
                 const tx = await router.connect(user).exactInputSingle({
                     tokenIn: token1.address,
@@ -169,7 +178,7 @@ describe("EVM Test", function () {
             const unassocUser = unassocUserWallet.connect(ethers.provider);
 
             // Fund the user account
-            await fundAddress(unassocUser.address)
+            await sendFunds("5", unassocUser.address, deployer)
 
             const fee = 3000; // Fee tier (0.3%)
 
@@ -203,7 +212,7 @@ describe("EVM Test", function () {
                     amountIn,
                     amountOutMinimum: amountOutMin,
                     sqrtPriceLimitX96: 0
-                })).to.be.revertedWithoutReason();
+                })).to.be.reverted;
             } else {
                 // Perform the swap, with recipient being the unassociated account.
                 const tx = await router.exactInputSingle({
@@ -224,6 +233,9 @@ describe("EVM Test", function () {
                 // Check that it's more than 0 (no specified amount since there might be slippage)
                 expect(Number(balance)).to.greaterThan(0, "User should have received some token2")
             }
+
+            // Return the user in case we want to run any more tests.
+            return unassocUser;
         }
 
         it("Associated account should swap erc20 successfully", async function () {
@@ -232,22 +244,63 @@ describe("EVM Test", function () {
 
         it("Associated account should swap erc20-tokenfactory successfully", async function () {
             await basicSwapTestAssociated(weth9, erc20TokenFactory);
+            const userSeiAddr = await getSeiAddress(user.address);
+
+            const userBal = await getSeiBalance(userSeiAddr, tokenFactoryDenom)
+            expect(Number(userBal)).to.be.greaterThan(0);
         });
 
         it("Associated account should swap erc20-cw20 successfully", async function () {
             await basicSwapTestAssociated(weth9, erc20cw20);
+            
+            // Also check on the cw20 side that the token balance has been updated.
+            const userSeiAddr = await getSeiAddress(user.address);
+            const result = await queryWasm(cw20Address, "balance", {address: userSeiAddr});
+            expect(Number(result.data.balance)).to.be.greaterThan(0);
+        });
+
+        it("Unassociated account should receive erc20 tokens successfully", async function () {
+            await basicSwapTestUnassociated(weth9, token)
         });
 
         it("Unassociated account should receive erc20-tokenfactory tokens successfully", async function () {
             await basicSwapTestUnassociated(weth9, erc20TokenFactory)
         })
 
-        it("Unassociated account should receive erc20 tokens successfully", async function () {
-            await basicSwapTestUnassociated(weth9, token)
-        });
-
         it("Unassociated account should not be able to receive erc20cw20 tokens successfully", async function () {
             await basicSwapTestUnassociated(weth9, erc20cw20, expectSwapFail=true)
         });
+    })
+
+    // We've already tested that an associated account (deployer) can deploy pools and supply liquidity in the Before() step.
+    describe("Pools", function () {
+        it("Unssosciated account should be able to deploy pools successfully", async function () {
+          const unassocUserWallet = hre.ethers.Wallet.createRandom();
+          const unassocUser = unassocUserWallet.connect(hre.ethers.provider);
+
+          // Fund the user account. Creating pools is a expensive operation so we supply more funds here for gas.
+          await sendFunds("5", unassocUser.address, deployer)
+
+          await deployTokenPool(manager.connect(unassocUser), erc20TokenFactory.address, token.address)
+        })
+
+        it("Unssosciated account should be able to supply liquidity pools successfully", async function () {
+            const unassocUserWallet = hre.ethers.Wallet.createRandom();
+            const unassocUser = unassocUserWallet.connect(hre.ethers.provider);
+
+            // Fund the user account
+            await sendFunds("2", unassocUser.address, deployer)
+
+            const erc20TokenFactoryAmount = "100000"
+            const tx = await erc20TokenFactory.transfer(unassocUser.address, erc20TokenFactoryAmount);
+            await tx.wait();
+            const mockTokenAmount = "100000"
+            const tx2 = await token.transfer(unassocUser.address, mockTokenAmount);
+            await tx2.wait();
+            const managerConnected = manager.connect(unassocUser);
+            const erc20TokenFactoryConnected = erc20TokenFactory.connect(unassocUser);
+            const mockTokenConnected = token.connect(unassocUser);
+            await supplyLiquidity(managerConnected, unassocUser.address, erc20TokenFactoryConnected, mockTokenConnected, Number(erc20TokenFactoryAmount)/2, Number(mockTokenAmount)/2)
+        })
     })
 })
