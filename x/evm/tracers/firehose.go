@@ -827,7 +827,9 @@ func (f *Firehose) OnSeiPostTxCosmosEvents(event seitracing.SeiPostTxCosmosEvent
 		}
 		transaction.Receipt.Logs = append(transaction.Receipt.Logs, firehoseLog)
 
-		f.transactionLogIndex += 1
+		if f.transactionIsolated {
+			f.transactionLogIndex += 1
+		}
 	}
 
 	transaction.Receipt.LogsBloom = event.NewReceipt.LogsBloom
