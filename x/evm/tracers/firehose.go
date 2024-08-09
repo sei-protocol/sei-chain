@@ -780,9 +780,15 @@ func (f *Firehose) OnSeiPostTxCosmosEvents(event seitracing.SeiPostTxCosmosEvent
 
 	firehoseInfo("post tx cosmos events on EVM transaction (tracer=%s, added_logs=%d, isolated=%t)", f.tracerID, len(event.AddedLogs), f.transactionIsolated)
 
-	transaction := f.transaction
+	var transaction *pbeth.TransactionTrace
 	if f.transactionIsolated {
 		transaction = f.transientTransaction
+	} else {
+		if len(f.block.TransactionTraces) == 0 {
+			f.panicInvalidState("block must have at least one transaction at this point", 1)
+		}
+
+		transaction = f.block.TransactionTraces[len(f.block.TransactionTraces)-1]
 	}
 
 	if transaction == nil {
