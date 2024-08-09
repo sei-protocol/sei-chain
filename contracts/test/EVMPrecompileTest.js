@@ -29,7 +29,7 @@ describe("EVM Precompile Tester", function () {
             addr = new ethers.Contract(AddrPrecompileContract, contractABI, signer);
         });
 
-        it("Assosciates successfully", async function () {
+        it("Associates successfully", async function () {
             const unassociatedWallet = hre.ethers.Wallet.createRandom();
             try {
                 await addr.getSeiAddr(unassociatedWallet.address);
@@ -46,6 +46,25 @@ describe("EVM Precompile Tester", function () {
             
             const appendedMessage = `\x19Ethereum Signed Message:\n${messageLength}${message}`;
             const associatedAddrs = await addr.associate(`0x${sig.v-27}`, sig.r, sig.s, appendedMessage)
+            const addrs = await associatedAddrs.wait();
+            expect(addrs).to.not.be.null;
+
+            // Verify that addresses are now associated.
+            const seiAddr = await addr.getSeiAddr(unassociatedWallet.address);
+            expect(seiAddr).to.not.be.null;
+        });
+
+        it("Associates with Public Key successfully", async function () {
+            const unassociatedWallet = hre.ethers.Wallet.createRandom();
+            try {
+                await addr.getSeiAddr(unassociatedWallet.address);
+                expect.fail("Expected an error here since we look up an unassociated address");
+            } catch (error) {
+                expect(error).to.have.property('message').that.includes('execution reverted');
+            }
+
+            // Use the PublicKey without the '0x' prefix.
+            const associatedAddrs = await addr.associatePubKey(unassociatedWallet.publicKey.slice(2))
             const addrs = await associatedAddrs.wait();
             expect(addrs).to.not.be.null;
 
