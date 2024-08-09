@@ -1,4 +1,8 @@
-const { adminKeyName, execute } = require("../../../contracts/test/lib");
+const { execute } = require("../../../contracts/test/lib");
+
+const encodeBase64 = (obj) => {
+  return Buffer.from(JSON.stringify(obj)).toString("base64");
+};
 
 const getValidators = async () => {
   const command = `seid q staking validators --output json`;
@@ -54,7 +58,97 @@ const instantiateHubContract = async (
   return contracts;
 };
 
+const bond = async (contractAddress, address, amount) => {
+  const msg = {
+    bond: {},
+  };
+  const jsonString = JSON.stringify(msg);
+  const command = `seid tx wasm execute ${contractAddress} '${jsonString}' --amount=${amount}usei --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
+  const output = await execute(command);
+  const response = JSON.parse(output);
+  if (response.code !== 0) {
+    throw new Error(response.raw_log);
+  }
+  return response;
+};
+
+const unbond = async (hubAddress, tokenAddress, address, amount) => {
+  const msg = {
+    send: {
+      contract: hubAddress,
+      amount: `${amount}`,
+      msg: encodeBase64({
+        queue_unbond: {},
+      }),
+    },
+  };
+  const jsonString = JSON.stringify(msg);
+  const command = `seid tx wasm execute ${tokenAddress} '${jsonString}' --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
+  const output = await execute(command);
+  const response = JSON.parse(output);
+  if (response.code !== 0) {
+    throw new Error(response.raw_log);
+  }
+  return response;
+};
+
+const harvest = async (contractAddress, address) => {
+  const msg = {
+    harvest: {},
+  };
+  const jsonString = JSON.stringify(msg);
+  const command = `seid tx wasm execute ${contractAddress} '${jsonString}' --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
+  const output = await execute(command);
+  const response = JSON.parse(output);
+  if (response.code !== 0) {
+    throw new Error(response.raw_log);
+  }
+  return response;
+};
+
+const queryTokenBalance = async (contractAddress, address) => {
+  const msg = {
+    balance: {
+      address,
+    },
+  };
+  const jsonString = JSON.stringify(msg);
+  const command = `seid q wasm contract-state smart ${contractAddress} '${jsonString}' --output=json`;
+  const output = await execute(command);
+  const response = JSON.parse(output);
+  return response.data.balance;
+};
+
+const addAccount = async (accountName) => {
+  const command = `seid keys add ${accountName}-${Date.now()} --output=json`;
+  const output = await execute(command);
+  return JSON.parse(output);
+};
+
+const transferTokens = async (tokenAddress, sender, destination, amount) => {
+  const msg = {
+    transfer: {
+      recipient: destination,
+      amount: `${amount}`,
+    },
+  };
+  const jsonString = JSON.stringify(msg);
+  const command = `seid tx wasm execute ${tokenAddress} '${jsonString}' --from=${sender} --gas=200000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
+  const output = await execute(command);
+  const response = JSON.parse(output);
+  if (response.code !== 0) {
+    throw new Error(response.raw_log);
+  }
+  return response;
+};
+
 module.exports = {
   getValidators,
   instantiateHubContract,
+  bond,
+  unbond,
+  harvest,
+  queryTokenBalance,
+  addAccount,
+  transferTokens,
 };
