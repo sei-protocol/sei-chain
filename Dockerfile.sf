@@ -26,6 +26,15 @@ ARG WASMVM="v1.5.2"
 
 RUN wget -O /lib/libwasmvm.x86_64.so https://github.com/CosmWasm/wasmvm/releases/download/${WASMVM}/libwasmvm.x86_64.so
 
+FROM base as cosmovisor_download
+
+ARG COSMOVISOR="v1.5.0"
+
+# Download and extract the binary file
+RUN curl -LO https://github.com/cosmos/cosmos-sdk/releases/download/cosmovisor%2F${COSMOVISOR}/cosmovisor-${COSMOVISOR}-linux-amd64.tar.gz \
+    && tar -xzf cosmovisor-${COSMOVISOR}-linux-amd64.tar.gz \
+    && rm cosmovisor-${COSMOVISOR}-linux-amd64.tar.gz
+
 FROM base as base_with_gcloud
 
 RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
