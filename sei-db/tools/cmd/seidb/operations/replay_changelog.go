@@ -66,7 +66,9 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	}
 
 	// close the database
-	ssStore.Close()
+	if ssStore != nil {
+		ssStore.Close()
+	}
 
 }
 
