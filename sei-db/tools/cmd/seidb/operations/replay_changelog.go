@@ -18,16 +18,16 @@ func ReplayChangelogCmd() *cobra.Command {
 	}
 
 	dumpDbCmd.PersistentFlags().StringP("db-dir", "d", "", "Database Directory")
-	dumpDbCmd.PersistentFlags().Int64P("start-offset", "s", 0, "From offset")
-	dumpDbCmd.PersistentFlags().Int64P("end-offset", "e", 1, "To offset")
+	dumpDbCmd.PersistentFlags().Int64P("start-height", "s", 0, "From offset")
+	dumpDbCmd.PersistentFlags().Int64P("end-height", "e", 1, "To offset")
 
 	return dumpDbCmd
 }
 
 func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	dbDir, _ := cmd.Flags().GetString("db-dir")
-	start, _ := cmd.Flags().GetInt64("start-offset")
-	end, _ := cmd.Flags().GetInt64("end-offset")
+	start, _ := cmd.Flags().GetInt64("start-height")
+	end, _ := cmd.Flags().GetInt64("end-height")
 	if dbDir == "" {
 		panic("Must provide database dir")
 	}
@@ -39,7 +39,18 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	if err != nil {
 		panic(err)
 	}
-	err = stream.Replay(uint64(start), uint64(end), processChangelogEntry)
+	// Read first entry to compute the difference between offset and height
+	firstOffset, err := stream.FirstOffset()
+	if err != nil {
+		panic(err)
+	}
+	firstEntry, err := stream.ReadAt(firstOffset)
+	if err != nil {
+		panic(err)
+	}
+	gap := firstEntry.Version - int64(firstOffset)
+
+	err = stream.Replay(uint64(start-gap), uint64(end-gap), processChangelogEntry)
 	if err != nil {
 		panic(err)
 	}
