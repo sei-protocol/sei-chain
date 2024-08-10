@@ -782,23 +782,21 @@ func (f *Firehose) OnSeiPostTxCosmosEvents(event seitracing.SeiPostTxCosmosEvent
 
 	var transaction *pbeth.TransactionTrace
 	if f.transactionIsolated {
-		transaction = f.transientTransaction
-	} else {
-		if len(f.block.TransactionTraces) == 0 {
-			f.panicInvalidState("block must have at least one transaction at this point", 1)
+		if f.transientTransaction == nil {
+			f.panicInvalidState("transient transaction must be set at this point", 1)
 		}
 
-		transaction = f.block.TransactionTraces[len(f.block.TransactionTraces)-1]
+		f.onPostTxCosmosEventsEvmTx(event, transaction)
+	} else if len(f.block.TransactionTraces) > 0 {
+		f.onPostTxCosmosEventsEvmTx(event, f.block.TransactionTraces[len(f.block.TransactionTraces)-1])
+	} else if len(f.block.SystemCalls) > 0 {
+		f.onPostTxCosmosEventsEVMSystemCall(event, f.block.SystemCalls[len(f.block.SystemCalls)-1])
+	} else {
+		f.panicInvalidState("no transaction nor system call found at this point to tweak logs, impossible state", 1)
 	}
 
-	if transaction == nil {
-		f.panicInvalidState("transaction (or transient transaction) must be set at this point", 1)
-	}
-
-	if len(transaction.Calls) == 0 {
-		f.panicInvalidState("transaction must have at least one call at this point", 1)
-	}
-
+}
+func (f *Firehose) onPostTxCosmosEventsEvmTx(event seitracing.SeiPostTxCosmosEvent, transaction *pbeth.TransactionTrace) {
 	// Ok, we are adding new logs to the transaction, as such, we must update the `EndOrdinal` of the transaction.
 	// Indeed, when the method we are in is called, the transaction is actually already ended, so the `EndOrdinal` of
 	// the transaction is already "closed".
@@ -826,10 +824,26 @@ func (f *Firehose) OnSeiPostTxCosmosEvents(event seitracing.SeiPostTxCosmosEvent
 			rootCall.Logs = append(rootCall.Logs, firehoseLog)
 		}
 		transaction.Receipt.Logs = append(transaction.Receipt.Logs, firehoseLog)
+
+		if f.transactionIsolated {
+			f.transactionLogIndex += 1
+		}
 	}
 
 	transaction.Receipt.LogsBloom = event.NewReceipt.LogsBloom
 	transaction.EndOrdinal = f.blockOrdinal.Next()
+}
+
+func (f *Firehose) onPostTxCosmosEventsEVMSystemCall(event seitracing.SeiPostTxCosmosEvent, systemRootCall *pbeth.Call) {
+	firehoseInfo("post tx cosmos events on EVM with system call (tracer=%s, added_logs=%d)", f.tracerID, len(event.AddedLogs))
+
+	if len(event.NewReceipt.Logs) == 0 {
+		f.panicInvalidState(fmt.Sprintf("no logs added to system call via trace %s", f.tracerID), 1)
+	}
+
+	for _, addedLog := range event.AddedLogs {
+		systemRootCall.Logs = append(systemRootCall.Logs, f.newFirehoseLogFromCosmos(addedLog))
+	}
 }
 
 func (f *Firehose) onPostTxCosmosEventsCoWasmTx(event seitracing.SeiPostTxCosmosEvent) {
