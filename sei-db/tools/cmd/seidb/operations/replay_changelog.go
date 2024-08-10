@@ -2,13 +2,18 @@ package operations
 
 import (
 	"fmt"
-	"github.com/sei-protocol/sei-db/proto"
-	"github.com/sei-protocol/sei-db/stream/changelog"
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/config"
+	"github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-db/ss"
+	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/stream/changelog"
 	"github.com/spf13/cobra"
 )
+
+var ssStore types.StateStore
 
 func ReplayChangelogCmd() *cobra.Command {
 	dumpDbCmd := &cobra.Command{
@@ -18,20 +23,22 @@ func ReplayChangelogCmd() *cobra.Command {
 	}
 
 	dumpDbCmd.PersistentFlags().StringP("db-dir", "d", "", "Database Directory")
-	dumpDbCmd.PersistentFlags().Int64P("start-height", "s", 0, "From offset")
-	dumpDbCmd.PersistentFlags().Int64P("end-height", "e", 1, "To offset")
+	dumpDbCmd.PersistentFlags().Int64P("start-offset", "s", 0, "From offset")
+	dumpDbCmd.PersistentFlags().Int64P("end-offset", "e", 1, "End offset")
+	dumpDbCmd.PersistentFlags().BoolP("apply", "a", false, "Whether to re-apply the changelog or not")
 
 	return dumpDbCmd
 }
 
 func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	dbDir, _ := cmd.Flags().GetString("db-dir")
-	startHeight, _ := cmd.Flags().GetInt64("start-height")
-	endHeight, _ := cmd.Flags().GetInt64("end-height")
+	start, _ := cmd.Flags().GetInt64("start-offset")
+	end, _ := cmd.Flags().GetInt64("end-offset")
 	if dbDir == "" {
 		panic("Must provide database dir")
 	}
-	if startHeight > endHeight || startHeight < 0 {
+
+	if start > end || start < 0 {
 		panic("Must provide a valid start/end offset")
 	}
 	logDir := filepath.Join(dbDir, "changelog")
@@ -39,31 +46,37 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	if err != nil {
 		panic(err)
 	}
-	// Read first entry to compute the difference between offset and height
-	firstOffset, err := stream.FirstOffset()
+
+	// open the database
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.KeepRecent = 0
+	ssConfig.DBDirectory = dbDir
+	ssStore, err = ss.NewStateStore(logger.NewNopLogger(), dbDir, ssConfig)
 	if err != nil {
 		panic(err)
 	}
-	firstEntry, err := stream.ReadAt(firstOffset)
+
+	// replay the changelog
+	err = stream.Replay(uint64(start), uint64(end), processChangelogEntry)
 	if err != nil {
 		panic(err)
 	}
-	gap := firstEntry.Version - int64(firstOffset)
-	startOffset := uint64(startHeight - gap)
-	endOffset := uint64(endHeight - gap)
-	fmt.Printf("Replaying changelog from offset %d to %d\n", startOffset, endOffset)
-	err = stream.Replay(startOffset, endOffset, processChangelogEntry)
-	if err != nil {
-		panic(err)
-	}
+
+	// close the database
+	ssStore.Close()
+
 }
 
 func processChangelogEntry(index uint64, entry proto.ChangelogEntry) error {
 	fmt.Printf("Offset: %d, Height: %d\n", index, entry.Version)
-	for _, store := range entry.Changesets {
-		storeName := store.Name
-		for _, kv := range store.Changeset.Pairs {
+	for _, changeset := range entry.Changesets {
+		storeName := changeset.Name
+		for _, kv := range changeset.Changeset.Pairs {
 			fmt.Printf("store: %s, key: %X\n", storeName, kv.Key)
+		}
+		err := ssStore.ApplyChangeset(entry.Version, changeset)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
