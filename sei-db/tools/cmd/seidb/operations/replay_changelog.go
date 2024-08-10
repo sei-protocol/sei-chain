@@ -48,7 +48,7 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 		panic(err)
 	}
 
-	// open the database if apply is true
+	// open the database if this is not a dry run
 	if noDryRun {
 		ssConfig := config.DefaultStateStoreConfig()
 		ssConfig.KeepRecent = 0
