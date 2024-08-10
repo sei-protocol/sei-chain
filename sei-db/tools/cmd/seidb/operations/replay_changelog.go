@@ -25,7 +25,7 @@ func ReplayChangelogCmd() *cobra.Command {
 	dumpDbCmd.PersistentFlags().StringP("db-dir", "d", "", "Database Directory")
 	dumpDbCmd.PersistentFlags().Int64P("start-offset", "s", 0, "From offset")
 	dumpDbCmd.PersistentFlags().Int64P("end-offset", "e", 1, "End offset")
-	dumpDbCmd.PersistentFlags().BoolP("apply", "a", false, "Whether to re-apply the changelog or not")
+	dumpDbCmd.PersistentFlags().Bool("dry-run", true, "Whether to dry run or re-apply the changelog to DB")
 
 	return dumpDbCmd
 }
@@ -34,6 +34,7 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	dbDir, _ := cmd.Flags().GetString("db-dir")
 	start, _ := cmd.Flags().GetInt64("start-offset")
 	end, _ := cmd.Flags().GetInt64("end-offset")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	if dbDir == "" {
 		panic("Must provide database dir")
 	}
@@ -47,13 +48,15 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 		panic(err)
 	}
 
-	// open the database
-	ssConfig := config.DefaultStateStoreConfig()
-	ssConfig.KeepRecent = 0
-	ssConfig.DBDirectory = dbDir
-	ssStore, err = ss.NewStateStore(logger.NewNopLogger(), dbDir, ssConfig)
-	if err != nil {
-		panic(err)
+	// open the database if apply is true
+	if !dryRun {
+		ssConfig := config.DefaultStateStoreConfig()
+		ssConfig.KeepRecent = 0
+		ssConfig.DBDirectory = dbDir
+		ssStore, err = ss.NewStateStore(logger.NewNopLogger(), dbDir, ssConfig)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	// replay the changelog
@@ -74,9 +77,11 @@ func processChangelogEntry(index uint64, entry proto.ChangelogEntry) error {
 		for _, kv := range changeset.Changeset.Pairs {
 			fmt.Printf("store: %s, key: %X\n", storeName, kv.Key)
 		}
-		err := ssStore.ApplyChangeset(entry.Version, changeset)
-		if err != nil {
-			return err
+		if ssStore != nil {
+			err := ssStore.ApplyChangeset(entry.Version, changeset)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
