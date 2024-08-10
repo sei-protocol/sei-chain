@@ -26,12 +26,12 @@ func ReplayChangelogCmd() *cobra.Command {
 
 func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	dbDir, _ := cmd.Flags().GetString("db-dir")
-	start, _ := cmd.Flags().GetInt64("start-height")
-	end, _ := cmd.Flags().GetInt64("end-height")
+	startHeight, _ := cmd.Flags().GetInt64("start-height")
+	endHeight, _ := cmd.Flags().GetInt64("end-height")
 	if dbDir == "" {
 		panic("Must provide database dir")
 	}
-	if start > end || start < 0 {
+	if startHeight > endHeight || startHeight < 0 {
 		panic("Must provide a valid start/end offset")
 	}
 	logDir := filepath.Join(dbDir, "changelog")
@@ -49,8 +49,10 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 		panic(err)
 	}
 	gap := firstEntry.Version - int64(firstOffset)
-
-	err = stream.Replay(uint64(start-gap), uint64(end-gap), processChangelogEntry)
+	startOffset := uint64(startHeight - gap)
+	endOffset := uint64(endHeight - gap)
+	fmt.Printf("Replaying changelog from offset %d to %d\n", startOffset, endOffset)
+	err = stream.Replay(startOffset, endOffset, processChangelogEntry)
 	if err != nil {
 		panic(err)
 	}
