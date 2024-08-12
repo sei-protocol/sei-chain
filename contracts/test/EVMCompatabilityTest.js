@@ -498,7 +498,7 @@ describe("EVM Test", function () {
       describe("EIP-1559", async function() {
         const zero = ethers.parseUnits('0', 'ether')
         const highgp = ethers.parseUnits("400", "gwei");
-        const gp = ethers.parseUnits("333", "gwei");
+        const gp = ethers.parseUnits("100", "gwei");
 
         const testCases = [
           ["No truncation from max priority fee", gp, gp],
@@ -507,7 +507,7 @@ describe("EVM Test", function () {
         ];
 
         it("Should be able to send many EIP-1559 txs", async function () {
-          const gp = ethers.parseUnits("333", "gwei");
+          const gp = ethers.parseUnits("100", "gwei");
           const zero = ethers.parseUnits('0', 'ether')
           for (let i = 0; i < 10; i++) {
             const txResponse = await owner.sendTransaction({

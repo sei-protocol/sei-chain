@@ -1,21 +1,15 @@
 FROM ubuntu:latest
+ENV HOME="/root" PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
 RUN apt-get update && \
-    apt-get install -y make git wget build-essential jq python3 curl vim uuid-runtime
-RUN rm -rf build/generated
-RUN wget https://go.dev/dl/go1.22.4.linux-amd64.tar.gz
-RUN tar -xvf go1.22.4.linux-amd64.tar.gz
-RUN mv go /usr/local/
+    apt-get install -y make git build-essential jq python3 curl vim uuid-runtime nodejs
+RUN curl -L https://go.dev/dl/go1.22.4.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
 RUN curl -L https://foundry.paradigm.xyz | bash
-RUN /root/.foundry/bin/foundryup
 RUN curl -sL https://deb.nodesource.com/setup_16.x | bash
-RUN apt-get install -y nodejs
-RUN mkdir -p /root/.config && \
-    chmod -R 777 /root/.config
+RUN /root/.foundry/bin/foundryup
+RUN mkdir -p /root/go/pkg/mod && \
+    mkdir -p /root/.cache && \
+    chmod -R a+rwX /root
 SHELL ["/bin/bash", "-c"]
-
-
-VOLUME [ "/sei-protocol" ]
-VOLUME [ "/root/go/pkg/mod" ]
 
 WORKDIR /sei-protocol/sei-chain
 
@@ -33,4 +27,4 @@ COPY scripts/step3_add_validator_to_genesis.sh /usr/bin/add_validator_to_gensis.
 COPY scripts/step4_config_override.sh /usr/bin/config_override.sh
 COPY scripts/step5_start_sei.sh /usr/bin/start_sei.sh
 COPY scripts/step6_start_price_feeder.sh /usr/bin/start_price_feeder.sh
-ENV PATH "$PATH:$HOME/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/"
+
