@@ -75,7 +75,7 @@ func TestERC2981PointerToCW2981(t *testing.T) {
 	require.Nil(t, err)
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
-		GasPrice: big.NewInt(333000000000),
+		GasPrice: big.NewInt(100000000000),
 		Gas:      5000000,
 		To:       &to,
 		Data:     data,
@@ -108,7 +108,7 @@ func TestERC2981PointerToCW2981(t *testing.T) {
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
 		Nonce:    1,
-		GasPrice: big.NewInt(333000000000),
+		GasPrice: big.NewInt(100000000000),
 		Gas:      1000000,
 		To:       &pointerAddr,
 		Data:     data,
@@ -158,7 +158,7 @@ func TestCW2981PointerToERC2981(t *testing.T) {
 	require.Nil(t, err)
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
-		GasPrice: big.NewInt(333000000000),
+		GasPrice: big.NewInt(100000000000),
 		Gas:      5000000,
 		To:       nil,
 		Data:     append(bz, data...),
@@ -193,7 +193,7 @@ func TestCW2981PointerToERC2981(t *testing.T) {
 	to := common.HexToAddress(receipt.ContractAddress)
 	txData = ethtypes.LegacyTx{
 		Nonce:    1,
-		GasPrice: big.NewInt(333000000000),
+		GasPrice: big.NewInt(100000000000),
 		Gas:      1000000,
 		To:       &to,
 		Data:     data,
@@ -245,4 +245,40 @@ func TestCW2981PointerToERC2981(t *testing.T) {
 	ret, err = testkeeper.EVMTestApp.WasmKeeper.QuerySmart(ctx, sdk.MustAccAddressFromBech32(res2.PointerAddress), query)
 	require.Nil(t, err)
 	require.Equal(t, fmt.Sprintf("{\"address\":\"%s\",\"royalty_amount\":\"1000\"}", seiAddr.String()), string(ret))
+}
+
+func TestNonceIncrementsForInsufficientFunds(t *testing.T) {
+	k := testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	privKey := testkeeper.MockPrivateKey()
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	txData := ethtypes.LegacyTx{
+		Nonce:    0,
+		GasPrice: big.NewInt(100000000000),
+		Gas:      5000000,
+		To:       nil,
+		Data:     []byte{},
+	}
+	chainID := k.ChainID(ctx)
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	typedTx, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+	txBuilder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	txBuilder.SetMsgs(msg)
+	cosmosTx := txBuilder.GetTx()
+	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
+	require.Nil(t, err)
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	require.Equal(t, uint32(5), res.Code)                 // insufficient funds has error code 5
+	require.Equal(t, uint64(1), k.GetNonce(ctx, evmAddr)) // make sure nonce is incremented regardless
 }
