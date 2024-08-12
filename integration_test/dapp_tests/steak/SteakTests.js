@@ -19,8 +19,10 @@ const {
 const { expect } = require("chai");
 const { v4: uuidv4 } = require("uuid");
 
-const STEAK_HUB_WASM = "./steak/contracts/steak_hub.wasm";
-const STEAK_TOKEN_WASM = "./steak/contracts/steak_token.wasm";
+const STEAK_HUB_WASM =
+  "../integration_test/dapp_tests/steak/contracts/steak_hub.wasm";
+const STEAK_TOKEN_WASM =
+  "../integration_test/dapp_tests/steak/contracts/steak_token.wasm";
 
 describe("Steak", async function () {
   let owner;
