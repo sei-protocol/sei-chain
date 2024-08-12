@@ -117,13 +117,17 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 	if config.DedicatedChangelog {
+		keepRecent := config.KeepRecent
+		if config.KeepRecent <= 0 {
+			keepRecent = 100000
+		}
 		streamHandler, _ := changelog.NewStream(
 			logger.NewNopLogger(),
 			utils.GetChangelogPath(dataDir),
 			changelog.Config{
 				DisableFsync:  true,
 				ZeroCopy:      true,
-				KeepRecent:    uint64(config.KeepRecent),
+				KeepRecent:    uint64(keepRecent),
 				PruneInterval: 300 * time.Second,
 			},
 		)
