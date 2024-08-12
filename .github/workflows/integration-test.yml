@@ -124,7 +124,7 @@ jobs:
           {
             name: "dApp Tests",
             scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh"
+              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
             ]
           },
         ]

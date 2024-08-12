@@ -469,6 +469,7 @@ module.exports = {
     deployErc721PointerForCw721,
     registerPointerForERC20,
     registerPointerForERC721,
+    getPointerForNative,
     proposeCW20toERC20Upgrade,
     importKey,
     getNativeAccount,

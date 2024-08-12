@@ -6,15 +6,12 @@ const { abi: DESCRIPTOR_ABI, bytecode: DESCRIPTOR_BYTECODE } = require("@uniswap
 const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
 const {exec} = require("child_process");
-const { fundAddress, setupSigners, createTokenFactoryTokenAndMint, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, ABI } = require("../../../contracts/test/lib.js");
+const { fundAddress, createTokenFactoryTokenAndMint, getPointerForNative, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, ABI } = require("../../../contracts/test/lib.js");
 const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds } = require("./uniswapHelpers.js")
-const {cw20Addresses, tokenFactoryDenoms} = require("./constants")
+const {cw20Addresses, tokenFactoryDenoms, rpcUrls, chainIds} = require("./constants")
 const { expect } = require("chai");
 
-require("it-each")({ testPerIteration: true });
-
-// TODO: Make this dynamically read from env
-const testChain = "local";
+const testChain = process.env.DAPP_TEST_ENV;
 
 describe("EVM Test", function () {
     let weth9;
@@ -34,15 +31,19 @@ describe("EVM Test", function () {
         // const deployerKeyName = "deployer"
         // const deployerAddr = await addDeployerKey(deployerKeyName, account.mnemonic, account.path);
         // console.log(deployerAddr);
-        await fundAddress(deployer.address, amount="2000000000000000000000");
+        if (testChain === 'seilocal') {
+            await fundAddress(deployer.address, amount="2000000000000000000000");
+        } else {
+            // Set default seid config to the specified rpc url.
+            await execute(`seid config chain-id ${chainIds[testChain]}`)
+            await execute(`seid config node ${rpcUrls[testChain]}`)
+        }
 
         // Fund user account
         const userWallet = hre.ethers.Wallet.createRandom();
         user = userWallet.connect(hre.ethers.provider);
 
-        if (testChain === 'local') {
-            await sendFunds("20", user.address, deployer)
-        }
+        await sendFunds("20", user.address, deployer)
 
         const deployerSeiAddr = await getSeiAddress(deployer.address);
 
@@ -51,7 +52,7 @@ describe("EVM Test", function () {
         // Otherwise, deployer needs to own all the tokens before this test is run.
         const time = Date.now().toString();
 
-        if (testChain === 'local') {
+        if (testChain === 'seilocal') {
             // Deploy TokenFactory token with ERC20 pointer
             const tokenName = `dappTests${time}`
             tokenFactoryDenom = await createTokenFactoryTokenAndMint(tokenName, 10000000000, deployerSeiAddr)
@@ -61,18 +62,19 @@ describe("EVM Test", function () {
             erc20TokenFactory = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
         } else {
             tokenFactoryDenom = tokenFactoryDenoms[testChain]
-            const pointerAddr = await getPointerForNative(tokenFactoryDenom);
-            erc20TokenFactory = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
+            const pointer= await getPointerForNative(tokenFactoryDenom);
+            erc20TokenFactory = new hre.ethers.Contract(pointer.pointer, ABI.ERC20, deployer);
         }
 
-        if (testChain === 'local') {
+        if (testChain === 'seilocal') {
             // Deploy CW20 token with ERC20 pointer
             const cw20Details = await deployCw20WithPointer(deployerSeiAddr, deployer, time)
             erc20cw20 = cw20Details.pointerContract;
             cw20Address = cw20Details.cw20Address;
         } else {
-            cw20Address = cw20Addresses[testChain]
-            erc20cw20 = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
+            const cw20addrs = cw20Addresses[testChain]
+            cw20Address = cw20addrs.sei
+            erc20cw20 = new hre.ethers.Contract(cw20addrs.evm, ABI.ERC20, deployer);
         }
 
         // Deploy WETH9 Token (ETH representation on Uniswap)
@@ -98,12 +100,12 @@ describe("EVM Test", function () {
         // Deploy SwapRouter
         router = await deployEthersContract("SwapRouter", SWAP_ROUTER_ABI, SWAP_ROUTER_BYTECODE, deployer, deployParams=[factory.address, weth9.address]);
 
-        const amountETH = hre.ethers.utils.parseEther("300")
+        const amountETH = hre.ethers.utils.parseEther("30")
 
         // Gets the amount of WETH9 required to instantiate pools by depositing Sei to the contract
         const txWrap = await weth9.deposit({ value: amountETH });
         await txWrap.wait();
-        console.log(`Deposited ${amountETH.toString()} ETH to WETH9`);
+        console.log(`Deposited ${amountETH.toString()} to WETH9`);
 
         // Create liquidity pools
         await deployTokenPool(manager, weth9.address, token.address)
@@ -111,9 +113,9 @@ describe("EVM Test", function () {
         await deployTokenPool(manager, weth9.address, erc20cw20.address, swapRatio=10**-13)
 
         // Add Liquidity to pools
-        await supplyLiquidity(manager, deployer.address, weth9, token, hre.ethers.utils.parseEther("100"), hre.ethers.utils.parseEther("100"))
-        await supplyLiquidity(manager, deployer.address, weth9, erc20TokenFactory, hre.ethers.utils.parseEther("100"), 1000000000)
-        await supplyLiquidity(manager, deployer.address, weth9, erc20cw20, hre.ethers.utils.parseEther("100"), 1000000000)
+        await supplyLiquidity(manager, deployer.address, weth9, token, hre.ethers.utils.parseEther("10"), hre.ethers.utils.parseEther("10"))
+        await supplyLiquidity(manager, deployer.address, weth9, erc20TokenFactory, hre.ethers.utils.parseEther("10"), 100000000)
+        await supplyLiquidity(manager, deployer.address, weth9, erc20cw20, hre.ethers.utils.parseEther("10"), 100000000)
     })
 
     describe("Swaps", function () {
@@ -178,7 +180,7 @@ describe("EVM Test", function () {
             const unassocUser = unassocUserWallet.connect(ethers.provider);
 
             // Fund the user account
-            await sendFunds("5", unassocUser.address, deployer)
+            await sendFunds("2", unassocUser.address, deployer)
 
             const fee = 3000; // Fee tier (0.3%)
 
@@ -252,7 +254,7 @@ describe("EVM Test", function () {
 
         it("Associated account should swap erc20-cw20 successfully", async function () {
             await basicSwapTestAssociated(weth9, erc20cw20);
-            
+
             // Also check on the cw20 side that the token balance has been updated.
             const userSeiAddr = await getSeiAddress(user.address);
             const result = await queryWasm(cw20Address, "balance", {address: userSeiAddr});
@@ -264,7 +266,14 @@ describe("EVM Test", function () {
         });
 
         it("Unassociated account should receive erc20-tokenfactory tokens successfully", async function () {
-            await basicSwapTestUnassociated(weth9, erc20TokenFactory)
+            const unassocUser = await basicSwapTestUnassociated(weth9, erc20TokenFactory)
+
+            // Send funds to associate accounts.
+            await sendFunds("0.001", deployer.address, unassocUser)
+            const userSeiAddr = await getSeiAddress(unassocUser.address);
+
+            const userBal = await getSeiBalance(userSeiAddr, tokenFactoryDenom)
+            expect(Number(userBal)).to.be.greaterThan(0);
         })
 
         it("Unassociated account should not be able to receive erc20cw20 tokens successfully", async function () {
@@ -302,5 +311,14 @@ describe("EVM Test", function () {
             const mockTokenConnected = token.connect(unassocUser);
             await supplyLiquidity(managerConnected, unassocUser.address, erc20TokenFactoryConnected, mockTokenConnected, Number(erc20TokenFactoryAmount)/2, Number(mockTokenAmount)/2)
         })
+    })
+
+    after(async function () {
+        // Set the chain back to regular state
+        console.log("Resetting")
+        if (testChain !== 'seilocal') {
+            await execute(`seid config chain-id sei-chain`)
+            await execute(`seid config node tcp://localhost:26657`)
+        }
     })
 })

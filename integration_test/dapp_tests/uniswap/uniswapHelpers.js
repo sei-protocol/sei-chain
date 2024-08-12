@@ -42,6 +42,10 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
     // Approve the NonfungiblePositionManager to spend the specified amount of firstToken
     const approveFirstTokenTx = await firstTokenContract.approve(managerContract.address, firstTokenAmt, {gasLimit, gasPrice});
     await approveFirstTokenTx.wait();
+    let allowance = await firstTokenContract.allowance(recipientAddr, managerContract.address);
+    console.log('allowance1', allowance);
+    let balance = await firstTokenContract.balanceOf(recipientAddr);
+    console.log("bal1", balance)
 
     gasLimit = await secondTokenContract.estimateGas.approve(managerContract.address, secondTokenAmt);
     gasLimit = gasLimit.mul(12).div(10)
@@ -50,6 +54,10 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
     const approveSecondTokenTx = await secondTokenContract.approve(managerContract.address, secondTokenAmt, {gasLimit, gasPrice});
     await approveSecondTokenTx.wait();
 
+    allowance = await secondTokenContract.allowance(recipientAddr, managerContract.address);
+    console.log('allowance2', allowance);
+    balance = await secondTokenContract.balanceOf(recipientAddr);
+    console.log("bal2", balance)
 
     gasLimit = await managerContract.estimateGas.mint({
         token0: token0.address,
@@ -102,7 +110,7 @@ function tokenOrder(firstTokenAddr, secondTokenAddr, firstTokenAmount=0, secondT
 }
 
 async function deployCw20WithPointer(deployerSeiAddr, signer, time) {
-    const cw20Address = await deployWasm('../integration_test/dapp_tests/uniswap/cw20_base.wasm', deployerSeiAddr, "cw20", {
+    const cw20Address = await deployWasm('../dapp_tests/uniswap/cw20_base.wasm', deployerSeiAddr, "cw20", {
         name: `testCw20${time}`,
         symbol: "TEST",
         decimals: 6,
@@ -158,9 +166,20 @@ async function doesTokenFactoryDenomExist(denom) {
 }
 
 async function sendFunds(amountSei, recipient, signer) {
-    const fundUser= await signer.sendTransaction({
+    const bal = await signer.getBalance();
+    const gasLimit = await signer.estimateGas({
         to: recipient,
         value: hre.ethers.utils.parseEther(amountSei)
+    })
+
+    // Get current gas price from the network
+    const gasPrice = await signer.getGasPrice();
+
+    const fundUser = await signer.sendTransaction({
+        to: recipient,
+        value: hre.ethers.utils.parseEther(amountSei),
+        gasLimit: gasLimit.mul(12).div(10),
+        gasPrice: gasPrice,
     })
 
     await fundUser.wait();
