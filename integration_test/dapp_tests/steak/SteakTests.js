@@ -113,8 +113,8 @@ describe("Steak", async function () {
     ));
   });
 
-  describe("Bonding", async function () {
-    it("Associated account should be able to bond", async function () {
+  describe("Bonding and unbonding", async function () {
+    it("Associated account should be able to bond and unbond", async function () {
       const amount = 1000000;
       await testBonding(owner.address, amount);
 
@@ -125,6 +125,8 @@ describe("Steak", async function () {
       // Check pointer balance
       const pointerBalance = await tokenPointer.balanceOf(evmAddress);
       expect(pointerBalance).to.equal(`${amount}`);
+
+      await testUnbonding(owner.address, 500000);
     });
 
     it("Unassociated account should be able to bond", async function () {
@@ -140,22 +142,8 @@ describe("Steak", async function () {
       // Account should now be associated
       const evmAddress = await getEvmAddress(unassociatedAccount.address);
       expect(evmAddress).to.not.be.empty;
-    });
-  });
 
-  describe("Unbonding", async function () {
-    it("Associated account should be able to unbond", async function () {
-      const account = await setupAccount("associated", true);
-      await testBonding(account.address, 1000000);
-      await testUnbonding(account.address, 500000);
-    });
-
-    it("Unassociated account should be able to unbond", async function () {
-      const unassociatedAccount = await setupAccount("unassociated", false);
-      const startAmount = 1000000;
-      await testBonding(unassociatedAccount.address, startAmount, false);
-
-      // Send token to a new unassociated account
+      // Send tokens to a new unassociated account
       const newUnassociatedAccount = await setupAccount("unassociated", false);
       const transferAmount = 500000;
       await transferTokens(
