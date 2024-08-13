@@ -29,6 +29,21 @@ jobs:
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
           echo "$HOME/go/bin" >> $GITHUB_PATH
 
+      - name: Locate seid Binary After Installation
+        run: |
+          echo "Looking for seid in the usual directories..."
+          find $(go env GOPATH)/bin -name seid || find /usr/local/go/bin -name seid || find $HOME/go/bin -name seid || find /usr/local/bin -name seid
+          ls -al $(go env GOPATH)/bin || ls -al /usr/local/go/bin || ls -al $HOME/go/bin || ls -al /usr/local/bin
+
+      - name: Ensure seid is Executable
+        run: |
+          chmod +x $(go env GOPATH)/bin/seid || chmod +x /usr/local/go/bin/seid || chmod +x $HOME/go/bin/seid || chmod +x /usr/local/bin/seid
+
+      - name: Check PATH and Which seid
+        run: |
+          echo $PATH
+          which seid
+
       - name: Verify seid Installation
         run: |
           seid version
