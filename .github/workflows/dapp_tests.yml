@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: devnet
-    needs: setup
     steps:
       - uses: actions/checkout@v3
 
@@ -36,7 +35,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testnet
-    needs: setup
     steps:
       - uses: actions/checkout@v3
 
