@@ -27,7 +27,7 @@ jobs:
           chmod +x ./integration_test/dapp_tests/dapp_tests.sh
           make install
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-          echo "/usr/local/go/bin" >> $GITHUB_PATH
+          echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Verify seid Installation
         run: |
