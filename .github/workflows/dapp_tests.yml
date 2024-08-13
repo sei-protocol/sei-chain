@@ -9,34 +9,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  setup:
-    name: Setup Test Environment
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-node@v2
-        with:
-          node-version: '20'
-      - name: Set up Go
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.21
-
-      - name: Download seid
-        run: |
-          chmod +x ./integration_test/dapp_tests/dapp_tests.sh
-          make install
-          
-          # Create an artifacts directory and copy seid binary
-          mkdir -p seid-bin
-          cp $(go env GOPATH)/bin/seid seid-bin/
-
-      - name: Upload seid as an artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: seid-bin
-          path: seid-bin/seid
-
   run-tests-devnet:
     name: Run Tests on Devnet
     runs-on: ubuntu-latest
@@ -46,17 +18,14 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Download seid artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: seid-bin
-          path: seid-bin
-
-      - name: Make seid executable
-        run: chmod +x seid-bin/seid
-
-      - name: Add seid to PATH
-        run: echo "$(pwd)/seid-bin" >> $GITHUB_PATH
+      - name: Install seid
+        run: |
+          # Install seid using go install
+          make install
+          
+          # Add the Go bin directory to the PATH
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Run Dapp Tests Script on Devnet
         run: |
@@ -71,17 +40,14 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Download seid artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: seid-bin
-          path: seid-bin
-
-      - name: Make seid executable
-        run: chmod +x seid-bin/seid
-
-      - name: Add seid to PATH
-        run: echo "$(pwd)/seid-bin" >> $GITHUB_PATH
+      - name: Install seid
+        run: |
+          # Install seid using go install
+          make install
+          
+          # Add the Go bin directory to the PATH
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          echo "$HOME/go/bin" >> $GITHUB_PATH
 
       - name: Run Dapp Tests Script on Testnet
         run: |
