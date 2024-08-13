@@ -26,8 +26,12 @@ jobs:
         run: |
           chmod +x ./integration_test/dapp_tests/dapp_tests.sh
           make install
-          echo "::add-path::$(go env GOPATH)/bin"
-          echo "::add-path::/usr/local/go/bin"
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          echo "/usr/local/go/bin" >> $GITHUB_PATH
+
+      - name: Verify seid Installation
+        run: |
+          seid version
 
   run-tests-devnet:
     name: Run Tests on Devnet
