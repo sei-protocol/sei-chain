@@ -1,5 +1,6 @@
 const tokenFactoryDenoms = {
-    "testnet": "factory/sei10xlj95ef20tczjrq5w5ah0vz8t5pxzeza4gaad/dapptest"
+    "testnet": "factory/sei10xlj95ef20tczjrq5w5ah0vz8t5pxzeza4gaad/dapptest",
+    "devnet": "factory/sei10xlj95ef20tczjrq5w5ah0vz8t5pxzeza4gaad/dapptest"
 }
 
 const cw20Addresses = {
