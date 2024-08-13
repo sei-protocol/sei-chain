@@ -9,6 +9,8 @@ jobs:
     name: Setup Test Environment
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v3
+
       - name: Download seid
         run: |
           chmod +x ./integration_test/dapp_tests/dapp_tests.sh
@@ -19,12 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: devnet
+    needs: setup
     steps:
       - uses: actions/checkout@v3
 
       - name: Run Dapp Tests Script on Devnet
         run: |
-          chmod +x ./integration_test/dapp_tests/dapp_tests.sh
           ./integration_test/dapp_tests/dapp_tests.sh devnet
 
   run-tests-testnet:
@@ -32,10 +34,10 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testnet
+    needs: setup
     steps:
       - uses: actions/checkout@v3
 
       - name: Run Dapp Tests Script on Testnet
         run: |
-          chmod +x ./integration_test/dapp_tests/dapp_tests.sh
           ./integration_test/dapp_tests/dapp_tests.sh testnet
