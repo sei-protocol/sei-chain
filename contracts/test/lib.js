@@ -174,15 +174,15 @@ async function incrementPointerVersion(provider, pointerType, offset) {
     }
 }
 
-async function createTokenFactoryTokenAndMint(name, amount, recipient) {
-    const command = `seid tx tokenfactory create-denom ${name} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+async function createTokenFactoryTokenAndMint(name, amount, recipient, from=adminKeyName) {
+    const command = `seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
     const token_denom = getEventAttribute(response, "create_denom", "new_token_denom")
-    const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     await execute(mint_command);
 
-    const send_command = `seid tx bank send ${adminKeyName} ${recipient} ${amount}${token_denom} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    const send_command = `seid tx bank send ${adminKeyName} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     await execute(send_command);
     return token_denom
 }
@@ -469,6 +469,7 @@ module.exports = {
     deployErc721PointerForCw721,
     registerPointerForERC20,
     registerPointerForERC721,
+    getPointerForNative,
     proposeCW20toERC20Upgrade,
     importKey,
     getNativeAccount,

@@ -14,7 +14,10 @@
     "@uniswap/v3-core": "^1.0.1",
     "@uniswap/v3-periphery": "^1.4.4",
     "chai": "^4.2.0",
-    "ethers": "^5.7.2",
+    "ethers": "^5.7.2"
+  },
+  "devDependencies": {
+    "it-each": "^0.5.0",
     "hardhat": "^2.22.6",
     "uuid": "^10.0.0"
   }

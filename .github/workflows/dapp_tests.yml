@@ -1,0 +1,33 @@
+name: Run Dapp Tests
+
+# Only runs when manually triggered
+on:
+  workflow_dispatch:
+
+jobs:
+  run-tests-devnet:
+    name: Run Tests on Devnet
+    runs-on: ubuntu-latest
+    environment:
+      name: devnet
+    needs: run-tests-testnet
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run Dapp Tests Script on Devnet
+        run: |
+          chmod +x ./integration_test/dapp_tests/dapp_tests.sh
+          ./integration_test/dapp_tests/dapp_tests.sh devnet
+
+  run-tests-testnet:
+    name: Run Tests on Testnet
+    runs-on: ubuntu-latest
+    environment:
+      name: testnet
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run Dapp Tests Script on Testnet
+        run: |
+          chmod +x ./integration_test/dapp_tests/dapp_tests.sh
+          ./integration_test/dapp_tests/dapp_tests.sh testnet

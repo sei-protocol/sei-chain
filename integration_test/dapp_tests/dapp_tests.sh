@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Check if a configuration argument is passed
+if [ -z "$1" ]; then
+  echo "Please provide a chain (seilocal, devnet, or testnet)."
+  exit 1
+fi
+
 set -e
 
 # Build contacts repo first since we rely on that for lib.js
@@ -11,5 +17,7 @@ npm ci
 
 npx hardhat compile
 
-npx hardhat test --network seilocal uniswap/uniswapTest.js
-npx hardhat test --network seilocal steak/SteakTests.js
+# Set the CONFIG environment variable
+export DAPP_TEST_ENV=$1
+npx hardhat test --network $1 uniswap/uniswapTest.js
+npx hardhat test --network $1 steak/SteakTests.js
