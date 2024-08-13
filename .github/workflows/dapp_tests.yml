@@ -26,6 +26,8 @@ jobs:
         run: |
           chmod +x ./integration_test/dapp_tests/dapp_tests.sh
           make install
+          echo "::add-path::$(go env GOPATH)/bin"
+          echo "::add-path::/usr/local/go/bin"
 
   run-tests-devnet:
     name: Run Tests on Devnet
