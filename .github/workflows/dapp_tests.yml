@@ -5,12 +5,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  setup:
+    name: Setup Test Environment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download seid
+        run: |
+          chmod +x ./integration_test/dapp_tests/dapp_tests.sh
+          make install
+
   run-tests-devnet:
     name: Run Tests on Devnet
     runs-on: ubuntu-latest
     environment:
       name: devnet
-    needs: run-tests-testnet
     steps:
       - uses: actions/checkout@v3
 
