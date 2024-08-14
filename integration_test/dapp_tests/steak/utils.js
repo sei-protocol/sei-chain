@@ -121,7 +121,7 @@ const queryTokenBalance = async (contractAddress, address) => {
 };
 
 const addAccount = async (accountName) => {
-  const command = `seid keys add ${accountName}-${Date.now()} --output=json`;
+  const command = `seid keys add ${accountName}-${Date.now()} --output=json --keyring-backend test`;
   const output = await execute(command);
   return JSON.parse(output);
 };
@@ -161,7 +161,7 @@ async function addDeployerAccount(keyName, address, mnemonic, path) {
 
   // Since the address doesn't exist, create the key with random name
   try {
-    const output = await execute(`printf "${mnemonic}" | seid keys add ${keyName}-${Date.now()} --recover --hd-path "${path}"`)
+    const output = await execute(`printf "${mnemonic}" | seid keys add ${keyName}-${Date.now()} --recover --hd-path "${path}" --keyring-backend test`)
     if (output.code !== 0) {
       throw new Error(output.raw_log);
     }
