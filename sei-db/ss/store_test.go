@@ -3,6 +3,7 @@ package ss
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/cosmos/iavl"
@@ -14,13 +15,14 @@ import (
 
 func TestNewStateStore(t *testing.T) {
 	tempDir := os.TempDir()
+	homeDir := filepath.Join(tempDir, "seidb")
 	ssConfig := config.StateStoreConfig{
 		DedicatedChangelog: true,
 		Backend:            string(PebbleDBBackend),
 		AsyncWriteBuffer:   50,
 		KeepRecent:         500,
 	}
-	stateStore, err := NewStateStore(logger.NewNopLogger(), tempDir, ssConfig)
+	stateStore, err := NewStateStore(logger.NewNopLogger(), homeDir, ssConfig)
 	require.NoError(t, err)
 	for i := 1; i < 20; i++ {
 		var changesets []*proto.NamedChangeSet
@@ -45,7 +47,7 @@ func TestNewStateStore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reopen a new state store
-	stateStore, err = NewStateStore(logger.NewNopLogger(), tempDir, ssConfig)
+	stateStore, err = NewStateStore(logger.NewNopLogger(), homeDir, ssConfig)
 	require.NoError(t, err)
 
 	// Make sure key and values can be found
