@@ -334,3 +334,7 @@ func execPragmas(db *sql.DB, pragmas []string) error {
 	}
 	return nil
 }
+
+func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
+	panic("implement me")
+}

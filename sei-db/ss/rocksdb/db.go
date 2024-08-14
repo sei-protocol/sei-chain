@@ -374,3 +374,6 @@ func cloneAppend(bz []byte, tail []byte) (res []byte) {
 	copy(res[len(bz):], tail)
 	return
 }
+func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
+	panic("implement me")
+}
