@@ -161,7 +161,7 @@ async function addDeployerAccount(keyName, address, mnemonic, path) {
 
   // Since the address doesn't exist, create the key with random name
   try {
-    const output = await execute(`printf "${mnemonic}" | seid keys add ${keyName}-${Date.now()} --recover --hd-path "${path}" --keyring-backend test`)
+    const output = await execute(`printf "${mnemonic}" | seid keys add ${keyName} --recover --hd-path "${path}" --keyring-backend test`)
     if (output.code !== 0) {
       throw new Error(output.raw_log);
     }
