@@ -1,6 +1,6 @@
 const hre = require("hardhat");
 const {BigNumber} = require("ethers"); // Require Hardhat Runtime Environment
-const { ABI, deployErc20PointerForCw20, deployWasm, execute } = require("../../../contracts/test/lib.js");
+const { ABI, deployErc20PointerForCw20, deployWasm, execute, delay } = require("../../../contracts/test/lib.js");
 
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
     const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
@@ -16,7 +16,6 @@ async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr,
     );
 
     gasLimit = gasLimit.mul(12).div(10)
-    console.log("EST GAS", gasLimit)
     // token0 addr must be < token1 addr
     const poolTx = await managerContract.createAndInitializePoolIfNecessary(
         token0.address,
@@ -43,9 +42,7 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
     const approveFirstTokenTx = await firstTokenContract.approve(managerContract.address, firstTokenAmt, {gasLimit, gasPrice});
     await approveFirstTokenTx.wait();
     let allowance = await firstTokenContract.allowance(recipientAddr, managerContract.address);
-    console.log('allowance1', allowance);
     let balance = await firstTokenContract.balanceOf(recipientAddr);
-    console.log("bal1", balance)
 
     gasLimit = await secondTokenContract.estimateGas.approve(managerContract.address, secondTokenAmt);
     gasLimit = gasLimit.mul(12).div(10)
@@ -55,9 +52,7 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
     await approveSecondTokenTx.wait();
 
     allowance = await secondTokenContract.allowance(recipientAddr, managerContract.address);
-    console.log('allowance2', allowance);
     balance = await secondTokenContract.balanceOf(recipientAddr);
-    console.log("bal2", balance)
 
     gasLimit = await managerContract.estimateGas.mint({
         token0: token0.address,
@@ -109,8 +104,8 @@ function tokenOrder(firstTokenAddr, secondTokenAddr, firstTokenAmount=0, secondT
     return [token0, token1]
 }
 
-async function deployCw20WithPointer(deployerSeiAddr, signer, time) {
-    const cw20Address = await deployWasm('../integration_test/dapp_tests/uniswap/cw20_base.wasm', deployerSeiAddr, "cw20", {
+async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
+    const cw20Address = await deployWasm('../dapp_tests/uniswap/cw20_base.wasm', deployerSeiAddr, "cw20", {
         name: `testCw20${time}`,
         symbol: "TEST",
         decimals: 6,
@@ -120,42 +115,21 @@ async function deployCw20WithPointer(deployerSeiAddr, signer, time) {
         mint: {
             "minter": deployerSeiAddr, "cap": "99900000000"
         }
-    });
-
-    const pointerAddr = await deployErc20PointerForCw20(hre.ethers.provider, cw20Address);
+    }, deployerSeiAddr);
+    const pointerAddr = await deployErc20PointerForCw20(hre.ethers.provider, cw20Address, 10, deployerSeiAddr, evmRpc);
     const pointerContract = new hre.ethers.Contract(pointerAddr, ABI.ERC20, signer);
     return {"pointerContract": pointerContract, "cw20Address": cw20Address}
 }
 
 async function deployEthersContract(name, abi, bytecode, deployer, deployParams=[]) {
     const contract = new hre.ethers.ContractFactory(abi, bytecode, deployer);
-    const deployed = await contract.deploy(...deployParams);
+    const deployTx = contract.getDeployTransaction(...deployParams);
+    const gasEstimate = await deployer.estimateGas(deployTx);
+    const gasPrice = await deployer.getGasPrice();
+    const deployed = await contract.deploy(...deployParams, {gasPrice, gasLimit: gasEstimate});
     await deployed.deployed();
     console.log(`${name} deployed to:`, deployed.address);
     return deployed;
-}
-
-async function addDeployerKey(keyName, mnemonic, path) {
-    try {
-        const output = await execute(`seid keys show ${keyName} --output json`);
-        const parsed = JSON.parse(output);
-        console.log("OUTOPUT", parsed);
-        return parsed.address;
-    } catch (e) {
-        console.log(e)
-    }
-
-    try {
-        await execute(`printf "${mnemonic}" | seid keys add ${keyName} --recover --hd-path "${path}" --keyring-backend test`)
-    }
-    catch (e) {
-        console.log(e);
-    }
-
-    const output = await execute(`seid keys show ${keyName} --output json`);
-    const parsed = JSON.parse(output);
-
-    return parsed.address;
 }
 
 async function doesTokenFactoryDenomExist(denom) {
@@ -166,7 +140,6 @@ async function doesTokenFactoryDenomExist(denom) {
 }
 
 async function sendFunds(amountSei, recipient, signer) {
-    const bal = await signer.getBalance();
     const gasLimit = await signer.estimateGas({
         to: recipient,
         value: hre.ethers.utils.parseEther(amountSei)
@@ -185,12 +158,27 @@ async function sendFunds(amountSei, recipient, signer) {
     await fundUser.wait();
 }
 
+async function pollBalance(erc20Contract, address, criteria, maxAttempts=3) {
+    let bal = 0;
+    let attempt = 1;
+    while (attempt === 1 || attempt <= maxAttempts) {
+        bal = await erc20Contract.balanceOf(address);
+        attempt++;
+        if (criteria(bal)) {
+            return bal;
+        }
+        await delay();
+    }
+
+    return bal;
+}
+
 module.exports = {
     deployTokenPool,
     supplyLiquidity,
     deployCw20WithPointer,
     deployEthersContract,
-    addDeployerKey,
     doesTokenFactoryDenomExist,
+    pollBalance,
     sendFunds
 }

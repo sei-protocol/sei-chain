@@ -7,13 +7,14 @@ const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-pe
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
 const {exec} = require("child_process");
 const { fundAddress, createTokenFactoryTokenAndMint, getPointerForNative, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, ABI } = require("../../../contracts/test/lib.js");
-const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds } = require("./uniswapHelpers.js")
-const {cw20Addresses, tokenFactoryDenoms, rpcUrls, chainIds} = require("./constants")
+const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds, pollBalance } = require("./uniswapHelpers.js")
+const {cw20Addresses, tokenFactoryDenoms, rpcUrls, chainIds, evmRpcUrls} = require("../constants")
 const { expect } = require("chai");
+const {setupAccountWithMnemonic} = require("../steak/utils");
 
 const testChain = process.env.DAPP_TEST_ENV;
 
-describe("EVM Test", function () {
+describe("Uniswap Test", function () {
     let weth9;
     let token;
     let erc20TokenFactory;
@@ -25,12 +26,10 @@ describe("EVM Test", function () {
     let deployer;
     let user;
     before(async function () {
-        [deployer] = await hre.ethers.getSigners();
+        const accounts = hre.config.networks[testChain].accounts
+        const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
+        deployer = deployerWallet.connect(hre.ethers.provider)
 
-        // const account = hre.config.networks.hardhat.accounts;
-        // const deployerKeyName = "deployer"
-        // const deployerAddr = await addDeployerKey(deployerKeyName, account.mnemonic, account.path);
-        // console.log(deployerAddr);
         if (testChain === 'seilocal') {
             await fundAddress(deployer.address, amount="2000000000000000000000");
         } else {
@@ -38,12 +37,15 @@ describe("EVM Test", function () {
             await execute(`seid config chain-id ${chainIds[testChain]}`)
             await execute(`seid config node ${rpcUrls[testChain]}`)
         }
+        await sendFunds('0.01', deployer.address, deployer)
+        await setupAccountWithMnemonic("dapptest", accounts.mnemonic, accounts.path, deployer);
+
 
         // Fund user account
         const userWallet = hre.ethers.Wallet.createRandom();
         user = userWallet.connect(hre.ethers.provider);
 
-        await sendFunds("20", user.address, deployer)
+        await sendFunds("5", user.address, deployer)
 
         const deployerSeiAddr = await getSeiAddress(deployer.address);
 
@@ -52,39 +54,27 @@ describe("EVM Test", function () {
         // Otherwise, deployer needs to own all the tokens before this test is run.
         const time = Date.now().toString();
 
-        if (testChain === 'seilocal') {
-            // Deploy TokenFactory token with ERC20 pointer
-            const tokenName = `dappTests${time}`
-            tokenFactoryDenom = await createTokenFactoryTokenAndMint(tokenName, 10000000000, deployerSeiAddr)
-            console.log("DENOM", tokenFactoryDenom)
-            const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, tokenFactoryDenom)
-            console.log("Pointer Addr", pointerAddr);
-            erc20TokenFactory = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
-        } else {
-            tokenFactoryDenom = tokenFactoryDenoms[testChain]
-            const pointer= await getPointerForNative(tokenFactoryDenom);
-            erc20TokenFactory = new hre.ethers.Contract(pointer.pointer, ABI.ERC20, deployer);
-        }
+        // Deploy TokenFactory token with ERC20 pointer
+        const tokenName = `dappTests${time}`
+        tokenFactoryDenom = await createTokenFactoryTokenAndMint(tokenName, 10000000000, deployerSeiAddr, deployerSeiAddr)
+        console.log("DENOM", tokenFactoryDenom)
+        const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, tokenFactoryDenom, deployerSeiAddr, evmRpcUrls[testChain])
+        console.log("Pointer Addr", pointerAddr);
+        erc20TokenFactory = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
 
-        if (testChain === 'seilocal') {
-            // Deploy CW20 token with ERC20 pointer
-            const cw20Details = await deployCw20WithPointer(deployerSeiAddr, deployer, time)
-            erc20cw20 = cw20Details.pointerContract;
-            cw20Address = cw20Details.cw20Address;
-        } else {
-            const cw20addrs = cw20Addresses[testChain]
-            cw20Address = cw20addrs.sei
-            erc20cw20 = new hre.ethers.Contract(cw20addrs.evm, ABI.ERC20, deployer);
-        }
+        // Deploy CW20 token with ERC20 pointer
+        const cw20Details = await deployCw20WithPointer(deployerSeiAddr, deployer, time, evmRpcUrls[testChain])
+        erc20cw20 = cw20Details.pointerContract;
+        cw20Address = cw20Details.cw20Address;
 
         // Deploy WETH9 Token (ETH representation on Uniswap)
         weth9 = await deployEthersContract("WETH9", WETH9_ABI, WETH9_BYTECODE, deployer);
 
         // Deploy MockToken
         console.log("Deploying MockToken with the account:", deployer.address);
-        const MockERC20 = await hre.ethers.getContractFactory("MockERC20");
-        token = await MockERC20.deploy("MockToken", "MKT", hre.ethers.utils.parseEther("1000000"));
-        await token.deployed();
+        const contractArtifact = await hre.artifacts.readArtifact("MockERC20");
+        token = await deployEthersContract("MockToken", contractArtifact.abi, contractArtifact.bytecode, deployer, ["MockToken", "MKT", hre.ethers.utils.parseEther("1000000")])
+
         console.log("MockToken deployed to:", token.address);
 
         // Deploy NFT Descriptor. These NFTs are used by the NonFungiblePositionManager to represent liquidity positions.
@@ -103,7 +93,9 @@ describe("EVM Test", function () {
         const amountETH = hre.ethers.utils.parseEther("30")
 
         // Gets the amount of WETH9 required to instantiate pools by depositing Sei to the contract
-        const txWrap = await weth9.deposit({ value: amountETH });
+        let gasEstimate = await weth9.estimateGas.deposit({ value: amountETH })
+        let gasPrice = await deployer.getGasPrice();
+        const txWrap = await weth9.deposit({ value: amountETH, gasPrice, gasLimit: gasEstimate });
         await txWrap.wait();
         console.log(`Deposited ${amountETH.toString()} to WETH9`);
 
@@ -180,7 +172,7 @@ describe("EVM Test", function () {
             const unassocUser = unassocUserWallet.connect(ethers.provider);
 
             // Fund the user account
-            await sendFunds("2", unassocUser.address, deployer)
+            await sendFunds("0.1", unassocUser.address, deployer)
 
             const fee = 3000; // Fee tier (0.3%)
 
@@ -188,7 +180,9 @@ describe("EVM Test", function () {
             const amountIn = hre.ethers.utils.parseEther("1");
             const amountOutMin = hre.ethers.utils.parseEther("0"); // Minimum amount of MockToken expected
 
-            const deposit = await token1.deposit({ value: amountIn });
+            let gasPrice = await deployer.getGasPrice();
+            let gasLimit = token1.estimateGas.deposit({ value: amountIn });
+            const deposit = await token1.deposit({ value: amountIn, gasPrice, gasLimit });
             await deposit.wait();
 
             const token1balance = await token1.balanceOf(deployer.address);
@@ -196,42 +190,37 @@ describe("EVM Test", function () {
             // Check that deployer has amountIn amount of token1
             expect(Number(token1balance)).to.greaterThanOrEqual(Number(amountIn), "token1 balance should be received by user")
 
-            const approval = await token1.approve(router.address, amountIn);
+            gasLimit = token1.estimateGas.approve(router.address, amountIn);
+            const approval = await token1.approve(router.address, amountIn, {gasPrice, gasLimit});
             await approval.wait();
-
             const allowance = await token1.allowance(deployer.address, router.address);
 
             // Check that deployer has approved amountIn amount of token1 to be used by router
             expect(allowance).to.equal(amountIn, "token1 allowance to router should be set correctly by user")
 
+            const txParams = {
+                tokenIn: token1.address,
+                tokenOut: token2.address,
+                fee,
+                recipient: unassocUser.address,
+                deadline: Math.floor(Date.now() / 1000) + 60 * 10, // 10 minutes from now
+                amountIn,
+                amountOutMinimum: amountOutMin,
+                sqrtPriceLimitX96: 0
+            }
+            gasLimit = router.estimateGas.exactInputSingle(txParams);
+
             if (expectSwapFail) {
-                expect(router.exactInputSingle({
-                    tokenIn: token1.address,
-                    tokenOut: token2.address,
-                    fee,
-                    recipient: unassocUser.address,
-                    deadline: Math.floor(Date.now() / 1000) + 60 * 10, // 10 minutes from now
-                    amountIn,
-                    amountOutMinimum: amountOutMin,
-                    sqrtPriceLimitX96: 0
-                })).to.be.reverted;
+                expect(router.exactInputSingle(txParams, {gasPrice, gasLimit})).to.be.reverted;
             } else {
                 // Perform the swap, with recipient being the unassociated account.
-                const tx = await router.exactInputSingle({
-                    tokenIn: token1.address,
-                    tokenOut: token2.address,
-                    fee,
-                    recipient: unassocUser.address,
-                    deadline: Math.floor(Date.now() / 1000) + 60 * 10, // 10 minutes from now
-                    amountIn,
-                    amountOutMinimum: amountOutMin,
-                    sqrtPriceLimitX96: 0
-                });
+                const tx = await router.exactInputSingle(txParams, {gasPrice, gasLimit});
 
                 await tx.wait();
 
                 // Check User's MockToken Balance
-                const balance = await token2.balanceOf(unassocUser.address);
+                const balance = await pollBalance(token2, unassocUser.address, function(bal) {return bal === 0});
+
                 // Check that it's more than 0 (no specified amount since there might be slippage)
                 expect(Number(balance)).to.greaterThan(0, "User should have received some token2")
             }
@@ -301,10 +290,14 @@ describe("EVM Test", function () {
             await sendFunds("2", unassocUser.address, deployer)
 
             const erc20TokenFactoryAmount = "100000"
-            const tx = await erc20TokenFactory.transfer(unassocUser.address, erc20TokenFactoryAmount);
+            let gasPrice = deployer.getGasPrice();
+            let gasLimit = erc20TokenFactory.estimateGas.transfer(unassocUser.address, erc20TokenFactoryAmount);
+            const tx = await erc20TokenFactory.transfer(unassocUser.address, erc20TokenFactoryAmount, {gasPrice, gasLimit});
             await tx.wait();
             const mockTokenAmount = "100000"
-            const tx2 = await token.transfer(unassocUser.address, mockTokenAmount);
+
+            gasLimit = token.estimateGas.transfer(unassocUser.address, mockTokenAmount);
+            const tx2 = await token.transfer(unassocUser.address, mockTokenAmount, {gasPrice, gasLimit});
             await tx2.wait();
             const managerConnected = manager.connect(unassocUser);
             const erc20TokenFactoryConnected = erc20TokenFactory.connect(unassocUser);

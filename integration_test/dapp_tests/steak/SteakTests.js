@@ -5,6 +5,8 @@ const {
   getEvmAddress,
   fundSeiAddress,
   associateKey,
+  execute,
+  getSeiAddress
 } = require("../../../contracts/test/lib.js");
 const {
   getValidators,
@@ -14,15 +16,22 @@ const {
   queryTokenBalance,
   unbond,
   transferTokens,
+  setupAccountWithMnemonic,
 } = require("./utils.js");
 
 const { expect } = require("chai");
 const { v4: uuidv4 } = require("uuid");
+const hre = require("hardhat");
+const {chainIds, rpcUrls, evmRpcUrls} = require("../constants");
+const {sendFunds} = require("../uniswap/uniswapHelpers");
 
 const STEAK_HUB_WASM =
-  "../integration_test/dapp_tests/steak/contracts/steak_hub.wasm";
+  "../dapp_tests/steak/contracts/steak_hub.wasm";
 const STEAK_TOKEN_WASM =
-  "../integration_test/dapp_tests/steak/contracts/steak_token.wasm";
+  "../dapp_tests/steak/contracts/steak_token.wasm";
+
+const testChain = process.env.DAPP_TEST_ENV;
+
 
 describe("Steak", async function () {
   let owner;
@@ -30,22 +39,24 @@ describe("Steak", async function () {
   let tokenAddress;
   let tokenPointer;
 
-  async function setupAccount(baseName, associate = true) {
+  async function setupAccount(baseName, associate = true, amount="100000000000", denom="usei", funder='admin') {
     const uniqueName = `${baseName}-${uuidv4()}`;
+
     const account = await addAccount(uniqueName);
-    await fundSeiAddress(account.address);
+    await fundSeiAddress(account.address, amount, denom, funder);
     if (associate) {
       await associateKey(account.address);
     }
+
     return account;
   }
 
   async function deployContracts(ownerAddress) {
     // Store CW20 token wasm
-    const tokenCodeId = await storeWasm(STEAK_TOKEN_WASM);
+    const tokenCodeId = await storeWasm(STEAK_TOKEN_WASM, ownerAddress);
 
     // Store Hub contract
-    const hubCodeId = await storeWasm(STEAK_HUB_WASM);
+    const hubCodeId = await storeWasm(STEAK_HUB_WASM, ownerAddress);
 
     // Instantiate hub and token contracts
     const validators = await getValidators();
@@ -69,8 +80,12 @@ describe("Steak", async function () {
     // Deploy pointer for token contract
     const pointerAddr = await deployErc20PointerForCw20(
       hre.ethers.provider,
-      contractAddresses.tokenContract
+      contractAddresses.tokenContract,
+        10,
+      ownerAddress,
+      evmRpcUrls[testChain]
     );
+
     const tokenPointer = new hre.ethers.Contract(
       pointerAddr,
       ABI.ERC20,
@@ -105,7 +120,20 @@ describe("Steak", async function () {
 
   before(async function () {
     // Set up the owner account
-    owner = await setupAccount("steak-owner");
+    if (testChain === 'seilocal') {
+      owner = await setupAccount("steak-owner");
+    } else {
+      // Set default seid config to the specified rpc url.
+      await execute(`seid config chain-id ${chainIds[testChain]}`)
+      await execute(`seid config node ${rpcUrls[testChain]}`)
+
+      const accounts = hre.config.networks[testChain].accounts
+      const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
+      const deployer = deployerWallet.connect(hre.ethers.provider)
+      console.log(deployer.address)
+      await sendFunds('0.01', deployer.address, deployer)
+      owner = await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, accounts.path, deployer)
+    }
 
     // Store and deploy contracts
     ({ hubAddress, tokenAddress, tokenPointer } = await deployContracts(
@@ -130,7 +158,7 @@ describe("Steak", async function () {
     });
 
     it("Unassociated account should be able to bond", async function () {
-      const unassociatedAccount = await setupAccount("unassociated", false);
+      const unassociatedAccount = await setupAccount("unassociated", false, '2000000', 'usei', owner.address);
       // Verify that account is not associated yet
       const initialEvmAddress = await getEvmAddress(
         unassociatedAccount.address
@@ -144,7 +172,7 @@ describe("Steak", async function () {
       expect(evmAddress).to.not.be.empty;
 
       // Send tokens to a new unassociated account
-      const newUnassociatedAccount = await setupAccount("unassociated", false);
+      const newUnassociatedAccount = await setupAccount("unassociated", false, '2000000', 'usei', owner.address);
       const transferAmount = 500000;
       await transferTokens(
         tokenAddress,
@@ -162,4 +190,13 @@ describe("Steak", async function () {
       await testUnbonding(newUnassociatedAccount.address, transferAmount / 2);
     });
   });
+
+  after(async function () {
+    // Set the chain back to regular state
+    console.log("Resetting")
+    if (testChain !== 'seilocal') {
+      await execute(`seid config chain-id sei-chain`)
+      await execute(`seid config node tcp://localhost:26657`)
+    }
+  })
 });

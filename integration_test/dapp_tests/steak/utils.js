@@ -1,4 +1,5 @@
-const { execute } = require("../../../contracts/test/lib");
+const { execute, getSeiAddress } = require("../../../contracts/test/lib");
+const {v4: uuidv4} = require("uuid");
 
 const encodeBase64 = (obj) => {
   return Buffer.from(JSON.stringify(obj)).toString("base64");
@@ -27,7 +28,7 @@ const instantiateHubContract = async (
   label
 ) => {
   const jsonString = JSON.stringify(instantiateMsg).replace(/"/g, '\\"');
-  const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddress} --from admin --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+  const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddress} --from ${adminAddress} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
   const output = await execute(command);
   const response = JSON.parse(output);
   // Get all attributes with _contractAddress
@@ -142,6 +143,37 @@ const transferTokens = async (tokenAddress, sender, destination, amount) => {
   return response;
 };
 
+async function setupAccountWithMnemonic(baseName, mnemonic, path, deployer) {
+  const uniqueName = `${baseName}-${uuidv4()}`;
+  const address = await getSeiAddress(deployer.address)
+
+  return await addDeployerAccount(uniqueName, address, mnemonic, path)
+}
+
+async function addDeployerAccount(keyName, address, mnemonic, path) {
+  // First try to retrieve by address
+  try {
+    const output = await execute(`seid keys show ${address} --output json`);
+    return JSON.parse(output);
+  } catch (e) {
+    console.log(e)
+  }
+
+  // Since the address doesn't exist, create the key with random name
+  try {
+    const output = await execute(`printf "${mnemonic}" | seid keys add ${keyName}-${Date.now()} --recover --hd-path "${path}"`)
+    if (output.code !== 0) {
+      throw new Error(output.raw_log);
+    }
+  }
+  catch (e) {
+    console.log("Key doesn't exist", e);
+  }
+
+  const output = await execute(`seid keys show ${keyName} --output json`);
+  return JSON.parse(output);
+}
+
 module.exports = {
   getValidators,
   instantiateHubContract,
@@ -150,5 +182,7 @@ module.exports = {
   harvest,
   queryTokenBalance,
   addAccount,
+  addDeployerAccount,
+  setupAccountWithMnemonic,
   transferTokens,
 };
