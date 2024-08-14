@@ -224,7 +224,8 @@ func TestEncodeBankMsg(t *testing.T) {
 }
 
 func TestEncodeWasmExecuteMsg(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	fromSeiAddr, fromEvmAddr := testkeeper.MockAddressPair()
 	toSeiAddr, _ := testkeeper.MockAddressPair()
 	b := TxConfig.NewTxBuilder()

@@ -9,10 +9,17 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
+	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -281,4 +288,96 @@ func TestNonceIncrementsForInsufficientFunds(t *testing.T) {
 	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(5), res.Code)                 // insufficient funds has error code 5
 	require.Equal(t, uint64(1), k.GetNonce(ctx, evmAddr)) // make sure nonce is incremented regardless
+}
+
+func TestInvalidAssociateMsg(t *testing.T) {
+	// EVM associate tx
+	k := testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now()).WithChainID("sei-test").WithBlockHeight(1)
+	privKey := testkeeper.MockPrivateKey()
+	seiAddr, _ := testkeeper.PrivateKeyToAddresses(privKey)
+	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000)))
+	k.BankKeeper().MintCoins(ctx, "evm", amt)
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, "evm", seiAddr, amt)
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	customMsg := strings.Repeat("a", 65)
+	hash := crypto.Keccak256Hash([]byte(customMsg))
+	sig, err := crypto.Sign(hash[:], key)
+	require.Nil(t, err)
+	R, S, _, err := ethtx.DecodeSignature(sig)
+	require.Nil(t, err)
+	V := big.NewInt(int64(sig[64]))
+	require.Nil(t, err)
+	typedTx := &ethtx.AssociateTx{
+		V: V.Bytes(), R: R.Bytes(), S: S.Bytes(), CustomMessage: customMsg,
+	}
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+	txBuilder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	txBuilder.SetMsgs(msg)
+	cosmosTx := txBuilder.GetTx()
+	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(cosmosTx)
+	require.Nil(t, err)
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	require.Equal(t, uint32(21), res.Code) // tx too large
+
+	// cosmos associate tx
+	amsg := &types.MsgAssociate{
+		Sender: seiAddr.String(), CustomMessage: customMsg,
+	}
+	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	txBuilder.SetMsgs(amsg)
+	signedTx := signTx(txBuilder, privKey, k.AccountKeeper().GetAccount(ctx, seiAddr))
+	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(signedTx)
+	require.Nil(t, err)
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, signedTx, sha256.Sum256(txbz))
+	require.Equal(t, uint32(21), res.Code)
+
+	// multiple associate msgs should charge gas (and run out of gas in this test case)
+	amsg = &types.MsgAssociate{
+		Sender: seiAddr.String(), CustomMessage: "",
+	}
+	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	msgs := []sdk.Msg{}
+	for i := 1; i <= 1000; i++ {
+		msgs = append(msgs, amsg)
+	}
+	txBuilder.SetMsgs(msgs...)
+	signedTx = signTx(txBuilder, privKey, k.AccountKeeper().GetAccount(ctx, seiAddr))
+	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(signedTx)
+	require.Nil(t, err)
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, signedTx, sha256.Sum256(txbz))
+	require.Equal(t, uint32(11), res.Code) // out of gas
+}
+
+func signTx(txBuilder client.TxBuilder, privKey cryptotypes.PrivKey, acc authtypes.AccountI) sdk.Tx {
+	var sigsV2 []signing.SignatureV2
+	sigV2 := signing.SignatureV2{
+		PubKey: privKey.PubKey(),
+		Data: &signing.SingleSignatureData{
+			SignMode:  testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
+			Signature: nil,
+		},
+		Sequence: acc.GetSequence(),
+	}
+	sigsV2 = append(sigsV2, sigV2)
+	_ = txBuilder.SetSignatures(sigsV2...)
+	sigsV2 = []signing.SignatureV2{}
+	signerData := xauthsigning.SignerData{
+		ChainID:       "sei-test",
+		AccountNumber: acc.GetAccountNumber(),
+		Sequence:      acc.GetSequence(),
+	}
+	sigV2, _ = clienttx.SignWithPrivKey(
+		testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
+		signerData,
+		txBuilder,
+		privKey,
+		testkeeper.EVMTestApp.GetTxConfig(),
+		acc.GetSequence(),
+	)
+	sigsV2 = append(sigsV2, sigV2)
+	_ = txBuilder.SetSignatures(sigsV2...)
+	return txBuilder.GetTx()
 }
