@@ -425,7 +425,7 @@ async function execute(command, interaction=`printf "12345678\\n"`){
     if (await isDocker()) {
         command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
         command = command.replace("/sei-protocol/sei-chain//sei-protocol/sei-chain/", "/sei-protocol/sei-chain/")
-        command = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
+        command = `docker exec sei-node-0 /bin/bash -c "export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}"`;
     }
 
     return await execCommand(command);
