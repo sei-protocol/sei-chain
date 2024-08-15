@@ -121,6 +121,12 @@ jobs:
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
             ]
           },
+          {
+            name: "dApp Tests",
+            scripts: [
+              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3

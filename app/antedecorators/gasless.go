@@ -1,6 +1,7 @@
 package antedecorators
 
 import (
+	"bytes"
 	"encoding/hex"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -8,6 +9,7 @@ import (
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
@@ -116,6 +118,15 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, e
 	}
 	for _, msg := range tx.GetMsgs() {
 		switch m := msg.(type) {
+		case *dextypes.MsgPlaceOrders:
+			if !dexPlaceOrdersIsGasless(m) {
+				return false, nil
+			}
+
+		case *dextypes.MsgCancelOrders:
+			if !dexCancelOrdersIsGasless(m) {
+				return false, nil
+			}
 		case *oracletypes.MsgAggregateExchangeRateVote:
 			isGasless, err := oracleVoteIsGasless(m, ctx, oracleKeeper)
 			if err != nil || !isGasless {
@@ -130,6 +141,33 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, e
 		}
 	}
 	return true, nil
+}
+
+func dexPlaceOrdersIsGasless(_ *dextypes.MsgPlaceOrders) bool {
+	return false
+}
+
+// WhitelistedGaslessCancellationAddrs TODO: migrate this into params state
+var WhitelistedGaslessCancellationAddrs = []sdk.AccAddress{}
+
+func dexCancelOrdersIsGasless(msg *dextypes.MsgCancelOrders) bool {
+	return allSignersWhitelisted(msg)
+}
+
+func allSignersWhitelisted(msg *dextypes.MsgCancelOrders) bool {
+	for _, signer := range msg.GetSigners() {
+		isWhitelisted := false
+		for _, whitelisted := range WhitelistedGaslessCancellationAddrs {
+			if bytes.Compare(signer, whitelisted) == 0 { //nolint:gosimple
+				isWhitelisted = true
+				break
+			}
+		}
+		if !isWhitelisted {
+			return false
+		}
+	}
+	return true
 }
 
 func oracleVoteIsGasless(msg *oracletypes.MsgAggregateExchangeRateVote, ctx sdk.Context, keeper oraclekeeper.Keeper) (bool, error) {
