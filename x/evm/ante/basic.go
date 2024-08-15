@@ -58,14 +58,6 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 		return ctx, sdkerrors.ErrUnsupportedTxType
 	}
 
-	// Check if cosmos gas is set or not
-	feeTx, ok := tx.(sdk.FeeTx)
-	if ok {
-		if feeTx.GetGas() > 0 {
-			return ctx, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "EVM Transaction should not have cosmos gas set to a non zero value of %d", feeTx.GetGas())
-		}
-	}
-
 	// Check if gas exceed the limit
 	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
 		// If there exists a maximum block gas limit, we must ensure that the tx

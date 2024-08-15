@@ -1907,26 +1907,38 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 	totalGasWanted := uint64(0)
 	for _, tx := range txs {
-		decoded, err := app.txDecoder(tx)
+		decodedTx, err := app.txDecoder(tx)
 		if err != nil {
 			// such tx will not be processed and thus won't consume gas. Skipping
 			continue
 		}
-		feeTx, ok := decoded.(sdk.FeeTx)
-		if !ok {
-			// such tx will not be processed and thus won't consume gas. Skipping
-			continue
-		}
-		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper, &app.EvmKeeper)
+		gasWanted := uint64(0)
+		isEVM, err := evmante.IsEVMMessage(decodedTx)
 		if err != nil {
-			ctx.Logger().Error("error checking if tx is gasless", "error", err)
 			continue
 		}
-		if isGasless {
-			continue
+		if isEVM {
+			msg := evmtypes.MustGetEVMTransactionMessage(decodedTx)
+			etx, _ := msg.AsTransaction()
+			gasWanted = etx.Gas()
+		} else {
+			feeTx, ok := decodedTx.(sdk.FeeTx)
+			if !ok {
+				// such tx will not be processed and thus won't consume gas. Skipping
+				continue
+			}
+			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
+			if err != nil {
+				ctx.Logger().Error("error checking if tx is gasless", "error", err)
+				continue
+			}
+			if isGasless {
+				continue
+			}
+			// Check for overflow before adding
+			gasWanted = feeTx.GetGas()
 		}
-		// Check for overflow before adding
-		gasWanted := feeTx.GetGas()
+
 		if int64(gasWanted) < 0 || int64(totalGasWanted) > math.MaxInt64-int64(gasWanted) {
 			return false
 		}
