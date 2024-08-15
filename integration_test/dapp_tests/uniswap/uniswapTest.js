@@ -26,6 +26,7 @@ describe("Uniswap Test", function () {
     let manager;
     let deployer;
     let user;
+    let originalSeidConfig;
     before(async function () {
         const accounts = hre.config.networks[testChain].accounts
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
@@ -39,6 +40,9 @@ describe("Uniswap Test", function () {
             await execute(`seid config node ${rpcUrls[testChain]}`)
         }
 
+        // Set the config keyring to 'test' since we're using the key added to test from here.
+        const seidConfig = await execute('seid config');
+        const originalSeidConfig = JSON.parse(seidConfig);
         await execute(`seid config keyring-backend test`)
 
         await sendFunds('0.01', deployer.address, deployer)
@@ -311,9 +315,8 @@ describe("Uniswap Test", function () {
     after(async function () {
         // Set the chain back to regular state
         console.log("Resetting")
-        if (testChain !== 'seilocal') {
-            await execute(`seid config chain-id sei-chain`)
-            await execute(`seid config node tcp://localhost:26657`)
-        }
+        await execute(`seid config chain-id ${originalSeidConfig["chain-id"]}`)
+        await execute(`seid config node ${originalSeidConfig["node"]}`)
+        await execute(`seid config keyring-backend ${originalSeidConfig["keyring-backend"]}`)
     })
 })
