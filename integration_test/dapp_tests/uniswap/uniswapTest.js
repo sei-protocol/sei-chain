@@ -5,11 +5,10 @@ const { abi: FACTORY_ABI, bytecode: FACTORY_BYTECODE } = require("@uniswap/v3-co
 const { abi: DESCRIPTOR_ABI, bytecode: DESCRIPTOR_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/libraries/NFTDescriptor.sol/NFTDescriptor.json");
 const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
-const { abi: POOL_ABI, bytecode: POOL_BYTECODE } = require("@uniswap/v3-core/artifacts/contracts/UniswapV3Pool.sol/UniswapV3Pool.json")
 const {exec} = require("child_process");
-const { fundAddress, createTokenFactoryTokenAndMint, getPointerForNative, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, ABI } = require("../../../contracts/test/lib.js");
+const { fundAddress, createTokenFactoryTokenAndMint, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, ABI } = require("../../../contracts/test/lib.js");
 const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds, pollBalance } = require("./uniswapHelpers.js")
-const {cw20Addresses, tokenFactoryDenoms, rpcUrls, chainIds, evmRpcUrls} = require("../constants")
+const { rpcUrls, chainIds, evmRpcUrls} = require("../constants")
 const { expect } = require("chai");
 const {setupAccountWithMnemonic} = require("../steak/utils");
 

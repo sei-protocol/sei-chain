@@ -1,5 +1,4 @@
 const hre = require("hardhat");
-const {BigNumber} = require("ethers"); // Require Hardhat Runtime Environment
 const { ABI, deployErc20PointerForCw20, deployWasm, execute, delay } = require("../../../contracts/test/lib.js");
 
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
