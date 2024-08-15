@@ -1,37 +1,8 @@
 const hre = require("hardhat");
 const { ABI, deployErc20PointerForCw20, deployWasm, execute, delay } = require("../../../contracts/test/lib.js");
 const path = require('path')
-const fs = require('fs');
 
-function listFilesRecursively(dir) {
-    // Read the contents of the directory
-    const files = fs.readdirSync(dir);
-
-    // Iterate over each file/directory in the current directory
-    files.forEach(file => {
-        // Get the full path of the file
-        const fullPath = path.join(dir, file);
-
-        // Skip the node_modules directory
-        if (file === 'node_modules') {
-            return;
-        }
-
-        // Check if it's a directory
-        if (fs.statSync(fullPath).isDirectory()) {
-            // If it's a directory, recurse into it
-            listFilesRecursively(fullPath);
-        } else {
-            // If it's a file, print the full path
-            console.log(fullPath);
-        }
-    });
-}
-
-console.log("PWD", process.cwd())
-console.log("dirname", __dirname)
-listFilesRecursively(process.cwd());
-const CW20_BASE_PATH = path.resolve(__dirname, '../uniswap/cw20_base.wasm')
+const CW20_BASE_PATH = (await isDocker()) ? '../integration_test/dapp_tests/uniswap/cw20_base.wasm' : path.resolve(__dirname, '../uniswap/cw20_base.wasm')
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
     const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
 

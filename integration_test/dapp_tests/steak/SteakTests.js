@@ -24,11 +24,10 @@ const { v4: uuidv4 } = require("uuid");
 const hre = require("hardhat");
 const {chainIds, rpcUrls, evmRpcUrls} = require("../constants");
 const {sendFunds} = require("../uniswap/uniswapHelpers");
+const path = require("path");
 
-const STEAK_HUB_WASM =
-  "../integration_test/dapp_tests/steak/contracts/steak_hub.wasm";
-const STEAK_TOKEN_WASM =
-  "../integration_test/dapp_tests/steak/contracts/steak_token.wasm";
+const STEAK_HUB_WASM = (await isDocker()) ? '../integration_test/dapp_tests/steak/contracts/steak_hub.wasm' : path.resolve(__dirname, '../steak/contracts/steak_hub.wasm')
+const STEAK_TOKEN_WASM = (await isDocker()) ? '../integration_test/dapp_tests/steak/contracts/steak_token.wasm' : path.resolve(__dirname, '../steak/contracts/steak_token.wasm')
 
 const testChain = process.env.DAPP_TEST_ENV;
 
