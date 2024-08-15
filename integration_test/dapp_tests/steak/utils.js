@@ -163,7 +163,8 @@ async function addDeployerAccount(keyName, address, mnemonic, path) {
   try {
     let output;
     if (isDocker()) {
-      output = await execute(`seid keys add ${keyName} --recover --hd-path "${path}" --keyring-backend test`,`printf "${mnemonic}"`)
+      const escapedPath = path.replace(/'/g, "\\'");
+      output = await execute(`seid keys add ${keyName} --recover --hd-path "${escapedPath}" --keyring-backend test`,`printf "${mnemonic}"`)
     } else {
       output = await execute(`printf "${mnemonic}" | seid keys add ${keyName} --recover --hd-path "${path}" --keyring-backend test`)
     }
