@@ -119,10 +119,6 @@ describe("Steak", async function () {
   }
 
   before(async function () {
-    if (!await isDocker()) {
-      await execute(`seid config keyring-backend test`)
-    }
-
     // Set up the owner account
     if (testChain === 'seilocal') {
       owner = await setupAccount("steak-owner");
@@ -134,6 +130,9 @@ describe("Steak", async function () {
       const accounts = hre.config.networks[testChain].accounts
       const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
       const deployer = deployerWallet.connect(hre.ethers.provider)
+
+      await execute(`seid config keyring-backend test`)
+
       await sendFunds('0.01', deployer.address, deployer)
       owner = await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, deployer)
     }
