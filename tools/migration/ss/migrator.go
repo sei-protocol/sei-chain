@@ -24,7 +24,7 @@ const (
 )
 
 var modules = []string{
-	"wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
+	"wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
 }
 
 func NewMigrator(homeDir string, db dbm.DB) *Migrator {
@@ -100,6 +100,7 @@ func (m *Migrator) Verify(version int64) error {
 			}
 			return false
 		})
+		fmt.Printf("Finished verifying module %s, total scanned: %d keys\n", module, count)
 	}
 	return verifyErr
 }
@@ -182,7 +183,6 @@ func ReadTree(db dbm.DB, version int64, prefix []byte) (*iavl.MutableTree, error
 	if err != nil {
 		return nil, err
 	}
-	ver, err := tree.LoadVersion(version)
-	fmt.Printf("Got version: %d\n", ver)
+	_, err = tree.LoadVersion(version)
 	return tree, err
 }
