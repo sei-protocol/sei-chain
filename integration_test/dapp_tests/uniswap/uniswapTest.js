@@ -6,7 +6,7 @@ const { abi: DESCRIPTOR_ABI, bytecode: DESCRIPTOR_BYTECODE } = require("@uniswap
 const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
 const {exec} = require("child_process");
-const { fundAddress, createTokenFactoryTokenAndMint, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, ABI } = require("../../../contracts/test/lib.js");
+const { fundAddress, createTokenFactoryTokenAndMint, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, isDocker, ABI } = require("../../../contracts/test/lib.js");
 const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds, pollBalance } = require("./uniswapHelpers.js")
 const { rpcUrls, chainIds, evmRpcUrls} = require("../constants")
 const { expect } = require("chai");
@@ -27,7 +27,9 @@ describe("Uniswap Test", function () {
     let deployer;
     let user;
     before(async function () {
-        await execute(`seid config keyring-backend test`)
+        if (!await isDocker()) {
+            await execute(`seid config keyring-backend test`)
+        }
         const accounts = hre.config.networks[testChain].accounts
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
         deployer = deployerWallet.connect(hre.ethers.provider);
