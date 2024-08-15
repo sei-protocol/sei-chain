@@ -1,6 +1,8 @@
 const hre = require("hardhat");
 const { ABI, deployErc20PointerForCw20, deployWasm, execute, delay } = require("../../../contracts/test/lib.js");
+const path = require('path')
 
+const CW20_BASE_PATH = path.resolve(__dirname, '../uniswap/cw20_base.wasm')
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
     const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
 
@@ -103,7 +105,7 @@ function tokenOrder(firstTokenAddr, secondTokenAddr, firstTokenAmount=0, secondT
 }
 
 async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
-    const cw20Address = await deployWasm('../dapp_tests/uniswap/cw20_base.wasm', deployerSeiAddr, "cw20", {
+    const cw20Address = await deployWasm(CW20_BASE_PATH, deployerSeiAddr, "cw20", {
         name: `testCw20${time}`,
         symbol: "TEST",
         decimals: 6,
