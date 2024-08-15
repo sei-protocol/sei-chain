@@ -119,9 +119,7 @@ describe("Steak", async function () {
   }
 
   before(async function () {
-    if (!await isDocker()) {
-      await execute(`seid config keyring-backend test`)
-    }
+    await execute(`seid config keyring-backend test`)
 
     // Set up the owner account
     if (testChain === 'seilocal') {

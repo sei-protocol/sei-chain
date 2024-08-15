@@ -27,9 +27,7 @@ describe("Uniswap Test", function () {
     let deployer;
     let user;
     before(async function () {
-        if (!await isDocker()) {
-            await execute(`seid config keyring-backend test`)
-        }
+        await execute(`seid config keyring-backend test`)
         const accounts = hre.config.networks[testChain].accounts
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
         deployer = deployerWallet.connect(hre.ethers.provider);
