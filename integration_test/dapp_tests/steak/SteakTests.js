@@ -19,19 +19,16 @@ const {
   setupAccountWithMnemonic,
 } = require("./utils.js");
 
-const path = require('path')
-
 const { expect } = require("chai");
 const { v4: uuidv4 } = require("uuid");
 const hre = require("hardhat");
 const {chainIds, rpcUrls, evmRpcUrls} = require("../constants");
 const {sendFunds} = require("../uniswap/uniswapHelpers");
 
-const baseDir = process.env.GITHUB_WORKSPACE ? process.env.GITHUB_WORKSPACE : __dirname
 const STEAK_HUB_WASM =
-  path.resolve(baseDir, "../steak/contracts/steak_hub.wasm");
+  "../integration_test/dapp_tests/steak/contracts/steak_hub.wasm";
 const STEAK_TOKEN_WASM =
-    path.resolve(baseDir, "../steak/contracts/steak_token.wasm");
+  "../integration_test/dapp_tests/steak/contracts/steak_token.wasm";
 
 const testChain = process.env.DAPP_TEST_ENV;
 
