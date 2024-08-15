@@ -170,7 +170,7 @@ async function addDeployerAccount(keyName, address, mnemonic, path) {
     console.log("Key doesn't exist", e);
   }
 
-  const output = await execute(`seid keys show ${keyName} --output json`);
+  const output = await execute(`seid keys show ${keyName} --output json --keyring-backend test`);
   return JSON.parse(output);
 }
 

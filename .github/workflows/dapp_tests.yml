@@ -2,10 +2,6 @@ name: Run Dapp Tests
 
 # Only runs when manually triggered
 on:
-  # TODO: This is added for ease of development/testing. Remove this push hook after the workflow is finalized.
-  push:
-    branches:
-      - mj/testnetTests
   workflow_dispatch:
 
 jobs:
