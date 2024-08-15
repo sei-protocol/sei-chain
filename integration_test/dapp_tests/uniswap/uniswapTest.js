@@ -29,6 +29,8 @@ describe("Uniswap Test", function () {
         const accounts = hre.config.networks[testChain].accounts
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
         deployer = deployerWallet.connect(hre.ethers.provider)
+        const keys = await execute(`seid keys list`);
+        console.log(keys);
 
         if (testChain === 'seilocal') {
             await fundAddress(deployer.address, amount="2000000000000000000000");
