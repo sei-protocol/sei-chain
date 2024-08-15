@@ -26,11 +26,7 @@ const {chainIds, rpcUrls, evmRpcUrls} = require("../constants");
 const {sendFunds} = require("../uniswap/uniswapHelpers");
 const path = require("path");
 
-const STEAK_HUB_WASM = (await isDocker()) ? '../integration_test/dapp_tests/steak/contracts/steak_hub.wasm' : path.resolve(__dirname, '../steak/contracts/steak_hub.wasm')
-const STEAK_TOKEN_WASM = (await isDocker()) ? '../integration_test/dapp_tests/steak/contracts/steak_token.wasm' : path.resolve(__dirname, '../steak/contracts/steak_token.wasm')
-
 const testChain = process.env.DAPP_TEST_ENV;
-
 
 describe("Steak", async function () {
   let owner;
@@ -53,9 +49,11 @@ describe("Steak", async function () {
 
   async function deployContracts(ownerAddress) {
     // Store CW20 token wasm
+    const STEAK_TOKEN_WASM = (await isDocker()) ? '../integration_test/dapp_tests/steak/contracts/steak_token.wasm' : path.resolve(__dirname, '../steak/contracts/steak_token.wasm')
     const tokenCodeId = await storeWasm(STEAK_TOKEN_WASM, ownerAddress);
 
     // Store Hub contract
+    const STEAK_HUB_WASM = (await isDocker()) ? '../integration_test/dapp_tests/steak/contracts/steak_hub.wasm' : path.resolve(__dirname, '../steak/contracts/steak_hub.wasm')
     const hubCodeId = await storeWasm(STEAK_HUB_WASM, ownerAddress);
 
     // Instantiate hub and token contracts
