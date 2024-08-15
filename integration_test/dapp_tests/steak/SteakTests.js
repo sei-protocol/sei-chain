@@ -119,6 +119,8 @@ describe("Steak", async function () {
   }
 
   before(async function () {
+    await execute(`seid config keyring-backend test`)
+
     // Set up the owner account
     if (testChain === 'seilocal') {
       owner = await setupAccount("steak-owner");
