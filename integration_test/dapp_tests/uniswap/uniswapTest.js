@@ -42,7 +42,7 @@ describe("Uniswap Test", function () {
             await execute(`seid config node ${rpcUrls[testChain]}`)
         }
         await sendFunds('0.01', deployer.address, deployer)
-        await setupAccountWithMnemonic("dapptest", accounts.mnemonic, accounts.path, deployer);
+        await setupAccountWithMnemonic("dapptest", accounts.mnemonic, deployer);
 
 
         // Fund user account

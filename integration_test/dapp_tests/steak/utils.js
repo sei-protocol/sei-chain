@@ -143,14 +143,14 @@ const transferTokens = async (tokenAddress, sender, destination, amount) => {
   return response;
 };
 
-async function setupAccountWithMnemonic(baseName, mnemonic, path, deployer) {
+async function setupAccountWithMnemonic(baseName, mnemonic, deployer) {
   const uniqueName = `${baseName}-${uuidv4()}`;
   const address = await getSeiAddress(deployer.address)
 
-  return await addDeployerAccount(uniqueName, address, mnemonic, path)
+  return await addDeployerAccount(uniqueName, address, mnemonic)
 }
 
-async function addDeployerAccount(keyName, address, mnemonic, path) {
+async function addDeployerAccount(keyName, address, mnemonic) {
   // First try to retrieve by address
   try {
     const output = await execute(`seid keys show ${address} --output json`);
@@ -162,11 +162,11 @@ async function addDeployerAccount(keyName, address, mnemonic, path) {
   // Since the address doesn't exist, create the key with random name
   try {
     let output;
-    if (isDocker()) {
-      const escapedPath = path.replace(/'/g, "\\'");
-      output = await execute(`seid keys add ${keyName} --recover --hd-path "${path}" --keyring-backend test`,`printf "${mnemonic}"`)
+    if (await isDocker()) {
+      // NOTE: The path here is assumed to be "m/44'/118'/0'/0/0"
+      output = await execute(`seid keys add ${keyName} --recover --keyring-backend test`,`printf "${mnemonic}"`)
     } else {
-      output = await execute(`printf "${mnemonic}" | seid keys add ${keyName} --recover --hd-path "${path}" --keyring-backend test`)
+      output = await execute(`printf "${mnemonic}" | seid keys add ${keyName} --recover --keyring-backend test`)
     }
     if (output.code !== 0) {
       throw new Error(output);
