@@ -5,6 +5,7 @@ const { abi: FACTORY_ABI, bytecode: FACTORY_BYTECODE } = require("@uniswap/v3-co
 const { abi: DESCRIPTOR_ABI, bytecode: DESCRIPTOR_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/libraries/NFTDescriptor.sol/NFTDescriptor.json");
 const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
+const { abi: POOL_ABI, bytecode: POOL_BYTECODE } = require("@uniswap/v3-core/artifacts/contracts/UniswapV3Pool.sol/UniswapV3Pool.json")
 const {exec} = require("child_process");
 const { fundAddress, createTokenFactoryTokenAndMint, getPointerForNative, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, ABI } = require("../../../contracts/test/lib.js");
 const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds, pollBalance } = require("./uniswapHelpers.js")
@@ -21,6 +22,7 @@ describe("Uniswap Test", function () {
     let tokenFactoryDenom;
     let erc20cw20;
     let cw20Address;
+    let factory;
     let router;
     let manager;
     let deployer;
@@ -56,7 +58,7 @@ describe("Uniswap Test", function () {
 
         // Deploy TokenFactory token with ERC20 pointer
         const tokenName = `dappTests${time}`
-        tokenFactoryDenom = await createTokenFactoryTokenAndMint(tokenName, 10000000000, deployerSeiAddr, deployerSeiAddr)
+        tokenFactoryDenom = await createTokenFactoryTokenAndMint(tokenName, hre.ethers.utils.parseEther("1000000").toString(), deployerSeiAddr, deployerSeiAddr)
         console.log("DENOM", tokenFactoryDenom)
         const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, tokenFactoryDenom, deployerSeiAddr, evmRpcUrls[testChain])
         console.log("Pointer Addr", pointerAddr);
@@ -80,7 +82,7 @@ describe("Uniswap Test", function () {
 
         // Deploy Uniswap Contracts
         // Create UniswapV3 Factory
-        const factory = await deployEthersContract("Uniswap V3 Factory", FACTORY_ABI, FACTORY_BYTECODE, deployer);
+        factory = await deployEthersContract("Uniswap V3 Factory", FACTORY_ABI, FACTORY_BYTECODE, deployer);
 
         // Deploy NonFungiblePositionManager
         manager = await deployEthersContract("NonfungiblePositionManager", MANAGER_ABI, MANAGER_BYTECODE, deployer, deployParams=[factory.address, weth9.address, descriptor.address]);
@@ -99,13 +101,13 @@ describe("Uniswap Test", function () {
 
         // Create liquidity pools
         await deployTokenPool(manager, weth9.address, token.address)
-        await deployTokenPool(manager, weth9.address, erc20TokenFactory.address, swapRatio=10**-13)
-        await deployTokenPool(manager, weth9.address, erc20cw20.address, swapRatio=10**-13)
+        await deployTokenPool(manager, weth9.address, erc20TokenFactory.address)
+        await deployTokenPool(manager, weth9.address, erc20cw20.address)
 
         // Add Liquidity to pools
         await supplyLiquidity(manager, deployer.address, weth9, token, hre.ethers.utils.parseEther("10"), hre.ethers.utils.parseEther("10"))
-        await supplyLiquidity(manager, deployer.address, weth9, erc20TokenFactory, hre.ethers.utils.parseEther("10"), 100000000)
-        await supplyLiquidity(manager, deployer.address, weth9, erc20cw20, hre.ethers.utils.parseEther("10"), 100000000)
+        await supplyLiquidity(manager, deployer.address, weth9, erc20TokenFactory, hre.ethers.utils.parseEther("10"), hre.ethers.utils.parseEther("10"))
+        await supplyLiquidity(manager, deployer.address, weth9, erc20cw20, hre.ethers.utils.parseEther("10"), hre.ethers.utils.parseEther("10"))
     })
 
     describe("Swaps", function () {
@@ -216,7 +218,6 @@ describe("Uniswap Test", function () {
 
                 await tx.wait();
 
-                console.log(tx);
                 // Check User's MockToken Balance
                 const balance = await pollBalance(token2, unassocUser.address, function(bal) {return bal === 0});
 

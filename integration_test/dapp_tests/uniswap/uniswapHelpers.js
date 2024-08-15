@@ -109,10 +109,10 @@ async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
         symbol: "TEST",
         decimals: 6,
         initial_balances: [
-            { address: deployerSeiAddr, amount: "1000000000" }
+            { address: deployerSeiAddr, amount: hre.ethers.utils.parseEther("1000000").toString() }
         ],
         mint: {
-            "minter": deployerSeiAddr, "cap": "99900000000"
+            "minter": deployerSeiAddr, "cap": hre.ethers.utils.parseEther("10000000").toString()
         }
     }, deployerSeiAddr);
     const pointerAddr = await deployErc20PointerForCw20(hre.ethers.provider, cw20Address, 10, deployerSeiAddr, evmRpc);
