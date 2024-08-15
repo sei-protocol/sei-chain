@@ -76,20 +76,27 @@ func (m *Migrator) Verify(version int64) error {
 	for _, module := range modules {
 		tree, err := ReadTree(m.iavlDB, version, []byte(buildTreePrefix(module)))
 		if err != nil {
-			fmt.Printf("Error Read Tree: %s", err.Error())
+			fmt.Printf("Error reading tree %s: %s\n", module, err.Error())
 			return err
 		}
+		var count int
 		tree.Iterate(func(key []byte, value []byte) bool {
 			// Run Get() against PebbleDB and verify values match
 			val, err := m.stateStore.Get(module, version, key)
-			fmt.Printf("Verify Tree Iterate: key %s value %s pebbledb val %s\n", string(key), string(value), string(val))
 			if err != nil {
-				verifyErr = fmt.Errorf("verificatino error: error retrieving key %s with err %w", string(key), err)
+				verifyErr = fmt.Errorf("verification error: error retrieving key %s with err %w", string(key), err)
 				return true
 			}
 			if val == nil {
 				verifyErr = fmt.Errorf("verification error: Key %s does not exist in state store", string(key))
 				return true
+			}
+			if !bytes.Equal(val, value) {
+				verifyErr = fmt.Errorf("verification error: value doesn't match for key %s", string(key))
+			}
+			count++
+			if count%10000 == 0 {
+				fmt.Printf("Verified %d keys in for module %s\n", count, module)
 			}
 			return false
 		})
