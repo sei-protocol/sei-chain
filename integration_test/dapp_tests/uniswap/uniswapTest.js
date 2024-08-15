@@ -42,7 +42,7 @@ describe("Uniswap Test", function () {
 
         // Set the config keyring to 'test' since we're using the key added to test from here.
         const seidConfig = await execute('seid config');
-        const originalSeidConfig = JSON.parse(seidConfig);
+        originalSeidConfig = JSON.parse(seidConfig);
         await execute(`seid config keyring-backend test`)
 
         await sendFunds('0.01', deployer.address, deployer)
