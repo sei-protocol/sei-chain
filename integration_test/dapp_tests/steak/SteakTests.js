@@ -135,9 +135,10 @@ describe("Steak", async function () {
 
       await sendFunds('0.01', deployer.address, deployer)
       // Set the config keyring to 'test' since we're using the key added to test from here.
-      await execute(`seid config keyring-backend test`)
       owner = await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, deployer)
     }
+
+    await execute(`seid config keyring-backend test`);
 
     // Store and deploy contracts
     ({ hubAddress, tokenAddress, tokenPointer } = await deployContracts(
