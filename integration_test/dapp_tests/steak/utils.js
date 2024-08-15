@@ -163,7 +163,7 @@ async function addDeployerAccount(keyName, address, mnemonic, path) {
   try {
     const output = await execute(`printf "${mnemonic}" | seid keys add ${keyName} --recover --hd-path "${path}" --keyring-backend test`)
     if (output.code !== 0) {
-      throw new Error(output.raw_log);
+      throw new Error(output);
     }
   }
   catch (e) {
