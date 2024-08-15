@@ -27,10 +27,11 @@ const hre = require("hardhat");
 const {chainIds, rpcUrls, evmRpcUrls} = require("../constants");
 const {sendFunds} = require("../uniswap/uniswapHelpers");
 
+const baseDir = process.env.GITHUB_WORKSPACE ? process.env.GITHUB_WORKSPACE : __dirname
 const STEAK_HUB_WASM =
-  path.resolve(__dirname, "../steak/contracts/steak_hub.wasm");
+  path.resolve(baseDir, "../steak/contracts/steak_hub.wasm");
 const STEAK_TOKEN_WASM =
-    path.resolve(__dirname, "../steak/contracts/steak_token.wasm");
+    path.resolve(baseDir, "../steak/contracts/steak_token.wasm");
 
 const testChain = process.env.DAPP_TEST_ENV;
 

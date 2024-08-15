@@ -2,7 +2,9 @@ const hre = require("hardhat");
 const { ABI, deployErc20PointerForCw20, deployWasm, execute, delay } = require("../../../contracts/test/lib.js");
 const path = require('path')
 
-const CW20_BASE_PATH = path.resolve(__dirname, '../uniswap/cw20_base.wasm')
+const baseDir = process.env.GITHUB_WORKSPACE ? process.env.GITHUB_WORKSPACE : __dirname
+const CW20_BASE_PATH = path.resolve(baseDir, '../uniswap/cw20_base.wasm')
+
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
     const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
 
