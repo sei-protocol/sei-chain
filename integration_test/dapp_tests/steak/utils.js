@@ -121,7 +121,7 @@ const queryTokenBalance = async (contractAddress, address) => {
 };
 
 const addAccount = async (accountName) => {
-  const command = `seid keys add ${accountName}-${Date.now()} --output=json --keyring-backend test`;
+  const command = `seid keys add ${accountName}-${Date.now()} --output=json`;
   const output = await execute(command);
   return JSON.parse(output);
 };
@@ -164,19 +164,19 @@ async function addDeployerAccount(keyName, address, mnemonic) {
     let output;
     if (await isDocker()) {
       // NOTE: The path here is assumed to be "m/44'/118'/0'/0/0"
-      output = await execute(`seid keys add ${keyName} --recover --keyring-backend test`,`printf "${mnemonic}"`)
+      output = await execute(`seid keys add ${keyName} --recover`,`printf "${mnemonic}"`)
     } else {
-      output = await execute(`printf "${mnemonic}" | seid keys add ${keyName} --recover --keyring-backend test`)
+      output = await execute(`printf "${mnemonic}" | seid keys add ${keyName} --recover`)
     }
     if (output.code !== 0) {
       throw new Error(output);
     }
   }
   catch (e) {
-    console.log("Key doesn't exist", e);
+    console.log("Failed to add key", e);
   }
 
-  const output = await execute(`seid keys show ${keyName} --output json --keyring-backend test`);
+  const output = await execute(`seid keys show ${keyName} --output json`);
   return JSON.parse(output);
 }
 
