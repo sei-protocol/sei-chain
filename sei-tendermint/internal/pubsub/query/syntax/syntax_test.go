@@ -71,7 +71,6 @@ func TestScannerErrors(t *testing.T) {
 		input string
 	}{
 		{`'incomplete string`},
-		{`-23`},
 		{`&`},
 		{`DATE xyz-pdq`},
 		{`DATE xyzp-dq-zv`},
@@ -169,6 +168,8 @@ func TestParseValid(t *testing.T) {
 
 		{"hash='136E18F7E4C348B780CF873A0BF43922E5BAFA63'", true},
 		{"hash=136E18F7E4C348B780CF873A0BF43922E5BAFA63", false},
+
+		{"wasm-buy_now.collection_address='sei1y4ktds0hrkrwx86pmdpvy0nxxlycqzdhg5mh9vpsk4ra8f5sjxvsfkpzmu27'", true},
 	}
 
 	for _, test := range tests {

@@ -306,7 +306,7 @@ func (s *Scanner) invalid(ch rune) error {
 func isDigit(r rune) bool { return '0' <= r && r <= '9' }
 
 func isTagRune(r rune) bool {
-	return r == '.' || r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
+	return r == '.' || r == '_' || r == '-' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
 func isTimeRune(r rune) bool {
