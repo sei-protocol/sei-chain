@@ -32,6 +32,9 @@ describe("Uniswap Test", function () {
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
         deployer = deployerWallet.connect(hre.ethers.provider);
 
+        const seidConfig = await execute('seid config');
+        originalSeidConfig = JSON.parse(seidConfig);
+
         if (testChain === 'seilocal') {
             await fundAddress(deployer.address, amount="2000000000000000000000");
         } else {
@@ -41,8 +44,6 @@ describe("Uniswap Test", function () {
         }
 
         // Set the config keyring to 'test' since we're using the key added to test from here.
-        const seidConfig = await execute('seid config');
-        originalSeidConfig = JSON.parse(seidConfig);
         await execute(`seid config keyring-backend test`)
 
         await sendFunds('0.01', deployer.address, deployer)

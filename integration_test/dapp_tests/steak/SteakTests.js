@@ -117,6 +117,10 @@ describe("Steak", async function () {
   }
 
   before(async function () {
+
+    const seidConfig = await execute('seid config');
+    originalSeidConfig = JSON.parse(seidConfig);
+
     // Set up the owner account
     if (testChain === 'seilocal') {
       owner = await setupAccount("steak-owner");
@@ -129,12 +133,9 @@ describe("Steak", async function () {
       const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
       const deployer = deployerWallet.connect(hre.ethers.provider)
 
-      // Set the config keyring to 'test' since we're using the key added to test from here.
-      const seidConfig = await execute('seid config');
-      originalSeidConfig = JSON.parse(seidConfig);
-      await execute(`seid config keyring-backend test`)
-
       await sendFunds('0.01', deployer.address, deployer)
+      // Set the config keyring to 'test' since we're using the key added to test from here.
+      await execute(`seid config keyring-backend test`)
       owner = await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, deployer)
     }
 
@@ -196,7 +197,7 @@ describe("Steak", async function () {
 
   after(async function () {
     // Set the chain back to regular state
-    console.log("Resetting")
+    console.log(`Resetting to ${originalSeidConfig}`)
     await execute(`seid config chain-id ${originalSeidConfig["chain-id"]}`)
     await execute(`seid config node ${originalSeidConfig["node"]}`)
     await execute(`seid config keyring-backend ${originalSeidConfig["keyring-backend"]}`)
