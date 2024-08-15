@@ -69,7 +69,6 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
     })
 
     gasLimit = gasLimit.mul(12).div(10)
-    console.log("Liquidity Gas Limit", gasLimit);
 
     // Add liquidity to the pool
     const liquidityTx = await managerContract.mint({

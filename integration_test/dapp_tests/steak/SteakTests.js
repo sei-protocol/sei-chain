@@ -130,7 +130,6 @@ describe("Steak", async function () {
       const accounts = hre.config.networks[testChain].accounts
       const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
       const deployer = deployerWallet.connect(hre.ethers.provider)
-      console.log(deployer.address)
       await sendFunds('0.01', deployer.address, deployer)
       owner = await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, accounts.path, deployer)
     }

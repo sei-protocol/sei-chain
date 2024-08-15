@@ -28,9 +28,7 @@ describe("Uniswap Test", function () {
     before(async function () {
         const accounts = hre.config.networks[testChain].accounts
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
-        deployer = deployerWallet.connect(hre.ethers.provider)
-        const keys = await execute(`seid keys list`);
-        console.log(keys);
+        deployer = deployerWallet.connect(hre.ethers.provider);
 
         if (testChain === 'seilocal') {
             await fundAddress(deployer.address, amount="2000000000000000000000");
@@ -76,8 +74,6 @@ describe("Uniswap Test", function () {
         console.log("Deploying MockToken with the account:", deployer.address);
         const contractArtifact = await hre.artifacts.readArtifact("MockERC20");
         token = await deployEthersContract("MockToken", contractArtifact.abi, contractArtifact.bytecode, deployer, ["MockToken", "MKT", hre.ethers.utils.parseEther("1000000")])
-
-        console.log("MockToken deployed to:", token.address);
 
         // Deploy NFT Descriptor. These NFTs are used by the NonFungiblePositionManager to represent liquidity positions.
         const descriptor = await deployEthersContract("NFT Descriptor", DESCRIPTOR_ABI, DESCRIPTOR_BYTECODE, deployer);
@@ -220,6 +216,7 @@ describe("Uniswap Test", function () {
 
                 await tx.wait();
 
+                console.log(tx);
                 // Check User's MockToken Balance
                 const balance = await pollBalance(token2, unassocUser.address, function(bal) {return bal === 0});
 
