@@ -5,7 +5,6 @@ const path = require('path')
 console.log("PWD", process.cwd())
 console.log("dirname", __dirname)
 const CW20_BASE_PATH = path.resolve(__dirname, '../uniswap/cw20_base.wasm')
-const CW20_BASE_PATH = '../integration_test/dapp_tests/uniswap/cw20_base.wasm'
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
     const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
 
