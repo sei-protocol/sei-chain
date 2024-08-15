@@ -153,7 +153,7 @@ async function setupAccountWithMnemonic(baseName, mnemonic, deployer) {
 async function addDeployerAccount(keyName, address, mnemonic) {
   // First try to retrieve by address
   try {
-    const output = await execute(`seid keys show ${address} --output json`);
+    const output = await execute(`seid keys show ${address} --output json --keyring-backend test`);
     return JSON.parse(output);
   } catch (e) {
     console.log(e)
