@@ -17,13 +17,13 @@ const {
   unbond,
   transferTokens,
   setupAccountWithMnemonic,
-} = require("./utils.js");
+  sendFunds
+} = require("../utils.js");
 
 const { expect } = require("chai");
 const { v4: uuidv4 } = require("uuid");
 const hre = require("hardhat");
 const {chainIds, rpcUrls, evmRpcUrls} = require("../constants");
-const {sendFunds} = require("../uniswap/uniswapHelpers");
 const path = require("path");
 
 const testChain = process.env.DAPP_TEST_ENV;

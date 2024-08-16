@@ -7,10 +7,9 @@ const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-pe
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
 const {exec} = require("child_process");
 const { fundAddress, createTokenFactoryTokenAndMint, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, isDocker, ABI } = require("../../../contracts/test/lib.js");
-const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds, pollBalance } = require("./uniswapHelpers.js")
+const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds, pollBalance, setupAccountWithMnemonic } = require("../utils.js")
 const { rpcUrls, chainIds, evmRpcUrls} = require("../constants")
 const { expect } = require("chai");
-const {setupAccountWithMnemonic} = require("../steak/utils");
 
 const testChain = process.env.DAPP_TEST_ENV;
 
@@ -59,8 +58,6 @@ describe("Uniswap Test", function () {
         const deployerSeiAddr = await getSeiAddress(deployer.address);
 
         // Deploy Required Tokens
-        // If local chain, deployer should have received all the tokens on first mint.
-        // Otherwise, deployer needs to own all the tokens before this test is run.
         const time = Date.now().toString();
 
         // Deploy TokenFactory token with ERC20 pointer
