@@ -159,6 +159,13 @@ async function sendFunds(amountSei, recipient, signer) {
   await fundUser.wait();
 }
 
+async function estimateAndCall(contract, method, args=[]) {
+  const gasLimit = await contract.estimateGas[method](...args);
+  const gasPrice = await contract.signer.getGasPrice();
+  const output = await contract[method](...args, {gasPrice, gasLimit})
+  await output.wait();
+}
+
 async function pollBalance(erc20Contract, address, criteria, maxAttempts=3) {
   let bal = 0;
   let attempt = 1;
@@ -355,6 +362,7 @@ module.exports = {
   harvest,
   queryTokenBalance,
   addAccount,
+  estimateAndCall,
   addDeployerAccount,
   setupAccountWithMnemonic,
   transferTokens,
