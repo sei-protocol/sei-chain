@@ -177,11 +177,14 @@ func (db *Database) GetLatestVersion() (int64, error) {
 }
 
 func (db *Database) SetEarliestVersion(version int64) error {
-	db.earliestVersion = version
+	if version > db.earliestVersion {
+		db.earliestVersion = version
 
-	var ts [VersionSize]byte
-	binary.LittleEndian.PutUint64(ts[:], uint64(version))
-	return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
+		var ts [VersionSize]byte
+		binary.LittleEndian.PutUint64(ts[:], uint64(version))
+		return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
+	}
+	return nil
 }
 
 func (db *Database) GetEarliestVersion() (int64, error) {
