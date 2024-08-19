@@ -27,7 +27,7 @@ const instantiateHubContract = async (
   label
 ) => {
   const jsonString = JSON.stringify(instantiateMsg).replace(/"/g, '\\"');
-  const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddress} --from admin --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+  const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddress} --from admin --gas=500000 --fees=1000000usei -y --broadcast-mode block -o json`;
   const output = await execute(command);
   const response = JSON.parse(output);
   // Get all attributes with _contractAddress
