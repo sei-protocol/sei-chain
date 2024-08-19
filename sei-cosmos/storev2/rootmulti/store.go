@@ -765,6 +765,10 @@ loop:
 	if ssImporter != nil {
 		close(ssImporter)
 	}
+	// initialize the earliest version for SS store
+	if rs.ssStore != nil {
+		rs.ssStore.SetEarliestVersion(height)
+	}
 
 	return snapshotItem, restoreErr
 }
