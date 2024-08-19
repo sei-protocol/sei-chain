@@ -14,7 +14,7 @@ import (
 )
 
 var ssStore types.StateStore
-var dryRun bool = true
+var dryRun = true
 
 func ReplayChangelogCmd() *cobra.Command {
 	dumpDbCmd := &cobra.Command{
