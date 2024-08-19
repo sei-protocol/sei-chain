@@ -24,7 +24,7 @@ func ReplayChangelogCmd() *cobra.Command {
 	}
 
 	dumpDbCmd.PersistentFlags().StringP("db-dir", "d", "", "Database Directory")
-	dumpDbCmd.PersistentFlags().Int64P("start-offset", "s", 1, "From offset")
+	dumpDbCmd.PersistentFlags().Int64P("start-offset", "s", 0, "From offset")
 	dumpDbCmd.PersistentFlags().Int64P("end-offset", "e", 0, "End offset, default is latest")
 	dumpDbCmd.PersistentFlags().Bool("no-dry-run", false, "Whether to dry run or re-apply the changelog to DB")
 
@@ -45,6 +45,16 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 	if err != nil {
 		panic(err)
 	}
+
+	// use first available offset
+	if start <= 0 {
+		startOffset, err := stream.FirstOffset()
+		if err != nil {
+			panic(err)
+		}
+		start = startOffset
+	}
+
 	if end <= 0 {
 		// use latest offset
 		endOffset, err := stream.LastOffset()
