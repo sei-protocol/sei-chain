@@ -150,7 +150,7 @@ func TestHierarchyDag(t *testing.T) {
 	/**
 	tx1: write to A, commit 1
 	tx2: read ALL, commit 2
-	tx3: write B dexmem, commit 3
+	tx3: write B mem, commit 3
 	tx4: read A, commit 4
 	expected dag
 	1wA -> 1c => 2rALL -> 2c
@@ -171,7 +171,7 @@ func TestHierarchyDag(t *testing.T) {
 	}
 	writeB := acltypes.AccessOperation{
 		AccessType:         acltypes.AccessType_WRITE,
-		ResourceType:       acltypes.ResourceType_DexMem,
+		ResourceType:       acltypes.ResourceType_Mem,
 		IdentifierTemplate: "ResourceB",
 	}
 	readAll := acltypes.AccessOperation{

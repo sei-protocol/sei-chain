@@ -256,6 +256,15 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 		storesKeys = append(storesKeys, key)
 	}
 	if upgrades != nil {
+		for _, upgrade := range upgrades.Deleted {
+			deletionStoreKey := types.NewKVStoreKey(upgrade)
+			storesKeys = append(storesKeys, deletionStoreKey)
+			rs.storesParams[deletionStoreKey] = storeParams{
+				key: deletionStoreKey,
+				typ: types.StoreTypeIAVL, // TODO: is this safe
+			}
+			rs.keysByName[upgrade] = deletionStoreKey
+		}
 		// deterministic iteration order for upgrades
 		// (as the underlying store may change and
 		// upgrades make store changes where the execution order may matter)
@@ -283,6 +292,10 @@ func (rs *Store) loadVersion(ver int64, upgrades *types.StoreUpgrades) error {
 		// If it was deleted, remove all data
 		if upgrades.IsDeleted(key.Name()) {
 			deleteKVStore(store.(types.KVStore))
+			// drop deleted KV store from stores
+			delete(newStores, key)
+			delete(rs.keysByName, key.Name())
+			delete(rs.storesParams, key)
 		} else if oldName := upgrades.RenamedFrom(key.Name()); oldName != "" {
 			// handle renames specially
 			// make an unregistered key to satify loadCommitStore params

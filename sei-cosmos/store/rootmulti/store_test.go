@@ -240,10 +240,10 @@ func TestMultistoreLoadWithUpgrade(t *testing.T) {
 	require.NotNil(t, s1)
 	require.Equal(t, v1, s1.Get(k1))
 
-	// store3 is mounted, but data deleted are gone
-	s3, _ = restore.GetStoreByName("store3").(types.KVStore)
-	require.NotNil(t, s3)
-	require.Nil(t, s3.Get(k3)) // data was deleted
+	// store3 is no longer mounted, and data deleted are gone
+	s3, ok := restore.GetStoreByName("store3").(types.KVStore)
+	require.Nil(t, s3)
+	require.False(t, ok)
 
 	// store4 is mounted, with empty data
 	s4, _ = restore.GetStoreByName("store4").(types.KVStore)
@@ -298,8 +298,9 @@ func TestMultistoreLoadWithUpgrade(t *testing.T) {
 	ci, err = getCommitInfo(db, 2)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), ci.Version)
-	require.Equal(t, 4, len(ci.StoreInfos), ci.StoreInfos)
-	checkContains(t, ci.StoreInfos, []string{"store1", "restore2", "store3", "store4"})
+	// 3 store infos because store3 was removed
+	require.Equal(t, 3, len(ci.StoreInfos), ci.StoreInfos)
+	checkContains(t, ci.StoreInfos, []string{"store1", "restore2", "store4"})
 }
 
 func TestParsePath(t *testing.T) {

@@ -381,6 +381,14 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	for key := range rs.storesParams {
 		storesKeys = append(storesKeys, key)
 	}
+
+	if upgrades != nil {
+		// load storeKeys for deletion
+		for _, upgrade := range upgrades.Deleted {
+			deletionStoreKey := types.NewKVStoreKey(upgrade)
+			storesKeys = append(storesKeys, deletionStoreKey)
+		}
+	}
 	// deterministic iteration order for upgrades
 	sort.Slice(storesKeys, func(i, j int) bool {
 		return storesKeys[i].Name() < storesKeys[j].Name()
@@ -397,11 +405,13 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 		return nil
 	}
 
+	storesKeysForDeletion := make(map[types.StoreKey]struct{})
 	var treeUpgrades []*proto.TreeNameUpgrade
 	for _, key := range storesKeys {
 		switch {
 		case upgrades.IsDeleted(key.Name()):
 			treeUpgrades = append(treeUpgrades, &proto.TreeNameUpgrade{Name: key.Name(), Delete: true})
+			storesKeysForDeletion[key] = struct{}{}
 		case upgrades.IsAdded(key.Name()) || upgrades.RenamedFrom(key.Name()) != "":
 			treeUpgrades = append(treeUpgrades, &proto.TreeNameUpgrade{Name: key.Name(), RenameFrom: upgrades.RenamedFrom(key.Name())})
 		}
@@ -415,6 +425,9 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	var err error
 	newStores := make(map[types.StoreKey]types.CommitKVStore, len(storesKeys))
 	for _, key := range storesKeys {
+		if _, ok := storesKeysForDeletion[key]; ok {
+			continue
+		}
 		newStores[key], err = rs.loadCommitStoreFromParams(key, rs.storesParams[key])
 		if err != nil {
 			return err
