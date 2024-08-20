@@ -21,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
@@ -160,9 +161,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	}()
 
 	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)
-	serverRes = &types.MsgEVMTransactionResponse{
-		Hash: tx.Hash().Hex(),
-	}
 	if applyErr != nil {
 		// This should not happen, as anything that could cause applyErr is supposed to
 		// be checked in CheckTx first
@@ -176,21 +174,27 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			},
 		)
 
-	} else {
-		// if applyErr is nil then res must be non-nil
-		if res.Err != nil {
-			serverRes.VmError = res.Err.Error()
+		return
+	}
 
-			telemetry.IncrCounterWithLabels(
-				[]string{types.ModuleName, "errors", "vm_execution"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("type", serverRes.VmError),
-				},
-			)
-		}
-		serverRes.GasUsed = res.UsedGas
-		serverRes.ReturnData = res.ReturnData
+	serverRes = &types.MsgEVMTransactionResponse{
+		Hash:       tx.Hash().Hex(),
+		GasUsed:    res.UsedGas,
+		ReturnData: res.ReturnData,
+		Logs:       types.NewLogsFromEth(stateDB.GetAllLogs()),
+	}
+
+	// if applyErr is nil then res must be non-nil
+	if res.Err != nil {
+		serverRes.VmError = res.Err.Error()
+
+		telemetry.IncrCounterWithLabels(
+			[]string{types.ModuleName, "errors", "vm_execution"},
+			1,
+			[]metrics.Label{
+				telemetry.NewLabel("type", serverRes.VmError),
+			},
+		)
 	}
 
 	return
@@ -233,8 +237,7 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	txCtx := core.NewEVMTxContext(msg)
 	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
 	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
-	res, err := st.TransitionDb()
-	return res, err
+	return st.TransitionDb()
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {
