@@ -25,8 +25,8 @@ import (
 )
 
 var (
-	DefaultPriorityFee = big.NewInt(1000000000)   // 1gwei
-	DefaultMaxFee      = big.NewInt(100000000000) // 100gwei
+	DefaultPriorityFee = big.NewInt(1000000000) // 1gwei
+	DefaultMaxFee      = big.NewInt(1000000000) // 1gwei
 )
 
 type EvmTxClient struct {
