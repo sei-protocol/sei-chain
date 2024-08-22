@@ -53,7 +53,7 @@ describe("Uniswap Test", function () {
         const userWallet = hre.ethers.Wallet.createRandom();
         user = userWallet.connect(hre.ethers.provider);
 
-        await sendFunds("5", user.address, deployer)
+        await sendFunds("1", user.address, deployer)
 
         const deployerSeiAddr = await getSeiAddress(deployer.address);
 
@@ -269,7 +269,7 @@ describe("Uniswap Test", function () {
           const unassocUser = unassocUserWallet.connect(hre.ethers.provider);
 
           // Fund the user account. Creating pools is a expensive operation so we supply more funds here for gas.
-          await sendFunds("5", unassocUser.address, deployer)
+          await sendFunds("0.5", unassocUser.address, deployer)
 
           await deployTokenPool(manager.connect(unassocUser), erc20TokenFactory.address, token.address)
         })
@@ -279,7 +279,7 @@ describe("Uniswap Test", function () {
             const unassocUser = unassocUserWallet.connect(hre.ethers.provider);
 
             // Fund the user account
-            await sendFunds("2", unassocUser.address, deployer)
+            await sendFunds("0.5", unassocUser.address, deployer)
 
             const erc20TokenFactoryAmount = "100000"
 
