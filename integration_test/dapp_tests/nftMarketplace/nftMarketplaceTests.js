@@ -26,6 +26,8 @@ describe("NFT Marketplace", function () {
             await execute(`seid config node ${rpcUrls[testChain]}`)
         }
 
+        await execute(`seid config keyring-backend test`)
+
         await sendFunds('0.01', deployer.address, deployer)
         await setupAccountWithMnemonic("dapptest", accounts.mnemonic, deployer);
 
