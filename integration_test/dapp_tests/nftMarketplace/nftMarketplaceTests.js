@@ -1,10 +1,10 @@
 const { expect } = require("chai");
 const hre = require("hardhat");
 
-const {sendFunds, deployEthersContract, estimateAndCall, deployCw721WithPointer, setupAccountWithMnemonic, execute,
+const {sendFunds, deployEthersContract, estimateAndCall, deployCw721WithPointer, setupAccountWithMnemonic,
     mintCw721
 } = require("../utils");
-const { fundAddress, getSeiAddress } = require("../../../contracts/test/lib.js");
+const { fundAddress, getSeiAddress, execute } = require("../../../contracts/test/lib.js");
 const {evmRpcUrls, chainIds, rpcUrls} = require("../constants");
 
 const testChain = process.env.DAPP_TEST_ENV;
@@ -30,7 +30,6 @@ describe("NFT Marketplace", function () {
         }
 
         const bal = await deployer.getBalance();
-        console.log("BAL", bal)
         gasPrice = await deployer.getGasPrice();
 
         // Deploy MockNFT
@@ -70,7 +69,6 @@ describe("NFT Marketplace", function () {
                 // Refers to the first token owned by the deployer.
                 tokenId = await nftContract.tokenOfOwnerByIndex(deployer.address, 0);
             }
-            console.log("tokenId", tokenId)
 
             if (seller.address !== deployer.address) {
                 if (expectTransferFail) {
