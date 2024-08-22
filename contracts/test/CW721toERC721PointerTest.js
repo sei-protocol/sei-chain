@@ -27,7 +27,7 @@ describe("CW721 to ERC721 Pointer", function () {
     describe("validation", function(){
         it("should not allow a pointer to the pointer", async function(){
             try {
-                await deployErc721PointerForCw721(hre.ethers.provider, pointer, 5)
+                await deployErc721PointerForCw721(hre.ethers.provider, pointer)
                 expect.fail(`Expected to be prevented from creating a pointer`);
             } catch(e){
                 expect(e.message).to.include("contract deployment failed");
