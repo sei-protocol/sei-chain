@@ -7,7 +7,7 @@ const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-pe
 const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
 const {exec} = require("child_process");
 const { fundAddress, createTokenFactoryTokenAndMint, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, isDocker, ABI } = require("../../../contracts/test/lib.js");
-const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds, pollBalance, setupAccountWithMnemonic } = require("../utils.js")
+const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds, pollBalance, setupAccountWithMnemonic, estimateAndCall } = require("../utils")
 const { rpcUrls, chainIds, evmRpcUrls} = require("../constants")
 const { expect } = require("chai");
 
@@ -94,7 +94,7 @@ describe("Uniswap Test", function () {
         // Deploy SwapRouter
         router = await deployEthersContract("SwapRouter", SWAP_ROUTER_ABI, SWAP_ROUTER_BYTECODE, deployer, deployParams=[factory.address, weth9.address]);
 
-        const amountETH = hre.ethers.utils.parseEther("30")
+        const amountETH = hre.ethers.utils.parseEther("3")
 
         // Gets the amount of WETH9 required to instantiate pools by depositing Sei to the contract
         let gasEstimate = await weth9.estimateGas.deposit({ value: amountETH })
@@ -109,9 +109,9 @@ describe("Uniswap Test", function () {
         await deployTokenPool(manager, weth9.address, erc20cw20.address)
 
         // Add Liquidity to pools
-        await supplyLiquidity(manager, deployer.address, weth9, token, hre.ethers.utils.parseEther("10"), hre.ethers.utils.parseEther("10"))
-        await supplyLiquidity(manager, deployer.address, weth9, erc20TokenFactory, hre.ethers.utils.parseEther("10"), hre.ethers.utils.parseEther("10"))
-        await supplyLiquidity(manager, deployer.address, weth9, erc20cw20, hre.ethers.utils.parseEther("10"), hre.ethers.utils.parseEther("10"))
+        await supplyLiquidity(manager, deployer.address, weth9, token, hre.ethers.utils.parseEther("1"), hre.ethers.utils.parseEther("1"))
+        await supplyLiquidity(manager, deployer.address, weth9, erc20TokenFactory, hre.ethers.utils.parseEther("1"), hre.ethers.utils.parseEther("1"))
+        await supplyLiquidity(manager, deployer.address, weth9, erc20cw20, hre.ethers.utils.parseEther("1"), hre.ethers.utils.parseEther("1"))
     })
 
     describe("Swaps", function () {
@@ -120,20 +120,18 @@ describe("Uniswap Test", function () {
             const fee = 3000; // Fee tier (0.3%)
 
             // Perform a Swap
-            const amountIn = hre.ethers.utils.parseEther("1");
+            const amountIn = hre.ethers.utils.parseEther("0.1");
             const amountOutMin = hre.ethers.utils.parseEther("0"); // Minimum amount of MockToken expected
 
-            const gasLimit = hre.ethers.utils.hexlify(1000000); // Example gas limit
-            const gasPrice = await hre.ethers.provider.getGasPrice();
+            // const gasLimit = hre.ethers.utils.hexlify(1000000); // Example gas limit
+            // const gasPrice = await hre.ethers.provider.getGasPrice();
 
-            const deposit = await token1.connect(user).deposit({ value: amountIn, gasLimit, gasPrice });
-            await deposit.wait();
+            await estimateAndCall(token1.connect(user), "deposit", [], amountIn)
 
             const token1balance = await token1.connect(user).balanceOf(user.address);
             expect(token1balance).to.equal(amountIn.toString(), "token1 balance should be equal to value passed in")
 
-            const approval = await token1.connect(user).approve(router.address, amountIn, {gasLimit, gasPrice});
-            await approval.wait();
+            await estimateAndCall(token1.connect(user), "approve", [router.address, amountIn])
 
             const allowance = await token1.allowance(user.address, router.address);
             // Change to expect
@@ -151,7 +149,7 @@ describe("Uniswap Test", function () {
                     sqrtPriceLimitX96: 0
                 }, {gasLimit, gasPrice})).to.be.reverted;
             } else {
-                const tx = await router.connect(user).exactInputSingle({
+                await estimateAndCall(router.connect(user), "exactInputSingle", [{
                     tokenIn: token1.address,
                     tokenOut: token2.address,
                     fee,
@@ -160,12 +158,10 @@ describe("Uniswap Test", function () {
                     amountIn,
                     amountOutMinimum: amountOutMin,
                     sqrtPriceLimitX96: 0
-                }, {gasLimit, gasPrice});
-
-                await tx.wait();
+                }])
 
                 // Check User's MockToken Balance
-                const balance = BigInt(await token2.balanceOf(user.address));
+                const balance = await token2.balanceOf(user.address);
                 // Check that it's more than 0 (no specified amount since there might be slippage)
                 expect(Number(balance)).to.greaterThan(0, "Token2 should have been swapped successfully.")
             }
@@ -181,22 +177,17 @@ describe("Uniswap Test", function () {
             const fee = 3000; // Fee tier (0.3%)
 
             // Perform a Swap
-            const amountIn = hre.ethers.utils.parseEther("1");
+            const amountIn = hre.ethers.utils.parseEther("0.1");
             const amountOutMin = hre.ethers.utils.parseEther("0"); // Minimum amount of MockToken expected
 
-            let gasPrice = await deployer.getGasPrice();
-            let gasLimit = token1.estimateGas.deposit({ value: amountIn });
-            const deposit = await token1.deposit({ value: amountIn, gasPrice, gasLimit });
-            await deposit.wait();
+            await estimateAndCall(token1, "deposit", [], amountIn)
 
             const token1balance = await token1.balanceOf(deployer.address);
 
             // Check that deployer has amountIn amount of token1
             expect(Number(token1balance)).to.greaterThanOrEqual(Number(amountIn), "token1 balance should be received by user")
 
-            gasLimit = token1.estimateGas.approve(router.address, amountIn);
-            const approval = await token1.approve(router.address, amountIn, {gasPrice, gasLimit});
-            await approval.wait();
+            await estimateAndCall(token1, "approve", [router.address, amountIn])
             const allowance = await token1.allowance(deployer.address, router.address);
 
             // Check that deployer has approved amountIn amount of token1 to be used by router
@@ -212,15 +203,12 @@ describe("Uniswap Test", function () {
                 amountOutMinimum: amountOutMin,
                 sqrtPriceLimitX96: 0
             }
-            gasLimit = router.estimateGas.exactInputSingle(txParams);
 
             if (expectSwapFail) {
-                expect(router.exactInputSingle(txParams, {gasPrice, gasLimit})).to.be.reverted;
+                expect(router.exactInputSingle(txParams)).to.be.reverted;
             } else {
                 // Perform the swap, with recipient being the unassociated account.
-                const tx = await router.exactInputSingle(txParams, {gasPrice, gasLimit});
-
-                await tx.wait();
+                await estimateAndCall(router, "exactInputSingle", [txParams])
 
                 // Check User's MockToken Balance
                 const balance = await pollBalance(token2, unassocUser.address, function(bal) {return bal === 0});
@@ -294,15 +282,12 @@ describe("Uniswap Test", function () {
             await sendFunds("2", unassocUser.address, deployer)
 
             const erc20TokenFactoryAmount = "100000"
-            let gasPrice = deployer.getGasPrice();
-            let gasLimit = erc20TokenFactory.estimateGas.transfer(unassocUser.address, erc20TokenFactoryAmount);
-            const tx = await erc20TokenFactory.transfer(unassocUser.address, erc20TokenFactoryAmount, {gasPrice, gasLimit});
-            await tx.wait();
+
+            await estimateAndCall(erc20TokenFactory, "transfer", [unassocUser.address, erc20TokenFactoryAmount])
             const mockTokenAmount = "100000"
 
-            gasLimit = token.estimateGas.transfer(unassocUser.address, mockTokenAmount);
-            const tx2 = await token.transfer(unassocUser.address, mockTokenAmount, {gasPrice, gasLimit});
-            await tx2.wait();
+            await estimateAndCall(token, "transfer", [unassocUser.address, mockTokenAmount])
+
             const managerConnected = manager.connect(unassocUser);
             const erc20TokenFactoryConnected = erc20TokenFactory.connect(unassocUser);
             const mockTokenConnected = token.connect(unassocUser);

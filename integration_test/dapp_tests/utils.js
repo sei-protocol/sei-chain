@@ -6,26 +6,10 @@ const path = require('path')
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
   const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
 
-  const gasPrice = await hre.ethers.provider.getGasPrice();
   const [token0, token1] = tokenOrder(firstTokenAddr, secondTokenAddr);
 
-  let gasLimit = await managerContract.estimateGas.createAndInitializePoolIfNecessary(
-      token0.address,
-      token1.address,
-      fee,
-      sqrtPriceX96,
-  );
-
-  gasLimit = gasLimit.mul(12).div(10)
+  await estimateAndCall(managerContract, "createAndInitializePoolIfNecessary", [token0.address, token1.address, fee, sqrtPriceX96])
   // token0 addr must be < token1 addr
-  const poolTx = await managerContract.createAndInitializePoolIfNecessary(
-      token0.address,
-      token1.address,
-      fee,
-      sqrtPriceX96,
-      {gasLimit, gasPrice}
-  );
-  await poolTx.wait();
   console.log("Pool created and initialized");
 }
 
@@ -34,45 +18,18 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
   // Define the amount of tokens to be approved and added as liquidity
   console.log("Supplying liquidity to pool")
   const [token0, token1] = tokenOrder(firstTokenContract.address, secondTokenContract.address, firstTokenAmt, secondTokenAmt);
-  const gasPrice = await hre.ethers.provider.getGasPrice();
-
-  let gasLimit = await firstTokenContract.estimateGas.approve(managerContract.address, firstTokenAmt);
-  gasLimit = gasLimit.mul(12).div(10)
 
   // Approve the NonfungiblePositionManager to spend the specified amount of firstToken
-  const approveFirstTokenTx = await firstTokenContract.approve(managerContract.address, firstTokenAmt, {gasLimit, gasPrice});
-  await approveFirstTokenTx.wait();
+  await estimateAndCall(firstTokenContract, "approve", [managerContract.address, firstTokenAmt]);
   let allowance = await firstTokenContract.allowance(recipientAddr, managerContract.address);
   let balance = await firstTokenContract.balanceOf(recipientAddr);
 
-  gasLimit = await secondTokenContract.estimateGas.approve(managerContract.address, secondTokenAmt);
-  gasLimit = gasLimit.mul(12).div(10)
 
   // Approve the NonfungiblePositionManager to spend the specified amount of secondToken
-  const approveSecondTokenTx = await secondTokenContract.approve(managerContract.address, secondTokenAmt, {gasLimit, gasPrice});
-  await approveSecondTokenTx.wait();
-
-  allowance = await secondTokenContract.allowance(recipientAddr, managerContract.address);
-  balance = await secondTokenContract.balanceOf(recipientAddr);
-
-  gasLimit = await managerContract.estimateGas.mint({
-    token0: token0.address,
-    token1: token1.address,
-    fee: 3000, // Fee tier (0.3%)
-    tickLower: -887220,
-    tickUpper: 887220,
-    amount0Desired: token0.amount,
-    amount1Desired: token1.amount,
-    amount0Min: 0,
-    amount1Min: 0,
-    recipient: recipientAddr,
-    deadline: Math.floor(Date.now() / 1000) + 60 * 10, // 10 minutes from now
-  })
-
-  gasLimit = gasLimit.mul(12).div(10)
+  await estimateAndCall(secondTokenContract, "approve", [managerContract.address, secondTokenAmt])
 
   // Add liquidity to the pool
-  const liquidityTx = await managerContract.mint({
+  await estimateAndCall(managerContract, "mint", [{
     token0: token0.address,
     token1: token1.address,
     fee: 3000, // Fee tier (0.3%)
@@ -84,9 +41,8 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
     amount1Min: 0,
     recipient: recipientAddr,
     deadline: Math.floor(Date.now() / 1000) + 60 * 10, // 10 minutes from now
-  }, {gasLimit, gasPrice});
+  }]);
 
-  await liquidityTx.wait();
   console.log("Liquidity added");
 }
 

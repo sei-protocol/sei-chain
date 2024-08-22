@@ -11,12 +11,15 @@ const testChain = process.env.DAPP_TEST_ENV;
 console.log("testChain", testChain);
 describe("NFT Marketplace", function () {
 
-    let marketplace, deployer, erc721token, erc721PointerToken, cw721Address;
+    let marketplace, deployer, erc721token, erc721PointerToken, cw721Address, originalSeidConfig;
 
     before(async function () {
         const accounts = hre.config.networks[testChain].accounts
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
         deployer = deployerWallet.connect(hre.ethers.provider);
+
+        const seidConfig = await execute('seid config');
+        originalSeidConfig = JSON.parse(seidConfig);
 
         if (testChain === 'seilocal') {
             await fundAddress(deployer.address, amount="2000000000000000000000");
@@ -163,5 +166,13 @@ describe("NFT Marketplace", function () {
 
             await testNFTMarketplaceOrder(buyer, seller, erc721PointerToken, '2', true);
         });
+    })
+
+    after(async function () {
+        // Set the chain back to regular state
+        console.log("Resetting")
+        await execute(`seid config chain-id ${originalSeidConfig["chain-id"]}`)
+        await execute(`seid config node ${originalSeidConfig["node"]}`)
+        await execute(`seid config keyring-backend ${originalSeidConfig["keyring-backend"]}`)
     })
 })
