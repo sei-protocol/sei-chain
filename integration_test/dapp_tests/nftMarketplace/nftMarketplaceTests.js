@@ -11,15 +11,12 @@ const testChain = process.env.DAPP_TEST_ENV;
 console.log("testChain", testChain);
 describe("NFT Marketplace", function () {
 
-    let marketplace, deployer, erc721token, erc721PointerToken, erc721CwAddress, cw721Address, gasPrice;
+    let marketplace, deployer, erc721token, erc721PointerToken, cw721Address;
 
     before(async function () {
         const accounts = hre.config.networks[testChain].accounts
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
         deployer = deployerWallet.connect(hre.ethers.provider);
-
-        await sendFunds('0.01', deployer.address, deployer)
-        await setupAccountWithMnemonic("dapptest", accounts.mnemonic, deployer);
 
         if (testChain === 'seilocal') {
             await fundAddress(deployer.address, amount="2000000000000000000000");
@@ -29,8 +26,8 @@ describe("NFT Marketplace", function () {
             await execute(`seid config node ${rpcUrls[testChain]}`)
         }
 
-        const bal = await deployer.getBalance();
-        gasPrice = await deployer.getGasPrice();
+        await sendFunds('0.01', deployer.address, deployer)
+        await setupAccountWithMnemonic("dapptest", accounts.mnemonic, deployer);
 
         // Deploy MockNFT
         const erc721ContractArtifact = await hre.artifacts.readArtifact("MockERC721");
