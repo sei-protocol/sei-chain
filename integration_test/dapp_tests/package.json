@@ -8,7 +8,6 @@
   "dependencies": {
     "@nomiclabs/hardhat-ethers": "^2.2.3",
     "@nomiclabs/hardhat-waffle": "^2.0.6",
-    "@opensea/seaport-js": "^4.0.4",
     "@openzeppelin/contracts": "^5.0.2",
     "@openzeppelin/test-helpers": "^0.5.16",
     "@uniswap/v2-periphery": "^1.1.0-beta.0",

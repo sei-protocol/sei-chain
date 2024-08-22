@@ -1,6 +1,6 @@
 const {v4: uuidv4} = require("uuid");
 const hre = require("hardhat");
-const { ABI, deployErc20PointerForCw20, getSeiAddress, deployWasm, execute, delay, isDocker } = require("../../contracts/test/lib.js");
+const { ABI, deployErc20PointerForCw20, deployErc721PointerForCw721, getSeiAddress, deployWasm, execute, delay, isDocker } = require("../../contracts/test/lib.js");
 const path = require('path')
 
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
@@ -122,6 +122,19 @@ async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
   return {"pointerContract": pointerContract, "cw20Address": cw20Address}
 }
 
+async function deployCw721WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
+  const CW721_BASE_PATH = (await isDocker()) ? '../integration_test/dapp_tests/nftMarketplace/cw721_base.wasm' : path.resolve(__dirname, '../dapp_tests/nftMarketplace/cw721_base.wasm')
+  const cw721Address = await deployWasm(CW721_BASE_PATH, deployerSeiAddr, "cw721", {
+    "name": `testCw721${time}`,
+    "symbol": "TESTNFT",
+    "minter": deployerSeiAddr,
+    "withdraw_address": deployerSeiAddr,
+  }, deployerSeiAddr);
+  const pointerAddr = await deployErc721PointerForCw721(hre.ethers.provider, cw721Address, deployerSeiAddr, evmRpc);
+  const pointerContract = new hre.ethers.Contract(pointerAddr, ABI.ERC721, signer);
+  return {"pointerContract": pointerContract, "cw721Address": cw721Address}
+}
+
 async function deployEthersContract(name, abi, bytecode, deployer, deployParams=[]) {
   const contract = new hre.ethers.ContractFactory(abi, bytecode, deployer);
   const deployTx = contract.getDeployTransaction(...deployParams);
@@ -141,6 +154,12 @@ async function doesTokenFactoryDenomExist(denom) {
 }
 
 async function sendFunds(amountSei, recipient, signer) {
+
+  const bal = await signer.getBalance();
+  if (bal.lt(hre.ethers.utils.parseEther(amountSei))) {
+    throw new Error(`Signer has insufficient balance. Want ${hre.ethers.utils.parseEther(amountSei)}, has ${bal}`);
+  }
+
   const gasLimit = await signer.estimateGas({
     to: recipient,
     value: hre.ethers.utils.parseEther(amountSei)
@@ -159,12 +178,49 @@ async function sendFunds(amountSei, recipient, signer) {
   await fundUser.wait();
 }
 
-async function estimateAndCall(contract, method, args=[]) {
-  const gasLimit = await contract.estimateGas[method](...args);
+async function estimateAndCall(contract, method, args=[], value=0) {
+  let gasLimit;
+  try {
+    if (value) {
+      gasLimit = await contract.estimateGas[method](...args, {value: value});
+    } else {
+      gasLimit = await contract.estimateGas[method](...args);
+    }
+  } catch (error) {
+    if (error.data) {
+      console.error("Transaction revert reason:", hre.ethers.utils.toUtf8String(error.data));
+    } else {
+      console.error("Error fulfilling order:", error);
+    }
+  }
   const gasPrice = await contract.signer.getGasPrice();
-  const output = await contract[method](...args, {gasPrice, gasLimit})
+  let output;
+  if (value) {
+    output = await contract[method](...args, {gasPrice, gasLimit, value})
+  } else {
+    output = await contract[method](...args, {gasPrice, gasLimit})
+  }
   await output.wait();
+  return output;
 }
+
+const mintCw721 = async (contractAddress, address, id) => {
+  const msg = {
+    mint: {
+      token_id: `${id}`,
+      owner: `${address}`,
+      token_uri:""
+    },
+  };
+  const jsonString = JSON.stringify(msg).replace(/"/g, '\\"');
+  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
+  const output = await execute(command);
+  const response = JSON.parse(output);
+  if (response.code !== 0) {
+    throw new Error(response.raw_log);
+  }
+  return response;
+};
 
 async function pollBalance(erc20Contract, address, criteria, maxAttempts=3) {
   let bal = 0;
@@ -369,8 +425,10 @@ module.exports = {
   deployTokenPool,
   supplyLiquidity,
   deployCw20WithPointer,
+  deployCw721WithPointer,
   deployEthersContract,
   doesTokenFactoryDenomExist,
   pollBalance,
-  sendFunds
+  sendFunds,
+  mintCw721
 };
