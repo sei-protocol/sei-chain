@@ -37,7 +37,12 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		return
 	}
 	wasmEvents := GetEventsOfType(response, wasmtypes.WasmModuleEventType)
+	if len(wasmEvents) == 0 {
+		return
+	}
 	logs := []*ethtypes.Log{}
+	wasmGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx)
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmGasLimit))
 	for _, wasmEvent := range wasmEvents {
 		contractAddr, found := GetAttributeValue(wasmEvent, wasmtypes.AttributeKeyContractAddr)
 		if !found {
@@ -107,6 +112,12 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 }
 
 func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string) (*ethtypes.Log, bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("[Error] Panic caught during translateCW20Event: type=%T, value=%+v\n", r, r)
+		}
+	}()
+
 	action, found := GetAttributeValue(wasmEvent, "action")
 	if !found {
 		return nil, false
