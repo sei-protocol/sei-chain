@@ -20,15 +20,6 @@ func (keeper Keeper) SubmitProposalWithExpedite(ctx sdk.Context, content types.C
 		return types.Proposal{}, sdkerrors.Wrap(types.ErrNoProposalHandlerExists, content.ProposalRoute())
 	}
 
-	// Execute the proposal content in a new context branch (with branched store)
-	// to validate the actual parameter changes before the proposal proceeds
-	// through the governance process. State is not persisted.
-	cacheCtx, _ := ctx.CacheContext()
-	handler := keeper.router.GetRoute(content.ProposalRoute())
-	if err := handler(cacheCtx, content); err != nil {
-		return types.Proposal{}, sdkerrors.Wrap(types.ErrInvalidProposalContent, err.Error())
-	}
-
 	proposalID, err := keeper.GetProposalID(ctx)
 	if err != nil {
 		return types.Proposal{}, err
