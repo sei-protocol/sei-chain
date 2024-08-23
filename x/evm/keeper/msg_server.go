@@ -161,6 +161,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	}()
 
 	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)
+	serverRes = &types.MsgEVMTransactionResponse{
+		Hash: tx.Hash().Hex(),
+	}
 	if applyErr != nil {
 		// This should not happen, as anything that could cause applyErr is supposed to
 		// be checked in CheckTx first
@@ -176,13 +179,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 		return
 	}
-
-	serverRes = &types.MsgEVMTransactionResponse{
-		Hash:       tx.Hash().Hex(),
-		GasUsed:    res.UsedGas,
-		ReturnData: res.ReturnData,
-		Logs:       types.NewLogsFromEth(stateDB.GetAllLogs()),
-	}
+	serverRes.GasUsed = res.UsedGas
+	serverRes.ReturnData = res.ReturnData
+	serverRes.Logs = types.NewLogsFromEth(stateDB.GetAllLogs())
 
 	// if applyErr is nil then res must be non-nil
 	if res.Err != nil {
