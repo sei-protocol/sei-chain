@@ -93,7 +93,7 @@ func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
 }
 
 func (s *DBImpl) Snapshot() int {
-	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore())
+	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
 	s.tempStatesHist = append(s.tempStatesHist, s.tempStateCurrent)

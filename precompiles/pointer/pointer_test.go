@@ -52,7 +52,7 @@ func TestAddNative(t *testing.T) {
 			Aliases:  []string{"DENOM"},
 		}},
 	})
-	statedb = state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
+	statedb = state.NewDBImpl(ctx, &testApp.EvmKeeper, false)
 	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
 	ret, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false)
 	require.Nil(t, err)
@@ -64,6 +64,8 @@ func TestAddNative(t *testing.T) {
 	require.Equal(t, addr, pointerAddr)
 	require.Equal(t, native.CurrentVersion, version)
 	require.True(t, exists)
+	_, err = statedb.Finalize()
+	require.Nil(t, err)
 	hasRegisteredEvent := false
 	for _, e := range ctx.EventManager().Events() {
 		if e.Type != types.EventTypePointerRegistered {
