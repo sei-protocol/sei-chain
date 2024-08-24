@@ -87,7 +87,7 @@ func TestEvmEventsForCw20(t *testing.T) {
 	wasmAddr := common.HexToAddress(wasmd.WasmdAddress)
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
-		GasPrice: big.NewInt(1000000000),
+		GasPrice: big.NewInt(100000000000),
 		Gas:      1000000,
 		To:       &wasmAddr,
 		Data:     data,
@@ -110,10 +110,12 @@ func TestEvmEventsForCw20(t *testing.T) {
 	tx = txBuilder.GetTx()
 	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
 	require.Nil(t, err)
+	sum = sha256.Sum256(txbz)
 	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()).WithTxIndex(1), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
 	require.Equal(t, uint32(0), res.Code)
 	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, signedTx.Hash())
 	require.Nil(t, err)
+	fmt.Println(receipt.Logs)
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
@@ -202,7 +204,7 @@ func TestEvmEventsForCw721(t *testing.T) {
 	wasmAddr := common.HexToAddress(wasmd.WasmdAddress)
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
-		GasPrice: big.NewInt(1000000000),
+		GasPrice: big.NewInt(333000000000),
 		Gas:      1000000,
 		To:       &wasmAddr,
 		Data:     data,
@@ -225,6 +227,7 @@ func TestEvmEventsForCw721(t *testing.T) {
 	tx = txBuilder.GetTx()
 	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
 	require.Nil(t, err)
+	sum = sha256.Sum256(txbz)
 	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()).WithTxIndex(1), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
 	require.Equal(t, uint32(0), res.Code)
 	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, signedTx.Hash())

@@ -81,6 +81,13 @@ func (s *DBImpl) SetEVM(evm *vm.EVM) {}
 // to the database.
 func (s *DBImpl) AddPreimage(_ common.Hash, _ []byte) {}
 
+func (s *DBImpl) Cleanup() {
+	s.tempStateCurrent = nil
+	s.tempStatesHist = []*TemporaryState{}
+	s.logger = nil
+	s.snapshottedCtxs = nil
+}
+
 func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	if s.simulation {
 		panic("should never call finalize on a simulation DB")
@@ -105,6 +112,11 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
 		s.flushCtx(s.snapshottedCtxs[i])
 	}
+	// write all events in order
+	for i := 1; i < len(s.snapshottedCtxs); i++ {
+		s.flushEvents(s.snapshottedCtxs[i])
+	}
+	s.flushEvents(s.ctx)
 
 	surplus = s.tempStateCurrent.surplus
 	for _, ts := range s.tempStatesHist {
@@ -117,6 +129,10 @@ func (s *DBImpl) flushCtx(ctx sdk.Context) {
 	ctx.MultiStore().(sdk.CacheMultiStore).Write()
 }
 
+func (s *DBImpl) flushEvents(ctx sdk.Context) {
+	s.snapshottedCtxs[0].EventManager().EmitEvents(ctx.EventManager().Events())
+}
+
 // Backward-compatibility functions
 func (s *DBImpl) Error() error {
 	return s.Err()
@@ -127,7 +143,7 @@ func (s *DBImpl) GetStorageRoot(common.Address) common.Hash {
 }
 
 func (s *DBImpl) Copy() vm.StateDB {
-	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore())
+	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	return &DBImpl{
 		ctx:                newCtx,
 		snapshottedCtxs:    append(s.snapshottedCtxs, s.ctx),
@@ -199,6 +215,7 @@ type TemporaryState struct {
 	transientStates       map[string]map[string]common.Hash
 	transientAccounts     map[string][]byte
 	transientModuleStates map[string][]byte
+	transientAccessLists  *accessList
 	surplus               sdk.Int // in wei
 }
 
@@ -208,6 +225,7 @@ func NewTemporaryState() *TemporaryState {
 		transientStates:       make(map[string]map[string]common.Hash),
 		transientAccounts:     make(map[string][]byte),
 		transientModuleStates: make(map[string][]byte),
+		transientAccessLists:  &accessList{Addresses: make(map[common.Address]int), Slots: []map[common.Hash]struct{}{}},
 		surplus:               utils.Sdk0,
 	}
 }

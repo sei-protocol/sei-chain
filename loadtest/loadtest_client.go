@@ -265,7 +265,7 @@ func (c *LoadTestClient) SendTxs(
 				fmt.Printf("Failed to acquire semaphore: %v", err)
 				break
 			}
-			if tx.TxBytes != nil && len(tx.TxBytes) > 0 {
+			if len(tx.TxBytes) > 0 {
 				// Send Cosmos Transactions
 				if SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c) {
 					atomic.AddInt64(producedCountPerMsgType[tx.MsgType], 1)
