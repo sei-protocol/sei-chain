@@ -45,10 +45,11 @@ func TestAssociatePubKey(t *testing.T) {
 	happyPathOutput, _ := associatePubKey.Outputs.Pack(targetSeiAddress.String(), targetEvmAddress)
 
 	type args struct {
-		evm    *vm.EVM
-		caller common.Address
-		pubKey string
-		value  *big.Int
+		evm      *vm.EVM
+		caller   common.Address
+		pubKey   string
+		value    *big.Int
+		readOnly bool
 	}
 	tests := []struct {
 		name       string
@@ -71,6 +72,21 @@ func TestAssociatePubKey(t *testing.T) {
 			},
 			wantErr:    true,
 			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "fails on static call",
+			args: args{
+				evm: &vm.EVM{
+					StateDB:   state.NewDBImpl(ctx, k, true),
+					TxContext: vm.TxContext{Origin: callerEvmAddress},
+				},
+				caller:   callerEvmAddress,
+				pubKey:   targetPubKeyHex,
+				value:    big.NewInt(10),
+				readOnly: true,
+			},
+			wantErr:    true,
+			wantErrMsg: "cannot call associate pub key precompile from staticcall",
 		},
 		{
 			name: "fails if input is appended with 0x",
@@ -125,7 +141,7 @@ func TestAssociatePubKey(t *testing.T) {
 			require.Nil(t, err)
 
 			// Make the call to associate.
-			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID, inputs...), tt.args.value, false)
+			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID, inputs...), tt.args.value, tt.args.readOnly)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v %v", err, tt.wantErr, string(ret))
 				return
@@ -184,13 +200,14 @@ func TestAssociate(t *testing.T) {
 	happyPathOutput, _ := associate.Outputs.Pack(targetSeiAddress.String(), targetEvmAddress)
 
 	type args struct {
-		evm    *vm.EVM
-		caller common.Address
-		v      string
-		r      string
-		s      string
-		msg    string
-		value  *big.Int
+		evm      *vm.EVM
+		caller   common.Address
+		v        string
+		r        string
+		s        string
+		msg      string
+		value    *big.Int
+		readOnly bool
 	}
 	tests := []struct {
 		name       string
@@ -216,6 +233,24 @@ func TestAssociate(t *testing.T) {
 			},
 			wantErr:    true,
 			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name: "fails on static calls",
+			args: args{
+				evm: &vm.EVM{
+					StateDB:   state.NewDBImpl(ctx, k, true),
+					TxContext: vm.TxContext{Origin: callerEvmAddress},
+				},
+				caller:   callerEvmAddress,
+				v:        v,
+				r:        r,
+				s:        s,
+				msg:      prefixedMessage,
+				value:    big.NewInt(10),
+				readOnly: true,
+			},
+			wantErr:    true,
+			wantErrMsg: "cannot call associate precompile from staticcall",
 		},
 		{
 			name: "fails if input is not hex",
@@ -296,7 +331,7 @@ func TestAssociate(t *testing.T) {
 			require.Nil(t, err)
 
 			// Make the call to associate.
-			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateID, inputs...), tt.args.value, false)
+			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateID, inputs...), tt.args.value, tt.args.readOnly)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v %v", err, tt.wantErr, string(ret))
 				return
