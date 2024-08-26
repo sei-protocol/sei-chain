@@ -179,9 +179,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 		return
 	}
-	serverRes.GasUsed = res.UsedGas
-	serverRes.ReturnData = res.ReturnData
-	serverRes.Logs = types.NewLogsFromEth(stateDB.GetAllLogs())
 
 	// if applyErr is nil then res must be non-nil
 	if res.Err != nil {
@@ -195,6 +192,10 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			},
 		)
 	}
+
+	serverRes.GasUsed = res.UsedGas
+	serverRes.ReturnData = res.ReturnData
+	serverRes.Logs = types.NewLogsFromEth(stateDB.GetAllLogs())
 
 	return
 }
