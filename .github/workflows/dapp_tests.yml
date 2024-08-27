@@ -10,13 +10,22 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: devnet
-    needs: run-tests-testnet
+    env:
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     steps:
       - uses: actions/checkout@v3
 
+      - name: Install seid
+        run: |
+          # Install seid using go install
+          make install
+          
+          # Add the Go bin directory to the PATH
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
       - name: Run Dapp Tests Script on Devnet
         run: |
-          chmod +x ./integration_test/dapp_tests/dapp_tests.sh
           ./integration_test/dapp_tests/dapp_tests.sh devnet
 
   run-tests-testnet:
@@ -24,10 +33,20 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testnet
+    env:
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     steps:
       - uses: actions/checkout@v3
 
+      - name: Install seid
+        run: |
+          # Install seid using go install
+          make install
+          
+          # Add the Go bin directory to the PATH
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
       - name: Run Dapp Tests Script on Testnet
         run: |
-          chmod +x ./integration_test/dapp_tests/dapp_tests.sh
           ./integration_test/dapp_tests/dapp_tests.sh testnet

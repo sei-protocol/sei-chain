@@ -133,6 +133,7 @@ func TestSnapshot(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+	eventCount := len(ctx.EventManager().Events())
 	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)
 	key := common.BytesToHash([]byte("abc"))
@@ -141,6 +142,7 @@ func TestSnapshot(t *testing.T) {
 	tval := common.BytesToHash([]byte("mno"))
 	statedb.SetState(evmAddr, key, val)
 	statedb.SetTransientState(evmAddr, tkey, tval)
+	statedb.Ctx().EventManager().EmitEvent(sdk.Event{})
 
 	rev := statedb.Snapshot()
 
@@ -148,6 +150,7 @@ func TestSnapshot(t *testing.T) {
 	newTVal := common.BytesToHash([]byte("y"))
 	statedb.SetState(evmAddr, key, newVal)
 	statedb.SetTransientState(evmAddr, tkey, newTVal)
+	statedb.Ctx().EventManager().EmitEvent(sdk.Event{})
 
 	statedb.RevertToSnapshot(rev)
 
@@ -165,4 +168,5 @@ func TestSnapshot(t *testing.T) {
 	// prev state DB committed except for transient states
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, val, newStateDB.GetState(evmAddr, key))
+	require.Equal(t, eventCount+1, len(ctx.EventManager().Events()))
 }

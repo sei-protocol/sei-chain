@@ -19,5 +19,6 @@ npx hardhat compile
 
 # Set the CONFIG environment variable
 export DAPP_TEST_ENV=$1
+
 npx hardhat test --network $1 uniswap/uniswapTest.js
 npx hardhat test --network $1 steak/SteakTests.js
