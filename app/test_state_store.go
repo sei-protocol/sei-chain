@@ -266,10 +266,6 @@ func (s *InMemoryStateStore) Prune(version int64) error {
 	return nil
 }
 
-func (db *InMemoryStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
-	panic("implement me")
-}
-
 func (s *InMemoryStateStore) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
