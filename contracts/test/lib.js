@@ -444,6 +444,7 @@ function execCommand(command) {
                 reject(new Error(stderr));
                 return;
             }
+            console.log(`Stdout: ${stdout}`);
             resolve(stdout);
         });
     })
