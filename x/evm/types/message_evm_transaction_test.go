@@ -35,7 +35,8 @@ func TestIsNotAssociate(t *testing.T) {
 }
 
 func TestAsTransaction(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
