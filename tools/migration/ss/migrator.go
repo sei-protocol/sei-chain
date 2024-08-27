@@ -84,7 +84,7 @@ func (m *Migrator) Verify(version int64) error {
 			return err
 		}
 		var count int
-		tree.Iterate(func(key []byte, value []byte) bool {
+		_, err = tree.Iterate(func(key []byte, value []byte) bool {
 			// Run Get() against PebbleDB and verify values match
 			val, err := m.stateStore.Get(module, version, key)
 			if err != nil {
@@ -104,6 +104,10 @@ func (m *Migrator) Verify(version int64) error {
 			}
 			return false
 		})
+		if err != nil {
+			fmt.Printf("Failed to iterate the tree %s: %s\n", module, err.Error())
+			return err
+		}
 		fmt.Printf("Finished verifying module %s, total scanned: %d keys\n", module, count)
 	}
 	return verifyErr
