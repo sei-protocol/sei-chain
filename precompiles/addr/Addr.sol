@@ -14,7 +14,12 @@ interface IAddr {
         string memory r,
         string memory s,
         string memory customMessage
-    ) external returns (string seiAddr, address evmAddr);
+    ) external returns (string memory seiAddr, address evmAddr);
+
+	// Takes a compressed pubkey in hex format, excluding the '0x'
+    function associatePubKey(
+        string memory pubKeyHex
+    ) external returns (string memory seiAddr, address evmAddr);
 
     // Queries
     function getSeiAddr(address addr) external view returns (string memory response);
