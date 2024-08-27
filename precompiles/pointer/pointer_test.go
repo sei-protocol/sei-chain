@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
@@ -18,7 +17,7 @@ import (
 )
 
 func TestAddNative(t *testing.T) {
-	testApp := app.Setup(false, false)
+	testApp := testkeeper.EVMTestApp
 	p, err := pointer.NewPrecompile(&testApp.EvmKeeper, testApp.BankKeeper, testApp.WasmKeeper)
 	require.Nil(t, err)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
