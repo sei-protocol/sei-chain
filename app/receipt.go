@@ -42,16 +42,16 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	}
 	logs := []*ethtypes.Log{}
 	wasmGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx)
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmGasLimit))
+	queryCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmGasLimit))
 	for _, wasmEvent := range wasmEvents {
 		contractAddr, found := GetAttributeValue(wasmEvent, wasmtypes.AttributeKeyContractAddr)
 		if !found {
 			continue
 		}
 		// check if there is a ERC20 pointer to contractAddr
-		pointerAddr, _, exists := app.EvmKeeper.GetERC20CW20Pointer(ctx, contractAddr)
+		pointerAddr, _, exists := app.EvmKeeper.GetERC20CW20Pointer(queryCtx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW20Event(ctx, wasmEvent, pointerAddr, contractAddr)
+			log, eligible := app.translateCW20Event(queryCtx, wasmEvent, pointerAddr, contractAddr)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
@@ -59,9 +59,9 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			continue
 		}
 		// check if there is a ERC721 pointer to contract Addr
-		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(ctx, contractAddr)
+		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(queryCtx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW721Event(ctx, wasmEvent, pointerAddr, contractAddr)
+			log, eligible := app.translateCW721Event(queryCtx, wasmEvent, pointerAddr, contractAddr)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
