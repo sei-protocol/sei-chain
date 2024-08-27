@@ -27,7 +27,6 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -108,7 +107,7 @@ func (m *Migrator) Migrate(version int64) error {
 		return err
 	}
 	fmt.Printf("Start restoring SC store for height: %d\n", version)
-	next, err := m.storeV2.Restore(uint64(version), types.CurrentFormat, streamReader)
+	next, _ := m.storeV2.Restore(uint64(version), types.CurrentFormat, streamReader)
 	for {
 		if next.Item == nil {
 			// end of stream
@@ -151,7 +150,7 @@ func (m *Migrator) createSnapshot(height uint64, chunks chan<- io.ReadCloser) er
 			},
 		},
 	})
-	fmt.Printf("Finished writting extension metadata for height: %d\n", height)
+	fmt.Printf("Finished writing extension metadata for height: %d\n", height)
 	if err != nil {
 		streamWriter.CloseWithError(err)
 		return err
@@ -167,8 +166,8 @@ func (m *Migrator) createSnapshot(height uint64, chunks chan<- io.ReadCloser) er
 
 func CreateWasmSnapshotter(cms sdk.MultiStore, homeDir string) *keeper.WasmSnapshotter {
 	var (
-		keyParams  = sdk.NewKVStoreKey(paramtypes.StoreKey)
-		tkeyParams = sdk.NewTransientStoreKey(paramtypes.TStoreKey)
+		keyParams  = sdk.NewKVStoreKey(paramstypes.StoreKey)
+		tkeyParams = sdk.NewTransientStoreKey(paramstypes.TStoreKey)
 	)
 	encodingConfig := params.MakeEncodingConfig()
 	pk := paramskeeper.NewKeeper(encodingConfig.Marshaler, encodingConfig.Amino, keyParams, tkeyParams)

@@ -6,10 +6,9 @@ import (
 
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/config"
+	"github.com/sei-protocol/sei-db/ss"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/tendermint/tendermint/libs/log"
-
-	"github.com/sei-protocol/sei-db/ss"
 	dbm "github.com/tendermint/tm-db"
 )
 
