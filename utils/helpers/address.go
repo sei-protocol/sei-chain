@@ -19,6 +19,10 @@ func GetAddresses(V *big.Int, R *big.Int, S *big.Int, data common.Hash) (common.
 		return common.Address{}, sdk.AccAddress{}, nil, err
 	}
 
+	return GetAddressesFromPubkeyBytes(pubkey)
+}
+
+func GetAddressesFromPubkeyBytes(pubkey []byte) (common.Address, sdk.AccAddress, cryptotypes.PubKey, error) {
 	evmAddr, err := PubkeyToEVMAddress(pubkey)
 	if err != nil {
 		return common.Address{}, sdk.AccAddress{}, nil, err
