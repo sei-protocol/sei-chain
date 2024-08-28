@@ -427,7 +427,6 @@ async function execute(command, interaction=`printf "12345678\\n"`){
         command = command.replace("/sei-protocol/sei-chain//sei-protocol/sei-chain/", "/sei-protocol/sei-chain/")
         command = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
     }
-    console.log(`Executing command ${command}`)
     return await execCommand(command);
 }
 
@@ -435,16 +434,13 @@ function execCommand(command) {
     return new Promise((resolve, reject) => {
         exec(command, (error, stdout, stderr) => {
             if (error) {
-                console.log(`Got error: ${error}`)
                 reject(error);
                 return;
             }
             if (stderr) {
-                console.log(`Got stderr: ${stderr}`)
                 reject(new Error(stderr));
                 return;
             }
-            console.log(`Stdout: ${stdout}`);
             resolve(stdout);
         });
     })
