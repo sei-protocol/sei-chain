@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -16,7 +17,8 @@ import (
 )
 
 func TestQueryPointer(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	seiAddr1, evmAddr1 := testkeeper.MockAddressPair()
 	seiAddr2, evmAddr2 := testkeeper.MockAddressPair()
 	seiAddr3, evmAddr3 := testkeeper.MockAddressPair()

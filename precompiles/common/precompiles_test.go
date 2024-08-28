@@ -39,7 +39,8 @@ func TestValidteNonPayable(t *testing.T) {
 
 func TestHandlePrecompileError(t *testing.T) {
 	_, evmAddr := testkeeper.MockAddressPair()
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	stateDB := state.NewDBImpl(ctx, k, false)
 	evm := &vm.EVM{StateDB: stateDB}
 
@@ -66,7 +67,8 @@ func (e *MockPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, ca
 }
 
 func TestPrecompileRun(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	abiBz, err := os.ReadFile("erc20_abi.json")
 	require.Nil(t, err)
 	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
@@ -106,7 +108,8 @@ func (e *MockDynamicGasPrecompileExecutor) EVMKeeper() common.EVMKeeper {
 }
 
 func TestDynamicGasPrecompileRun(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	abiBz, err := os.ReadFile("erc20_abi.json")
 	require.Nil(t, err)
 	newAbi, err := abi.JSON(bytes.NewReader(abiBz))

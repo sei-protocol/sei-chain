@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -12,7 +13,8 @@ import (
 )
 
 func TestAddAddressToAccessList(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	statedb := state.NewDBImpl(ctx, k, false)
 
 	_, addr := testkeeper.MockAddressPair()
@@ -28,7 +30,8 @@ func TestAddAddressToAccessList(t *testing.T) {
 }
 
 func TestAddSlotToAccessList(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	statedb := state.NewDBImpl(ctx, k, false)
 
 	_, addr := testkeeper.MockAddressPair()
@@ -45,7 +48,8 @@ func TestAddSlotToAccessList(t *testing.T) {
 }
 
 func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	statedb := state.NewDBImpl(ctx, k, false)
 
 	_, addr := testkeeper.MockAddressPair()
@@ -55,7 +59,8 @@ func TestAddSlotToAccessListWithNonExistentAddress(t *testing.T) {
 }
 
 func TestPrepare(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	statedb := state.NewDBImpl(ctx, k, false)
 
 	_, sender := testkeeper.MockAddressPair()

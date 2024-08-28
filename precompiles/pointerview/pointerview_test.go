@@ -2,6 +2,7 @@ package pointerview_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/precompiles/pointerview"
@@ -13,7 +14,8 @@ import (
 )
 
 func TestPointerView(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	p, err := pointerview.NewPrecompile(k)
 	require.Nil(t, err)
 	_, pointer := testkeeper.MockAddressPair()

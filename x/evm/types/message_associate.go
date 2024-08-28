@@ -40,6 +40,9 @@ func (msg *MsgAssociate) ValidateBasic() error {
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
+	if len(msg.CustomMessage) > MaxAssociateCustomMessageLength {
+		return sdkerrors.Wrapf(sdkerrors.ErrTxTooLarge, "custom message can have at most 64 characters")
+	}
 
 	return nil
 }
