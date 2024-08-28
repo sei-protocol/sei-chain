@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"math/big"
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -18,7 +19,8 @@ import (
 )
 
 func TestEVMSigVerifyDecorator(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	handler := ante.NewEVMSigVerifyDecorator(k, func() sdk.Context { return ctx })
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
@@ -99,7 +101,8 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 }
 
 func TestSigVerifyPendingTransaction(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	ctx = ctx.WithIsCheckTx(true)
 	handler := ante.NewEVMSigVerifyDecorator(k, func() sdk.Context { return ctx })
 	privKey := testkeeper.MockPrivateKey()

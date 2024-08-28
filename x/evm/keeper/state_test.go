@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -9,7 +10,8 @@ import (
 )
 
 func TestState(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	_, addr := testkeeper.MockAddressPair()
 
 	initialState := k.GetState(ctx, addr, common.HexToHash("0xabc"))

@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -29,27 +30,26 @@ import (
 )
 
 func TestModuleName(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
+	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
 	assert.Equal(t, "evm", module.Name())
 }
 
 func TestModuleRoute(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
+	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
 	assert.Equal(t, "evm", module.Route().Path())
 	assert.Equal(t, false, module.Route().Empty())
 }
 
 func TestQuerierRoute(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
+	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
 	assert.Equal(t, "evm", module.QuerierRoute())
 }
 
 func TestModuleExportGenesis(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	k, ctx := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
 	jsonMsg := module.ExportGenesis(ctx, types.ModuleCdc)
 	jsonStr := string(jsonMsg)
@@ -57,14 +57,13 @@ func TestModuleExportGenesis(t *testing.T) {
 }
 
 func TestConsensusVersion(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
+	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
 	assert.Equal(t, uint64(11), module.ConsensusVersion())
 }
 
 func TestABCI(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	k, ctx := testkeeper.MockEVMKeeper()
 	_, evmAddr1 := testkeeper.MockAddressPair()
 	_, evmAddr2 := testkeeper.MockAddressPair()
 	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
@@ -155,7 +154,7 @@ func TestABCI(t *testing.T) {
 }
 
 func TestAnteSurplus(t *testing.T) {
-	a := testkeeper.EVMTestApp
+	a := app.Setup(false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 	m := evm.NewAppModule(nil, &k)
@@ -173,7 +172,7 @@ func TestAnteSurplus(t *testing.T) {
 
 // This test is just to make sure that the routes can be added without crashing
 func TestRoutesAddition(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
+	k, _ := testkeeper.MockEVMKeeper()
 	appModule := evm.NewAppModule(nil, k)
 	mux := runtime.NewServeMux()
 	appModule.RegisterGRPCGatewayRoutes(client.Context{}, mux)
@@ -182,8 +181,7 @@ func TestRoutesAddition(t *testing.T) {
 }
 
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	k, ctx := testkeeper.MockEVMKeeper()
 	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
