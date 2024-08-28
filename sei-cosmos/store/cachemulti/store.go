@@ -232,7 +232,7 @@ func (cms Store) CacheMultiStoreForExport(_ int64) (types.CacheMultiStore, error
 	panic("Not implemented")
 }
 
-func (cms Store) AddCloser(closer io.Closer) {
+func (cms *Store) AddCloser(closer io.Closer) {
 	cms.closers = append(cms.closers, closer)
 }
 
