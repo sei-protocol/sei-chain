@@ -37,6 +37,7 @@ type contextKey int
 const (
 	// private type creates an interface key for Context that cannot be accessed by any other package
 	contextKeyQueryStackSize contextKey = iota
+	contextKeyCallDepth      contextKey = iota
 )
 
 // Option is an extension point to instantiate keeper with non default values
@@ -87,6 +88,7 @@ type Keeper struct {
 	paramSpace        paramtypes.Subspace
 	gasRegister       GasRegister
 	maxQueryStackSize uint32
+	maxCallDepth      uint32
 }
 
 // NewKeeper creates a new contract Keeper instance
@@ -134,11 +136,16 @@ func NewKeeper(
 		paramSpace:        paramSpace,
 		gasRegister:       NewDefaultWasmGasRegister(),
 		maxQueryStackSize: types.DefaultMaxQueryStackSize,
+		maxCallDepth:      types.DefaultMaxCallDepth,
 	}
 	keeper.wasmVMQueryHandler = DefaultQueryPlugins(bankKeeper, stakingKeeper, distKeeper, channelKeeper, queryRouter, keeper)
 	for _, o := range opts {
 		o.apply(keeper)
 	}
+
+	// always wrap the messenger, even if it was replaced by an option
+	keeper.messenger = callDepthMessageHandler{keeper.messenger, keeper.maxCallDepth}
+
 	// not updateable, yet
 	keeper.wasmVMResponseHandler = NewDefaultWasmVMContractResponseHandler(NewMessageDispatcher(keeper.messenger, keeper))
 	return *keeper
@@ -677,6 +684,29 @@ func checkAndIncreaseQueryStackSize(ctx sdk.Context, maxQueryStackSize uint32) (
 	// set updated stack size
 	ctx = ctx.WithContext(context.WithValue(ctx.Context(), contextKeyQueryStackSize, queryStackSize))
 
+	return ctx, nil
+}
+
+func checkAndIncreaseCallDepth(ctx sdk.Context, maxCallDepth uint32) (sdk.Context, error) {
+	var callDepth uint32
+
+	if size := ctx.Context().Value(contextKeyQueryStackSize); size != nil {
+		callDepth = size.(uint32)
+	} else {
+		callDepth = 0
+	}
+
+	// increase
+	callDepth++
+
+	// did we go too far?
+	if callDepth > maxCallDepth {
+		return sdk.Context{}, types.ErrExceedMaxCallDepth
+	}
+
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), contextKeyCallDepth, callDepth))
+
+	// set updated stack size
 	return ctx, nil
 }
 

@@ -123,3 +123,9 @@ func WithMaxQueryStackSize(m uint32) Option {
 		k.maxQueryStackSize = m
 	})
 }
+
+func WithMaxCallDepth(m uint32) Option {
+	return optsFn(func(k *Keeper) {
+		k.maxCallDepth = m
+	})
+}
