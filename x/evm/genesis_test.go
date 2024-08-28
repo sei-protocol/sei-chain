@@ -13,7 +13,8 @@ import (
 )
 
 func TestExportImportGenesis(t *testing.T) {
-	keeper, origctx := testkeeper.MockEVMKeeper()
+	keeper := &testkeeper.EVMTestApp.EvmKeeper
+	origctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	ctx := origctx.WithMultiStore(origctx.MultiStore().CacheMultiStore())
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	keeper.SetAddressMapping(ctx, seiAddr, evmAddr)

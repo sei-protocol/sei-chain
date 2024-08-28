@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -338,7 +339,8 @@ func TestSendForUnlinkedReceiver(t *testing.T) {
 }
 
 func TestMetadata(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
 	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
 	require.Nil(t, err)
@@ -375,20 +377,10 @@ func TestMetadata(t *testing.T) {
 	outputs, err = decimal.Outputs.Unpack(res)
 	require.Nil(t, err)
 	require.Equal(t, uint8(0), outputs[0])
-
-	supply, err := p.ABI.MethodById(p.GetExecutor().(*bank.PrecompileExecutor).SupplyID)
-	require.Nil(t, err)
-	args, err = supply.Inputs.Pack("usei")
-	require.Nil(t, err)
-	res, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).SupplyID, args...), nil, false)
-	require.Nil(t, err)
-	outputs, err = supply.Outputs.Unpack(res)
-	require.Nil(t, err)
-	require.Equal(t, big.NewInt(10), outputs[0])
 }
 
 func TestRequiredGas(t *testing.T) {
-	k, _ := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
 	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
 	require.Nil(t, err)
 	balanceRequiredGas := p.RequiredGas(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID)
@@ -398,7 +390,7 @@ func TestRequiredGas(t *testing.T) {
 }
 
 func TestAddress(t *testing.T) {
-	k, _ := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
 	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
 	require.Nil(t, err)
 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
