@@ -115,7 +115,7 @@ type callDepthMessageHandler struct {
 func (h callDepthMessageHandler) DispatchMsg(ctx sdk.Context, contractAddr sdk.AccAddress, contractIBCPortID string, msg wasmvmtypes.CosmosMsg, info wasmvmtypes.MessageInfo, codeInfo types.CodeInfo) (events []sdk.Event, data [][]byte, err error) {
 	ctx, err = checkAndIncreaseCallDepth(ctx, h.MaxCallDepth)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, sdkerrors.Wrap(err, "dispatch")
 	}
 
 	return h.Messenger.DispatchMsg(ctx, contractAddr, contractIBCPortID, msg, info, codeInfo)

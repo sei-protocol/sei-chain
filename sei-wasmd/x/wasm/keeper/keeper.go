@@ -454,7 +454,7 @@ func (k Keeper) migrate(ctx sdk.Context, contractAddress sdk.AccAddress, caller 
 
 	data, err := k.handleContractResponse(ctx, contractAddress, contractInfo.IBCPortID, res.Messages, res.Attributes, res.Data, res.Events, wasmvmtypes.MessageInfo{}, *newCodeInfo)
 	if err != nil {
-		return nil, sdkerrors.Wrap(err, "dispatch")
+		return nil, err
 	}
 
 	return data, nil
@@ -690,7 +690,7 @@ func checkAndIncreaseQueryStackSize(ctx sdk.Context, maxQueryStackSize uint32) (
 func checkAndIncreaseCallDepth(ctx sdk.Context, maxCallDepth uint32) (sdk.Context, error) {
 	var callDepth uint32
 
-	if size := ctx.Context().Value(contextKeyQueryStackSize); size != nil {
+	if size := ctx.Context().Value(contextKeyCallDepth); size != nil {
 		callDepth = size.(uint32)
 	} else {
 		callDepth = 0
@@ -1162,7 +1162,7 @@ func (h DefaultWasmVMContractResponseHandler) Handle(ctx sdk.Context, contractAd
 	result := origRspData
 	switch rsp, err := h.md.DispatchSubmessages(ctx, contractAddr, ibcPort, messages, info, codeInfo); {
 	case err != nil:
-		return nil, sdkerrors.Wrap(err, "submessages")
+		return nil, err
 	case rsp != nil:
 		result = rsp
 	}
