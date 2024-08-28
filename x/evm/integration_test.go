@@ -288,6 +288,11 @@ func TestNonceIncrementsForInsufficientFunds(t *testing.T) {
 	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(5), res.Code)                 // insufficient funds has error code 5
 	require.Equal(t, uint64(1), k.GetNonce(ctx, evmAddr)) // make sure nonce is incremented regardless
+
+	// ensure that old txs cannot be used by malicious party to bump nonces
+	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
+	require.Equal(t, uint32(32), res.Code)                // wrong nonce has error code 32
+	require.Equal(t, uint64(1), k.GetNonce(ctx, evmAddr)) // nonce should not be incremented this time because the tx is an old one
 }
 
 func TestInvalidAssociateMsg(t *testing.T) {
