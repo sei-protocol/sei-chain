@@ -125,6 +125,8 @@ func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, e
 			if !evmAssociateIsGasless(m, ctx, evmKeeper) {
 				return false, nil
 			}
+			// ddos prevention
+			return len(tx.GetMsgs()) == 1, nil
 		default:
 			return false, nil
 		}

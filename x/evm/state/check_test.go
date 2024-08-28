@@ -3,6 +3,7 @@ package state_test
 import (
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/core/tracing"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -12,7 +13,8 @@ import (
 
 func TestExist(t *testing.T) {
 	// not exist
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 	require.False(t, statedb.Exist(addr))
@@ -35,7 +37,8 @@ func TestExist(t *testing.T) {
 
 func TestEmpty(t *testing.T) {
 	// empty
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	_, addr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 	require.True(t, statedb.Empty(addr))

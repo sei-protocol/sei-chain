@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -13,7 +14,8 @@ import (
 )
 
 func TestRunWithOneOffEVMInstance(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	errLog := ""
 	errRunner := func(*vm.EVM) error { return errors.New("test") }
 	errLogger := func(a string, b string) { errLog = a + " " + b }
@@ -27,7 +29,8 @@ func TestRunWithOneOffEVMInstance(t *testing.T) {
 }
 
 func TestUpsertERCNativePointer(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	var addr common.Address
 	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
 		a, _, err := k.UpsertERCNativePointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
@@ -65,7 +68,8 @@ func TestUpsertERCNativePointer(t *testing.T) {
 }
 
 func TestUpsertERC20Pointer(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	var addr common.Address
 	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
 		a, _, err := k.UpsertERCCW20Pointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
@@ -90,7 +94,8 @@ func TestUpsertERC20Pointer(t *testing.T) {
 }
 
 func TestUpsertERC721Pointer(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	var addr common.Address
 	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
 		a, _, err := k.UpsertERCCW721Pointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
