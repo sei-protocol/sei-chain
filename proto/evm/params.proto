@@ -32,6 +32,7 @@ string minimum_fee_per_gas = 4 [
   (gogoproto.nullable)   = false,
   (gogoproto.jsontag) = "minimum_fee_per_gas"
 ];
+uint64 deliver_tx_hook_wasm_gas_limit = 5;
   // ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
 //   string chain_id = 6 [
 //   (gogoproto.moretags)   = "yaml:\"chain_id\"",
