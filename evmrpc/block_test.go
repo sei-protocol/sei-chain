@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"math/big"
 	"testing"
+	"time"
 
 	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 
@@ -150,7 +151,8 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 }
 
 func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	block := &coretypes.ResultBlock{
 		BlockID: MockBlockID,
 		Block: &tmtypes.Block{
@@ -180,7 +182,8 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 }
 
 func TestEncodeBankMsg(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	fromSeiAddr, _ := testkeeper.MockAddressPair()
 	toSeiAddr, _ := testkeeper.MockAddressPair()
 	b := TxConfig.NewTxBuilder()
@@ -224,7 +227,8 @@ func TestEncodeBankMsg(t *testing.T) {
 }
 
 func TestEncodeWasmExecuteMsg(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	fromSeiAddr, fromEvmAddr := testkeeper.MockAddressPair()
 	toSeiAddr, _ := testkeeper.MockAddressPair()
 	b := TxConfig.NewTxBuilder()

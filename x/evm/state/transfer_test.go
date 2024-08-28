@@ -3,6 +3,7 @@ package state_test
 import (
 	"math/big"
 	"testing"
+	"time"
 
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -10,7 +11,8 @@ import (
 )
 
 func TestEventlessTransfer(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	db := state.NewDBImpl(ctx, k, false)
 	_, fromAddr := testkeeper.MockAddressPair()
 	_, toAddr := testkeeper.MockAddressPair()

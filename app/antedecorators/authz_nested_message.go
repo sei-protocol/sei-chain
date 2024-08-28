@@ -8,6 +8,9 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+// maxNestedMsgs defines a cap for the number of nested messages on a MsgExec message
+const maxNestedMsgs = 5
+
 type AuthzNestedMessageDecorator struct{}
 
 func NewAuthzNestedMessageDecorator() AuthzNestedMessageDecorator {
@@ -19,7 +22,7 @@ func (ad AuthzNestedMessageDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 		switch m := msg.(type) {
 		case *authz.MsgExec:
 			// find nested evm messages
-			containsEvm, err := ad.CheckAuthzContainsEvm(ctx, m)
+			containsEvm, err := ad.CheckAuthzContainsEvm(ctx, m, 0)
 			if err != nil {
 				return ctx, err
 			}
@@ -34,7 +37,10 @@ func (ad AuthzNestedMessageDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, sim
 	return next(ctx, tx, simulate)
 }
 
-func (ad AuthzNestedMessageDecorator) CheckAuthzContainsEvm(ctx sdk.Context, authzMsg *authz.MsgExec) (bool, error) {
+func (ad AuthzNestedMessageDecorator) CheckAuthzContainsEvm(ctx sdk.Context, authzMsg *authz.MsgExec, nestedLvl int) (bool, error) {
+	if nestedLvl >= maxNestedMsgs {
+		return false, errors.New("permission denied, more nested msgs than permitted")
+	}
 	msgs, err := authzMsg.GetMessages()
 	if err != nil {
 		return false, err
@@ -46,12 +52,10 @@ func (ad AuthzNestedMessageDecorator) CheckAuthzContainsEvm(ctx sdk.Context, aut
 			return true, nil
 		case *authz.MsgExec:
 			// find nested to check for evm
-			valid, err := ad.CheckAuthzContainsEvm(ctx, m)
-
+			valid, err := ad.CheckAuthzContainsEvm(ctx, m, nestedLvl+1)
 			if err != nil {
 				return false, err
 			}
-
 			if valid {
 				return true, nil
 			}

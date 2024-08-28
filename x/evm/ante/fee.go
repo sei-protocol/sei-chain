@@ -76,7 +76,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		// we don't want to run nonce check here for CheckTx because we have special
 		// logic for pending nonce during CheckTx in sig.go
 		if err := st.StatelessChecks(); err != nil {
-			return ctx, err
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrWrongSequence, err.Error())
 		}
 	}
 	if err := st.BuyGas(); err != nil {
