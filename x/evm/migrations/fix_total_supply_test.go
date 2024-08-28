@@ -2,6 +2,7 @@ package migrations_test
 
 import (
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -10,7 +11,8 @@ import (
 )
 
 func TestFixTotalSupply(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	addr, _ := testkeeper.MockAddressPair()
 	balance := sdk.NewCoins(sdk.NewCoin(sdk.MustGetBaseDenom(), sdk.OneInt()))
 	k.BankKeeper().MintCoins(ctx, "evm", balance)
