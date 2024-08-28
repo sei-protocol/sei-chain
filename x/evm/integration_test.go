@@ -76,7 +76,7 @@ func TestERC2981PointerToCW2981(t *testing.T) {
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(100000000000),
-		Gas:      50000,
+		Gas:      500,
 		To:       &to,
 		Data:     data,
 	}
@@ -109,7 +109,7 @@ func TestERC2981PointerToCW2981(t *testing.T) {
 	txData = ethtypes.LegacyTx{
 		Nonce:    1,
 		GasPrice: big.NewInt(100000000000),
-		Gas:      10000,
+		Gas:      100,
 		To:       &pointerAddr,
 		Data:     data,
 	}
@@ -159,7 +159,7 @@ func TestCW2981PointerToERC2981(t *testing.T) {
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(100000000000),
-		Gas:      50000,
+		Gas:      5000,
 		To:       nil,
 		Data:     append(bz, data...),
 	}
@@ -194,7 +194,7 @@ func TestCW2981PointerToERC2981(t *testing.T) {
 	txData = ethtypes.LegacyTx{
 		Nonce:    1,
 		GasPrice: big.NewInt(100000000000),
-		Gas:      10000,
+		Gas:      1000,
 		To:       &to,
 		Data:     data,
 	}
@@ -258,7 +258,7 @@ func TestNonceIncrementsForInsufficientFunds(t *testing.T) {
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(100000000000),
-		Gas:      50000,
+		Gas:      5000,
 		To:       nil,
 		Data:     []byte{},
 	}
