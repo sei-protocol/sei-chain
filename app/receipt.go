@@ -171,64 +171,68 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 	var topics []common.Hash
 	switch action {
 	case "transfer_nft", "send_nft", "burn":
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
 		topics = []common.Hash{
 			ERC721TransferTopic,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient"),
-		}
-		tokenID := GetTokenIDAttribute(wasmEvent)
-		if tokenID == nil {
-			return nil, false
+			common.BigToHash(tokenID),
 		}
 		return &ethtypes.Log{
 			Address: pointerAddr,
 			Topics:  topics,
-			Data:    common.BigToHash(tokenID).Bytes(),
+			Data:    EmptyHash.Bytes(),
 		}, true
 	case "mint":
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
 		topics = []common.Hash{
 			ERC721TransferTopic,
 			EmptyHash,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "owner"),
-		}
-		tokenID := GetTokenIDAttribute(wasmEvent)
-		if tokenID == nil {
-			return nil, false
+			common.BigToHash(tokenID),
 		}
 		return &ethtypes.Log{
 			Address: pointerAddr,
 			Topics:  topics,
-			Data:    common.BigToHash(tokenID).Bytes(),
+			Data:    EmptyHash.Bytes(),
 		}, true
 	case "approve":
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
 		topics = []common.Hash{
 			ERC721ApprovalTopic,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "spender"),
-		}
-		tokenID := GetTokenIDAttribute(wasmEvent)
-		if tokenID == nil {
-			return nil, false
+			common.BigToHash(tokenID),
 		}
 		return &ethtypes.Log{
 			Address: pointerAddr,
 			Topics:  topics,
-			Data:    common.BigToHash(tokenID).Bytes(),
+			Data:    EmptyHash.Bytes(),
 		}, true
 	case "revoke":
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
 		topics = []common.Hash{
 			ERC721ApprovalTopic,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
 			EmptyHash,
-		}
-		tokenID := GetTokenIDAttribute(wasmEvent)
-		if tokenID == nil {
-			return nil, false
+			common.BigToHash(tokenID),
 		}
 		return &ethtypes.Log{
 			Address: pointerAddr,
 			Topics:  topics,
-			Data:    common.BigToHash(tokenID).Bytes(),
+			Data:    EmptyHash.Bytes(),
 		}, true
 	case "approve_all":
 		topics = []common.Hash{
