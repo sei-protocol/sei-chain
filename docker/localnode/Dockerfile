@@ -1,6 +1,6 @@
 FROM ubuntu:latest
 ENV HOME="/root" PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
-RUN apt-get update && apt-get install -y make build-essential git jq python3 curl vim
+RUN apt-get update && apt-get install -y make build-essential git jq python3 curl vim uuid-runtime
 RUN curl -L https://go.dev/dl/go1.22.4.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
 RUN curl -L https://foundry.paradigm.xyz | bash
 RUN curl -sL https://deb.nodesource.com/setup_16.x | bash
