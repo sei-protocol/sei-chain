@@ -1,7 +1,6 @@
 package migrations_test
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -21,7 +20,7 @@ func TestMigrateERCNativePointers(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	var pointerAddr common.Address
 	require.Nil(t, k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, _, err := k.UpsertERCNativePointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{Name: "name", Symbol: "symbol", Decimals: 6})
+		a, err := k.UpsertERCNativePointer(ctx, e, "test", utils.ERCMetadata{Name: "name", Symbol: "symbol", Decimals: 6})
 		pointerAddr = a
 		return err
 	}, func(s1, s2 string) {}))
@@ -36,7 +35,7 @@ func TestMigrateERCCW20Pointers(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	var pointerAddr common.Address
 	require.Nil(t, k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, _, err := k.UpsertERCCW20Pointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{Name: "name", Symbol: "symbol"})
+		a, err := k.UpsertERCCW20Pointer(ctx, e, "test", utils.ERCMetadata{Name: "name", Symbol: "symbol"})
 		pointerAddr = a
 		return err
 	}, func(s1, s2 string) {}))
@@ -51,7 +50,7 @@ func TestMigrateERCCW721Pointers(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	var pointerAddr common.Address
 	require.Nil(t, k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, _, err := k.UpsertERCCW721Pointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{Name: "name", Symbol: "symbol"})
+		a, err := k.UpsertERCCW721Pointer(ctx, e, "test", utils.ERCMetadata{Name: "name", Symbol: "symbol"})
 		pointerAddr = a
 		return err
 	}, func(s1, s2 string) {}))

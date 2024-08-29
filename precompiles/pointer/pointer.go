@@ -73,11 +73,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, call
 
 	switch method.Name {
 	case AddNativePointer:
-		return p.AddNative(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddNative(ctx, method, caller, args, value, evm)
 	case AddCW20Pointer:
-		return p.AddCW20(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW20(ctx, method, caller, args, value, evm)
 	case AddCW721Pointer:
-		return p.AddCW721(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW721(ctx, method, caller, args, value, evm)
 	default:
 		err = fmt.Errorf("unknown method %s", method.Name)
 	}
@@ -88,7 +88,7 @@ func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
 	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -113,15 +113,16 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 			}
 		}
 	}
-	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCNativePointer(ctx, evm, suppliedGas, token, utils.ERCMetadata{Name: name, Symbol: symbol, Decimals: decimals})
+	contractAddr, err := p.evmKeeper.UpsertERCNativePointer(ctx, evm, token, utils.ERCMetadata{Name: name, Symbol: symbol, Decimals: decimals})
 	if err != nil {
 		return nil, 0, err
 	}
 	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
-func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -143,15 +144,16 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	}
 	name := formattedRes["name"].(string)
 	symbol := formattedRes["symbol"].(string)
-	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCCW20Pointer(ctx, evm, suppliedGas, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
+	contractAddr, err := p.evmKeeper.UpsertERCCW20Pointer(ctx, evm, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
 	if err != nil {
 		return nil, 0, err
 	}
 	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
-func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -173,10 +175,11 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	}
 	name := formattedRes["name"].(string)
 	symbol := formattedRes["symbol"].(string)
-	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCCW721Pointer(ctx, evm, suppliedGas, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
+	contractAddr, err := p.evmKeeper.UpsertERCCW721Pointer(ctx, evm, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
 	if err != nil {
 		return nil, 0, err
 	}
 	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
