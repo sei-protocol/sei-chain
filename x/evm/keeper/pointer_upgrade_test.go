@@ -2,10 +2,10 @@ package keeper_test
 
 import (
 	"errors"
-	"math"
 	"testing"
 	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -31,9 +31,10 @@ func TestRunWithOneOffEVMInstance(t *testing.T) {
 func TestUpsertERCNativePointer(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	var addr common.Address
 	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, _, err := k.UpsertERCNativePointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
+		a, err := k.UpsertERCNativePointer(ctx, e, "test", utils.ERCMetadata{
 			Name:     "test",
 			Symbol:   "test",
 			Decimals: 6,
@@ -44,7 +45,7 @@ func TestUpsertERCNativePointer(t *testing.T) {
 	require.Nil(t, err)
 	var newAddr common.Address
 	err = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, _, err := k.UpsertERCNativePointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
+		a, err := k.UpsertERCNativePointer(ctx, e, "test", utils.ERCMetadata{
 			Name:     "test2",
 			Symbol:   "test2",
 			Decimals: 12,
@@ -70,9 +71,10 @@ func TestUpsertERCNativePointer(t *testing.T) {
 func TestUpsertERC20Pointer(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	var addr common.Address
 	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, _, err := k.UpsertERCCW20Pointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
+		a, err := k.UpsertERCCW20Pointer(ctx, e, "test", utils.ERCMetadata{
 			Name:   "test",
 			Symbol: "test",
 		})
@@ -82,7 +84,7 @@ func TestUpsertERC20Pointer(t *testing.T) {
 	require.Nil(t, err)
 	var newAddr common.Address
 	err = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, _, err := k.UpsertERCCW20Pointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
+		a, err := k.UpsertERCCW20Pointer(ctx, e, "test", utils.ERCMetadata{
 			Name:   "test2",
 			Symbol: "test2",
 		})
@@ -96,9 +98,10 @@ func TestUpsertERC20Pointer(t *testing.T) {
 func TestUpsertERC721Pointer(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	var addr common.Address
 	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, _, err := k.UpsertERCCW721Pointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
+		a, err := k.UpsertERCCW721Pointer(ctx, e, "test", utils.ERCMetadata{
 			Name:   "test",
 			Symbol: "test",
 		})
@@ -108,7 +111,7 @@ func TestUpsertERC721Pointer(t *testing.T) {
 	require.Nil(t, err)
 	var newAddr common.Address
 	err = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, _, err := k.UpsertERCCW721Pointer(ctx, e, math.MaxUint64, "test", utils.ERCMetadata{
+		a, err := k.UpsertERCCW721Pointer(ctx, e, "test", utils.ERCMetadata{
 			Name:   "test2",
 			Symbol: "test2",
 		})

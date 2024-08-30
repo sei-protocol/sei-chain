@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -21,6 +22,7 @@ func TestAddNative(t *testing.T) {
 	p, err := pointer.NewPrecompile(&testApp.EvmKeeper, testApp.BankKeeper, testApp.WasmKeeper)
 	require.Nil(t, err)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	_, caller := testkeeper.MockAddressPair()
 	suppliedGas := uint64(10000000)
 	cfg := types.DefaultChainConfig().EthereumConfig(testApp.EvmKeeper.ChainID(ctx))
@@ -55,7 +57,7 @@ func TestAddNative(t *testing.T) {
 	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
 	ret, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false)
 	require.Nil(t, err)
-	require.Equal(t, uint64(8907806), g)
+	require.Equal(t, uint64(8888494), g)
 	outputs, err := m.Outputs.Unpack(ret)
 	require.Nil(t, err)
 	addr := outputs[0].(common.Address)

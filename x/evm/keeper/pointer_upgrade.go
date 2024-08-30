@@ -44,38 +44,38 @@ func (k *Keeper) RunWithOneOffEVMInstance(
 }
 
 func (k *Keeper) UpsertERCNativePointer(
-	ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, token string, metadata utils.ERCMetadata,
-) (contractAddr common.Address, remainingGas uint64, err error) {
+	ctx sdk.Context, evm *vm.EVM, token string, metadata utils.ERCMetadata,
+) (contractAddr common.Address, err error) {
 	return k.UpsertERCPointer(
-		ctx, evm, suppliedGas, "native", []interface{}{
+		ctx, evm, "native", []interface{}{
 			token, metadata.Name, metadata.Symbol, metadata.Decimals,
 		}, k.GetERC20NativePointer, k.SetERC20NativePointer,
 	)
 }
 
 func (k *Keeper) UpsertERCCW20Pointer(
-	ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw20Addr string, metadata utils.ERCMetadata,
-) (contractAddr common.Address, remainingGas uint64, err error) {
+	ctx sdk.Context, evm *vm.EVM, cw20Addr string, metadata utils.ERCMetadata,
+) (contractAddr common.Address, err error) {
 	return k.UpsertERCPointer(
-		ctx, evm, suppliedGas, "cw20", []interface{}{
+		ctx, evm, "cw20", []interface{}{
 			cw20Addr, metadata.Name, metadata.Symbol,
 		}, k.GetERC20CW20Pointer, k.SetERC20CW20Pointer,
 	)
 }
 
 func (k *Keeper) UpsertERCCW721Pointer(
-	ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw721Addr string, metadata utils.ERCMetadata,
-) (contractAddr common.Address, remainingGas uint64, err error) {
+	ctx sdk.Context, evm *vm.EVM, cw721Addr string, metadata utils.ERCMetadata,
+) (contractAddr common.Address, err error) {
 	return k.UpsertERCPointer(
-		ctx, evm, suppliedGas, "cw721", []interface{}{
+		ctx, evm, "cw721", []interface{}{
 			cw721Addr, metadata.Name, metadata.Symbol,
 		}, k.GetERC721CW721Pointer, k.SetERC721CW721Pointer,
 	)
 }
 
 func (k *Keeper) UpsertERCPointer(
-	ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, typ string, args []interface{}, getter PointerGetter, setter PointerSetter,
-) (contractAddr common.Address, remainingGas uint64, err error) {
+	ctx sdk.Context, evm *vm.EVM, typ string, args []interface{}, getter PointerGetter, setter PointerSetter,
+) (contractAddr common.Address, err error) {
 	pointee := args[0].(string)
 	evmModuleAddress := k.GetEVMAddressOrDefault(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName))
 
@@ -86,6 +86,8 @@ func (k *Keeper) UpsertERCPointer(
 	}
 	bin = append(artifacts.GetBin(typ), bin...)
 	existingAddr, _, exists := getter(ctx, pointee)
+	suppliedGas := k.getEvmGasLimitFromCtx(ctx)
+	var remainingGas uint64
 	if exists {
 		var ret []byte
 		contractAddr = existingAddr
@@ -97,6 +99,7 @@ func (k *Keeper) UpsertERCPointer(
 	if err != nil {
 		return
 	}
+	ctx.GasMeter().ConsumeGas(k.GetCosmosGasLimitFromEVMGas(ctx, suppliedGas-remainingGas), "ERC pointer deployment")
 	if err = setter(ctx, pointee, contractAddr); err != nil {
 		return
 	}
