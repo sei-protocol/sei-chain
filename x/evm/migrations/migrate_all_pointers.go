@@ -3,7 +3,6 @@ package migrations
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -41,7 +40,7 @@ func MigrateERCNativePointers(ctx sdk.Context, k *keeper.Keeper) error {
 			continue
 		}
 		_ = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-			_, _, err := k.UpsertERCNativePointer(ctx, e, math.MaxUint64, token, utils.ERCMetadata{
+			_, err := k.UpsertERCNativePointer(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), e, token, utils.ERCMetadata{
 				Name:     oName.(string),
 				Symbol:   oSymbol.(string),
 				Decimals: oDecimals.(uint8),
@@ -76,7 +75,7 @@ func MigrateERCCW20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 			continue
 		}
 		_ = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-			_, _, err := k.UpsertERCCW20Pointer(ctx, e, math.MaxUint64, cwAddr, utils.ERCMetadata{
+			_, err := k.UpsertERCCW20Pointer(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), e, cwAddr, utils.ERCMetadata{
 				Name:   oName.(string),
 				Symbol: oSymbol.(string),
 			})
@@ -110,7 +109,7 @@ func MigrateERCCW721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 			continue
 		}
 		_ = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-			_, _, err := k.UpsertERCCW721Pointer(ctx, e, math.MaxUint64, cwAddr, utils.ERCMetadata{
+			_, err := k.UpsertERCCW721Pointer(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), e, cwAddr, utils.ERCMetadata{
 				Name:   oName.(string),
 				Symbol: oSymbol.(string),
 			})

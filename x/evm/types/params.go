@@ -10,9 +10,10 @@ import (
 )
 
 var (
-	KeyPriorityNormalizer = []byte("KeyPriorityNormalizer")
-	KeyBaseFeePerGas      = []byte("KeyBaseFeePerGas")
-	KeyMinFeePerGas       = []byte("KeyMinFeePerGas")
+	KeyPriorityNormalizer        = []byte("KeyPriorityNormalizer")
+	KeyBaseFeePerGas             = []byte("KeyBaseFeePerGas")
+	KeyMinFeePerGas              = []byte("KeyMinFeePerGas")
+	KeyDeliverTxHookWasmGasLimit = []byte("KeyDeliverTxHookWasmGasLimit")
 	// deprecated
 	KeyWhitelistedCwCodeHashesForDelegateCall = []byte("KeyWhitelistedCwCodeHashesForDelegateCall")
 )
@@ -24,6 +25,7 @@ var DefaultPriorityNormalizer = sdk.NewDec(1)
 // Ethereum).
 var DefaultBaseFeePerGas = sdk.NewDec(0)
 var DefaultMinFeePerGas = sdk.NewDec(100000000000)
+var DefaultDeliverTxHookWasmGasLimit = uint64(300000)
 
 var DefaultWhitelistedCwCodeHashesForDelegateCall = generateDefaultWhitelistedCwCodeHashesForDelegateCall()
 
@@ -38,6 +40,7 @@ func DefaultParams() Params {
 		PriorityNormalizer:                     DefaultPriorityNormalizer,
 		BaseFeePerGas:                          DefaultBaseFeePerGas,
 		MinimumFeePerGas:                       DefaultMinFeePerGas,
+		DeliverTxHookWasmGasLimit:              DefaultDeliverTxHookWasmGasLimit,
 		WhitelistedCwCodeHashesForDelegateCall: DefaultWhitelistedCwCodeHashesForDelegateCall,
 	}
 }
@@ -47,6 +50,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &p.PriorityNormalizer, validatePriorityNormalizer),
 		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &p.BaseFeePerGas, validateBaseFeePerGas),
 		paramtypes.NewParamSetPair(KeyMinFeePerGas, &p.MinimumFeePerGas, validateMinFeePerGas),
+		paramtypes.NewParamSetPair(KeyDeliverTxHookWasmGasLimit, &p.DeliverTxHookWasmGasLimit, validateDeliverTxHookWasmGasLimit),
 		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &p.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
 	}
 }
@@ -59,6 +63,9 @@ func (p Params) Validate() error {
 		return err
 	}
 	if err := validateMinFeePerGas(p.MinimumFeePerGas); err != nil {
+		return err
+	}
+	if err := validateDeliverTxHookWasmGasLimit(p.DeliverTxHookWasmGasLimit); err != nil {
 		return err
 	}
 	if p.MinimumFeePerGas.LT(p.BaseFeePerGas) {
@@ -108,6 +115,17 @@ func validateMinFeePerGas(i interface{}) error {
 		return fmt.Errorf("negative min fee per gas: %d", v)
 	}
 
+	return nil
+}
+
+func validateDeliverTxHookWasmGasLimit(i interface{}) error {
+	v, ok := i.(uint64)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	if v == 0 {
+		return fmt.Errorf("invalid deliver_tx_hook_wasm_gas_limit: must be greater than 0, got %d", v)
+	}
 	return nil
 }
 

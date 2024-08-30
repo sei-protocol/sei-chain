@@ -28,7 +28,8 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 
 	if msg.Derived != nil && !gl.k.EthReplayConfig.Enabled && !gl.k.EthBlockTestConfig.Enabled {
 		startingNonce := gl.k.GetNonce(ctx, msg.Derived.SenderEVMAddr)
-		if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
+		txNonce := etx.Nonce()
+		if !ctx.IsCheckTx() && !ctx.IsReCheckTx() && startingNonce == txNonce {
 			ctx = ctx.WithDeliverTxCallback(func(callCtx sdk.Context) {
 				// bump nonce if it is for some reason not incremented (e.g. ante failure)
 				if gl.k.GetNonce(callCtx, msg.Derived.SenderEVMAddr) == startingNonce {

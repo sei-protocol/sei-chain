@@ -37,6 +37,10 @@ func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 	return k.GetParams(ctx).MinimumFeePerGas
 }
 
+func (k *Keeper) GetDeliverTxHookWasmGasLimit(ctx sdk.Context) uint64 {
+	return k.GetParams(ctx).DeliverTxHookWasmGasLimit
+}
+
 func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 	if k.EthReplayConfig.Enabled || k.EthBlockTestConfig.Enabled {
 		// replay is for eth mainnet so always return 1
@@ -45,4 +49,22 @@ func (k *Keeper) ChainID(ctx sdk.Context) *big.Int {
 	// return mapped chain ID
 	return config.GetEVMChainID(ctx.ChainID())
 
+}
+
+/*
+*
+sei gas = evm gas * multiplier
+sei gas price = fee / sei gas = fee / (evm gas * multiplier) = evm gas / multiplier
+*/
+func (k *Keeper) GetEVMGasLimitFromCtx(ctx sdk.Context) uint64 {
+	return k.getEvmGasLimitFromCtx(ctx)
+}
+
+func (k *Keeper) GetCosmosGasLimitFromEVMGas(ctx sdk.Context, evmGas uint64) uint64 {
+	gasMultipler := k.GetPriorityNormalizer(ctx)
+	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(evmGas)).Mul(gasMultipler).TruncateInt().BigInt()
+	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
+		gasLimitBigInt = utils.BigMaxU64
+	}
+	return gasLimitBigInt.Uint64()
 }
