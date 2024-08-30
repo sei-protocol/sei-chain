@@ -210,7 +210,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 11, func(ctx sdk.Context) error {
-		return migrations.AddNewParamsAndSetAllToDefaults(ctx, am.keeper)
+		return migrations.MigrateDeliverTxHookWasmGasLimitParam(ctx, am.keeper)
 	})
 }
 
