@@ -54,7 +54,7 @@ type Option func(*rootOptions)
 
 // scaffoldingOptions keeps set of options to apply scaffolding.
 //
-//nolint:unused // preserving this becase don't know if it is needed.
+//nolint:unused // preserving this because don't know if it is needed.
 type rootOptions struct{}
 
 func (s *rootOptions) apply(options ...Option) { //nolint:unused // I figure this gets used later.
