@@ -288,7 +288,9 @@ func (k *Keeper) GetERC721Pointee(ctx sdk.Context, cw721Address string) (erc721A
 }
 
 func (k *Keeper) GetNativePointee(ctx sdk.Context, erc20Address string) (token string, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(erc20Address))))
+	// Ensure the key matches how it was set in SetERC20NativePointer
+	key := types.PointerReverseRegistryKey(common.HexToAddress(erc20Address))
+	addrBz, version, exists := k.GetPointerInfo(ctx, key)
 	if exists {
 		token = string(addrBz)
 	}
