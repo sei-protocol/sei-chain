@@ -5,6 +5,7 @@ import "google/protobuf/any.proto";
 import "gogoproto/gogo.proto";
 import "cosmos/base/v1beta1/coin.proto";
 import "evm/enums.proto";
+import "evm/receipt.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
@@ -26,6 +27,7 @@ message MsgEVMTransactionResponse {
   string vm_error = 2;
   bytes return_data = 3;
   string hash = 4;
+  repeated Log logs = 5;
 }
 
 message MsgInternalEVMCall {

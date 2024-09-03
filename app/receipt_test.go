@@ -115,7 +115,6 @@ func TestEvmEventsForCw20(t *testing.T) {
 	require.Equal(t, uint32(0), res.Code)
 	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, signedTx.Hash())
 	require.Nil(t, err)
-	fmt.Println(receipt.Logs)
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
@@ -261,9 +260,11 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	require.Equal(t, uint32(0), receipt.Logs[0].Index)
+	tokenIdHash := receipt.Logs[0].Topics[3]
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", tokenIdHash)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
-	require.Equal(t, common.HexToHash("0x2").Bytes(), receipt.Logs[0].Data)
+	require.Equal(t, common.HexToHash("0x0").Bytes(), receipt.Logs[0].Data)
 
 	// revoke
 	payload = []byte(fmt.Sprintf("{\"revoke\":{\"spender\":\"%s\",\"token_id\":\"2\"}}", recipient.String()))
@@ -289,7 +290,9 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
-	require.Equal(t, common.HexToHash("0x2").Bytes(), receipt.Logs[0].Data)
+	tokenIdHash = receipt.Logs[0].Topics[3]
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", tokenIdHash)
+	require.Equal(t, common.HexToHash("0x0").Bytes(), receipt.Logs[0].Data)
 
 	// approve all
 	payload = []byte(fmt.Sprintf("{\"approve_all\":{\"operator\":\"%s\"}}", recipient.String()))
@@ -367,7 +370,9 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
-	require.Equal(t, common.HexToHash("0x2").Bytes(), receipt.Logs[0].Data)
+	tokenIdHash = receipt.Logs[0].Topics[3]
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", tokenIdHash)
+	require.Equal(t, common.HexToHash("0x0").Bytes(), receipt.Logs[0].Data)
 }
 
 func signTx(txBuilder client.TxBuilder, privKey cryptotypes.PrivKey, acc authtypes.AccountI) sdk.Tx {
