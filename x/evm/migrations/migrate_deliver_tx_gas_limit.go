@@ -7,10 +7,10 @@ import (
 )
 
 func MigrateDeliverTxHookWasmGasLimitParam(ctx sdk.Context, k *keeper.Keeper) error {
-	// Fetch the current parameters
-	keeperParams := k.GetParams(ctx)
+	// Fetch the v11 parameters
+	keeperParams := k.GetParamsIfExists(ctx)
 
-	// Update DeliverTxHookWasmGasLimit to the default value
+	// Add DeliverTxHookWasmGasLimit to with default value
 	keeperParams.DeliverTxHookWasmGasLimit = types.DefaultParams().DeliverTxHookWasmGasLimit
 
 	// Set the updated parameters back in the keeper

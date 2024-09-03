@@ -21,6 +21,12 @@ func (k *Keeper) GetParams(ctx sdk.Context) types.Params {
 	return params
 }
 
+func (k *Keeper) GetParamsIfExists(ctx sdk.Context) types.Params {
+	params := types.Params{}
+	k.Paramstore.GetParamSetIfExists(ctx, &params)
+	return params
+}
+
 func (k *Keeper) GetBaseDenom(ctx sdk.Context) string {
 	return BaseDenom
 }
