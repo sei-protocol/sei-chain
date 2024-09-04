@@ -27,6 +27,10 @@ service Query {
     rpc PointerVersion(QueryPointerVersionRequest) returns (QueryPointerVersionResponse) {
         option (google.api.http).get = "/sei-protocol/seichain/evm/pointer_version";
     }
+
+    rpc Pointee(QueryPointeeRequest) returns (QueryPointeeResponse) {
+        option (google.api.http).get = "/sei-protocol/seichain/evm/pointee";
+    }
 }
 
 message QuerySeiAddressByEVMAddressRequest {
@@ -74,4 +78,15 @@ message QueryPointerVersionRequest {
 message QueryPointerVersionResponse {
     uint32 version = 1;
     uint64 cw_code_id = 2;
+}
+
+message QueryPointeeRequest {
+    PointerType pointer_type = 1;
+    string pointer = 2;
+}
+
+message QueryPointeeResponse {
+    string pointee = 1;
+    uint32 version = 2;
+    bool exists = 3;
 }
