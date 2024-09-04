@@ -3,6 +3,7 @@ package state_test
 import (
 	"math/big"
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -13,7 +14,8 @@ import (
 )
 
 func TestAddBalance(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	db := state.NewDBImpl(ctx, k, false)
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))
@@ -40,7 +42,8 @@ func TestAddBalance(t *testing.T) {
 }
 
 func TestSubBalance(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	db := state.NewDBImpl(ctx, k, false)
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	require.Equal(t, big.NewInt(0), db.GetBalance(evmAddr))
@@ -78,7 +81,8 @@ func TestSubBalance(t *testing.T) {
 }
 
 func TestSetBalance(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	db := state.NewDBImpl(ctx, k, true)
 	_, evmAddr := testkeeper.MockAddressPair()
 	db.SetBalance(evmAddr, big.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
@@ -91,7 +95,8 @@ func TestSetBalance(t *testing.T) {
 }
 
 func TestSurplus(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	_, evmAddr := testkeeper.MockAddressPair()
 
 	// test negative usei surplus negative wei surplus

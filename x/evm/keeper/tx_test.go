@@ -4,12 +4,13 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTxHashesOnHeight(t *testing.T) {
-	k, ctx := keepertest.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	require.Empty(t, k.GetTxHashesOnHeight(ctx, 1234))
 	hashes := []common.Hash{
 		common.HexToHash("0x0750333eac0be1203864220893d8080dd8a8fd7a2ed098dfd92a718c99d437f2"),
