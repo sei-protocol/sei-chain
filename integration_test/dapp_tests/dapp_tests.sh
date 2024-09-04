@@ -8,7 +8,12 @@ fi
 
 set -e
 
-# Build contacts repo first since we rely on that for lib.js
+# Define the paths to the test files
+uniswap_test="uniswap/uniswapTest.js"
+steak_test="steak/SteakTests.js"
+nft_test="nftMarketplace/nftMarketplaceTests.js"
+
+# Build contracts repo first since we rely on that for lib.js
 cd contracts
 npm ci
 
@@ -20,5 +25,29 @@ npx hardhat compile
 # Set the CONFIG environment variable
 export DAPP_TEST_ENV=$1
 
-npx hardhat test --network $1 uniswap/uniswapTest.js
-npx hardhat test --network $1 steak/SteakTests.js
+# Determine which tests to run
+if [ -z "$2" ]; then
+  tests=("$uniswap_test" "$steak_test" "$nft_test")
+else
+  case $2 in
+    uniswap)
+      tests=("$uniswap_test")
+      ;;
+    steak)
+      tests=("$steak_test")
+      ;;
+    nft)
+      tests=("$nft_test")
+      ;;
+    *)
+      echo "Invalid test specified. Please choose either 'uniswap', 'steak', or 'nft'."
+      exit 1
+      ;;
+  esac
+fi
+
+# Run the selected tests
+for test in "${tests[@]}"; do
+  npx hardhat test --network $1 $test
+done
+
