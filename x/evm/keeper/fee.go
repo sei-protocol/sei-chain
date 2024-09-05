@@ -12,8 +12,14 @@ const MaxBaseFeeChange = 0.125
 
 // eip-1559 adjustment
 func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) {
+	if ctx.ConsensusParams() == nil {
+		return
+	}
 	currentBaseFee := k.GetDynamicBaseFeePerGas(ctx).MustFloat64()
 	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas.MustFloat64()
+	// fmt.Println("ctx.ConsensusParams() = ", ctx.ConsensusParams())
+	// fmt.Println("ctx.ConsensusParams().Block = ", ctx.ConsensusParams().Block)
+	// fmt.Println("ctx.ConsensusParams().Block.MaxGas = ", ctx.ConsensusParams().Block.MaxGas)
 	blockGasLimit := ctx.ConsensusParams().Block.MaxGas
 	blockFullness := float64(blockGasUsed) / float64(blockGasLimit)
 	adjustmentFactor := MaxBaseFeeChange * (blockFullness - 0.5) / 0.5 // range between -12.5% to 12.5%

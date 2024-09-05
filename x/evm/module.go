@@ -278,7 +278,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.ValidatorUpdate {
 	// fmt.Println("JEREMYDEBUG: EndBlock, block gas limit = ", ctx.ConsensusParams().Block.MaxGas)
-	// fmt.Println("JEREMYDEBUG: EndBlock, block gas used = ", req.BlockGasUsed)
+	fmt.Println("JEREMYDEBUG: EndBlock, block gas used = ", req.BlockGasUsed)
 	// Adjust base fee for dynamic base fee
 	fmt.Println("JEREMYDEBUG: Pre-adjustment Dynamic Base Fee Per Gas = ", am.keeper.GetDynamicBaseFeePerGas(ctx))
 	am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed))
