@@ -11,8 +11,8 @@ import (
 const MaxBaseFeeChange = 0.125
 
 // eip-1559 adjustment
-func (k *Keeper) AdjustBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) {
-	currentBaseFee := k.GetBaseFeePerGas(ctx).MustFloat64()
+func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) {
+	currentBaseFee := k.GetDynamicBaseFeePerGas(ctx).MustFloat64()
 	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas.MustFloat64()
 	blockGasLimit := ctx.ConsensusParams().Block.MaxGas
 	blockFullness := float64(blockGasUsed) / float64(blockGasLimit)
@@ -21,10 +21,10 @@ func (k *Keeper) AdjustBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) {
 	if newBaseFee < minimumFeePerGas {
 		newBaseFee = minimumFeePerGas
 	}
-	k.SetBaseFeePerGas(ctx, uint64(newBaseFee))
+	k.SetDynamicBaseFeePerGas(ctx, uint64(newBaseFee))
 }
 
-func (k *Keeper) GetBaseFeePerGas(ctx sdk.Context) sdk.Dec {
+func (k *Keeper) GetDynamicBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	h := make([]byte, 8)
 	binary.BigEndian.PutUint64(h, uint64(ctx.BlockHeight()))
 	bz := k.PrefixStore(ctx, types.BaseFeePerGasPrefix).Get(h)
@@ -35,7 +35,7 @@ func (k *Keeper) GetBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	return sdk.NewDecFromInt(sdk.NewInt(int64(binary.BigEndian.Uint64(bz))))
 }
 
-func (k *Keeper) SetBaseFeePerGas(ctx sdk.Context, baseFeePerGas uint64) {
+func (k *Keeper) SetDynamicBaseFeePerGas(ctx sdk.Context, baseFeePerGas uint64) {
 	h := make([]byte, 8)
 	binary.BigEndian.PutUint64(h, uint64(ctx.BlockHeight()))
 	fee := make([]byte, 8)

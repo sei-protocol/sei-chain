@@ -551,7 +551,7 @@ func generateTxData() {
 		TxHashHex:         tx1.Hash().Hex(),
 		GasUsed:           55,
 		Status:            0,
-		EffectiveGasPrice: 10,
+		EffectiveGasPrice: 100000000000,
 		Logs: []*types.Log{{
 			Address: "0x1111111111111111111111111111111111111111",
 			Topics:  []string{"0x1111111111111111111111111111111111111111111111111111111111111111", "0x1111111111111111111111111111111111111111111111111111111111111112"},

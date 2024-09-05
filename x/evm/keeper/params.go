@@ -35,31 +35,9 @@ func (k *Keeper) GetPriorityNormalizer(ctx sdk.Context) sdk.Dec {
 	return k.GetParams(ctx).PriorityNormalizer
 }
 
-// func (k *Keeper) AdjustBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) {
-// 	currentBaseFee := k.GetBaseFeePerGas(ctx)
-// 	blockGasLimit := ctx.ConsensusParams().Block.MaxGas
-// 	blockFullness := float64(blockGasUsed) / float64(blockGasLimit)
-// 	maxBaseFeeChange := 0.125
-// 	adjustmentFactor := maxBaseFeeChange * (blockFullness - 0.5) / 0.5 // range between -12.5% to 12.5%
-// 	newBaseFee := float64(currentBaseFee) * (1 + adjustmentFactor)
-// 	if newBaseFee < k.GetParams(ctx).MinimumFeePerGas {
-
-// 	}
-// 	result := new(big.Int)
-// 	result.SetUint64(uint64())
-// 	k.SetBaseFeePerGas(ctx, sdk.NewDnewBaseFee)
-// 	// k.dynamicFee.CurrentBaseFee = uint64(newBaseFee)
-// }
-
-// func (k *Keeper) SetBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
-// 	params := k.GetParams(ctx)
-// 	params.BaseFeePerGas = baseFeePerGas
-// 	k.SetParams(ctx, params)
-// }
-
-// func (k *Keeper) GetBaseFeePerGas(ctx sdk.Context) sdk.Dec {
-// 	return k.GetParams(ctx).BaseFeePerGas
-// }
+func (k *Keeper) GetBaseFeePerGas(ctx sdk.Context) sdk.Dec {
+	return k.GetParams(ctx).BaseFeePerGas
+}
 
 func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 	return k.GetParams(ctx).MinimumFeePerGas

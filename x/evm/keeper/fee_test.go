@@ -13,9 +13,9 @@ import (
 func TestBaseFeePerGas(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
-	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetBaseFeePerGas(ctx))
-	k.SetBaseFeePerGas(ctx, 1)
-	require.Equal(t, sdk.NewDecFromInt(sdk.NewInt(1)), k.GetBaseFeePerGas(ctx))
+	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetDynamicBaseFeePerGas(ctx))
+	k.SetDynamicBaseFeePerGas(ctx, 1)
+	require.Equal(t, sdk.NewDecFromInt(sdk.NewInt(1)), k.GetDynamicBaseFeePerGas(ctx))
 }
 
 func TestAdjustBaseFeePerGas(t *testing.T) {
@@ -67,13 +67,13 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 			ctx = ctx.WithConsensusParams(&tmproto.ConsensusParams{
 				Block: &tmproto.BlockParams{MaxGas: int64(tc.blockGasLimit)},
 			})
-			k.SetBaseFeePerGas(ctx, uint64(tc.currentBaseFee))
+			k.SetDynamicBaseFeePerGas(ctx, uint64(tc.currentBaseFee))
 			p := k.GetParams(ctx)
 			p.MinimumFeePerGas = sdk.NewDec(int64(tc.minimumFee))
 			k.SetParams(ctx, p)
-			k.AdjustBaseFeePerGas(ctx, tc.blockGasUsed)
+			k.AdjustDynamicBaseFeePerGas(ctx, tc.blockGasUsed)
 			expected := sdk.NewDecFromInt(sdk.NewInt(int64(tc.expectedBaseFee)))
-			require.Equal(t, expected, k.GetBaseFeePerGas(ctx), "base fee did not match expected value")
+			require.Equal(t, expected, k.GetDynamicBaseFeePerGas(ctx), "base fee did not match expected value")
 		})
 	}
 }

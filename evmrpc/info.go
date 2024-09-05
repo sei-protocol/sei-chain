@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"slices"
 	"time"
@@ -80,16 +81,27 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	}
 	if len(feeHist.Reward) == 0 || len(feeHist.Reward[0]) == 0 {
 		// if there is no EVM tx in the most recent block, return the minimum fee param
-		return (*hexutil.Big)(i.keeper.GetMinimumFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()), nil
+		baseFee := i.keeper.GetMinimumFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+		fmt.Println("JEREMYDEBUG: eth_gasPrice, min base fee = ", baseFee)
+		return (*hexutil.Big)(baseFee), nil
 	}
-	return (*hexutil.Big)(new(big.Int).Add(
+	baseFee := i.keeper.GetBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	fmt.Println("JEREMYDEBUG: eth_gasPrice, baseFee = ", baseFee)
+	reward := feeHist.Reward[0][0].ToInt()
+	fmt.Println("JEREMYDEBUG: eth_gasPrice, reward = ", reward)
+	sum := new(big.Int).Add(
 		feeHist.Reward[0][0].ToInt(),
-		i.keeper.GetBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt(),
-	)), nil
+		baseFee,
+	)
+	fmt.Println("JEREMYDEBUG: eth_gasPrice, sum = ", sum)
+	res := (*hexutil.Big)(sum)
+	fmt.Println("JEREMYDEBUG: eth_gasPrice, res = ", res)
+	return res, nil
 }
 
 // lastBlock is inclusive
 func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
+	fmt.Println("rewardPercentages = ", rewardPercentiles)
 	startTime := time.Now()
 	defer recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
 	result = &FeeHistoryResult{}
@@ -159,6 +171,8 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 			// the block has been pruned
 			continue
 		}
+		// baseFee = big.NewInt(100000000000)
+		fmt.Println("in feeHistory, got baseFee = ", baseFee)
 		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(baseFee))
 		height := blockNum
 		block, err := blockByNumber(ctx, i.tmClient, &height)
@@ -172,6 +186,8 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 		}
 		result.Reward = append(result.Reward, rewards)
 	}
+	fmt.Println("result.BaseFee = ", result.BaseFee)
+	fmt.Println("result.Reward = ", result.Reward)
 	return result, nil
 }
 
@@ -195,7 +211,10 @@ func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
 			res = nil
 		}
 	}()
-	res = i.keeper.GetBaseFeePerGas(i.ctxProvider(targetHeight)).BigInt()
+	baseFee := i.keeper.GetDynamicBaseFeePerGas(i.ctxProvider(targetHeight))
+	fmt.Println("safeGetBaseFee = ", baseFee)
+	res = baseFee.TruncateInt().BigInt()
+	fmt.Println("res = ", res)
 	return
 }
 
