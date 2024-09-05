@@ -85,7 +85,7 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 		fmt.Println("JEREMYDEBUG: eth_gasPrice, min base fee = ", baseFee)
 		return (*hexutil.Big)(baseFee), nil
 	}
-	baseFee := i.keeper.GetBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	baseFee := i.keeper.GetDynamicBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	fmt.Println("JEREMYDEBUG: eth_gasPrice, baseFee = ", baseFee)
 	reward := feeHist.Reward[0][0].ToInt()
 	fmt.Println("JEREMYDEBUG: eth_gasPrice, reward = ", reward)

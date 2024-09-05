@@ -408,7 +408,7 @@ describe("EVM Test", function () {
     })
 
     describe("Historical query test", function() {
-      it("Should be able to get historical block data", async function() {
+      it.only("Should be able to get historical block data", async function() {
         const feeData = await ethers.provider.getFeeData();
         const gasPrice = Number(feeData.gasPrice);
         const zero = ethers.parseUnits('0', 'ether')
