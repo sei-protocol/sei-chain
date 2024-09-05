@@ -127,6 +127,7 @@ func (suite *KeeperTestSuite) TestMsgEVMTransaction() {
 			suite.Require().Nil(err)
 			cms.ResetEvents()
 			_, err = suite.msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), tc.msg)
+			fmt.Println("err = ", err)
 			suite.Require().Nil(err)
 
 			dependencies, _ := evm.TransactionDependencyGenerator(
