@@ -181,7 +181,8 @@ func TestRun(t *testing.T) {
 		// gas refund to the sender
 		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(172056)))),
 		// tip is paid to the validator
-		banktypes.NewCoinReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27944)))),
+		banktypes.NewCoinReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(25149)))),
+		banktypes.NewWeiReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewInt(600000000000)),
 	}
 
 	require.EqualValues(t, expectedEvts.ToABCIEvents(), evts)
