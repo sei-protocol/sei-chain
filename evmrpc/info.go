@@ -101,7 +101,6 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 
 // lastBlock is inclusive
 func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
-	fmt.Println("rewardPercentages = ", rewardPercentiles)
 	startTime := time.Now()
 	defer recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
 	result = &FeeHistoryResult{}
@@ -186,8 +185,6 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 		}
 		result.Reward = append(result.Reward, rewards)
 	}
-	fmt.Println("result.BaseFee = ", result.BaseFee)
-	fmt.Println("result.Reward = ", result.Reward)
 	return result, nil
 }
 
@@ -212,9 +209,7 @@ func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
 		}
 	}()
 	baseFee := i.keeper.GetDynamicBaseFeePerGas(i.ctxProvider(targetHeight))
-	fmt.Println("safeGetBaseFee = ", baseFee)
 	res = baseFee.TruncateInt().BigInt()
-	fmt.Println("res = ", res)
 	return
 }
 

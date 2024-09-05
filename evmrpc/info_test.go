@@ -103,7 +103,6 @@ func TestFeeHistory(t *testing.T) {
 				require.False(t, errorExists)
 
 				resObj = resObj["result"].(map[string]interface{})
-				fmt.Println("resObj = ", resObj)
 
 				require.Equal(t, tc.expectedOldest, resObj["oldestBlock"].(string))
 				rewards, ok := resObj["reward"].([]interface{})

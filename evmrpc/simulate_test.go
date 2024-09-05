@@ -89,7 +89,7 @@ func TestCreateAccessList(t *testing.T) {
 		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 		"input":   fmt.Sprintf("%#x", input),
 	}
-	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20)))
+	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(2000000)))
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
 	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(from[:]), amts)
 	resObj := sendRequestGood(t, "createAccessList", txArgs, "latest")
@@ -148,10 +148,8 @@ func TestEthCallHighAmount(t *testing.T) {
 		from.Hex(): {"balance": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
 	}
 	resObj := sendRequestGood(t, "call", txArgs, "latest", overrides)
-	fmt.Println("resObj = ", resObj)
 	errMap := resObj["error"].(map[string]interface{})
 	result := errMap["message"]
-	fmt.Println("res = ", result)
 	require.Equal(t, result, "error: balance override overflow")
 
 	Ctx = Ctx.WithBlockHeight(8)
