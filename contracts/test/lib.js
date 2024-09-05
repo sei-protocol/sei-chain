@@ -1,7 +1,7 @@
 const { exec } = require("child_process");
 const {ethers} = require("hardhat"); // Importing exec from child_process
 
-const adminKeyName = "admin"
+const adminKeyName = "node_admin"
 
 const ABI = {
     ERC20: [
@@ -253,7 +253,7 @@ async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRp
 }
 
 async function deployErc721PointerForCw721(provider, cw721Address) {
-    const command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=admin -b block`
+    const command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=node_admin -b block`
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
@@ -422,12 +422,13 @@ async function executeOnAllNodes(command, interaction=`printf "12345678\\n"`){
 }
 
 async function execute(command, interaction=`printf "12345678\\n"`){
+    console.log("execute cmd = ", command)
     if (await isDocker()) {
         command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
         command = command.replace("/sei-protocol/sei-chain//sei-protocol/sei-chain/", "/sei-protocol/sei-chain/")
         command = `docker exec sei-node-0 /bin/bash -c 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && ${interaction} | ${command}'`;
     }
-    return await execCommand(command);
+    return await execCommand(`${interaction} | ${command}`);
 }
 
 function execCommand(command) {

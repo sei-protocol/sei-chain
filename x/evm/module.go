@@ -276,7 +276,11 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 
 // EndBlock executes all ABCI EndBlock logic respective to the evm module. It
 // returns no validator updates.
-func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.ValidatorUpdate {
+	fmt.Println("JEREMYDEBUG: EndBlock, block gas limit = ", ctx.ConsensusParams().Block.MaxGas)
+	fmt.Println("JEREMYDEBUG: EndBlock, block gas used = ", req.BlockGasUsed)
+	// Adjust base fee for dynamic base fee
+	am.keeper.AdjustBaseFeePerGas(ctx, uint64(req.BlockGasUsed))
 	var coinbase sdk.AccAddress
 	if am.keeper.EthBlockTestConfig.Enabled {
 		blocks := am.keeper.BlockTest.Json.Blocks
