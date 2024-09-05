@@ -15,7 +15,8 @@ func TestParams(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	require.Equal(t, "usei", k.GetBaseDenom(ctx))
 	require.Equal(t, types.DefaultPriorityNormalizer, k.GetPriorityNormalizer(ctx))
-	require.Equal(t, types.DefaultBaseFeePerGas, k.GetDynamicBaseFeePerGas(ctx))
+	require.Equal(t, types.DefaultMinFeePerGas, k.GetDynamicBaseFeePerGas(ctx))
+	require.Equal(t, types.DefaultBaseFeePerGas, k.GetBaseFeePerGas(ctx))
 	require.Equal(t, types.DefaultMinFeePerGas, k.GetMinimumFeePerGas(ctx))
 	require.Equal(t, types.DefaultDeliverTxHookWasmGasLimit, k.GetDeliverTxHookWasmGasLimit(ctx))
 
