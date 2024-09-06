@@ -5,7 +5,6 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
@@ -14,7 +13,7 @@ func TestBaseFeePerGas(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetDynamicBaseFeePerGas(ctx))
-	k.SetDynamicBaseFeePerGas(ctx, 1)
+	k.SetDynamicBaseFeePerGas(ctx, sdk.OneDec())
 	require.Equal(t, sdk.NewDecFromInt(sdk.NewInt(1)), k.GetDynamicBaseFeePerGas(ctx))
 }
 
@@ -42,7 +41,7 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 			minimumFee:      10,
 			blockGasUsed:    750000,
 			blockGasLimit:   1000000,
-			expectedBaseFee: 10000 + 10000*(keeper.MaxBaseFeeChange/2), // 6.25% increase
+			expectedBaseFee: 10625, // 6.25% increase
 		},
 		{
 			name:            "Block gas usage 25%, base fee decreases",
@@ -50,7 +49,7 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 			minimumFee:      10,
 			blockGasUsed:    250000,
 			blockGasLimit:   1000000,
-			expectedBaseFee: 10000 - 10000*(keeper.MaxBaseFeeChange/2), // 6.25% decrease
+			expectedBaseFee: 9375, // 6.25% decrease
 		},
 		{
 			name:            "Block gas usage low, new base fee below minimum, set to minimum",
@@ -67,7 +66,7 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 			ctx = ctx.WithConsensusParams(&tmproto.ConsensusParams{
 				Block: &tmproto.BlockParams{MaxGas: int64(tc.blockGasLimit)},
 			})
-			k.SetDynamicBaseFeePerGas(ctx, uint64(tc.currentBaseFee))
+			k.SetDynamicBaseFeePerGas(ctx, sdk.NewDecFromInt(sdk.NewInt(int64(tc.currentBaseFee))))
 			p := k.GetParams(ctx)
 			p.MinimumFeePerGas = sdk.NewDec(int64(tc.minimumFee))
 			k.SetParams(ctx, p)
