@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -10,6 +11,7 @@ import (
 )
 
 func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
+	fmt.Println("In SubBalance, evmAddr = ", evmAddr, ", amt = ", amt)
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	if amt.Sign() == 0 {
 		return
@@ -28,6 +30,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 
 	usei, wei := SplitUseiWeiAmount(amt)
 	addr := s.getSeiAddress(evmAddr)
+	fmt.Println("In SubBalance, seiAddr = ", addr)
 	err := s.k.BankKeeper().SubUnlockedCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if err != nil {
 		s.err = err
@@ -51,6 +54,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 }
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
+	fmt.Println("In AddBalance, evmAddr = ", evmAddr, ", amt = ", amt)
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	if amt.Sign() == 0 {
 		return

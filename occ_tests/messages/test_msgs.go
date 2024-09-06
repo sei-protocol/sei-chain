@@ -63,6 +63,7 @@ func EVMTransferNonConflicting(tCtx *utils.TestContext, count int) []*utils.Test
 	var msgs []*utils.TestMessage
 	for i := 0; i < count; i++ {
 		testAcct := utils.NewSigner()
+		fmt.Println("testAcct = ", testAcct)
 		msgs = append(msgs, evmTransfer(testAcct, testAcct.EvmAddress, "EVMTransferNonConflicting"))
 	}
 	return msgs
