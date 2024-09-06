@@ -35,10 +35,10 @@ describe("Associate Balances", function () {
         const afterSei = BigInt(await getSeiBalance(seiAddr))
         const afterEvm = await ethers.provider.getBalance(evmAddr)
 
-        // console.log(`SEI Balance (before): ${beforeSei}`)
-        // console.log(`EVM Balance (before): ${beforeEvm}`)
-        // console.log(`SEI Balance (after): ${afterSei}`)
-        // console.log(`EVM Balance (after): ${afterEvm}`)
+        console.log(`SEI Balance (before): ${beforeSei}`)
+        console.log(`EVM Balance (before): ${beforeEvm}`)
+        console.log(`SEI Balance (after): ${afterSei}`)
+        console.log(`EVM Balance (after): ${afterEvm}`)
 
         const multiplier = BigInt(1000000000000)
         expect(afterEvm).to.equal((beforeSei * multiplier) + beforeEvm - (gas * multiplier))

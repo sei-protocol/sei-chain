@@ -254,3 +254,45 @@ func (k *Keeper) GetStoredPointerCodeID(ctx sdk.Context, pointerType types.Point
 	}
 	return binary.BigEndian.Uint64(bz)
 }
+
+func (k *Keeper) GetCW20Pointee(ctx sdk.Context, erc20Address common.Address) (cw20Address string, version uint16, exists bool) {
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(erc20Address))
+	if exists {
+		cw20Address = string(addrBz)
+	}
+	return
+}
+
+func (k *Keeper) GetCW721Pointee(ctx sdk.Context, erc721Address common.Address) (cw721Address string, version uint16, exists bool) {
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(erc721Address))
+	if exists {
+		cw721Address = string(addrBz)
+	}
+	return
+}
+
+func (k *Keeper) GetERC20Pointee(ctx sdk.Context, cw20Address string) (erc20Address common.Address, version uint16, exists bool) {
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(cw20Address))))
+	if exists {
+		erc20Address = common.BytesToAddress(addrBz)
+	}
+	return
+}
+
+func (k *Keeper) GetERC721Pointee(ctx sdk.Context, cw721Address string) (erc721Address common.Address, version uint16, exists bool) {
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(cw721Address))))
+	if exists {
+		erc721Address = common.BytesToAddress(addrBz)
+	}
+	return
+}
+
+func (k *Keeper) GetNativePointee(ctx sdk.Context, erc20Address string) (token string, version uint16, exists bool) {
+	// Ensure the key matches how it was set in SetERC20NativePointer
+	key := types.PointerReverseRegistryKey(common.HexToAddress(erc20Address))
+	addrBz, version, exists := k.GetPointerInfo(ctx, key)
+	if exists {
+		token = string(addrBz)
+	}
+	return
+}

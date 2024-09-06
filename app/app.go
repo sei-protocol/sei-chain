@@ -15,20 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/server"
-	"github.com/gorilla/mux"
-	"github.com/rakyll/statik/fs"
-	"github.com/sei-protocol/sei-db/ss"
-
-	"github.com/ethereum/go-ethereum/ethclient"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	"github.com/sei-protocol/sei-chain/evmrpc"
-	"github.com/sei-protocol/sei-chain/precompiles"
-	"go.opentelemetry.io/otel/trace"
-
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
-
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -36,17 +22,18 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/cosmos/cosmos-sdk/version"
-
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
+	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/cosmos/cosmos-sdk/version"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
 	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
@@ -114,13 +101,24 @@ import (
 	ibcporttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	"github.com/ethereum/go-ethereum/ethclient"
+	ethrpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/gorilla/mux"
+	"github.com/rakyll/statik/fs"
 	"github.com/sei-protocol/sei-chain/aclmapping"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
+	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	appparams "github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
+	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/precompiles"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
+	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
+	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
@@ -132,6 +130,13 @@ import (
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	oraclemodule "github.com/sei-protocol/sei-chain/x/oracle"
+	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
+	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
+	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"github.com/sei-protocol/sei-db/ss"
 	seidb "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -140,20 +145,7 @@ import (
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/sei-protocol/sei-chain/utils/metrics"
-
-	oraclemodule "github.com/sei-protocol/sei-chain/x/oracle"
-	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
-
-	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
-	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
-	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
-
-	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
-	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"go.opentelemetry.io/otel/trace"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
@@ -163,7 +155,6 @@ import (
 
 	// unnamed import of statik for openapi/swagger UI support
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
-
 	ssconfig "github.com/sei-protocol/sei-db/config"
 )
 
@@ -1049,7 +1040,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
 		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
-	// TODO: change this upgrade name if the planned upgrade version number ends up changing more
+
 	if (upgradeInfo.Name == "v5.8.0") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		dexStoreKeyName := "dex"
 		storeUpgrades := storetypes.StoreUpgrades{
@@ -1859,17 +1850,13 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 	totalGasWanted := uint64(0)
 	for _, tx := range txs {
-		decoded, err := app.txDecoder(tx)
+		decodedTx, err := app.txDecoder(tx)
 		if err != nil {
 			// such tx will not be processed and thus won't consume gas. Skipping
 			continue
 		}
-		feeTx, ok := decoded.(sdk.FeeTx)
-		if !ok {
-			// such tx will not be processed and thus won't consume gas. Skipping
-			continue
-		}
-		isGasless, err := antedecorators.IsTxGasless(decoded, ctx, app.OracleKeeper, &app.EvmKeeper)
+		// check gasless first (this has to happen before other checks to avoid panics)
+		isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
 			ctx.Logger().Error("error checking if tx is gasless", "error", err)
 			continue
@@ -1877,8 +1864,31 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		if isGasless {
 			continue
 		}
-		// Check for overflow before adding
-		gasWanted := feeTx.GetGas()
+		// Check whether it's associate tx
+		gasWanted := uint64(0)
+		// Check whether it's an EVM or Cosmos tx
+		isEVM, err := evmante.IsEVMMessage(decodedTx)
+		if err != nil {
+			continue
+		}
+		if isEVM {
+			msg := evmtypes.MustGetEVMTransactionMessage(decodedTx)
+			if msg.IsAssociateTx() {
+				continue
+			}
+			etx, _ := msg.AsTransaction()
+			gasWanted = etx.Gas()
+		} else {
+			feeTx, ok := decodedTx.(sdk.FeeTx)
+			if !ok {
+				// such tx will not be processed and thus won't consume gas. Skipping
+				continue
+			}
+
+			// Check for overflow before adding
+			gasWanted = feeTx.GetGas()
+		}
+
 		if int64(gasWanted) < 0 || int64(totalGasWanted) > math.MaxInt64-int64(gasWanted) {
 			return false
 		}
