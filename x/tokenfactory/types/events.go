@@ -16,4 +16,5 @@ const (
 	AttributeDenom               = "denom"
 	AttributeNewAdmin            = "new_admin"
 	AttributeDenomMetadata       = "denom_metadata"
+	AttributeAllowList           = "denom_allow_list"
 )

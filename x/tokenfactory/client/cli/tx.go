@@ -17,6 +17,10 @@ import (
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
+const (
+	FlagAllowList = "allow-list"
+)
+
 // GetTxCmd returns the transaction commands for this module
 func GetTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -49,6 +53,10 @@ func NewCreateDenomCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			allowList, err := cmd.Flags().GetString(FlagAllowList)
+			if err != nil {
+				return err
+			}
 
 			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
 
@@ -57,11 +65,22 @@ func NewCreateDenomCmd() *cobra.Command {
 				args[0],
 			)
 
+			// only parse allow list if it is provided
+			if allowList != "" {
+				// Parse the allow list
+				allowListP, err := ParseAllowListJSON(clientCtx.LegacyAmino, allowList)
+				if err != nil {
+					return err
+				}
+				msg.AllowList = &allowListP
+			}
+
 			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
 		},
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
+	cmd.Flags().String(FlagAllowList, "", "Path to the allow list JSON file")
 	return cmd
 }
 
@@ -227,4 +246,19 @@ func ParseMetadataJSON(cdc *codec.LegacyAmino, metadataFile string) (banktypes.M
 	}
 
 	return proposal, nil
+}
+
+func ParseAllowListJSON(cdc *codec.LegacyAmino, allowListFile string) (banktypes.AllowList, error) {
+	allowList := banktypes.AllowList{}
+
+	contents, err := os.ReadFile(allowListFile)
+	if err != nil {
+		return allowList, err
+	}
+
+	if err = cdc.UnmarshalJSON(contents, &allowList); err != nil {
+		return allowList, err
+	}
+
+	return allowList, nil
 }

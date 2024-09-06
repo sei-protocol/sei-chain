@@ -30,6 +30,7 @@ message MsgCreateDenom {
   string sender = 1 [ (gogoproto.moretags) = "yaml:\"sender\"" ];
   // subdenom can be up to 44 "alphanumeric" characters long.
   string subdenom = 2 [ (gogoproto.moretags) = "yaml:\"subdenom\"" ];
+  cosmos.bank.v1beta1.AllowList allow_list = 3 [ (gogoproto.moretags) = "yaml:\"allow_list\"", (gogoproto.nullable)   = true ];
 }
 
 // MsgCreateDenomResponse is the return value of MsgCreateDenom

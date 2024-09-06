@@ -2,10 +2,9 @@ package keeper
 
 import (
 	"context"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"strings"
 )
 
 type msgServer struct {
@@ -28,12 +27,21 @@ func (server msgServer) CreateDenom(goCtx context.Context, msg *types.MsgCreateD
 		return nil, err
 	}
 
+	createDenomEvent := sdk.NewEvent(
+		types.TypeMsgCreateDenom,
+		sdk.NewAttribute(types.AttributeCreator, msg.Sender),
+		sdk.NewAttribute(types.AttributeNewTokenDenom, denom),
+	)
+
+	if msg.AllowList != nil {
+		server.bankKeeper.SetDenomAllowList(ctx, denom, *msg.AllowList)
+		createDenomEvent = createDenomEvent.AppendAttributes(
+			sdk.NewAttribute(types.AttributeAllowList, strings.Join(msg.AllowList.Addresses, ",")),
+		)
+	}
+
 	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.TypeMsgCreateDenom,
-			sdk.NewAttribute(types.AttributeCreator, msg.Sender),
-			sdk.NewAttribute(types.AttributeNewTokenDenom, denom),
-		),
+		createDenomEvent,
 	})
 
 	return &types.MsgCreateDenomResponse{
