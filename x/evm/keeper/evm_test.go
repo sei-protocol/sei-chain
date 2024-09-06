@@ -39,7 +39,7 @@ func TestInternalCallCreateContract(t *testing.T) {
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Equal(t, "sei does not support EVM->CW->EVM call pattern", err.Error())
 	ctx = ctx.WithIsEVM(false)
-	k.SetDynamicBaseFeePerGas(ctx, 0)
+	k.SetDynamicBaseFeePerGas(ctx, sdk.ZeroDec())
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
 	receipt, err := k.GetTransientReceipt(ctx, [32]byte{1, 2, 3})

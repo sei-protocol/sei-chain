@@ -126,9 +126,8 @@ func (suite *KeeperTestSuite) TestMsgEVMTransaction() {
 			ctx, err := suite.preprocessor.AnteHandle(handlerCtx, tx.GetTx(), false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) { return ctx, nil })
 			suite.Require().Nil(err)
 			cms.ResetEvents()
-			suite.App.EvmKeeper.SetDynamicBaseFeePerGas(ctx, 0)
+			suite.App.EvmKeeper.SetDynamicBaseFeePerGas(ctx, sdk.ZeroDec())
 			_, err = suite.msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), tc.msg)
-			fmt.Println("err = ", err)
 			suite.Require().Nil(err)
 
 			dependencies, _ := evm.TransactionDependencyGenerator(
