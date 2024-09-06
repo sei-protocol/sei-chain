@@ -436,10 +436,10 @@ func (m *QueryDenomAllowListRequest) GetDenom() string {
 	return ""
 }
 
-// QueryDenomMetadataResponse is the response type for the Query/DenomMetadata gRPC
+// QueryDenomAllowListResponse is the response type for the Query/AllowList gRPC
 // method.
 type QueryDenomAllowListResponse struct {
-	// metadata describes and provides all the client information for the requested token.
+	// allow_list provides addresses allowed for the requested token.
 	AllowList types.AllowList `protobuf:"bytes,1,opt,name=allow_list,json=allowList,proto3" json:"allow_list"`
 }
 

@@ -53,7 +53,7 @@ func NewCreateDenomCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			allowList, err := cmd.Flags().GetString(FlagAllowList)
+			allowListFilePath, err := cmd.Flags().GetString(FlagAllowList)
 			if err != nil {
 				return err
 			}
@@ -66,13 +66,13 @@ func NewCreateDenomCmd() *cobra.Command {
 			)
 
 			// only parse allow list if it is provided
-			if allowList != "" {
+			if allowListFilePath != "" {
 				// Parse the allow list
-				allowListP, err := ParseAllowListJSON(clientCtx.LegacyAmino, allowList)
+				allowList, err := ParseAllowListJSON(clientCtx.LegacyAmino, allowListFilePath)
 				if err != nil {
 					return err
 				}
-				msg.AllowList = &allowListP
+				msg.AllowList = &allowList
 			}
 
 			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
@@ -80,7 +80,9 @@ func NewCreateDenomCmd() *cobra.Command {
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
-	cmd.Flags().String(FlagAllowList, "", "Path to the allow list JSON file")
+	cmd.Flags().String(FlagAllowList, "", "Path to the allow list JSON file with an array of addresses "+
+		"that are allowed to send/receive the token. The file should have the following format: {\"addresses\": "+
+		"[\"addr1\", \"addr2\"]}, where addr1 and addr2 are bech32 Sei native addresses.")
 	return cmd
 }
 

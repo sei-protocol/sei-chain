@@ -100,9 +100,9 @@ message QueryDenomAllowListRequest {
   string denom = 1;
 }
 
-// QueryDenomMetadataResponse is the response type for the Query/DenomMetadata gRPC
+// QueryDenomAllowListResponse is the response type for the Query/AllowList gRPC
 // method.
 message QueryDenomAllowListResponse {
-  // metadata describes and provides all the client information for the requested token.
+  // allow_list provides addresses allowed for the requested token.
   cosmos.bank.v1beta1.AllowList allow_list = 1 [(gogoproto.nullable) = false];
 }
