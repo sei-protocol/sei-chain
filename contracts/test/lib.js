@@ -252,8 +252,11 @@ async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRp
     throw new Error("contract deployment failed")
 }
 
-async function deployErc721PointerForCw721(provider, cw721Address) {
-    const command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=admin -b block`
+async function deployErc721PointerForCw721(provider, cw721Address, from=adminKeyName, evmRpc="") {
+    let command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=${from} -b block`
+    if (evmRpc) {
+        command = command + ` --evm-rpc=${evmRpc}`
+    }
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;

@@ -1,31 +1,15 @@
 const {v4: uuidv4} = require("uuid");
 const hre = require("hardhat");
-const { ABI, deployErc20PointerForCw20, getSeiAddress, deployWasm, execute, delay, isDocker } = require("../../contracts/test/lib.js");
+const { ABI, deployErc20PointerForCw20, deployErc721PointerForCw721, getSeiAddress, deployWasm, execute, delay, isDocker } = require("../../contracts/test/lib.js");
 const path = require('path')
 
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
   const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
 
-  const gasPrice = await hre.ethers.provider.getGasPrice();
   const [token0, token1] = tokenOrder(firstTokenAddr, secondTokenAddr);
 
-  let gasLimit = await managerContract.estimateGas.createAndInitializePoolIfNecessary(
-      token0.address,
-      token1.address,
-      fee,
-      sqrtPriceX96,
-  );
-
-  gasLimit = gasLimit.mul(12).div(10)
+  await estimateAndCall(managerContract, "createAndInitializePoolIfNecessary", [token0.address, token1.address, fee, sqrtPriceX96])
   // token0 addr must be < token1 addr
-  const poolTx = await managerContract.createAndInitializePoolIfNecessary(
-      token0.address,
-      token1.address,
-      fee,
-      sqrtPriceX96,
-      {gasLimit, gasPrice}
-  );
-  await poolTx.wait();
   console.log("Pool created and initialized");
 }
 
@@ -34,45 +18,18 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
   // Define the amount of tokens to be approved and added as liquidity
   console.log("Supplying liquidity to pool")
   const [token0, token1] = tokenOrder(firstTokenContract.address, secondTokenContract.address, firstTokenAmt, secondTokenAmt);
-  const gasPrice = await hre.ethers.provider.getGasPrice();
-
-  let gasLimit = await firstTokenContract.estimateGas.approve(managerContract.address, firstTokenAmt);
-  gasLimit = gasLimit.mul(12).div(10)
 
   // Approve the NonfungiblePositionManager to spend the specified amount of firstToken
-  const approveFirstTokenTx = await firstTokenContract.approve(managerContract.address, firstTokenAmt, {gasLimit, gasPrice});
-  await approveFirstTokenTx.wait();
+  await estimateAndCall(firstTokenContract, "approve", [managerContract.address, firstTokenAmt]);
   let allowance = await firstTokenContract.allowance(recipientAddr, managerContract.address);
   let balance = await firstTokenContract.balanceOf(recipientAddr);
 
-  gasLimit = await secondTokenContract.estimateGas.approve(managerContract.address, secondTokenAmt);
-  gasLimit = gasLimit.mul(12).div(10)
 
   // Approve the NonfungiblePositionManager to spend the specified amount of secondToken
-  const approveSecondTokenTx = await secondTokenContract.approve(managerContract.address, secondTokenAmt, {gasLimit, gasPrice});
-  await approveSecondTokenTx.wait();
-
-  allowance = await secondTokenContract.allowance(recipientAddr, managerContract.address);
-  balance = await secondTokenContract.balanceOf(recipientAddr);
-
-  gasLimit = await managerContract.estimateGas.mint({
-    token0: token0.address,
-    token1: token1.address,
-    fee: 3000, // Fee tier (0.3%)
-    tickLower: -887220,
-    tickUpper: 887220,
-    amount0Desired: token0.amount,
-    amount1Desired: token1.amount,
-    amount0Min: 0,
-    amount1Min: 0,
-    recipient: recipientAddr,
-    deadline: Math.floor(Date.now() / 1000) + 60 * 10, // 10 minutes from now
-  })
-
-  gasLimit = gasLimit.mul(12).div(10)
+  await estimateAndCall(secondTokenContract, "approve", [managerContract.address, secondTokenAmt])
 
   // Add liquidity to the pool
-  const liquidityTx = await managerContract.mint({
+  await estimateAndCall(managerContract, "mint", [{
     token0: token0.address,
     token1: token1.address,
     fee: 3000, // Fee tier (0.3%)
@@ -84,9 +41,8 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
     amount1Min: 0,
     recipient: recipientAddr,
     deadline: Math.floor(Date.now() / 1000) + 60 * 10, // 10 minutes from now
-  }, {gasLimit, gasPrice});
+  }]);
 
-  await liquidityTx.wait();
   console.log("Liquidity added");
 }
 
@@ -122,6 +78,19 @@ async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
   return {"pointerContract": pointerContract, "cw20Address": cw20Address}
 }
 
+async function deployCw721WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
+  const CW721_BASE_PATH = (await isDocker()) ? '../integration_test/dapp_tests/nftMarketplace/cw721_base.wasm' : path.resolve(__dirname, '../dapp_tests/nftMarketplace/cw721_base.wasm')
+  const cw721Address = await deployWasm(CW721_BASE_PATH, deployerSeiAddr, "cw721", {
+    "name": `testCw721${time}`,
+    "symbol": "TESTNFT",
+    "minter": deployerSeiAddr,
+    "withdraw_address": deployerSeiAddr,
+  }, deployerSeiAddr);
+  const pointerAddr = await deployErc721PointerForCw721(hre.ethers.provider, cw721Address, deployerSeiAddr, evmRpc);
+  const pointerContract = new hre.ethers.Contract(pointerAddr, ABI.ERC721, signer);
+  return {"pointerContract": pointerContract, "cw721Address": cw721Address}
+}
+
 async function deployEthersContract(name, abi, bytecode, deployer, deployParams=[]) {
   const contract = new hre.ethers.ContractFactory(abi, bytecode, deployer);
   const deployTx = contract.getDeployTransaction(...deployParams);
@@ -141,6 +110,12 @@ async function doesTokenFactoryDenomExist(denom) {
 }
 
 async function sendFunds(amountSei, recipient, signer) {
+
+  const bal = await signer.getBalance();
+  if (bal.lt(hre.ethers.utils.parseEther(amountSei))) {
+    throw new Error(`Signer has insufficient balance. Want ${hre.ethers.utils.parseEther(amountSei)}, has ${bal}`);
+  }
+
   const gasLimit = await signer.estimateGas({
     to: recipient,
     value: hre.ethers.utils.parseEther(amountSei)
@@ -158,6 +133,50 @@ async function sendFunds(amountSei, recipient, signer) {
 
   await fundUser.wait();
 }
+
+async function estimateAndCall(contract, method, args=[], value=0) {
+  let gasLimit;
+  try {
+    if (value) {
+      gasLimit = await contract.estimateGas[method](...args, {value: value});
+    } else {
+      gasLimit = await contract.estimateGas[method](...args);
+    }
+  } catch (error) {
+    if (error.data) {
+      console.error("Transaction revert reason:", hre.ethers.utils.toUtf8String(error.data));
+    } else {
+      console.error("Error fulfilling order:", error);
+    }
+  }
+  const gasPrice = await contract.signer.getGasPrice();
+  let output;
+  if (value) {
+    output = await contract[method](...args, {gasPrice, gasLimit, value})
+  } else {
+    output = await contract[method](...args, {gasPrice, gasLimit})
+  }
+  await output.wait();
+  return output;
+}
+
+const mintCw721 = async (contractAddress, address, id) => {
+  const msg = {
+    mint: {
+      token_id: `${id}`,
+      owner: `${address}`,
+      token_uri:""
+    },
+  };
+  const jsonString = JSON.stringify(msg).replace(/"/g, '\\"');
+  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
+  const output = await execute(command);
+  const response = JSON.parse(output);
+  if (response.code !== 0) {
+    throw new Error(response.raw_log);
+  }
+  return response;
+};
 
 async function pollBalance(erc20Contract, address, criteria, maxAttempts=3) {
   let bal = 0;
@@ -355,14 +374,17 @@ module.exports = {
   harvest,
   queryTokenBalance,
   addAccount,
+  estimateAndCall,
   addDeployerAccount,
   setupAccountWithMnemonic,
   transferTokens,
   deployTokenPool,
   supplyLiquidity,
   deployCw20WithPointer,
+  deployCw721WithPointer,
   deployEthersContract,
   doesTokenFactoryDenomExist,
   pollBalance,
-  sendFunds
+  sendFunds,
+  mintCw721
 };

@@ -17,8 +17,8 @@
     "ethers": "^5.7.2"
   },
   "devDependencies": {
-    "it-each": "^0.5.0",
     "hardhat": "^2.22.6",
+    "it-each": "^0.5.0",
     "uuid": "^10.0.0"
   }
 }
