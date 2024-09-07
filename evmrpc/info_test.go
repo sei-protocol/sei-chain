@@ -2,7 +2,6 @@ package evmrpc_test
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 	"testing"
 
