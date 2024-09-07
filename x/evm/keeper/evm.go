@@ -34,7 +34,6 @@ func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEV
 	if err != nil {
 		return nil, err
 	}
-	k.GetEVMAddressOrDefault(ctx, senderAddr)
 	ret, err := k.CallEVM(ctx, k.GetEVMAddressOrDefault(ctx, senderAddr), to, req.Value, req.Data)
 	if err != nil {
 		return nil, err
