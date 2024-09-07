@@ -63,7 +63,7 @@ func EVMTransferNonConflicting(tCtx *utils.TestContext, count int) []*utils.Test
 	var msgs []*utils.TestMessage
 	for i := 0; i < count; i++ {
 		testAcct := utils.NewSigner()
-		fmt.Println("testAcct = ", testAcct)
+		fmt.Println("testAcct.EvmAddress = ", testAcct.EvmAddress)
 		msgs = append(msgs, evmTransfer(testAcct, testAcct.EvmAddress, "EVMTransferNonConflicting"))
 	}
 	return msgs
@@ -83,8 +83,8 @@ func EVMTransferConflicting(tCtx *utils.TestContext, count int) []*utils.TestMes
 // each message will have a brand new address
 func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *utils.TestMessage {
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
-		GasFeeCap: new(big.Int).SetUint64(1000000000000),
-		GasTipCap: new(big.Int).SetUint64(1000000000000),
+		GasFeeCap: new(big.Int).SetUint64(100000000000),
+		GasTipCap: new(big.Int).SetUint64(100000000000),
 		Gas:       21000,
 		ChainID:   big.NewInt(config.DefaultChainID),
 		To:        &to,

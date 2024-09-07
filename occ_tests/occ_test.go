@@ -108,65 +108,65 @@ func TestParallelTransactions(t *testing.T) {
 		before  func(tCtx *utils.TestContext)
 		txs     func(tCtx *utils.TestContext) []*utils.TestMessage
 	}{
-		// {
-		// 	name: "Test wasm instantiations",
-		// 	runs: runs,
-		// 	txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-		// 		return utils.JoinMsgs(
-		// 			messages.WasmInstantiate(tCtx, 10),
-		// 		)
-		// 	},
-		// },
-		// {
-		// 	name: "Test bank transfer",
-		// 	runs: runs,
-		// 	txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-		// 		return utils.JoinMsgs(
-		// 			messages.BankTransfer(tCtx, 2),
-		// 		)
-		// 	},
-		// },
-		// {
-		// 	name: "Test governance proposal",
-		// 	runs: runs,
-		// 	txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-		// 		return utils.JoinMsgs(
-		// 			messages.GovernanceSubmitProposal(tCtx, 10),
-		// 		)
-		// 	},
-		// },
+		{
+			name: "Test wasm instantiations",
+			runs: runs,
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				return utils.JoinMsgs(
+					messages.WasmInstantiate(tCtx, 10),
+				)
+			},
+		},
+		{
+			name: "Test bank transfer",
+			runs: runs,
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				return utils.JoinMsgs(
+					messages.BankTransfer(tCtx, 2),
+				)
+			},
+		},
+		{
+			name: "Test governance proposal",
+			runs: runs,
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				return utils.JoinMsgs(
+					messages.GovernanceSubmitProposal(tCtx, 10),
+				)
+			},
+		},
 		{
 			name: "Test evm transfers non-conflicting",
 			runs: runs,
 			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
 				return utils.JoinMsgs(
-					messages.EVMTransferNonConflicting(tCtx, 1),
+					messages.EVMTransferNonConflicting(tCtx, 10),
 				)
 			},
 		},
-		// {
-		// 	name: "Test evm transfers conflicting",
-		// 	runs: runs,
-		// 	txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-		// 		return utils.JoinMsgs(
-		// 			messages.EVMTransferConflicting(tCtx, 10),
-		// 		)
-		// 	},
-		// },
-		// {
-		// 	name:    "Test combinations",
-		// 	runs:    runs,
-		// 	shuffle: true,
-		// 	txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-		// 		return utils.JoinMsgs(
-		// 			messages.WasmInstantiate(tCtx, 10),
-		// 			messages.BankTransfer(tCtx, 10),
-		// 			messages.GovernanceSubmitProposal(tCtx, 10),
-		// 			messages.EVMTransferConflicting(tCtx, 10),
-		// 			messages.EVMTransferNonConflicting(tCtx, 10),
-		// 		)
-		// 	},
-		// },
+		{
+			name: "Test evm transfers conflicting",
+			runs: runs,
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				return utils.JoinMsgs(
+					messages.EVMTransferConflicting(tCtx, 10),
+				)
+			},
+		},
+		{
+			name:    "Test combinations",
+			runs:    runs,
+			shuffle: true,
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				return utils.JoinMsgs(
+					messages.WasmInstantiate(tCtx, 10),
+					messages.BankTransfer(tCtx, 10),
+					messages.GovernanceSubmitProposal(tCtx, 10),
+					messages.EVMTransferConflicting(tCtx, 10),
+					messages.EVMTransferNonConflicting(tCtx, 10),
+				)
+			},
+		},
 	}
 
 	for _, tt := range tests {
