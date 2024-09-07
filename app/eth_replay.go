@@ -141,6 +141,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		}
 		params := a.EvmKeeper.GetParams(a.GetContextForDeliverTx([]byte{}))
 		params.MinimumFeePerGas = sdk.NewDecFromInt(sdk.NewInt(0))
+		params.BaseFeePerGas = sdk.NewDecFromInt(sdk.NewInt(0))
 		a.EvmKeeper.SetParams(a.GetContextForDeliverTx([]byte{}), params)
 	}
 

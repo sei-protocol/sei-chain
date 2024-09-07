@@ -8,13 +8,11 @@ import (
 )
 
 // TODO: make this a param
-// const MaxBaseFeeChange = 0.125
-// var MaxBaseFeeChange = sdk.NewIntWithDecimal(125, -3)
 var MaxBaseFeeChange = sdk.NewDecWithPrec(125, 3) // 12.5%
 
 // eip-1559 adjustment using sdk.Dec
 func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) {
-	if ctx.ConsensusParams() == nil {
+	if ctx.ConsensusParams() == nil || ctx.ConsensusParams().Block == nil {
 		return
 	}
 
