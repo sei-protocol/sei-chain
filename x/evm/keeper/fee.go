@@ -15,7 +15,6 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	if ctx.ConsensusParams() == nil || ctx.ConsensusParams().Block == nil {
 		return
 	}
-
 	// Use sdk.Dec for base fee and minimum fee
 	currentBaseFee := k.GetDynamicBaseFeePerGas(ctx)      // Returns sdk.Dec
 	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas // Returns sdk.Dec

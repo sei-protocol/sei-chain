@@ -65,7 +65,7 @@ func (k *Keeper) VerifyTxResult(ctx sdk.Context, hash common.Hash) {
 	}
 }
 
-func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData core.GenesisAccount) {
+func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData core.GenesisAccount, coinbases []common.Address) {
 	code := accountData.Code
 	for key, expectedState := range accountData.Storage {
 		actualState := k.GetState(ctx, addr, key)
@@ -81,12 +81,26 @@ func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData
 	useiBalance := k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr), "usei").Amount
 	weiBalance := k.bankKeeper.GetWeiBalance(ctx, k.GetSeiAddressOrDefault(ctx, addr))
 	totalSeiBalance := useiBalance.Mul(sdk.NewInt(1_000_000_000_000)).Add(weiBalance).BigInt()
-	if balance.Cmp(totalSeiBalance) != 0 {
+	if contains(coinbases, addr) {
+		// address should contain at least as much as expected because we don't burn the base fee, but ethereum does
+		if balance.Cmp(totalSeiBalance) > 0 {
+			panic(fmt.Sprintf("balance mismatch for address %s: expected at least %s, got %s", addr.Hex(), balance, totalSeiBalance))
+		}
+	} else if balance.Cmp(totalSeiBalance) != 0 {
 		panic(fmt.Sprintf("balance mismatch for address %s: expected %s, got %s", addr.Hex(), balance, totalSeiBalance))
 	}
 	if nonce != k.GetNonce(ctx, addr) {
 		panic(fmt.Sprintf("nonce mismatch for address %s: expected %d, got %d", addr.Hex(), nonce, k.GetNonce(ctx, addr)))
 	}
+}
+
+func contains(slice []common.Address, element common.Address) bool {
+	for _, v := range slice {
+		if v == element {
+			return true
+		}
+	}
+	return false
 }
 
 func (k *Keeper) VerifyState(ctx sdk.Context, addr common.Address) {
