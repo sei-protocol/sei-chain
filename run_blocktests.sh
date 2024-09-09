@@ -38,6 +38,7 @@ declare -a test_name_skip_list=(
     "multimpleBalanceInstruction" # failing after turning on eip-1559 and not burning base fee
     "tips" # failing after turning on eip-1559 and not burning base fee
     "burnVerify" # failing after turning on eip-1559 and not burning base fee
+    "emptyPostTransfer" # failing after turning on eip-1559 and not burning base fee
 
     # invalid block tests - state tests
     "gasLimitTooHigh" # block header gas limit doesn't apply to us

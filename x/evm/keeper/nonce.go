@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -18,6 +19,7 @@ func (k *Keeper) GetNonce(ctx sdk.Context, addr common.Address) uint64 {
 }
 
 func (k *Keeper) SetNonce(ctx sdk.Context, addr common.Address, nonce uint64) {
+	fmt.Println("In SetNonce, addr = ", addr, ", nonce = ", nonce)
 	length := make([]byte, 8)
 	binary.BigEndian.PutUint64(length, nonce)
 	k.PrefixStore(ctx, types.NonceKeyPrefix).Set(addr[:], length)
