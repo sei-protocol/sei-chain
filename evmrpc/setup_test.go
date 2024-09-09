@@ -407,11 +407,13 @@ func (m *MockBadClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.Res
 
 var EVMKeeper *keeper.Keeper
 var Ctx sdk.Context
+var MultiTxCtx sdk.Context
 
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	testApp := app.Setup(false, false)
 	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	MultiTxCtx, _ = Ctx.CacheContext()
 	EVMKeeper = &testApp.EvmKeeper
 	EVMKeeper.InitGenesis(Ctx, *evmtypes.DefaultGenesis())
 	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
@@ -427,6 +429,12 @@ func init() {
 		panic(err)
 	}
 	testApp.Commit(context.Background())
+	ctxProvider := func(height int64) sdk.Context {
+		if height == MultiTxBlockHeight {
+			return MultiTxCtx
+		}
+		return Ctx
+	}
 	// Start good http server
 	goodConfig := evmrpc.DefaultConfig
 	goodConfig.HTTPPort = TestPort
@@ -437,7 +445,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, "")
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, ctxProvider, TxConfig, "")
 	if err != nil {
 		panic(err)
 	}
@@ -449,7 +457,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, "")
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, ctxProvider, TxConfig, "")
 	if err != nil {
 		panic(err)
 	}
@@ -458,7 +466,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, func(int64) sdk.Context { return Ctx }, TxConfig, "")
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, ctxProvider, TxConfig, "")
 	if err != nil {
 		panic(err)
 	}
@@ -723,8 +731,8 @@ func setupLogs() {
 	EVMKeeper.SetTxHashesOnHeight(Ctx, MockHeight, []common.Hash{
 		multiTxBlockTx4.Hash(),
 	})
-	EVMKeeper.SetBlockBloom(Ctx, MultiTxBlockHeight, []ethtypes.Bloom{bloom1, bloom2, bloom3})
-	EVMKeeper.SetBlockBloom(Ctx, MockHeight, []ethtypes.Bloom{bloom4})
+	EVMKeeper.SetBlockBloom(MultiTxCtx, []ethtypes.Bloom{bloom1, bloom2, bloom3})
+	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloom4})
 }
 
 //nolint:deadcode
