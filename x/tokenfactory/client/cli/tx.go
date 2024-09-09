@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
 	"os"
 	"strings"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
@@ -53,6 +57,12 @@ func NewCreateDenomCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			queryClientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := evmtypes.NewQueryClient(queryClientCtx)
+
 			allowListFilePath, err := cmd.Flags().GetString(FlagAllowList)
 			if err != nil {
 				return err
@@ -68,7 +78,7 @@ func NewCreateDenomCmd() *cobra.Command {
 			// only parse allow list if it is provided
 			if allowListFilePath != "" {
 				// Parse the allow list
-				allowList, err := ParseAllowListJSON(clientCtx.LegacyAmino, allowListFilePath)
+				allowList, err := ParseAllowListJSON(allowListFilePath, queryClient)
 				if err != nil {
 					return err
 				}
@@ -250,16 +260,33 @@ func ParseMetadataJSON(cdc *codec.LegacyAmino, metadataFile string) (banktypes.M
 	return proposal, nil
 }
 
-func ParseAllowListJSON(cdc *codec.LegacyAmino, allowListFile string) (banktypes.AllowList, error) {
+func ParseAllowListJSON(allowListFile string, queryClient evmtypes.QueryClient) (banktypes.AllowList, error) {
 	allowList := banktypes.AllowList{}
 
-	contents, err := os.ReadFile(allowListFile)
+	file, err := os.Open(allowListFile)
 	if err != nil {
 		return allowList, err
 	}
+	defer file.Close()
 
-	if err = cdc.UnmarshalJSON(contents, &allowList); err != nil {
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&allowList); err != nil {
 		return allowList, err
+	}
+
+	for i, addr := range allowList.Addresses {
+		if common.IsHexAddress(addr) {
+			res, err := queryClient.SeiAddressByEVMAddress(context.Background(), &evmtypes.QuerySeiAddressByEVMAddressRequest{EvmAddress: addr})
+			if err != nil {
+				return allowList, err
+			}
+
+			allowList.Addresses[i] = res.SeiAddress
+			continue
+		}
+		if _, err := sdk.AccAddressFromBech32(addr); err != nil {
+			return allowList, fmt.Errorf("invalid address %s: %w", addr, err)
+		}
 	}
 
 	return allowList, nil
