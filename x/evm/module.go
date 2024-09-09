@@ -212,6 +212,10 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 11, func(ctx sdk.Context) error {
 		return migrations.MigrateDeliverTxHookWasmGasLimitParam(ctx, am.keeper)
 	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 12, func(ctx sdk.Context) error {
+		return migrations.MigrateBlockBloom(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -249,7 +253,7 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 12 }
+func (AppModule) ConsensusVersion() uint64 { return 13 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
@@ -330,6 +334,6 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		}
 	}
 	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Filter(utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) common.Hash { return common.BytesToHash(i.TxHash) }), func(h common.Hash) bool { return h.Cmp(ethtypes.EmptyTxsHash) != 0 }))
-	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) ethtypes.Bloom { return ethtypes.BytesToBloom(i.TxBloom) }))
+	am.keeper.SetBlockBloom(ctx, utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) ethtypes.Bloom { return ethtypes.BytesToBloom(i.TxBloom) }))
 	return []abci.ValidatorUpdate{}
 }
