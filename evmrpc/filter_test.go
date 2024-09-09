@@ -266,7 +266,7 @@ func TestFilterGetFilterChanges(t *testing.T) {
 	EVMKeeper.SetTxHashesOnHeight(Ctx, 9, []common.Hash{
 		common.HexToHash("0x123456789012345678902345678901234567890123456789012345678900005"),
 	})
-	EVMKeeper.SetBlockBloom(Ctx, 9, []ethtypes.Bloom{bloom})
+	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloom})
 	Ctx = Ctx.WithBlockHeight(9)
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	Ctx = Ctx.WithBlockHeight(8)
