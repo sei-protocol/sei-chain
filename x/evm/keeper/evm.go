@@ -103,7 +103,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		SkipAccountChecks: false,
 		From:              from,
 	}
-	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
+	res, err := k.applyEVMMessageWithNoBaseFee(ctx, evmMsg, stateDB, gp)
 	if err != nil {
 		return nil, err
 	}

@@ -240,6 +240,18 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	return st.TransitionDb()
 }
 
+func (k Keeper) applyEVMMessageWithNoBaseFee(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
+	blockCtx, err := k.GetVMBlockContext(ctx, gp)
+	if err != nil {
+		return nil, err
+	}
+	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
+	txCtx := core.NewEVMTxContext(msg)
+	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{NoBaseFee: true})
+	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
+	return st.TransitionDb()
+}
+
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	recipient := server.GetSeiAddressOrDefault(ctx, common.HexToAddress(msg.ToAddress))
