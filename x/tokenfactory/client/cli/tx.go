@@ -275,7 +275,7 @@ func ParseAllowListJSON(allowListFile string, queryClient evmtypes.QueryClient) 
 	}
 
 	addressMap := make(map[string]struct{})
-	var uniqueAddresses []string
+	uniqueAddresses := []string{}
 	for _, addr := range allowList.Addresses {
 		if _, exists := addressMap[addr]; exists {
 			continue // Skip duplicate addresses
