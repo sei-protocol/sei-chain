@@ -274,20 +274,28 @@ func ParseAllowListJSON(allowListFile string, queryClient evmtypes.QueryClient) 
 		return allowList, err
 	}
 
-	for i, addr := range allowList.Addresses {
+	addressMap := make(map[string]struct{})
+	var uniqueAddresses []string
+	for _, addr := range allowList.Addresses {
+		if _, exists := addressMap[addr]; exists {
+			continue // Skip duplicate addresses
+		}
+		addressMap[addr] = struct{}{}
+
 		if common.IsHexAddress(addr) {
 			res, err := queryClient.SeiAddressByEVMAddress(context.Background(), &evmtypes.QuerySeiAddressByEVMAddressRequest{EvmAddress: addr})
 			if err != nil {
 				return allowList, err
 			}
-
-			allowList.Addresses[i] = res.SeiAddress
+			uniqueAddresses = append(uniqueAddresses, res.SeiAddress)
 			continue
 		}
 		if _, err := sdk.AccAddressFromBech32(addr); err != nil {
 			return allowList, fmt.Errorf("invalid address %s: %w", addr, err)
 		}
+		uniqueAddresses = append(uniqueAddresses, addr)
 	}
 
+	allowList.Addresses = uniqueAddresses
 	return allowList, nil
 }

@@ -117,6 +117,16 @@ func TestParseAllowListJSON(t *testing.T) {
 		Addresses: []string{addr1.String(), "sei1u8j4gaxyzhg39dk848q5w9h53tgggpcx74m762"},
 	}
 	require.Equal(t, expectedResult, allowListWithConvertedAddress)
+
+	// Duplicate address in the list
+	duplicateAddress := fmt.Sprintf(`{"addresses": ["%s", "%s", "%s"]}`, addr1, addr1, addr2)
+	duplicateAddressInJsonFile := testutil.WriteToNewTempFile(t, duplicateAddress)
+	allowList, err = ParseAllowListJSON(duplicateAddressInJsonFile.Name(), mockQueryClient)
+	expectedResult = banktypes.AllowList{
+		Addresses: []string{addr1.String(), addr2.String()},
+	}
+	require.NoError(t, err)
+	require.Equal(t, expectedResult, allowList)
 }
 
 func TestNewCreateDenomCmd_AllowList(t *testing.T) {
