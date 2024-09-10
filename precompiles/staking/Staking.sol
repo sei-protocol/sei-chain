@@ -28,7 +28,7 @@ interface IStaking {
     function delegation(
         address delegator,
         string memory valAddress
-    ) external view returns (Delegation delegation);
+    ) external view returns (Delegation memory delegation);
 
     struct Delegation {
         Balance balance;
