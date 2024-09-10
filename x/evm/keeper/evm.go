@@ -95,7 +95,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		Nonce:             stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
 		GasLimit:          k.getEvmGasLimitFromCtx(ctx),
 		GasPrice:          utils.Big0, // fees are already paid on the CW transaction
-		GasFeeCap:         utils.Big0,
+		GasFeeCap:         big.NewInt(100000000000),
 		GasTipCap:         utils.Big0,
 		To:                to,
 		Value:             value,

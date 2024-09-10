@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"math/big"
 	"os"
 	"testing"
@@ -75,10 +74,7 @@ func TestEVMTransaction(t *testing.T) {
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000)))
-	fmt.Println("In TestEVMTransaction, evmAddr = ", evmAddr, ", amt = ", amt)
-	fmt.Println("In TestEVMTransaction, minting coins to module = ", types.ModuleName)
 	k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000))))
-	fmt.Println("In TestEVMTransaction, minting coins to evmAddr = ", evmAddr)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt)
 
 	msgServer := keeper.NewMsgServerImpl(k)
@@ -96,7 +92,6 @@ func TestEVMTransaction(t *testing.T) {
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
 	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
-	fmt.Println("In TestEVMTransaction, coinbase addr = ", state.GetCoinbaseAddress(ctx.TxIndex()))
 	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64())
 	require.NoError(t, k.FlushTransientReceipts(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))

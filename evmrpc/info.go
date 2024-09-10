@@ -82,21 +82,14 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	if len(feeHist.Reward) == 0 || len(feeHist.Reward[0]) == 0 {
 		// if there is no EVM tx in the most recent block, return the minimum fee param
 		baseFee := i.keeper.GetMinimumFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
-		fmt.Println("JEREMYDEBUG: eth_gasPrice, min base fee = ", baseFee)
 		return (*hexutil.Big)(baseFee), nil
 	}
 	baseFee := i.keeper.GetDynamicBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
-	fmt.Println("JEREMYDEBUG: eth_gasPrice, baseFee = ", baseFee)
-	reward := feeHist.Reward[0][0].ToInt()
-	fmt.Println("JEREMYDEBUG: eth_gasPrice, reward = ", reward)
 	sum := new(big.Int).Add(
 		feeHist.Reward[0][0].ToInt(),
 		baseFee,
 	)
-	fmt.Println("JEREMYDEBUG: eth_gasPrice, sum = ", sum)
-	res := (*hexutil.Big)(sum)
-	fmt.Println("JEREMYDEBUG: eth_gasPrice, res = ", res)
-	return res, nil
+	return (*hexutil.Big)(sum), nil
 }
 
 // lastBlock is inclusive
