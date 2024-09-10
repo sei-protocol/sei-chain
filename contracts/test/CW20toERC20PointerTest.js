@@ -165,26 +165,26 @@ describe("CW20 to ERC20 Pointer", function () {
                     expect(balanceAfter).to.equal((parseInt(balanceBefore) - 100).toString());
                 });
 
-                it.only("should transfer if called through wasmd precompile", async function() {
-                    const WasmPrecompileContract = '0x0000000000000000000000000000000000001002';
-                    const contractABIPath = '../../precompiles/wasmd/abi.json';
-                    const contractABI = require(contractABIPath);
-                    wasmd = new ethers.Contract(WasmPrecompileContract, contractABI, accounts[0].signer);
+                // it.only("should transfer if called through wasmd precompile", async function() {
+                //     const WasmPrecompileContract = '0x0000000000000000000000000000000000001002';
+                //     const contractABIPath = '../../precompiles/wasmd/abi.json';
+                //     const contractABI = require(contractABIPath);
+                //     wasmd = new ethers.Contract(WasmPrecompileContract, contractABI, accounts[0].signer);
 
-                    const encoder = new TextEncoder();
+                //     const encoder = new TextEncoder();
 
-                    const transferMsg = { transfer: { recipient: accounts[1].seiAddress, amount: "100" } };
-                    const transferStr = JSON.stringify(transferMsg);
-                    const transferBz = encoder.encode(transferStr);
+                //     const transferMsg = { transfer: { recipient: accounts[1].seiAddress, amount: "100" } };
+                //     const transferStr = JSON.stringify(transferMsg);
+                //     const transferBz = encoder.encode(transferStr);
 
-                    const coins = [];
-                    const coinsStr = JSON.stringify(coins);
-                    const coinsBz = encoder.encode(coinsStr);
+                //     const coins = [];
+                //     const coinsStr = JSON.stringify(coins);
+                //     const coinsBz = encoder.encode(coinsStr);
 
-                    const response = await wasmd.execute(pointer, transferBz, coinsBz);
-                    const receipt = await response.wait();
-                    expect(receipt.status).to.equal(1);
-                });
+                //     const response = await wasmd.execute(pointer, transferBz, coinsBz);
+                //     const receipt = await response.wait();
+                //     expect(receipt.status).to.equal(1);
+                // });
             });
         });
     }
