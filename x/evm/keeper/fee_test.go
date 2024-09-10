@@ -74,7 +74,8 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 			k.SetParams(ctx, p)
 			k.AdjustDynamicBaseFeePerGas(ctx, tc.blockGasUsed)
 			expected := sdk.NewDecFromInt(sdk.NewInt(int64(tc.expectedBaseFee)))
-			require.Equal(t, expected, k.GetDynamicBaseFeePerGas(ctx), "base fee did not match expected value")
+			height := ctx.BlockHeight()
+			require.Equal(t, expected, k.GetDynamicBaseFeePerGas(ctx.WithBlockHeight(height + 1)), "base fee did not match expected value")
 		})
 	}
 }
