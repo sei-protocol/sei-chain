@@ -68,3 +68,17 @@ func (k Keeper) validateCreateDenom(ctx sdk.Context, creatorAddr string, subdeno
 
 	return denom, nil
 }
+
+func (k Keeper) validateUpdateDenom(ctx sdk.Context, creatorAddr string, subdenom string) (tokenDenom string, err error) {
+	denom, err := types.GetTokenDenom(creatorAddr, subdenom)
+	if err != nil {
+		return "", err
+	}
+
+	_, found := k.bankKeeper.GetDenomMetaData(ctx, denom)
+	if !found {
+		return "", types.ErrDenomDoesNotExist.Wrapf("denom: %s", denom)
+	}
+
+	return denom, nil
+}

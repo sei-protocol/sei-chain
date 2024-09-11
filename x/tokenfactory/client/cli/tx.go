@@ -38,6 +38,7 @@ func GetTxCmd() *cobra.Command {
 
 	cmd.AddCommand(
 		NewCreateDenomCmd(),
+		NewUpdateDenomCmd(),
 		NewMintCmd(),
 		NewBurnCmd(),
 		NewChangeAdminCmd(),
@@ -85,6 +86,57 @@ func NewCreateDenomCmd() *cobra.Command {
 				}
 				msg.AllowList = &allowList
 			}
+
+			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+	cmd.Flags().String(FlagAllowList, "", "Path to the allow list JSON file with an array of addresses "+
+		"that are allowed to send/receive the token. The file should have the following format: {\"addresses\": "+
+		"[\"addr1\", \"addr2\"]}, where addr1 and addr2 are bech32 Sei native addresses.")
+	return cmd
+}
+
+// NewUpdateDenomCmd broadcast MsgUpdateDenom
+func NewUpdateDenomCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update-denom [subdenom] [flags]",
+		Short: "update a denom from an account",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := evmtypes.NewQueryClient(queryClientCtx)
+
+			allowListFilePath, err := cmd.Flags().GetString(FlagAllowList)
+			if err != nil {
+				return err
+			}
+
+			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
+
+			// only parse allow list if it is provided
+			if allowListFilePath == "" {
+				return fmt.Errorf("allow list file path is required")
+			}
+			// Parse the allow list
+			allowList, err := ParseAllowListJSON(allowListFilePath, queryClient)
+			if err != nil {
+				return err
+			}
+
+			msg := types.NewMsgUpdateDenom(
+				clientCtx.GetFromAddress().String(),
+				args[0],
+				allowList,
+			)
 
 			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
 		},

@@ -9,6 +9,7 @@ import (
 // constants
 const (
 	TypeMsgCreateDenom      = "create_denom"
+	TypeMsgUpdateDenom      = "update_denom"
 	TypeMsgMint             = "mint"
 	TypeMsgBurn             = "burn"
 	TypeMsgChangeAdmin      = "change_admin"
@@ -46,6 +47,42 @@ func (m MsgCreateDenom) GetSignBytes() []byte {
 }
 
 func (m MsgCreateDenom) GetSigners() []sdk.AccAddress {
+	sender, _ := sdk.AccAddressFromBech32(m.Sender)
+	return []sdk.AccAddress{sender}
+}
+
+var _ sdk.Msg = &MsgUpdateDenom{}
+
+// NewMsgUpdateDenom creates a msg to update denom
+func NewMsgUpdateDenom(sender, subdenom string, allowList banktypes.AllowList) *MsgUpdateDenom {
+	return &MsgUpdateDenom{
+		Sender:    sender,
+		Subdenom:  subdenom,
+		AllowList: &allowList,
+	}
+}
+
+func (m MsgUpdateDenom) Route() string { return RouterKey }
+func (m MsgUpdateDenom) Type() string  { return TypeMsgUpdateDenom }
+func (m MsgUpdateDenom) ValidateBasic() error {
+	_, err := sdk.AccAddressFromBech32(m.Sender)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+	}
+
+	_, err = GetTokenDenom(m.Sender, m.Subdenom)
+	if err != nil {
+		return sdkerrors.Wrap(ErrInvalidDenom, err.Error())
+	}
+
+	return nil
+}
+
+func (m MsgUpdateDenom) GetSignBytes() []byte {
+	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(&m))
+}
+
+func (m MsgUpdateDenom) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.Sender)
 	return []sdk.AccAddress{sender}
 }
