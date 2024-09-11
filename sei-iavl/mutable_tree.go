@@ -556,8 +556,6 @@ func (tree *MutableTree) LazyLoadVersion(targetVersion int64) (toReturn int64, t
 		}
 	}()
 
-	tree.versions[targetVersion] = true
-
 	iTree := &ImmutableTree{
 		ndb:                    tree.ndb,
 		version:                targetVersion,
@@ -940,7 +938,7 @@ func (tree *MutableTree) SaveVersion() ([]byte, int64, error) {
 	// Mtx is already held at this point
 	clone := tree.ITree.clone()
 	clone.version = version
-	tree.versions[version] = true
+	tree.ndb.resetLatestVersion(version)
 
 	// set new working tree
 	tree.ITree = clone
@@ -1170,10 +1168,6 @@ func (tree *MutableTree) DeleteVersionsRange(fromVersion, toVersion int64) error
 		return err
 	}
 
-	for version := fromVersion; version < toVersion; version++ {
-		delete(tree.versions, version)
-	}
-
 	return nil
 }
 
@@ -1193,7 +1187,6 @@ func (tree *MutableTree) DeleteVersion(version int64) error {
 		return err
 	}
 
-	delete(tree.versions, version)
 	return nil
 }
 
