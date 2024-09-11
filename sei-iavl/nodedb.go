@@ -10,11 +10,12 @@ import (
 	"strings"
 	"sync"
 
+	corestore "cosmossdk.io/core/store"
+	"github.com/cosmos/iavl/cache"
+	ibytes "github.com/cosmos/iavl/internal/bytes"
+	"github.com/cosmos/iavl/internal/logger"
 	"github.com/pkg/errors"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/cosmos/iavl/cache"
-	"github.com/cosmos/iavl/internal/logger"
 )
 
 const (
@@ -76,6 +77,7 @@ type nodeDB struct {
 	opts           Options          // Options to customize for pruning/writing
 	versionReaders map[int64]uint32 // Number of active version readers
 	storageVersion string           // Storage version
+	firstVersion   int64            // First version of nodeDB.
 	latestVersion  int64            // Latest version of nodeDB.
 	nodeCache      cache.Cache      // Cache for nodes in the regular tree that consists of key-value pairs at any version.
 	fastNodeCache  cache.Cache      // Cache for nodes in the fast index that represents only key-value pairs at the latest version.
@@ -97,6 +99,7 @@ func newNodeDB(db dbm.DB, cacheSize int, opts *Options) *nodeDB {
 		db:             db,
 		batch:          db.NewBatch(),
 		opts:           *opts,
+		firstVersion:   0,
 		latestVersion:  0, // initially invalid
 		nodeCache:      cache.New(cacheSize),
 		fastNodeCache:  cache.New(fastNodeCacheSize),
@@ -738,6 +741,68 @@ func (ndb *nodeDB) getLatestVersion() (int64, error) {
 	return ndb.latestVersion, nil
 }
 
+// Get the iterator for a given prefix.
+func (ndb *nodeDB) getPrefixIterator(prefix []byte) (corestore.Iterator, error) {
+	var start, end []byte
+	if len(prefix) == 0 {
+		start = nil
+		end = nil
+	} else {
+		start = ibytes.Cp(prefix)
+		end = ibytes.CpIncr(prefix)
+	}
+
+	return ndb.db.Iterator(start, end)
+}
+
+func (ndb *nodeDB) getFirstVersion() (int64, error) {
+	ndb.mtx.Lock()
+	firstVersion := ndb.firstVersion
+	ndb.mtx.Unlock()
+
+	if firstVersion > 0 {
+		return firstVersion, nil
+	}
+
+	// Check if we have a legacy version
+	itr, err := ndb.getPrefixIterator(rootKeyFormat.Key())
+	if err != nil {
+		return 0, err
+	}
+	defer itr.Close()
+	if itr.Valid() {
+		var version int64
+		rootKeyFormat.Scan(itr.Key(), &version)
+		return version, nil
+	}
+	// Find the first version
+	latestVersion, err := ndb.getLatestVersion()
+	if err != nil {
+		return 0, err
+	}
+	for firstVersion < latestVersion {
+		version := (latestVersion + firstVersion) >> 1
+		has, err := ndb.hasVersion(version)
+		if err != nil {
+			return 0, err
+		}
+		if has {
+			latestVersion = version
+		} else {
+			firstVersion = version + 1
+		}
+	}
+	ndb.resetFirstVersion(latestVersion)
+
+	return latestVersion, nil
+}
+
+func (ndb *nodeDB) resetFirstVersion(version int64) {
+	ndb.mtx.Lock()
+	defer ndb.mtx.Unlock()
+	ndb.firstVersion = version
+}
+
 func (ndb *nodeDB) updateLatestVersion(version int64) {
 	if ndb.latestVersion < version {
 		ndb.latestVersion = version
@@ -894,6 +959,11 @@ func (ndb *nodeDB) Commit() error {
 
 func (ndb *nodeDB) HasRoot(version int64) (bool, error) {
 	return ndb.db.Has(ndb.rootKey(version))
+}
+
+// hasVersion checks if the given version exists.
+func (ndb *nodeDB) hasVersion(version int64) (bool, error) {
+	return ndb.HasRoot(version)
 }
 
 func (ndb *nodeDB) getRoot(version int64) ([]byte, error) {
