@@ -27,6 +27,38 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v5.8.0
+sei-chain
+* [#1840](https://github.com/sei-protocol/sei-chain/pull/1840) Add migration for new params
+* [#1837](https://github.com/sei-protocol/sei-chain/pull/1837) Move token id from Data to Topic in ERC721 Event
+* [#1836](https://github.com/sei-protocol/sei-chain/pull/1836) Properly handle gas in pointer precompile
+* [#1835](https://github.com/sei-protocol/sei-chain/pull/1835) Check TX nonce before registering hook to bump nonce for failed tx
+* [#1832](https://github.com/sei-protocol/sei-chain/pull/1832) Show CW transactions that have synthetic EVM events in eth_getBlock response
+* [#1831](https://github.com/sei-protocol/sei-chain/pull/1831) Fork event manager when creating EVM snapshots
+* [#1830](https://github.com/sei-protocol/sei-chain/pull/1830) Add wasm contract query gas limit
+* [#1826](https://github.com/sei-protocol/sei-chain/pull/1826) limit MsgExec max nested level
+* [#1821](https://github.com/sei-protocol/sei-chain/pull/1821) Add antehandler for EVM to check gas exceed limit or not
+* [#1818](https://github.com/sei-protocol/sei-chain/pull/1818) Prevent ddos against associate msgs
+* [#1816](https://github.com/sei-protocol/sei-chain/pull/1816) Actually remove dex module
+* [#1813](https://github.com/sei-protocol/sei-chain/pull/1813) Tune Configs
+* [#1812](https://github.com/sei-protocol/sei-chain/pull/1812) Evidence Max Bytes Update
+* [#1785](https://github.com/sei-protocol/sei-chain/pull/1785) Allow CW->ERC pointers to be called through wasmd precompile
+* [#1778](https://github.com/sei-protocol/sei-chain/pull/1778) Bump nonce even if tx fails
+
+sei-cosmos
+* [#535](https://github.com/sei-protocol/sei-cosmos/pull/535) init app earliest version correctly after state sync
+* [#534](https://github.com/sei-protocol/sei-cosmos/pull/534) Stop executing the handler when proposal is submitted
+* [#533](https://github.com/sei-protocol/sei-cosmos/pull/533) Delete kvstore specified in store upgrades
+* [#532](https://github.com/sei-protocol/sei-cosmos/pull/532) Add max gas limit check in ante handler
+* [#528](https://github.com/sei-protocol/sei-cosmos/pull/528) Add logs for snapshot export and impor
+
+sei-wasmd
+* [63](https://github.com/sei-protocol/sei-wasmd/pull/63) Add CW dispatch call depth
+* [62](https://github.com/sei-protocol/sei-wasmd/pull/62) Patch Gas mispricing in CW VM
+
+sei-tendermint
+* [#242](https://github.com/sei-protocol/sei-tendermint/pull/242) Allow hyphen in event query
+
 ## v5.7.5
 sei-chain
 * [#1795](https://github.com/sei-protocol/sei-chain/pull/1795) Do not charge gas for feecollector address query
