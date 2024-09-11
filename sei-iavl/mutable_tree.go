@@ -633,13 +633,76 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (toReturn int64, toErr
 	if rootNodeKey != nil {
 		t.root, err = tree.ndb.GetNode(rootNodeKey)
 		if err != nil {
-			return 0, err
+			return tree.LegacyLoadVersion(targetVersion)
 		}
 	}
+
 	tree.orphans = map[string]int64{}
 	tree.ITree = t // Mtx is already held
 	tree.lastSaved = t.clone()
 
+	return latestVersion, nil
+}
+
+// Returns the version number of the latest version found
+func (tree *MutableTree) LegacyLoadVersion(targetVersion int64) (toReturn int64, toErr error) {
+	roots, err := tree.ndb.getRoots()
+	fmt.Printf("[Debug] Found %d roots]\n", len(roots))
+	if err != nil {
+		return 0, err
+	}
+
+	if len(roots) == 0 {
+		if targetVersion <= 0 {
+			if !tree.skipFastStorageUpgrade {
+				_, err := tree.enableFastStorageAndCommitIfNotEnabled()
+				return 0, err
+			}
+			return 0, nil
+		}
+		return 0, fmt.Errorf("no versions found while trying to load %v", targetVersion)
+	}
+
+	firstVersion := int64(0)
+	latestVersion := int64(0)
+
+	var latestRoot []byte
+	for version, r := range roots {
+		if version > latestVersion && (targetVersion == 0 || version <= targetVersion) {
+			latestVersion = version
+			latestRoot = r
+		}
+		if firstVersion == 0 || version < firstVersion {
+			firstVersion = version
+		}
+	}
+
+	if !(targetVersion == 0 || latestVersion == targetVersion) {
+		return latestVersion, fmt.Errorf("wanted to load target %v but only found up to %v",
+			targetVersion, latestVersion)
+	}
+
+	if firstVersion > 0 && firstVersion < int64(tree.ndb.opts.InitialVersion) {
+		return latestVersion, fmt.Errorf("initial version set to %v, but found earlier version %v",
+			tree.ndb.opts.InitialVersion, firstVersion)
+	}
+
+	t := &ImmutableTree{
+		ndb:                    tree.ndb,
+		version:                latestVersion,
+		skipFastStorageUpgrade: tree.skipFastStorageUpgrade,
+	}
+
+	if len(latestRoot) != 0 {
+		t.root, err = tree.ndb.GetNode(latestRoot)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	tree.orphans = map[string]int64{}
+	tree.ITree = t // Mtx is already held
+	tree.lastSaved = t.clone()
 	return latestVersion, nil
 }
 
