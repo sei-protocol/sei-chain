@@ -531,6 +531,10 @@ func (ndb *nodeDB) DeleteVersionsRange(fromVersion, toVersion int64) error {
 	if err != nil {
 		return err
 	}
+	first, err := ndb.getFirstVersion()
+	if err != nil {
+		return err
+	}
 	if latest < toVersion {
 		return errors.Errorf("cannot delete latest saved version (%d)", latest)
 	}
@@ -579,6 +583,15 @@ func (ndb *nodeDB) DeleteVersionsRange(fromVersion, toVersion int64) error {
 		}
 		return nil
 	})
+
+	if first <= toVersion && first >= fromVersion {
+		// Reset first version if we are deleting all versions from first -> toVersion
+		ndb.resetFirstVersion(toVersion + 1)
+	}
+	if latest <= toVersion {
+		// Reset latest version if we are deleting all versions from fromVersion -> latest
+		ndb.resetLatestVersion(fromVersion + 1)
+	}
 
 	if err != nil {
 		return err
