@@ -27,6 +27,24 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v5.7.5
+sei-chain
+* [#1795](https://github.com/sei-protocol/sei-chain/pull/1795) Do not charge gas for feecollector address query
+* [#1782](https://github.com/sei-protocol/sei-chain/pull/1782) Update excessBlobGas and BlobBaseFee to fix simulate evmcontext
+* [#1741](https://github.com/sei-protocol/sei-chain/pull/1782) Update excessBlobGas and BlobBaseFee to fix simulate evmcontext
+
+sei-cosmos
+* [#530](https://github.com/sei-protocol/sei-cosmos/pull/530) Add EVMEntryViaWasmdPrecompile flag
+* [#519](https://github.com/sei-protocol/sei-cosmos/pull/519) Genesis export stream
+* [#529](https://github.com/sei-protocol/sei-cosmos/pull/529) Add DeliverTx callback
+* [#528](https://github.com/sei-protocol/sei-cosmos/pull/528) Add logs for snapshot export and import
+
+sei-wasmd
+* [58](https://github.com/sei-protocol/sei-wasmd/pull/58) Genesis Export OOM
+
+sei-tendermint
+* [#239](https://github.com/sei-protocol/sei-tendermint/pull/239) Use Marshal and UnmarshalJSON For HexBytes
+
 ## v5.7.1 & v5.7.2
 sei-chain
 * [#1779](https://github.com/sei-protocol/sei-chain/pull/1779) Fix subscribe logs empty params crash
