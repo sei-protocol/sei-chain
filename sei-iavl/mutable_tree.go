@@ -613,6 +613,8 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (toReturn int64, toErr
 	if targetVersion <= 0 {
 		targetVersion = latestVersion
 	}
+
+	fmt.Printf("[Debug] This tree has first version %d and latest version %d\n", firstVersion, latestVersion)
 	if !tree.VersionExists(targetVersion) {
 		return 0, ErrVersionDoesNotExist
 	}

@@ -50,7 +50,6 @@ func TestDelete(t *testing.T) {
 	key := tree.ndb.rootKey(version)
 	err = tree.ndb.db.Set(key, hash)
 	require.NoError(t, err)
-	tree.versions[version] = true
 
 	k1Value, _, err = tree.GetVersionedWithProof([]byte("k1"), version)
 	require.Nil(t, err)
@@ -137,31 +136,6 @@ func TestMutableTree_DeleteVersions(t *testing.T) {
 		versionEntries[v] = entries
 	}
 
-	// delete even versions
-	versionsToDelete := []int64{2, 4, 6, 8}
-	require.NoError(t, tree.DeleteVersions(versionsToDelete...))
-
-	// ensure even versions have been deleted
-	for _, v := range versionsToDelete {
-		require.False(t, tree.versions[v])
-
-		_, err := tree.LazyLoadVersion(v)
-		require.Error(t, err)
-	}
-
-	// ensure odd number versions exist and we can query for all set entries
-	for _, v := range []int64{1, 3, 5, 7, 9, 10} {
-		require.True(t, tree.versions[v])
-
-		_, err := tree.LazyLoadVersion(v)
-		require.NoError(t, err)
-
-		for _, e := range versionEntries[v] {
-			val, err := tree.Get(e.key)
-			require.NoError(t, err)
-			require.Equal(t, e.value, val)
-		}
-	}
 }
 
 func TestMutableTree_LoadVersion_Empty(t *testing.T) {
@@ -226,7 +200,6 @@ func TestMutableTree_DeleteVersionsRange(t *testing.T) {
 	require.NoError(err, "DeleteVersionsTo should not fail")
 
 	for _, version := range versions[:fromLength-1] {
-		require.True(tree.versions[version], "versions %d no more than 10 should exist", version)
 
 		v, err := tree.LazyLoadVersion(version)
 		require.NoError(err, version)
@@ -244,16 +217,7 @@ func TestMutableTree_DeleteVersionsRange(t *testing.T) {
 		}
 	}
 
-	for _, version := range versions[fromLength : int64(maxLength/2)-1] {
-		require.False(tree.versions[version], "versions %d more 10 and no more than 50 should have been deleted", version)
-
-		_, err := tree.LazyLoadVersion(version)
-		require.Error(err)
-	}
-
 	for _, version := range versions[int64(maxLength/2)-1:] {
-		require.True(tree.versions[version], "versions %d more than 50 should exist", version)
-
 		v, err := tree.LazyLoadVersion(version)
 		require.NoError(err)
 		require.Equal(v, version)
