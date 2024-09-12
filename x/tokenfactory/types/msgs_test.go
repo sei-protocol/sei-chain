@@ -2,6 +2,7 @@ package types_test
 
 import (
 	"fmt"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -61,6 +62,71 @@ func TestMsgCreateDenom(t *testing.T) {
 		{
 			name: "invalid subdenom",
 			msg: createMsg(func(msg types.MsgCreateDenom) types.MsgCreateDenom {
+				msg.Subdenom = "thissubdenomismuchtoolongasdkfjaasdfdsafsdlkfnmlksadmflksmdlfmlsakmfdsafasdfasdf"
+				return msg
+			}),
+			expectPass: false,
+		},
+	}
+
+	for _, test := range tests {
+		if test.expectPass {
+			require.NoError(t, test.msg.ValidateBasic(), "test: %v", test.name)
+		} else {
+			require.Error(t, test.msg.ValidateBasic(), "test: %v", test.name)
+		}
+	}
+}
+
+func TestMsgUpdateDenom(t *testing.T) {
+	// generate a private/public key pair and get the respective address
+	pk1 := ed25519.GenPrivKey().PubKey()
+	addr1 := sdk.AccAddress(pk1.Address())
+
+	// make a proper createDenom message
+	updateMsg := func(after func(msg types.MsgUpdateDenom) types.MsgUpdateDenom) types.MsgUpdateDenom {
+		properMsg := *types.NewMsgUpdateDenom(
+			addr1.String(),
+			"bitcoin",
+			&banktypes.AllowList{Addresses: []string{addr1.String()}},
+		)
+
+		return after(properMsg)
+	}
+
+	// validate updateDenom message was created as intended
+	msg := updateMsg(func(msg types.MsgUpdateDenom) types.MsgUpdateDenom {
+		return msg
+	})
+	require.Equal(t, msg.Route(), types.RouterKey)
+	require.Equal(t, "update_denom", msg.Type())
+	signers := msg.GetSigners()
+	require.Equal(t, len(signers), 1)
+	require.Equal(t, signers[0].String(), addr1.String())
+
+	tests := []struct {
+		name       string
+		msg        types.MsgUpdateDenom
+		expectPass bool
+	}{
+		{
+			name: "proper msg",
+			msg: updateMsg(func(msg types.MsgUpdateDenom) types.MsgUpdateDenom {
+				return msg
+			}),
+			expectPass: true,
+		},
+		{
+			name: "empty sender",
+			msg: updateMsg(func(msg types.MsgUpdateDenom) types.MsgUpdateDenom {
+				msg.Sender = ""
+				return msg
+			}),
+			expectPass: false,
+		},
+		{
+			name: "invalid subdenom",
+			msg: updateMsg(func(msg types.MsgUpdateDenom) types.MsgUpdateDenom {
 				msg.Subdenom = "thissubdenomismuchtoolongasdkfjaasdfdsafsdlkfnmlksadmflksmdlfmlsakmfdsafasdfasdf"
 				return msg
 			}),
