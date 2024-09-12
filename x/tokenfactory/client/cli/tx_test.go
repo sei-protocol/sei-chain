@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"google.golang.org/grpc"
+	"os"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,65 +69,100 @@ func (m *MockQueryClient) SeiAddressByEVMAddress(ctx context.Context, in *evmtyp
 	return &evmtypes.QuerySeiAddressByEVMAddressResponse{SeiAddress: "sei1u8j4gaxyzhg39dk848q5w9h53tgggpcx74m762"}, nil
 }
 
-func TestParseAllowListJSON(t *testing.T) {
-	addr1 := sdk.AccAddress("addr1_______________")
-	addr2 := sdk.AccAddress("addr2_______________")
-	allowListJSON := fmt.Sprintf(`{"addresses": ["%s", "%s"]}`, addr1, addr2)
-	tempFile := testutil.WriteToNewTempFile(t, allowListJSON)
+type MockErrorQueryClient struct {
+	evmtypes.QueryClient
+}
+
+func (m *MockErrorQueryClient) SeiAddressByEVMAddress(ctx context.Context, in *evmtypes.QuerySeiAddressByEVMAddressRequest, opts ...grpc.CallOption) (*evmtypes.QuerySeiAddressByEVMAddressResponse, error) {
+	return nil, fmt.Errorf("address is not associated")
+}
+
+func Test_ParseAllowListJSON(t *testing.T) {
 	mockQueryClient := &MockQueryClient{}
-	// Test parsing the allow list
-	allowList, err := ParseAllowListJSON(tempFile.Name(), mockQueryClient)
-	require.NoError(t, err)
-	expectedResult := banktypes.AllowList{
-		Addresses: []string{addr1.String(), addr2.String()},
+
+	seiAddr1 := sdk.AccAddress("sei1_______________").String()
+	seiAddr2 := sdk.AccAddress("sei2_______________").String()
+	evmAddr := "0x5c71b5577B9223d39ae0B7Dcb3f1BC8e1aC81f3e"
+	convertedSeiAddr := "sei1u8j4gaxyzhg39dk848q5w9h53tgggpcx74m762"
+
+	tests := []struct {
+		name    string
+		json    string
+		want    banktypes.AllowList
+		wantErr string
+		errMock bool
+	}{
+		{
+			name: "valid allow list with Sei addresses",
+			json: fmt.Sprintf(`{"addresses": ["%s", "%s"]}`, seiAddr1, seiAddr2),
+			want: banktypes.AllowList{Addresses: []string{seiAddr1, seiAddr2}},
+		},
+		{
+			name: "valid allow list with Sei and EVM addresses",
+			json: fmt.Sprintf(`{"addresses": ["%s", "%s", "%s"]}`, seiAddr1, seiAddr2, evmAddr),
+			want: banktypes.AllowList{Addresses: []string{seiAddr1, seiAddr2, convertedSeiAddr}},
+		},
+		{
+			name:    "invalid JSON",
+			json:    `{[}`,
+			wantErr: "invalid character '[' looking for beginning of object key string",
+		},
+		{
+			name:    "invalid Sei address",
+			json:    `{"addresses": ["invalid_sei_address"]}`,
+			wantErr: "invalid address invalid_sei_address: decoding bech32 failed:",
+		},
+		{
+			name:    "invalid EVM address",
+			json:    `{"addresses": ["0xinvalid_evm_address"]}`,
+			wantErr: "invalid address 0xinvalid_evm_address:",
+		},
+		{
+			name:    "EVM address not associated",
+			json:    fmt.Sprintf(`{"addresses": ["%s"]}`, evmAddr),
+			wantErr: "address is not associated",
+			errMock: true,
+		},
+		{
+			name: "empty allow list",
+			json: `{"addresses": []}`,
+			want: banktypes.AllowList{Addresses: []string{}},
+		},
+		{
+			name: "duplicate addresses",
+			json: fmt.Sprintf(`{"addresses": ["%s", "%s", "%s"]}`, seiAddr1, seiAddr1, seiAddr2),
+			want: banktypes.AllowList{Addresses: []string{seiAddr1, seiAddr2}},
+		},
 	}
 
-	require.Equal(t, expectedResult, allowList)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 
-	// Test with non-existent file
-	_, err = ParseAllowListJSON("non_existent_file.json", mockQueryClient)
-	require.Error(t, err)
-	require.Equal(t, "open non_existent_file.json: no such file or directory", err.Error())
+			tempFile := testutil.WriteToNewTempFile(t, tt.json)
+			defer os.Remove(tempFile.Name())
 
-	// Test with invalid JSON
-	invalidJsonFIle := testutil.WriteToNewTempFile(t, `{[}`)
-	_, err = ParseAllowListJSON(invalidJsonFIle.Name(), mockQueryClient)
-	require.Error(t, err)
-	require.Equal(t, "invalid character '[' looking for beginning of object key string", err.Error())
+			var m evmtypes.QueryClient
+			m = mockQueryClient
+			if tt.errMock {
+				m = &MockErrorQueryClient{}
+			}
 
-	// Empty list
-	emptyListFile := testutil.WriteToNewTempFile(t, `{[]}`)
-	allowList, err = ParseAllowListJSON(emptyListFile.Name(), mockQueryClient)
-	require.Equal(t, banktypes.AllowList{}, allowList)
-
-	// Invalid address in the list
-	invalidAddress := fmt.Sprintf(`{"addresses": ["%s", "nobech32"]}`, addr1)
-	invalidAddressInJsonFile := testutil.WriteToNewTempFile(t, invalidAddress)
-	_, err = ParseAllowListJSON(invalidAddressInJsonFile.Name(), mockQueryClient)
-	require.Error(t, err)
-	require.Equal(t, "invalid address nobech32: decoding bech32 failed: invalid separator index -1",
-		err.Error())
-
-	// Invalid address in the list
-	evmAddress := fmt.Sprintf(`{"addresses": ["%s", "0x5c71b5577B9223d39ae0B7Dcb3f1BC8e1aC81f3e"]}`, addr1)
-	evmAddressInJsonFile := testutil.WriteToNewTempFile(t, evmAddress)
-	allowListWithConvertedAddress, err := ParseAllowListJSON(evmAddressInJsonFile.Name(), mockQueryClient)
-	require.NoError(t, err)
-
-	expectedResult = banktypes.AllowList{
-		Addresses: []string{addr1.String(), "sei1u8j4gaxyzhg39dk848q5w9h53tgggpcx74m762"},
+			got, err := ParseAllowListJSON(tempFile.Name(), m)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.want, got)
+			}
+		})
 	}
-	require.Equal(t, expectedResult, allowListWithConvertedAddress)
 
-	// Duplicate address in the list
-	duplicateAddress := fmt.Sprintf(`{"addresses": ["%s", "%s", "%s"]}`, addr1, addr1, addr2)
-	duplicateAddressInJsonFile := testutil.WriteToNewTempFile(t, duplicateAddress)
-	allowList, err = ParseAllowListJSON(duplicateAddressInJsonFile.Name(), mockQueryClient)
-	expectedResult = banktypes.AllowList{
-		Addresses: []string{addr1.String(), addr2.String()},
-	}
-	require.NoError(t, err)
-	require.Equal(t, expectedResult, allowList)
+	t.Run("non-existent file", func(t *testing.T) {
+		_, err := ParseAllowListJSON("non_existent_file.json", mockQueryClient)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no such file or directory")
+	})
 }
 
 func TestNewCreateDenomCmd_AllowList(t *testing.T) {
