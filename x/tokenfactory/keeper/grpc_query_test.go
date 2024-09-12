@@ -1,10 +1,14 @@
 package keeper_test
 
 import (
+	"context"
 	"fmt"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"reflect"
+	"testing"
 )
 
 func (suite *KeeperTestSuite) TestDenomMetadataRequest() {
@@ -149,6 +153,56 @@ func (suite *KeeperTestSuite) TestDenomAllowListRequest() {
 				suite.Require().NoError(err)
 				suite.Require().NotNil(res)
 				suite.Require().Equal(tc.expAllowList, res.AllowList)
+			}
+		})
+	}
+}
+
+func TestKeeper_DenomAllowList(t *testing.T) {
+	type args struct {
+		req *types.QueryDenomAllowListRequest
+		c   context.Context
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *types.QueryDenomAllowListResponse
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "nil request",
+			args: args{
+				req: nil,
+				c:   context.Background(),
+			},
+			wantErr: true,
+			errMsg:  "rpc error: code = InvalidArgument desc = empty request",
+		},
+		{
+			name: "empty denom",
+			args: args{
+				req: &types.QueryDenomAllowListRequest{},
+				c:   context.Background(),
+			},
+			wantErr: true,
+			errMsg:  "rpc error: code = InvalidArgument desc = invalid denom",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k := keeper.Keeper{}
+			got, err := k.DenomAllowList(tt.args.c, tt.args.req)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DenomAllowList() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && err != nil && err.Error() != tt.errMsg {
+				t.Errorf("DenomAllowList() error = %v, wantErr %v", err, tt.errMsg)
+				return
+			}
+			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("DenomAllowList() got = %v, want %v", got, tt.want)
 			}
 		})
 	}
