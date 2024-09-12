@@ -63,13 +63,6 @@ For a feature request, e.g. module inclusion, please make a GitHub issue. Clearl
 | **MEDIUM**   | Impacts minor features or exposes non-sensitive data                    |
 | **LOW**      | Minimal impact                                                          |
 
-## Bug Bounty
-
-Though we don't have an official bug bounty program, we generally offer rewards to security researchers who responsibly disclose vulnerabilities to us. Bounties are generally awarded for vulnerabilities classified as **high** or **critical** severity. Bounty amounts will be determined during the disclosure process, after the severity has been assessed.
-
-> [!WARNING]
-> Targeting our production environments will disqualify you from receiving any bounty.
-
 ## Feedback on this Policy
 
 For recommendations on how to improve this policy, either submit a pull request or email `protocol-eng@seinetwork.io`.
