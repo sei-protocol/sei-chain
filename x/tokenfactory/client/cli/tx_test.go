@@ -225,3 +225,64 @@ func TestNewCreateDenomCmd_AllowList(t *testing.T) {
 		})
 	}
 }
+
+func TestNewUpdateDenomCmd_AllowList(t *testing.T) {
+	// Setup codec and client context
+	cdc := codec.NewLegacyAmino()
+	clientCtx := client.Context{
+		LegacyAmino: cdc,
+	}
+
+	// Create a temporary command to test
+	cmd := NewUpdateDenomCmd()
+	cmd.SetContext(context.WithValue(context.Background(), client.ClientContextKey, &clientCtx))
+
+	// Create a temporary allow list JSON file with invalid content
+	jsonInvalidFile := testutil.WriteToNewTempFile(t, `{[}`)
+
+	// Define test cases
+	testCases := []struct {
+		name          string
+		args          []string
+		flags         []string
+		expectErr     bool
+		expectedError string
+	}{
+		{
+			name:          "command fails with invalid allow list",
+			args:          []string{"subdenom"},
+			flags:         []string{"--allow-list", jsonInvalidFile.Name()},
+			expectErr:     true,
+			expectedError: "invalid character '[' looking for beginning of object key string",
+		},
+		{
+			name:          "invalid: non-existent allow list file",
+			args:          []string{"subdenom"},
+			flags:         []string{"--allow-list", "non_existent_file.json"},
+			expectErr:     true,
+			expectedError: "open non_existent_file.json: no such file or directory",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Set command arguments and flags
+			cmd.SetArgs(append(tc.args, tc.flags...))
+
+			// Capture output
+			out := &bytes.Buffer{}
+			cmd.SetOut(out)
+
+			// Execute command
+			err := cmd.Execute()
+
+			// Check for expected errors
+			if tc.expectErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.expectedError)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
