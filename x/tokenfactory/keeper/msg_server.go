@@ -35,6 +35,10 @@ func (server msgServer) CreateDenom(goCtx context.Context, msg *types.MsgCreateD
 	)
 
 	if msg.AllowList != nil {
+		err = server.validateAllowListSize(*msg.AllowList)
+		if err != nil {
+			return nil, err
+		}
 		server.bankKeeper.SetDenomAllowList(ctx, denom, *msg.AllowList)
 		createDenomEvent = createDenomEvent.AppendAttributes(
 			sdk.NewAttribute(types.AttributeAllowList, strings.Join(msg.AllowList.Addresses, ",")),
@@ -53,9 +57,18 @@ func (server msgServer) CreateDenom(goCtx context.Context, msg *types.MsgCreateD
 func (server msgServer) UpdateDenom(goCtx context.Context, msg *types.MsgUpdateDenom) (*types.MsgUpdateDenomResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	denom, err := server.Keeper.validateUpdateDenom(ctx, msg.Sender, msg.GetSubdenom())
+	denom, err := server.Keeper.validateUpdateDenom(ctx, msg)
 	if err != nil {
 		return nil, err
+	}
+
+	authorityMetadata, err := server.Keeper.GetAuthorityMetadata(ctx, denom)
+	if err != nil {
+		return nil, err
+	}
+
+	if msg.Sender != authorityMetadata.GetAdmin() {
+		return nil, types.ErrUnauthorized
 	}
 
 	updateDenomEvent := sdk.NewEvent(
