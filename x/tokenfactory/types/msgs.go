@@ -54,11 +54,11 @@ func (m MsgCreateDenom) GetSigners() []sdk.AccAddress {
 var _ sdk.Msg = &MsgUpdateDenom{}
 
 // NewMsgUpdateDenom creates a msg to update denom
-func NewMsgUpdateDenom(sender, subdenom string, allowList banktypes.AllowList) *MsgUpdateDenom {
+func NewMsgUpdateDenom(sender, subdenom string, allowList *banktypes.AllowList) *MsgUpdateDenom {
 	return &MsgUpdateDenom{
 		Sender:    sender,
 		Subdenom:  subdenom,
-		AllowList: &allowList,
+		AllowList: allowList,
 	}
 }
 

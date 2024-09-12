@@ -89,6 +89,10 @@ func (k Keeper) validateUpdateDenom(ctx sdk.Context, msg *types.MsgUpdateDenom) 
 }
 
 func (k Keeper) validateAllowListSize(allowList *banktypes.AllowList) error {
+	if allowList == nil {
+		return types.ErrAllowListUndefined
+	}
+
 	if len(allowList.Addresses) > k.config.DenomAllowListMaxSize {
 		return types.ErrAllowListTooLarge
 	}

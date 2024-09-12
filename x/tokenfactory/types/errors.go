@@ -30,4 +30,5 @@ var (
 	ErrEncodingDenomsFromCreator      = sdkerrors.Register(ModuleName, 19, "Error encoding denoms from creator as JSON")
 	ErrUnknownSeiTokenFactoryQuery    = sdkerrors.Register(ModuleName, 23, "Error unknown sei token factory query")
 	ErrAllowListTooLarge              = sdkerrors.Register(ModuleName, 24, "allowlist too large")
+	ErrAllowListUndefined             = sdkerrors.Register(ModuleName, 25, "allowlist undefined")
 )

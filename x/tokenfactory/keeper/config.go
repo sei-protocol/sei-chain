@@ -14,13 +14,13 @@ var DefaultConfig = Config{
 }
 
 const (
-	flagDenomAllowListMaxSize = "tokenfactory.denom_allow_list_max_size"
+	FlagDenomAllowListMaxSize = "tokenfactory.denom_allow_list_max_size"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	cfg := DefaultConfig // copy
 	var err error
-	if v := opts.Get(flagDenomAllowListMaxSize); v != nil {
+	if v := opts.Get(FlagDenomAllowListMaxSize); v != nil {
 		if cfg.DenomAllowListMaxSize, err = cast.ToIntE(v); err != nil {
 			return cfg, err
 		}

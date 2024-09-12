@@ -136,7 +136,7 @@ func NewUpdateDenomCmd() *cobra.Command {
 			msg := types.NewMsgUpdateDenom(
 				clientCtx.GetFromAddress().String(),
 				args[0],
-				allowList,
+				&allowList,
 			)
 
 			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
