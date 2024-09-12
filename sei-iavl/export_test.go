@@ -1,6 +1,7 @@
 package iavl
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -201,7 +202,9 @@ func TestExporter_Import(t *testing.T) {
 			for {
 				item, err := exporter.Next()
 				if err == ExportDone {
+					fmt.Printf("Export done for %s, going to commit import\n", desc)
 					err = importer.Commit()
+					fmt.Printf("Import commit done for %s\n", desc)
 					require.NoError(t, err)
 					break
 				}
@@ -219,6 +222,7 @@ func TestExporter_Import(t *testing.T) {
 			require.Equal(t, tree.Size(), newTree.ImmutableTree().Size(), "Tree size mismatch")
 			require.Equal(t, tree.Version(), newTree.Version(), "Tree version mismatch")
 
+			fmt.Printf("Start iterating the tree for %s\n", desc)
 			tree.Iterate(func(key, value []byte) bool {
 				index, _, err := tree.GetWithIndex(key)
 				require.NoError(t, err)
@@ -228,6 +232,7 @@ func TestExporter_Import(t *testing.T) {
 				require.Equal(t, value, newValue, "Value mismatch for key %v", key)
 				return false
 			})
+			fmt.Printf("Done iterating the tree for %s\n", desc)
 		})
 	}
 }
