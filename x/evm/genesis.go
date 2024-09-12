@@ -26,6 +26,10 @@ func InitGenesis(ctx sdk.Context, k *keeper.Keeper, genState types.GenesisState)
 		k.SetNonce(ctx, common.HexToAddress(nonce.Address), nonce.Nonce)
 	}
 	for _, serialized := range genState.Serialized {
+		if len(serialized.Key) == 0 {
+			ctx.KVStore(k.GetStoreKey()).Set(serialized.Prefix, serialized.Value)
+			continue
+		}
 		k.PrefixStore(ctx, serialized.Prefix).Set(serialized.Key, serialized.Value)
 	}
 }
