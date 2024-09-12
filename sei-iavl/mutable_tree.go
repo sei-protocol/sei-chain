@@ -600,8 +600,6 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (toReturn int64, toErr
 	if firstVersion == 0 {
 		if targetVersion <= 0 {
 			if !tree.skipFastStorageUpgrade {
-				tree.Mtx.Lock()
-				defer tree.Mtx.Unlock()
 				_, err := tree.enableFastStorageAndCommitIfNotEnabled()
 				return 0, err
 			}
@@ -614,7 +612,6 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (toReturn int64, toErr
 		targetVersion = latestVersion
 	}
 
-	fmt.Printf("[Debug] This tree has first version %d and latest version %d\n", firstVersion, latestVersion)
 	if !tree.VersionExists(targetVersion) {
 		return 0, ErrVersionDoesNotExist
 	}
@@ -647,7 +644,6 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (toReturn int64, toErr
 // Returns the version number of the latest version found
 func (tree *MutableTree) LegacyLoadVersion(targetVersion int64) (toReturn int64, toErr error) {
 	roots, err := tree.ndb.getRoots()
-	fmt.Printf("[Debug] Found %d roots]\n", len(roots))
 	if err != nil {
 		return 0, err
 	}
