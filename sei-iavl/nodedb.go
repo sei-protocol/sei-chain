@@ -809,8 +809,6 @@ func (ndb *nodeDB) getFirstVersion() (int64, error) {
 }
 
 func (ndb *nodeDB) resetFirstVersion(version int64) {
-	ndb.mtx.Lock()
-	defer ndb.mtx.Unlock()
 	ndb.firstVersion = version
 }
 
