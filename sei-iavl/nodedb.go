@@ -769,9 +769,7 @@ func (ndb *nodeDB) getPrefixIterator(prefix []byte) (corestore.Iterator, error) 
 }
 
 func (ndb *nodeDB) getFirstVersion() (int64, error) {
-	ndb.mtx.Lock()
 	firstVersion := ndb.firstVersion
-	ndb.mtx.Unlock()
 
 	if firstVersion > 0 {
 		return firstVersion, nil
