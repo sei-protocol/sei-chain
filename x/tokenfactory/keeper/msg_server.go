@@ -35,7 +35,7 @@ func (server msgServer) CreateDenom(goCtx context.Context, msg *types.MsgCreateD
 	)
 
 	if msg.AllowList != nil {
-		err = server.validateAllowListSize(*msg.AllowList)
+		err = server.validateAllowList(msg.AllowList)
 		if err != nil {
 			return nil, err
 		}

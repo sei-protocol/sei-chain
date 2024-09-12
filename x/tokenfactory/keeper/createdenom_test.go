@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"fmt"
+
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -51,10 +52,11 @@ func (suite *KeeperTestSuite) TestMsgCreateDenom() {
 
 func (suite *KeeperTestSuite) TestCreateDenom() {
 	for _, tc := range []struct {
-		desc     string
-		setup    func()
-		subdenom string
-		valid    bool
+		desc      string
+		setup     func()
+		subdenom  string
+		allowList *banktypes.AllowList
+		valid     bool
 	}{
 		{
 			desc:     "subdenom too long",
@@ -80,13 +82,35 @@ func (suite *KeeperTestSuite) TestCreateDenom() {
 			subdenom: "bit/***///&&&/coin",
 			valid:    false,
 		},
+		{
+			desc:     "valid allow list",
+			subdenom: "withallowlist",
+			allowList: &banktypes.AllowList{
+				Addresses: []string{suite.TestAccs[0].String(), suite.TestAccs[1].String()},
+			},
+			valid: true,
+		},
+		{
+			desc:     "invalid allow list with invalid address",
+			subdenom: "invalidallowlist",
+			allowList: &banktypes.AllowList{
+				Addresses: []string{"invalid_address"},
+			},
+			valid: false,
+		},
 	} {
 		suite.Run(fmt.Sprintf("Case %s", tc.desc), func() {
 			if tc.setup != nil {
 				tc.setup()
 			}
+
+			msg := types.NewMsgCreateDenom(suite.TestAccs[0].String(), tc.subdenom)
+			if tc.allowList != nil {
+				msg.AllowList = tc.allowList
+			}
+
 			// Create a denom
-			res, err := suite.msgServer.CreateDenom(sdk.WrapSDKContext(suite.Ctx), types.NewMsgCreateDenom(suite.TestAccs[0].String(), tc.subdenom))
+			res, err := suite.msgServer.CreateDenom(sdk.WrapSDKContext(suite.Ctx), msg)
 			if tc.valid {
 				suite.Require().NoError(err)
 
@@ -97,6 +121,7 @@ func (suite *KeeperTestSuite) TestCreateDenom() {
 
 				suite.Require().NoError(err)
 				suite.Require().Equal(suite.TestAccs[0].String(), queryRes.AuthorityMetadata.Admin)
+
 				// Make sure that the denom is valid from the perspective of x/bank
 				bankQueryRes, err := suite.bankQueryClient.DenomMetadata(suite.Ctx.Context(), &banktypes.QueryDenomMetadataRequest{
 					Denom: res.GetNewTokenDenom(),
@@ -104,6 +129,15 @@ func (suite *KeeperTestSuite) TestCreateDenom() {
 
 				suite.Require().NoError(err)
 				suite.Require().NoError(bankQueryRes.Metadata.Validate())
+
+				// Verify the allow list if provided
+				if tc.allowList != nil {
+					allowListRes, err := suite.queryClient.DenomAllowList(suite.Ctx.Context(), &types.QueryDenomAllowListRequest{
+						Denom: res.GetNewTokenDenom(),
+					})
+					suite.Require().NoError(err)
+					suite.Require().Equal(tc.allowList, allowListRes.AllowList)
+				}
 			} else {
 				suite.Require().Error(err)
 			}

@@ -80,7 +80,7 @@ func (k Keeper) validateUpdateDenom(ctx sdk.Context, msg *types.MsgUpdateDenom) 
 		return "", types.ErrDenomDoesNotExist.Wrapf("denom: %s", denom)
 	}
 
-	err = k.validateAllowListSize(*msg.AllowList)
+	err = k.validateAllowList(msg.AllowList)
 	if err != nil {
 		return "", err
 	}
@@ -88,9 +88,24 @@ func (k Keeper) validateUpdateDenom(ctx sdk.Context, msg *types.MsgUpdateDenom) 
 	return denom, nil
 }
 
-func (k Keeper) validateAllowListSize(allowList banktypes.AllowList) error {
+func (k Keeper) validateAllowListSize(allowList *banktypes.AllowList) error {
 	if len(allowList.Addresses) > k.config.DenomAllowListMaxSize {
 		return types.ErrAllowListTooLarge
+	}
+	return nil
+}
+
+func (k Keeper) validateAllowList(allowList *banktypes.AllowList) error {
+	err := k.validateAllowListSize(allowList)
+	if err != nil {
+		return err
+	}
+
+	// validate all addresses in the allow list are bech32
+	for _, addr := range allowList.Addresses {
+		if _, err = sdk.AccAddressFromBech32(addr); err != nil {
+			return fmt.Errorf("invalid address %s: %w", addr, err)
+		}
 	}
 	return nil
 }

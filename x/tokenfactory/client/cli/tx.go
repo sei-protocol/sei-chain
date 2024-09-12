@@ -23,7 +23,10 @@ import (
 )
 
 const (
-	FlagAllowList = "allow-list"
+	FlagAllowList            = "allow-list"
+	FlagAllowListDescription = "Path to the allow list JSON file with an array of addresses " +
+		"that are allowed to send/receive the token. The file should have the following format: {\"addresses\": " +
+		"[\"addr1\", \"addr2\"]}, where addr1 and addr2 are bech32 Sei native addresses or EVM addresses."
 )
 
 // GetTxCmd returns the transaction commands for this module
@@ -92,9 +95,7 @@ func NewCreateDenomCmd() *cobra.Command {
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
-	cmd.Flags().String(FlagAllowList, "", "Path to the allow list JSON file with an array of addresses "+
-		"that are allowed to send/receive the token. The file should have the following format: {\"addresses\": "+
-		"[\"addr1\", \"addr2\"]}, where addr1 and addr2 are bech32 Sei native addresses.")
+	cmd.Flags().String(FlagAllowList, "", FlagAllowListDescription)
 	return cmd
 }
 
@@ -122,11 +123,11 @@ func NewUpdateDenomCmd() *cobra.Command {
 
 			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
 
-			// only parse allow list if it is provided
+			// Fail if allow list is not provided as this is the only feature that can be updated for now
 			if allowListFilePath == "" {
 				return fmt.Errorf("allow list file path is required")
 			}
-			// Parse the allow list
+
 			allowList, err := ParseAllowListJSON(allowListFilePath, queryClient)
 			if err != nil {
 				return err
@@ -143,9 +144,7 @@ func NewUpdateDenomCmd() *cobra.Command {
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
-	cmd.Flags().String(FlagAllowList, "", "Path to the allow list JSON file with an array of addresses "+
-		"that are allowed to send/receive the token. The file should have the following format: {\"addresses\": "+
-		"[\"addr1\", \"addr2\"]}, where addr1 and addr2 are bech32 Sei native addresses.")
+	cmd.Flags().String(FlagAllowList, "", FlagAllowListDescription)
 	return cmd
 }
 
