@@ -584,11 +584,11 @@ func (ndb *nodeDB) DeleteVersionsRange(fromVersion, toVersion int64) error {
 		return nil
 	})
 
-	if first <= toVersion && first >= fromVersion {
+	if first < toVersion && first >= fromVersion {
 		// Reset first version if we are deleting all versions from first -> toVersion
-		ndb.resetFirstVersion(toVersion + 1)
+		ndb.resetFirstVersion(toVersion)
 	}
-	if latest <= toVersion {
+	if latest <= toVersion-1 {
 		// Reset latest version if we are deleting all versions from fromVersion -> latest
 		ndb.resetLatestVersion(fromVersion + 1)
 	}

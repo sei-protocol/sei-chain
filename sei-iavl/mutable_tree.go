@@ -623,7 +623,7 @@ func (tree *MutableTree) LoadVersion(targetVersion int64) (toReturn int64, toErr
 
 	t := &ImmutableTree{
 		ndb:                    tree.ndb,
-		version:                latestVersion,
+		version:                targetVersion,
 		skipFastStorageUpgrade: tree.skipFastStorageUpgrade,
 	}
 
@@ -720,7 +720,8 @@ func (tree *MutableTree) LoadVersionForOverwriting(targetVersion int64) (int64, 
 		}
 	}
 
-	tree.ndb.resetLatestVersion(latestVersion)
+	tree.ndb.resetLatestVersion(targetVersion)
+	fmt.Printf("[Debug] Tree verrsion is %d after revert\n", tree.ITree.version)
 
 	tree.Mtx.Lock()
 	defer tree.Mtx.Unlock()
@@ -1221,6 +1222,7 @@ func (tree *MutableTree) DeleteVersionsRange(fromVersion, toVersion int64) error
 	tree.Mtx.Lock()
 	defer tree.Mtx.Unlock()
 
+	fmt.Printf("[Debug] Delete version range from %d to %d\n", fromVersion, toVersion)
 	if err := tree.ndb.DeleteVersionsRange(fromVersion, toVersion); err != nil {
 		return err
 	}
