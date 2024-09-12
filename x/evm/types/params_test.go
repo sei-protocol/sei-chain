@@ -16,6 +16,8 @@ func TestDefaultParams(t *testing.T) {
 		MinimumFeePerGas:                       types.DefaultMinFeePerGas,
 		DeliverTxHookWasmGasLimit:              types.DefaultDeliverTxHookWasmGasLimit,
 		WhitelistedCwCodeHashesForDelegateCall: types.DefaultWhitelistedCwCodeHashesForDelegateCall,
+		MaxDynamicBaseFeeUpwardAdjustment:      types.DefaultMaxDynamicBaseFeeUpwardAdjustment,
+		MaxDynamicBaseFeeDownwardAdjustment:    types.DefaultMaxDynamicBaseFeeDownwardAdjustment,
 	}, types.DefaultParams())
 
 	require.Nil(t, types.DefaultParams().Validate())
@@ -46,6 +48,34 @@ func TestBaseFeeMinimumFee(t *testing.T) {
 	err := params.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "minimum fee cannot be lower than base fee")
+}
+
+func TestValidateParamsInvalidMaxDynamicBaseFeeUpwardAdjustment(t *testing.T) {
+	params := types.DefaultParams()
+	params.MaxDynamicBaseFeeUpwardAdjustment = sdk.NewDec(-1) // Set to invalid negative value
+
+	err := params.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "negative base fee adjustment")
+
+	params.MaxDynamicBaseFeeUpwardAdjustment = sdk.NewDec(2)
+	err = params.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "base fee adjustment must be less than or equal to 1")
+}
+
+func TestValidateParamsInvalidMaxDynamicBaseFeeDownwardAdjustment(t *testing.T) {
+	params := types.DefaultParams()
+	params.MaxDynamicBaseFeeDownwardAdjustment = sdk.NewDec(-1) // Set to invalid negative value
+
+	err := params.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "negative base fee adjustment")
+
+	params.MaxDynamicBaseFeeDownwardAdjustment = sdk.NewDec(2)
+	err = params.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "base fee adjustment must be less than or equal to 1")
 }
 
 func TestValidateParamsInvalidDeliverTxHookWasmGasLimit(t *testing.T) {
