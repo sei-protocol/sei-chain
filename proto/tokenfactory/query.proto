@@ -40,6 +40,7 @@ service Query {
         "/sei-protocol/seichain/tokenfactory/denoms_from_creator/{creator}";
   }
 
+  // DenomAllowList defines a gRPC query method for fetching the denom allow list
   rpc DenomAllowList(QueryDenomAllowListRequest) returns (QueryDenomAllowListResponse) {
     option (google.api.http).get = "/sei-protocol/seichain/tokenfactory/denoms/allow_list";
   }
@@ -95,12 +96,13 @@ message QueryDenomMetadataResponse {
   cosmos.bank.v1beta1.Metadata metadata = 1 [(gogoproto.nullable) = false];
 }
 
+// QueryDenomAllowListRequest is the request type for the DenomAllowList gRPC method
 message QueryDenomAllowListRequest {
   // denom is the coin denom to query the allowlist for.
   string denom = 1;
 }
 
-// QueryDenomAllowListResponse is the response type for the Query/AllowList gRPC
+// QueryDenomAllowListResponse is the response type for the DenomAllowList gRPC
 // method.
 message QueryDenomAllowListResponse {
   // allow_list provides addresses allowed for the requested token.
