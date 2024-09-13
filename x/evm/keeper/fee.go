@@ -7,9 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-var half = sdk.NewDec(1).Quo(sdk.NewDec(2)) // 0.5 as sdk.Dec
-
-// eip-1559 adjustment using sdk.Dec
+// modified eip-1559 adjustment
 func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) {
 	if ctx.ConsensusParams() == nil || ctx.ConsensusParams().Block == nil {
 		return
@@ -21,6 +19,7 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 
 	blockFullness := blockGasUsedDec.Quo(blockGasLimit)
 
+	half := sdk.NewDec(1).Quo(sdk.NewDec(2)) // 0.5
 	var newBaseFee sdk.Dec
 	if blockFullness.GT(half) {
 		// upward adjustment
