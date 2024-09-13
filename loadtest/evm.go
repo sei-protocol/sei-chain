@@ -217,7 +217,6 @@ func (txClient *EvmTxClient) nextNonce() uint64 {
 
 // SendEvmTx takes any signed evm tx and send it out
 func (txClient *EvmTxClient) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess func()) {
-	// fmt.Printf("sending signed tx gas params: gp:%v, gasFeeCap:%v, gasTipCap:%v \n", signedTx.GasPrice(), signedTx.GasFeeCap(), signedTx.GasTipCap())
 	err := GetNextEthClient(txClient.ethClients).SendTransaction(context.Background(), signedTx)
 	if err != nil {
 		fmt.Printf("Failed to send evm transaction: %v \n", err)

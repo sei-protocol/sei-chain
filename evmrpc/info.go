@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/big"
 	"slices"
 	"time"
@@ -163,8 +162,6 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 			// the block has been pruned
 			continue
 		}
-		// baseFee = big.NewInt(100000000000)
-		fmt.Println("in feeHistory, got baseFee = ", baseFee)
 		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(baseFee))
 		height := blockNum
 		block, err := blockByNumber(ctx, i.tmClient, &height)

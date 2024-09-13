@@ -37,7 +37,7 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	}
 
 	// Set the new base fee for the next height
-	k.SetDynamicBaseFeePerGas(ctx.WithBlockHeight(ctx.BlockHeight()+1), newBaseFee) // Convert sdk.Dec to uint64 using RoundInt64()
+	k.SetDynamicBaseFeePerGas(ctx.WithBlockHeight(ctx.BlockHeight()+1), newBaseFee)
 }
 
 func (k *Keeper) GetDynamicBaseFeePerGas(ctx sdk.Context) sdk.Dec {
