@@ -9,20 +9,35 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 type BasicDecorator struct {
+	k *keeper.Keeper
 }
 
-func NewBasicDecorator() *BasicDecorator {
-	return &BasicDecorator{}
+func NewBasicDecorator(k *keeper.Keeper) *BasicDecorator {
+	return &BasicDecorator{k}
 }
 
 // cherrypicked from go-ethereum:txpool:ValidateTransaction
 func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	etx, _ := msg.AsTransaction()
+
+	if msg.Derived != nil && !gl.k.EthReplayConfig.Enabled && !gl.k.EthBlockTestConfig.Enabled {
+		startingNonce := gl.k.GetNonce(ctx, msg.Derived.SenderEVMAddr)
+		txNonce := etx.Nonce()
+		if !ctx.IsCheckTx() && !ctx.IsReCheckTx() && startingNonce == txNonce {
+			ctx = ctx.WithDeliverTxCallback(func(callCtx sdk.Context) {
+				// bump nonce if it is for some reason not incremented (e.g. ante failure)
+				if gl.k.GetNonce(callCtx, msg.Derived.SenderEVMAddr) == startingNonce {
+					gl.k.SetNonce(callCtx, msg.Derived.SenderEVMAddr, startingNonce+1)
+				}
+			})
+		}
+	}
 
 	if etx.To() == nil && len(etx.Data()) > params.MaxInitCodeSize {
 		return ctx, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(etx.Data()), params.MaxInitCodeSize)
@@ -42,6 +57,15 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 
 	if etx.Type() == ethtypes.BlobTxType {
 		return ctx, sdkerrors.ErrUnsupportedTxType
+	}
+
+	// Check if gas exceed the limit
+	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+		// If there exists a maximum block gas limit, we must ensure that the tx
+		// does not exceed it.
+		if cp.Block.MaxGas > 0 && etx.Gas() > uint64(cp.Block.MaxGas) {
+			return ctx, sdkerrors.Wrapf(sdkerrors.ErrOutOfGas, "tx gas limit %d exceeds block max gas %d", etx.Gas(), cp.Block.MaxGas)
+		}
 	}
 
 	//TODO: support blobs (leaving this commented out)

@@ -83,7 +83,7 @@
     - cmd: seid q staking validator $SEI_NODE_1_VAL_ADDR --output json | jq -r ".tokens"
       env: BEFORE_STAKED_TOKENS
 
-    - cmd: printf "12345678\n" | seid tx staking unbond $SEI_NODE_1_VAL_ADDR 1sei --fees 4000usei --gas 400000 --from admin -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx staking unbond $SEI_NODE_1_VAL_ADDR 1sei --fees 2000usei --from admin -b block -y --output json | jq -r ".code"
       env: DELEGATE_RESPONSE_CODE
 
     # state after staking
