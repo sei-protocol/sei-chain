@@ -37,21 +37,23 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 
 	erc20CodeID, err := k.wasmKeeper.Create(ctx, k.accountKeeper.GetModuleAddress(types.ModuleName), erc20.GetBin(), nil)
 	if err != nil {
-		panic(err)
+		ctx.Logger().Error(fmt.Sprintf("error creating CWERC20 pointer code due to %s", err))
+	} else {
+		prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW20ERC20Prefix).Set(
+			artifactsutils.GetVersionBz(erc20.CurrentVersion),
+			artifactsutils.GetCodeIDBz(erc20CodeID),
+		)
 	}
-	prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW20ERC20Prefix).Set(
-		artifactsutils.GetVersionBz(erc20.CurrentVersion),
-		artifactsutils.GetCodeIDBz(erc20CodeID),
-	)
 
 	erc721CodeID, err := k.wasmKeeper.Create(ctx, k.accountKeeper.GetModuleAddress(types.ModuleName), erc721.GetBin(), nil)
 	if err != nil {
-		panic(err)
+		ctx.Logger().Error(fmt.Sprintf("error creating CWERC721 pointer code due to %s", err))
+	} else {
+		prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW721ERC721Prefix).Set(
+			artifactsutils.GetVersionBz(erc721.CurrentVersion),
+			artifactsutils.GetCodeIDBz(erc721CodeID),
+		)
 	}
-	prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW721ERC721Prefix).Set(
-		artifactsutils.GetVersionBz(erc721.CurrentVersion),
-		artifactsutils.GetCodeIDBz(erc721CodeID),
-	)
 
 	if k.EthReplayConfig.Enabled && !ethReplayInitialied {
 		header := k.OpenEthDatabase()

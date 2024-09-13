@@ -148,7 +148,7 @@ func TestWithdraw(t *testing.T) {
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
-	require.Equal(t, uint64(68682), res.GasUsed)
+	require.Equal(t, uint64(64124), res.GasUsed)
 
 	// reinitialized
 	d, found = testApp.StakingKeeper.GetDelegation(ctx, seiAddr, val)
@@ -301,7 +301,7 @@ func setWithdrawAddressAndWithdraw(
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), r)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
-	require.Equal(t, uint64(152848), res.GasUsed)
+	require.Equal(t, uint64(148290), res.GasUsed)
 
 	// reinitialized
 	for _, val := range vals {
@@ -1051,7 +1051,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 				suppliedGas:      uint64(1000000),
 			},
 			wantRet:          emptyCasePackedOutput,
-			wantRemainingGas: 994319,
+			wantRemainingGas: 998877,
 			wantErr:          false,
 		},
 		{
@@ -1067,7 +1067,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 				suppliedGas:      uint64(1000000),
 			},
 			wantRet:          happyPathPackedOutput,
-			wantRemainingGas: 994319,
+			wantRemainingGas: 998877,
 			wantErr:          false,
 		},
 	}

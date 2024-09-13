@@ -26,6 +26,7 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     strategy:
       # other jobs should run even if one integration test fails
       fail-fast: false
@@ -119,6 +120,12 @@ jobs:
             name: "EVM Interoperability",
             scripts: [
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
+            ]
+          },
+          {
+            name: "dApp Tests",
+            scripts: [
+              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
             ]
           },
         ]

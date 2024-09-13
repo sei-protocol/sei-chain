@@ -10,7 +10,8 @@ import (
 )
 
 func TestSetGetAddressMapping(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k := &keeper.EVMTestApp.EvmKeeper
+	ctx := keeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	_, ok := k.GetEVMAddress(ctx, seiAddr)
 	require.False(t, ok)
@@ -27,7 +28,8 @@ func TestSetGetAddressMapping(t *testing.T) {
 }
 
 func TestDeleteAddressMapping(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k := &keeper.EVMTestApp.EvmKeeper
+	ctx := keeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	foundEVM, ok := k.GetEVMAddress(ctx, seiAddr)
@@ -44,7 +46,8 @@ func TestDeleteAddressMapping(t *testing.T) {
 }
 
 func TestGetAddressOrDefault(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k := &keeper.EVMTestApp.EvmKeeper
+	ctx := keeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	seiAddr, evmAddr := keeper.MockAddressPair()
 	defaultEvmAddr := k.GetEVMAddressOrDefault(ctx, seiAddr)
 	require.True(t, bytes.Equal(seiAddr, defaultEvmAddr[:]))

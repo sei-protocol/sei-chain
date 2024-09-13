@@ -497,24 +497,24 @@ describe("EVM Test", function () {
 
       describe("EIP-1559", async function() {
         const zero = ethers.parseUnits('0', 'ether')
-        const twoGwei = ethers.parseUnits("2", "gwei");
-        const oneGwei = ethers.parseUnits("1", "gwei");
+        const highgp = ethers.parseUnits("400", "gwei");
+        const gp = ethers.parseUnits("100", "gwei");
 
         const testCases = [
-          ["No truncation from max priority fee", oneGwei, oneGwei],
-          ["With truncation from max priority fee", oneGwei, twoGwei],
-          ["With complete truncation from max priority fee", zero, twoGwei]
+          ["No truncation from max priority fee", gp, gp],
+          ["With truncation from max priority fee", gp, highgp],
+          ["With complete truncation from max priority fee", zero, highgp]
         ];
 
         it("Should be able to send many EIP-1559 txs", async function () {
-          const oneGwei = ethers.parseUnits("1", "gwei");
+          const gp = ethers.parseUnits("100", "gwei");
           const zero = ethers.parseUnits('0', 'ether')
           for (let i = 0; i < 10; i++) {
             const txResponse = await owner.sendTransaction({
               to: owner.address,
               value: zero,
-              maxPriorityFeePerGas: oneGwei,
-              maxFeePerGas: oneGwei,
+              maxPriorityFeePerGas: gp,
+              maxFeePerGas: gp,
               type: 2
             });
             await txResponse.wait();
@@ -617,8 +617,8 @@ describe("EVM Test", function () {
       it("Should retrieve a transaction receipt", async function () {
         const txResponse = await evmTester.setBoolVar(false, {
           type: 2, // force it to be EIP-1559
-          maxPriorityFeePerGas: ethers.parseUnits('100', 'gwei'), // set gas high just to get it included
-          maxFeePerGas: ethers.parseUnits('100', 'gwei')
+          maxPriorityFeePerGas: ethers.parseUnits('400', 'gwei'), // set gas high just to get it included
+          maxFeePerGas: ethers.parseUnits('400', 'gwei')
         });
         await txResponse.wait();
         const receipt = await ethers.provider.getTransactionReceipt(txResponse.hash);
@@ -1093,6 +1093,7 @@ describe("EVM Validations ", function() {
       await setupSigners(await hre.ethers.getSigners())
       signer = generateWallet()
       await fundAddress(await signer.getAddress())
+      await sleep(3000)
     })
 
     it("should prevent wrong chainId for eip-155 txs", async function() {
@@ -1104,9 +1105,9 @@ describe("EVM Validations ", function() {
         chainId: "0x12345",
         type: 2,
         nonce: nonce,
-        maxPriorityFeePerGas: 21000,
+        maxPriorityFeePerGas: 400000000000,
         gasLimit: 21000,
-        maxFeePerGas:10000000000})
+        maxFeePerGas: 400000000000})
 
       const nodeUrl = 'http://localhost:8545';
       const response = await axios.post(nodeUrl, {

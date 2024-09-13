@@ -22,6 +22,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -47,6 +49,11 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		return &types.MsgEVMTransactionResponse{}, nil
 	}
 	ctx := sdk.UnwrapSDKContext(goCtx)
+	tx, _ := msg.AsTransaction()
+	isWasmdPrecompileCall := wasmd.IsWasmdCall(tx.To())
+	if isWasmdPrecompileCall {
+		ctx = ctx.WithEVMEntryViaWasmdPrecompile(true)
+	}
 	// EVM has a special case here, mainly because for an EVM transaction the gas limit is set on EVM payload level, not on top-level GasWanted field
 	// as normal transactions (because existing eth client can't). As a result EVM has its own dedicated ante handler chain. The full sequence is:
 
@@ -58,7 +65,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
-	tx, _ := msg.AsTransaction()
 	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
 	gp := server.GetGasPool()
 
@@ -83,6 +89,27 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 				},
 			)
 			return
+		}
+		extraSurplus := sdk.ZeroInt()
+		if isWasmdPrecompileCall {
+			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum())
+			if err == nil {
+				for _, l := range syntheticReceipt.Logs {
+					stateDB.AddLog(&ethtypes.Log{
+						Address: common.HexToAddress(l.Address),
+						Topics:  utils.Map(l.Topics, common.HexToHash),
+						Data:    l.Data,
+					})
+				}
+				if syntheticReceipt.VmError != "" {
+					serverRes.VmError = fmt.Sprintf("%s\n%s\n", serverRes.VmError, syntheticReceipt.VmError)
+				}
+				server.DeleteTransientReceipt(ctx, ctx.TxSum())
+			}
+			syntheticDeferredInfo, found := server.GetEVMTxDeferredInfo(ctx)
+			if found {
+				extraSurplus = extraSurplus.Add(syntheticDeferredInfo.Surplus)
+			}
 		}
 		receipt, rerr := server.WriteReceipt(ctx, stateDB, emsg, uint32(tx.Type()), tx.Hash(), serverRes.GasUsed, serverRes.VmError)
 		if rerr != nil {
@@ -120,6 +147,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
+		surplus = surplus.Add(extraSurplus)
 		bloom := ethtypes.Bloom{}
 		bloom.SetBytes(receipt.LogsBloom)
 		server.AppendToEvmTxDeferredInfo(ctx, bloom, tx.Hash(), surplus)
@@ -150,22 +178,25 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			},
 		)
 
-	} else {
-		// if applyErr is nil then res must be non-nil
-		if res.Err != nil {
-			serverRes.VmError = res.Err.Error()
-
-			telemetry.IncrCounterWithLabels(
-				[]string{types.ModuleName, "errors", "vm_execution"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("type", serverRes.VmError),
-				},
-			)
-		}
-		serverRes.GasUsed = res.UsedGas
-		serverRes.ReturnData = res.ReturnData
+		return
 	}
+
+	// if applyErr is nil then res must be non-nil
+	if res.Err != nil {
+		serverRes.VmError = res.Err.Error()
+
+		telemetry.IncrCounterWithLabels(
+			[]string{types.ModuleName, "errors", "vm_execution"},
+			1,
+			[]metrics.Label{
+				telemetry.NewLabel("type", serverRes.VmError),
+			},
+		)
+	}
+
+	serverRes.GasUsed = res.UsedGas
+	serverRes.ReturnData = res.ReturnData
+	serverRes.Logs = types.NewLogsFromEth(stateDB.GetAllLogs())
 
 	return
 }

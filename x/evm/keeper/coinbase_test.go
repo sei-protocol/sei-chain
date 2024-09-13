@@ -3,13 +3,14 @@ package keeper_test
 import (
 	"testing"
 
-	keepertest "github.com/sei-protocol/sei-chain/testutil/keeper"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetFeeCollectorAddress(t *testing.T) {
-	k, ctx := keepertest.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	addr, err := k.GetFeeCollectorAddress(ctx)
 	require.Nil(t, err)
 	expected := k.GetEVMAddressOrDefault(ctx, k.AccountKeeper().GetModuleAddress("fee_collector"))

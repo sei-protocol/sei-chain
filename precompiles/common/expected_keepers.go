@@ -49,14 +49,16 @@ type EVMKeeper interface {
 	GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool)
 	SetCode(ctx sdk.Context, addr common.Address, code []byte)
 	UpsertERCNativePointer(
-		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, token string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, remainingGas uint64, err error)
+		ctx sdk.Context, evm *vm.EVM, token string, metadata utils.ERCMetadata,
+	) (contractAddr common.Address, err error)
 	UpsertERCCW20Pointer(
-		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw20Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, remainingGas uint64, err error)
+		ctx sdk.Context, evm *vm.EVM, cw20Addr string, metadata utils.ERCMetadata,
+	) (contractAddr common.Address, err error)
 	UpsertERCCW721Pointer(
-		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw721Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, remainingGas uint64, err error)
+		ctx sdk.Context, evm *vm.EVM, cw721Addr string, metadata utils.ERCMetadata,
+	) (contractAddr common.Address, err error)
+	GetEVMGasLimitFromCtx(ctx sdk.Context) uint64
+	GetCosmosGasLimitFromEVMGas(ctx sdk.Context, evmGas uint64) uint64
 }
 
 type AccountKeeper interface {

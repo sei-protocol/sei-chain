@@ -12,7 +12,8 @@ import (
 )
 
 func TestCode(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k := &keeper.EVMTestApp.EvmKeeper
+	ctx := keeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	_, addr := keeper.MockAddressPair()
 
 	require.Equal(t, common.Hash{}, k.GetCodeHash(ctx, addr))
@@ -32,7 +33,8 @@ func TestCode(t *testing.T) {
 }
 
 func TestNilCode(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k := &keeper.EVMTestApp.EvmKeeper
+	ctx := keeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	_, addr := keeper.MockAddressPair()
 
 	k.SetCode(ctx, addr, nil)

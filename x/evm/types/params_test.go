@@ -14,6 +14,7 @@ func TestDefaultParams(t *testing.T) {
 		PriorityNormalizer:                     types.DefaultPriorityNormalizer,
 		BaseFeePerGas:                          types.DefaultBaseFeePerGas,
 		MinimumFeePerGas:                       types.DefaultMinFeePerGas,
+		DeliverTxHookWasmGasLimit:              types.DefaultDeliverTxHookWasmGasLimit,
 		WhitelistedCwCodeHashesForDelegateCall: types.DefaultWhitelistedCwCodeHashesForDelegateCall,
 	}, types.DefaultParams())
 
@@ -45,4 +46,24 @@ func TestBaseFeeMinimumFee(t *testing.T) {
 	err := params.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "minimum fee cannot be lower than base fee")
+}
+
+func TestValidateParamsInvalidDeliverTxHookWasmGasLimit(t *testing.T) {
+	params := types.DefaultParams()
+	params.DeliverTxHookWasmGasLimit = 0 // Set to invalid value (0)
+
+	err := params.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid deliver_tx_hook_wasm_gas_limit: must be greater than 0")
+}
+
+func TestValidateParamsValidDeliverTxHookWasmGasLimit(t *testing.T) {
+	params := types.DefaultParams()
+
+	require.Equal(t, params.DeliverTxHookWasmGasLimit, types.DefaultDeliverTxHookWasmGasLimit)
+
+	params.DeliverTxHookWasmGasLimit = 100000 // Set to valid value
+
+	err := params.Validate()
+	require.NoError(t, err)
 }

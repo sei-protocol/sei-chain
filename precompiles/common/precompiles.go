@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -160,12 +159,7 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	if err != nil {
 		return nil, 0, err
 	}
-	gasMultipler := d.executor.EVMKeeper().GetPriorityNormalizer(ctx)
-	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultipler).TruncateInt().BigInt()
-	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
-		gasLimitBigInt = utils.BigMaxU64
-	}
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx, suppliedGas)))
 
 	if hooks != nil && hooks.OnGasChange != nil {
 		defer func() { hooks.OnGasChange(suppliedGas, remainingGas, tracing.GasChangeCallPrecompiledContract) }()
@@ -235,9 +229,7 @@ sei gas = evm gas * multiplier
 sei gas price = fee / sei gas = fee / (evm gas * multiplier) = evm gas / multiplier
 */
 func GetRemainingGas(ctx sdk.Context, evmKeeper EVMKeeper) uint64 {
-	gasMultipler := evmKeeper.GetPriorityNormalizer(ctx)
-	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
-	return sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(gasMultipler).TruncateInt().Uint64()
+	return evmKeeper.GetEVMGasLimitFromCtx(ctx)
 }
 
 func ExtractMethodID(input []byte) ([]byte, error) {
