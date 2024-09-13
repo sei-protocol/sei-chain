@@ -7,32 +7,30 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// TODO: make this a param
-var MaxBaseFeeChange = sdk.NewDecWithPrec(125, 3) // 12.5%
+var half = sdk.NewDec(1).Quo(sdk.NewDec(2)) // 0.5 as sdk.Dec
 
 // eip-1559 adjustment using sdk.Dec
 func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) {
 	if ctx.ConsensusParams() == nil || ctx.ConsensusParams().Block == nil {
 		return
 	}
-	// Use sdk.Dec for base fee and minimum fee
-	currentBaseFee := k.GetDynamicBaseFeePerGas(ctx)      // Returns sdk.Dec
-	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas // Returns sdk.Dec
-
-	// Convert block gas limit and gas used to sdk.Dec
+	currentBaseFee := k.GetDynamicBaseFeePerGas(ctx)
+	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas
 	blockGasLimit := sdk.NewDec(ctx.ConsensusParams().Block.MaxGas)
 	blockGasUsedDec := sdk.NewDec(int64(blockGasUsed))
 
-	// Calculate block fullness as sdk.Dec
-	blockFullness := blockGasUsedDec.Quo(blockGasLimit) // blockGasUsed / blockGasLimit
+	blockFullness := blockGasUsedDec.Quo(blockGasLimit)
 
-	// Calculate adjustment factor as sdk.Dec
-	// adjustmentFactor := sdk.NewDecWithPrec(int64(MaxBaseFeeChange), 2) // MaxBaseFeeChange (e.g., 0.125) as Dec
-	half := sdk.NewDec(1).Quo(sdk.NewDec(2)) // 0.5 as sdk.Dec
-	adjustmentFactor := MaxBaseFeeChange.Mul(blockFullness.Sub(half)).Quo(half)
-
-	// Calculate the new base fee
-	newBaseFee := currentBaseFee.Mul(sdk.NewDec(1).Add(adjustmentFactor)) // currentBaseFee * (1 + adjustmentFactor)
+	var newBaseFee sdk.Dec
+	if blockFullness.GT(half) {
+		// upward adjustment
+		adjustmentFactor := k.GetMaxDynamicBaseFeeUpwardAdjustment(ctx).Mul(blockFullness.Sub(half)).Quo(half)
+		newBaseFee = currentBaseFee.Mul(sdk.NewDec(1).Add(adjustmentFactor))
+	} else {
+		// downward adjustment
+		adjustmentFactor := k.GetMaxDynamicBaseFeeDownwardAdjustment(ctx).Mul(half.Sub(blockFullness)).Quo(half)
+		newBaseFee = currentBaseFee.Mul(sdk.NewDec(1).Sub(adjustmentFactor))
+	}
 
 	// Ensure the new base fee is not lower than the minimum fee
 	if newBaseFee.LT(minimumFeePerGas) {
@@ -40,7 +38,7 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	}
 
 	// Set the new base fee for the next height
-	k.SetDynamicBaseFeePerGas(ctx.WithBlockHeight(ctx.BlockHeight() + 1), newBaseFee) // Convert sdk.Dec to uint64 using RoundInt64()
+	k.SetDynamicBaseFeePerGas(ctx.WithBlockHeight(ctx.BlockHeight()+1), newBaseFee) // Convert sdk.Dec to uint64 using RoundInt64()
 }
 
 func (k *Keeper) GetDynamicBaseFeePerGas(ctx sdk.Context) sdk.Dec {

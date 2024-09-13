@@ -19,7 +19,6 @@ func TestDefaultParams(t *testing.T) {
 		MaxDynamicBaseFeeUpwardAdjustment:      types.DefaultMaxDynamicBaseFeeUpwardAdjustment,
 		MaxDynamicBaseFeeDownwardAdjustment:    types.DefaultMaxDynamicBaseFeeDownwardAdjustment,
 	}, types.DefaultParams())
-
 	require.Nil(t, types.DefaultParams().Validate())
 }
 
