@@ -66,7 +66,10 @@ type MockQueryClient struct {
 }
 
 func (m *MockQueryClient) SeiAddressByEVMAddress(ctx context.Context, in *evmtypes.QuerySeiAddressByEVMAddressRequest, opts ...grpc.CallOption) (*evmtypes.QuerySeiAddressByEVMAddressResponse, error) {
-	return &evmtypes.QuerySeiAddressByEVMAddressResponse{SeiAddress: "sei1u8j4gaxyzhg39dk848q5w9h53tgggpcx74m762"}, nil
+	if in.EvmAddress == "0x0CF3Bb7Da9fea6a881987A5018740500C7d4BAaE" {
+		return &evmtypes.QuerySeiAddressByEVMAddressResponse{SeiAddress: "", Associated: false}, nil
+	}
+	return &evmtypes.QuerySeiAddressByEVMAddressResponse{SeiAddress: "sei1u8j4gaxyzhg39dk848q5w9h53tgggpcx74m762", Associated: true}, nil
 }
 
 type MockErrorQueryClient struct {
@@ -83,6 +86,7 @@ func Test_ParseAllowListJSON(t *testing.T) {
 	seiAddr1 := sdk.AccAddress("sei1_______________").String()
 	seiAddr2 := sdk.AccAddress("sei2_______________").String()
 	evmAddr := "0x5c71b5577B9223d39ae0B7Dcb3f1BC8e1aC81f3e"
+	notAssociatedEvmAddr := "0x0CF3Bb7Da9fea6a881987A5018740500C7d4BAaE"
 	convertedSeiAddr := "sei1u8j4gaxyzhg39dk848q5w9h53tgggpcx74m762"
 
 	tests := []struct {
@@ -110,18 +114,23 @@ func Test_ParseAllowListJSON(t *testing.T) {
 		{
 			name:    "invalid Sei address",
 			json:    `{"addresses": ["invalid_sei_address"]}`,
-			wantErr: "invalid address invalid_sei_address: decoding bech32 failed:",
+			wantErr: "invalid address invalid_sei_address: decoding bech32 failed: invalid separator index -1",
 		},
 		{
 			name:    "invalid EVM address",
 			json:    `{"addresses": ["0xinvalid_evm_address"]}`,
-			wantErr: "invalid address 0xinvalid_evm_address:",
+			wantErr: "invalid address 0xinvalid_evm_address: decoding bech32 failed: invalid separator index -1",
 		},
 		{
-			name:    "EVM address not associated",
+			name:    "EVM address error on getting Sei address",
 			json:    fmt.Sprintf(`{"addresses": ["%s"]}`, evmAddr),
 			wantErr: "address is not associated",
 			errMock: true,
+		},
+		{
+			name:    "EVM address not associated",
+			json:    fmt.Sprintf(`{"addresses": ["%s"]}`, notAssociatedEvmAddr),
+			wantErr: "address 0x0CF3Bb7Da9fea6a881987A5018740500C7d4BAaE is not associated",
 		},
 		{
 			name: "empty allow list",
@@ -150,7 +159,7 @@ func Test_ParseAllowListJSON(t *testing.T) {
 			got, err := ParseAllowListJSON(tempFile.Name(), m)
 			if tt.wantErr != "" {
 				require.Error(t, err)
-				require.Contains(t, err.Error(), tt.wantErr)
+				require.Equal(t, tt.wantErr, err.Error())
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.want, got)

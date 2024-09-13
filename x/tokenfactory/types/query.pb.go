@@ -391,6 +391,7 @@ func (m *QueryDenomMetadataResponse) GetMetadata() types.Metadata {
 	return types.Metadata{}
 }
 
+// QueryDenomAllowListRequest is the request type for the DenomAllowList gRPC method
 type QueryDenomAllowListRequest struct {
 	// denom is the coin denom to query the allowlist for.
 	Denom string `protobuf:"bytes,1,opt,name=denom,proto3" json:"denom,omitempty"`
@@ -436,7 +437,7 @@ func (m *QueryDenomAllowListRequest) GetDenom() string {
 	return ""
 }
 
-// QueryDenomAllowListResponse is the response type for the Query/AllowList gRPC
+// QueryDenomAllowListResponse is the response type for the DenomAllowList gRPC
 // method.
 type QueryDenomAllowListResponse struct {
 	// allow_list provides addresses allowed for the requested token.
@@ -573,6 +574,7 @@ type QueryClient interface {
 	// DenomsFromCreator defines a gRPC query method for fetching all
 	// denominations created by a specific admin/creator.
 	DenomsFromCreator(ctx context.Context, in *QueryDenomsFromCreatorRequest, opts ...grpc.CallOption) (*QueryDenomsFromCreatorResponse, error)
+	// DenomAllowList defines a gRPC query method for fetching the denom allow list
 	DenomAllowList(ctx context.Context, in *QueryDenomAllowListRequest, opts ...grpc.CallOption) (*QueryDenomAllowListResponse, error)
 }
 
@@ -644,6 +646,7 @@ type QueryServer interface {
 	// DenomsFromCreator defines a gRPC query method for fetching all
 	// denominations created by a specific admin/creator.
 	DenomsFromCreator(context.Context, *QueryDenomsFromCreatorRequest) (*QueryDenomsFromCreatorResponse, error)
+	// DenomAllowList defines a gRPC query method for fetching the denom allow list
 	DenomAllowList(context.Context, *QueryDenomAllowListRequest) (*QueryDenomAllowListResponse, error)
 }
 

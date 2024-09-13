@@ -336,6 +336,9 @@ func ParseAllowListJSON(allowListFile string, queryClient evmtypes.QueryClient) 
 
 		if common.IsHexAddress(addr) {
 			res, err := queryClient.SeiAddressByEVMAddress(context.Background(), &evmtypes.QuerySeiAddressByEVMAddressRequest{EvmAddress: addr})
+			if res != nil && !res.Associated {
+				return allowList, fmt.Errorf("address %s is not associated", addr)
+			}
 			if err != nil {
 				return allowList, err
 			}
