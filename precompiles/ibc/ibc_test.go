@@ -278,7 +278,7 @@ func TestPrecompile_Run(t *testing.T) {
 				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp,
 				tt.args.input.memo)
 			require.Nil(t, err)
-			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*ibc.PrecompileExecutor).TransferID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false)
+			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*ibc.PrecompileExecutor).TransferID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -465,7 +465,9 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 				tt.args.suppliedGas,
 				tt.args.value,
 				nil,
-				false)
+				false,
+				false,
+			)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return

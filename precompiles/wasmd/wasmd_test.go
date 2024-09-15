@@ -196,7 +196,7 @@ func TestExecute(t *testing.T) {
 	// disallowed delegatecall
 	contractAddrDisallowed := common.BytesToAddress([]byte("contractB"))
 	statedb.SetPrecompileError(nil)
-	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteID, args...), suppliedGas, nil, nil, false, false)
+	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteID, args...), suppliedGas, nil, nil, false, true)
 	require.NotNil(t, err)
 	require.NotNil(t, statedb.GetPrecompileError())
 
