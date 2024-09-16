@@ -22,7 +22,7 @@ RUN curl -LO https://github.com/streamingfast/firehose-ethereum/releases/downloa
 
 FROM base as libwasmvm_download
 
-ARG WASMVM="v1.5.2"
+ARG WASMVM="v1.5.4"
 
 RUN wget -O /lib/libwasmvm.x86_64.so https://github.com/CosmWasm/wasmvm/releases/download/${WASMVM}/libwasmvm.x86_64.so
 
