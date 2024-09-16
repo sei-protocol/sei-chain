@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	corestore "cosmossdk.io/core/store"
 	"github.com/cosmos/iavl/cache"
 	ibytes "github.com/cosmos/iavl/internal/bytes"
 	"github.com/cosmos/iavl/internal/logger"
@@ -755,7 +754,7 @@ func (ndb *nodeDB) getLatestVersion() (int64, error) {
 }
 
 // Get the iterator for a given prefix.
-func (ndb *nodeDB) getPrefixIterator(prefix []byte) (corestore.Iterator, error) {
+func (ndb *nodeDB) getPrefixIterator(prefix []byte) (dbm.Iterator, error) {
 	var start, end []byte
 	if len(prefix) == 0 {
 		start = nil
