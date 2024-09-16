@@ -220,33 +220,45 @@ func ListAllFiles(dir string) ([]string, error) {
 	return fileNames, nil
 }
 
-func LoadAndShuffleKV(inputDir string) ([]KeyValuePair, error) {
+func LoadAndShuffleKV(inputDir string, concurrency int) ([]KeyValuePair, error) {
 	var allKVs []KeyValuePair
 	mu := &sync.Mutex{}
-	wg := &sync.WaitGroup{}
 
 	allFiles, err := ListAllFiles(inputDir)
 	if err != nil {
 		log.Fatalf("Failed to list all files: %v", err)
 	}
 
-	for _, file := range allFiles {
+	filesChan := make(chan string)
+	wg := &sync.WaitGroup{}
+
+	// Start worker goroutines
+	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go func(id string, selectedFile string) {
+		go func() {
 			defer wg.Done()
+			for selectedFile := range filesChan {
+				kvEntries, err := ReadKVEntriesFromFile(filepath.Join(inputDir, selectedFile))
+				if err != nil {
+					panic(err)
+				}
 
-			kvEntries, err := ReadKVEntriesFromFile(filepath.Join(id, selectedFile))
-			if err != nil {
-				panic(err)
+				// Safely append the kvEntries to allKVs
+				mu.Lock()
+				allKVs = append(allKVs, kvEntries...)
+				fmt.Printf("Done processing file %+v\n", filepath.Join(inputDir, selectedFile))
+				mu.Unlock()
 			}
-
-			// Safely append the kvEntries to allKVs
-			mu.Lock()
-			allKVs = append(allKVs, kvEntries...)
-			fmt.Printf("Done processing file %+v\n", filepath.Join(id, selectedFile))
-			mu.Unlock()
-		}(inputDir, file)
+		}()
 	}
+
+	// Send file names to filesChan
+	for _, file := range allFiles {
+		filesChan <- file
+	}
+	close(filesChan)
+
+	// Wait for all workers to finish
 	wg.Wait()
 
 	rand.Shuffle(len(allKVs), func(i, j int) {
