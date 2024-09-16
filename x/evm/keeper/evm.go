@@ -95,7 +95,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		Nonce:             stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
 		GasLimit:          k.getEvmGasLimitFromCtx(ctx),
 		GasPrice:          utils.Big0, // fees are already paid on the CW transaction
-		GasFeeCap:         big.NewInt(100000000000),
+		GasFeeCap:         k.GetBaseFee(ctx),
 		GasTipCap:         utils.Big0,
 		To:                to,
 		Value:             value,
@@ -103,7 +103,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		SkipAccountChecks: false,
 		From:              from,
 	}
-	res, err := k.applyEVMMessageWithNoBaseFee(ctx, evmMsg, stateDB, gp)
+	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
 	if err != nil {
 		return nil, err
 	}
