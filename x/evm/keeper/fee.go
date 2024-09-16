@@ -1,8 +1,6 @@
 package keeper
 
 import (
-	"encoding/binary"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -40,14 +38,13 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	k.SetDynamicBaseFeePerGas(ctx.WithBlockHeight(ctx.BlockHeight()+1), newBaseFee)
 }
 
+// dont have height be a prefix, just store the current base fee directly
 func (k *Keeper) GetDynamicBaseFeePerGas(ctx sdk.Context) sdk.Dec {
-	h := make([]byte, 8)
-	binary.BigEndian.PutUint64(h, uint64(ctx.BlockHeight()))
-	bz := k.PrefixStore(ctx, types.BaseFeePerGasPrefix).Get(h)
+	store := ctx.KVStore(k.storeKey)
+	bz := store.Get(types.BaseFeePerGasPrefix)
 	if bz == nil {
 		return k.GetMinimumFeePerGas(ctx)
 	}
-
 	d := sdk.Dec{}
 	err := d.UnmarshalJSON(bz)
 	if err != nil {
@@ -57,11 +54,10 @@ func (k *Keeper) GetDynamicBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 }
 
 func (k *Keeper) SetDynamicBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
-	h := make([]byte, 8)
-	binary.BigEndian.PutUint64(h, uint64(ctx.BlockHeight()))
+	store := ctx.KVStore(k.storeKey)
 	bz, err := baseFeePerGas.MarshalJSON()
 	if err != nil {
 		panic(err)
 	}
-	k.PrefixStore(ctx, types.BaseFeePerGasPrefix).Set(h, bz)
+	store.Set(types.BaseFeePerGasPrefix, bz)
 }
