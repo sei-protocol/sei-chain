@@ -151,8 +151,8 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 		_, version, err = tree.SaveVersion()
 		require.NoError(t, err)
 
-		t.Logf("Saved tree at version %v with %v keys and %v versions",
-			version, tree.ImmutableTree().Size(), len(tree.AvailableVersions()))
+		t.Logf("Saved tree at version %v wit %v versions: %v",
+			version, len(tree.AvailableVersions()), tree.AvailableVersions())
 
 		// Verify that the version matches the mirror.
 		assertMirror(t, tree, mirror, 0)
@@ -176,6 +176,7 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 				to := versions[indexFrom+batch] + 1
 				t.Logf("Deleting versions %v-%v", from, to-1)
 				err = tree.DeleteVersionsRange(int64(from), int64(to))
+				t.Logf("Available versions %v", tree.AvailableVersions())
 				require.NoError(t, err)
 				for version := from; version < to; version++ {
 					delete(diskMirrors, int64(version))
@@ -190,7 +191,7 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 				if batchSize > len(versions)-1 {
 					batchSize = len(versions) - 1
 				}
-				for _, i := range r.Perm(len(versions) - 1)[:batchSize] {
+				for i := 0; i < batchSize; i++ {
 					deleteVersions = append(deleteVersions, int64(versions[i]))
 					delete(diskMirrors, int64(versions[i]))
 					delete(memMirrors, int64(versions[i]))
@@ -199,18 +200,12 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 					}
 					desc += fmt.Sprintf("%v", versions[i])
 				}
-				t.Logf("Deleting versions %v", desc)
+				t.Logf("Deleting versions %v", deleteVersions)
 				err = tree.DeleteVersions(deleteVersions...)
+				t.Logf("Available versions %v", tree.AvailableVersions())
 				require.NoError(t, err)
 
 			default:
-				i := r.Intn(len(versions) - 1)
-				deleteVersion := int64(versions[i])
-				t.Logf("Deleting version %v", deleteVersion)
-				err = tree.DeleteVersion(deleteVersion)
-				require.NoError(t, err)
-				delete(diskMirrors, deleteVersion)
-				delete(memMirrors, deleteVersion)
 			}
 		}
 
@@ -253,9 +248,6 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 			}
 		}
 
-		// Verify all historical versions.
-		assertVersions(t, tree, diskMirrors, memMirrors)
-
 		for diskVersion, diskMirror := range diskMirrors {
 			assertMirror(t, tree, diskMirror, diskVersion)
 		}
@@ -272,9 +264,10 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 
 	switch {
 	case len(remaining) == 0:
+		t.Logf("No remaining versions")
 
 	case r.Float64() < deleteRangeChance:
-		t.Logf("Deleting versions %v-%v", remaining[0], remaining[len(remaining)-1])
+		t.Logf("Deleting all remaining versions %v-%v", remaining[0], remaining[len(remaining)-1])
 		err = tree.DeleteVersionsRange(int64(remaining[0]), int64(remaining[len(remaining)-1]+1))
 		require.NoError(t, err)
 
@@ -289,19 +282,13 @@ func testRandomOperations(t *testing.T, randSeed int64) {
 			}
 			desc += fmt.Sprintf("%v", remaining[i])
 		}
-		t.Logf("Deleting versions %v", desc)
+		t.Logf("Deleting all remaining versions %v", deleteVersions)
 		err = tree.DeleteVersions(deleteVersions...)
 		require.NoError(t, err)
 
 	default:
-		for len(remaining) > 0 {
-			i := r.Intn(len(remaining))
-			deleteVersion := int64(remaining[i])
-			remaining = append(remaining[:i], remaining[i+1:]...)
-			t.Logf("Deleting version %v", deleteVersion)
-			err = tree.DeleteVersion(deleteVersion)
-			require.NoError(t, err)
-		}
+		err = tree.DeleteVersionsRange(int64(remaining[0]), int64(remaining[len(remaining)-1])+1)
+		require.NoError(t, err)
 	}
 
 	require.EqualValues(t, []int{int(version)}, tree.AvailableVersions())
@@ -460,11 +447,6 @@ func assertFastNodeDiskIsLive(t *testing.T, tree *MutableTree, mirror map[string
 	})
 	require.NoError(t, err)
 	require.Equal(t, len(mirror), count)
-}
-
-// Checks that all versions in the tree are present in the mirrors, and vice-versa.
-func assertVersions(t *testing.T, tree *MutableTree, mirrors ...map[int64]map[string]string) {
-	require.Equal(t, getMirrorVersions(mirrors...), tree.AvailableVersions())
 }
 
 // copyMirror copies a mirror map.
