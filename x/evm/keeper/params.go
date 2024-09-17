@@ -15,10 +15,29 @@ func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.Paramstore.SetParamSet(ctx, &params)
 }
 
-func (k *Keeper) GetParams(ctx sdk.Context) types.Params {
-	params := types.Params{}
+func (k *Keeper) GetParams(ctx sdk.Context) (params types.Params) {
+	params = types.Params{}
+	defer func() {
+		if r := recover(); r != nil {
+			// If panic occurs, try to get V580 params
+			params = k.GetV580Params(ctx)
+		}
+	}()
 	k.Paramstore.GetParamSet(ctx, &params)
 	return params
+}
+
+func (k *Keeper) GetV580Params(ctx sdk.Context) types.Params {
+	v580Params := types.ParamsV580{}
+	k.Paramstore.GetParamSet(ctx, &v580Params)
+	// Convert v580Params to types.Params
+	return types.Params{
+		PriorityNormalizer:                     v580Params.PriorityNormalizer,
+		BaseFeePerGas:                          v580Params.BaseFeePerGas,
+		MinimumFeePerGas:                       v580Params.MinimumFeePerGas,
+		WhitelistedCwCodeHashesForDelegateCall: v580Params.WhitelistedCwCodeHashesForDelegateCall,
+		DeliverTxHookWasmGasLimit:              uint64(300000),
+	}
 }
 
 func (k *Keeper) GetParamsIfExists(ctx sdk.Context) types.Params {
