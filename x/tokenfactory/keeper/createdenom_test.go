@@ -162,23 +162,22 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 		desc      string
 		setup     func()
 		sender    string
-		subdenom  string
+		denom     string
 		allowList *banktypes.AllowList // Ensure this is the correct type for your allow list
 		valid     bool
 		errMsg    string
 	}{
 		{
-			desc:     "subdenom too long",
-			subdenom: "assadsadsadasdasdsadsadsadsadsadsadsklkadaskkkdasdasedskhanhassyeunganassfnlksdflksafjlkasd",
-			valid:    false,
-			errMsg:   "subdenom too long, max length is 44 bytes",
+			desc:   "denom too long",
+			denom:  fmt.Sprintf("factory/%s/assadsadsadasdasdsadsadsadsadsadsadsklkadaskkkdasdasedskhanhassyeunganassfnlksdflksafjlkasd", suite.TestAccs[0].String()),
+			valid:  false,
+			errMsg: fmt.Sprintf("invalid denom: factory/%s/assadsadsadasdasdsadsadsadsadsadsadsklkadaskkkdasdasedskhanhassyeunganassfnlksdflksafjlkasd", suite.TestAccs[0].String()),
 		},
 		{
-			desc:     "denom does not exist",
-			subdenom: "nonexistent",
-			valid:    false,
-			errMsg: fmt.Sprintf("denom: factory/%s/nonexistent: denom does not exist",
-				suite.TestAccs[0].String()),
+			desc:   "denom missing parts",
+			denom:  "nonexistent",
+			valid:  false,
+			errMsg: "not enough parts of denom nonexistent: invalid denom",
 		},
 		{
 			desc: "denom allow list can be updated",
@@ -187,7 +186,7 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 					types.NewMsgCreateDenom(suite.TestAccs[0].String(), "UPD"))
 				suite.Require().NoError(err)
 			},
-			subdenom: "UPD",
+			denom: fmt.Sprintf("factory/%s/UPD", suite.TestAccs[0].String()),
 			allowList: &banktypes.AllowList{
 				Addresses: []string{suite.TestAccs[0].String(), suite.TestAccs[1].String()},
 			},
@@ -200,7 +199,7 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 					types.NewMsgCreateDenom(suite.TestAccs[0].String(), "EMPT"))
 				suite.Require().NoError(err)
 			},
-			subdenom:  "EMPT",
+			denom:     fmt.Sprintf("factory/%s/EMPT", suite.TestAccs[0].String()),
 			allowList: &banktypes.AllowList{},
 			valid:     true,
 		},
@@ -211,7 +210,7 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 					types.NewMsgCreateDenom(suite.TestAccs[0].String(), "UND"))
 				suite.Require().NoError(err)
 			},
-			subdenom:  "UND",
+			denom:     fmt.Sprintf("factory/%s/UND", suite.TestAccs[0].String()),
 			allowList: nil,
 			valid:     false,
 			errMsg:    "allowlist undefined",
@@ -223,7 +222,7 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 					types.NewMsgCreateDenom(suite.TestAccs[0].String(), "TLRG"))
 				suite.Require().NoError(err)
 			},
-			subdenom: "TLRG",
+			denom: fmt.Sprintf("factory/%s/TLRG", suite.TestAccs[0].String()),
 			allowList: &banktypes.AllowList{
 				Addresses: []string{
 					suite.TestAccs[0].String(),
@@ -236,10 +235,10 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 			errMsg: "allowlist too large",
 		},
 		{
-			desc:     "subdenom having invalid characters",
-			subdenom: "bit/***///&&&/coin",
-			valid:    false,
-			errMsg:   fmt.Sprintf("invalid denom: factory/%s/bit/***///&&&/coin", suite.TestAccs[0].String()),
+			desc:   "denom having invalid characters",
+			denom:  "bit/***///&&&/coin",
+			valid:  false,
+			errMsg: "invalid denom: bit/***///&&&/coin",
 		},
 		{
 			desc: "invalid allow list with invalid address",
@@ -247,7 +246,7 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 				_, err := suite.msgServer.CreateDenom(sdk.WrapSDKContext(suite.Ctx), types.NewMsgCreateDenom(suite.TestAccs[0].String(), "invalidallowlist"))
 				suite.Require().NoError(err)
 			},
-			subdenom: "invalidallowlist",
+			denom: fmt.Sprintf("factory/%s/invalidallowlist", suite.TestAccs[0].String()),
 			allowList: &banktypes.AllowList{
 				Addresses: []string{"invalid_address"},
 			},
@@ -260,11 +259,11 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 				_, err := suite.msgServer.CreateDenom(sdk.WrapSDKContext(suite.Ctx), types.NewMsgCreateDenom(suite.TestAccs[0].String(), "SND"))
 				suite.Require().NoError(err)
 			},
-			subdenom:  "SND",
+			denom:     fmt.Sprintf("factory/%s/SND", suite.TestAccs[0].String()),
 			sender:    suite.TestAccs[1].String(),
 			allowList: &banktypes.AllowList{},
 			valid:     false,
-			errMsg:    fmt.Sprintf("denom: factory/%s/SND: denom does not exist", suite.TestAccs[1].String()),
+			errMsg:    "unauthorized account",
 		},
 	} {
 		suite.Run(fmt.Sprintf("Case %s", tc.desc), func() {
@@ -274,7 +273,7 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 			if tc.sender == "" {
 				tc.sender = suite.TestAccs[0].String()
 			}
-			msg := types.NewMsgUpdateDenom(tc.sender, tc.subdenom, tc.allowList)
+			msg := types.NewMsgUpdateDenom(tc.sender, tc.denom, tc.allowList)
 
 			// Update a denom
 			_, err := suite.msgServer.UpdateDenom(sdk.WrapSDKContext(suite.Ctx), msg)
@@ -284,7 +283,7 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 				// Verify the allow list if provided
 				if tc.allowList != nil {
 					allowListRes, err := suite.queryClient.DenomAllowList(suite.Ctx.Context(), &types.QueryDenomAllowListRequest{
-						Denom: fmt.Sprintf("factory/%s/%s", suite.TestAccs[0].String(), tc.subdenom),
+						Denom: tc.denom,
 					})
 					suite.Require().NoError(err)
 					suite.Require().Equal(tc.allowList, &allowListRes.AllowList)

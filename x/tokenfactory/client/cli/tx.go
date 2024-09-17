@@ -102,7 +102,7 @@ func NewCreateDenomCmd() *cobra.Command {
 // NewUpdateDenomCmd broadcast MsgUpdateDenom
 func NewUpdateDenomCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "update-denom [subdenom] [flags]",
+		Use:   "update-denom [denom] [flags]",
 		Short: "update a denom from an account",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
