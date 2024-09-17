@@ -51,7 +51,7 @@ string minimum_fee_per_gas = 4 [
   uint64 deliver_tx_hook_wasm_gas_limit = 9;
 }
 
-message ParamsV580 {
+message ParamsPreV580 {
   option (gogoproto.goproto_stringer) = false;
   
   // string base_denom = 1 [

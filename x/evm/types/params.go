@@ -79,7 +79,7 @@ func (p Params) String() string {
 	return string(out)
 }
 
-func (p *ParamsV580) ParamSetPairs() paramtypes.ParamSetPairs {
+func (p *ParamsPreV580) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &p.PriorityNormalizer, validatePriorityNormalizer),
 		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &p.BaseFeePerGas, validateBaseFeePerGas),
@@ -88,7 +88,7 @@ func (p *ParamsV580) ParamSetPairs() paramtypes.ParamSetPairs {
 	}
 }
 
-func (p ParamsV580) String() string {
+func (p ParamsPreV580) String() string {
 	out, _ := yaml.Marshal(p)
 	return string(out)
 }
