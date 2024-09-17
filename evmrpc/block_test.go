@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -279,5 +280,13 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 		Input:            []byte{1, 2, 3},
 		Hash:             common.Hash(sha256.Sum256(bz)),
 		TransactionIndex: (*hexutil.Uint64)(&ti),
+		GasPrice:         (*hexutil.Big)(utils.Big0),
+		GasFeeCap:        (*hexutil.Big)(utils.Big0),
+		GasTipCap:        (*hexutil.Big)(utils.Big0),
+		MaxFeePerBlobGas: (*hexutil.Big)(utils.Big0),
+		Value:            (*hexutil.Big)(utils.Big0),
+		V:                (*hexutil.Big)(utils.Big0),
+		R:                (*hexutil.Big)(utils.Big0),
+		S:                (*hexutil.Big)(utils.Big0),
 	}, txs[0].(*ethapi.RPCTransaction))
 }

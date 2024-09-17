@@ -17,6 +17,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -217,6 +218,14 @@ func EncodeTmBlock(
 						Input:            m.Msg.Bytes(),
 						Hash:             th,
 						TransactionIndex: (*hexutil.Uint64)(&ti),
+						GasPrice:         (*hexutil.Big)(utils.Big0),
+						GasFeeCap:        (*hexutil.Big)(utils.Big0),
+						GasTipCap:        (*hexutil.Big)(utils.Big0),
+						MaxFeePerBlobGas: (*hexutil.Big)(utils.Big0),
+						Value:            (*hexutil.Big)(utils.Big0),
+						V:                (*hexutil.Big)(utils.Big0),
+						R:                (*hexutil.Big)(utils.Big0),
+						S:                (*hexutil.Big)(utils.Big0),
 					})
 				}
 			}
