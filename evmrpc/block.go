@@ -2,14 +2,12 @@ package evmrpc
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"math/big"
 	"strings"
 	"sync"
 	"time"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -194,27 +192,6 @@ func EncodeTmBlock(
 					}
 					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
 					transactions = append(transactions, newTx)
-				}
-			case *wasmtypes.MsgExecuteContract:
-				th := sha256.Sum256(block.Block.Txs[i])
-				receipt, err := k.GetReceipt(ctx, th)
-				if err != nil {
-					continue
-				}
-				if !fullTx {
-					transactions = append(transactions, th)
-				} else {
-					ti := uint64(receipt.TransactionIndex)
-					to := k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
-					transactions = append(transactions, &ethapi.RPCTransaction{
-						BlockHash:        &blockhash,
-						BlockNumber:      (*hexutil.Big)(number),
-						From:             common.HexToAddress(receipt.From),
-						To:               &to,
-						Input:            m.Msg.Bytes(),
-						Hash:             th,
-						TransactionIndex: (*hexutil.Uint64)(&ti),
-					})
 				}
 			}
 		}
