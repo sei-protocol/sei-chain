@@ -86,7 +86,7 @@ func writeToDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, con
 // Given an input dir containing all the raw kv data, it writes to the db one version after another
 func BenchmarkDBWrite(db types.StateStore, inputKVDir string, numVersions int, concurrency int, batchSize int) {
 	startLoad := time.Now()
-	kvData, err := utils.LoadAndShuffleKV(inputKVDir)
+	kvData, err := utils.LoadAndShuffleKV(inputKVDir, concurrency)
 	if err != nil {
 		panic(err)
 	}
@@ -180,7 +180,7 @@ func readFromDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, nu
 // BenchmarkDBRead measures random read performance of the db
 // Given an input dir containing all the raw kv data, it generates random read load and measures performance.
 func BenchmarkDBRead(db types.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64) {
-	kvData, err := utils.LoadAndShuffleKV(inputKVDir)
+	kvData, err := utils.LoadAndShuffleKV(inputKVDir, concurrency)
 	if err != nil {
 		panic(err)
 	}
@@ -279,7 +279,7 @@ func forwardIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePa
 // BenchmarkDBForwardIteration measures forward iteration performance of the db
 // Given an input dir containing all the raw kv data, it selects a random key, forward iterates and measures performance.
 func BenchmarkDBForwardIteration(db types.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64, iterationSteps int) {
-	kvData, err := utils.LoadAndShuffleKV(inputKVDir)
+	kvData, err := utils.LoadAndShuffleKV(inputKVDir, concurrency)
 	if err != nil {
 		panic(err)
 	}
@@ -371,7 +371,7 @@ func reverseIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePa
 // BenchmarkDBReverseIteration measures reverse iteration performance of the db
 // Given an input dir containing all the raw kv data, it selects a random key, reverse iterates and measures performance.
 func BenchmarkDBReverseIteration(db types.StateStore, inputKVDir string, numVersions int, concurrency int, maxOps int64, iterationSteps int) {
-	kvData, err := utils.LoadAndShuffleKV(inputKVDir)
+	kvData, err := utils.LoadAndShuffleKV(inputKVDir, concurrency)
 	if err != nil {
 		panic(err)
 	}
