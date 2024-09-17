@@ -56,7 +56,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	return p.executor.RequiredGas(input[4:], method)
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, isFromDelegateCall bool) (bz []byte, err error) {
 	operation := fmt.Sprintf("%s_unknown", p.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
@@ -73,6 +73,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	operation = method.Name
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(isFromDelegateCall)
 	bz, err = p.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm)
 	if err != nil {
 		return bz, err
