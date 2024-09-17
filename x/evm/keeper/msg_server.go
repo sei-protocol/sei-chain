@@ -95,7 +95,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum())
 			if err == nil {
 				for _, l := range syntheticReceipt.Logs {
-					stateDB.AddLog(&ethtypes.Log{
+					stateDB.AddUntracedLog(&ethtypes.Log{
 						Address: common.HexToAddress(l.Address),
 						Topics:  utils.Map(l.Topics, common.HexToHash),
 						Data:    l.Data,

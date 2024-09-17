@@ -35,6 +35,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/holiman/uint256"
 	pbeth "github.com/sei-protocol/sei-chain/pb/sf/ethereum/type/v2"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	seitracing "github.com/sei-protocol/sei-chain/x/evm/tracing"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"golang.org/x/exp/maps"
@@ -542,16 +543,32 @@ func (f *Firehose) reorderCallOrdinals(call *pbeth.Call, ordinalBase uint64) (or
 }
 
 func (f *Firehose) OnSystemCallStart() {
-	firehoseInfo("system call start (tracer=%s)", f.tracerID)
-	f.ensureInBlockAndNotInTrx()
+	f.ensureInBlock(0)
 
+	// Sei has some execution paths that:
+	// - Starts an EVM transaction then starts a system call (Because it's possible to have EVM -> CoWasm -> EVM now)
+	// - Starts a system call directly (from CoWasm execution for example)
+	//
+	// This caused problem before Sei because system call was always expecting to start outside
+	// of a transaction. This handles this case.
+	if f.transaction != nil {
+		firehoseInfo("system call start ignored since we are already in a transaction (tracer=%s, isolated=%t)", f.tracerID, f.transactionIsolated)
+		return
+	}
+
+	firehoseInfo("system call start (tracer=%s, isolated=%t)", f.tracerID, f.transactionIsolated)
 	f.inSystemCall = true
 	f.transaction = &pbeth.TransactionTrace{}
 }
 
 func (f *Firehose) OnSystemCallEnd() {
+	f.ensureInBlock(0)
+	if !f.inSystemCall && f.transaction != nil {
+		firehoseInfo("system call end ignored since we are already in a transaction (tracer=%s, isolated=%t)", f.tracerID, f.transactionIsolated)
+		return
+	}
+
 	firehoseInfo("system call end (tracer=%s, isolated=%t)", f.tracerID, f.transactionIsolated)
-	f.ensureInBlockAndInTrx()
 	f.ensureInSystemCall()
 
 	if f.transactionIsolated {
@@ -720,10 +737,11 @@ func (f *Firehose) removeLogBlockIndexOnStateRevertedCalls() {
 
 func (f *Firehose) assignOrdinalAndIndexToReceiptLogs() {
 	firehoseTrace("assigning ordinal and index to logs")
-	defer func() {
-		firehoseTrace("assigning ordinal and index to logs terminated")
-	}()
-
+	if isFirehoseTracerEnabled {
+		defer func() {
+			firehoseTrace("assigning ordinal and index to logs terminated")
+		}()
+	}
 	trx := f.transaction
 
 	receiptsLogs := trx.Receipt.Logs
@@ -741,6 +759,24 @@ func (f *Firehose) assignOrdinalAndIndexToReceiptLogs() {
 	slices.SortFunc(callLogs, func(i, j *pbeth.Log) int {
 		return cmp.Compare(i.Ordinal, j.Ordinal)
 	})
+
+	if len(callLogs) != len(receiptsLogs) && wasmd.IsWasmdCall((*common.Address)(trx.To)) {
+		firehoseInfo("mistmatch logs in wasm precompile call, adjusting bogus receipt logs")
+
+		receiptLogIndexMap := map[uint32]bool{}
+		for _, receiptLog := range receiptsLogs {
+			receiptLogIndexMap[receiptLog.Index] = true
+		}
+
+		for _, log := range callLogs {
+			if _, found := receiptLogIndexMap[log.Index]; !found {
+				receiptsLogs = append(receiptsLogs, log)
+			}
+		}
+
+		trx.Receipt.Logs = receiptsLogs
+		trx.Receipt.LogsBloom = FirehoseLogs(receiptsLogs).LogsBloom()
+	}
 
 	if len(callLogs) != len(receiptsLogs) {
 		panic(fmt.Errorf(
@@ -772,6 +808,21 @@ func (f *Firehose) assignOrdinalAndIndexToReceiptLogs() {
 	}
 }
 
+type FirehoseLogs []*pbeth.Log
+
+func (logs FirehoseLogs) LogsBloom() []byte {
+	// FIXME: The Bloom.Add uses a re-usable buffer internal (see Bloom.Add implementation). It would have been
+	// cool to have this optimization too.
+	var bin types.Bloom
+	for _, log := range logs {
+		bin.Add(log.Address)
+		for _, b := range log.Topics {
+			bin.Add(b[:])
+		}
+	}
+	return bin[:]
+}
+
 func (f *Firehose) OnSeiPostTxCosmosEvents(event seitracing.SeiPostTxCosmosEvent) {
 	if !event.OnEVMTransaction {
 		f.onPostTxCosmosEventsCoWasmTx(event)
@@ -793,8 +844,8 @@ func (f *Firehose) OnSeiPostTxCosmosEvents(event seitracing.SeiPostTxCosmosEvent
 	} else {
 		f.panicInvalidState("no transaction nor system call found at this point to tweak logs, impossible state", 1)
 	}
-
 }
+
 func (f *Firehose) onPostTxCosmosEventsEvmTx(event seitracing.SeiPostTxCosmosEvent, transaction *pbeth.TransactionTrace) {
 	// Ok, we are adding new logs to the transaction, as such, we must update the `EndOrdinal` of the transaction.
 	// Indeed, when the method we are in is called, the transaction is actually already ended, so the `EndOrdinal` of

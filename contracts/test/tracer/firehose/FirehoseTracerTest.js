@@ -1,5 +1,5 @@
 const {
-    setupSigners, deployErc20PointerForCw20, getAdmin, execCommand, executeWasm, deployWasm, WASM, ABI, registerPointerForERC20, testAPIEnabled,
+    setupSigners, deployErc20PointerForCw20, getAdmin, execCommand, deployEvmContract, executeWasm, deployWasm, WASM, ABI, registerPointerForERC20, testAPIEnabled,
     incrementPointerVersion,
     isDocker
 } = require("../../lib");
@@ -20,6 +20,7 @@ const BigNumber = require('bignumber.js');
  * @property {string} [wrappedCw20EvmPointerAddress]
  */
 describe("Firehose tracer", function () {
+    /** @type {SeiDuplexAccount[]} */
     let accounts;
     /** @type {SeiDuplexAccount} */
     let admin;
@@ -98,6 +99,46 @@ describe("Firehose tracer", function () {
             const asJson = JSON.stringify(deployment)
             console.log(`export SEI_TEST_REUSABLE_CONTRACTS='${asJson}'`);
         }
+    });
+
+    it("EVM calls WasmPrecompile which performs ERC20 transfer", async function () {
+        const testToken = await deployEvmContract("TestToken", ["TEST", "TEST"]);
+        const tokenAddr = await testToken.getAddress();
+
+        const resp = await testToken.setBalance(admin.evmAddress, 1000000000000);
+        await resp.wait();
+
+        const cw20Pointer = await registerPointerForERC20(tokenAddr);
+
+        const WasmPrecompileContract = '0x0000000000000000000000000000000000001002';
+        const contractABIPath = '../../../../precompiles/wasmd/abi.json';
+        const contractABI = require(contractABIPath);
+        const wasmd = new ethers.Contract(WasmPrecompileContract, contractABI, accounts[0].signer);
+
+        const encoder = new TextEncoder();
+
+        const transferMsg = { transfer: { recipient: accounts[1].seiAddress, amount: "100" } };
+        const transferStr = JSON.stringify(transferMsg);
+        const transferBz = encoder.encode(transferStr);
+
+        const coins = [];
+        const coinsStr = JSON.stringify(coins);
+        const coinsBz = encoder.encode(coinsStr);
+
+        const response = await wasmd.execute(cw20Pointer, transferBz, coinsBz);
+        const receipt = await response.wait();
+        expect(receipt.status).to.equal(1);
+
+        const block = await getFirehoseBlock(receipt.blockNumber);
+        const txHashLookedFor = receipt.hash.replace("0x", "");
+        const trace = block.transaction_traces.find((trace) => trace.hash === txHashLookedFor);
+
+        const logs = collectTrxCallsLogs(trace)
+        const receiptLogs = trace.receipt.logs
+        expect(logs.length).to.equal(1)
+        expect(logs.length, "Transaction calls logs and receipt logs count mismatch").to.equal(receiptLogs.length)
+
+        assertTrxOrdinals(trace, receipt.blockNumber)
     });
 
     it("CW20 transfer performed through ERC20 pointer contract", async function () {

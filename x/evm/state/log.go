@@ -10,10 +10,18 @@ type Logs struct {
 }
 
 func (s *DBImpl) AddLog(l *ethtypes.Log) {
+	s.addLog(l, true)
+}
+
+func (s *DBImpl) AddUntracedLog(l *ethtypes.Log) {
+	s.addLog(l, false)
+}
+
+func (s *DBImpl) addLog(l *ethtypes.Log, trace bool) {
 	l.Index = uint(len(s.GetAllLogs()))
 	s.tempStateCurrent.logs = append(s.tempStateCurrent.logs, l)
 
-	if s.logger != nil && s.logger.OnLog != nil {
+	if trace && s.logger != nil && s.logger.OnLog != nil {
 		s.logger.OnLog(l)
 	}
 }

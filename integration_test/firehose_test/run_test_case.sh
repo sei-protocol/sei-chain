@@ -21,9 +21,10 @@ main() {
     start_firehose="true"
     parallel_tx_enabled=${PARALLEL_TX_ENABLED:-"true"}
 
-    while getopts "s" opt; do
+    while getopts "so:" opt; do
         case $opt in
         s) start_firehose=false;;
+        o) run_only=$OPTARG;;
         esac
     done
     shift $((OPTIND-1))
@@ -65,6 +66,12 @@ main() {
 
     echo "Running Firehose tests"
     cd "$CONTRACTS"
+
+    if [[ "$run_only" != "" || "$run_only" == "tracer" ]]; then
+        echo "-o <value> flag is not working right now"
+        exit 1
+    fi
+
     npx hardhat test --network seilocal test/tracer/firehose/FirehoseTracerTest.js
 }
 
