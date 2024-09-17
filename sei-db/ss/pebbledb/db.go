@@ -25,12 +25,14 @@ import (
 const (
 	VersionSize = 8
 
-	PrefixStore        = "s/k:"
-	LenPrefixStore     = 4
-	StorePrefixTpl     = "s/k:%s/"   // s/k:<storeKey>
-	latestVersionKey   = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
-	earliestVersionKey = "s/_earliest"
-	tombstoneVal       = "TOMBSTONE"
+	PrefixStore                  = "s/k:"
+	LenPrefixStore               = 4
+	StorePrefixTpl               = "s/k:%s/"   // s/k:<storeKey>
+	latestVersionKey             = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
+	earliestVersionKey           = "s/_earliest"
+	latestMigratedKeyMetadata    = "s/_latestMigratedKey"
+	latestMigratedModuleMetadata = "s/_latestMigratedModule"
+	tombstoneVal                 = "TOMBSTONE"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
@@ -208,6 +210,42 @@ func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 	}
 
 	return int64(binary.LittleEndian.Uint64(bz)), closer.Close()
+}
+
+// SetLatestKey sets the latest key processed during migration.
+func (db *Database) SetLatesMigratedKey(key []byte) error {
+	return db.storage.Set([]byte(latestMigratedKeyMetadata), key, defaultWriteOpts)
+}
+
+// GetLatestKey retrieves the latest key processed during migration.
+func (db *Database) GetLatestMigratedKey() ([]byte, error) {
+	bz, closer, err := db.storage.Get([]byte(latestMigratedKeyMetadata))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer closer.Close()
+	return bz, nil
+}
+
+// SetLatestModule sets the latest module processed during migration.
+func (db *Database) SetLatestMigratedModule(module string) error {
+	return db.storage.Set([]byte(latestMigratedModuleMetadata), []byte(module), defaultWriteOpts)
+}
+
+// GetLatestModule retrieves the latest module processed during migration.
+func (db *Database) GetLatestMigratedModule() (string, error) {
+	bz, closer, err := db.storage.Get([]byte(latestMigratedModuleMetadata))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	defer closer.Close()
+	return string(bz), nil
 }
 
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
@@ -556,27 +594,60 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 		}
 
 		var counter int
+		var latestKey []byte // store the latest key from the batch
+		var latestModule string
 		for entry := range ch {
 			err := batch.Set(entry.StoreKey, entry.Key, entry.Value, entry.Version)
 			if err != nil {
 				panic(err)
 			}
 
+			latestKey = entry.Key // track the latest key
+			latestModule = entry.StoreKey
 			counter++
+
 			if counter%ImportCommitBatchSize == 0 {
+				startTime := time.Now()
+
+				// Commit the batch and record the latest key as metadata
 				if err := batch.Write(); err != nil {
 					panic(err)
 				}
 
+				// Persist the latest key in the metadata
+				if err := db.SetLatesMigratedKey(latestKey); err != nil {
+					panic(err)
+				}
+
+				if err := db.SetLatestMigratedModule(latestModule); err != nil {
+					panic(err)
+				}
+
+				fmt.Printf("Time taken to write batch counter %d: %v\n", counter, time.Since(startTime))
+
 				batch, err = NewRawBatch(db.storage)
 				if err != nil {
+					fmt.Printf("Error creating new raw batch: %v\n", err)
 					panic(err)
 				}
 			}
 		}
 
+		// Final batch write
 		if batch.Size() > 0 {
 			if err := batch.Write(); err != nil {
+				fmt.Printf("Error writing final batch: %v\n", err)
+				panic(err)
+			}
+
+			// Persist the final latest key
+			if err := db.SetLatesMigratedKey(latestKey); err != nil {
+				fmt.Printf("Error setting final latest key: %v\n", err)
+				panic(err)
+			}
+
+			if err := db.SetLatestMigratedModule(latestModule); err != nil {
+				fmt.Printf("Error setting latest key: %v\n", err)
 				panic(err)
 			}
 		}
