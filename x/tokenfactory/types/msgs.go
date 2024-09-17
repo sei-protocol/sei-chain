@@ -54,10 +54,10 @@ func (m MsgCreateDenom) GetSigners() []sdk.AccAddress {
 var _ sdk.Msg = &MsgUpdateDenom{}
 
 // NewMsgUpdateDenom creates a msg to update denom
-func NewMsgUpdateDenom(sender, subdenom string, allowList *banktypes.AllowList) *MsgUpdateDenom {
+func NewMsgUpdateDenom(sender, denom string, allowList *banktypes.AllowList) *MsgUpdateDenom {
 	return &MsgUpdateDenom{
 		Sender:    sender,
-		Subdenom:  subdenom,
+		Denom:     denom,
 		AllowList: allowList,
 	}
 }
@@ -70,7 +70,7 @@ func (m MsgUpdateDenom) ValidateBasic() error {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
 
-	_, err = GetTokenDenom(m.Sender, m.Subdenom)
+	_, _, err = DeconstructDenom(m.Denom)
 	if err != nil {
 		return sdkerrors.Wrap(ErrInvalidDenom, err.Error())
 	}

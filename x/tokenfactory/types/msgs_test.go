@@ -87,7 +87,7 @@ func TestMsgUpdateDenom(t *testing.T) {
 	updateMsg := func(after func(msg types.MsgUpdateDenom) types.MsgUpdateDenom) types.MsgUpdateDenom {
 		properMsg := *types.NewMsgUpdateDenom(
 			addr1.String(),
-			"bitcoin",
+			fmt.Sprintf("factory/%s/bitcoin", addr1.String()),
 			&banktypes.AllowList{Addresses: []string{addr1.String()}},
 		)
 
@@ -127,7 +127,7 @@ func TestMsgUpdateDenom(t *testing.T) {
 		{
 			name: "invalid subdenom",
 			msg: updateMsg(func(msg types.MsgUpdateDenom) types.MsgUpdateDenom {
-				msg.Subdenom = "thissubdenomismuchtoolongasdkfjaasdfdsafsdlkfnmlksadmflksmdlfmlsakmfdsafasdfasdf"
+				msg.Denom = "thissubdenomismuchtoolongasdkfjaasdfdsafsdlkfnmlksadmflksmdlfmlsakmfdsafasdfasdf"
 				return msg
 			}),
 			expectPass: false,

@@ -70,13 +70,13 @@ func (k Keeper) validateCreateDenom(ctx sdk.Context, creatorAddr string, subdeno
 }
 
 func (k Keeper) validateUpdateDenom(ctx sdk.Context, msg *types.MsgUpdateDenom) (tokenDenom string, err error) {
-	_, _, err = types.DeconstructDenom(msg.GetSubdenom())
+	_, _, err = types.DeconstructDenom(msg.GetDenom())
 	if err != nil {
 		return "", err
 	}
-	_, found := k.bankKeeper.GetDenomMetaData(ctx, msg.GetSubdenom())
+	_, found := k.bankKeeper.GetDenomMetaData(ctx, msg.GetDenom())
 	if !found {
-		return "", types.ErrDenomDoesNotExist.Wrapf("denom: %s", msg.GetSubdenom())
+		return "", types.ErrDenomDoesNotExist.Wrapf("denom: %s", msg.GetDenom())
 	}
 
 	err = k.validateAllowList(msg.AllowList)
@@ -84,7 +84,7 @@ func (k Keeper) validateUpdateDenom(ctx sdk.Context, msg *types.MsgUpdateDenom) 
 		return "", err
 	}
 
-	return msg.GetSubdenom(), nil
+	return msg.GetDenom(), nil
 }
 
 func (k Keeper) validateAllowListSize(allowList *banktypes.AllowList) error {
