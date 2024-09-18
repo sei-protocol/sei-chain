@@ -68,11 +68,12 @@ func TestPrecompile_Run(t *testing.T) {
 		memo             string
 	}
 	type args struct {
-		caller          common.Address
-		callingContract common.Address
-		input           *input
-		suppliedGas     uint64
-		value           *big.Int
+		caller             common.Address
+		callingContract    common.Address
+		input              *input
+		suppliedGas        uint64
+		value              *big.Int
+		isFromDelegateCall bool
 	}
 
 	commonArgs := args{
@@ -120,7 +121,7 @@ func TestPrecompile_Run(t *testing.T) {
 		{
 			name:       "failed transfer: caller not whitelisted",
 			fields:     fields{transferKeeper: &MockTransferKeeper{}},
-			args:       args{caller: senderEvmAddress, callingContract: common.Address{}, input: commonArgs.input, suppliedGas: 1000000, value: nil},
+			args:       args{caller: senderEvmAddress, callingContract: common.Address{}, input: commonArgs.input, suppliedGas: 1000000, value: nil, isFromDelegateCall: true},
 			wantBz:     nil,
 			wantErr:    true,
 			wantErrMsg: "cannot delegatecall IBC",
@@ -278,7 +279,7 @@ func TestPrecompile_Run(t *testing.T) {
 				tt.args.input.revisionNumber, tt.args.input.revisionHeight, tt.args.input.timeoutTimestamp,
 				tt.args.input.memo)
 			require.Nil(t, err)
-			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*ibc.PrecompileExecutor).TransferID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false, false)
+			gotBz, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*ibc.PrecompileExecutor).TransferID, inputs...), tt.args.suppliedGas, tt.args.value, nil, false, tt.args.isFromDelegateCall)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -317,11 +318,11 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 		memo          string
 	}
 	type args struct {
-		caller          common.Address
-		callingContract common.Address
-		input           *input
-		suppliedGas     uint64
-		value           *big.Int
+		caller             common.Address
+		callingContract    common.Address
+		input              *input
+		suppliedGas        uint64
+		value              *big.Int
 		isFromDelegateCall bool
 	}
 
