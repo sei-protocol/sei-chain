@@ -340,7 +340,7 @@ func TestExecuteBatchOneMessage(t *testing.T) {
 
 	// disallowed delegatecall
 	contractAddrDisallowed := common.BytesToAddress([]byte("contractB"))
-	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, false)
+	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, true)
 	require.NotNil(t, err)
 
 	// bad contract address
@@ -508,7 +508,7 @@ func TestExecuteBatchMultipleMessages(t *testing.T) {
 
 	// disallowed delegatecall
 	contractAddrDisallowed := common.BytesToAddress([]byte("contractB"))
-	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, false)
+	_, _, err = p.RunAndCalculateGas(&evm, mockEVMAddr, contractAddrDisallowed, append(p.GetExecutor().(*wasmd.PrecompileExecutor).ExecuteBatchID, args...), suppliedGas, nil, nil, false, true)
 	require.NotNil(t, err)
 
 	// bad contract address

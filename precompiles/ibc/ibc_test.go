@@ -468,7 +468,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 				tt.args.value,
 				nil,
 				false,
-				false,
+				tt.args.isFromDelegateCall,
 			)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
