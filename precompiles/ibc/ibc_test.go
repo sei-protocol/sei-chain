@@ -322,6 +322,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 		input           *input
 		suppliedGas     uint64
 		value           *big.Int
+		isFromDelegateCall bool
 	}
 
 	commonArgs := args{
@@ -350,7 +351,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 		{
 			name:       "failed transfer: caller not whitelisted",
 			fields:     fields{transferKeeper: &MockTransferKeeper{}},
-			args:       args{caller: senderEvmAddress, callingContract: common.Address{}, input: commonArgs.input, suppliedGas: 1000000, value: nil},
+			args:       args{caller: senderEvmAddress, callingContract: common.Address{}, input: commonArgs.input, suppliedGas: 1000000, value: nil, isFromDelegateCall: true},
 			wantBz:     nil,
 			wantErr:    true,
 			wantErrMsg: "cannot delegatecall IBC",
