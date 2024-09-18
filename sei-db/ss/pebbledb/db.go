@@ -213,7 +213,7 @@ func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 }
 
 // SetLatestKey sets the latest key processed during migration.
-func (db *Database) SetLatesMigratedKey(key []byte) error {
+func (db *Database) SetLatestMigratedKey(key []byte) error {
 	return db.storage.Set([]byte(latestMigratedKeyMetadata), key, defaultWriteOpts)
 }
 
@@ -615,7 +615,7 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 				}
 
 				// Persist the latest key in the metadata
-				if err := db.SetLatesMigratedKey(latestKey); err != nil {
+				if err := db.SetLatestMigratedKey(latestKey); err != nil {
 					panic(err)
 				}
 
@@ -641,7 +641,7 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 			}
 
 			// Persist the final latest key
-			if err := db.SetLatesMigratedKey(latestKey); err != nil {
+			if err := db.SetLatestMigratedKey(latestKey); err != nil {
 				fmt.Printf("Error setting final latest key: %v\n", err)
 				panic(err)
 			}
