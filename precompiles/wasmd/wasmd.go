@@ -254,13 +254,6 @@ func (p PrecompileExecutor) executeBatch(ctx sdk.Context, method *abi.Method, ca
 
 		// type assertion will always succeed because it's already validated in p.Prepare call in Run()
 		contractAddrStr := executeMsg.ContractAddress
-		if caller.Cmp(callingContract) != 0 {
-			erc20pointer, _, erc20exists := p.evmKeeper.GetERC20CW20Pointer(ctx, contractAddrStr)
-			erc721pointer, _, erc721exists := p.evmKeeper.GetERC721CW721Pointer(ctx, contractAddrStr)
-			if (!erc20exists || erc20pointer.Cmp(callingContract) != 0) && (!erc721exists || erc721pointer.Cmp(callingContract) != 0) {
-				return nil, 0, fmt.Errorf("%s is not a pointer of %s", callingContract.Hex(), contractAddrStr)
-			}
-		}
 
 		contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
 		if err != nil {
@@ -347,13 +340,7 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 
 	// type assertion will always succeed because it's already validated in p.Prepare call in Run()
 	contractAddrStr := args[0].(string)
-	if caller.Cmp(callingContract) != 0 {
-		erc20pointer, _, erc20exists := p.evmKeeper.GetERC20CW20Pointer(ctx, contractAddrStr)
-		erc721pointer, _, erc721exists := p.evmKeeper.GetERC721CW721Pointer(ctx, contractAddrStr)
-		if (!erc20exists || erc20pointer.Cmp(callingContract) != 0) && (!erc721exists || erc721pointer.Cmp(callingContract) != 0) {
-			return nil, 0, fmt.Errorf("%s is not a pointer of %s", callingContract.Hex(), contractAddrStr)
-		}
-	}
+
 	// addresses will be sent in Sei format
 	contractAddr, err := sdk.AccAddressFromBech32(contractAddrStr)
 	if err != nil {
