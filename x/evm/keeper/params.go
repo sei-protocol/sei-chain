@@ -24,15 +24,14 @@ func (k *Keeper) GetParams(ctx sdk.Context) (params types.Params) {
 			params = k.GetV590Params(ctx)
 		}
 	}()
-	ctx.BlockHeight()
-	fmt.Println("[Debug] Getting params at height", ctx.BlockHeight())
+	fmt.Printf("[Debug Before get paramset with ctx: %v\n", ctx)
 	k.Paramstore.GetParamSet(ctx, &params)
 	fmt.Println("[Debug] Got params at height", ctx.BlockHeight())
 	return params
 }
 
 func (k *Keeper) GetV590Params(ctx sdk.Context) types.Params {
-	fmt.Println("[Debug] Getting v590Params at height", ctx.BlockHeight())
+	fmt.Printf("[Debug] Getting v590Params with ctx %v\n", ctx)
 	v590Params := types.ParamsV590{}
 	k.Paramstore.GetParamSet(ctx, &v590Params)
 	fmt.Println("[Debug] Got v590Params at height", ctx.BlockHeight())
