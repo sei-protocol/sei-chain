@@ -184,6 +184,14 @@ describe("CW20 to ERC20 Pointer", function () {
                     const response = await wasmd.execute(pointer, transferBz, coinsBz);
                     const receipt = await response.wait();
                     expect(receipt.status).to.equal(1);
+
+                    const filter = {
+                        fromBlock: receipt["blockNumber"],
+                        toBlock: 'latest',
+                        topics: [ethers.id("Transfer(address,address,uint256)")]
+                    };
+                    const logs = await ethers.provider.getLogs(filter);
+                    expect(logs.length).to.equal(1);
                 });
             });
         });

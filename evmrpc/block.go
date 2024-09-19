@@ -69,7 +69,8 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
+	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -87,7 +88,8 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	if err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
+	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -152,6 +154,7 @@ func EncodeTmBlock(
 	ctx sdk.Context,
 	block *coretypes.ResultBlock,
 	blockRes *coretypes.ResultBlockResults,
+	blockBloom ethtypes.Bloom,
 	k *keeper.Keeper,
 	txDecoder sdk.TxDecoder,
 	fullTx bool,
@@ -208,7 +211,7 @@ func EncodeTmBlock(
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 		"mixHash":          common.Hash{},           // inapplicable to Sei
 		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-		"logsBloom":        k.GetBlockBloom(ctx, block.Block.Height),
+		"logsBloom":        blockBloom,
 		"stateRoot":        appHash,
 		"miner":            miner,
 		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
