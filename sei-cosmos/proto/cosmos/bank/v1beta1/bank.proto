@@ -94,3 +94,10 @@ message Metadata {
   // Since: cosmos-sdk 0.43
   string symbol = 6;
 }
+
+message AllowList {
+  option (gogoproto.equal) = true;
+
+  // Can be empty for no admin, or a valid sei address
+  repeated string addresses = 1 [ (gogoproto.moretags) = "yaml:\"addresses\"" ];
+}

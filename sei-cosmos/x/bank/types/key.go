@@ -28,16 +28,23 @@ var (
 	WeiBalancesPrefix = []byte{0x04}
 	// BalancesPrefix is the prefix for the account balances store. We use a byte
 	// (instead of `[]byte("balances")` to save some disk space).
-	DeferredCachePrefix = []byte{0x03}
-	BalancesPrefix      = []byte{0x02}
-	SupplyKey           = []byte{0x00}
-	DenomMetadataPrefix = []byte{0x1}
+	DeferredCachePrefix  = []byte{0x03}
+	BalancesPrefix       = []byte{0x02}
+	SupplyKey            = []byte{0x00}
+	DenomMetadataPrefix  = []byte{0x1}
+	DenomAllowListPrefix = []byte{0x11}
 )
 
 // DenomMetadataKey returns the denomination metadata key.
 func DenomMetadataKey(denom string) []byte {
 	d := []byte(denom)
 	return append(DenomMetadataPrefix, d...)
+}
+
+// DenomAllowListKey returns the denomination allow list key.
+func DenomAllowListKey(denom string) []byte {
+	d := []byte(denom)
+	return append(DenomAllowListPrefix, d...)
 }
 
 // AddressFromBalancesStore returns an account address from a balances prefix
