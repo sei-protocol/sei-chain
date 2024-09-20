@@ -358,6 +358,12 @@ func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (re
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
 			continue
 		}
+		if len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
+			continue
+		}
+		if receipt.EffectiveGasPrice == 0 {
+			return
+		}
 		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
 			res = append(res, keeper.GetLogsForTx(receipt)...)
 		}

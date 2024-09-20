@@ -17,6 +17,9 @@ func (k Keeper) SetParams(ctx sdk.Context, params types.Params) {
 }
 
 func (k *Keeper) GetParams(ctx sdk.Context) (params types.Params) {
+	if ctx.IsCheckTx() {
+		return k.GetParamsIfExists(ctx)
+	}
 	params = types.Params{}
 	defer func() {
 		if r := recover(); r != nil {
@@ -25,17 +28,13 @@ func (k *Keeper) GetParams(ctx sdk.Context) (params types.Params) {
 			params = k.GetV590Params(ctx)
 		}
 	}()
-	fmt.Printf("[Debug Before get paramset with height: %d\n", ctx.BlockHeight())
 	k.Paramstore.GetParamSet(ctx, &params)
-	fmt.Println("[Debug] Got params at height", ctx.BlockHeight())
 	return params
 }
 
 func (k *Keeper) GetV590Params(ctx sdk.Context) types.Params {
 	v590Params := types.ParamsV590{}
-	fmt.Printf("[Debug] Getting v590Params with height %d\n", ctx.BlockHeight())
 	k.Paramstore.GetParamSet(ctx, &v590Params)
-	fmt.Println("[Debug] Got v590Params at height", ctx.BlockHeight())
 	// Convert GetV590Params to types.Params
 	return types.Params{
 		PriorityNormalizer:                     v590Params.PriorityNormalizer,
