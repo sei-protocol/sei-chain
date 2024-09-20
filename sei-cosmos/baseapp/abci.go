@@ -325,6 +325,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 			evmErr := sdkerrors.Wrap(sdkerrors.ErrEVMVMError, result.EvmError)
 			res.Codespace, res.Code, res.Log = sdkerrors.ABCIInfo(evmErr, app.trace)
 			resultStr = "failed"
+			return
 		}
 	}
 	for _, hook := range app.deliverTxHooks {
