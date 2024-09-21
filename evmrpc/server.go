@@ -55,11 +55,11 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, false),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, "eth"),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, true),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, "sei"),
 		},
 		{
 			Namespace: "eth",
@@ -160,7 +160,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeWS, false),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeWS, "eth"),
 		},
 		{
 			Namespace: "eth",
