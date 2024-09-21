@@ -49,7 +49,7 @@ type FilterAPI struct {
 	filterConfig     *FilterConfig
 	logFetcher       *LogFetcher
 	connectionType   ConnectionType
-	includeSynthetic bool
+	namespace        string
 }
 
 type FilterConfig struct {
@@ -63,10 +63,11 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, filterConfig *FilterConfig, connectionType ConnectionType, includeSynthetic bool) *FilterAPI {
-	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, filterConfig: filterConfig, includeSynthetic: includeSynthetic}
+func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
+	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, filterConfig: filterConfig, includeSynthetic: shouldIncludeSynthetic(namespace)}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
+		namespace:      namespace,
 		tmClient:       tmClient,
 		filtersMu:      sync.Mutex{},
 		filters:        filters,
@@ -102,7 +103,7 @@ func (a *FilterAPI) NewFilter(
 	_ context.Context,
 	crit filters.FilterCriteria,
 ) (id ethrpc.ID, err error) {
-	defer recordMetrics("eth_newFilter", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	curFilterID := ethrpc.NewID()
@@ -118,7 +119,7 @@ func (a *FilterAPI) NewFilter(
 func (a *FilterAPI) NewBlockFilter(
 	_ context.Context,
 ) (id ethrpc.ID, err error) {
-	defer recordMetrics("eth_newBlockFilter", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	curFilterID := ethrpc.NewID()
@@ -134,7 +135,7 @@ func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res interface{}, err error) {
-	defer recordMetrics("eth_getFilterChanges", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
@@ -185,7 +186,7 @@ func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics("eth_getFilterLogs", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
@@ -215,7 +216,7 @@ func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics("eth_getLogs", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
 	return logs, err
 }
@@ -262,7 +263,7 @@ func (a *FilterAPI) UninstallFilter(
 	_ context.Context,
 	filterID ethrpc.ID,
 ) (res bool) {
-	defer recordMetrics("eth_uninstallFilter", a.connectionType, time.Now(), res)
+	defer recordMetrics(fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, time.Now(), res)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	_, found := a.filters[filterID]

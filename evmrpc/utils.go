@@ -196,3 +196,10 @@ func bankExists(ctx sdk.Context, k *keeper.Keeper) bool {
 func evmExists(ctx sdk.Context, k *keeper.Keeper) bool {
 	return ctx.KVStore(k.GetStoreKey()).VersionExists(ctx.BlockHeight())
 }
+
+func shouldIncludeSynthetic(namespace string) bool {
+	if namespace != "eth" && namespace != "sei" {
+		panic(fmt.Sprintf("unknown namespace %s", namespace))
+	}
+	return namespace == "sei"
+}
