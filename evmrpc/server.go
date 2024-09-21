@@ -47,7 +47,7 @@ func NewEVMHTTPServer(
 
 	blockAPI := NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP)
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP)
-	filterAPI := NewFilterAPI(tmClient, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP)
+	// filterAPI := NewFilterAPI(tmClient, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP)
 
 	apis := []rpc.API{
 		{
@@ -88,12 +88,12 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   filterAPI,
+			Service:   NewFilterAPI(tmClient, k, ctxProvider, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP, false),
 		},
-		// {
-		// 	Namespace: "sei",
-		// 	Service:   NewSeiFilterAPI(filterAPI),
-		// },
+		{
+			Namespace: "sei",
+			Service:   NewFilterAPI(tmClient, k, ctxProvider, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP, true),
+		},
 		{
 			Namespace: "sei",
 			Service:   NewAssociationAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), sendAPI, ConnectionTypeHTTP),

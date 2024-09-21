@@ -43,12 +43,13 @@ type filter struct {
 }
 
 type FilterAPI struct {
-	tmClient       rpcclient.Client
-	filtersMu      sync.Mutex
-	filters        map[ethrpc.ID]filter
-	filterConfig   *FilterConfig
-	logFetcher     *LogFetcher
-	connectionType ConnectionType
+	tmClient         rpcclient.Client
+	filtersMu        sync.Mutex
+	filters          map[ethrpc.ID]filter
+	filterConfig     *FilterConfig
+	logFetcher       *LogFetcher
+	connectionType   ConnectionType
+	includeSynthetic bool
 }
 
 type FilterConfig struct {
@@ -62,8 +63,8 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, filterConfig *FilterConfig, connectionType ConnectionType) *FilterAPI {
-	logFetcher.filterConfig = filterConfig
+func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, filterConfig *FilterConfig, connectionType ConnectionType, includeSynthetic bool) *FilterAPI {
+	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, filterConfig: filterConfig, includeSynthetic: includeSynthetic}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
 		tmClient:       tmClient,
@@ -209,6 +210,7 @@ func (a *FilterAPI) GetFilterLogs(
 	return logs, nil
 }
 
+// JEREMYFLAG
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,
@@ -272,10 +274,11 @@ func (a *FilterAPI) UninstallFilter(
 }
 
 type LogFetcher struct {
-	tmClient     rpcclient.Client
-	k            *keeper.Keeper
-	ctxProvider  func(int64) sdk.Context
-	filterConfig *FilterConfig
+	tmClient         rpcclient.Client
+	k                *keeper.Keeper
+	ctxProvider      func(int64) sdk.Context
+	filterConfig     *FilterConfig
+	includeSynthetic bool
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
@@ -357,12 +360,13 @@ func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (re
 	ctx := f.ctxProvider(LatestCtxHeight)
 	txHashes := f.k.GetTxHashesOnHeight(ctx, height)
 	for _, hash := range txHashes {
+		fmt.Println("hash: ", hash)
 		receipt, err := f.k.GetReceipt(ctx, hash)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
 			continue
 		}
-		if len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
+		if !f.includeSynthetic && len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
 			continue
 		}
 		if receipt.EffectiveGasPrice == 0 {
