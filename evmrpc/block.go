@@ -2,12 +2,14 @@ package evmrpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"math/big"
 	"strings"
 	"sync"
 	"time"
 
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -61,6 +63,10 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockByHash", a.connectionType, startTime, returnErr == nil)
+	return a.getBlockByHash(ctx, blockHash, fullTx, false)
+}
+
+func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool) (result map[string]interface{}, returnErr error) {
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
@@ -70,14 +76,14 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx)
+	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, includeSyntheticTxs)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockByNumber", a.connectionType, startTime, returnErr == nil)
 	if number == 0 {
-		// always return genesis block
+		// for compatibility with the graph, always return genesis block
 		return map[string]interface{}{
 			"number":           (*hexutil.Big)(big.NewInt(0)),
 			"hash":             common.HexToHash("F9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E"),
@@ -101,6 +107,10 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 			"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
 		}, nil
 	}
+	return a.getBlockByNumber(ctx, number, fullTx, false)
+}
+
+func (a *BlockAPI) getBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool, includeSyntheticTxs bool) (result map[string]interface{}, returnErr error) {
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -114,7 +124,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx)
+	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, includeSyntheticTxs)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -195,6 +205,7 @@ func EncodeTmBlock(
 	k *keeper.Keeper,
 	txDecoder sdk.TxDecoder,
 	fullTx bool,
+	includeSyntheticTxs bool,
 ) (map[string]interface{}, error) {
 	number := big.NewInt(block.Block.Height)
 	blockhash := common.HexToHash(block.BlockID.Hash.String())
@@ -232,6 +243,30 @@ func EncodeTmBlock(
 					}
 					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
 					transactions = append(transactions, newTx)
+				}
+			case *wasmtypes.MsgExecuteContract:
+				if !includeSyntheticTxs {
+					continue
+				}
+				th := sha256.Sum256(block.Block.Txs[i])
+				receipt, err := k.GetReceipt(ctx, th)
+				if err != nil {
+					continue
+				}
+				if !fullTx {
+					transactions = append(transactions, th)
+				} else {
+					ti := uint64(receipt.TransactionIndex)
+					to := k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
+					transactions = append(transactions, &ethapi.RPCTransaction{
+						BlockHash:        &blockhash,
+						BlockNumber:      (*hexutil.Big)(number),
+						From:             common.HexToAddress(receipt.From),
+						To:               &to,
+						Input:            m.Msg.Bytes(),
+						Hash:             th,
+						TransactionIndex: (*hexutil.Uint64)(&ti),
+					})
 				}
 			}
 		}

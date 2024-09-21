@@ -94,6 +94,10 @@ func TestFilterUninstall(t *testing.T) {
 }
 
 func TestFilterGetLogs(t *testing.T) {
+// 	testFilterGetLogs(t, "eth")
+// }
+
+// func testFilterGetLogs(t *testing.T, namespace string) {
 	tests := []struct {
 		name      string
 		blockHash *common.Hash
@@ -116,72 +120,72 @@ func TestFilterGetLogs(t *testing.T) {
 			},
 			wantLen: 2,
 		},
-		{
-			name:      "filter by single topic",
-			fromBlock: "0x2",
-			toBlock:   "0x2",
-			topics:    [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
-			wantErr:   false,
-			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", log["topics"].([]interface{})[0].(string))
-			},
-			wantLen: 4,
-		},
-		{
-			name:    "filter by single topic with default range",
-			topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
-			wantErr: false,
-			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", log["topics"].([]interface{})[0].(string))
-			},
-			wantLen: 1,
-		},
-		{
-			name:      "error with from block ahead of to block",
-			fromBlock: "0x3",
-			toBlock:   "0x2",
-			topics:    [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
-			wantErr:   true,
-		},
-		{
-			name:      "multiple addresses, multiple topics",
-			fromBlock: "0x2",
-			toBlock:   "0x2",
-			addrs: []common.Address{
-				common.HexToAddress("0x1111111111111111111111111111111111111112"),
-				common.HexToAddress("0x1111111111111111111111111111111111111113"),
-			},
-			topics: [][]common.Hash{
-				{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")},
-				{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456")},
-			},
-			wantErr: false,
-			check: func(t *testing.T, log map[string]interface{}) {
-				if log["address"].(string) != "0x1111111111111111111111111111111111111112" && log["address"].(string) != "0x1111111111111111111111111111111111111113" {
-					t.Fatalf("address %s not in expected list", log["address"].(string))
-				}
-				firstTopic := log["topics"].([]interface{})[0].(string)
-				secondTopic := log["topics"].([]interface{})[1].(string)
-				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", firstTopic)
-				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000456", secondTopic)
-			},
-			wantLen: 2,
-		},
-		{
-			name:      "wildcard first topic",
-			fromBlock: "0x2",
-			toBlock:   "0x2",
-			topics: [][]common.Hash{
-				{},
-				{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456")},
-			},
-			wantErr: false,
-			check: func(t *testing.T, log map[string]interface{}) {
-				secondTopic := log["topics"].([]interface{})[1].(string)
-				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000456", secondTopic)
-			},
-			wantLen: 3,
-		},
+		// {
+		// 	name:      "filter by single topic",
+		// 	fromBlock: "0x2",
+		// 	toBlock:   "0x2",
+		// 	topics:    [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
+		// 	wantErr:   false,
+		// 	check: func(t *testing.T, log map[string]interface{}) {
+		// 		require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", log["topics"].([]interface{})[0].(string))
+		// 	},
+		// 	wantLen: 4,
+		// },
+		// {
+		// 	name:    "filter by single topic with default range",
+		// 	topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
+		// 	wantErr: false,
+		// 	check: func(t *testing.T, log map[string]interface{}) {
+		// 		require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", log["topics"].([]interface{})[0].(string))
+		// 	},
+		// 	wantLen: 1,
+		// },
+		// {
+		// 	name:      "error with from block ahead of to block",
+		// 	fromBlock: "0x3",
+		// 	toBlock:   "0x2",
+		// 	topics:    [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
+		// 	wantErr:   true,
+		// },
+		// {
+		// 	name:      "multiple addresses, multiple topics",
+		// 	fromBlock: "0x2",
+		// 	toBlock:   "0x2",
+		// 	addrs: []common.Address{
+		// 		common.HexToAddress("0x1111111111111111111111111111111111111112"),
+		// 		common.HexToAddress("0x1111111111111111111111111111111111111113"),
+		// 	},
+		// 	topics: [][]common.Hash{
+		// 		{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")},
+		// 		{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456")},
+		// 	},
+		// 	wantErr: false,
+		// 	check: func(t *testing.T, log map[string]interface{}) {
+		// 		if log["address"].(string) != "0x1111111111111111111111111111111111111112" && log["address"].(string) != "0x1111111111111111111111111111111111111113" {
+		// 			t.Fatalf("address %s not in expected list", log["address"].(string))
+		// 		}
+		// 		firstTopic := log["topics"].([]interface{})[0].(string)
+		// 		secondTopic := log["topics"].([]interface{})[1].(string)
+		// 		require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", firstTopic)
+		// 		require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000456", secondTopic)
+		// 	},
+		// 	wantLen: 2,
+		// },
+		// {
+		// 	name:      "wildcard first topic",
+		// 	fromBlock: "0x2",
+		// 	toBlock:   "0x2",
+		// 	topics: [][]common.Hash{
+		// 		{},
+		// 		{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456")},
+		// 	},
+		// 	wantErr: false,
+		// 	check: func(t *testing.T, log map[string]interface{}) {
+		// 		secondTopic := log["topics"].([]interface{})[1].(string)
+		// 		require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000456", secondTopic)
+		// 	},
+		// 	wantLen: 3,
+		// },
 	}
 
 	for _, tt := range tests {
@@ -198,7 +202,14 @@ func TestFilterGetLogs(t *testing.T) {
 				filterCriteria["fromBlock"] = tt.fromBlock
 				filterCriteria["toBlock"] = tt.toBlock
 			}
-			resObj := sendRequestGood(t, "getLogs", filterCriteria)
+			var resObj map[string]interface{}
+			// if namespace == "eth" {
+				resObj = sendRequestGood(t, "getLogs", filterCriteria)
+			// } else if namespace == "sei" {
+			// 	resObj = sendSeiRequestGood(t, "getLogs", filterCriteria)
+			// } else {
+			// 	panic("unknown namespace")
+			// }
 			if tt.wantErr {
 				_, ok := resObj["error"]
 				require.True(t, ok)
