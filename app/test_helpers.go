@@ -15,6 +15,7 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
@@ -54,6 +55,9 @@ func (t TestAppOpts) Get(s string) interface{} {
 	}
 	if s == FlagSCEnable {
 		return t.useSc
+	}
+	if s == tokenfactorykeeper.FlagDenomAllowListMaxSize {
+		return 3
 	}
 	return nil
 }
