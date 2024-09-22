@@ -43,13 +43,13 @@ type filter struct {
 }
 
 type FilterAPI struct {
-	tmClient         rpcclient.Client
-	filtersMu        sync.Mutex
-	filters          map[ethrpc.ID]filter
-	filterConfig     *FilterConfig
-	logFetcher       *LogFetcher
-	connectionType   ConnectionType
-	namespace        string
+	tmClient       rpcclient.Client
+	filtersMu      sync.Mutex
+	filters        map[ethrpc.ID]filter
+	filterConfig   *FilterConfig
+	logFetcher     *LogFetcher
+	connectionType ConnectionType
+	namespace      string
 }
 
 type FilterConfig struct {
@@ -361,7 +361,6 @@ func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (re
 	ctx := f.ctxProvider(LatestCtxHeight)
 	txHashes := f.k.GetTxHashesOnHeight(ctx, height)
 	for _, hash := range txHashes {
-		fmt.Println("hash: ", hash)
 		receipt, err := f.k.GetReceipt(ctx, hash)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))

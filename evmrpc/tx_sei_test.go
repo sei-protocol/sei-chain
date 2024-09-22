@@ -1,6 +1,9 @@
 package evmrpc_test
 
-import "testing"
+import (
+	// "fmt"
+	"testing"
+)
 
 func TestGetSeiTxReceipt(t *testing.T) {
 	testGetTxReceipt(t, "sei")

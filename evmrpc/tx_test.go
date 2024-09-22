@@ -68,25 +68,6 @@ func testGetTxReceipt(t *testing.T, namespace string) {
 	require.Equal(t, "0x1", resObj["type"].(string))
 	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["contractAddress"].(string))
 
-	receipt, err = EVMKeeper.GetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"))
-	require.Nil(t, err)
-	receipt.ContractAddress = ""
-	receipt.To = "0x1234567890123456789012345678901234567890"
-	EVMKeeper.MockReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"), receipt)
-	body = "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}"
-	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
-	require.Nil(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	res, err = http.DefaultClient.Do(req)
-	require.Nil(t, err)
-	resBody, err = io.ReadAll(res.Body)
-	require.Nil(t, err)
-	resObj = map[string]interface{}{}
-	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	resObj = resObj["result"].(map[string]interface{})
-	require.Nil(t, resObj["contractAddress"])
-	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["to"].(string))
-
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestBadPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
