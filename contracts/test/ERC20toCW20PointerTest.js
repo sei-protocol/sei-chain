@@ -102,17 +102,23 @@ describe("ERC20 to CW20 Pointer", function () {
 
                     // check logs
                     const filter = {
-                        fromBlock: blockNumber,
+                        fromBlock: '0x' + blockNumber.toString(16),
                         toBlock: 'latest',
                         address: await pointer.getAddress(),
                         topics: [ethers.id("Transfer(address,address,uint256)")]
                     };
-                    const logs = await ethers.provider.getLogs(filter);
-                    expect(logs.length).to.equal(1);
-                    expect(logs[0]["address"]).to.equal(await pointer.getAddress());
-                    expect(logs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
-                    expect(logs[0]["topics"][1].substring(26)).to.equal(sender.evmAddress.substring(2).toLowerCase());
-                    expect(logs[0]["topics"][2].substring(26)).to.equal(recipient.evmAddress.substring(2).toLowerCase());
+                    // send via eth_ endpoint - synthetic event doesn't show up
+                    const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
+                    expect(ethlogs.length).to.equal(0);
+
+                    // send via sei_ endpoint - synthetic event shows up
+                    const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
+                    expect(seilogs.length).to.equal(1);
+                    expect(seilogs.length).to.equal(1);
+                    expect(seilogs[0]["address"].toLowerCase()).to.equal((await pointer.getAddress()).toLowerCase());
+                    expect(seilogs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
+                    expect(seilogs[0]["topics"][1].substring(26)).to.equal(sender.evmAddress.substring(2).toLowerCase());
+                    expect(seilogs[0]["topics"][2].substring(26)).to.equal(recipient.evmAddress.substring(2).toLowerCase());
 
                     const cleanupTx = await pointer.connect(recipient.signer).transfer(sender.evmAddress, 1);
                     await cleanupTx.wait();
@@ -147,17 +153,22 @@ describe("ERC20 to CW20 Pointer", function () {
 
                     // check logs
                     const filter = {
-                        fromBlock: blockNumber,
+                        fromBlock: '0x' + blockNumber.toString(16),
                         toBlock: 'latest',
                         address: await pointer.getAddress(),
                         topics: [ethers.id("Approval(address,address,uint256)")]
                     };
-                    const logs = await ethers.provider.getLogs(filter);
-                    expect(logs.length).to.equal(1);
-                    expect(logs[0]["address"]).to.equal(await pointer.getAddress());
-                    expect(logs[0]["topics"][0]).to.equal(ethers.id("Approval(address,address,uint256)"));
-                    expect(logs[0]["topics"][1].substring(26)).to.equal(owner.substring(2).toLowerCase());
-                    expect(logs[0]["topics"][2].substring(26)).to.equal(spender.substring(2).toLowerCase());
+                    // send via eth_ endpoint - synthetic event doesn't show up
+                    const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
+                    expect(ethlogs.length).to.equal(0);
+
+                    // send via sei_ endpoint - synthetic event shows up
+                    const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
+                    expect(seilogs.length).to.equal(1);
+                    expect(seilogs[0]["address"]).to.equal(await pointer.getAddress());
+                    expect(seilogs[0]["topics"][0]).to.equal(ethers.id("Approval(address,address,uint256)"));
+                    expect(seilogs[0]["topics"][1].substring(26)).to.equal(owner.substring(2).toLowerCase());
+                    expect(seilogs[0]["topics"][2].substring(26)).to.equal(spender.substring(2).toLowerCase());
                 });
 
                 it("should lower approval", async function () {
