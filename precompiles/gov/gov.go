@@ -77,7 +77,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	if readOnly {
 		return nil, errors.New("cannot call gov precompile from staticcall")
 	}
-	if caller.Cmp(callingContract) != 0 {
+	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, errors.New("cannot delegatecall gov")
 	}
 

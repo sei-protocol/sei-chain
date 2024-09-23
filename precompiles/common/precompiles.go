@@ -56,7 +56,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	return p.executor.RequiredGas(input[4:], method)
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, isFromDelegateCall bool) (bz []byte, err error) {
 	operation := fmt.Sprintf("%s_unknown", p.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
@@ -73,6 +73,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	operation = method.Name
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(isFromDelegateCall)
 	bz, err = p.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm)
 	if err != nil {
 		return bz, err
@@ -146,7 +147,7 @@ func NewDynamicGasPrecompile(a abi.ABI, executor DynamicGasPrecompileExecutor, a
 	return &DynamicGasPrecompile{Precompile: NewPrecompile(a, nil, address, name), executor: executor}
 }
 
-func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool, isFromDelegateCall bool) (ret []byte, remainingGas uint64, err error) {
 	operation := fmt.Sprintf("%s_unknown", d.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
@@ -164,6 +165,7 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	operation = method.Name
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(isFromDelegateCall)
 	ret, remainingGas, err = d.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm, suppliedGas)
 	if err != nil {
 		return ret, remainingGas, err
