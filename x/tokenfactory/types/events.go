@@ -9,6 +9,7 @@ const (
 	AttributeSubdenom = "subdenom"
 	//nolint:gosec
 	AttributeNewTokenDenom       = "new_token_denom"
+	AttributeUpdatedTokenDenom   = "updated_token_denom"
 	AttributeMintToAddress       = "mint_to_address"
 	AttributeBurnFromAddress     = "burn_from_address"
 	AttributeTransferFromAddress = "transfer_from_address"
@@ -16,4 +17,5 @@ const (
 	AttributeDenom               = "denom"
 	AttributeNewAdmin            = "new_admin"
 	AttributeDenomMetadata       = "denom_metadata"
+	AttributeAllowList           = "denom_allow_list"
 )
