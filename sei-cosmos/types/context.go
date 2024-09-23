@@ -53,12 +53,13 @@ type Context struct {
 	txMsgAccessOps       map[int][]acltypes.AccessOperation
 
 	// EVM properties
-	evm                        bool   // EVM transaction flag
-	evmNonce                   uint64 // EVM Transaction nonce
-	evmSenderAddress           string // EVM Sender address
-	evmTxHash                  string // EVM TX hash
-	evmVmError                 string // EVM VM error during execution
-	evmEntryViaWasmdPrecompile bool   // EVM is entered via wasmd precompile directly
+	evm                                 bool   // EVM transaction flag
+	evmNonce                            uint64 // EVM Transaction nonce
+	evmSenderAddress                    string // EVM Sender address
+	evmTxHash                           string // EVM TX hash
+	evmVmError                          string // EVM VM error during execution
+	evmEntryViaWasmdPrecompile          bool   // EVM is entered via wasmd precompile directly
+	evmPrecompileCalledFromDelegateCall bool   // EVM precompile is called from a delegate call
 
 	msgValidator *acltypes.MsgValidator
 	messageIndex int // Used to track current message being processed
@@ -165,6 +166,10 @@ func (c Context) EVMVMError() string {
 
 func (c Context) EVMEntryViaWasmdPrecompile() bool {
 	return c.evmEntryViaWasmdPrecompile
+}
+
+func (c Context) EVMPrecompileCalledFromDelegateCall() bool {
+	return c.evmPrecompileCalledFromDelegateCall
 }
 
 func (c Context) PendingTxChecker() abci.PendingTxChecker {
@@ -450,6 +455,11 @@ func (c Context) WithEVMVMError(vmError string) Context {
 
 func (c Context) WithEVMEntryViaWasmdPrecompile(e bool) Context {
 	c.evmEntryViaWasmdPrecompile = e
+	return c
+}
+
+func (c Context) WithEVMPrecompileCalledFromDelegateCall(e bool) Context {
+	c.evmPrecompileCalledFromDelegateCall = e
 	return c
 }
 
