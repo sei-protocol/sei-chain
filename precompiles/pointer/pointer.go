@@ -67,7 +67,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, call
 	if readOnly {
 		return nil, 0, errors.New("cannot call pointer precompile from staticcall")
 	}
-	if caller.Cmp(callingContract) != 0 {
+	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, 0, errors.New("cannot delegatecall pointer")
 	}
 

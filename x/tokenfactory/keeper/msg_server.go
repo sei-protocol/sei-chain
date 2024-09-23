@@ -2,9 +2,9 @@ package keeper
 
 import (
 	"context"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
@@ -28,17 +28,67 @@ func (server msgServer) CreateDenom(goCtx context.Context, msg *types.MsgCreateD
 		return nil, err
 	}
 
+	createDenomEvent := sdk.NewEvent(
+		types.TypeMsgCreateDenom,
+		sdk.NewAttribute(types.AttributeCreator, msg.Sender),
+		sdk.NewAttribute(types.AttributeNewTokenDenom, denom),
+	)
+
+	if msg.AllowList != nil {
+		err = server.validateAllowList(msg.AllowList)
+		if err != nil {
+			return nil, err
+		}
+		server.bankKeeper.SetDenomAllowList(ctx, denom, *msg.AllowList)
+		createDenomEvent = createDenomEvent.AppendAttributes(
+			sdk.NewAttribute(types.AttributeAllowList, strings.Join(msg.AllowList.Addresses, ",")),
+		)
+	}
+
 	ctx.EventManager().EmitEvents(sdk.Events{
-		sdk.NewEvent(
-			types.TypeMsgCreateDenom,
-			sdk.NewAttribute(types.AttributeCreator, msg.Sender),
-			sdk.NewAttribute(types.AttributeNewTokenDenom, denom),
-		),
+		createDenomEvent,
 	})
 
 	return &types.MsgCreateDenomResponse{
 		NewTokenDenom: denom,
 	}, nil
+}
+
+func (server msgServer) UpdateDenom(goCtx context.Context, msg *types.MsgUpdateDenom) (*types.MsgUpdateDenomResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	denom, err := server.Keeper.validateUpdateDenom(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	authorityMetadata, err := server.Keeper.GetAuthorityMetadata(ctx, denom)
+	if err != nil {
+		return nil, err
+	}
+
+	if msg.Sender != authorityMetadata.GetAdmin() {
+		return nil, types.ErrUnauthorized
+	}
+
+	updateDenomEvent := sdk.NewEvent(
+		types.TypeMsgUpdateDenom,
+		sdk.NewAttribute(types.AttributeCreator, msg.Sender),
+		sdk.NewAttribute(types.AttributeUpdatedTokenDenom, denom),
+	)
+
+	if msg.AllowList != nil {
+		server.bankKeeper.SetDenomAllowList(ctx, denom, *msg.AllowList)
+		updateDenomEvent = updateDenomEvent.AppendAttributes(
+			sdk.NewAttribute(types.AttributeAllowList, strings.Join(msg.AllowList.Addresses, ",")),
+		)
+	}
+
+	ctx.EventManager().EmitEvents(sdk.Events{
+		updateDenomEvent,
+	})
+
+	return &types.MsgUpdateDenomResponse{}, nil
 }
 
 func (server msgServer) Mint(goCtx context.Context, msg *types.MsgMint) (*types.MsgMintResponse, error) {
