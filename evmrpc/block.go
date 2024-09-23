@@ -171,9 +171,6 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				if !a.includeSyntheticTxs && len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
 					return
 				}
-				if receipt.EffectiveGasPrice == 0 {
-					return
-				}
 				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) bool {
 					_, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					return err == nil

@@ -366,12 +366,17 @@ func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (re
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
 			continue
 		}
+		fmt.Println("JEREMYDEBUG: in find logs by bloom, receipt: ", receipt)
+		fmt.Println("JEREMYDEBUG: in find logs by bloom, receipt.EffectiveGasPrice: ", receipt.EffectiveGasPrice)
 		if !f.includeSynthetic && len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
+			fmt.Println("JEREMYDEBUG: in find logs by bloom: skipping synthetic log")
 			continue
 		}
-		if receipt.EffectiveGasPrice == 0 {
+		if !f.includeSynthetic && receipt.EffectiveGasPrice == 0 {
+			fmt.Println("JEREMYDEBUG: in find logs by bloom: skipping zero gas price")
 			return
 		}
+		fmt.Println("JEREMYDEBUG: in find logs by bloom: checking logs bloom")
 		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
 			res = append(res, keeper.GetLogsForTx(receipt)...)
 		}
