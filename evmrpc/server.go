@@ -66,10 +66,6 @@ func NewEVMHTTPServer(
 			Service:   txAPI,
 		},
 		{
-			Namespace: "sei",
-			Service:   NewSeiTransactionAPI(txAPI),
-		},
-		{
 			Namespace: "eth",
 			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP),
 		},

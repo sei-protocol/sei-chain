@@ -43,10 +43,6 @@ func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getTransactionReceipt", t.connectionType, startTime, returnErr == nil)
-	return t.getTransactionReceipt(ctx, hash)
-}
-
-func (t *TransactionAPI) getTransactionReceipt(ctx context.Context, hash common.Hash) (map[string]interface{}, error) {
 	sdkctx := t.ctxProvider(LatestCtxHeight)
 	receipt, err := t.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {
@@ -105,10 +101,6 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *ethapi.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getTransactionByHash", t.connectionType, startTime, returnErr == nil)
-	return t.getTransactionByHash(ctx, hash, false)
-}
-
-func (t *TransactionAPI) getTransactionByHash(ctx context.Context, hash common.Hash, includeSynthetic bool) (*ethapi.RPCTransaction, error) {
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
 	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
