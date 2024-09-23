@@ -339,9 +339,13 @@ func (f *LogFetcher) GetLogsForBlock(ctx context.Context, block *coretypes.Resul
 
 func (f *LogFetcher) FindBlockesByBloom(begin, end int64, filters [][]bloomIndexes) (res []int64) {
 	//TODO: parallelize
-	ctx := f.ctxProvider(LatestCtxHeight)
 	for height := begin; height <= end; height++ {
-		blockBloom := f.k.GetBlockBloom(ctx, height)
+		if height == 0 {
+			// no block bloom on genesis height
+			continue
+		}
+		ctx := f.ctxProvider(height)
+		blockBloom := f.k.GetBlockBloom(ctx)
 		if MatchFilters(blockBloom, filters) {
 			res = append(res, height)
 		}

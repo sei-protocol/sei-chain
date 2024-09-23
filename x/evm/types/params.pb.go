@@ -24,7 +24,7 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// Params defines the parameters for the module, for the version between v580 and v590
+// Params defines the parameters for the module
 type Params struct {
 	// string base_denom = 1 [
 	//   (gogoproto.moretags)   = "yaml:\"base_denom\"",

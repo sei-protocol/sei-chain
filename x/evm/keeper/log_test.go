@@ -1,4 +1,4 @@
-package keeper
+package keeper_test
 
 import (
 	"testing"
@@ -7,6 +7,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/require"
 
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -26,7 +28,7 @@ func TestConvertEthLog(t *testing.T) {
 	}
 
 	// Convert the ethtypes.Log to a types.Log
-	log := ConvertEthLog(ethLog)
+	log := keeper.ConvertEthLog(ethLog)
 
 	// Check that the fields match
 	require.Equal(t, ethLog.Address.Hex(), log.Address)
@@ -67,7 +69,7 @@ func TestGetLogsForTx(t *testing.T) {
 	}
 
 	// Convert the types.Receipt to a list of ethtypes.Log objects
-	logs := GetLogsForTx(receipt)
+	logs := keeper.GetLogsForTx(receipt)
 
 	// Check that the fields match
 	require.Equal(t, len(receipt.Logs), len(logs))
@@ -80,4 +82,12 @@ func TestGetLogsForTx(t *testing.T) {
 		require.Equal(t, receipt.Logs[i].Data, log.Data)
 		require.Equal(t, uint(receipt.Logs[i].Index), log.Index)
 	}
+}
+
+func TestLegacyBlockBloomCutoffHeight(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(123)
+	require.Equal(t, int64(0), k.GetLegacyBlockBloomCutoffHeight(ctx))
+	k.SetLegacyBlockBloomCutoffHeight(ctx)
+	require.Equal(t, int64(123), k.GetLegacyBlockBloomCutoffHeight(ctx))
 }

@@ -6,7 +6,7 @@ import "evm/config.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
-// Params defines the parameters for the module, for the version between v580 and v590
+// Params defines the parameters for the module
 message Params {
   option (gogoproto.goproto_stringer) = false;
   
