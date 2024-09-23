@@ -6,10 +6,7 @@ import (
 	"time"
 
 	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/ss"
 	"github.com/sei-protocol/sei-db/ss/types"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -27,16 +24,7 @@ var modules = []string{
 	"wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
 }
 
-func NewMigrator(homeDir string, db dbm.DB) *Migrator {
-	// TODO: Pass in more configs outside default, in particular ImportNumWorkers
-	ssConfig := config.DefaultStateStoreConfig()
-	ssConfig.Enable = true
-
-	stateStore, err := ss.NewStateStore(log.NewNopLogger(), homeDir, ssConfig)
-	if err != nil {
-		panic(err)
-	}
-
+func NewMigrator(homeDir string, db dbm.DB, stateStore types.StateStore) *Migrator {
 	return &Migrator{
 		iavlDB:     db,
 		stateStore: stateStore,
