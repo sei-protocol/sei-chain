@@ -165,7 +165,7 @@ describe("ERC20 to CW20 Pointer", function () {
                     // send via sei_ endpoint - synthetic event shows up
                     const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
                     expect(seilogs.length).to.equal(1);
-                    expect(seilogs[0]["address"]).to.equal(await pointer.getAddress());
+                    expect(seilogs[0]["address"].toLowerCase()).to.equal((await pointer.getAddress()).toLowerCase());
                     expect(seilogs[0]["topics"][0]).to.equal(ethers.id("Approval(address,address,uint256)"));
                     expect(seilogs[0]["topics"][1].substring(26)).to.equal(owner.substring(2).toLowerCase());
                     expect(seilogs[0]["topics"][2].substring(26)).to.equal(spender.substring(2).toLowerCase());
