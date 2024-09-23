@@ -69,37 +69,13 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
+	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getBlockByNumber", a.connectionType, startTime, returnErr == nil)
-	if number == 0 {
-		// always return genesis block
-		return map[string]interface{}{
-			"number":           (*hexutil.Big)(big.NewInt(0)),
-			"hash":             common.HexToHash("F9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E"),
-			"parentHash":       common.Hash{},
-			"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
-			"mixHash":          common.Hash{},           // inapplicable to Sei
-			"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-			"logsBloom":        ethtypes.Bloom{},
-			"stateRoot":        common.Hash{},
-			"miner":            common.Address{},
-			"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
-			"extraData":        hexutil.Bytes{},               // inapplicable to Sei
-			"gasLimit":         hexutil.Uint64(0),
-			"gasUsed":          hexutil.Uint64(0),
-			"timestamp":        hexutil.Uint64(0),
-			"transactionsRoot": common.Hash{},
-			"receiptsRoot":     common.Hash{},
-			"size":             hexutil.Uint64(0),
-			"uncles":           []common.Hash{}, // inapplicable to Sei
-			"transactions":     []interface{}{},
-			"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
-		}, nil
-	}
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -112,7 +88,8 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	if err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, a.keeper, a.txConfig.TxDecoder(), fullTx)
+	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -153,12 +130,6 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				if len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
-					return
-				}
-				if receipt.EffectiveGasPrice == 0 {
-					return
-				}
 				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) bool {
 					_, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					return err == nil
@@ -173,22 +144,17 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		}(i, hash)
 	}
 	wg.Wait()
-	compactReceipts := make([]map[string]interface{}, 0)
-	for _, r := range allReceipts {
-		if len(r) > 0 {
-			compactReceipts = append(compactReceipts, r)
-		}
-	}
 	if returnErr != nil {
 		return nil, returnErr
 	}
-	return compactReceipts, nil
+	return allReceipts, nil
 }
 
 func EncodeTmBlock(
 	ctx sdk.Context,
 	block *coretypes.ResultBlock,
 	blockRes *coretypes.ResultBlockResults,
+	blockBloom ethtypes.Bloom,
 	k *keeper.Keeper,
 	txDecoder sdk.TxDecoder,
 	fullTx bool,
@@ -245,7 +211,7 @@ func EncodeTmBlock(
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 		"mixHash":          common.Hash{},           // inapplicable to Sei
 		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-		"logsBloom":        k.GetBlockBloom(ctx, block.Block.Height),
+		"logsBloom":        blockBloom,
 		"stateRoot":        appHash,
 		"miner":            miner,
 		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
