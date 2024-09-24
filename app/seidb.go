@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/storev2/rootmulti"
@@ -33,6 +32,8 @@ const (
 
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
+	FlagMigrateIAVL      = "migrate-iavl"
+	FlagMigrateHeight    = "migrate-height"
 )
 
 func SetupSeiDB(
@@ -57,8 +58,15 @@ func SetupSeiDB(
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
 	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig)
+	migrationEnabled := cast.ToBool(appOpts.Get(FlagMigrateIAVL))
+	migrationHeight := cast.ToInt64(appOpts.Get(FlagMigrateHeight))
 	baseAppOptions = append([]func(*baseapp.BaseApp){
 		func(baseApp *baseapp.BaseApp) {
+			if migrationEnabled {
+				originalCMS := baseApp.CommitMultiStore()
+				baseApp.SetQueryMultiStore(originalCMS)
+				baseApp.SetMigrationHeight(migrationHeight)
+			}
 			baseApp.SetCMS(cms)
 		},
 	}, baseAppOptions...)
