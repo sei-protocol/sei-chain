@@ -49,6 +49,7 @@ type FilterAPI struct {
 	filterConfig   *FilterConfig
 	logFetcher     *LogFetcher
 	connectionType ConnectionType
+	namespace      string
 }
 
 type FilterConfig struct {
@@ -62,10 +63,11 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, filterConfig *FilterConfig, connectionType ConnectionType) *FilterAPI {
-	logFetcher.filterConfig = filterConfig
+func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
+	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, filterConfig: filterConfig, includeSynthetic: shouldIncludeSynthetic(namespace)}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
+		namespace:      namespace,
 		tmClient:       tmClient,
 		filtersMu:      sync.Mutex{},
 		filters:        filters,
@@ -101,7 +103,7 @@ func (a *FilterAPI) NewFilter(
 	_ context.Context,
 	crit filters.FilterCriteria,
 ) (id ethrpc.ID, err error) {
-	defer recordMetrics("eth_newFilter", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	curFilterID := ethrpc.NewID()
@@ -117,7 +119,7 @@ func (a *FilterAPI) NewFilter(
 func (a *FilterAPI) NewBlockFilter(
 	_ context.Context,
 ) (id ethrpc.ID, err error) {
-	defer recordMetrics("eth_newBlockFilter", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	curFilterID := ethrpc.NewID()
@@ -133,7 +135,7 @@ func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res interface{}, err error) {
-	defer recordMetrics("eth_getFilterChanges", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
@@ -184,7 +186,7 @@ func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics("eth_getFilterLogs", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
@@ -209,11 +211,12 @@ func (a *FilterAPI) GetFilterLogs(
 	return logs, nil
 }
 
+// JEREMYFLAG
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics("eth_getLogs", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
 	return logs, err
 }
@@ -260,7 +263,7 @@ func (a *FilterAPI) UninstallFilter(
 	_ context.Context,
 	filterID ethrpc.ID,
 ) (res bool) {
-	defer recordMetrics("eth_uninstallFilter", a.connectionType, time.Now(), res)
+	defer recordMetrics(fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, time.Now(), res)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	_, found := a.filters[filterID]
@@ -272,10 +275,11 @@ func (a *FilterAPI) UninstallFilter(
 }
 
 type LogFetcher struct {
-	tmClient     rpcclient.Client
-	k            *keeper.Keeper
-	ctxProvider  func(int64) sdk.Context
-	filterConfig *FilterConfig
+	tmClient         rpcclient.Client
+	k                *keeper.Keeper
+	ctxProvider      func(int64) sdk.Context
+	filterConfig     *FilterConfig
+	includeSynthetic bool
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
@@ -362,6 +366,17 @@ func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (re
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
 			continue
 		}
+		// fmt.Println("JEREMYDEBUG: in find logs by bloom, receipt: ", receipt)
+		// fmt.Println("JEREMYDEBUG: in find logs by bloom, receipt.EffectiveGasPrice: ", receipt.EffectiveGasPrice)
+		if !f.includeSynthetic && len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
+			// fmt.Println("JEREMYDEBUG: in find logs by bloom: skipping synthetic log")
+			continue
+		}
+		if !f.includeSynthetic && receipt.EffectiveGasPrice == 0 {
+			// fmt.Println("JEREMYDEBUG: in find logs by bloom: skipping zero gas price")
+			return
+		}
+		// fmt.Println("JEREMYDEBUG: in find logs by bloom: checking logs bloom")
 		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
 			res = append(res, keeper.GetLogsForTx(receipt)...)
 		}
