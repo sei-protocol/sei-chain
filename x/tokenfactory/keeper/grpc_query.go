@@ -57,3 +57,20 @@ func (k Keeper) DenomMetadata(c context.Context, req *types.QueryDenomMetadataRe
 		Metadata: metadata,
 	}, nil
 }
+
+func (k Keeper) DenomAllowList(c context.Context, req *types.QueryDenomAllowListRequest) (*types.QueryDenomAllowListResponse, error) {
+	if req == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "empty request")
+	}
+
+	if req.Denom == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid denom")
+	}
+
+	ctx := sdk.UnwrapSDKContext(c)
+
+	allowList := k.bankKeeper.GetDenomAllowList(ctx, req.Denom)
+	return &types.QueryDenomAllowListResponse{
+		AllowList: allowList,
+	}, nil
+}

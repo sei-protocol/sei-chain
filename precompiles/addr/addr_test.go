@@ -141,7 +141,7 @@ func TestAssociatePubKey(t *testing.T) {
 			require.Nil(t, err)
 
 			// Make the call to associate.
-			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID, inputs...), tt.args.value, tt.args.readOnly)
+			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID, inputs...), tt.args.value, tt.args.readOnly, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v %v", err, tt.wantErr, string(ret))
 				return
@@ -331,7 +331,7 @@ func TestAssociate(t *testing.T) {
 			require.Nil(t, err)
 
 			// Make the call to associate.
-			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateID, inputs...), tt.args.value, tt.args.readOnly)
+			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateID, inputs...), tt.args.value, tt.args.readOnly, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v %v", err, tt.wantErr, string(ret))
 				return

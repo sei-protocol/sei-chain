@@ -366,13 +366,14 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm             *vm.EVM
-		caller          common.Address
-		callingContract common.Address
-		validator       string
-		suppliedGas     uint64
-		value           *big.Int
-		readOnly        bool
+		evm                *vm.EVM
+		caller             common.Address
+		callingContract    common.Address
+		validator          string
+		suppliedGas        uint64
+		value              *big.Int
+		readOnly           bool
+		isFromDelegateCall bool
 	}
 	tests := []struct {
 		name             string
@@ -431,13 +432,14 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 			wantErrMsg:       "{ReadFlat}",
 		},
 		{
-			name:   "fails if caller != callingContract",
+			name:   "fails if caller == callingContract, delegatecall",
 			fields: fields{},
 			args: args{
-				caller:          notAssociatedCallerEvmAddress,
-				callingContract: contractEvmAddress,
-				validator:       validatorAddress,
-				suppliedGas:     uint64(1000000),
+				caller:             contractEvmAddress,
+				callingContract:    contractEvmAddress,
+				validator:          validatorAddress,
+				suppliedGas:        uint64(1000000),
+				isFromDelegateCall: true,
 			},
 			wantRet:          nil,
 			wantRemainingGas: 0,
@@ -445,13 +447,14 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 			wantErrMsg:       "cannot delegatecall distr",
 		},
 		{
-			name:   "fails if caller != callingContract and callingContract not set",
+			name:   "fails if caller != callingContract and callingContract not set, from a delegatecall",
 			fields: fields{},
 			args: args{
-				caller:          notAssociatedCallerEvmAddress,
-				callingContract: contractEvmAddress,
-				validator:       validatorAddress,
-				suppliedGas:     uint64(1000000),
+				caller:             notAssociatedCallerEvmAddress,
+				callingContract:    contractEvmAddress,
+				validator:          validatorAddress,
+				suppliedGas:        uint64(1000000),
+				isFromDelegateCall: true,
 			},
 			wantRet:          nil,
 			wantRemainingGas: 0,
@@ -488,7 +491,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 			require.Nil(t, err)
 			inputs, err := withdraw.Inputs.Pack(tt.args.validator)
 			require.Nil(t, err)
-			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawDelegationRewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawDelegationRewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly, tt.args.isFromDelegateCall)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -521,13 +524,14 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm             *vm.EVM
-		caller          common.Address
-		callingContract common.Address
-		validators      []string
-		suppliedGas     uint64
-		value           *big.Int
-		readOnly        bool
+		evm                *vm.EVM
+		caller             common.Address
+		callingContract    common.Address
+		validators         []string
+		suppliedGas        uint64
+		value              *big.Int
+		readOnly           bool
+		isFromDelegateCall bool
 	}
 	tests := []struct {
 		name             string
@@ -589,10 +593,11 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			name:   "fails if caller != callingContract",
 			fields: fields{},
 			args: args{
-				caller:          notAssociatedCallerEvmAddress,
-				callingContract: contractEvmAddress,
-				validators:      validatorAddresses,
-				suppliedGas:     uint64(1000000),
+				caller:             notAssociatedCallerEvmAddress,
+				callingContract:    contractEvmAddress,
+				validators:         validatorAddresses,
+				suppliedGas:        uint64(1000000),
+				isFromDelegateCall: true,
 			},
 			wantRet:          nil,
 			wantRemainingGas: 0,
@@ -603,9 +608,10 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			name:   "fails if caller != callingContract and callingContract not set",
 			fields: fields{},
 			args: args{
-				caller:      notAssociatedCallerEvmAddress,
-				validators:  validatorAddresses,
-				suppliedGas: uint64(1000000),
+				caller:             notAssociatedCallerEvmAddress,
+				validators:         validatorAddresses,
+				suppliedGas:        uint64(1000000),
+				isFromDelegateCall: true,
 			},
 			wantRet:          nil,
 			wantRemainingGas: 0,
@@ -642,7 +648,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			require.Nil(t, err)
 			inputs, err := withdraw.Inputs.Pack(tt.args.validators)
 			require.Nil(t, err)
-			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawMultipleDelegationRewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawMultipleDelegationRewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly, tt.args.isFromDelegateCall)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -675,13 +681,14 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm             *vm.EVM
-		addressToSet    common.Address
-		caller          common.Address
-		callingContract common.Address
-		suppliedGas     uint64
-		value           *big.Int
-		readOnly        bool
+		evm                *vm.EVM
+		addressToSet       common.Address
+		caller             common.Address
+		callingContract    common.Address
+		suppliedGas        uint64
+		value              *big.Int
+		readOnly           bool
+		isFromDelegateCall bool
 	}
 	tests := []struct {
 		name             string
@@ -757,10 +764,11 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			name:   "fails if caller != callingContract",
 			fields: fields{},
 			args: args{
-				addressToSet:    common.Address{},
-				caller:          callerEvmAddress,
-				callingContract: contractEvmAddress,
-				suppliedGas:     uint64(1000000),
+				addressToSet:       common.Address{},
+				caller:             callerEvmAddress,
+				callingContract:    contractEvmAddress,
+				suppliedGas:        uint64(1000000),
+				isFromDelegateCall: true,
 			},
 			wantRet:          nil,
 			wantRemainingGas: 0,
@@ -771,9 +779,10 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			name:   "fails if caller != callingContract with callingContract not set",
 			fields: fields{},
 			args: args{
-				addressToSet: common.Address{},
-				caller:       callerEvmAddress,
-				suppliedGas:  uint64(1000000),
+				addressToSet:       common.Address{},
+				caller:             callerEvmAddress,
+				suppliedGas:        uint64(1000000),
+				isFromDelegateCall: true,
 			},
 			wantRet:          nil,
 			wantRemainingGas: 0,
@@ -812,7 +821,7 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 			require.Nil(t, err)
 			inputs, err := setAddress.Inputs.Pack(tt.args.addressToSet)
 			require.Nil(t, err)
-			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).SetWithdrawAddrID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).SetWithdrawAddrID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly, tt.args.isFromDelegateCall)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -947,13 +956,14 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 		WithdrawMultipleDelegationRewardsID []byte
 	}
 	type args struct {
-		evm              *vm.EVM
-		delegatorAddress common.Address
-		caller           common.Address
-		callingContract  common.Address
-		suppliedGas      uint64
-		value            *big.Int
-		readOnly         bool
+		evm                *vm.EVM
+		delegatorAddress   common.Address
+		caller             common.Address
+		callingContract    common.Address
+		suppliedGas        uint64
+		value              *big.Int
+		readOnly           bool
+		isFromDelegateCall bool
 	}
 	tests := []struct {
 		name             string
@@ -1015,10 +1025,11 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 				distrKeeper: &TestDistributionKeeper{},
 			},
 			args: args{
-				delegatorAddress: common.Address{},
-				caller:           callerEvmAddress,
-				callingContract:  contractEvmAddress,
-				suppliedGas:      uint64(1000000),
+				delegatorAddress:   common.Address{},
+				caller:             callerEvmAddress,
+				callingContract:    contractEvmAddress,
+				suppliedGas:        uint64(1000000),
+				isFromDelegateCall: true,
 			},
 			wantRemainingGas: 0,
 			wantErr:          true,
@@ -1030,9 +1041,10 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 				distrKeeper: &TestDistributionKeeper{},
 			},
 			args: args{
-				delegatorAddress: common.Address{},
-				caller:           callerEvmAddress,
-				suppliedGas:      uint64(1000000),
+				delegatorAddress:   common.Address{},
+				caller:             callerEvmAddress,
+				suppliedGas:        uint64(1000000),
+				isFromDelegateCall: true,
 			},
 			wantRemainingGas: 0,
 			wantErr:          true,
@@ -1087,7 +1099,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 			require.Nil(t, err)
 			inputs, err := rewards.Inputs.Pack(tt.args.delegatorAddress)
 			require.Nil(t, err)
-			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).RewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly)
+			gotRet, gotRemainingGas, err := p.RunAndCalculateGas(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*distribution.PrecompileExecutor).RewardsID, inputs...), tt.args.suppliedGas, tt.args.value, nil, tt.args.readOnly, tt.args.isFromDelegateCall)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RunAndCalculateGas() error = %v, wantErr %v", err, tt.wantErr)
 				return

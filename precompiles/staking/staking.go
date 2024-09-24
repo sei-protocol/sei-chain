@@ -86,7 +86,7 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (bz []byte, err error) {
-	if caller.Cmp(callingContract) != 0 {
+	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, errors.New("cannot delegatecall staking")
 	}
 	switch method.Name {
