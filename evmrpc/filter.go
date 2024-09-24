@@ -367,7 +367,7 @@ func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (re
 			continue
 		}
 		if !f.includeSynthetic && len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
-      continue
+			continue
 		}
 		if !f.includeSynthetic && receipt.EffectiveGasPrice == 0 {
 			return
