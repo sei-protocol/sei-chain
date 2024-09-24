@@ -79,20 +79,6 @@ func (p Params) String() string {
 	return string(out)
 }
 
-func (p *ParamsPreV580) ParamSetPairs() paramtypes.ParamSetPairs {
-	return paramtypes.ParamSetPairs{
-		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &p.PriorityNormalizer, validatePriorityNormalizer),
-		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &p.BaseFeePerGas, validateBaseFeePerGas),
-		paramtypes.NewParamSetPair(KeyMinFeePerGas, &p.MinimumFeePerGas, validateMinFeePerGas),
-		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &p.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
-	}
-}
-
-func (p ParamsPreV580) String() string {
-	out, _ := yaml.Marshal(p)
-	return string(out)
-}
-
 func validatePriorityNormalizer(i interface{}) error {
 	v, ok := i.(sdk.Dec)
 	if !ok {
