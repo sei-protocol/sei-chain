@@ -31,7 +31,63 @@ string minimum_fee_per_gas = 4 [
   (gogoproto.nullable)   = false,
   (gogoproto.jsontag) = "minimum_fee_per_gas"
 ];
-uint64 deliver_tx_hook_wasm_gas_limit = 5;
+  // ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
+//   string chain_id = 6 [
+//   (gogoproto.moretags)   = "yaml:\"chain_id\"",
+//   (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+//   (gogoproto.nullable)   = false,
+//   (gogoproto.jsontag) = "chain_id"
+// ];
+  // repeated string whitelisted_codehashes_bank_send = 7 [
+  //   (gogoproto.moretags)   = "yaml:\"whitelisted_codehashes_bank_send\"",
+  //   (gogoproto.jsontag) = "whitelisted_codehashes_bank_send"
+  // ];
+  repeated bytes whitelisted_cw_code_hashes_for_delegate_call = 8 [
+    (gogoproto.moretags)   = "yaml:\"whitelisted_cw_code_hashes_for_delegate_call\"",
+    (gogoproto.jsontag) = "whitelisted_cw_code_hashes_for_delegate_call"
+  ];
+
+  uint64 deliver_tx_hook_wasm_gas_limit = 9;
+
+  string max_dynamic_base_fee_upward_adjustment = 10 [
+    (gogoproto.moretags)   = "yaml:\"max_dynamic_base_fee_upward_adjustment\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false,
+    (gogoproto.jsontag) = "max_dynamic_base_fee_upward_adjustment"
+  ];
+  string max_dynamic_base_fee_downward_adjustment = 11 [
+    (gogoproto.moretags)   = "yaml:\"max_dynamic_base_fee_downward_adjustment\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false,
+    (gogoproto.jsontag) = "max_dynamic_base_fee_downward_adjustment"
+  ];
+}
+
+message ParamsPreV580 {
+  option (gogoproto.goproto_stringer) = false;
+  
+  // string base_denom = 1 [
+  //   (gogoproto.moretags)   = "yaml:\"base_denom\"",
+  //   (gogoproto.jsontag) = "base_denom"
+  // ];
+  string priority_normalizer = 2 [
+      (gogoproto.moretags)   = "yaml:\"priority_normalizer\"",
+      (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+      (gogoproto.nullable)   = false,
+      (gogoproto.jsontag) = "priority_normalizer"
+  ];
+  string base_fee_per_gas = 3 [
+    (gogoproto.moretags)   = "yaml:\"base_fee_per_gas\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false,
+    (gogoproto.jsontag) = "base_fee_per_gas"
+];
+string minimum_fee_per_gas = 4 [
+  (gogoproto.moretags)   = "yaml:\"minimum_fee_per_gas\"",
+  (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+  (gogoproto.nullable)   = false,
+  (gogoproto.jsontag) = "minimum_fee_per_gas"
+];
   // ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
 //   string chain_id = 6 [
 //   (gogoproto.moretags)   = "yaml:\"chain_id\"",
@@ -46,17 +102,5 @@ uint64 deliver_tx_hook_wasm_gas_limit = 5;
 repeated bytes whitelisted_cw_code_hashes_for_delegate_call = 8 [
   (gogoproto.moretags)   = "yaml:\"whitelisted_cw_code_hashes_for_delegate_call\"",
   (gogoproto.jsontag) = "whitelisted_cw_code_hashes_for_delegate_call"
-];
-string max_dynamic_base_fee_upward_adjustment = 9 [
-  (gogoproto.moretags)   = "yaml:\"max_dynamic_base_fee_upward_adjustment\"",
-  (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-  (gogoproto.nullable)   = false,
-  (gogoproto.jsontag) = "max_dynamic_base_fee_upward_adjustment"
-];
-string max_dynamic_base_fee_downward_adjustment = 10 [
-  (gogoproto.moretags)   = "yaml:\"max_dynamic_base_fee_downward_adjustment\"",
-  (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
-  (gogoproto.nullable)   = false,
-  (gogoproto.jsontag) = "max_dynamic_base_fee_downward_adjustment"
 ];
 }

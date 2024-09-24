@@ -89,17 +89,22 @@ describe("ERC721 to CW721 Pointer", function () {
             expect(approved).to.equal(accounts[1].evmAddress);
 
             const filter = {
-                fromBlock: blockNumber,
+                fromBlock: '0x' + blockNumber.toString(16),
                 toBlock: 'latest',
                 address: await pointerAcc1.getAddress(),
                 topics: [ethers.id("Approval(address,address,uint256)")]
             };
-            const logs = await ethers.provider.getLogs(filter);
-            expect(logs.length).to.equal(1);
-            expect(logs[0]["address"]).to.equal(await pointerAcc1.getAddress());
-            expect(logs[0]["topics"][0]).to.equal(ethers.id("Approval(address,address,uint256)"));
-            expect(logs[0]["topics"][1].substring(26)).to.equal(accounts[0].evmAddress.substring(2).toLowerCase());
-            expect(logs[0]["topics"][2].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
+            // send via eth_ endpoint - synthetic event doesn't show up
+            const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
+            expect(ethlogs.length).to.equal(0);
+
+            // send via sei_ endpoint - synthetic event shows up
+            const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
+            expect(seilogs.length).to.equal(1);
+            expect(seilogs[0]["address"].toLowerCase()).to.equal((await pointerAcc1.getAddress()).toLowerCase());
+            expect(seilogs[0]["topics"][0]).to.equal(ethers.id("Approval(address,address,uint256)"));
+            expect(seilogs[0]["topics"][1].substring(26)).to.equal(accounts[0].evmAddress.substring(2).toLowerCase());
+            expect(seilogs[0]["topics"][2].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
         });
 
         it("cannot approve token you don't own", async function () {
@@ -113,17 +118,21 @@ describe("ERC721 to CW721 Pointer", function () {
             transferTxResp = await pointerAcc1.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 2);
             await transferTxResp.wait();
             const filter = {
-                fromBlock: blockNumber,
+                fromBlock: '0x' + blockNumber.toString(16),
                 toBlock: 'latest',
                 address: await pointerAcc1.getAddress(),
                 topics: [ethers.id("Transfer(address,address,uint256)")]
             };
-            const logs = await ethers.provider.getLogs(filter);
-            expect(logs.length).to.equal(1);
-            expect(logs[0]["address"]).to.equal(await pointerAcc1.getAddress());
-            expect(logs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
-            expect(logs[0]["topics"][1].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
-            expect(logs[0]["topics"][2].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
+            // send via eth_ endpoint - synthetic event doesn't show up
+            const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
+            expect(ethlogs.length).to.equal(0);
+
+            const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
+            expect(seilogs.length).to.equal(1);
+            expect(seilogs[0]["address"].toLowerCase()).to.equal((await pointerAcc1.getAddress()).toLowerCase());
+            expect(seilogs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
+            expect(seilogs[0]["topics"][1].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
+            expect(seilogs[0]["topics"][2].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
             const balance0 = await pointerAcc0.balanceOf(accounts[0].evmAddress);
             expect(balance0).to.equal(0);
             const balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress);

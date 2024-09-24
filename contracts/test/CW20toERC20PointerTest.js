@@ -3,6 +3,7 @@ const {getAdmin, queryWasm, executeWasm, associateWasm, deployEvmContract, setup
     proposeCW20toERC20Upgrade
 } = require("./lib");
 const { expect } = require("chai");
+const { ethers } = require("hardhat");
 
 describe("CW20 to ERC20 Pointer", function () {
     let accounts;
@@ -102,18 +103,24 @@ describe("CW20 to ERC20 Pointer", function () {
                     const txHash = res["txhash"];
                     const receipt = await ethers.provider.getTransactionReceipt(`0x${txHash}`); 
                     expect(receipt).not.to.be.null;
+                    console.log("receipt[\"blockNumber\"]", receipt["blockNumber"]);
+                    const bn = receipt["blockNumber"];
                     const filter = {
-                        fromBlock: receipt["blockNumber"],
+                        fromBlock: '0x' + bn.toString(16),
                         toBlock: 'latest',
                         address: receipt["to"],
                         topics: [ethers.id("Transfer(address,address,uint256)")]
                     };
-                    const logs = await ethers.provider.getLogs(filter);
-                    expect(logs.length).to.equal(1);
-                    expect(logs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
+                    // send via eth_ endpoint - synthetic event doesn't show up
+                    const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
+                    expect(ethlogs.length).to.equal(0);
+
+                    // send via sei_ endpoint - synthetic event shows up
+                    const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
+                    expect(seilogs.length).to.equal(1);
+                    expect(seilogs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
                     const respAfter = await queryWasm(pointer, "balance", {address: accounts[1].seiAddress});
                     const balanceAfter = respAfter.data.balance;
-
                     expect(balanceAfter).to.equal((parseInt(balanceBefore) + 100).toString());
                 });
 
@@ -184,6 +191,14 @@ describe("CW20 to ERC20 Pointer", function () {
                     const response = await wasmd.execute(pointer, transferBz, coinsBz);
                     const receipt = await response.wait();
                     expect(receipt.status).to.equal(1);
+
+                    const filter = {
+                        fromBlock: receipt["blockNumber"],
+                        toBlock: 'latest',
+                        topics: [ethers.id("Transfer(address,address,uint256)")]
+                    };
+                    const logs = await ethers.provider.getLogs(filter);
+                    expect(logs.length).to.equal(1);
                 });
             });
         });

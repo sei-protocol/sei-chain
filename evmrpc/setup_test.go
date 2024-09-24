@@ -66,11 +66,13 @@ var MultiTxBlockTx1 sdk.Tx
 var MultiTxBlockTx2 sdk.Tx
 var MultiTxBlockTx3 sdk.Tx
 var MultiTxBlockTx4 sdk.Tx
+var MultiTxBlockSynthTx sdk.Tx
 var tx1 *ethtypes.Transaction
 var multiTxBlockTx1 *ethtypes.Transaction
 var multiTxBlockTx2 *ethtypes.Transaction
 var multiTxBlockTx3 *ethtypes.Transaction
 var multiTxBlockTx4 *ethtypes.Transaction
+var multiTxBlockSynthTx *ethtypes.Transaction
 
 var DebugTraceTx sdk.Tx
 var TxNonEvm sdk.Tx
@@ -149,6 +151,10 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 						}(),
 						func() []byte {
 							bz, _ := Encoder(MultiTxBlockTx3)
+							return bz
+						}(),
+						func() []byte {
+							bz, _ := Encoder(MultiTxBlockSynthTx)
 							return bz
 						}(),
 					},
@@ -486,7 +492,7 @@ func init() {
 func generateTxData() {
 	chainId := big.NewInt(config.DefaultChainID)
 	to := common.HexToAddress("010203")
-	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3, txBuilder4 client.TxBuilder
+	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3, txBuilder4, synthTxBuilder client.TxBuilder
 	txBuilder1, tx1 = buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     1,
 		GasFeeCap: big.NewInt(10),
@@ -532,6 +538,15 @@ func generateTxData() {
 		Data:      []byte("abc"),
 		ChainID:   chainId,
 	})
+	synthTxBuilder, multiTxBlockSynthTx = buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     6,
+		GasFeeCap: big.NewInt(20),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("synthetic"),
+		ChainID:   chainId,
+	})
 	debugTraceTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
 		GasFeeCap: big.NewInt(10),
@@ -546,6 +561,7 @@ func generateTxData() {
 	MultiTxBlockTx2 = txBuilder2.GetTx()
 	MultiTxBlockTx3 = txBuilder3.GetTx()
 	MultiTxBlockTx4 = txBuilder4.GetTx()
+	MultiTxBlockSynthTx = synthTxBuilder.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	TxNonEvm = app.TestTx{}
 	if err := EVMKeeper.MockReceipt(Ctx, tx1.Hash(), &types.Receipt{
@@ -666,6 +682,7 @@ func setupLogs() {
 			Address: "0x1111111111111111111111111111111111111112",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123"},
 		}},
+		EffectiveGasPrice: 100,
 	})
 	bloom2 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
 		Address: common.HexToAddress("0x1111111111111111111111111111111111111113"),
@@ -683,6 +700,7 @@ func setupLogs() {
 			Address: "0x1111111111111111111111111111111111111113",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
 		}},
+		EffectiveGasPrice: 100,
 	})
 	bloom3 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
 		Address: common.HexToAddress("0x1111111111111111111111111111111111111114"),
@@ -700,6 +718,7 @@ func setupLogs() {
 			Address: "0x1111111111111111111111111111111111111114",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
 		}},
+		EffectiveGasPrice: 100,
 	})
 	bloom4 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
 		Address: common.HexToAddress("0x1111111111111111111111111111111111111115"),
@@ -717,6 +736,27 @@ func setupLogs() {
 			Address: "0x1111111111111111111111111111111111111115",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
 		}},
+		EffectiveGasPrice: 100,
+	})
+	// create a receipt with a synthetic log
+	bloomSynth := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111116"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234"),
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
+		},
+	}}}})
+	EVMKeeper.MockReceipt(Ctx, multiTxBlockSynthTx.Hash(), &types.Receipt{
+		BlockNumber:      MockHeight,
+		TransactionIndex: 0,
+		TxHashHex:        multiTxBlockSynthTx.Hash().Hex(),
+		LogsBloom:        bloomSynth[:],
+		Logs: []*types.Log{{
+			Address:   "0x1111111111111111111111111111111111111116",
+			Topics:    []string{"0x0000000000000000000000000000000000000000000000000000000000000234", "0x0000000000000000000000000000000000000000000000000000000000000789"},
+			Synthetic: true,
+		}},
+		EffectiveGasPrice: 100,
 	})
 	EVMKeeper.MockReceipt(Ctx, common.HexToHash(DebugTraceHashHex), &types.Receipt{
 		BlockNumber:      DebugTraceMockHeight,
@@ -730,9 +770,10 @@ func setupLogs() {
 	})
 	EVMKeeper.SetTxHashesOnHeight(Ctx, MockHeight, []common.Hash{
 		multiTxBlockTx4.Hash(),
+		multiTxBlockSynthTx.Hash(),
 	})
 	EVMKeeper.SetBlockBloom(MultiTxCtx, []ethtypes.Bloom{bloom1, bloom2, bloom3})
-	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloom4})
+	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloom4, bloomSynth})
 }
 
 //nolint:deadcode
@@ -741,8 +782,18 @@ func sendRequestGood(t *testing.T, method string, params ...interface{}) map[str
 }
 
 //nolint:deadcode
+func sendSeiRequestGood(t *testing.T, method string, params ...interface{}) map[string]interface{} {
+	return sendSeiRequest(t, TestPort, method, params...)
+}
+
+//nolint:deadcode
 func sendRequestBad(t *testing.T, method string, params ...interface{}) map[string]interface{} {
 	return sendRequest(t, TestBadPort, method, params...)
+}
+
+//nolint:deadcode
+func sendSeiRequestBad(t *testing.T, method string, params ...interface{}) map[string]interface{} {
+	return sendSeiRequest(t, TestBadPort, method, params...)
 }
 
 // nolint:deadcode
@@ -752,6 +803,10 @@ func sendRequestGoodWithNamespace(t *testing.T, namespace string, method string,
 
 func sendRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
 	return sendRequestWithNamespace(t, "eth", port, method, params...)
+}
+
+func sendSeiRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
+	return sendRequestWithNamespace(t, "sei", port, method, params...)
 }
 
 func sendRequestWithNamespace(t *testing.T, namespace string, port int, method string, params ...interface{}) map[string]interface{} {
