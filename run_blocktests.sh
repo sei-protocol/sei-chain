@@ -36,6 +36,7 @@ declare -a test_name_skip_list=(
     "blockWithAllTransactionTypes" # recently started failing
     "multimpleBalanceInstruction" # failing from 150% max gas refund change
     "burnVerify" # failing from 150% max gas refund change
+    "refundReset" # failing from 150% max gas refund change
 
     # invalid block tests - state tests
     "gasLimitTooHigh" # block header gas limit doesn't apply to us
