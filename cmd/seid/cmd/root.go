@@ -26,7 +26,6 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
@@ -223,6 +222,7 @@ func txCommand() *cobra.Command {
 func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
 	startCmd.Flags().Bool("migrate-iavl", false, "Run migration of IAVL data store to SeiDB State Store")
+	startCmd.Flags().Int64("migrate-height", 0, "Height at which to start the migration")
 }
 
 // newApp creates a new Cosmos SDK app
@@ -311,9 +311,9 @@ func newApp(
 		go func() {
 			homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
 			stateStore := app.GetStateStore()
-			latestVersion := rootmulti.GetLatestVersion(db)
+			migrationHeight := cast.ToInt64(appOpts.Get("migrate-height"))
 			migrator := ss.NewMigrator(homeDir, db, stateStore)
-			if err := migrator.Migrate(latestVersion, homeDir); err != nil {
+			if err := migrator.Migrate(migrationHeight, homeDir); err != nil {
 				panic(err)
 			}
 		}()
