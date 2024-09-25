@@ -179,7 +179,7 @@ func TestRun(t *testing.T) {
 			sdk.NewAttribute(banktypes.AttributeKeySender, senderAddr.String()),
 		),
 		// gas refund to the sender
-		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(172056)))),
+		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(41916)))),
 		// tip is paid to the validator
 		banktypes.NewCoinReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(27944)))),
 	}
