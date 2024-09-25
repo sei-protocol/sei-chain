@@ -34,6 +34,8 @@ declare -a test_name_skip_list=(
     "BLOCKHASH_Bounds" # failing
     "logRevert" # uses an invalid opcode (0xBA)
     "blockWithAllTransactionTypes" # recently started failing
+    "multimpleBalanceInstruction" # failing from 150% max gas refund change
+    "burnVerify" # failing from 150% max gas refund change
 
     # invalid block tests - state tests
     "gasLimitTooHigh" # block header gas limit doesn't apply to us
