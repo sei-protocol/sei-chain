@@ -5,7 +5,7 @@ import "gogoproto/gogo.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
-// Params defines the parameters for the module.
+// Params defines the parameters for the module
 message Params {
   option (gogoproto.goproto_stringer) = false;
   

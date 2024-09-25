@@ -39,6 +39,9 @@ declare -a test_name_skip_list=(
     "tips" # failing after turning on eip-1559 and not burning base fee
     "burnVerify" # failing after turning on eip-1559 and not burning base fee
     "emptyPostTransfer" # failing after turning on eip-1559 and not burning base fee
+    "multimpleBalanceInstruction" # failing from 150% max gas refund change
+    "burnVerify" # failing from 150% max gas refund change
+    "refundReset" # failing from 150% max gas refund change
 
     # invalid block tests - state tests
     "gasLimitTooHigh" # block header gas limit doesn't apply to us
