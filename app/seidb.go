@@ -7,6 +7,7 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/storev2/rootmulti"
 	"github.com/sei-protocol/sei-db/config"
+	seidb "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/spf13/cast"
 	"github.com/tendermint/tendermint/libs/log"
 )
@@ -42,11 +43,11 @@ func SetupSeiDB(
 	homePath string,
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
-) []func(*baseapp.BaseApp) {
+) ([]func(*baseapp.BaseApp), seidb.StateStore) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
 		logger.Info("SeiDB is disabled, falling back to IAVL")
-		return baseAppOptions
+		return baseAppOptions, nil
 	}
 	logger.Info("SeiDB SC is enabled, running node with StoreV2 commit store")
 	scConfig := parseSCConfigs(appOpts)
@@ -72,7 +73,7 @@ func SetupSeiDB(
 		},
 	}, baseAppOptions...)
 
-	return baseAppOptions
+	return baseAppOptions, cms.GetStateStore()
 }
 
 func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {

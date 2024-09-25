@@ -26,6 +26,7 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
+	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
@@ -38,6 +39,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/tools"
+	"github.com/sei-protocol/sei-chain/tools/migration/ss"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
@@ -220,6 +222,7 @@ func txCommand() *cobra.Command {
 
 func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
+	startCmd.Flags().Bool("migrate-iavl", false, "Run migration of IAVL data store to SeiDB State Store")
 }
 
 // newApp creates a new Cosmos SDK app
@@ -266,7 +269,7 @@ func newApp(
 	// This makes it such that the wasm VM gas converts to sdk gas at a 6.66x rate vs that of the previous multiplier
 	wasmGasRegisterConfig.GasMultiplier = 21_000_000
 
-	return app.New(
+	app := app.New(
 		logger,
 		db,
 		traceStore,
@@ -302,6 +305,21 @@ func newApp(
 		baseapp.SetSnapshotDirectory(cast.ToString(appOpts.Get(server.FlagStateSyncSnapshotDir))),
 		baseapp.SetOccEnabled(cast.ToBool(appOpts.Get(baseapp.FlagOccEnabled))),
 	)
+
+	// Start migration if --migrate flag is set
+	if cast.ToBool(appOpts.Get("migrate-iavl")) {
+		go func() {
+			homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
+			stateStore := app.GetStateStore()
+			latestVersion := rootmulti.GetLatestVersion(db)
+			migrator := ss.NewMigrator(homeDir, db, stateStore)
+			if err := migrator.Migrate(latestVersion, homeDir); err != nil {
+				panic(err)
+			}
+		}()
+	}
+
+	return app
 }
 
 // appExport creates a new simapp (optionally at a given height)
