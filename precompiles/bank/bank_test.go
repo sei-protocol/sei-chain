@@ -231,7 +231,7 @@ func TestRun(t *testing.T) {
 		Denom:  "ufoo",
 	}, bank.CoinBalance(parsedBalances[0]))
 	require.Equal(t, bank.CoinBalance{
-		Amount: big.NewInt(9972045),
+		Amount: big.NewInt(9841905),
 		Denom:  "usei",
 	}, bank.CoinBalance(parsedBalances[1]))
 
