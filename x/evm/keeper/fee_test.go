@@ -38,28 +38,28 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 			expectedBaseFee: 100,
 		},
 		{
-			name:            "Block gas usage 75%, base fee increases",
+			name:            "Block gas usage 75%, base fee stays the same",
 			currentBaseFee:  10000,
 			minimumFee:      10,
 			blockGasUsed:    750000,
 			blockGasLimit:   1000000,
-			expectedBaseFee: 10250,
+			expectedBaseFee: 10000,
 		},
 		{
-			name:            "Block gas usage 25%, base fee decreases",
+			name:            "Block gas usage 25%, base fee stays the same",
 			currentBaseFee:  10000,
 			minimumFee:      10,
 			blockGasUsed:    250000,
 			blockGasLimit:   1000000,
-			expectedBaseFee: 9950,
+			expectedBaseFee: 10000,
 		},
 		{
 			name:            "Block gas usage low, new base fee below minimum, set to minimum",
 			currentBaseFee:  100,
-			minimumFee:      99,
+			minimumFee:      100,
 			blockGasUsed:    0,
 			blockGasLimit:   1000000,
-			expectedBaseFee: 99, // Should not go below the minimum fee
+			expectedBaseFee: 100, // Should not go below the minimum fee
 		},
 	}
 
