@@ -1,8 +1,6 @@
 package keeper
 
 import (
-	// "fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -45,7 +43,6 @@ func (k *Keeper) GetDynamicBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.BaseFeePerGasPrefix)
 	if bz == nil {
-		// fmt.Println("JEREMYDEBUG: getting min base fee per gas", k.GetMinimumFeePerGas(ctx))
 		return k.GetMinimumFeePerGas(ctx)
 	}
 	d := sdk.Dec{}
@@ -53,12 +50,10 @@ func (k *Keeper) GetDynamicBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	if err != nil {
 		panic(err)
 	}
-	// fmt.Println("JEREMYDEBUG: getting base fee per gas", d)
 	return d
 }
 
 func (k *Keeper) SetDynamicBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
-	// fmt.Println("JEREMYDEBUG: setting base fee per gas to", baseFeePerGas)
 	store := ctx.KVStore(k.storeKey)
 	bz, err := baseFeePerGas.MarshalJSON()
 	if err != nil {
