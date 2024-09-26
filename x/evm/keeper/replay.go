@@ -83,6 +83,15 @@ func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData
 	}
 }
 
+func contains(slice []common.Address, element common.Address) bool {
+	for _, v := range slice {
+		if v == element {
+			return true
+		}
+	}
+	return false
+}
+
 func (k *Keeper) VerifyState(ctx sdk.Context, addr common.Address) {
 	store := k.PrefixStore(ctx, types.StateKey(addr))
 	iter := store.Iterator(nil, nil)

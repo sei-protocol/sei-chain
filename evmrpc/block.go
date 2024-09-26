@@ -79,7 +79,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeSyntheticTxs)
+	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeSyntheticTxs)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -127,7 +127,7 @@ func (a *BlockAPI) getBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeSyntheticTxs)
+	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeSyntheticTxs)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -215,7 +215,7 @@ func EncodeTmBlock(
 	txHash := common.HexToHash(block.Block.DataHash.String())
 	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
 	miner := common.HexToAddress(block.Block.ProposerAddress.String())
-	baseFeePerGas := k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
+	baseFeePerGas := k.GetDynamicBaseFeePerGas(ctx).TruncateInt().BigInt()
 	var blockGasUsed int64
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
