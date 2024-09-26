@@ -95,7 +95,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		Nonce:             stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
 		GasLimit:          k.getEvmGasLimitFromCtx(ctx),
 		GasPrice:          utils.Big0, // fees are already paid on the CW transaction
-		GasFeeCap:         k.GetDynamicBaseFeePerGas(ctx).TruncateDec().BigInt(),
+		GasFeeCap:         utils.Big0,
 		GasTipCap:         utils.Big0,
 		To:                to,
 		Value:             value,
@@ -103,6 +103,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		SkipAccountChecks: false,
 		From:              from,
 	}
+	fmt.Println("JEREMYDEBUG: calling apply evm message from CallEVM")
 	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
 	if err != nil {
 		return nil, err
