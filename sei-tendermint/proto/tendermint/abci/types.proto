@@ -206,6 +206,7 @@ message RequestDeliverTx {
 
 message RequestEndBlock {
   int64 height = 1;
+  int64 block_gas_used = 2;
 }
 
 message RequestLoadLatest {}
