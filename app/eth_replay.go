@@ -178,7 +178,6 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 
 	// Check post-state after all blocks are run
 	ctx := a.GetCheckCtx()
-	coinbases := getCoinbases(ethblocks)
 	for addr, accountData := range bt.Json.Post {
 		if IsWithdrawalAddress(addr, ethblocks) {
 			fmt.Println("Skipping withdrawal address: ", addr)
@@ -189,17 +188,9 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 			fmt.Println("Skipping beacon roots storage address: ", addr)
 			continue
 		}
-		a.EvmKeeper.VerifyAccount(ctx, addr, accountData, coinbases)
+		a.EvmKeeper.VerifyAccount(ctx, addr, accountData)
 		fmt.Println("Successfully verified account: ", addr)
 	}
-}
-
-func getCoinbases(ethBlocks []*ethtypes.Block) []common.Address {
-	var coinbases []common.Address
-	for _, b := range ethBlocks {
-		coinbases = append(coinbases, b.Coinbase())
-	}
-	return coinbases
 }
 
 func encodeTx(tx *ethtypes.Transaction, txConfig client.TxConfig) []byte {

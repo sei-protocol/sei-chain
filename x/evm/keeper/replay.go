@@ -65,7 +65,7 @@ func (k *Keeper) VerifyTxResult(ctx sdk.Context, hash common.Hash) {
 	}
 }
 
-func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData core.GenesisAccount, coinbases []common.Address) {
+func (k *Keeper) VerifyAccount(ctx sdk.Context, addr common.Address, accountData core.GenesisAccount) {
 	// we no longer check eth balance due to limiting EVM max refund to 150% of used gas (https://github.com/sei-protocol/go-ethereum/pull/32)
 	code := accountData.Code
 	for key, expectedState := range accountData.Storage {
