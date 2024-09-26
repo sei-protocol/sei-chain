@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -254,7 +255,7 @@ func EncodeTmBlock(
 					continue
 				}
 				if !fullTx {
-					transactions = append(transactions, th)
+					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
 					ti := uint64(receipt.TransactionIndex)
 					to := k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
