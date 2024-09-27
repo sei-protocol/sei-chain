@@ -5,7 +5,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// modified eip-1559 adjustment
+// modified eip-1559 adjustment using target gas used
 func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) {
 	if ctx.ConsensusParams() == nil || ctx.ConsensusParams().Block == nil {
 		return
@@ -14,18 +14,22 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas
 	blockGasLimit := sdk.NewDec(ctx.ConsensusParams().Block.MaxGas)
 	blockGasUsedDec := sdk.NewDec(int64(blockGasUsed))
+	targetGasUsed := sdk.NewDec(int64(k.GetTargetGasUsedPerBlock(ctx)))
 
-	blockFullness := blockGasUsedDec.Quo(blockGasLimit)
-
-	half := sdk.NewDec(1).Quo(sdk.NewDec(2)) // 0.5
 	var newBaseFee sdk.Dec
-	if blockFullness.GT(half) {
+	if blockGasUsedDec.GT(targetGasUsed) {
 		// upward adjustment
-		adjustmentFactor := k.GetMaxDynamicBaseFeeUpwardAdjustment(ctx).Mul(blockFullness.Sub(half)).Quo(half)
+		numerator := blockGasUsedDec.Sub(targetGasUsed)
+		denominator := blockGasLimit.Sub(targetGasUsed)
+		percentageFull := numerator.Quo(denominator)
+		adjustmentFactor := k.GetMaxDynamicBaseFeeUpwardAdjustment(ctx).Mul(percentageFull)
 		newBaseFee = currentBaseFee.Mul(sdk.NewDec(1).Add(adjustmentFactor))
 	} else {
 		// downward adjustment
-		adjustmentFactor := k.GetMaxDynamicBaseFeeDownwardAdjustment(ctx).Mul(half.Sub(blockFullness)).Quo(half)
+		numerator := targetGasUsed.Sub(blockGasUsedDec)
+		denominator := targetGasUsed
+		percentageEmpty := numerator.Quo(denominator)
+		adjustmentFactor := k.GetMaxDynamicBaseFeeDownwardAdjustment(ctx).Mul(percentageEmpty)
 		newBaseFee = currentBaseFee.Mul(sdk.NewDec(1).Sub(adjustmentFactor))
 	}
 

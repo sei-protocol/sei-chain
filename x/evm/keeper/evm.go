@@ -103,7 +103,6 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		SkipAccountChecks: false,
 		From:              from,
 	}
-	fmt.Println("JEREMYDEBUG: calling apply evm message from CallEVM")
 	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
 	if err != nil {
 		return nil, err

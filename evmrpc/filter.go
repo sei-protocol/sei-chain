@@ -211,7 +211,6 @@ func (a *FilterAPI) GetFilterLogs(
 	return logs, nil
 }
 
-// JEREMYFLAG
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,

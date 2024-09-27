@@ -15,6 +15,7 @@ var (
 	KeyDeliverTxHookWasmGasLimit           = []byte("KeyDeliverTxHookWasmGasLimit")
 	KeyMaxDynamicBaseFeeUpwardAdjustment   = []byte("KeyMaxDynamicBaseFeeUpwardAdjustment")
 	KeyMaxDynamicBaseFeeDownwardAdjustment = []byte("KeyMaxDynamicBaseFeeDownwardAdjustment")
+	KeyTargetGasUsedPerBlock               = []byte("KeyTargetGasUsedPerBlock")
 	// deprecated
 	KeyBaseFeePerGas                          = []byte("KeyBaseFeePerGas")
 	KeyWhitelistedCwCodeHashesForDelegateCall = []byte("KeyWhitelistedCwCodeHashesForDelegateCall")
@@ -33,6 +34,7 @@ var DefaultWhitelistedCwCodeHashesForDelegateCall = generateDefaultWhitelistedCw
 
 var DefaultMaxDynamicBaseFeeUpwardAdjustment = sdk.NewDec(0)
 var DefaultMaxDynamicBaseFeeDownwardAdjustment = sdk.NewDec(0)
+var DefaultTargetGasUsedPerBlock = uint64(100000)
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -49,6 +51,7 @@ func DefaultParams() Params {
 		MinimumFeePerGas:                       DefaultMinFeePerGas,
 		DeliverTxHookWasmGasLimit:              DefaultDeliverTxHookWasmGasLimit,
 		WhitelistedCwCodeHashesForDelegateCall: DefaultWhitelistedCwCodeHashesForDelegateCall,
+		TargetGasUsedPerBlock:                  DefaultTargetGasUsedPerBlock,
 	}
 }
 
@@ -61,6 +64,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyMinFeePerGas, &p.MinimumFeePerGas, validateMinFeePerGas),
 		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &p.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
 		paramtypes.NewParamSetPair(KeyDeliverTxHookWasmGasLimit, &p.DeliverTxHookWasmGasLimit, validateDeliverTxHookWasmGasLimit),
+		paramtypes.NewParamSetPair(KeyTargetGasUsedPerBlock, &p.TargetGasUsedPerBlock, validateTargetGasUsedPerBlock),
 	}
 }
 
@@ -86,7 +90,21 @@ func (p Params) Validate() error {
 	if err := validateBaseFeeAdjustment(p.MaxDynamicBaseFeeDownwardAdjustment); err != nil {
 		return fmt.Errorf("invalid max dynamic base fee downward adjustment: %s, err: %s", p.MaxDynamicBaseFeeDownwardAdjustment, err)
 	}
+	if err := validateTargetGasUsedPerBlock(p.TargetGasUsedPerBlock); err != nil {
+		return err
+	}
 	return validateWhitelistedCwHashesForDelegateCall(p.WhitelistedCwCodeHashesForDelegateCall)
+}
+
+func validateTargetGasUsedPerBlock(i interface{}) error {
+	v, ok := i.(uint64)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	if v == 0 {
+		return fmt.Errorf("invalid target gas used per block: must be greater than 0, got %d", v)
+	}
+	return nil
 }
 
 func validateBaseFeeAdjustment(i interface{}) error {
