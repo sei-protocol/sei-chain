@@ -6,9 +6,9 @@ import (
 )
 
 // modified eip-1559 adjustment using target gas used
-func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) {
+func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64) *sdk.Dec {
 	if ctx.ConsensusParams() == nil || ctx.ConsensusParams().Block == nil {
-		return
+		return nil
 	}
 	currentBaseFee := k.GetDynamicBaseFeePerGas(ctx)
 	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas
@@ -40,6 +40,8 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 
 	// Set the new base fee for the next height
 	k.SetDynamicBaseFeePerGas(ctx.WithBlockHeight(ctx.BlockHeight()+1), newBaseFee)
+
+	return &newBaseFee
 }
 
 // dont have height be a prefix, just store the current base fee directly
