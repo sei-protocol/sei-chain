@@ -358,14 +358,13 @@ func HistogramEvmEffectiveGasPrice(gasPrice *big.Int) {
 	)
 }
 
-// Gauge for block base fee with label for block height
+// Gauge for block base fee
 // Metric Name:
 //
 // sei_evm_block_base_fee
 func GaugeEvmBlockBaseFee(baseFee *big.Int, blockHeight int64) {
-	telemetry.SetGaugeWithLabels(
+	metrics.SetGauge(
 		[]string{"sei", "evm", "block", "base", "fee"},
 		float32(baseFee.Uint64()),
-		[]metrics.Label{telemetry.NewLabel("block_height", strconv.FormatInt(blockHeight, 10))},
 	)
 }
