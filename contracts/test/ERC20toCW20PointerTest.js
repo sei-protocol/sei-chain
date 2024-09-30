@@ -84,7 +84,6 @@ describe("ERC20 to CW20 Pointer", function () {
                     expect(await pointer.allowance(accounts[0].evmAddress, accounts[1].evmAddress)).to.equal(0);
                 });
             });
-
             describe("transfer()", function () {
                 it("should transfer", async function () {
                     let sender = accounts[0];
@@ -93,12 +92,15 @@ describe("ERC20 to CW20 Pointer", function () {
                     expect(await pointer.balanceOf(sender.evmAddress)).to.equal(balances.account0);
                     expect(await pointer.balanceOf(recipient.evmAddress)).to.equal(balances.account1);
 
-                    const blockNumber = await ethers.provider.getBlockNumber();
+                    // const blockNumber = await ethers.provider.getBlockNumber();
                     const tx = await pointer.transfer(recipient.evmAddress, 1);
-                    await tx.wait();
+                    const receipt = await tx.wait();
+                    const blockNumber = receipt.blockNumber;
 
                     expect(await pointer.balanceOf(sender.evmAddress)).to.equal(balances.account0-1);
                     expect(await pointer.balanceOf(recipient.evmAddress)).to.equal(balances.account1+1);
+
+                    console.log("blockNumber", blockNumber);
 
                     // check logs
                     const filter = {
@@ -107,7 +109,7 @@ describe("ERC20 to CW20 Pointer", function () {
                         address: await pointer.getAddress(),
                         topics: [ethers.id("Transfer(address,address,uint256)")]
                     };
-                    // send via eth_ endpoint - synthetic event doesn't show up
+                    // send via eth_ endpoint - the ERC20 Pointer contract does not emit Transfer events so should have no logs
                     const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
                     expect(ethlogs.length).to.equal(0);
 
@@ -122,6 +124,24 @@ describe("ERC20 to CW20 Pointer", function () {
 
                     const cleanupTx = await pointer.connect(recipient.signer).transfer(sender.evmAddress, 1);
                     await cleanupTx.wait();
+
+                    // check eth_getBlockByNumber vs sei_getBlockByNumber
+                    const ethBlock = await ethers.provider.send('eth_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
+                    const seiBlock = await ethers.provider.send('sei_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
+
+                    expect(ethBlock.transactions.length).to.equal(1);
+                    expect(seiBlock.transactions.length).to.equal(1);
+
+                    // check eth_getBlockByReceipts vs sei_getBlockByReceipts
+                    const ethReceipts = await ethers.provider.send('eth_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
+                    const seiReceipts = await ethers.provider.send('sei_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
+
+                    expect(ethReceipts.length).to.equal(1);
+                    expect(seiReceipts.length).to.equal(1);
+
+                    // check eth_getTransactionByHash
+                    const seiTx = await ethers.provider.send('eth_getTransactionByHash', [tx.hash]);
+                    expect(seiTx).to.not.be.null;
                 });
 
                 it("should fail transfer() if sender has insufficient balance", async function () {

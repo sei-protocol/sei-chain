@@ -114,9 +114,15 @@ describe("ERC721 to CW721 Pointer", function () {
         it("transfer from", async function () {
             // accounts[0] should transfer token id 2 to accounts[1]
             await mine(pointerAcc0.approve(accounts[1].evmAddress, 2));
-            const blockNumber = await ethers.provider.getBlockNumber();
+
             transferTxResp = await pointerAcc1.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 2);
-            await transferTxResp.wait();
+            const transferTx = await transferTxResp.wait();
+            console.log("transferTx", transferTx)
+
+            const blockNumber = transferTx.blockNumber;
+
+            console.log("blockNumber", blockNumber)
+
             const filter = {
                 fromBlock: '0x' + blockNumber.toString(16),
                 toBlock: 'latest',
@@ -137,6 +143,12 @@ describe("ERC721 to CW721 Pointer", function () {
             expect(balance0).to.equal(0);
             const balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress);
             expect(balance1).to.equal(2);
+
+            // do same for eth_getBlockReceipts and sei_getBlockReceipts
+            const ethBlockReceipts = await ethers.provider.send('eth_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
+            expect(ethBlockReceipts.length).to.equal(1);
+            const seiBlockReceipts = await ethers.provider.send('sei_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
+            expect(seiBlockReceipts.length).to.equal(1);
 
             // return token id 2 back to accounts[0] using safe transfer from
             await mine(pointerAcc1.approve(accounts[0].evmAddress, 2));

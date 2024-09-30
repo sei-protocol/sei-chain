@@ -45,9 +45,6 @@ func NewEVMHTTPServer(
 	sendAPI := NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, ConnectionTypeHTTP)
 	ctx := ctxProvider(LatestCtxHeight)
 
-	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP)
-	// filterAPI := NewFilterAPI(tmClient, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP)
-
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -63,7 +60,11 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   txAPI,
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP, "eth"),
+		},
+		{
+			Namespace: "sei",
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP, "sei"),
 		},
 		{
 			Namespace: "eth",
@@ -160,7 +161,11 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeWS),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeWS, "eth"),
+		},
+		{
+			Namespace: "sei",
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeWS, "sei"),
 		},
 		{
 			Namespace: "eth",

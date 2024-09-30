@@ -37,7 +37,7 @@ type BlockAPI struct {
 }
 
 func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, connectionType ConnectionType, namespace string) *BlockAPI {
-	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, connectionType: connectionType, includeSyntheticTxs: shouldIncludeSynthetic(namespace)}
+	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, connectionType: connectionType, namespace: namespace, includeSyntheticTxs: shouldIncludeSynthetic(namespace)}
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
@@ -160,7 +160,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		wg.Add(1)
 		go func(i int, hash common.Hash) {
 			defer wg.Done()
-			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash)
+			receipt, err := a.keeper.GetReceiptOptionalSyntheticLogs(a.ctxProvider(height), hash, a.includeSyntheticTxs)
 			if err != nil {
 				// When the transaction doesn't exist, skip it
 				if !strings.Contains(err.Error(), "not found") {
@@ -169,9 +169,6 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				if !a.includeSyntheticTxs && len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
-					return
-				}
 				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) bool {
 					_, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					return err == nil

@@ -79,6 +79,23 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	return &r, nil
 }
 
+func (k *Keeper) GetReceiptOptionalSyntheticLogs(ctx sdk.Context, txHash common.Hash, includeSynthetic bool) (*types.Receipt, error) {
+	receipt, err := k.GetReceipt(ctx, txHash)
+	if err != nil {
+		return nil, err
+	}
+	if !includeSynthetic {
+		filteredLogs := make([]*types.Log, 0, len(receipt.Logs))
+		for _, log := range receipt.Logs {
+			if !log.Synthetic {
+				filteredLogs = append(filteredLogs, log)
+			}
+		}
+		receipt.Logs = filteredLogs
+	}
+	return receipt, nil
+}
+
 //	MockReceipt sets a data structure that stores EVM specific transaction metadata.
 //
 // this is currently used by a number of tests to set receipts at the moment
