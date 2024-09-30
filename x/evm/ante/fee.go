@@ -47,6 +47,9 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	if txData.GetGasFeeCap().Cmp(fc.getMinimumFee(ctx)) < 0 {
 		return ctx, sdkerrors.ErrInsufficientFee
 	}
+	if txData.GetGasTipCap().Sign() < 0 {
+		return ctx, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "gas tip cap cannot be negative: %s", txData.GetGasTipCap())
+	}
 
 	// if EVM version is Cancun or later, and the transaction contains at least one blob, we need to
 	// make sure the transaction carries a non-zero blob fee cap.
