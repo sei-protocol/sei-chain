@@ -15,10 +15,10 @@ nft_test="nftMarketplace/nftMarketplaceTests.js"
 
 # Build contracts repo first since we rely on that for lib.js
 cd contracts
-# npm ci
+npm ci
 
 cd ../integration_test/dapp_tests
-# npm ci
+npm ci
 
 npx hardhat compile
 
