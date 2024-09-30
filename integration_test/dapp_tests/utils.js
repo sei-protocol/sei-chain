@@ -1,7 +1,19 @@
 const {v4: uuidv4} = require("uuid");
 const hre = require("hardhat");
-const { ABI, deployErc20PointerForCw20, deployErc721PointerForCw721, getSeiAddress, deployWasm, execute, delay, isDocker } = require("../../contracts/test/lib.js");
-const path = require('path')
+const { ABI, deployErc20PointerForCw20, associateKey, storeWasm, fundSeiAddress, deployErc721PointerForCw721, getSeiAddress, deployErc20PointerNative, deployWasm, execute, delay,createTokenFactoryTokenAndMint, isDocker, fundAddress } = require("../../contracts/test/lib.js");
+const path = require('path');
+const devnetUniswapConfig = require('./configs/uniswapConfig.json');
+const devnetSteakConfig = require('./configs/steakConfig.json');
+const devnetNftConfig = require('./configs/nftConfig.json');
+
+const { abi: WETH9_ABI, bytecode: WETH9_BYTECODE } = require("@uniswap/v2-periphery/build/WETH9.json");
+const { abi: FACTORY_ABI, bytecode: FACTORY_BYTECODE } = require("@uniswap/v3-core/artifacts/contracts/UniswapV3Factory.sol/UniswapV3Factory.json");
+const { abi: DESCRIPTOR_ABI, bytecode: DESCRIPTOR_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/libraries/NFTDescriptor.sol/NFTDescriptor.json");
+const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
+const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
+const {chainIds, rpcUrls, evmRpcUrls} = require("./constants");
+const {expect} = require("chai");
+const {existsSync, readFileSync, writeFileSync} = require("node:fs");
 
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
   const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
@@ -27,7 +39,7 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
 
   // Approve the NonfungiblePositionManager to spend the specified amount of secondToken
   await estimateAndCall(secondTokenContract, "approve", [managerContract.address, secondTokenAmt])
-
+  console.log('Pre mint call');
   // Add liquidity to the pool
   await estimateAndCall(managerContract, "mint", [{
     token0: token0.address,
@@ -58,6 +70,178 @@ function tokenOrder(firstTokenAddr, secondTokenAddr, firstTokenAmount=0, secondT
     token1 = {address: firstTokenAddr, amount: firstTokenAmount};
   }
   return [token0, token1]
+}
+
+async function returnContractsForFastTrackUniswap(deployer, config, testChain) {
+  const contractArtifact = await hre.artifacts.readArtifact("MockERC20");
+  return {
+    manager: new hre.ethers.Contract(config.manager, MANAGER_ABI, deployer),
+    router: new hre.ethers.Contract(config.router, SWAP_ROUTER_ABI, deployer),
+    erc20TokenFactory: new hre.ethers.Contract(config.erc20TokenFactory, ABI.ERC20, deployer),
+    erc20cw20: new hre.ethers.Contract(config.erc20cw20, ABI.ERC20, deployer),
+    weth9: new hre.ethers.Contract(config.weth9, WETH9_ABI, deployer),
+    token: new hre.ethers.Contract(config.token, contractArtifact.abi, deployer),
+    tokenFactoryDenom: config.tokenFactoryDenom,
+    cw20Address: config.cw20Address
+  }
+}
+
+async function returnContractsForFastTrackSteak(deployer, config, testChain) {
+  return {
+    hubAddress: config.hubAddress,
+    tokenAddress: config.tokenAddress,
+    tokenPointer: new hre.ethers.Contract(
+      config.pointerAddress,
+      ABI.ERC20,
+      hre.ethers.provider
+    )
+  }
+}
+
+async function deployAndReturnUniswapContracts(deployer, testChain, accounts) {
+  if (testChain === 'devnetFastTrack') {
+    console.log('Using already deployed contracts on arctic 1');
+    return returnContractsForFastTrackUniswap(deployer, devnetUniswapConfig);
+  } else if (testChain === 'seiClusterFastTrack') {
+    if (clusterConfigExists('uniswapConfigCluster.json')) {
+      const contractConfig =  path.join(__dirname, 'configs', 'uniswapConfigCluster.json');
+      const clusterConfig = JSON.parse(readFileSync(contractConfig, 'utf8'));
+      return returnContractsForFastTrackUniswap(deployer, clusterConfig, testChain);
+    } else {
+      return writeAddressesIntoUniswapConfig(deployer, testChain, accounts);
+    }
+  }
+  return deployUniswapContracts(deployer, testChain, accounts);
+}
+
+async function writeAddressesIntoUniswapConfig(deployer, testChain, accounts){
+  const contracts = await deployUniswapContracts(deployer, testChain, accounts);
+  const contractAddresses = {
+    manager: contracts.manager.address,
+    router: contracts.router.address,
+    erc20TokenFactory: contracts.erc20TokenFactory.address,
+    erc20cw20: contracts.erc20cw20.address,
+    weth9: contracts.weth9.address,
+    token: contracts.token.address,
+    tokenFactoryDenom: contracts.tokenFactoryDenom,
+    cw20Address: contracts.cw20Address
+  };
+  writeFileSync('./configs/uniswapConfigCluster.json', JSON.stringify(contractAddresses, null, 2), 'utf8');
+  console.log('contract addresses are saved');
+  return contracts;
+}
+
+async function writeAddressesIntoSteakConfig(testChain){
+  const contracts = await deployContractsForSteakTests(testChain);
+  const contractAddresses = {
+    hubAddress: contracts.hubAddress,
+    tokenAddress: contracts.tokenAddress,
+    pointerAddress: contracts.tokenPointer.address
+  };
+  writeFileSync('./configs/steakConfigCluster.json', JSON.stringify(contractAddresses, null, 2), 'utf8');
+  console.log('contract addresses are saved');
+  return contracts;
+}
+
+async function writeAddressesIntoNftConfig(deployer, testChain, accounts){
+  const contracts = await deployContractsForNftTests(deployer, testChain, accounts);
+  const contractAddresses = {
+    marketplace: contracts.marketplace.address,
+    erc721token: contracts.erc721token.address,
+    cw721Address: contracts.cw721Address,
+    erc721PointerToken: contracts.erc721PointerToken.address,
+  };
+  writeFileSync('./configs/nftConfigCluster.json', JSON.stringify(contractAddresses, null, 2), 'utf8');
+  console.log('contract addresses are saved');
+  return contracts;
+}
+
+async function deployUniswapContracts(deployer, testChain, accounts){
+
+  if (testChain === 'seilocal') {
+    const tx = await fundAddress(deployer.address, amount="2000000000000000000000");
+    await waitFor(1);
+  }
+
+  // Set the config keyring to 'test' since we're using the key added to test from here.
+  await execute(`seid config keyring-backend test`)
+
+  await sendFunds('0.01', deployer.address, deployer)
+  await setupAccountWithMnemonic("dapptest", accounts.mnemonic, deployer);
+
+  const deployerSeiAddr = await getSeiAddress(deployer.address);
+  console.log(deployerSeiAddr);
+  // Deploy Required Tokens
+  const time = Date.now().toString();
+
+  // Deploy TokenFactory token with ERC20 pointer
+  const tokenName = `dappTests${time}`
+  const tokenFactoryDenom = await createTokenFactoryTokenAndMint(tokenName, hre.ethers.utils.parseEther("1000000").toString(), deployerSeiAddr, deployerSeiAddr)
+  console.log("DENOM", tokenFactoryDenom)
+  const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, tokenFactoryDenom, deployerSeiAddr, evmRpcUrls[testChain])
+  console.log("Pointer Addr", pointerAddr);
+  const erc20TokenFactory = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
+
+  // Deploy CW20 token with ERC20 pointer
+  const cw20Details = await deployCw20WithPointer(deployerSeiAddr, deployer, time, evmRpcUrls[testChain])
+  const erc20cw20 = cw20Details.pointerContract;
+  const cw20Address = cw20Details.cw20Address;
+
+  // Deploy WETH9 Token (ETH representation on Uniswap)
+  const weth9 = await deployEthersContract("WETH9", WETH9_ABI, WETH9_BYTECODE, deployer);
+
+  // Deploy MockToken
+  console.log("Deploying MockToken with the account:", deployer.address);
+  const contractArtifact = await hre.artifacts.readArtifact("MockERC20");
+  const token = await deployEthersContract("MockToken", contractArtifact.abi, contractArtifact.bytecode, deployer, ["MockToken", "MKT", hre.ethers.utils.parseEther("1000000")])
+
+  // Deploy NFT Descriptor. These NFTs are used by the NonFungiblePositionManager to represent liquidity positions.
+  const descriptor = await deployEthersContract("NFT Descriptor", DESCRIPTOR_ABI, DESCRIPTOR_BYTECODE, deployer);
+
+  // Deploy Uniswap Contracts
+  // Create UniswapV3 Factory
+  const factory = await deployEthersContract("Uniswap V3 Factory", FACTORY_ABI, FACTORY_BYTECODE, deployer);
+
+  // Deploy NonFungiblePositionManager
+  const manager = await deployEthersContract("NonfungiblePositionManager", MANAGER_ABI, MANAGER_BYTECODE, deployer, deployParams=[factory.address, weth9.address, descriptor.address]);
+
+  // Deploy SwapRouter
+  const router = await deployEthersContract("SwapRouter", SWAP_ROUTER_ABI, SWAP_ROUTER_BYTECODE, deployer, deployParams=[factory.address, weth9.address]);
+
+  const amountETH = hre.ethers.utils.parseEther("3")
+
+  // Gets the amount of WETH9 required to instantiate pools by depositing Sei to the contract
+  let gasEstimate = await weth9.estimateGas.deposit({ value: amountETH })
+  let gasPrice = await deployer.getGasPrice();
+  const txWrap = await weth9.deposit({ value: amountETH, gasPrice, gasLimit: gasEstimate });
+  await txWrap.wait();
+  console.log(`Deposited ${amountETH.toString()} to WETH9`);
+
+  // Create liquidity pools
+  await deployTokenPool(manager, weth9.address, token.address)
+  await deployTokenPool(manager, weth9.address, erc20TokenFactory.address)
+  await deployTokenPool(manager, weth9.address, erc20cw20.address)
+
+  // Add Liquidity to pools
+  await supplyLiquidity(manager, deployer.address, weth9, token, hre.ethers.utils.parseEther("1"), hre.ethers.utils.parseEther("1"))
+  await supplyLiquidity(manager, deployer.address, weth9, erc20TokenFactory, hre.ethers.utils.parseEther("1"), hre.ethers.utils.parseEther("1"))
+  await supplyLiquidity(manager, deployer.address, weth9, erc20cw20, hre.ethers.utils.parseEther("1"), hre.ethers.utils.parseEther("1"))
+
+  return {
+    router,
+    manager,
+    erc20cw20,
+    erc20TokenFactory,
+    weth9,
+    token,
+    tokenFactoryDenom,
+    cw20Address
+  }
+}
+
+function clusterConfigExists(fileName){
+  const folderPath = path.join(__dirname, 'configs', fileName);
+  return existsSync(folderPath)
 }
 
 async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
@@ -110,7 +294,6 @@ async function doesTokenFactoryDenomExist(denom) {
 }
 
 async function sendFunds(amountSei, recipient, signer) {
-
   const bal = await signer.getBalance();
   if (bal.lt(hre.ethers.utils.parseEther(amountSei))) {
     throw new Error(`Signer has insufficient balance. Want ${hre.ethers.utils.parseEther(amountSei)}, has ${bal}`);
@@ -256,7 +439,7 @@ const bond = async (contractAddress, address, amount) => {
     bond: {},
   };
   const jsonString = JSON.stringify(msg).replace(/"/g, '\\"');
-  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount=${amount}usei --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
+  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount=${amount}usei --from=${address} --gas=600000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
   const output = await execute(command);
   const response = JSON.parse(output);
   if (response.code !== 0) {
@@ -335,11 +518,19 @@ const transferTokens = async (tokenAddress, sender, destination, amount) => {
   return response;
 };
 
-async function setupAccountWithMnemonic(baseName, mnemonic, deployer) {
+async function  setupAccountWithMnemonic(baseName, mnemonic, deployer) {
   const uniqueName = `${baseName}-${uuidv4()}`;
   const address = await getSeiAddress(deployer.address)
 
   return await addDeployerAccount(uniqueName, address, mnemonic)
+}
+
+async function waitFor(seconds){
+  return new Promise((resolve) =>{
+    setTimeout(() =>{
+      resolve();
+    }, seconds * 1000)
+  })
 }
 
 async function addDeployerAccount(keyName, address, mnemonic) {
@@ -366,8 +557,202 @@ async function addDeployerAccount(keyName, address, mnemonic) {
   return JSON.parse(output);
 }
 
+async function setupAccount(baseName, associate = true, amount="100000000000", denom="usei", funder='admin') {
+  const uniqueName = `${baseName}-${uuidv4()}`;
+
+  const account = await addAccount(uniqueName);
+  await fundSeiAddress(account.address, amount, denom, funder);
+  if (associate) {
+    await associateKey(account.address);
+  }
+  return account;
+}
+
+async function deployAndReturnContractsForSteakTests(deployer, testChain, accounts){
+  const owner = await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, deployer);
+  let contracts;
+
+  console.log('I executed these commands');
+  console.log(`seid config node ${rpcUrls[testChain]}`);
+  // Check the test chain type and retrieve or write the contract configuration
+  if (testChain === 'devnetFastTrack') {
+    contracts = await returnContractsForFastTrackSteak(deployer, devnetSteakConfig, testChain);
+  } else if (testChain === 'seiClusterFastTrack') {
+    if (clusterConfigExists('steakConfigCluster.json')) {
+      const contractConfigPath = path.join(__dirname, 'configs', 'steakConfigCluster.json');
+      const clusterConfig = JSON.parse(readFileSync(contractConfigPath, 'utf8'));
+      contracts = await returnContractsForFastTrackSteak(deployer, clusterConfig, testChain);
+    } else {
+      contracts = await writeAddressesIntoSteakConfig(testChain);
+    }
+  } else {
+    contracts = await deployContractsForSteakTests(testChain);
+  }
+  return { ...contracts, owner };
+}
+
+async function deployContractsForSteakTests(testChain){
+  let owner;
+  // Set up the owner account
+  if (testChain === 'seilocal') {
+    owner = await setupAccount("steak-owner");
+  } else {
+    const accounts = hre.config.networks[testChain].accounts
+    const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
+    const deployer = deployerWallet.connect(hre.ethers.provider)
+
+    await sendFunds('0.01', deployer.address, deployer)
+    // Set the config keyring to 'test' since we're using the key added to test from here.
+    owner = await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, deployer)
+  }
+
+  await execute(`seid config keyring-backend test`);
+
+  // Store and deploy contracts
+  const { hubAddress, tokenAddress, tokenPointer } = await deploySteakContracts(
+    owner.address,
+    testChain,
+  );
+
+  return {hubAddress, tokenAddress, tokenPointer, owner}
+}
+
+async function deploySteakContracts(ownerAddress, testChain) {
+  // Store CW20 token wasm
+  const STEAK_TOKEN_WASM = (await isDocker()) ? '../integration_test/dapp_tests/steak/contracts/steak_token.wasm' : path.resolve(__dirname, 'steak/contracts/steak_token.wasm')
+  const tokenCodeId = await storeWasm(STEAK_TOKEN_WASM, ownerAddress);
+
+  // Store Hub contract
+  const STEAK_HUB_WASM = (await isDocker()) ? '../integration_test/dapp_tests/steak/contracts/steak_hub.wasm' : path.resolve(__dirname, 'steak/contracts/steak_hub.wasm')
+  const hubCodeId = await storeWasm(STEAK_HUB_WASM, ownerAddress);
+
+  // Instantiate hub and token contracts
+  const validators = await getValidators();
+  const instantiateMsg = {
+    cw20_code_id: parseInt(tokenCodeId),
+    owner: ownerAddress,
+    name: "Steak",
+    symbol: "STEAK",
+    decimals: 6,
+    epoch_period: 259200,
+    unbond_period: 1814400,
+    validators: validators.slice(0, 3),
+  };
+  const contractAddresses = await instantiateHubContract(
+    hubCodeId,
+    ownerAddress,
+    instantiateMsg,
+    "steakhub"
+  );
+
+  // Deploy pointer for token contract
+  const pointerAddr = await deployErc20PointerForCw20(
+    hre.ethers.provider,
+    contractAddresses.tokenContract,
+    10,
+    ownerAddress,
+    evmRpcUrls[testChain]
+  );
+
+  const tokenPointer = new hre.ethers.Contract(
+    pointerAddr,
+    ABI.ERC20,
+    hre.ethers.provider
+  );
+
+  return {
+    hubAddress: contractAddresses.hubContract,
+    tokenAddress: contractAddresses.tokenContract,
+    tokenPointer,
+  };
+}
+
+async function deployAndReturnContractsForNftTests(deployer, testChain, accounts){
+  let contracts;
+  // Check the test chain type and retrieve or write the contract configuration
+  if (testChain === 'devnetFastTrack') {
+    console.log('Using already deployed contracts on arctic 1');
+    return returnContractsForFastTrackNftTests(deployer, devnetNftConfig, testChain);
+  } else if (testChain === 'seiClusterFastTrack') {
+    // Set chain ID and node configuration for the cluster fast track
+    if (clusterConfigExists('nftConfigCluster.json')) {
+      const contractConfigPath = path.join(__dirname, 'configs', 'nftConfigCluster.json');
+      const clusterConfig = JSON.parse(readFileSync(contractConfigPath, 'utf8'));
+      contracts = await returnContractsForFastTrackNftTests(deployer, clusterConfig, testChain);
+    } else {
+      contracts = await writeAddressesIntoNftConfig(deployer, testChain, accounts);
+    }
+  } else {
+    contracts = await deployContractsForNftTests(deployer, testChain, accounts);
+  }
+  return contracts;
+}
+
+async function deployContractsForNftTests(deployer, testChain, accounts){
+  if (testChain === 'seilocal') {
+    await fundAddress(deployer.address, amount="2000000000000000000000");
+  }
+
+  await execute(`seid config keyring-backend test`)
+
+  await sendFunds('0.01', deployer.address, deployer)
+  await setupAccountWithMnemonic("dapptest", accounts.mnemonic, deployer);
+
+  // Deploy MockNFT
+  const erc721ContractArtifact = await hre.artifacts.readArtifact("MockERC721");
+  const erc721token = await deployEthersContract("MockERC721", erc721ContractArtifact.abi, erc721ContractArtifact.bytecode, deployer, ["MockERC721", "MKTNFT"])
+
+  const numNftsToMint = 50
+  await estimateAndCall(erc721token, "batchMint", [deployer.address, numNftsToMint]);
+
+  // Deploy CW721 token with ERC721 pointer
+  const time = Date.now().toString();
+  const deployerSeiAddr = await getSeiAddress(deployer.address);
+  const cw721Details = await deployCw721WithPointer(deployerSeiAddr, deployer, time, evmRpcUrls[testChain])
+  const erc721PointerToken = cw721Details.pointerContract;
+  console.log(erc721PointerToken.address);
+  const cw721Address = cw721Details.cw721Address;
+  console.log("CW721 Address", cw721Address);
+  const numCwNftsToMint = 2;
+  for (let i = 1; i <= numCwNftsToMint; i++) {
+    await mintCw721(cw721Address, deployerSeiAddr, i)
+  }
+  const cwbal = await erc721PointerToken.balanceOf(deployer.address);
+  expect(cwbal).to.equal(numCwNftsToMint)
+
+  const nftMarketplaceArtifact = await hre.artifacts.readArtifact("NftMarketplace");
+  const marketplace = await deployEthersContract("NftMarketplace", nftMarketplaceArtifact.abi, nftMarketplaceArtifact.bytecode, deployer)
+  return {marketplace, erc721token, cw721Address, erc721PointerToken}
+}
+
+async function returnContractsForFastTrackNftTests(deployer, clusterConfig,  testChain) {
+  await setupAccountWithMnemonic("dapptest", deployer.mnemonic.phrase, deployer);
+  const nftMarketplaceArtifact = await hre.artifacts.readArtifact("NftMarketplace");
+  const erc721ContractArtifact = await hre.artifacts.readArtifact("MockERC721");
+  return {
+    marketplace: new hre.ethers.Contract(clusterConfig.marketplace, nftMarketplaceArtifact.abi, deployer),
+    erc721token: new hre.ethers.Contract(clusterConfig.erc721token, erc721ContractArtifact.abi, deployer),
+    erc721PointerToken: new hre.ethers.Contract(clusterConfig.erc721PointerToken, ABI.ERC721, deployer),
+    cw721Address: clusterConfig.cw721Address,
+  }
+}
+
+async function queryLatestNftIds(contractAddress){
+  return Number(
+    await execute(`seid q wasm contract-state smart ${contractAddress} '{"num_tokens": {}}' -o json | jq ".data.count"`));
+}
+
+async function setDaemonConfig(testChain) {
+  const seidConfig = await execute('seid config');
+  const originalSeidConfig = JSON.parse(seidConfig);
+  await execute(`seid config chain-id ${chainIds[testChain]}`)
+  await execute(`seid config node ${rpcUrls[testChain]}`);
+  return originalSeidConfig;
+}
+
 module.exports = {
   getValidators,
+  returnContractsForFastTrackUniswap,
   instantiateHubContract,
   bond,
   unbond,
@@ -375,6 +760,7 @@ module.exports = {
   queryTokenBalance,
   addAccount,
   estimateAndCall,
+  deployAndReturnUniswapContracts,
   addDeployerAccount,
   setupAccountWithMnemonic,
   transferTokens,
@@ -386,5 +772,15 @@ module.exports = {
   doesTokenFactoryDenomExist,
   pollBalance,
   sendFunds,
-  mintCw721
+  mintCw721,
+  returnContractsForFastTrackSteak,
+  deployContractsForSteakTests,
+  setupAccount,
+  returnContractsForFastTrackNftTests,
+  deployContractsForNftTests,
+  deployAndReturnContractsForSteakTests,
+  deployAndReturnContractsForNftTests,
+  waitFor,
+  queryLatestNftIds,
+  setDaemonConfig,
 };
