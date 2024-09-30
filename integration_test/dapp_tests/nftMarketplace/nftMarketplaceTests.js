@@ -1,4 +1,4 @@
-const { expect} = require("chai");
+const { expect } = require("chai");
 const hre = require("hardhat");
 
 const {
@@ -142,10 +142,10 @@ describe("NFT Marketplace", function () {
     })
 
     after(async function () {
-        /* // Set the chain back to regular state
+         // Set the chain back to regular state
          console.log("Resetting")
          await execute(`seid config chain-id ${originalSeidConfig["chain-id"]}`)
          await execute(`seid config node ${originalSeidConfig["node"]}`)
-         await execute(`seid config keyring-backend ${originalSeidConfig["keyring-backend"]}`)*/
+         await execute(`seid config keyring-backend ${originalSeidConfig["keyring-backend"]}`)
     })
 })
