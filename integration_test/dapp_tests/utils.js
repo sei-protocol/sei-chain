@@ -39,7 +39,6 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
 
   // Approve the NonfungiblePositionManager to spend the specified amount of secondToken
   await estimateAndCall(secondTokenContract, "approve", [managerContract.address, secondTokenAmt])
-  console.log('Pre mint call');
   // Add liquidity to the pool
   await estimateAndCall(managerContract, "mint", [{
     token0: token0.address,
@@ -54,8 +53,6 @@ async function supplyLiquidity(managerContract, recipientAddr, firstTokenContrac
     recipient: recipientAddr,
     deadline: Math.floor(Date.now() / 1000) + 60 * 10, // 10 minutes from now
   }]);
-
-  console.log("Liquidity added");
 }
 
 // Orders the 2 addresses sequentially, since this is required by uniswap.
@@ -170,7 +167,6 @@ async function deployUniswapContracts(deployer, testChain, accounts){
   await setupAccountWithMnemonic("dapptest", accounts.mnemonic, deployer);
 
   const deployerSeiAddr = await getSeiAddress(deployer.address);
-  console.log(deployerSeiAddr);
   // Deploy Required Tokens
   const time = Date.now().toString();
 
@@ -571,11 +567,9 @@ async function setupAccount(baseName, associate = true, amount="100000000000", d
 async function deployAndReturnContractsForSteakTests(deployer, testChain, accounts){
   const owner = await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, deployer);
   let contracts;
-
-  console.log('I executed these commands');
-  console.log(`seid config node ${rpcUrls[testChain]}`);
   // Check the test chain type and retrieve or write the contract configuration
   if (testChain === 'devnetFastTrack') {
+      console.log('Using already deployed contracts on arctic 1');
     contracts = await returnContractsForFastTrackSteak(deployer, devnetSteakConfig, testChain);
   } else if (testChain === 'seiClusterFastTrack') {
     if (clusterConfigExists('steakConfigCluster.json')) {
@@ -710,9 +704,7 @@ async function deployContractsForNftTests(deployer, testChain, accounts){
   const deployerSeiAddr = await getSeiAddress(deployer.address);
   const cw721Details = await deployCw721WithPointer(deployerSeiAddr, deployer, time, evmRpcUrls[testChain])
   const erc721PointerToken = cw721Details.pointerContract;
-  console.log(erc721PointerToken.address);
   const cw721Address = cw721Details.cw721Address;
-  console.log("CW721 Address", cw721Address);
   const numCwNftsToMint = 2;
   for (let i = 1; i <= numCwNftsToMint; i++) {
     await mintCw721(cw721Address, deployerSeiAddr, i)
