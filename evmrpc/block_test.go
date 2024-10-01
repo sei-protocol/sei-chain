@@ -114,7 +114,7 @@ func TestGetBlockReceipts(t *testing.T) {
 	// Query by tag latest => retrieves block 8
 	resObj3 := sendRequestGood(t, "getBlockReceipts", "latest")
 	result = resObj3["result"].([]interface{})
-	require.Equal(t, 1, len(result))
+	require.Equal(t, 2, len(result))
 	receipt1 = result[0].(map[string]interface{})
 	require.Equal(t, "0x8", receipt1["blockNumber"])
 	require.Equal(t, "0x0", receipt1["transactionIndex"])
