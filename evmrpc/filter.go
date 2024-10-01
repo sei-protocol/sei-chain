@@ -361,18 +361,15 @@ func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (re
 	txHashes := f.k.GetTxHashesOnHeight(ctx, height)
 	for _, hash := range txHashes {
 		receipt, err := f.k.GetReceipt(ctx, hash)
-		fmt.Println("JEREMYDEBUG: considering receipt = ", receipt)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
 			continue
 		}
 		// if includeShellReceipts is false, include receipts with synthetic logs but exclude shell tx receipts
 		if !f.includeSyntheticReceipts && receipt.TxType == ShellEVMTxType {
-			fmt.Println("JEREMYDEBUG: skipping shell receipt = ", receipt)
 			continue
 		}
 		if !f.includeSyntheticReceipts && receipt.EffectiveGasPrice == 0 {
-			fmt.Println("JEREMYDEBUG: skipping receipt with effective gas price 0 = ", receipt)
 			return
 		}
 		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
