@@ -91,6 +91,20 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			return
 		}
 		extraSurplus := sdk.ZeroInt()
+		surplus, ferr := stateDB.Finalize()
+		if ferr != nil {
+			err = ferr
+			ctx.Logger().Error(fmt.Sprintf("failed to finalize EVM stateDB: %s", err))
+
+			telemetry.IncrCounterWithLabels(
+				[]string{types.ModuleName, "errors", "stateDB_finalize"},
+				1,
+				[]metrics.Label{
+					telemetry.NewLabel("type", err.Error()),
+				},
+			)
+			return
+		}
 		if isWasmdPrecompileCall {
 			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum())
 			if err == nil {
@@ -133,20 +147,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			telemetry.IncrCounter(1, "receipt", "status", "success")
 		}
 
-		surplus, ferr := stateDB.Finalize()
-		if ferr != nil {
-			err = ferr
-			ctx.Logger().Error(fmt.Sprintf("failed to finalize EVM stateDB: %s", err))
-
-			telemetry.IncrCounterWithLabels(
-				[]string{types.ModuleName, "errors", "stateDB_finalize"},
-				1,
-				[]metrics.Label{
-					telemetry.NewLabel("type", err.Error()),
-				},
-			)
-			return
-		}
 		surplus = surplus.Add(extraSurplus)
 		bloom := ethtypes.Bloom{}
 		bloom.SetBytes(receipt.LogsBloom)

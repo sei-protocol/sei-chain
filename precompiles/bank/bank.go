@@ -162,7 +162,7 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 	if readOnly {
 		return nil, errors.New("cannot call sendNative from staticcall")
 	}
-	if caller.Cmp(callingContract) != 0 {
+	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, errors.New("cannot delegatecall sendNative")
 	}
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {

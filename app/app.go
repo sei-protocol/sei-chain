@@ -539,6 +539,11 @@ func New(
 	).SetHooks(epochmoduletypes.NewMultiEpochHooks(
 		app.MintKeeper.Hooks()))
 
+	tokenFactoryConfig, err := tokenfactorykeeper.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading token factory config due to %s", err))
+	}
+
 	app.TokenFactoryKeeper = tokenfactorykeeper.NewKeeper(
 		appCodec,
 		app.keys[tokenfactorytypes.StoreKey],
@@ -546,6 +551,7 @@ func New(
 		app.AccountKeeper,
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
+		tokenFactoryConfig,
 	)
 
 	// The last arguments can contain custom message handlers, and custom query handlers,
@@ -2019,7 +2025,7 @@ func TmBlockHeaderToEVM(
 		Nonce:       ethtypes.BlockNonce{},   // inapplicable to Sei
 		MixDigest:   ethcommon.Hash{},        // inapplicable to Sei
 		UncleHash:   ethtypes.EmptyUncleHash, // inapplicable to Sei
-		Bloom:       k.GetBlockBloom(ctx, block.Height),
+		Bloom:       k.GetBlockBloom(ctx),
 		Root:        appHash,
 		Coinbase:    miner,
 		Difficulty:  big.NewInt(0),      // inapplicable to Sei

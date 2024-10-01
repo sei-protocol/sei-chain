@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -29,13 +29,32 @@ func TestGetBlockByHash(t *testing.T) {
 	verifyBlockResult(t, resObj)
 }
 
+func TestGetSeiBlockByHash(t *testing.T) {
+	resObj := sendSeiRequestGood(t, "getBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000001", true)
+	verifyBlockResult(t, resObj)
+}
+
 func TestGetBlockByNumber(t *testing.T) {
-	for _, num := range []string{"0x8", "earliest", "latest", "pending", "finalized", "safe"} {
+	resObjEarliest := sendSeiRequestGood(t, "getBlockByNumber", "earliest", true)
+	verifyGenesisBlockResult(t, resObjEarliest)
+	for _, num := range []string{"0x8", "latest", "pending", "finalized", "safe"} {
 		resObj := sendRequestGood(t, "getBlockByNumber", num, true)
 		verifyBlockResult(t, resObj)
 	}
 
 	resObj := sendRequestBad(t, "getBlockByNumber", "bad_num", true)
+	require.Equal(t, "invalid argument 0: hex string without 0x prefix", resObj["error"].(map[string]interface{})["message"])
+}
+
+func TestGetSeiBlockByNumber(t *testing.T) {
+	resObjEarliest := sendSeiRequestGood(t, "getBlockByNumber", "earliest", true)
+	verifyGenesisBlockResult(t, resObjEarliest)
+	for _, num := range []string{"0x8", "latest", "pending", "finalized", "safe"} {
+		resObj := sendSeiRequestGood(t, "getBlockByNumber", num, true)
+		verifyBlockResult(t, resObj)
+	}
+
+	resObj := sendSeiRequestBad(t, "getBlockByNumber", "bad_num", true)
 	require.Equal(t, "invalid argument 0: hex string without 0x prefix", resObj["error"].(map[string]interface{})["message"])
 }
 
@@ -102,6 +121,30 @@ func TestGetBlockReceipts(t *testing.T) {
 	require.Equal(t, multiTxBlockTx4.Hash().Hex(), receipt1["transactionHash"])
 }
 
+func verifyGenesisBlockResult(t *testing.T, resObj map[string]interface{}) {
+	resObj = resObj["result"].(map[string]interface{})
+	require.Equal(t, "0x0", resObj["baseFeePerGas"])
+	require.Equal(t, "0x0", resObj["difficulty"])
+	require.Equal(t, "0x", resObj["extraData"])
+	require.Equal(t, "0x0", resObj["gasLimit"])
+	require.Equal(t, "0x0", resObj["gasUsed"])
+	require.Equal(t, "0xf9d3845df25b43b1c6926f3ceda6845c17f5624e12212fd8847d0ba01da1ab9e", resObj["hash"])
+	require.Equal(t, "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", resObj["logsBloom"])
+	require.Equal(t, "0x0000000000000000000000000000000000000000", resObj["miner"])
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["mixHash"])
+	require.Equal(t, "0x0000000000000000", resObj["nonce"])
+	require.Equal(t, "0x0", resObj["number"])
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["parentHash"])
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["receiptsRoot"])
+	require.Equal(t, "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347", resObj["sha3Uncles"])
+	require.Equal(t, "0x0", resObj["size"])
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["stateRoot"])
+	require.Equal(t, "0x0", resObj["timestamp"])
+	require.Equal(t, []interface{}{}, resObj["transactions"])
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["transactionsRoot"])
+	require.Equal(t, []interface{}{}, resObj["uncles"])
+}
+
 func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	resObj = resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x0", resObj["difficulty"])
@@ -110,11 +153,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x5", resObj["gasUsed"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["hash"])
 	// see setup_tests.go, which have one transaction for block 0x8 (latest)
-	if resObj["number"] == "0x8" {
-		require.Equal(t, "0x00002000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000200000000000000000000000000000000000000000000000000000000000000400000000000000200000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000", resObj["logsBloom"])
-	} else {
-		require.Equal(t, "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", resObj["logsBloom"])
-	}
+	require.Equal(t, "0x00002000040000000000000000000080000000200000000000000000000000080000000000000000000000000000000000000000000000000800000000000000001000000000000000000000000000000000000000000000000000000000000100000000000000000000000000200000000000000000000000000000000000000000000000000000000000000400000000000000200000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000010200000000000000", resObj["logsBloom"])
 	require.Equal(t, "0x0000000000000000000000000000000000000005", resObj["miner"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["mixHash"])
 	require.Equal(t, "0x0000000000000000", resObj["nonce"])
@@ -174,7 +213,7 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	}
 
 	// Call EncodeTmBlock with empty transactions
-	result, err := evmrpc.EncodeTmBlock(ctx, block, blockRes, k, Decoder, true)
+	result, err := evmrpc.EncodeTmBlock(ctx, block, blockRes, ethtypes.Bloom{}, k, Decoder, true, false)
 	require.Nil(t, err)
 
 	// Assert txHash is equal to ethtypes.EmptyTxsHash
@@ -220,7 +259,7 @@ func TestEncodeBankMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, k, Decoder, true)
+	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 0, len(txs))
@@ -268,7 +307,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, k, Decoder, true)
+	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, true)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
@@ -283,5 +322,8 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 		Input:            []byte{1, 2, 3},
 		Hash:             common.Hash(sha256.Sum256(bz)),
 		TransactionIndex: (*hexutil.Uint64)(&ti),
+		V:                nil,
+		R:                nil,
+		S:                nil,
 	}, txs[0].(*ethapi.RPCTransaction))
 }

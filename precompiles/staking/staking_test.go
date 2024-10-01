@@ -308,13 +308,14 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 		evmKeeper      pcommon.EVMKeeper
 	}
 	type args struct {
-		evm              *vm.EVM
-		delegatorAddress common.Address
-		validatorAddress string
-		caller           common.Address
-		callingContract  common.Address
-		value            *big.Int
-		readOnly         bool
+		evm                *vm.EVM
+		delegatorAddress   common.Address
+		validatorAddress   string
+		caller             common.Address
+		callingContract    common.Address
+		value              *big.Int
+		readOnly           bool
+		isFromDelegateCall bool
 	}
 
 	tests := []struct {
@@ -349,11 +350,12 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 				},
 			},
 			args: args{
-				caller:           callerEvmAddress,
-				callingContract:  contractEvmAddress,
-				delegatorAddress: callerEvmAddress,
-				validatorAddress: validatorAddress,
-				value:            big.NewInt(100),
+				caller:             callerEvmAddress,
+				callingContract:    contractEvmAddress,
+				delegatorAddress:   callerEvmAddress,
+				validatorAddress:   validatorAddress,
+				value:              big.NewInt(100),
+				isFromDelegateCall: true,
 			},
 			wantErr:    true,
 			wantErrMsg: "cannot delegatecall staking",
@@ -456,7 +458,7 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 			require.Nil(t, err)
 			inputs, err := delegation.Inputs.Pack(tt.args.delegatorAddress, tt.args.validatorAddress)
 			require.Nil(t, err)
-			gotRet, err := p.Run(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID, inputs...), tt.args.value, tt.args.readOnly)
+			gotRet, err := p.Run(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID, inputs...), tt.args.value, tt.args.readOnly, tt.args.isFromDelegateCall)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return

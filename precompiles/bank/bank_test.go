@@ -92,7 +92,7 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	args, err := send.Inputs.Pack(senderEVMAddr, evmAddr, "usei", big.NewInt(25))
 	require.Nil(t, err)
-	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendID, args...), nil, false) // should error because address is not whitelisted
+	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendID, args...), nil, false, false) // should error because address is not whitelisted
 	require.NotNil(t, err)
 
 	// Precompile sendNative test error
@@ -102,19 +102,19 @@ func TestRun(t *testing.T) {
 	argsNativeError, err := sendNative.Inputs.Pack(seiAddrString)
 	require.Nil(t, err)
 	// 0 amount disallowed
-	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), big.NewInt(0), false)
+	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), big.NewInt(0), false, false)
 	require.NotNil(t, err)
 	argsNativeError, err = sendNative.Inputs.Pack("")
 	require.Nil(t, err)
-	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), big.NewInt(100), false)
+	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), big.NewInt(100), false, false)
 	require.NotNil(t, err)
 	argsNativeError, err = sendNative.Inputs.Pack("invalidaddr")
 	require.Nil(t, err)
-	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), big.NewInt(100), false)
+	_, err = p.Run(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), big.NewInt(100), false, false)
 	require.NotNil(t, err)
 	argsNativeError, err = sendNative.Inputs.Pack(senderAddr.String())
 	require.Nil(t, err)
-	_, err = p.Run(&evm, evmAddr, evmAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), big.NewInt(100), false)
+	_, err = p.Run(&evm, evmAddr, evmAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), big.NewInt(100), false, false)
 	require.NotNil(t, err)
 
 	// Send native 10_000_000_000_100, split into 10 usei 100wei
@@ -214,7 +214,7 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "usei")
 	require.Nil(t, err)
-	precompileRes, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args...), nil, false)
+	precompileRes, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args...), nil, false, false)
 	require.Nil(t, err)
 	is, err := balance.Outputs.Unpack(precompileRes)
 	require.Nil(t, err)
@@ -228,7 +228,7 @@ func TestRun(t *testing.T) {
 	argsNewAccount, err := sendNative.Inputs.Pack(newAddr.String())
 	require.Nil(t, err)
 	require.Nil(t, k.BankKeeper().SendCoins(ctx, seiAddr, k.GetSeiAddressOrDefault(ctx, p.Address()), sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt()))))
-	_, err = p.Run(&evm, evmAddr, evmAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNewAccount...), big.NewInt(1), false)
+	_, err = p.Run(&evm, evmAddr, evmAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNewAccount...), big.NewInt(1), false, false)
 	require.Nil(t, err)
 	// should create account if not exists
 	require.NotNil(t, k.AccountKeeper().GetAccount(statedb.Ctx(), newAddr))
@@ -238,7 +238,7 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	args, err = allBalances.Inputs.Pack(senderEVMAddr)
 	require.Nil(t, err)
-	precompileRes, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).AllBalancesID, args...), nil, false)
+	precompileRes, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).AllBalancesID, args...), nil, false, false)
 	require.Nil(t, err)
 	balances, err := allBalances.Outputs.Unpack(precompileRes)
 	require.Nil(t, err)
@@ -259,15 +259,15 @@ func TestRun(t *testing.T) {
 	}, bank.CoinBalance(parsedBalances[1]))
 
 	// Verify errors properly raised on bank balance calls with incorrect inputs
-	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args[:1]...), nil, false)
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args[:1]...), nil, false, false)
 	require.NotNil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "")
 	require.Nil(t, err)
-	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args...), nil, false)
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args...), nil, false, false)
 	require.NotNil(t, err)
 
 	// invalid input
-	_, err = p.Run(&evm, common.Address{}, common.Address{}, []byte{1, 2, 3, 4}, nil, false)
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, []byte{1, 2, 3, 4}, nil, false, false)
 	require.NotNil(t, err)
 }
 
@@ -308,7 +308,7 @@ func TestSendForUnlinkedReceiver(t *testing.T) {
 	require.Nil(t, err)
 	args, err := send.Inputs.Pack(senderEVMAddr, evmAddr, "ufoo", big.NewInt(100))
 	require.Nil(t, err)
-	_, err = p.Run(&evm, pointerAddr, pointerAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendID, args...), nil, false) // should not error
+	_, err = p.Run(&evm, pointerAddr, pointerAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendID, args...), nil, false, false) // should not error
 	require.Nil(t, err)
 
 	// Use precompile balance to verify sendNative usei amount succeeded
@@ -316,7 +316,7 @@ func TestSendForUnlinkedReceiver(t *testing.T) {
 	require.Nil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "ufoo")
 	require.Nil(t, err)
-	precompileRes, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args...), nil, false)
+	precompileRes, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args...), nil, false, false)
 	require.Nil(t, err)
 	is, err := balance.Outputs.Unpack(precompileRes)
 	require.Nil(t, err)
@@ -328,7 +328,7 @@ func TestSendForUnlinkedReceiver(t *testing.T) {
 	require.Nil(t, err)
 	args, err = allBalances.Inputs.Pack(senderEVMAddr)
 	require.Nil(t, err)
-	precompileRes, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).AllBalancesID, args...), nil, false)
+	precompileRes, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).AllBalancesID, args...), nil, false, false)
 	require.Nil(t, err)
 	balances, err := allBalances.Outputs.Unpack(precompileRes)
 	require.Nil(t, err)
@@ -349,15 +349,15 @@ func TestSendForUnlinkedReceiver(t *testing.T) {
 	}, bank.CoinBalance(parsedBalances[1]))
 
 	// Verify errors properly raised on bank balance calls with incorrect inputs
-	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args[:1]...), nil, false)
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args[:1]...), nil, false, false)
 	require.NotNil(t, err)
 	args, err = balance.Inputs.Pack(evmAddr, "")
 	require.Nil(t, err)
-	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args...), nil, false)
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID, args...), nil, false, false)
 	require.NotNil(t, err)
 
 	// invalid input
-	_, err = p.Run(&evm, common.Address{}, common.Address{}, []byte{1, 2, 3, 4}, nil, false)
+	_, err = p.Run(&evm, common.Address{}, common.Address{}, []byte{1, 2, 3, 4}, nil, false, false)
 	require.NotNil(t, err)
 }
 
@@ -375,7 +375,7 @@ func TestMetadata(t *testing.T) {
 	require.Nil(t, err)
 	args, err := name.Inputs.Pack("usei")
 	require.Nil(t, err)
-	res, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).NameID, args...), nil, false)
+	res, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).NameID, args...), nil, false, false)
 	require.Nil(t, err)
 	outputs, err := name.Outputs.Unpack(res)
 	require.Nil(t, err)
@@ -385,7 +385,7 @@ func TestMetadata(t *testing.T) {
 	require.Nil(t, err)
 	args, err = symbol.Inputs.Pack("usei")
 	require.Nil(t, err)
-	res, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).SymbolID, args...), nil, false)
+	res, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).SymbolID, args...), nil, false, false)
 	require.Nil(t, err)
 	outputs, err = symbol.Outputs.Unpack(res)
 	require.Nil(t, err)
@@ -395,7 +395,7 @@ func TestMetadata(t *testing.T) {
 	require.Nil(t, err)
 	args, err = decimal.Inputs.Pack("usei")
 	require.Nil(t, err)
-	res, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).DecimalsID, args...), nil, false)
+	res, err = p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*bank.PrecompileExecutor).DecimalsID, args...), nil, false, false)
 	require.Nil(t, err)
 	outputs, err = decimal.Outputs.Unpack(res)
 	require.Nil(t, err)
