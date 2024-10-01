@@ -18,6 +18,7 @@ func TestDefaultParams(t *testing.T) {
 		WhitelistedCwCodeHashesForDelegateCall: types.DefaultWhitelistedCwCodeHashesForDelegateCall,
 		MaxDynamicBaseFeeUpwardAdjustment:      types.DefaultMaxDynamicBaseFeeUpwardAdjustment,
 		MaxDynamicBaseFeeDownwardAdjustment:    types.DefaultMaxDynamicBaseFeeDownwardAdjustment,
+		TargetGasUsedPerBlock:                  types.DefaultTargetGasUsedPerBlock,
 	}, types.DefaultParams())
 	require.Nil(t, types.DefaultParams().Validate())
 }
