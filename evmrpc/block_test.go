@@ -114,11 +114,18 @@ func TestGetBlockReceipts(t *testing.T) {
 	// Query by tag latest => retrieves block 8
 	resObj3 := sendRequestGood(t, "getBlockReceipts", "latest")
 	result = resObj3["result"].([]interface{})
-	require.Equal(t, 1, len(result))
+	require.Equal(t, 2, len(result))
 	receipt1 = result[0].(map[string]interface{})
 	require.Equal(t, "0x8", receipt1["blockNumber"])
 	require.Equal(t, "0x0", receipt1["transactionIndex"])
 	require.Equal(t, multiTxBlockTx4.Hash().Hex(), receipt1["transactionHash"])
+	receiptWithSyntheticLog := result[1].(map[string]interface{})
+	require.Equal(t, "0x8", receiptWithSyntheticLog["blockNumber"])
+	logs := receiptWithSyntheticLog["logs"].([]interface{})
+	firstLog := logs[0].(map[string]interface{})
+	topics := firstLog["topics"].([]interface{})
+	syntheticLogFirstTopic := "0x0000000000000000000000000000000000000000000000000000000000000234"
+	require.Equal(t, syntheticLogFirstTopic, topics[0].(string))
 }
 
 func verifyGenesisBlockResult(t *testing.T, resObj map[string]interface{}) {
