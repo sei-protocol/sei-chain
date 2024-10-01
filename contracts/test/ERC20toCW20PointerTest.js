@@ -85,7 +85,7 @@ describe("ERC20 to CW20 Pointer", function () {
                 });
             });
             describe("transfer()", function () {
-                it("should transfer", async function () {
+                it.only("should transfer", async function () {
                     let sender = accounts[0];
                     let recipient = accounts[1];
 
@@ -128,20 +128,24 @@ describe("ERC20 to CW20 Pointer", function () {
                     // check eth_getBlockByNumber vs sei_getBlockByNumber
                     const ethBlock = await ethers.provider.send('eth_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
                     const seiBlock = await ethers.provider.send('sei_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
-
                     expect(ethBlock.transactions.length).to.equal(1);
                     expect(seiBlock.transactions.length).to.equal(1);
 
                     // check eth_getBlockByReceipts vs sei_getBlockByReceipts
                     const ethReceipts = await ethers.provider.send('eth_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
                     const seiReceipts = await ethers.provider.send('sei_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
-
                     expect(ethReceipts.length).to.equal(1);
                     expect(seiReceipts.length).to.equal(1);
 
+                    // check eth_getTransactionReceipt vs sei_getTransactionReceipt
+                    const ethTx = await ethers.provider.send('eth_getTransactionReceipt', [receipt.hash]);
+                    const seiTx = await ethers.provider.send('sei_getTransactionReceipt', [receipt.hash]);
+                    expect(ethTx.logs.length).to.equal(0); // synthetic event doesn't show up
+                    expect(seiTx.logs.length).to.equal(1); // synthetic event shows up
+
                     // check eth_getTransactionByHash
-                    const seiTx = await ethers.provider.send('eth_getTransactionByHash', [tx.hash]);
-                    expect(seiTx).to.not.be.null;
+                    const ethTxByHash = await ethers.provider.send('eth_getTransactionByHash', [tx.hash]);
+                    expect(ethTxByHash).to.not.be.null;
                 });
 
                 it("should fail transfer() if sender has insufficient balance", async function () {

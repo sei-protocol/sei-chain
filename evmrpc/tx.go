@@ -44,9 +44,6 @@ func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider 
 }
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
-	if t.namespace != "eth" {
-		return nil, errors.New("only supported for eth namespace")
-	}
 	startTime := time.Now()
 	defer recordMetrics(fmt.Sprintf("%s_getTransactionReceipt", t.namespace), t.connectionType, startTime, returnErr == nil)
 	sdkctx := t.ctxProvider(LatestCtxHeight)

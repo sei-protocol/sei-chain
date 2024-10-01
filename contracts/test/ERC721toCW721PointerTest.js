@@ -116,12 +116,9 @@ describe("ERC721 to CW721 Pointer", function () {
             await mine(pointerAcc0.approve(accounts[1].evmAddress, 2));
 
             transferTxResp = await pointerAcc1.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 2);
-            const transferTx = await transferTxResp.wait();
-            console.log("transferTx", transferTx)
+            const receipt = await transferTxResp.wait();
 
-            const blockNumber = transferTx.blockNumber;
-
-            console.log("blockNumber", blockNumber)
+            const blockNumber = receipt.blockNumber;
 
             const filter = {
                 fromBlock: '0x' + blockNumber.toString(16),
@@ -149,6 +146,16 @@ describe("ERC721 to CW721 Pointer", function () {
             expect(ethBlockReceipts.length).to.equal(1);
             const seiBlockReceipts = await ethers.provider.send('sei_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
             expect(seiBlockReceipts.length).to.equal(1);
+            
+            // check eth_getTransactionReceipt vs sei_getTransactionReceipt
+            const ethTx = await ethers.provider.send('eth_getTransactionReceipt', [receipt.hash]);
+            const seiTx = await ethers.provider.send('sei_getTransactionReceipt', [receipt.hash]);
+            expect(ethTx.logs.length).to.equal(0); // synthetic event doesn't show up
+            expect(seiTx.logs.length).to.equal(1); // synthetic event shows up
+
+            // check eth_getTransactionByHash
+            const ethTxByHash = await ethers.provider.send('eth_getTransactionByHash', [receipt.hash]);
+            expect(ethTxByHash).to.not.be.null;
 
             // return token id 2 back to accounts[0] using safe transfer from
             await mine(pointerAcc1.approve(accounts[0].evmAddress, 2));
@@ -161,9 +168,10 @@ describe("ERC721 to CW721 Pointer", function () {
             await expect(pointerAcc0.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 3)).to.be.reverted;
         });
 
-        it("set approval for all", async function () {
+        it.only("set approval for all", async function () {
             const setApprovalForAllTxResp = await pointerAcc0.setApprovalForAll(accounts[1].evmAddress, true);
-            await setApprovalForAllTxResp.wait();
+            const receipt = await setApprovalForAllTxResp.wait();
+            console.log(receipt)
             await expect(setApprovalForAllTxResp)
                 .to.emit(pointerAcc0, 'ApprovalForAll')
                 .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, true);
