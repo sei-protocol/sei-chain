@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"sync"
@@ -26,6 +27,8 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
+const ShellEVMTxType = math.MaxUint32
+
 type BlockAPI struct {
 	tmClient            rpcclient.Client
 	keeper              *keeper.Keeper
@@ -33,11 +36,11 @@ type BlockAPI struct {
 	txConfig            client.TxConfig
 	connectionType      ConnectionType
 	namespace           string
-	includeSyntheticTxs bool
+	includeShellReceipts bool
 }
 
 func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, connectionType ConnectionType, namespace string) *BlockAPI {
-	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, connectionType: connectionType, includeSyntheticTxs: shouldIncludeSynthetic(namespace)}
+	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, connectionType: connectionType, includeShellReceipts: shouldIncludeSynthetic(namespace)}
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
@@ -80,7 +83,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeSyntheticTxs)
+	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeShellReceipts)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -128,7 +131,7 @@ func (a *BlockAPI) getBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeSyntheticTxs)
+	return EncodeTmBlock(a.ctxProvider(LatestCtxHeight), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeShellReceipts)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -169,7 +172,8 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				if !a.includeSyntheticTxs && len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
+				// If the receipt has synthetic logs, we actually want to include them in the response.
+				if !a.includeShellReceipts && receipt.TxType == ShellEVMTxType {
 					return
 				}
 				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) bool {
@@ -240,6 +244,9 @@ func EncodeTmBlock(
 				} else {
 					receipt, err := k.GetReceipt(ctx, hash)
 					if err != nil {
+						continue
+					}
+					if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
 						continue
 					}
 					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)

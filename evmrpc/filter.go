@@ -64,7 +64,7 @@ type EventItemDataWrapper struct {
 }
 
 func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
-	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, filterConfig: filterConfig, includeSynthetic: shouldIncludeSynthetic(namespace)}
+	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
 		namespace:      namespace,
@@ -211,7 +211,6 @@ func (a *FilterAPI) GetFilterLogs(
 	return logs, nil
 }
 
-// JEREMYFLAG
 func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,
@@ -275,11 +274,11 @@ func (a *FilterAPI) UninstallFilter(
 }
 
 type LogFetcher struct {
-	tmClient         rpcclient.Client
-	k                *keeper.Keeper
-	ctxProvider      func(int64) sdk.Context
-	filterConfig     *FilterConfig
-	includeSynthetic bool
+	tmClient                 rpcclient.Client
+	k                        *keeper.Keeper
+	ctxProvider              func(int64) sdk.Context
+	filterConfig             *FilterConfig
+	includeSyntheticReceipts bool
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
@@ -362,14 +361,18 @@ func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (re
 	txHashes := f.k.GetTxHashesOnHeight(ctx, height)
 	for _, hash := range txHashes {
 		receipt, err := f.k.GetReceipt(ctx, hash)
+		fmt.Println("JEREMYDEBUG: considering receipt = ", receipt)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
 			continue
 		}
-		if !f.includeSynthetic && len(receipt.Logs) > 0 && receipt.Logs[0].Synthetic {
+		// if includeShellReceipts is false, include receipts with synthetic logs but exclude shell tx receipts
+		if !f.includeSyntheticReceipts && receipt.TxType == ShellEVMTxType {
+			fmt.Println("JEREMYDEBUG: skipping shell receipt = ", receipt)
 			continue
 		}
-		if !f.includeSynthetic && receipt.EffectiveGasPrice == 0 {
+		if !f.includeSyntheticReceipts && receipt.EffectiveGasPrice == 0 {
+			fmt.Println("JEREMYDEBUG: skipping receipt with effective gas price 0 = ", receipt)
 			return
 		}
 		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
