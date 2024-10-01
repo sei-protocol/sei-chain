@@ -221,7 +221,7 @@ func TestSeiFilterGetLogs(t *testing.T) {
 	})
 }
 
-func TestEthEndpointShouldNotReturnSyntheticLogs(t *testing.T) {
+func TestEthEndpointCanReturnSyntheticLogs(t *testing.T) {
 	testFilterGetLogs(t, "eth", []GetFilterLogTests{
 		{
 			name:    "filter by single topic with default range, exclude synethetic logs",
@@ -230,7 +230,7 @@ func TestEthEndpointShouldNotReturnSyntheticLogs(t *testing.T) {
 			check: func(t *testing.T, log map[string]interface{}) {
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000234", log["topics"].([]interface{})[0].(string))
 			},
-			wantLen: 0,
+			wantLen: 1,
 		},
 	})
 }

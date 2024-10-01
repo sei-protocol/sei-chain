@@ -93,9 +93,9 @@ describe("ERC20 to CW20 Pointer", function () {
                     expect(await pointer.balanceOf(sender.evmAddress)).to.equal(balances.account0);
                     expect(await pointer.balanceOf(recipient.evmAddress)).to.equal(balances.account1);
 
-                    const blockNumber = await ethers.provider.getBlockNumber();
                     const tx = await pointer.transfer(recipient.evmAddress, 1);
-                    await tx.wait();
+                    const receipt = await tx.wait();
+                    const blockNumber = receipt.blockNumber;
 
                     expect(await pointer.balanceOf(sender.evmAddress)).to.equal(balances.account0-1);
                     expect(await pointer.balanceOf(recipient.evmAddress)).to.equal(balances.account1+1);
@@ -107,18 +107,38 @@ describe("ERC20 to CW20 Pointer", function () {
                         address: await pointer.getAddress(),
                         topics: [ethers.id("Transfer(address,address,uint256)")]
                     };
-                    // send via eth_ endpoint - synthetic event doesn't show up
+                    // send via eth_ endpoint - synthetic event should show up because we are using the
+                    // synthetic event in place of a real EVM event
                     const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
-                    expect(ethlogs.length).to.equal(0);
+                    expect(ethlogs.length).to.equal(1);
 
                     // send via sei_ endpoint - synthetic event shows up
                     const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
                     expect(seilogs.length).to.equal(1);
-                    expect(seilogs.length).to.equal(1);
-                    expect(seilogs[0]["address"].toLowerCase()).to.equal((await pointer.getAddress()).toLowerCase());
-                    expect(seilogs[0]["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
-                    expect(seilogs[0]["topics"][1].substring(26)).to.equal(sender.evmAddress.substring(2).toLowerCase());
-                    expect(seilogs[0]["topics"][2].substring(26)).to.equal(recipient.evmAddress.substring(2).toLowerCase());
+                    
+                    const logs = [...ethlogs, ...seilogs];
+                    logs.forEach(async (log) => {
+                        expect(log["address"].toLowerCase()).to.equal((await pointer.getAddress()).toLowerCase());
+                        expect(log["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
+                        expect(log["topics"][1].substring(26)).to.equal(sender.evmAddress.substring(2).toLowerCase());
+                        expect(log["topics"][2].substring(26)).to.equal(recipient.evmAddress.substring(2).toLowerCase());
+                    });
+
+                    const ethBlock = await ethers.provider.send('eth_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
+                    const seiBlock = await ethers.provider.send('sei_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
+                    expect(ethBlock.transactions.length).to.equal(1);
+                    expect(seiBlock.transactions.length).to.equal(1);
+
+                    const ethReceipts = await ethers.provider.send('eth_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
+                    const seiReceipts = await ethers.provider.send('sei_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
+                    expect(ethReceipts.length).to.equal(1);
+                    expect(seiReceipts.length).to.equal(1);
+                    expect(ethReceipts[0].transactionHash).to.equal(seiReceipts[0].transactionHash);
+
+                    const ethTx = await ethers.provider.send('eth_getTransactionReceipt', [receipt.hash]);
+                    expect(ethTx.logs.length).to.equal(1); // check for transfer event
+                    const ethTxByHash = await ethers.provider.send('eth_getTransactionByHash', [tx.hash]);
+                    expect(ethTxByHash).to.not.be.null;
 
                     const cleanupTx = await pointer.connect(recipient.signer).transfer(sender.evmAddress, 1);
                     await cleanupTx.wait();
@@ -147,7 +167,7 @@ describe("ERC20 to CW20 Pointer", function () {
                     const spender = accounts[1].evmAddress;
                     const blockNumber = await ethers.provider.getBlockNumber();
                     const tx = await pointer.approve(spender, 1000000);
-                    await tx.wait();
+                    const receipt = await tx.wait();
                     const allowance = await pointer.allowance(owner, spender);
                     expect(Number(allowance)).to.equal(1000000);
 
@@ -160,15 +180,15 @@ describe("ERC20 to CW20 Pointer", function () {
                     };
                     // send via eth_ endpoint - synthetic event doesn't show up
                     const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
-                    expect(ethlogs.length).to.equal(0);
+                    expect(ethlogs.length).to.equal(1);
+                    expect(ethlogs[0]["address"].toLowerCase()).to.equal((await pointer.getAddress()).toLowerCase());
+                    expect(ethlogs[0]["topics"][0]).to.equal(ethers.id("Approval(address,address,uint256)"));
+                    expect(ethlogs[0]["topics"][1].substring(26)).to.equal(owner.substring(2).toLowerCase());
+                    expect(ethlogs[0]["topics"][2].substring(26)).to.equal(spender.substring(2).toLowerCase());
 
                     // send via sei_ endpoint - synthetic event shows up
                     const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
                     expect(seilogs.length).to.equal(1);
-                    expect(seilogs[0]["address"].toLowerCase()).to.equal((await pointer.getAddress()).toLowerCase());
-                    expect(seilogs[0]["topics"][0]).to.equal(ethers.id("Approval(address,address,uint256)"));
-                    expect(seilogs[0]["topics"][1].substring(26)).to.equal(owner.substring(2).toLowerCase());
-                    expect(seilogs[0]["topics"][2].substring(26)).to.equal(spender.substring(2).toLowerCase());
                 });
 
                 it("should lower approval", async function () {
