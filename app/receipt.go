@@ -103,6 +103,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			receipt.From = app.EvmKeeper.GetEVMAddressOrDefault(ctx, sigTx.GetSigners()[0]).Hex()
 		}
 		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, receipt)
+		panic("SETTING A SHELL RECEIPT - trying to see if any of our tests trigger this")
 	}
 	if d, found := app.EvmKeeper.GetEVMTxDeferredInfo(ctx); found {
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, d.Surplus)
