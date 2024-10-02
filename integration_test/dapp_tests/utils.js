@@ -95,16 +95,18 @@ async function returnContractsForFastTrackSteak(deployer, config, testChain) {
   }
 }
 
-async function deployAndReturnUniswapContracts(deployer, testChain, accounts) {
-  if (testChain === 'devnetFastTrack') {
+async function deployAndReturnUniswapContracts(deployer, testChain, accounts, isFastTrackEnabled) {
+  if (isFastTrackEnabled && testChain === 'devnet') {
     console.log('Using already deployed contracts on arctic 1');
     return returnContractsForFastTrackUniswap(deployer, devnetUniswapConfig);
-  } else if (testChain === 'seiClusterFastTrack') {
+  } else if (testChain === 'seiCluster' && isFastTrackEnabled) {
     if (clusterConfigExists('uniswapConfigCluster.json')) {
+      console.log('Config file already exists. Running tests against already deployed contracts.')
       const contractConfig =  path.join(__dirname, 'configs', 'uniswapConfigCluster.json');
       const clusterConfig = JSON.parse(readFileSync(contractConfig, 'utf8'));
       return returnContractsForFastTrackUniswap(deployer, clusterConfig, testChain);
     } else {
+      console.log('Config file not found. On first iteration going to record the addresses into config file.');
       return writeAddressesIntoUniswapConfig(deployer, testChain, accounts);
     }
   }
@@ -516,8 +518,7 @@ const transferTokens = async (tokenAddress, sender, destination, amount) => {
 
 async function  setupAccountWithMnemonic(baseName, mnemonic, deployer) {
   const uniqueName = `${baseName}-${uuidv4()}`;
-  const address = await getSeiAddress(deployer.address)
-
+  const address = await getSeiAddress(deployer.address);
   return await addDeployerAccount(uniqueName, address, mnemonic)
 }
 
@@ -564,23 +565,27 @@ async function setupAccount(baseName, associate = true, amount="100000000000", d
   return account;
 }
 
-async function deployAndReturnContractsForSteakTests(deployer, testChain, accounts){
-  const owner = await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, deployer);
+async function deployAndReturnContractsForSteakTests(deployer, testChain, accounts, isFastTrackEnabled){
+  let owner;
   let contracts;
   // Check the test chain type and retrieve or write the contract configuration
-  if (testChain === 'devnetFastTrack') {
-      console.log('Using already deployed contracts on arctic 1');
+  if (isFastTrackEnabled && testChain === 'devnet') {
+    console.log('Using already deployed contracts on arctic 1');
     contracts = await returnContractsForFastTrackSteak(deployer, devnetSteakConfig, testChain);
-  } else if (testChain === 'seiClusterFastTrack') {
+    owner =  await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, deployer);
+  } else if (isFastTrackEnabled && testChain === 'seiCluster') {
+    owner =  await setupAccountWithMnemonic("steak-owner", accounts.mnemonic, deployer);
     if (clusterConfigExists('steakConfigCluster.json')) {
+      console.log('Running tests against already deployed contracts.')
       const contractConfigPath = path.join(__dirname, 'configs', 'steakConfigCluster.json');
       const clusterConfig = JSON.parse(readFileSync(contractConfigPath, 'utf8'));
       contracts = await returnContractsForFastTrackSteak(deployer, clusterConfig, testChain);
     } else {
+      console.log('Config file not found. On first iteration going to create contracts and record on config file. ')
       contracts = await writeAddressesIntoSteakConfig(testChain);
     }
   } else {
-    contracts = await deployContractsForSteakTests(testChain);
+      ({contracts, owner} = await deployContractsForSteakTests(testChain));
   }
   return { ...contracts, owner };
 }
@@ -603,12 +608,12 @@ async function deployContractsForSteakTests(testChain){
   await execute(`seid config keyring-backend test`);
 
   // Store and deploy contracts
-  const { hubAddress, tokenAddress, tokenPointer } = await deploySteakContracts(
+  const contracts = await deploySteakContracts(
     owner.address,
     testChain,
   );
 
-  return {hubAddress, tokenAddress, tokenPointer, owner}
+  return {contracts, owner};
 }
 
 async function deploySteakContracts(ownerAddress, testChain) {
@@ -653,7 +658,7 @@ async function deploySteakContracts(ownerAddress, testChain) {
     ABI.ERC20,
     hre.ethers.provider
   );
-
+  await waitFor(2);
   return {
     hubAddress: contractAddresses.hubContract,
     tokenAddress: contractAddresses.tokenContract,
@@ -661,19 +666,20 @@ async function deploySteakContracts(ownerAddress, testChain) {
   };
 }
 
-async function deployAndReturnContractsForNftTests(deployer, testChain, accounts){
+async function deployAndReturnContractsForNftTests(deployer, testChain, accounts, isFastTrackEnabled){
   let contracts;
   // Check the test chain type and retrieve or write the contract configuration
-  if (testChain === 'devnetFastTrack') {
+  if (isFastTrackEnabled && testChain === 'devnet') {
     console.log('Using already deployed contracts on arctic 1');
     return returnContractsForFastTrackNftTests(deployer, devnetNftConfig, testChain);
-  } else if (testChain === 'seiClusterFastTrack') {
-    // Set chain ID and node configuration for the cluster fast track
+  } else if (testChain === 'seiCluster' && isFastTrackEnabled) {
     if (clusterConfigExists('nftConfigCluster.json')) {
+      console.log('Config file already exists. Running tests against already deployed contracts.');
       const contractConfigPath = path.join(__dirname, 'configs', 'nftConfigCluster.json');
       const clusterConfig = JSON.parse(readFileSync(contractConfigPath, 'utf8'));
       contracts = await returnContractsForFastTrackNftTests(deployer, clusterConfig, testChain);
     } else {
+      console.log('Config file not found. On first iteration going to record the addresses into config file.');
       contracts = await writeAddressesIntoNftConfig(deployer, testChain, accounts);
     }
   } else {
@@ -737,7 +743,7 @@ async function queryLatestNftIds(contractAddress){
 async function setDaemonConfig(testChain) {
   const seidConfig = await execute('seid config');
   const originalSeidConfig = JSON.parse(seidConfig);
-  await execute(`seid config chain-id ${chainIds[testChain]}`)
+  await execute(`seid config chain-id ${chainIds[testChain]}`);
   await execute(`seid config node ${rpcUrls[testChain]}`);
   return originalSeidConfig;
 }

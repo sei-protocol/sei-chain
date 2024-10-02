@@ -5,11 +5,13 @@ const {
     sendFunds, estimateAndCall, mintCw721, deployAndReturnContractsForNftTests,
     queryLatestNftIds, setDaemonConfig
 } = require("../utils");
-const { getSeiAddress } = require("../../../contracts/test/lib.js");
+const { getSeiAddress, execute } = require("../../../contracts/test/lib.js");
 
 const testChain = process.env.DAPP_TEST_ENV;
-describe("NFT Marketplace", function () {
+const isFastTrackEnabled = process.env.IS_FAST_TRACK;
 
+describe("NFT Marketplace", function () {
+    console.log('NFT Tests are being run');
     let marketplace, deployer, erc721token, erc721PointerToken, cw721Address, originalSeidConfig, nftId1;
 
     before(async function () {
@@ -17,15 +19,19 @@ describe("NFT Marketplace", function () {
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
         deployer = deployerWallet.connect(hre.ethers.provider);
         originalSeidConfig = setDaemonConfig(testChain);
-        const deployerSeiAddr = await getSeiAddress(deployer.address);
+
         ({
             marketplace,
             erc721token,
             cw721Address,
             erc721PointerToken
-        } = await deployAndReturnContractsForNftTests(deployer, testChain, accounts));
+        } = await deployAndReturnContractsForNftTests(deployer, testChain, accounts, isFastTrackEnabled));
+
+        const deployerSeiAddr = await getSeiAddress(deployer.address);
         nftId1 = (await queryLatestNftIds(cw721Address)) + 1;
+        console.log(nftId1);
         const numCwNftsToMint = 2;
+
         for (let i = nftId1; i <= nftId1 + numCwNftsToMint; i++) {
             await mintCw721(cw721Address, deployerSeiAddr, i);
             console.log('nfts minted');

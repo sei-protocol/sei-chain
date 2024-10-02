@@ -18,6 +18,11 @@ On the test pipelines, the account used is:
 - Deployer Sei address: `sei1rtpakm7w9egh0n7xngzm6vrln0szv6yeva6hhn`
 - Deployer EVM address: `0x4D952b770C3a0B096e739399B40263D0b516d406`
 
+The tests can be ran against already deployed contracts on arctic-1 or on clusters. For arctic-1 the contract addresses are already stored on config directory.
+For cluster tests, tests first deploy the contracts and store addresses in a new json created in config directory. For the next 
+iterations the tests are going to use these addresses. 
+
+To run the tests you can simply pass `-f` flag into the command. 
 ## Tests
 
 ### Uniswap (EVM DEX)

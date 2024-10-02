@@ -18,6 +18,7 @@ const {
 } = require("../utils");
 
 const testChain = process.env.DAPP_TEST_ENV;
+const isFastTrackEnabled = process.env.IS_FAST_TRACK;
 
 describe("Steak", async function () {
     let owner;
@@ -38,7 +39,6 @@ describe("Steak", async function () {
         const initialBalance = await queryTokenBalance(tokenAddress, address);
         const response = await unbond(hubAddress, tokenAddress, address, amount);
         expect(response.code).to.equal(0);
-
         // Balance should be updated
         const tokenBalance = await queryTokenBalance(tokenAddress, address);
         expect(tokenBalance).to.equal(`${Number(initialBalance) - amount}`);
@@ -54,7 +54,7 @@ describe("Steak", async function () {
             tokenAddress,
             tokenPointer,
             owner
-        } = await deployAndReturnContractsForSteakTests(deployer, testChain, accounts))
+        } = await deployAndReturnContractsForSteakTests(deployer, testChain, accounts, isFastTrackEnabled));
     });
 
     describe("Bonding and unbonding", async function () {
@@ -63,10 +63,8 @@ describe("Steak", async function () {
             const evmAddress = await getEvmAddress(owner.address);
             const pointerInitialBalance = await tokenPointer.balanceOf(evmAddress);
             await testBonding(owner.address, amount);
-
             // Verify that address is associated
             expect(evmAddress).to.not.be.empty;
-
             // Check pointer balance
             const pointerBalance = await tokenPointer.balanceOf(evmAddress);
             const expectedAfterBalance = Number(pointerInitialBalance) + amount;

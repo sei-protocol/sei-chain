@@ -17,6 +17,7 @@ const {
 const {expect} = require("chai");
 
 const testChain = process.env.DAPP_TEST_ENV;
+const isFastTrackEnabled = process.env.IS_FAST_TRACK;
 
 /**
  * Deploy uniswap contracts =>
@@ -51,7 +52,7 @@ describe("Uniswap Test", function () {
             token,
             tokenFactoryDenom,
             cw20Address
-        } = await deployAndReturnUniswapContracts(deployer, testChain, accounts));
+        } = await deployAndReturnUniswapContracts(deployer, testChain, accounts, isFastTrackEnabled));
 
         const userWallet = hre.ethers.Wallet.createRandom();
         user = userWallet.connect(hre.ethers.provider);
