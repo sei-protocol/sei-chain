@@ -516,7 +516,7 @@ const transferTokens = async (tokenAddress, sender, destination, amount) => {
   return response;
 };
 
-async function  setupAccountWithMnemonic(baseName, mnemonic, deployer) {
+async function setupAccountWithMnemonic(baseName, mnemonic, deployer) {
   const uniqueName = `${baseName}-${uuidv4()}`;
   const address = await getSeiAddress(deployer.address);
   return await addDeployerAccount(uniqueName, address, mnemonic)

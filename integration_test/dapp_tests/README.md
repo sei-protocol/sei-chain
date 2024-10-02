@@ -20,7 +20,7 @@ On the test pipelines, the account used is:
 
 The tests can be ran against already deployed contracts on arctic-1 or on clusters. For arctic-1 the contract addresses are already stored on config directory.
 For cluster tests, tests first deploy the contracts and store addresses in a new json created in config directory. For the next 
-iterations the tests are going to use these addresses. 
+iterations the tests are going to use these addresses. To run the tests against node cluster, update the endpoints on constants.js file. 
 
 To run the tests you can simply pass `-f` flag into the command. 
 ## Tests

@@ -19,10 +19,6 @@ const {expect} = require("chai");
 const testChain = process.env.DAPP_TEST_ENV;
 const isFastTrackEnabled = process.env.IS_FAST_TRACK;
 
-/**
- * Deploy uniswap contracts =>
- */
-
 describe("Uniswap Test", function () {
     let weth9;
     let token;
@@ -38,7 +34,7 @@ describe("Uniswap Test", function () {
     let originalSeidConfig;
 
     before(async function () {
-        originalSeidConfig = setDaemonConfig(testChain);
+        originalSeidConfig = await setDaemonConfig(testChain);
         const accounts = hre.config.networks[testChain].accounts;
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
         deployer = deployerWallet.connect(hre.ethers.provider);
