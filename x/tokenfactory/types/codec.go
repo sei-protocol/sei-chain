@@ -10,10 +10,10 @@ import (
 )
 
 func RegisterCodec(cdc *codec.LegacyAmino) {
-	cdc.RegisterConcrete(&MsgCreateDenom{}, "tokenfactory/create-denom", nil)
-	cdc.RegisterConcrete(&MsgMint{}, "tokenfactory/mint", nil)
-	cdc.RegisterConcrete(&MsgBurn{}, "tokenfactory/burn", nil)
-	cdc.RegisterConcrete(&MsgChangeAdmin{}, "tokenfactory/change-admin", nil)
+	cdc.RegisterConcrete(&MsgCreateDenom{}, "tokenfactory/MsgCreateDenom", nil)
+	cdc.RegisterConcrete(&MsgMint{}, "tokenfactory/MsgMint", nil)
+	cdc.RegisterConcrete(&MsgBurn{}, "tokenfactory/MsgBurn", nil)
+	cdc.RegisterConcrete(&MsgChangeAdmin{}, "tokenfactory/MsgChangeAdmin", nil)
 }
 
 func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
@@ -34,6 +34,13 @@ func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 }
 
 var (
-	Amino     = codec.NewLegacyAmino()
-	ModuleCdc = codec.NewProtoCodec(cdctypes.NewInterfaceRegistry())
+	amino     = codec.NewLegacyAmino()
+	ModuleCdc = codec.NewAminoCodec(amino)
 )
+
+func init() {
+	RegisterCodec(amino)
+	sdk.RegisterLegacyAminoCodec(amino)
+
+	amino.Seal()
+}
