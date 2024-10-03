@@ -34,7 +34,7 @@ var DefaultWhitelistedCwCodeHashesForDelegateCall = generateDefaultWhitelistedCw
 
 var DefaultMaxDynamicBaseFeeUpwardAdjustment = sdk.NewDecWithPrec(189, 2)  // 1.89%
 var DefaultMaxDynamicBaseFeeDownwardAdjustment = sdk.NewDecWithPrec(39, 2) // .39%
-var DefaultTargetGasUsedPerBlock = uint64(235000)                          // 235k
+var DefaultTargetGasUsedPerBlock = uint64(250000)                          // 250k
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
