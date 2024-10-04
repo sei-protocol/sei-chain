@@ -93,7 +93,7 @@ describe("EVM Test", function () {
       testToken = await TestToken.deploy("TestToken", "TTK");
 
       const EVMCompatibilityTester = await ethers.getContractFactory("EVMCompatibilityTester");
-      evmTester = await EVMCompatibilityTester.deploy();
+      evmTester = await EVMCompatibilityTester.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
 
       await Promise.all([evmTester.waitForDeployment(), testToken.waitForDeployment()])
 
