@@ -229,7 +229,6 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 }
 
 func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
-	// fmt.Printf("JEREMYDEBUG: In applyEVMMessage, msg = %+v\n", msg)
 	blockCtx, err := k.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
