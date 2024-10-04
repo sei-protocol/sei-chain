@@ -148,7 +148,7 @@ describe("EVM Test", function () {
 
           await delay()
           // Set balance
-          await testToken.setBalance(owner.address, setAmount);
+            await testToken.setBalance(owner.address, setAmount, { gasPrice: ethers.parseUnits('100', 'gwei') });
 
           // Prepare call data for balanceOf function of MyToken
           const balanceOfData = testToken.interface.encodeFunctionData("balanceOf", [owner.address]);
@@ -169,7 +169,7 @@ describe("EVM Test", function () {
     describe("Msg Properties", function() {
       it("Should store and retrieve msg properties correctly", async function() {
         // Store msg properties
-        const txResponse = await evmTester.storeMsgProperties({ value: 1 });
+        const txResponse = await evmTester.storeMsgProperties({ value: 1, gasPrice: ethers.parseUnits('100', 'gwei') });
         await txResponse.wait();
 
         // Retrieve stored msg properties
