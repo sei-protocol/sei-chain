@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 as base
+FROM ubuntu:22.04 AS base
 
 WORKDIR /app
 
@@ -11,22 +11,28 @@ RUN curl -LO https://github.com/chmln/sd/releases/download/v1.0.0/sd-v1.0.0-x86_
 
 ENV PATH="/app:${PATH}"
 
-FROM base as fireeth_download
+FROM base AS fireeth_download
 
-ARG FIREETH="v2.6.2"
+ARG FIREETH="v2.6.7"
 
 # Download and extract the binary file
 RUN curl -LO https://github.com/streamingfast/firehose-ethereum/releases/download/${FIREETH}/firehose-ethereum_linux_x86_64.tar.gz \
     && tar -xzf firehose-ethereum_linux_x86_64.tar.gz \
     && rm firehose-ethereum_linux_x86_64.tar.gz
 
-FROM base as libwasmvm_download
+FROM golang:1.22-alpine AS libwasmvm_download
 
-ARG WASMVM="v1.5.4"
+COPY ./go.mod /work/go.mod
+COPY ./go.sum /work/go.sum
 
-RUN wget -O /lib/libwasmvm.x86_64.so https://github.com/CosmWasm/wasmvm/releases/download/${WASMVM}/libwasmvm.x86_64.so
+# FIXME: Handle multi-arch build, for now we have hard-coded the x86_64 part, but we should be able to build for arm64 as well
+RUN apk add --no-cache wget && cd /work; \
+    export ARCH=$(uname -m); \
+    export WASM_VERSION="$(go list -m all | grep github.com/CosmWasm/wasmvm | awk '{print $2}')"; \
+    wget -O "/lib/libwasmvm.x86_64.${WASM_VERSION}.so" https://github.com/CosmWasm/wasmvm/releases/download/${WASM_VERSION}/libwasmvm.x86_64.so && \
+    printf "${WASM_VERSION}" > /lib/libwasmvm.x86_64.so.version
 
-FROM base as cosmovisor_download
+FROM base AS cosmovisor_download
 
 ARG COSMOVISOR="v1.5.0"
 
@@ -35,7 +41,7 @@ RUN curl -LO https://github.com/cosmos/cosmos-sdk/releases/download/cosmovisor%2
     && tar -xzf cosmovisor-${COSMOVISOR}-linux-amd64.tar.gz \
     && rm cosmovisor-${COSMOVISOR}-linux-amd64.tar.gz
 
-FROM base as base_with_gcloud
+FROM base AS base_with_gcloud
 
 RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
     && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
@@ -47,8 +53,11 @@ FROM base_with_gcloud
 ARG SEID_BIN="seid"
 
 COPY --from=fireeth_download /app/fireeth /app/fireeth
-COPY --from=libwasmvm_download /lib/libwasmvm.x86_64.so /lib/libwasmvm.x86_64.so
+COPY --from=libwasmvm_download /lib/libwasmvm.x86_64.*.so /lib/
+COPY --from=libwasmvm_download /lib/libwasmvm.x86_64.so.version /lib/
+
 COPY ./${SEID_BIN} /app/seid
 
-RUN chmod +x /app/fireeth
-
+RUN chmod +x /app/fireeth && \
+    export WASM_VERSION=$(cat /lib/libwasmvm.x86_64.so.version) && \
+    ln -s /lib/libwasmvm.x86_64.${WASM_VERSION}.so /lib/libwasmvm.x86_64.so
