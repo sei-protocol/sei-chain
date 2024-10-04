@@ -88,8 +88,7 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 		feeHist.Reward[0][0].ToInt(),
 		baseFee,
 	)
-	gp := (*hexutil.Big)(sum)
-	return gp, nil
+	return (*hexutil.Big)(sum), nil
 }
 
 // lastBlock is inclusive
