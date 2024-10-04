@@ -94,10 +94,6 @@ func UnpackTxData(any *codectypes.Any) (ethtx.TxData, error) {
 		dtx := ethtx.DynamicFeeTx{}
 		if proto.Unmarshal(any.Value, &dtx) == nil {
 			// value is a dynamic fee tx
-			// check gas tip cap non-negative
-			if dtx.GasTipCap.Sign() < 0 {
-				return nil, fmt.Errorf("gas tip cap cannot be negative: %s", dtx.GasTipCap)
-			}
 			return &dtx, nil
 		}
 		btx := ethtx.BlobTx{}
