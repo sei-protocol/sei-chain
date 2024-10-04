@@ -192,7 +192,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0", tx["yParity"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", resObj["transactionsRoot"])
 	require.Equal(t, []interface{}{}, resObj["uncles"])
-	require.Equal(t, "0x174876e800", resObj["baseFeePerGas"])
+	require.Equal(t, "0x3b9aca00", resObj["baseFeePerGas"])
 	require.Equal(t, "0x0", resObj["totalDifficulty"])
 }
 

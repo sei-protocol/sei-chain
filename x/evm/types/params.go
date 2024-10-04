@@ -26,15 +26,15 @@ var DefaultPriorityNormalizer = sdk.NewDec(1)
 // DefaultBaseFeePerGas determines how much usei per gas spent is
 // burnt rather than go to validators (similar to base fee on
 // Ethereum).
-var DefaultBaseFeePerGas = sdk.NewDec(0) // used for static base fee, deprecated in favor of dynamic base fee
-var DefaultMinFeePerGas = sdk.NewDec(100000000000)
+var DefaultBaseFeePerGas = sdk.NewDec(0)         // used for static base fee, deprecated in favor of dynamic base fee
+var DefaultMinFeePerGas = sdk.NewDec(1000000000) // 1gwei
 var DefaultDeliverTxHookWasmGasLimit = uint64(300000)
 
 var DefaultWhitelistedCwCodeHashesForDelegateCall = generateDefaultWhitelistedCwCodeHashesForDelegateCall()
 
-var DefaultMaxDynamicBaseFeeUpwardAdjustment = sdk.NewDec(0)
-var DefaultMaxDynamicBaseFeeDownwardAdjustment = sdk.NewDec(0)
-var DefaultTargetGasUsedPerBlock = uint64(100000)
+var DefaultMaxDynamicBaseFeeUpwardAdjustment = sdk.NewDecWithPrec(189, 4)  // 1.89%
+var DefaultMaxDynamicBaseFeeDownwardAdjustment = sdk.NewDecWithPrec(39, 4) // .39%
+var DefaultTargetGasUsedPerBlock = uint64(250000)                          // 250k
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
