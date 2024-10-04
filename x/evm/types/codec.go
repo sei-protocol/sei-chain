@@ -18,17 +18,25 @@ import (
 
 var (
 	amino     = codec.NewLegacyAmino()
-	ModuleCdc = codec.NewProtoCodec(codectypes.NewInterfaceRegistry())
-	AminoCdc  = codec.NewAminoCodec(amino)
+	ModuleCdc = codec.NewAminoCodec(amino)
 )
 
 func init() {
+	RegisterCodec(amino)
 	cryptocodec.RegisterCrypto(amino)
 	amino.Seal()
 }
 
 func GetAmino() *codec.LegacyAmino {
 	return amino
+}
+
+func RegisterCodec(cdc *codec.LegacyAmino) {
+	cdc.RegisterConcrete(&MsgAssociate{}, "evm/MsgAssociate", nil)
+	cdc.RegisterConcrete(&MsgEVMTransaction{}, "evm/MsgEVMTransaction", nil)
+	cdc.RegisterConcrete(&MsgSend{}, "evm/MsgSend", nil)
+	cdc.RegisterConcrete(&MsgRegisterPointer{}, "evm/MsgRegisterPointer", nil)
+	cdc.RegisterConcrete(&MsgAssociateContractAddress{}, "evm/MsgAssociateContractAddress", nil)
 }
 
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {

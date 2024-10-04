@@ -50,9 +50,9 @@ func (AppModuleBasic) Name() string {
 	return types.ModuleName
 }
 
-func (AppModuleBasic) RegisterCodec(*codec.LegacyAmino) {}
-
-func (AppModuleBasic) RegisterLegacyAminoCodec(*codec.LegacyAmino) {}
+func (AppModuleBasic) RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {
+	types.RegisterCodec(cdc)
+}
 
 // RegisterInterfaces registers the module's interface types
 func (a AppModuleBasic) RegisterInterfaces(reg cdctypes.InterfaceRegistry) {
@@ -286,7 +286,6 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 // EndBlock executes all ABCI EndBlock logic respective to the evm module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.ValidatorUpdate {
-	fmt.Println("JEREMYDEBUG: block gas used", req.BlockGasUsed, ", block height", ctx.BlockHeight())
 	newBaseFee := am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed))
 	if newBaseFee != nil {
 		metrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), req.Height)
