@@ -1004,7 +1004,7 @@ describe("EVM Test", function () {
 
         // increment value
         debug("Incrementing value...")
-        const resp = await box.boxIncr();
+        const resp = await box.boxIncr({ gasPrice: ethers.parseUnits('100', 'gwei') });
         await resp.wait();
 
         // make sure value is incremented

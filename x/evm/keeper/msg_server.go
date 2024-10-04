@@ -160,7 +160,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		originalGasMeter.ConsumeGas(adjustedGasUsed.TruncateInt().Uint64(), "evm transaction")
 	}()
 
-	fmt.Println("JEREMYDEBUG: calling apply evm message from EVMTransaction")
 	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)
 	serverRes = &types.MsgEVMTransactionResponse{
 		Hash: tx.Hash().Hex(),
