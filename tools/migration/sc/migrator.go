@@ -77,7 +77,7 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	scConfig.Enable = true
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Enable = false
-	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig)
+	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig, true)
 	for _, key := range Keys {
 		cmsV2.MountStoreWithDB(key, sdk.StoreTypeIAVL, db)
 	}
