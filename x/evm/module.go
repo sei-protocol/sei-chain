@@ -219,6 +219,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 13, func(ctx sdk.Context) error {
+		fmt.Println("JEREMYDEBUG: running migration 13")
 		return migrations.MigrateEip1559Params(ctx, am.keeper)
 	})
 }
