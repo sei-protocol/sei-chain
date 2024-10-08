@@ -47,13 +47,13 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	case ethtypes.LegacyTxType:
 		// legacy either can have a zero or correct chain ID
 		if txChainID.Cmp(big.NewInt(0)) != 0 && txChainID.Cmp(chainID) != 0 {
-			ctx.Logger().Error("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
+			ctx.Logger().Debug("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
 			return ctx, sdkerrors.ErrInvalidChainID
 		}
 	default:
 		// after legacy, all transactions must have the correct chain ID
 		if txChainID.Cmp(chainID) != 0 {
-			ctx.Logger().Error("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
+			ctx.Logger().Debug("chainID mismatch", "txChainID", ethTx.ChainId(), "chainID", chainID)
 			return ctx, sdkerrors.ErrInvalidChainID
 		}
 	}
