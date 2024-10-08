@@ -51,9 +51,10 @@ func TestQuerierRoute(t *testing.T) {
 func TestModuleExportGenesis(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
-	jsonMsg := module.ExportGenesis(ctx, types.ModuleCdc)
+	cdc := app.MakeEncodingConfig().Marshaler
+	jsonMsg := module.ExportGenesis(ctx, cdc)
 	jsonStr := string(jsonMsg)
-	assert.Equal(t, "{\"params\":{\"priority_normalizer\":\"1.000000000000000000\",\"base_fee_per_gas\":\"0.000000000000000000\",\"minimum_fee_per_gas\":\"100000000000.000000000000000000\",\"whitelisted_cw_code_hashes_for_delegate_call\":[],\"deliver_tx_hook_wasm_gas_limit\":\"300000\",\"max_dynamic_base_fee_upward_adjustment\":\"0.000000000000000000\",\"max_dynamic_base_fee_downward_adjustment\":\"0.000000000000000000\"},\"address_associations\":[{\"sei_address\":\"sei17xpfvakm2amg962yls6f84z3kell8c5la4jkdu\",\"eth_address\":\"0x27F7B8B8B5A4e71E8E9aA671f4e4031E3773303F\"}],\"codes\":[],\"states\":[],\"nonces\":[],\"serialized\":[{\"prefix\":\"Fg==\",\"key\":\"AwAC\",\"value\":\"AAAAAAAAAAM=\"},{\"prefix\":\"Fg==\",\"key\":\"BAAG\",\"value\":\"AAAAAAAAAAQ=\"}]}", jsonStr)
+	assert.Equal(t, `{"params":{"priority_normalizer":"1.000000000000000000","base_fee_per_gas":"0.000000000000000000","minimum_fee_per_gas":"1000000000.000000000000000000","whitelisted_cw_code_hashes_for_delegate_call":[],"deliver_tx_hook_wasm_gas_limit":"300000","max_dynamic_base_fee_upward_adjustment":"0.018900000000000000","max_dynamic_base_fee_downward_adjustment":"0.003900000000000000","target_gas_used_per_block":"250000"},"address_associations":[{"sei_address":"sei17xpfvakm2amg962yls6f84z3kell8c5la4jkdu","eth_address":"0x27F7B8B8B5A4e71E8E9aA671f4e4031E3773303F"}],"codes":[],"states":[],"nonces":[],"serialized":[{"prefix":"Fg==","key":"AwAC","value":"AAAAAAAAAAM="},{"prefix":"Fg==","key":"BAAG","value":"AAAAAAAAAAQ="}]}`, jsonStr)
 }
 
 func TestConsensusVersion(t *testing.T) {
