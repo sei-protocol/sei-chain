@@ -28,7 +28,7 @@ func NewEVMQueryHandler(k *keeper.Keeper) *EVMQueryHandler {
 func (h *EVMQueryHandler) HandleStaticCall(ctx sdk.Context, from string, to string, data []byte) ([]byte, error) {
 	fromAddr, err := sdk.AccAddressFromBech32(from)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	var toAddr *common.Address
 	if to != "" {
@@ -63,7 +63,7 @@ func (h *EVMQueryHandler) HandleERC20TransferPayload(ctx sdk.Context, recipient 
 func (h *EVMQueryHandler) HandleERC20TokenInfo(ctx sdk.Context, contractAddress string, caller string) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	contract := common.HexToAddress(contractAddress)
 	abi, err := native.NativeMetaData.GetAbi()
@@ -135,7 +135,7 @@ func (h *EVMQueryHandler) HandleERC20TokenInfo(ctx sdk.Context, contractAddress 
 func (h *EVMQueryHandler) HandleERC20Balance(ctx sdk.Context, contractAddress string, account string) ([]byte, error) {
 	addr, err := sdk.AccAddressFromBech32(account)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	evmAddr, found := h.k.GetEVMAddress(ctx, addr)
 	if !found {
@@ -166,7 +166,7 @@ func (h *EVMQueryHandler) HandleERC20Balance(ctx sdk.Context, contractAddress st
 func (h *EVMQueryHandler) HandleERC721Owner(ctx sdk.Context, caller string, contractAddress string, tokenId string) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	contract := common.HexToAddress(contractAddress)
 	abi, err := cw721.Cw721MetaData.GetAbi()
@@ -309,7 +309,7 @@ func (h *EVMQueryHandler) HandleERC20Allowance(ctx sdk.Context, contractAddress 
 	// Get the evm address of the owner
 	ownerAddr, err := sdk.AccAddressFromBech32(owner)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	ownerEvmAddr, found := h.k.GetEVMAddress(ctx, ownerAddr)
 	if !found {
@@ -353,7 +353,7 @@ func (h *EVMQueryHandler) HandleERC20Allowance(ctx sdk.Context, contractAddress 
 func (h *EVMQueryHandler) HandleERC721Approved(ctx sdk.Context, caller string, contractAddress string, tokenId string) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	contract := common.HexToAddress(contractAddress)
 	abi, err := cw721.Cw721MetaData.GetAbi()
@@ -388,7 +388,7 @@ func (h *EVMQueryHandler) HandleERC721Approved(ctx sdk.Context, caller string, c
 func (h *EVMQueryHandler) HandleERC721IsApprovedForAll(ctx sdk.Context, caller string, contractAddress string, owner string, operator string) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	ownerEvmAddr, found := h.k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(owner))
 	if !found {
@@ -422,7 +422,7 @@ func (h *EVMQueryHandler) HandleERC721IsApprovedForAll(ctx sdk.Context, caller s
 func (h *EVMQueryHandler) HandleERC721TotalSupply(ctx sdk.Context, caller string, contractAddress string) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	contract := common.HexToAddress(contractAddress)
 	abi, err := cw721.Cw721MetaData.GetAbi()
@@ -449,7 +449,7 @@ func (h *EVMQueryHandler) HandleERC721TotalSupply(ctx sdk.Context, caller string
 func (h *EVMQueryHandler) HandleERC721NameSymbol(ctx sdk.Context, caller string, contractAddress string) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	contract := common.HexToAddress(contractAddress)
 	abi, err := cw721.Cw721MetaData.GetAbi()
@@ -489,7 +489,7 @@ func (h *EVMQueryHandler) HandleERC721NameSymbol(ctx sdk.Context, caller string,
 func (h *EVMQueryHandler) HandleERC721Uri(ctx sdk.Context, caller string, contractAddress string, tokenId string) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
@@ -519,7 +519,7 @@ func (h *EVMQueryHandler) HandleERC721Uri(ctx sdk.Context, caller string, contra
 func (h *EVMQueryHandler) HandleGetEvmAddress(ctx sdk.Context, seiAddr string) ([]byte, error) {
 	addr, err := sdk.AccAddressFromBech32(seiAddr)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	evmAddr, associated := h.k.GetEVMAddress(ctx, addr)
 	response := bindings.GetEvmAddressResponse{EvmAddress: evmAddr.Hex(), Associated: associated}
@@ -536,7 +536,7 @@ func (h *EVMQueryHandler) HandleGetSeiAddress(ctx sdk.Context, evmAddr string) (
 func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string, contractAddress string, tokenId string, salePrice *sdk.Int) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	t, ok := sdk.NewIntFromString(tokenId)
 	if !ok {
@@ -573,7 +573,7 @@ func (h *EVMQueryHandler) HandleERC721RoyaltyInfo(ctx sdk.Context, caller string
 func (h *EVMQueryHandler) HandleSupportsInterface(ctx sdk.Context, caller string, id string, contractAddress string) ([]byte, error) {
 	callerAddr, err := sdk.AccAddressFromBech32(caller)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	contract := common.HexToAddress(contractAddress)
 	abi, err := cw721.Cw721MetaData.GetAbi()
