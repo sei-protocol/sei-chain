@@ -13,7 +13,7 @@ const evmRpcUrls = {
 }
 
 const chainIds = {
-    "seilocal": "sei-chain",
+    "seilocal": "sei",
     "testnet": "atlantic-2",
     "devnet": "arctic-1",
     "seiCluster":"sei-chain",
