@@ -213,7 +213,7 @@ async function getPointerForCw721(cw721Address) {
 }
 
 async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=${from} -b block`
+    let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=${from} --fees=24200usei -b block`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
@@ -234,7 +234,7 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, fro
 }
 
 async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=${from} -b block`
+    let command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=${from} --fees=24200usei -b block`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
@@ -253,7 +253,7 @@ async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRp
 }
 
 async function deployErc721PointerForCw721(provider, cw721Address, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=${from} -b block`
+    let command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=${from} --fees=24200usei -b block`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
