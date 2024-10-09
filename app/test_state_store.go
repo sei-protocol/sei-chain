@@ -106,6 +106,31 @@ func (s *InMemoryStateStore) ReverseIterator(storeKey string, version int64, sta
 	return iter, nil
 }
 
+func (s *InMemoryStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
+	// TODO: Add set call here
+	return nil
+}
+
+func (s *InMemoryStateStore) SetLatestMigratedModule(module string) error {
+	// TODO: Add set call here
+	return nil
+}
+
+func (s *InMemoryStateStore) GetLatestMigratedModule() (string, error) {
+	// TODO: Add get call here
+	return "", nil
+}
+
+func (s *InMemoryStateStore) SetLatestMigratedKey(key []byte) error {
+	// TODO: Add set call here
+	return nil
+}
+
+func (s *InMemoryStateStore) GetLatestMigratedKey() ([]byte, error) {
+	// TODO: Add get call here
+	return nil, nil
+}
+
 func (s *InMemoryStateStore) RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
