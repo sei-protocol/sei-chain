@@ -61,6 +61,7 @@ string minimum_fee_per_gas = 4 [
     (gogoproto.nullable)   = false,
     (gogoproto.jsontag) = "max_dynamic_base_fee_downward_adjustment"
   ];
+  uint64 target_gas_used_per_block = 12;
 }
 
 message ParamsPreV580 {

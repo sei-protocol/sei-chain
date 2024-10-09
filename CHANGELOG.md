@@ -27,6 +27,18 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v5.9.0
+sei-chain
+* [#1867](https://github.com/sei-protocol/sei-chain/pull/1867) Add synthetic events in separate sei endpoints
+* [#1861](https://github.com/sei-protocol/sei-chain/pull/1861) Revert showing wasm txs in EVM RPCs
+* [#1857](https://github.com/sei-protocol/sei-chain/pull/1857) Fix events in 2-hop scenarios
+* [#1856](https://github.com/sei-protocol/sei-chain/pull/1856) Add delegatecall flag to properly detect delegatecalls
+* [#1850](https://github.com/sei-protocol/sei-chain/pull/1853) Fix websocket from_height
+* [#1849](https://github.com/sei-protocol/sei-chain/pull/1849) Reduce block bloom storage
+* [#1844](https://github.com/sei-protocol/sei-chain/pull/1844) Allowlist for token extensions
+
+sei-iavl
+*[#41](https://github.com/sei-protocol/sei-iavl/pull/41) Fix tree versions causing slow restart and OOM
 ## v5.8.0
 sei-chain
 * [#1840](https://github.com/sei-protocol/sei-chain/pull/1840) Add migration for new params
