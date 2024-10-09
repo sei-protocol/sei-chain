@@ -162,9 +162,9 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 			}
 
 			count++
-			if count%10000 == 0 {
+			if count%1000000 == 0 {
 				batchDuration := time.Since(startTimeBatch)
-				fmt.Printf("ExportLeafNodesFromKey - Last 10,000 iterations took: %v. Total scanned: %d, leaf nodes exported: %d\n", batchDuration, count, leafNodeCount)
+				fmt.Printf("ExportLeafNodesFromKey - Last 1,000,000 iterations took: %v. Total scanned: %d, leaf nodes exported: %d\n", batchDuration, count, leafNodeCount)
 
 				startTimeBatch = time.Now() // Reset the start time for the next batch
 			}
