@@ -28,7 +28,7 @@ describe("NFT Marketplace", function () {
         } = await deployAndReturnContractsForNftTests(deployer, testChain, accounts, isFastTrackEnabled));
 
         const deployerSeiAddr = await getSeiAddress(deployer.address);
-        nftId1 = (await queryLatestNftIds(cw721Address)) + 1;
+        nftId1 = (await queryLatestNftIds(cw721Address, testChain)) + 1;
         const numCwNftsToMint = 2;
 
         for (let i = nftId1; i <= nftId1 + numCwNftsToMint; i++) {

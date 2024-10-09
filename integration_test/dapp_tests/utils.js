@@ -14,6 +14,7 @@ const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@unisw
 const {chainIds, rpcUrls, evmRpcUrls} = require("./constants");
 const {expect} = require("chai");
 const {existsSync, readFileSync, writeFileSync} = require("node:fs");
+const {CosmWasmClient} = require("@cosmjs/cosmwasm-stargate");
 
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
   const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
@@ -735,9 +736,10 @@ async function returnContractsForFastTrackNftTests(deployer, clusterConfig,  tes
   }
 }
 
-async function queryLatestNftIds(contractAddress){
-  return Number(
-    await execute(`seid q wasm contract-state smart ${contractAddress} '{"num_tokens": {}}' -o json | jq ".data.count"`));
+async function queryLatestNftIds(contractAddress, testChain){
+    const cosmWasmClient = await CosmWasmClient.connect(rpcUrls[testChain]);
+    const latestNum = await cosmWasmClient.queryContractSmart(contractAddress, {num_tokens: {}});
+    return latestNum.count;
 }
 
 async function setDaemonConfig(testChain) {
