@@ -623,7 +623,9 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 					panic(err)
 				}
 
-				fmt.Printf("Time taken to write batch counter %d: %v\n", counter, time.Since(startTime))
+				if counter%1000000 == 0 {
+					fmt.Printf("Time taken to write batch counter %d: %v\n", counter, time.Since(startTime))
+				}
 
 				batch, err = NewRawBatch(db.storage)
 				if err != nil {
