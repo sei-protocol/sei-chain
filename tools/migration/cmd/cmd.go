@@ -7,7 +7,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/sei-protocol/sei-chain/tools/migration/sc"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
+	"github.com/sei-protocol/sei-db/config"
+	sstypes "github.com/sei-protocol/sei-db/ss"
 	"github.com/spf13/cobra"
+	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -51,13 +54,16 @@ func migrateSC(version int64, homeDir string, db dbm.DB) error {
 }
 
 func migrateSS(version int64, homeDir string, db dbm.DB) error {
-	migrator := ss.NewMigrator(homeDir, db)
-	return migrator.Migrate(version, homeDir)
-}
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Enable = true
 
-func verifySS(version int64, homeDir string, db dbm.DB) error {
-	migrator := ss.NewMigrator(homeDir, db)
-	return migrator.Verify(version)
+	stateStore, err := sstypes.NewStateStore(log.NewNopLogger(), homeDir, ssConfig)
+	if err != nil {
+		return err
+	}
+
+	migrator := ss.NewMigrator(homeDir, db, stateStore)
+	return migrator.Migrate(version, homeDir)
 }
 
 func VerifyMigrationCmd() *cobra.Command {
@@ -96,4 +102,17 @@ func verify(cmd *cobra.Command, _ []string) {
 	}
 
 	fmt.Println("Verification Succeeded")
+}
+
+func verifySS(version int64, homeDir string, db dbm.DB) error {
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Enable = true
+
+	stateStore, err := sstypes.NewStateStore(log.NewNopLogger(), homeDir, ssConfig)
+	if err != nil {
+		return err
+	}
+
+	migrator := ss.NewMigrator(homeDir, db, stateStore)
+	return migrator.Verify(version)
 }
