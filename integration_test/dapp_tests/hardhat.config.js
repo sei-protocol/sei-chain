@@ -25,6 +25,15 @@ module.exports = {
         count: 1
       },
     },
+    seiCluster: {
+      url: "",
+      accounts: {
+        mnemonic: process.env.DAPP_TESTS_MNEMONIC,
+        path: "m/44'/118'/0'/0/0",
+        initialIndex: 0,
+        count: 1
+      },
+    },
     testnet: {
       url: "https://evm-rpc-testnet.sei-apis.com",
       accounts: {
