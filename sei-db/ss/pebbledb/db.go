@@ -157,7 +157,9 @@ func (db *Database) Close() error {
 func (db *Database) SetLatestVersion(version int64) error {
 	var ts [VersionSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
-	return db.storage.Set([]byte(latestVersionKey), ts[:], defaultWriteOpts)
+	err := db.storage.Set([]byte(latestVersionKey), ts[:], defaultWriteOpts)
+	fmt.Printf("SetLatestVersion: version=%d, err=%v, latestVersionKey=%s\n", version, err, latestVersionKey)
+	return err
 }
 
 func (db *Database) GetLatestVersion() (int64, error) {
