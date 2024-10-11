@@ -1,0 +1,10 @@
+{
+  "manager": "0xcE11491995E05b947820836aecE9D7A5Fcdaeb01",
+  "router": "0x0c086805476d29b306ffF178B53176565F880893",
+  "erc20TokenFactory": "0x7e3378bcEad49Bbfc8D9024657c942d44f1A1a94",
+  "erc20cw20": "0x7E7095dfB469A39CF6C67554A8896314D6B0567F",
+  "weth9": "0x5cA05f8eA1a25d74eBD222a9Ea3730c82B4082A4",
+  "token": "0xB73a15C476A9D14d57162472527e3FbFdF21dE3F",
+  "tokenFactoryDenom": "factory/sei1ak5ztcchehv2gy64yxpcdnftepnacvwgxwwfzw/dappTests1727707705418",
+  "cw20Address": "sei127nvmtnn3tkt6xxgss2z4n0exgm043sc0e2na5lca7h3n4qxs8us4rykxp"
+}
