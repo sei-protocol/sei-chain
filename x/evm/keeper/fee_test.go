@@ -109,6 +109,29 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 			targetGasUsed:   500000,
 			expectedBaseFee: 99, // Should not go below the minimum fee
 		},
+		{
+			name:            "target gas used is 0",
+			currentBaseFee:  10000,
+			minimumFee:      10,
+			blockGasUsed:    0,
+			blockGasLimit:   1000000,
+			upwardAdj:       sdk.NewDecWithPrec(5, 1),
+			downwardAdj:     sdk.NewDecWithPrec(5, 1),
+			targetGasUsed:   0,
+			expectedBaseFee: 10000,
+		},
+		{
+			name: "cap block gas used to block gas limit",
+			// block gas used is 1.5x block gas limit
+			currentBaseFee:  10000,
+			minimumFee:      10,
+			blockGasUsed:    1500000,
+			blockGasLimit:   1000000,
+			upwardAdj:       sdk.NewDecWithPrec(5, 1),
+			downwardAdj:     sdk.NewDecWithPrec(5, 1),
+			targetGasUsed:   500000,
+			expectedBaseFee: 15000,
+		},
 	}
 
 	for _, tc := range testCases {
