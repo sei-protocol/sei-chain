@@ -86,7 +86,7 @@ describe("ERC20 to CW20 Pointer", function () {
             });
 
             describe("transfer()", function () {
-                it.only("should transfer", async function () {
+                it("should transfer", async function () {
                     let sender = accounts[0];
                     let recipient = accounts[1];
 
