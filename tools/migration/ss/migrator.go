@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/ss/types"
 	dbm "github.com/tendermint/tm-db"
@@ -95,15 +96,15 @@ func (m *Migrator) Verify(version int64) error {
 			}
 			count++
 			if count%10000 == 0 {
-				fmt.Printf("Verified %d keys in for module %s\n", count, module)
+				fmt.Printf("SeiDB Archive Migration:: Verified %d keys in for module %s\n", count, module)
 			}
 			return false
 		})
 		if err != nil {
-			fmt.Printf("Failed to iterate the tree %s: %s\n", module, err.Error())
+			fmt.Printf("SeiDB Archive Migration: Failed to iterate the tree %s: %s\n", module, err.Error())
 			return err
 		}
-		fmt.Printf("Finished verifying module %s, total scanned: %d keys\n", module, count)
+		fmt.Printf("SeiDB Archive Migration:: Finished verifying module %s, total scanned: %d keys\n", module, count)
 	}
 	return verifyErr
 }
@@ -111,16 +112,18 @@ func (m *Migrator) Verify(version int64) error {
 func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey []byte, startModule string) error {
 	count := 0
 	leafNodeCount := 0
-	fmt.Println("ExportLeafNodesFromKey - Scanning database and exporting leaf nodes...")
+	fmt.Println("SeiDB Archive Migration: Scanning database and exporting leaf nodes...")
 
 	startTimeTotal := time.Now() // Start measuring total time
+
+	var batchLeafNodeCount int
 
 	for _, module := range modules {
 		if module != startModule && startModule != "" {
 			continue
 		}
 		startTimeModule := time.Now() // Measure time for each module
-		fmt.Printf("ExportLeafNodesFromKey - Iterating through %s module...\n", module)
+		fmt.Printf("SeiDB Archive Migration: Iterating through %s module...\n", module)
 
 		prefixDB := dbm.NewPrefixDB(db, []byte(buildRawPrefix(module)))
 		var itr dbm.Iterator
@@ -134,7 +137,7 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 		}
 
 		if err != nil {
-			fmt.Printf("ExportLeafNodesFromKey - Error creating iterator: %+v\n", err)
+			fmt.Printf("SeiDB Archive Migration: Error creating iterator: %+v\n", err)
 			return fmt.Errorf("failed to create iterator: %w", err)
 		}
 		defer itr.Close()
@@ -146,13 +149,14 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 
 			node, err := iavl.MakeNode(value)
 			if err != nil {
-				fmt.Printf("ExportLeafNodesFromKey - Failed to make node: %+v\n", err)
+				fmt.Printf("SeiDB Archive Migration: Failed to make node: %+v\n", err)
 				return fmt.Errorf("failed to make node: %w", err)
 			}
 
 			// Only export leaf nodes
 			if node.GetHeight() == 0 {
 				leafNodeCount++
+				batchLeafNodeCount++
 				ch <- types.RawSnapshotNode{
 					StoreKey: module,
 					Key:      node.GetNodeKey(),
@@ -164,9 +168,13 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 			count++
 			if count%1000000 == 0 {
 				batchDuration := time.Since(startTimeBatch)
-				fmt.Printf("ExportLeafNodesFromKey - Last 1,000,000 iterations took: %v. Total scanned: %d, leaf nodes exported: %d\n", batchDuration, count, leafNodeCount)
+				fmt.Printf("SeiDB Archive Migration: Last 1,000,000 iterations took: %v. Total scanned: %d, leaf nodes exported: %d\n", batchDuration, count, leafNodeCount)
+				metrics.IncrCounterWithLabels([]string{"sei", "migration", "leaf_nodes_exported"}, float32(batchLeafNodeCount), []metrics.Label{
+					{Name: "module", Value: module},
+				})
 
-				startTimeBatch = time.Now() // Reset the start time for the next batch
+				batchLeafNodeCount = 0
+				startTimeBatch = time.Now()
 			}
 		}
 
@@ -176,11 +184,11 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 		}
 
 		moduleDuration := time.Since(startTimeModule)
-		fmt.Printf("ExportLeafNodesFromKey - Finished scanning module %s. Time taken: %v. Total scanned: %d, leaf nodes exported: %d\n", module, moduleDuration, count, leafNodeCount)
+		fmt.Printf("SeiDB Archive Migration: Finished scanning module %s. Time taken: %v. Total scanned: %d, leaf nodes exported: %d\n", module, moduleDuration, count, leafNodeCount)
 	}
 
 	totalDuration := time.Since(startTimeTotal)
-	fmt.Printf("ExportLeafNodesFromKey - DB scanning completed. Total time taken: %v. Total entries scanned: %d, leaf nodes exported: %d\n", totalDuration, count, leafNodeCount)
+	fmt.Printf("SeiDB Archive Migration: DB scanning completed. Total time taken: %v. Total entries scanned: %d, leaf nodes exported: %d\n", totalDuration, count, leafNodeCount)
 
 	return nil
 }
