@@ -8,12 +8,13 @@ state sync a node and clear out previous data.
 In order to run an archive node with SeiDB, we need to run a migration from iavl to sei-db.
 
 The overall process will work as follows:
-(1) Stop archive node and note down its height, call it MIGRATION_HEIGHT
-(2) Update config to enable SeiDB (state committment + state store)
-(3) Run sc migration at the MIGRATION_HEIGHT
-(4) Re start seid with `--migrate-iavl` enabled (migrating state store in background)
-(5) Verify migration at various sampled heights once state store is complete
-(6) Stop seid, clear out iavl and restart seid normally, now only using SeiDB fully
+
+1. Stop archive node and note down its height, call it MIGRATION_HEIGHT
+2. Update config to enable SeiDB (state committment + state store)
+3. Run sc migration at the MIGRATION_HEIGHT
+4. Re start seid with `--migrate-iavl` enabled (migrating state store in background)
+5. Verify migration at various sampled heights once state store is complete
+6. Stop seid, clear out iavl and restart seid normally, now only using SeiDB fully
 
 You may need to ensure you have sufficient disk space available, as during the migration process, both IAVL and SeiDB state stores will need to be maintained simultaneously. This could potentially double your storage requirements temporarily.
 
