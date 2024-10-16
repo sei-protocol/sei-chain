@@ -203,7 +203,7 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
             require(
                 IERC1155Receiver(to).onERC1155BatchReceived(
                     msg.sender, from, ids, amounts, data
-                ) == IERC1155Receiver.onERC1155Received.selector,
+                ) == IERC1155Receiver.onERC1155BatchReceived.selector,
                 "unsafe transfer"
             );
         }

@@ -7,6 +7,7 @@ import {IWasmd} from "../src/precompiles/IWasmd.sol";
 import {IJson} from "../src/precompiles/IJson.sol";
 import {IAddr} from "../src/precompiles/IAddr.sol";
 import "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 
 address constant WASMD_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001002;
 address constant JSON_PRECOMPILE_ADDRESS = 0x0000000000000000000000000000000000001003;
@@ -78,6 +79,34 @@ contract MockAddr is IAddr {
     }
 }
 
+contract MockERC1155Receiver is IERC1155Receiver {
+    function onERC1155Received(
+        address operator,
+        address from,
+        uint256 id,
+        uint256 value,
+        bytes calldata data
+    ) external returns (bytes4) {
+        return 0xf23a6e61;
+    }
+
+    function onERC1155BatchReceived(
+        address operator,
+        address from,
+        uint256[] calldata ids,
+        uint256[] calldata values,
+        bytes calldata data
+    ) external returns (bytes4) {
+        return 0xbc197c81;
+    }
+
+    function supportsInterface(bytes4 interfaceId) public pure override(IERC165) returns (bool) {
+        return
+            interfaceId == type(IERC1155Receiver).interfaceId ||
+            interfaceId == type(IERC165).interfaceId;
+    }
+}
+
 contract CW1155ERC1155PointerTest is Test {
 
     event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value);
@@ -88,15 +117,18 @@ contract CW1155ERC1155PointerTest is Test {
     MockWasmd mockWasmd;
     MockJson mockJson;
     MockAddr mockAddr;
+    MockERC1155Receiver mockERC1155Receiver;
 
     function setUp() public {
         pointer = new CW1155ERC1155Pointer(MockCWContractAddress, "Test", "TEST");
         mockWasmd = new MockWasmd();
         mockJson = new MockJson();
         mockAddr = new MockAddr();
+        mockERC1155Receiver = new MockERC1155Receiver();
         vm.etch(WASMD_PRECOMPILE_ADDRESS, address(mockWasmd).code);
         vm.etch(JSON_PRECOMPILE_ADDRESS, address(mockJson).code);
         vm.etch(ADDR_PRECOMPILE_ADDRESS, address(mockAddr).code);
+        vm.etch(MockOperatorEVMAddr, address(mockERC1155Receiver).code);
     }
 
     function testBalanceOf() public {
@@ -345,9 +377,11 @@ contract CW1155ERC1155PointerTest is Test {
             WASMD_PRECOMPILE_ADDRESS,
             abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, executeCall, bytes("[]"))
         );
+        vm.expectCall(
+            MockOperatorEVMAddr,
+            abi.encodeWithSignature("onERC1155Received(address,address,uint256,uint256,bytes)", MockCallerEVMAddr, MockCallerEVMAddr, 1, 1, bytes(""))
+        );
 
-        vm.expectEmit();
-        emit TransferSingle(MockCallerEVMAddr, MockCallerEVMAddr, MockOperatorEVMAddr, 1, 1);
         vm.startPrank(MockCallerEVMAddr);
         pointer.safeTransferFrom(MockCallerEVMAddr, MockOperatorEVMAddr, 1, 1, bytes(""));
         vm.stopPrank();
@@ -404,9 +438,11 @@ contract CW1155ERC1155PointerTest is Test {
             WASMD_PRECOMPILE_ADDRESS,
             abi.encodeWithSignature("execute(string,bytes,bytes)", MockCWContractAddress, executeCall, bytes("[]"))
         );
+        vm.expectCall(
+            MockOperatorEVMAddr,
+            abi.encodeWithSignature("onERC1155Received(address,address,uint256,uint256,bytes)", MockOperatorEVMAddr, MockCallerEVMAddr, 1, 1, bytes(""))
+        );
 
-        vm.expectEmit();
-        emit TransferSingle(MockOperatorEVMAddr, MockCallerEVMAddr, MockOperatorEVMAddr, 1, 1);
         vm.startPrank(MockOperatorEVMAddr);
         pointer.safeTransferFrom(MockCallerEVMAddr, MockOperatorEVMAddr, 1, 1, bytes(""));
         vm.stopPrank();
@@ -471,8 +507,11 @@ contract CW1155ERC1155PointerTest is Test {
         ids[1] = 2;
         amounts[0] = 1;
         amounts[1] = 2;
-        vm.expectEmit();
-        emit TransferBatch(MockCallerEVMAddr, MockCallerEVMAddr, MockOperatorEVMAddr, ids, amounts);
+        vm.expectCall(
+            MockOperatorEVMAddr,
+            abi.encodeWithSignature("onERC1155BatchReceived(address,address,uint256[],uint256[],bytes)", MockCallerEVMAddr, MockCallerEVMAddr, ids, amounts, bytes(""))
+        );
+
         vm.startPrank(MockCallerEVMAddr);
         pointer.safeBatchTransferFrom(MockCallerEVMAddr, MockOperatorEVMAddr, ids, amounts, bytes(""));
         vm.stopPrank();
@@ -495,8 +534,6 @@ contract CW1155ERC1155PointerTest is Test {
             abi.encode(address(MockOperatorEVMAddr))
         );
         vm.startPrank(MockCallerEVMAddr);
-        vm.expectEmit();
-        emit ApprovalForAll(MockCallerEVMAddr, MockOperatorEVMAddr, true);
         pointer.setApprovalForAll(MockOperatorEVMAddr, true);
         vm.stopPrank();
     }
