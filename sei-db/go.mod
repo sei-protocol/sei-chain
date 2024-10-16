@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/alitto/pond v1.8.3
+	github.com/armon/go-metrics v0.4.1
 	github.com/cockroachdb/pebble v0.0.0-20230819001538-1798fbf5956c
 	github.com/confio/ics23/go v0.9.0
 	github.com/cosmos/iavl v0.21.0-alpha.1.0.20230904092046-df3db2d96583
@@ -45,6 +46,8 @@ require (
 	github.com/google/btree v1.1.2 // indirect
 	github.com/google/flatbuffers v1.12.1 // indirect
 	github.com/google/uuid v1.3.0 // indirect
+	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
+	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d // indirect
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect
 	github.com/jmhodges/levigo v1.0.0 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect

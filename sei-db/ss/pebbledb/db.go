@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
@@ -627,11 +628,13 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 
 				if counter%1000000 == 0 {
 					fmt.Printf("Time taken to write batch counter %d: %v\n", counter, time.Since(startTime))
+					metrics.IncrCounterWithLabels([]string{"sei", "migration", "nodes_imported"}, float32(ImportCommitBatchSize), []metrics.Label{
+						{Name: "module", Value: latestModule},
+					})
 				}
 
 				batch, err = NewRawBatch(db.storage)
 				if err != nil {
-					fmt.Printf("Error creating new raw batch: %v\n", err)
 					panic(err)
 				}
 			}
@@ -640,18 +643,15 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 		// Final batch write
 		if batch.Size() > 0 {
 			if err := batch.Write(); err != nil {
-				fmt.Printf("Error writing final batch: %v\n", err)
 				panic(err)
 			}
 
 			// Persist the final latest key
 			if err := db.SetLatestMigratedKey(latestKey); err != nil {
-				fmt.Printf("Error setting final latest key: %v\n", err)
 				panic(err)
 			}
 
 			if err := db.SetLatestMigratedModule(latestModule); err != nil {
-				fmt.Printf("Error setting latest key: %v\n", err)
 				panic(err)
 			}
 		}
