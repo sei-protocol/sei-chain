@@ -2,8 +2,8 @@
 
 ## Overview
 SeiDB is the next generation of chain storage in SeiV2.
-One issue for archive nodes is that we need to keep the full state of the chain, so we can't
-state sync a node and clear out previous data.
+One issue for running SeiDB on archive nodes is that we need to keep the full state of the chain, so we can't
+state sync it and clear out previous iavl data.
 
 In order to run an archive node with SeiDB, we need to run a migration from iavl to sei-db.
 
