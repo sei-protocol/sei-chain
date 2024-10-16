@@ -24,8 +24,8 @@ You may need to ensure you have sufficient disk space available, as during the m
 ### Step 1: Stop Node and note down latest height
 Stop the seid process and note down the latest height. Save it as an env var $MIGRATION_HEIGHT.
 ```bash
+MIGRATION_HEIGHT=$(seid q block | jq ".block.last_commit.height" | tr -d '"')
 systemctl stop seid
-MIGRATION_HEIGHT=<>
 ```
 
 ### Step 2: Add SeiDB Configurations
