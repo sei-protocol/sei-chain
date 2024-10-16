@@ -56,11 +56,13 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
     }
 
     function balanceOfBatch(address[] memory accounts, uint256[] memory ids) public view override returns (uint256[] memory balances){
+        require(accounts.length != 0, "ERC1155: cannot query empty accounts list");
         if(accounts.length != ids.length){
             revert ERC1155InvalidArrayLength(ids.length, accounts.length);
         }
         string memory ownerTokens = "[";
         for (uint256 i = 0; i < accounts.length; i++) {
+            require(accounts[i] != address(0), "ERC1155: cannot query balance of zero address");
             if (i > 0) {
                 ownerTokens = string.concat(ownerTokens, ",");
             }

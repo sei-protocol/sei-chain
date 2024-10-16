@@ -181,9 +181,16 @@ contract CW1155ERC1155PointerTest is Test {
         assertEq(pointer.balanceOfBatch(owners, ids), expectedResp);
     }
 
-    function testBalanceOfBatchBadLength() public {
-        uint256 idsLength = 1;
+    function testBalanceOfBatchBadLength0() public {
+        uint256 idsLength = 0;
         uint256 valuesLength = 0;
+        vm.expectRevert(bytes("ERC1155: cannot query empty accounts list"));
+        pointer.balanceOfBatch(new address[](valuesLength), new uint256[](idsLength));
+    }
+
+    function testBalanceOfBatchBadLength1() public {
+        uint256 idsLength = 1;
+        uint256 valuesLength = 2;
         vm.expectRevert(
             abi.encodeWithSelector(
                 IERC1155Errors.ERC1155InvalidArrayLength.selector,
@@ -192,6 +199,19 @@ contract CW1155ERC1155PointerTest is Test {
             )
         );
         pointer.balanceOfBatch(new address[](valuesLength), new uint256[](idsLength));
+    }
+
+    function testBalanceOfBatchBadAddress() public {
+        address[] memory owners = new address[](3);
+        uint256[] memory ids = new uint256[](3);
+        owners[0] = MockZeroAddress;
+        owners[1] = MockCallerEVMAddr;
+        owners[2] = MockCallerEVMAddr;
+        ids[0] = 1;
+        ids[1] = 2;
+        ids[2] = 3;
+        vm.expectRevert(bytes("ERC1155: cannot query balance of zero address"));
+        pointer.balanceOfBatch(owners, ids);
     }
 
     function testUri() public {
