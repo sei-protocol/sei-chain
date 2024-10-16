@@ -219,6 +219,61 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         emit ApprovalForAll(msg.sender, operator, approved);
     }
 
+    // ERC1155Burnable transactions
+    function burn(address account, uint256 id, uint256 amount) public virtual {
+        require(account != address(0), "ERC1155: cannot burn from the zero address");
+        require(balanceOf(account, id) >= amount, "ERC1155: insufficient balance for burning");
+        require(
+            msg.sender == account || isApprovedForAll(account, msg.sender),
+            "ERC1155: caller is not approved to burn"
+        );
+
+        string memory f = _formatPayload("from", _doubleQuotes(AddrPrecompile.getSeiAddr(account)));
+        string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(id)));
+        string memory amt = _formatPayload("amount", _doubleQuotes(Strings.toString(amount)));
+
+        string memory req = _curlyBrace(
+            _formatPayload("burn", _curlyBrace(_join(f, ",", _join(tId, ",", amt))))
+        );
+        _execute(bytes(req));
+        emit TransferSingle(msg.sender, account, address(0), id, amount);
+    }
+
+    function burnBatch(address account, uint256[] memory ids, uint256[] memory amounts) public virtual {
+        require(account != address(0), "ERC1155: cannot burn from the zero address");
+        require(
+            msg.sender == account || isApprovedForAll(account, msg.sender),
+            "ERC1155: caller is not approved to burn"
+        );
+        require(ids.length == amounts.length, "ERC1155: ids and amounts length mismatch");
+
+        address[] memory batchFrom = new address[](ids.length);
+        for (uint256 i = 0; i < ids.length; i++) {
+            batchFrom[i] = account;
+        }
+        uint256[] memory balances = balanceOfBatch(batchFrom, ids);
+        for (uint256 i = 0; i < balances.length; i++) {
+            require(balances[i] >= amounts[i], "ERC1155: insufficient balance for burning");
+        }
+
+        string memory payload = string.concat("{\"burn_batch\":{\"from\":\"", AddrPrecompile.getSeiAddr(account));
+        payload = string.concat(payload, "\",\"batch\":[");
+        for (uint256 i = 0; i < ids.length; i++) {
+            string memory batch = string.concat("{\"token_id\":\"", Strings.toString(ids[i]));
+            batch = string.concat(batch, "\",\"amount\":\"");
+            batch = string.concat(batch, Strings.toString(amounts[i]));
+            if (i < ids.length - 1) {
+                batch = string.concat(batch, "\"},");
+            } else {
+                batch = string.concat(batch, "\"}");
+            }
+            payload = string.concat(payload, batch);
+        }
+        payload = string.concat(payload, "]}}");
+        _execute(bytes(payload));
+        emit TransferBatch(msg.sender, account, address(0), ids, amounts);
+    }
+
     function _execute(bytes memory req) internal returns (bytes memory) {
         (bool success, bytes memory ret) = WASMD_PRECOMPILE_ADDRESS.delegatecall(
             abi.encodeWithSignature(
