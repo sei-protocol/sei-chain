@@ -34,14 +34,14 @@ func TestMigrate2to3(t *testing.T) {
 	m.Migrate2to3(input.Ctx)
 
 	// Get rate
-	rate, lastUpdate, lastUpdateTimestamp, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
+	baseExchangeRate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
 	require.NoError(t, err)
-	require.Equal(t, exchangeRate, rate)
-	require.Equal(t, sdk.ZeroInt(), lastUpdate)
-	require.Equal(t, int64(0), lastUpdateTimestamp)
+	require.Equal(t, exchangeRate, baseExchangeRate.ExchangeRate)
+	require.Equal(t, sdk.ZeroInt(), baseExchangeRate.LastUpdate)
+	require.Equal(t, int64(0), baseExchangeRate.LastUpdateTimestamp)
 
 	input.OracleKeeper.DeleteBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
-	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	numExchangeRates := 0

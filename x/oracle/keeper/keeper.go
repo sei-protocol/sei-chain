@@ -70,16 +70,16 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 //-----------------------------------
 // ExchangeRate logic
 
-func (k Keeper) GetBaseExchangeRate(ctx sdk.Context, denom string) (sdk.Dec, sdk.Int, int64, error) {
+func (k Keeper) GetBaseExchangeRate(ctx sdk.Context, denom string) (types.OracleExchangeRate, error) {
+	exchangeRate := types.OracleExchangeRate{}
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetExchangeRateKey(denom))
 	if b == nil {
-		return sdk.ZeroDec(), sdk.ZeroInt(), 0, sdkerrors.Wrap(types.ErrUnknownDenom, denom)
+		return exchangeRate, sdkerrors.Wrap(types.ErrUnknownDenom, denom)
 	}
 
-	exchangeRate := types.OracleExchangeRate{}
 	k.cdc.MustUnmarshal(b, &exchangeRate)
-	return exchangeRate.ExchangeRate, exchangeRate.LastUpdate, exchangeRate.LastUpdateTimestamp, nil
+	return exchangeRate, nil
 }
 
 func (k Keeper) SetBaseExchangeRate(ctx sdk.Context, denom string, exchangeRate sdk.Dec) {

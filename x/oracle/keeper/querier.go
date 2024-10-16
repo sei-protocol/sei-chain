@@ -44,14 +44,12 @@ func (q querier) ExchangeRate(c context.Context, req *types.QueryExchangeRateReq
 	}
 
 	ctx := sdk.UnwrapSDKContext(c)
-	exchangeRate, lastUpdate, lastUpdateTimestamp, err := q.GetBaseExchangeRate(ctx, req.Denom)
+	exchangeRate, err := q.GetBaseExchangeRate(ctx, req.Denom)
 	if err != nil {
 		return nil, err
 	}
 
-	return &types.QueryExchangeRateResponse{OracleExchangeRate: types.OracleExchangeRate{
-		ExchangeRate: exchangeRate, LastUpdate: lastUpdate, LastUpdateTimestamp: lastUpdateTimestamp,
-	}}, nil
+	return &types.QueryExchangeRateResponse{OracleExchangeRate: exchangeRate}, nil
 }
 
 // ExchangeRates queries exchange rates of all denoms
