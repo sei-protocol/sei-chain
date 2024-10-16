@@ -1,0 +1,23 @@
+syntax = "proto3";
+package seiprotocol.seichain.confidentialtransfers;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
+
+
+message TransferProofs {
+  RemainingBalanceCommitmentValidityProof remaining_balance_commitment_validity_proof = 1;
+}
+
+message RemainingBalanceCommitmentValidityProof {
+  // First commitment
+  bytes commitment_1 = 1;
+
+  // Second commitment
+  bytes commitment_2 = 2;
+
+  bytes challenge = 3;
+
+  bytes response_1 = 4;
+
+  bytes response_2 = 5;
+}

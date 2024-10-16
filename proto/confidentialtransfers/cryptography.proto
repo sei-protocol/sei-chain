@@ -12,4 +12,3 @@ message Ciphertext {
   // Decryption handle bytes.
   bytes d = 2;
 }
-
