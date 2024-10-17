@@ -9,12 +9,12 @@ import (
 )
 
 func TestMsgTransfer_FromProto(t *testing.T) {
-	testDenon := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
 	sourcePrivateKey, _ := elgamal.GenerateKey()
 	destPrivateKey, _ := elgamal.GenerateKey()
 	eg := elgamal.NewTwistedElgamal()
-	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenon)
-	destinationKeypair, _ := eg.KeyGen(*destPrivateKey, testDenon)
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	destinationKeypair, _ := eg.KeyGen(*destPrivateKey, testDenom)
 
 	amountLo := uint64(100)
 	amountHi := uint64(0)
@@ -65,7 +65,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	m := &MsgTransfer{
 		FromAddress:        address1.String(),
 		ToAddress:          address2.String(),
-		Denom:              testDenon,
+		Denom:              testDenom,
 		FromAmountLo:       fromAmountLo,
 		FromAmountHi:       fromAmountHi,
 		ToAmountLo:         destinationAmountLo,
