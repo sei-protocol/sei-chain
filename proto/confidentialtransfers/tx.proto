@@ -12,7 +12,6 @@ option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/t
 service Msg {
   // Transfer defines a method for sending coins from one account to another account.
   rpc Transfer(MsgTransfer) returns (MsgTransferResponse);
-
 }
 
 // MsgTransfer represents a message to send coins from one account to another.
