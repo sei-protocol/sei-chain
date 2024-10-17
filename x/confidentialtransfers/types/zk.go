@@ -58,7 +58,6 @@ func (c *CiphertextValidityProof) ToProto(zkp *zkproofs.CiphertextValidityProof)
 	return &CiphertextValidityProof{
 		Commitment_1: zkp.Commitment1.ToAffineCompressed(),
 		Commitment_2: zkp.Commitment2.ToAffineCompressed(),
-		Challenge:    zkp.Challenge.Bytes(),
 		Response_1:   zkp.Response1.Bytes(),
 		Response_2:   zkp.Response2.Bytes(),
 	}
@@ -77,11 +76,6 @@ func (c *CiphertextValidityProof) FromProto() (*zkproofs.CiphertextValidityProof
 		return nil, err
 	}
 
-	challenge, err := ed25519Curve.Scalar.SetBytes(c.Challenge)
-	if err != nil {
-		return nil, err
-	}
-
 	r1, err := ed25519Curve.Scalar.SetBytes(c.Response_1)
 	if err != nil {
 		return nil, err
@@ -94,7 +88,6 @@ func (c *CiphertextValidityProof) FromProto() (*zkproofs.CiphertextValidityProof
 	return &zkproofs.CiphertextValidityProof{
 		Commitment1: c1,
 		Commitment2: c2,
-		Challenge:   challenge,
 		Response1:   r1,
 		Response2:   r2,
 	}, nil
