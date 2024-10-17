@@ -76,7 +76,7 @@ type (
 	// (or removed a substore) between two versions of the software.
 	StoreLoader func(ms sdk.CommitMultiStore) error
 
-	DeliverTxHook func(sdk.Context, sdk.Tx, [32]byte, abci.ResponseDeliverTx)
+	DeliverTxHook func(sdk.Context, sdk.Tx, [32]byte, sdk.DeliverTxHookInput)
 )
 
 // BaseApp reflects the ABCI application implementation.
@@ -1006,6 +1006,25 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	}
 	if ctx.CheckTxCallback() != nil {
 		ctx.CheckTxCallback()(ctx, err)
+	}
+	var evmTxInfo *abci.EvmTxInfo
+	if ctx.IsEVM() {
+		evmTxInfo = &abci.EvmTxInfo{
+			SenderAddress: ctx.EVMSenderAddress(),
+			Nonce:         ctx.EVMNonce(),
+			TxHash:        ctx.EVMTxHash(),
+			VmError:       result.EvmError,
+		}
+	}
+	var events []abci.Event = []abci.Event{}
+	if result != nil {
+		events = sdk.MarkEventsToIndex(result.Events, app.indexEvents)
+	}
+	for _, hook := range app.deliverTxHooks {
+		hook(ctx, tx, checksum, sdk.DeliverTxHookInput{
+			EvmTxInfo: evmTxInfo,
+			Events:    events,
+		})
 	}
 	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, ctx, err
 }

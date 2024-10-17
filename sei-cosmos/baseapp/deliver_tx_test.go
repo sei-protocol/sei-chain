@@ -1646,6 +1646,48 @@ func TestDeliverTx(t *testing.T) {
 	}
 }
 
+func TestDeliverTxHooks(t *testing.T) {
+	anteOpt := func(*BaseApp) {}
+	routerOpt := func(bapp *BaseApp) {
+		r := sdk.NewRoute(routeMsgCounter, func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) { return &sdk.Result{}, nil })
+		bapp.Router().AddRoute(r)
+	}
+
+	app := setupBaseApp(t, anteOpt, routerOpt)
+	app.InitChain(context.Background(), &abci.RequestInitChain{})
+
+	// Create same codec used in txDecoder
+	codec := codec.NewLegacyAmino()
+	registerTestCodec(codec)
+
+	header := tmproto.Header{Height: 1}
+	app.setDeliverState(header)
+	app.BeginBlock(app.deliverState.ctx, abci.RequestBeginBlock{Header: header})
+
+	// every even i is an evm tx
+	counter := int64(1)
+	tx := newTxCounter(counter, counter)
+
+	txBytes, err := codec.Marshal(tx)
+	require.NoError(t, err)
+
+	decoded, _ := app.txDecoder(txBytes)
+
+	ctx := app.deliverState.ctx
+
+	// register noop hook
+	app.RegisterDeliverTxHook(func(ctx sdk.Context, tx sdk.Tx, b [32]byte, rdt sdk.DeliverTxHookInput) {})
+	res := app.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	require.True(t, res.IsOK(), fmt.Sprintf("%v", res))
+
+	// register panic hook (should be captured by recover() middleware)
+	app.RegisterDeliverTxHook(func(ctx sdk.Context, tx sdk.Tx, b [32]byte, rdt sdk.DeliverTxHookInput) { panic(1) })
+	require.NotPanics(t, func() {
+		res = app.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
+	})
+	require.False(t, res.IsOK(), fmt.Sprintf("%v", res))
+}
+
 func TestOptionFunction(t *testing.T) {
 	logger := defaultLogger()
 	db := dbm.NewMemDB()

@@ -263,3 +263,8 @@ func WrapServiceResult(ctx Context, res proto.Message, err error) (*Result, erro
 	}
 	return sdkRes, nil
 }
+
+type DeliverTxHookInput struct {
+	EvmTxInfo *abci.EvmTxInfo
+	Events    []abci.Event
+}
