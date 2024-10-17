@@ -382,7 +382,7 @@ func (db *Database) writeAsyncInBackground() {
 // We add a heuristic to skip over a module's keys during pruning if it hasn't been updated
 // since the last time pruning occurred.
 // NOTE: There is a rare case when a module's keys are skipped during pruning even though
-// it has been updated. This occurs when that module is updated in between pruning runs, the node after is restarted.
+// it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) error {
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
@@ -628,7 +628,7 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 
 				if counter%1000000 == 0 {
 					fmt.Printf("Time taken to write batch counter %d: %v\n", counter, time.Since(startTime))
-					metrics.IncrCounterWithLabels([]string{"sei", "migration", "nodes_imported"}, float32(ImportCommitBatchSize), []metrics.Label{
+					metrics.IncrCounterWithLabels([]string{"sei", "migration", "nodes_imported"}, float32(1000000), []metrics.Label{
 						{Name: "module", Value: latestModule},
 					})
 				}
