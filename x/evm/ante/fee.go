@@ -41,12 +41,12 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 	ver := msg.Derived.Version
 
-	if txData.GetGasFeeCap().Cmp(fc.getBaseFee(ctx)) < 0 {
-		return ctx, sdkerrors.ErrInsufficientFee
-	}
-	if txData.GetGasFeeCap().Cmp(fc.getMinimumFee(ctx)) < 0 {
-		return ctx, sdkerrors.ErrInsufficientFee
-	}
+	// if txData.GetGasFeeCap().Cmp(fc.getBaseFee(ctx)) < 0 {
+	// 	return ctx, sdkerrors.ErrInsufficientFee
+	// }
+	// if txData.GetGasFeeCap().Cmp(fc.getMinimumFee(ctx)) < 0 {
+	// 	return ctx, sdkerrors.ErrInsufficientFee
+	// }
 	if txData.GetGasTipCap().Sign() < 0 {
 		return ctx, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "gas fee cap cannot be negative")
 	}
