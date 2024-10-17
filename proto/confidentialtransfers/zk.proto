@@ -1,0 +1,27 @@
+syntax = "proto3";
+package seiprotocol.seichain.confidentialtransfers;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
+
+
+message TransferProofs {
+  CiphertextValidityProof remaining_balance_commitment_validity_proof = 1;
+  CiphertextValidityProof sender_transfer_amount_lo_validity_proof = 2;
+  CiphertextValidityProof sender_transfer_amount_hi_validity_proof = 3;
+  CiphertextValidityProof recipient_transfer_amount_lo_validity_proof = 4;
+  CiphertextValidityProof recipient_transfer_amount_hi_validity_proof = 5;
+}
+
+message CiphertextValidityProof {
+  // First commitment
+  bytes commitment_1 = 1;
+
+  // Second commitment
+  bytes commitment_2 = 2;
+
+  // First response
+  bytes response_1 = 4;
+
+  // Second response
+  bytes response_2 = 5;
+}
