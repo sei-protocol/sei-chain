@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
@@ -25,12 +26,14 @@ import (
 const (
 	VersionSize = 8
 
-	PrefixStore        = "s/k:"
-	LenPrefixStore     = 4
-	StorePrefixTpl     = "s/k:%s/"   // s/k:<storeKey>
-	latestVersionKey   = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
-	earliestVersionKey = "s/_earliest"
-	tombstoneVal       = "TOMBSTONE"
+	PrefixStore                  = "s/k:"
+	LenPrefixStore               = 4
+	StorePrefixTpl               = "s/k:%s/"   // s/k:<storeKey>
+	latestVersionKey             = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
+	earliestVersionKey           = "s/_earliest"
+	latestMigratedKeyMetadata    = "s/_latestMigratedKey"
+	latestMigratedModuleMetadata = "s/_latestMigratedModule"
+	tombstoneVal                 = "TOMBSTONE"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
@@ -155,7 +158,9 @@ func (db *Database) Close() error {
 func (db *Database) SetLatestVersion(version int64) error {
 	var ts [VersionSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
-	return db.storage.Set([]byte(latestVersionKey), ts[:], defaultWriteOpts)
+	err := db.storage.Set([]byte(latestVersionKey), ts[:], defaultWriteOpts)
+	fmt.Printf("SetLatestVersion: version=%d, err=%v, latestVersionKey=%s\n", version, err, latestVersionKey)
+	return err
 }
 
 func (db *Database) GetLatestVersion() (int64, error) {
@@ -208,6 +213,42 @@ func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 	}
 
 	return int64(binary.LittleEndian.Uint64(bz)), closer.Close()
+}
+
+// SetLatestKey sets the latest key processed during migration.
+func (db *Database) SetLatestMigratedKey(key []byte) error {
+	return db.storage.Set([]byte(latestMigratedKeyMetadata), key, defaultWriteOpts)
+}
+
+// GetLatestKey retrieves the latest key processed during migration.
+func (db *Database) GetLatestMigratedKey() ([]byte, error) {
+	bz, closer, err := db.storage.Get([]byte(latestMigratedKeyMetadata))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer closer.Close()
+	return bz, nil
+}
+
+// SetLatestModule sets the latest module processed during migration.
+func (db *Database) SetLatestMigratedModule(module string) error {
+	return db.storage.Set([]byte(latestMigratedModuleMetadata), []byte(module), defaultWriteOpts)
+}
+
+// GetLatestModule retrieves the latest module processed during migration.
+func (db *Database) GetLatestMigratedModule() (string, error) {
+	bz, closer, err := db.storage.Get([]byte(latestMigratedModuleMetadata))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	defer closer.Close()
+	return string(bz), nil
 }
 
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
@@ -341,7 +382,7 @@ func (db *Database) writeAsyncInBackground() {
 // We add a heuristic to skip over a module's keys during pruning if it hasn't been updated
 // since the last time pruning occurred.
 // NOTE: There is a rare case when a module's keys are skipped during pruning even though
-// it has been updated. This occurs when that module is updated in between pruning runs, the node after is restarted.
+// it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) error {
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
@@ -556,16 +597,40 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 		}
 
 		var counter int
+		var latestKey []byte // store the latest key from the batch
+		var latestModule string
 		for entry := range ch {
 			err := batch.Set(entry.StoreKey, entry.Key, entry.Value, entry.Version)
 			if err != nil {
 				panic(err)
 			}
 
+			latestKey = entry.Key // track the latest key
+			latestModule = entry.StoreKey
 			counter++
+
 			if counter%ImportCommitBatchSize == 0 {
+				startTime := time.Now()
+
+				// Commit the batch and record the latest key as metadata
 				if err := batch.Write(); err != nil {
 					panic(err)
+				}
+
+				// Persist the latest key in the metadata
+				if err := db.SetLatestMigratedKey(latestKey); err != nil {
+					panic(err)
+				}
+
+				if err := db.SetLatestMigratedModule(latestModule); err != nil {
+					panic(err)
+				}
+
+				if counter%1000000 == 0 {
+					fmt.Printf("Time taken to write batch counter %d: %v\n", counter, time.Since(startTime))
+					metrics.IncrCounterWithLabels([]string{"sei", "migration", "nodes_imported"}, float32(1000000), []metrics.Label{
+						{Name: "module", Value: latestModule},
+					})
 				}
 
 				batch, err = NewRawBatch(db.storage)
@@ -575,8 +640,18 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 			}
 		}
 
+		// Final batch write
 		if batch.Size() > 0 {
 			if err := batch.Write(); err != nil {
+				panic(err)
+			}
+
+			// Persist the final latest key
+			if err := db.SetLatestMigratedKey(latestKey); err != nil {
+				panic(err)
+			}
+
+			if err := db.SetLatestMigratedModule(latestModule); err != nil {
 				panic(err)
 			}
 		}

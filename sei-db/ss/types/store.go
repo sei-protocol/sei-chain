@@ -18,6 +18,10 @@ type StateStore interface {
 	SetLatestVersion(version int64) error
 	GetEarliestVersion() (int64, error)
 	SetEarliestVersion(version int64) error
+	GetLatestMigratedKey() ([]byte, error)
+	SetLatestMigratedKey(key []byte) error
+	GetLatestMigratedModule() (string, error)
+	SetLatestMigratedModule(module string) error
 
 	// ApplyChangeset Persist the change set of a block,
 	// the `changeSet` should be ordered by (storeKey, key),
