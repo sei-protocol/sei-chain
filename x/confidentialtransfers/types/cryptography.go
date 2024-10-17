@@ -14,14 +14,14 @@ func (c *Ciphertext) Validate() error {
 	return nil
 }
 
-func (c *Ciphertext) FromCiphertext(ciphertext elgamal.Ciphertext) *Ciphertext {
+func (c *Ciphertext) ToProto(ciphertext *elgamal.Ciphertext) *Ciphertext {
 	return &Ciphertext{
 		C: ciphertext.C.ToAffineCompressed(),
 		D: ciphertext.D.ToAffineCompressed(),
 	}
 }
 
-func (c *Ciphertext) ToCiphertext() (*elgamal.Ciphertext, error) {
+func (c *Ciphertext) FromProto() (*elgamal.Ciphertext, error) {
 	ed25519Curve := curves.ED25519()
 
 	pointC, err := ed25519Curve.Point.FromAffineCompressed(c.C)

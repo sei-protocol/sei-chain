@@ -23,7 +23,11 @@ var _ = math.Inf
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 type TransferProofs struct {
-	RemainingBalanceCommitmentValidityProof *RemainingBalanceCommitmentValidityProof `protobuf:"bytes,1,opt,name=remaining_balance_commitment_validity_proof,json=remainingBalanceCommitmentValidityProof,proto3" json:"remaining_balance_commitment_validity_proof,omitempty"`
+	RemainingBalanceCommitmentValidityProof *CiphertextValidityProof `protobuf:"bytes,1,opt,name=remaining_balance_commitment_validity_proof,json=remainingBalanceCommitmentValidityProof,proto3" json:"remaining_balance_commitment_validity_proof,omitempty"`
+	SenderTransferAmountLoValidityProof     *CiphertextValidityProof `protobuf:"bytes,2,opt,name=sender_transfer_amount_lo_validity_proof,json=senderTransferAmountLoValidityProof,proto3" json:"sender_transfer_amount_lo_validity_proof,omitempty"`
+	SenderTransferAmountHiValidityProof     *CiphertextValidityProof `protobuf:"bytes,3,opt,name=sender_transfer_amount_hi_validity_proof,json=senderTransferAmountHiValidityProof,proto3" json:"sender_transfer_amount_hi_validity_proof,omitempty"`
+	RecipientTransferAmountLoValidityProof  *CiphertextValidityProof `protobuf:"bytes,4,opt,name=recipient_transfer_amount_lo_validity_proof,json=recipientTransferAmountLoValidityProof,proto3" json:"recipient_transfer_amount_lo_validity_proof,omitempty"`
+	RecipientTransferAmountHiValidityProof  *CiphertextValidityProof `protobuf:"bytes,5,opt,name=recipient_transfer_amount_hi_validity_proof,json=recipientTransferAmountHiValidityProof,proto3" json:"recipient_transfer_amount_hi_validity_proof,omitempty"`
 }
 
 func (m *TransferProofs) Reset()         { *m = TransferProofs{} }
@@ -59,14 +63,42 @@ func (m *TransferProofs) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_TransferProofs proto.InternalMessageInfo
 
-func (m *TransferProofs) GetRemainingBalanceCommitmentValidityProof() *RemainingBalanceCommitmentValidityProof {
+func (m *TransferProofs) GetRemainingBalanceCommitmentValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.RemainingBalanceCommitmentValidityProof
 	}
 	return nil
 }
 
-type RemainingBalanceCommitmentValidityProof struct {
+func (m *TransferProofs) GetSenderTransferAmountLoValidityProof() *CiphertextValidityProof {
+	if m != nil {
+		return m.SenderTransferAmountLoValidityProof
+	}
+	return nil
+}
+
+func (m *TransferProofs) GetSenderTransferAmountHiValidityProof() *CiphertextValidityProof {
+	if m != nil {
+		return m.SenderTransferAmountHiValidityProof
+	}
+	return nil
+}
+
+func (m *TransferProofs) GetRecipientTransferAmountLoValidityProof() *CiphertextValidityProof {
+	if m != nil {
+		return m.RecipientTransferAmountLoValidityProof
+	}
+	return nil
+}
+
+func (m *TransferProofs) GetRecipientTransferAmountHiValidityProof() *CiphertextValidityProof {
+	if m != nil {
+		return m.RecipientTransferAmountHiValidityProof
+	}
+	return nil
+}
+
+type CiphertextValidityProof struct {
 	// First commitment
 	Commitment_1 []byte `protobuf:"bytes,1,opt,name=commitment_1,json=commitment1,proto3" json:"commitment_1,omitempty"`
 	// Second commitment
@@ -76,20 +108,18 @@ type RemainingBalanceCommitmentValidityProof struct {
 	Response_2   []byte `protobuf:"bytes,5,opt,name=response_2,json=response2,proto3" json:"response_2,omitempty"`
 }
 
-func (m *RemainingBalanceCommitmentValidityProof) Reset() {
-	*m = RemainingBalanceCommitmentValidityProof{}
-}
-func (m *RemainingBalanceCommitmentValidityProof) String() string { return proto.CompactTextString(m) }
-func (*RemainingBalanceCommitmentValidityProof) ProtoMessage()    {}
-func (*RemainingBalanceCommitmentValidityProof) Descriptor() ([]byte, []int) {
+func (m *CiphertextValidityProof) Reset()         { *m = CiphertextValidityProof{} }
+func (m *CiphertextValidityProof) String() string { return proto.CompactTextString(m) }
+func (*CiphertextValidityProof) ProtoMessage()    {}
+func (*CiphertextValidityProof) Descriptor() ([]byte, []int) {
 	return fileDescriptor_71d8640cbb42ddec, []int{1}
 }
-func (m *RemainingBalanceCommitmentValidityProof) XXX_Unmarshal(b []byte) error {
+func (m *CiphertextValidityProof) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *RemainingBalanceCommitmentValidityProof) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *CiphertextValidityProof) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_RemainingBalanceCommitmentValidityProof.Marshal(b, m, deterministic)
+		return xxx_messageInfo_CiphertextValidityProof.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -99,47 +129,47 @@ func (m *RemainingBalanceCommitmentValidityProof) XXX_Marshal(b []byte, determin
 		return b[:n], nil
 	}
 }
-func (m *RemainingBalanceCommitmentValidityProof) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_RemainingBalanceCommitmentValidityProof.Merge(m, src)
+func (m *CiphertextValidityProof) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CiphertextValidityProof.Merge(m, src)
 }
-func (m *RemainingBalanceCommitmentValidityProof) XXX_Size() int {
+func (m *CiphertextValidityProof) XXX_Size() int {
 	return m.Size()
 }
-func (m *RemainingBalanceCommitmentValidityProof) XXX_DiscardUnknown() {
-	xxx_messageInfo_RemainingBalanceCommitmentValidityProof.DiscardUnknown(m)
+func (m *CiphertextValidityProof) XXX_DiscardUnknown() {
+	xxx_messageInfo_CiphertextValidityProof.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_RemainingBalanceCommitmentValidityProof proto.InternalMessageInfo
+var xxx_messageInfo_CiphertextValidityProof proto.InternalMessageInfo
 
-func (m *RemainingBalanceCommitmentValidityProof) GetCommitment_1() []byte {
+func (m *CiphertextValidityProof) GetCommitment_1() []byte {
 	if m != nil {
 		return m.Commitment_1
 	}
 	return nil
 }
 
-func (m *RemainingBalanceCommitmentValidityProof) GetCommitment_2() []byte {
+func (m *CiphertextValidityProof) GetCommitment_2() []byte {
 	if m != nil {
 		return m.Commitment_2
 	}
 	return nil
 }
 
-func (m *RemainingBalanceCommitmentValidityProof) GetChallenge() []byte {
+func (m *CiphertextValidityProof) GetChallenge() []byte {
 	if m != nil {
 		return m.Challenge
 	}
 	return nil
 }
 
-func (m *RemainingBalanceCommitmentValidityProof) GetResponse_1() []byte {
+func (m *CiphertextValidityProof) GetResponse_1() []byte {
 	if m != nil {
 		return m.Response_1
 	}
 	return nil
 }
 
-func (m *RemainingBalanceCommitmentValidityProof) GetResponse_2() []byte {
+func (m *CiphertextValidityProof) GetResponse_2() []byte {
 	if m != nil {
 		return m.Response_2
 	}
@@ -148,33 +178,39 @@ func (m *RemainingBalanceCommitmentValidityProof) GetResponse_2() []byte {
 
 func init() {
 	proto.RegisterType((*TransferProofs)(nil), "seiprotocol.seichain.confidentialtransfers.TransferProofs")
-	proto.RegisterType((*RemainingBalanceCommitmentValidityProof)(nil), "seiprotocol.seichain.confidentialtransfers.RemainingBalanceCommitmentValidityProof")
+	proto.RegisterType((*CiphertextValidityProof)(nil), "seiprotocol.seichain.confidentialtransfers.CiphertextValidityProof")
 }
 
 func init() { proto.RegisterFile("confidentialtransfers/zk.proto", fileDescriptor_71d8640cbb42ddec) }
 
 var fileDescriptor_71d8640cbb42ddec = []byte{
-	// 314 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x92, 0x4f, 0x4e, 0x02, 0x31,
-	0x14, 0xc6, 0xa9, 0xff, 0x12, 0x0b, 0x71, 0x31, 0xab, 0x59, 0x68, 0xa3, 0x6c, 0x30, 0x1a, 0x3b,
-	0x99, 0xf1, 0x00, 0x26, 0x78, 0x01, 0x83, 0xc6, 0x44, 0x37, 0x93, 0x52, 0x1e, 0xf0, 0x62, 0xa7,
-	0x9d, 0xb4, 0xd5, 0x88, 0xa7, 0xf0, 0x2a, 0xde, 0xc1, 0x85, 0x89, 0x1b, 0x96, 0x2e, 0x0d, 0x5c,
-	0xc4, 0x58, 0x40, 0x84, 0xb0, 0x60, 0xd7, 0xf7, 0xbe, 0xef, 0xfb, 0xf5, 0xf5, 0xa5, 0x94, 0x49,
-	0xa3, 0xbb, 0xd8, 0x01, 0xed, 0x51, 0x28, 0x6f, 0x85, 0x76, 0x5d, 0xb0, 0x2e, 0x79, 0x79, 0xe0,
-	0xa5, 0x35, 0xde, 0x44, 0x27, 0x0e, 0x30, 0x9c, 0xa4, 0x51, 0xdc, 0x01, 0xca, 0xbe, 0x40, 0xcd,
-	0x57, 0x86, 0xea, 0xef, 0x84, 0xee, 0xdd, 0x4c, 0xab, 0x2b, 0x6b, 0x4c, 0xd7, 0x45, 0x6f, 0x84,
-	0x9e, 0x5a, 0x28, 0x04, 0x6a, 0xd4, 0xbd, 0xbc, 0x2d, 0x94, 0xd0, 0x12, 0x72, 0x69, 0x8a, 0x02,
-	0x7d, 0x01, 0xda, 0xe7, 0x4f, 0x42, 0x61, 0x07, 0xfd, 0x20, 0x2f, 0x7f, 0x03, 0x31, 0x39, 0x24,
-	0xc7, 0xd5, 0xec, 0x9a, 0xaf, 0x7f, 0x2b, 0x6f, 0xcd, 0xf0, 0xcd, 0x09, 0xfd, 0xf2, 0x0f, 0x7e,
-	0x3b, 0x65, 0x87, 0x59, 0x5a, 0x0d, 0xbb, 0x9e, 0xb1, 0xfe, 0x49, 0x68, 0x63, 0x4d, 0x68, 0x74,
-	0x44, 0x6b, 0xff, 0x1e, 0x93, 0x86, 0xf9, 0x6b, 0xad, 0xea, 0xbc, 0x97, 0x2e, 0x59, 0xb2, 0x78,
-	0x63, 0xd9, 0x92, 0x45, 0xfb, 0x74, 0x57, 0xf6, 0x85, 0x52, 0xa0, 0x7b, 0x10, 0x6f, 0x06, 0x7d,
-	0xde, 0x88, 0x0e, 0x28, 0xb5, 0xe0, 0x4a, 0xa3, 0x1d, 0xe4, 0x69, 0xbc, 0x35, 0x91, 0x67, 0x9d,
-	0x74, 0x41, 0xce, 0xe2, 0xed, 0x45, 0x39, 0x6b, 0xde, 0x7d, 0x8c, 0x18, 0x19, 0x8e, 0x18, 0xf9,
-	0x1e, 0x31, 0xf2, 0x3a, 0x66, 0x95, 0xe1, 0x98, 0x55, 0xbe, 0xc6, 0xac, 0x72, 0x7f, 0xd1, 0x43,
-	0xdf, 0x7f, 0x6c, 0x73, 0x69, 0x8a, 0xc4, 0x01, 0x9e, 0xcd, 0x16, 0x1e, 0x8a, 0xb0, 0xf1, 0xe4,
-	0x39, 0x59, 0xfd, 0x3d, 0xfc, 0xa0, 0x04, 0xd7, 0xde, 0x09, 0x89, 0xf3, 0x9f, 0x00, 0x00, 0x00,
-	0xff, 0xff, 0x2a, 0x87, 0x93, 0xba, 0x44, 0x02, 0x00, 0x00,
+	// 411 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x94, 0xbf, 0xae, 0xd3, 0x30,
+	0x14, 0xc6, 0x6b, 0xfe, 0x5c, 0xe9, 0xfa, 0x46, 0x0c, 0x59, 0x60, 0x80, 0x08, 0x2e, 0x12, 0x54,
+	0x20, 0x12, 0x25, 0x3c, 0x00, 0xa2, 0x5d, 0x18, 0x18, 0x50, 0x84, 0x90, 0x60, 0xb1, 0x5c, 0xf7,
+	0xb4, 0x39, 0x22, 0xb1, 0x23, 0xdb, 0x45, 0x2d, 0x4f, 0xc1, 0xcc, 0x04, 0xef, 0xc0, 0xc6, 0x0b,
+	0x30, 0x76, 0x64, 0x44, 0xed, 0x8b, 0xa0, 0xba, 0x4d, 0xdb, 0x84, 0xd2, 0xdb, 0xa1, 0xdd, 0xe2,
+	0xe3, 0x73, 0xce, 0xf7, 0xd3, 0x77, 0x7c, 0x42, 0x03, 0xa1, 0xe4, 0x00, 0xfb, 0x20, 0x2d, 0xf2,
+	0xdc, 0x6a, 0x2e, 0xcd, 0x00, 0xb4, 0x89, 0x3e, 0x7f, 0x0c, 0x4b, 0xad, 0xac, 0xf2, 0x9f, 0x18,
+	0x40, 0xf7, 0x25, 0x54, 0x1e, 0x1a, 0x40, 0x91, 0x71, 0x94, 0xe1, 0xce, 0xa2, 0xcb, 0x1f, 0x67,
+	0xf4, 0xd6, 0xdb, 0xd5, 0xe9, 0x8d, 0x56, 0x6a, 0x60, 0xfc, 0xef, 0x84, 0x3e, 0xd5, 0x50, 0x70,
+	0x94, 0x28, 0x87, 0xac, 0xc7, 0x73, 0x2e, 0x05, 0x30, 0xa1, 0x8a, 0x02, 0x6d, 0x01, 0xd2, 0xb2,
+	0x4f, 0x3c, 0xc7, 0x3e, 0xda, 0x09, 0x2b, 0x17, 0x05, 0x77, 0xc8, 0x7d, 0xd2, 0xbe, 0x48, 0xba,
+	0xe1, 0xe1, 0xaa, 0x61, 0x17, 0xcb, 0x0c, 0xb4, 0x85, 0xb1, 0x7d, 0xb7, 0xea, 0xe5, 0xb4, 0xd3,
+	0xc7, 0x6b, 0xdd, 0xce, 0x52, 0xb6, 0xbb, 0x56, 0xad, 0x25, 0xfa, 0x5f, 0x09, 0x6d, 0x1b, 0x90,
+	0x7d, 0xd0, 0xac, 0xea, 0xca, 0x78, 0xa1, 0x46, 0xd2, 0xb2, 0x5c, 0x35, 0x01, 0xaf, 0x1d, 0x0f,
+	0xf0, 0xe1, 0x52, 0xb4, 0x72, 0xec, 0xa5, 0x93, 0x7c, 0xad, 0x0e, 0x86, 0xcb, 0xb0, 0x09, 0x77,
+	0xfd, 0xc4, 0x70, 0xaf, 0xb0, 0x0e, 0xf7, 0xcd, 0x4d, 0x57, 0x60, 0x89, 0x8b, 0x51, 0x5e, 0x6d,
+	0xde, 0x8d, 0xe3, 0xf1, 0x3d, 0x5a, 0xeb, 0xee, 0xf7, 0x6f, 0x3f, 0xe2, 0xbf, 0x16, 0xde, 0x3c,
+	0x3d, 0x62, 0xc3, 0xc5, 0xcb, 0x9f, 0x84, 0xde, 0xfe, 0x4f, 0x0f, 0xff, 0x01, 0xf5, 0xb6, 0x96,
+	0x25, 0x76, 0xfb, 0xe1, 0xa5, 0x17, 0x9b, 0x58, 0xdc, 0x48, 0x49, 0xdc, 0x0b, 0xad, 0xa5, 0x24,
+	0xfe, 0x5d, 0x7a, 0x2e, 0x32, 0x9e, 0xe7, 0x20, 0x87, 0xe0, 0x1e, 0x89, 0x97, 0x6e, 0x02, 0xfe,
+	0x3d, 0x4a, 0x35, 0x98, 0x52, 0x49, 0x03, 0x2c, 0x76, 0x33, 0xf2, 0xd2, 0xf3, 0x2a, 0x12, 0xd7,
+	0xae, 0x13, 0xe7, 0xcf, 0xd6, 0x75, 0xd2, 0x79, 0xff, 0x6b, 0x16, 0x90, 0xe9, 0x2c, 0x20, 0x7f,
+	0x66, 0x01, 0xf9, 0x32, 0x0f, 0x5a, 0xd3, 0x79, 0xd0, 0xfa, 0x3d, 0x0f, 0x5a, 0x1f, 0x5e, 0x0c,
+	0xd1, 0x66, 0xa3, 0x5e, 0x28, 0x54, 0x11, 0x19, 0xc0, 0x67, 0x95, 0x9f, 0xee, 0xe0, 0x0c, 0x8d,
+	0xc6, 0xd1, 0xee, 0xdf, 0x8f, 0x9d, 0x94, 0x60, 0x7a, 0x67, 0xae, 0xe2, 0xf9, 0xdf, 0x00, 0x00,
+	0x00, 0xff, 0xff, 0x4a, 0x19, 0x74, 0xe9, 0xa4, 0x04, 0x00, 0x00,
 }
 
 func (m *TransferProofs) Marshal() (dAtA []byte, err error) {
@@ -197,6 +233,54 @@ func (m *TransferProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.RecipientTransferAmountHiValidityProof != nil {
+		{
+			size, err := m.RecipientTransferAmountHiValidityProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.RecipientTransferAmountLoValidityProof != nil {
+		{
+			size, err := m.RecipientTransferAmountLoValidityProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.SenderTransferAmountHiValidityProof != nil {
+		{
+			size, err := m.SenderTransferAmountHiValidityProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.SenderTransferAmountLoValidityProof != nil {
+		{
+			size, err := m.SenderTransferAmountLoValidityProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
 	if m.RemainingBalanceCommitmentValidityProof != nil {
 		{
 			size, err := m.RemainingBalanceCommitmentValidityProof.MarshalToSizedBuffer(dAtA[:i])
@@ -212,7 +296,7 @@ func (m *TransferProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *RemainingBalanceCommitmentValidityProof) Marshal() (dAtA []byte, err error) {
+func (m *CiphertextValidityProof) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -222,12 +306,12 @@ func (m *RemainingBalanceCommitmentValidityProof) Marshal() (dAtA []byte, err er
 	return dAtA[:n], nil
 }
 
-func (m *RemainingBalanceCommitmentValidityProof) MarshalTo(dAtA []byte) (int, error) {
+func (m *CiphertextValidityProof) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *RemainingBalanceCommitmentValidityProof) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *CiphertextValidityProof) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -291,10 +375,26 @@ func (m *TransferProofs) Size() (n int) {
 		l = m.RemainingBalanceCommitmentValidityProof.Size()
 		n += 1 + l + sovZk(uint64(l))
 	}
+	if m.SenderTransferAmountLoValidityProof != nil {
+		l = m.SenderTransferAmountLoValidityProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	if m.SenderTransferAmountHiValidityProof != nil {
+		l = m.SenderTransferAmountHiValidityProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	if m.RecipientTransferAmountLoValidityProof != nil {
+		l = m.RecipientTransferAmountLoValidityProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	if m.RecipientTransferAmountHiValidityProof != nil {
+		l = m.RecipientTransferAmountHiValidityProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
 	return n
 }
 
-func (m *RemainingBalanceCommitmentValidityProof) Size() (n int) {
+func (m *CiphertextValidityProof) Size() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -388,9 +488,153 @@ func (m *TransferProofs) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.RemainingBalanceCommitmentValidityProof == nil {
-				m.RemainingBalanceCommitmentValidityProof = &RemainingBalanceCommitmentValidityProof{}
+				m.RemainingBalanceCommitmentValidityProof = &CiphertextValidityProof{}
 			}
 			if err := m.RemainingBalanceCommitmentValidityProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SenderTransferAmountLoValidityProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.SenderTransferAmountLoValidityProof == nil {
+				m.SenderTransferAmountLoValidityProof = &CiphertextValidityProof{}
+			}
+			if err := m.SenderTransferAmountLoValidityProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SenderTransferAmountHiValidityProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.SenderTransferAmountHiValidityProof == nil {
+				m.SenderTransferAmountHiValidityProof = &CiphertextValidityProof{}
+			}
+			if err := m.SenderTransferAmountHiValidityProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RecipientTransferAmountLoValidityProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.RecipientTransferAmountLoValidityProof == nil {
+				m.RecipientTransferAmountLoValidityProof = &CiphertextValidityProof{}
+			}
+			if err := m.RecipientTransferAmountLoValidityProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RecipientTransferAmountHiValidityProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.RecipientTransferAmountHiValidityProof == nil {
+				m.RecipientTransferAmountHiValidityProof = &CiphertextValidityProof{}
+			}
+			if err := m.RecipientTransferAmountHiValidityProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -415,7 +659,7 @@ func (m *TransferProofs) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *RemainingBalanceCommitmentValidityProof) Unmarshal(dAtA []byte) error {
+func (m *CiphertextValidityProof) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -438,10 +682,10 @@ func (m *RemainingBalanceCommitmentValidityProof) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: RemainingBalanceCommitmentValidityProof: wiretype end group for non-group")
+			return fmt.Errorf("proto: CiphertextValidityProof: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: RemainingBalanceCommitmentValidityProof: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: CiphertextValidityProof: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
