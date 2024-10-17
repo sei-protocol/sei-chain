@@ -1,0 +1,28 @@
+syntax = "proto3";
+package seiprotocol.seichain.confidential;
+
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/confidential/types";
+
+// TODO: Define any query messages here
+// Query defines the gRPC querier service.
+service Query {
+  // TODO: This is a mock method. Remove when we add real queries
+  rpc TestQuery (TestQueryRequest) returns (TestQueryResponse) {
+    option (google.api.http) = {
+      get: "/seichain/confidential/test_query"
+    };
+  }
+}
+
+// TODO: This is a mock method. Remove when we add real queries
+message TestQueryRequest {
+  string test_field = 1;
+}
+
+// TODO: This is a mock method. Remove when we add real queries
+message TestQueryResponse {
+  string test_field = 1;
+}

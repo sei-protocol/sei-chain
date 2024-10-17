@@ -1,0 +1,11 @@
+syntax = "proto3";
+package seiprotocol.seichain.confidential;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/confidential/types";
+
+// TODO: Add tx message types here
+// Msg defines the tokefactory module's gRPC message service.
+service Msg {
+}
