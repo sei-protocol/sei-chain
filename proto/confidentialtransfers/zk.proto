@@ -5,10 +5,10 @@ option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/t
 
 
 message TransferProofs {
-  RemainingBalanceCommitmentValidityProof remaining_balance_commitment_validity_proof = 1;
+  CiphertextValidityProof remaining_balance_commitment_validity_proof = 1;
 }
 
-message RemainingBalanceCommitmentValidityProof {
+message CiphertextValidityProof {
   // First commitment
   bytes commitment_1 = 1;
 
