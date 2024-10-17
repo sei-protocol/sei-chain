@@ -21,11 +21,11 @@ func TestFromCiphertext(t *testing.T) {
 
 	// Convert to our Ciphertext type
 	c := &Ciphertext{}
-	cProto := c.FromCiphertext(ciphertext)
+	cProto := c.ToProto(&ciphertext)
 
 	assert.NoError(t, cProto.Validate())
 
-	afterConversion, err := cProto.ToCiphertext()
+	afterConversion, err := cProto.FromProto()
 	assert.NoError(t, err)
 	assert.True(t, afterConversion.C.Equal(pointC))
 	assert.True(t, afterConversion.D.Equal(pointD))

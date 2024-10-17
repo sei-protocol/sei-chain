@@ -6,6 +6,10 @@ option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/t
 
 message TransferProofs {
   CiphertextValidityProof remaining_balance_commitment_validity_proof = 1;
+  CiphertextValidityProof sender_transfer_amount_lo_validity_proof = 2;
+  CiphertextValidityProof sender_transfer_amount_hi_validity_proof = 3;
+  CiphertextValidityProof recipient_transfer_amount_lo_validity_proof = 4;
+  CiphertextValidityProof recipient_transfer_amount_hi_validity_proof = 5;
 }
 
 message CiphertextValidityProof {
