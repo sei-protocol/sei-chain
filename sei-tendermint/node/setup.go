@@ -255,6 +255,16 @@ func createPeerManager(
 		peers = append(peers, address)
 	}
 
+	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.BlockSyncPeers, ",", " ") {
+		address, err := p2p.ParseNodeAddress(p)
+		if err != nil {
+			return nil, func() error { return nil }, fmt.Errorf("invalid peer address %q: %w", p, err)
+		}
+
+		peers = append(peers, address)
+		options.BlockSyncPeers = append(options.BlockSyncPeers, address.NodeID)
+	}
+
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.UnconditionalPeerIDs, ",", " ") {
 		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}

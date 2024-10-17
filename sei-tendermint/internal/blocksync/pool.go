@@ -31,9 +31,8 @@ eg, L = latency = 0.1s
 */
 
 const (
-	requestInterval           = 10 * time.Millisecond
-	inactiveSleepInterval     = 1 * time.Second
-	maxTotalRequesters        = 600
+	requestInterval           = 100 * time.Millisecond
+	maxTotalRequesters        = 50
 	maxPeerErrBuffer          = 1000
 	maxPendingRequests        = maxTotalRequesters
 	maxPendingRequestsPerPeer = 20
@@ -54,7 +53,7 @@ const (
 	BadBlock    RetryReason = "BadBlock"
 )
 
-var peerTimeout = 10 * time.Second // not const so we can override with tests
+var peerTimeout = 2 * time.Second // not const so we can override with tests
 
 /*
 	Peers self report their heights when we join the block pool.
@@ -356,6 +355,12 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
+	blockSyncPeers := pool.peerManager.GetBlockSyncPeers()
+	if len(blockSyncPeers) > 0 && !blockSyncPeers[peerID] {
+		pool.logger.Info(fmt.Sprintf("Skip adding peer %s for blocksync, num of blocksync peers: %d, num of pool peers: %d", peerID, len(blockSyncPeers), len(pool.peers)))
+		return
+	}
+
 	peer := pool.peers[peerID]
 	if peer != nil {
 		peer.base = base
@@ -370,7 +375,7 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 			logger:     pool.logger.With("peer", peerID),
 			startAt:    time.Now(),
 		}
-
+		pool.logger.Info(fmt.Sprintf("Adding peer %s to blocksync pool", peerID))
 		pool.peers[peerID] = peer
 	}
 
@@ -431,6 +436,7 @@ func (pool *BlockPool) getSortedPeers(peers map[types.NodeID]*bpPeer) []types.No
 	for peer := range peers {
 		sortedPeers = append(sortedPeers, peer)
 	}
+
 	// Sort from high to low score
 	sort.Slice(sortedPeers, func(i, j int) bool {
 		return pool.peerManager.Score(sortedPeers[i]) > pool.peerManager.Score(sortedPeers[j])

@@ -643,6 +643,9 @@ type P2PConfig struct { //nolint: maligned
 	// Comma separated list of nodes to keep persistent connections to
 	PersistentPeers string `mapstructure:"persistent-peers"`
 
+	// Comma separated list of nodes for block sync only
+	BlockSyncPeers string `mapstructure:"blocksync-peers"`
+
 	// UPNP port forwarding
 	UPNP bool `mapstructure:"upnp"`
 
@@ -712,7 +715,7 @@ func DefaultP2PConfig() *P2PConfig {
 		RecvRate:                5120000, // 5 mB/s
 		PexReactor:              true,
 		AllowDuplicateIP:        false,
-		HandshakeTimeout:        20 * time.Second,
+		HandshakeTimeout:        5 * time.Second,
 		DialTimeout:             3 * time.Second,
 		TestDialFail:            false,
 		QueueType:               "simple-priority",

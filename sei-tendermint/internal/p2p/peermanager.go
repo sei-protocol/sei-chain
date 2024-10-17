@@ -25,7 +25,7 @@ import (
 const (
 	// retryNever is returned by retryDelay() when retries are disabled.
 	retryNever time.Duration = math.MaxInt64
-	// DefaultScore is the default score for a peer during initialization
+	// DefaultMutableScore is the default score for a peer during initialization
 	DefaultMutableScore int64 = 10
 )
 
@@ -101,6 +101,9 @@ type PeerManagerOptions struct {
 	// Peers to which a connection will be (re)established ignoring any existing limits
 	UnconditionalPeers []types.NodeID
 
+	// Only include those peers for block sync
+	BlockSyncPeers []types.NodeID
+
 	// MaxPeers is the maximum number of peers to track information about, i.e.
 	// store in the peer store. When exceeded, the lowest-scored unconnected peers
 	// will be deleted. 0 means no limit.
@@ -157,6 +160,9 @@ type PeerManagerOptions struct {
 
 	// List of node IDs, to which a connection will be (re)established ignoring any existing limits
 	unconditionalPeers map[types.NodeID]struct{}
+
+	// blocksyncPeers provides fast blocksyncPeers lookups.
+	blocksyncPeers map[types.NodeID]bool
 }
 
 // Validate validates the options.
@@ -217,6 +223,13 @@ func (o *PeerManagerOptions) isPersistent(id types.NodeID) bool {
 	return o.persistentPeers[id]
 }
 
+func (o *PeerManagerOptions) isBlockSync(id types.NodeID) bool {
+	if o.blocksyncPeers == nil {
+		panic("isBlockSync() called before optimize()")
+	}
+	return o.blocksyncPeers[id]
+}
+
 func (o *PeerManagerOptions) isUnconditional(id types.NodeID) bool {
 	if o.unconditionalPeers == nil {
 		panic("isUnconditional() called before optimize()")
@@ -232,6 +245,11 @@ func (o *PeerManagerOptions) optimize() {
 	o.persistentPeers = make(map[types.NodeID]bool, len(o.PersistentPeers))
 	for _, p := range o.PersistentPeers {
 		o.persistentPeers[p] = true
+	}
+
+	o.blocksyncPeers = make(map[types.NodeID]bool, len(o.BlockSyncPeers))
+	for _, p := range o.BlockSyncPeers {
+		o.blocksyncPeers[p] = true
 	}
 
 	o.unconditionalPeers = make(map[types.NodeID]struct{}, len(o.UnconditionalPeers))
@@ -367,6 +385,9 @@ func (m *PeerManager) configurePeers() error {
 	for _, id := range m.options.UnconditionalPeers {
 		configure[id] = true
 	}
+	for _, id := range m.options.BlockSyncPeers {
+		configure[id] = true
+	}
 	for id := range m.options.PeerScores {
 		configure[id] = true
 	}
@@ -384,6 +405,7 @@ func (m *PeerManager) configurePeers() error {
 func (m *PeerManager) configurePeer(peer peerInfo) peerInfo {
 	peer.Persistent = m.options.isPersistent(peer.ID)
 	peer.Unconditional = m.options.isUnconditional(peer.ID)
+	peer.BlockSync = m.options.isBlockSync(peer.ID)
 	peer.FixedScore = m.options.PeerScores[peer.ID]
 	return peer
 }
@@ -462,6 +484,10 @@ func (m *PeerManager) Add(address NodeAddress) (bool, error) {
 	}
 	m.dialWaker.Wake()
 	return true, nil
+}
+
+func (m *PeerManager) GetBlockSyncPeers() map[types.NodeID]bool {
+	return m.options.blocksyncPeers
 }
 
 // PeerRatio returns the ratio of peer addresses stored to the maximum size.
@@ -1318,6 +1344,7 @@ type peerInfo struct {
 	// These fields are ephemeral, i.e. not persisted to the database.
 	Persistent    bool
 	Unconditional bool
+	BlockSync     bool
 	Seed          bool
 	Height        int64
 	FixedScore    PeerScore // mainly for tests
@@ -1388,7 +1415,7 @@ func (p *peerInfo) Score() PeerScore {
 	}
 
 	score := p.MutableScore
-	if p.Persistent {
+	if p.Persistent || p.BlockSync {
 		score = int64(PeerScorePersistent)
 	}
 

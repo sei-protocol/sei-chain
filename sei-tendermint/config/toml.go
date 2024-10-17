@@ -306,6 +306,9 @@ bootstrap-peers = "{{ .P2P.BootstrapPeers }}"
 # Comma separated list of nodes to keep persistent connections to
 persistent-peers = "{{ .P2P.PersistentPeers }}"
 
+# Comma separated list of nodes for block sync only
+blocksync-peers = "{{ .P2P.BlockSyncPeers }}"
+
 # UPNP port forwarding
 upnp = {{ .P2P.UPNP }}
 
