@@ -19,9 +19,9 @@ message CiphertextValidityProof {
   // Second commitment
   bytes commitment_2 = 2;
 
-  bytes challenge = 3;
-
+  // First response
   bytes response_1 = 4;
 
+  // Second response
   bytes response_2 = 5;
 }

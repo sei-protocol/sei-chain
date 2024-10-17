@@ -94,4 +94,25 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	assert.True(t, destinationCipherAmountHi.D.Equal(result.RecipientTransferAmountHi.D))
 	assert.True(t, remainingBalanceCiphertext.C.Equal(result.RemainingBalanceCommitment.C))
 	assert.True(t, remainingBalanceCiphertext.D.Equal(result.RemainingBalanceCommitment.D))
+
+	// Make sure the proofs are valid
+	assert.True(t, zkproofs.VerifyCiphertextValidity(
+		sourceCiphertextAmountLoValidityProof,
+		sourceKeypair.PublicKey,
+		sourceCiphertextAmountLo))
+
+	assert.True(t, zkproofs.VerifyCiphertextValidity(
+		sourceCiphertextAmountHiValidityProof,
+		sourceKeypair.PublicKey,
+		sourceCiphertextAmountHi))
+
+	assert.True(t, zkproofs.VerifyCiphertextValidity(
+		destinationCipherAmountLoValidityProof,
+		destinationKeypair.PublicKey,
+		destinationCipherAmountLo))
+
+	assert.True(t, zkproofs.VerifyCiphertextValidity(
+		destinationCipherAmountHiValidityProof,
+		destinationKeypair.PublicKey,
+		destinationCipherAmountHi))
 }
