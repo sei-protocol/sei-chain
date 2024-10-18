@@ -659,7 +659,7 @@ func (m *PeerManager) Dialed(address NodeAddress) error {
 	if m.options.MaxConnected > 0 && m.NumConnected() >= int(m.options.MaxConnected) {
 		if upgradeFromPeer == "" || m.NumConnected() >=
 			int(m.options.MaxConnected)+int(m.options.MaxConnectedUpgrade) {
-			return fmt.Errorf("already connected to maximum number of peers")
+			return fmt.Errorf("dialed peer %q failed, is already connected to maximum number of peers", address.NodeID)
 		}
 	}
 
@@ -724,9 +724,9 @@ func (m *PeerManager) Accepted(peerID types.NodeID) error {
 		dupeConnectionErr := fmt.Errorf("can't accept, peer=%q is already connected", peerID)
 		return dupeConnectionErr
 	}
-	if m.options.MaxConnected > 0 &&
+	if !m.options.isUnconditional(peerID) && m.options.MaxConnected > 0 &&
 		m.NumConnected() >= int(m.options.MaxConnected)+int(m.options.MaxConnectedUpgrade) {
-		return fmt.Errorf("already connected to maximum number of peers")
+		return fmt.Errorf("accepted peer %q failed, already connected to maximum number of peers", peerID)
 	}
 
 	peer, ok := m.store.Get(peerID)
@@ -746,7 +746,7 @@ func (m *PeerManager) Accepted(peerID types.NodeID) error {
 	if m.options.MaxConnected > 0 && m.NumConnected() >= int(m.options.MaxConnected) {
 		upgradeFromPeer = m.findUpgradeCandidate(peer.ID, peer.Score())
 		if upgradeFromPeer == "" {
-			return fmt.Errorf("already connected to maximum number of peers")
+			return fmt.Errorf("upgrade peer %q failed, already connected to maximum number of peers", peer.ID)
 		}
 	}
 
