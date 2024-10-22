@@ -56,7 +56,7 @@ var Keys = sdk.NewKVStoreKeys(
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 	govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
 	evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
-	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey, "dex",
+	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
 )
 
 func NewMigrator(homeDir string, db dbm.DB) *Migrator {
