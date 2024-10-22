@@ -1,6 +1,6 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Uint128, Addr};
+use cosmwasm_std::{DepsMut, Deps, Env, MessageInfo, Response, Binary, StdResult, to_json_binary, Uint128, Addr, BankMsg, SubMsg};
 use cw721::{ContractInfoResponse, NftInfoResponse, TokensResponse, OperatorsResponse, NumTokensResponse};
 use cw2981_royalties::msg::{RoyaltiesInfoResponse, CheckRoyaltiesResponse};
 use cw2981_royalties::{Metadata as Cw2981Metadata, Extension as Cw2981Extension};
@@ -104,6 +104,12 @@ pub fn execute_send_single(
             msg,
         };
         res = res.add_message(send.into_cosmos_msg(&info, recipient.to_string())?)
+    } else if info.funds.len() > 0 {
+        let transfer_msg = BankMsg::Send {
+            to_address: recipient.to_string(),
+            amount: info.funds.to_vec(),
+        };
+        res.messages.push(SubMsg::new(transfer_msg));
     }
 
     let from = if let Some(from) = from {
@@ -145,6 +151,12 @@ pub fn execute_send_batch(
             msg,
         };
         res = res.add_message(send.into_cosmos_msg(&info, recipient.to_string())?);
+    } else if info.funds.len() > 0 {
+        let transfer_msg = BankMsg::Send {
+            to_address: recipient.to_string(),
+            amount: info.funds.to_vec(),
+        };
+        res.messages.push(SubMsg::new(transfer_msg));
     }
 
     let from = if let Some(from) = from {
