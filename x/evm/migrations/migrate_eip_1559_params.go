@@ -11,6 +11,7 @@ func MigrateEip1559Params(ctx sdk.Context, k *keeper.Keeper) error {
 	keeperParams.MaxDynamicBaseFeeUpwardAdjustment = types.DefaultParams().MaxDynamicBaseFeeUpwardAdjustment
 	keeperParams.MaxDynamicBaseFeeDownwardAdjustment = types.DefaultParams().MaxDynamicBaseFeeDownwardAdjustment
 	keeperParams.TargetGasUsedPerBlock = types.DefaultParams().TargetGasUsedPerBlock
+	keeperParams.MinimumFeePerGas = types.DefaultParams().MinimumFeePerGas
 	k.SetParams(ctx, keeperParams)
 	return nil
 }

@@ -32,17 +32,15 @@ type AllowanceResponse struct {
 	Expires   json.RawMessage `json:"expires"`
 }
 
-func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.Tx, checksum [32]byte, response abci.ResponseDeliverTx) {
-	if response.Code > 0 {
-		return
-	}
+func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.Tx, checksum [32]byte, response sdk.DeliverTxHookInput) {
+	// hooks will only be called if DeliverTx is successful
 	wasmEvents := GetEventsOfType(response, wasmtypes.WasmModuleEventType)
 	if len(wasmEvents) == 0 {
 		return
 	}
 	logs := []*ethtypes.Log{}
-	wasmGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx)
-	queryCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmGasLimit))
+	// wasmGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx)
+	queryCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
 	for _, wasmEvent := range wasmEvents {
 		contractAddr, found := GetAttributeValue(wasmEvent, wasmtypes.AttributeKeyContractAddr)
 		if !found {
@@ -283,7 +281,7 @@ func (app *App) GetEvmAddressAttribute(ctx sdk.Context, event abci.Event, attrib
 	return EmptyHash
 }
 
-func GetEventsOfType(rdtx abci.ResponseDeliverTx, ty string) (res []abci.Event) {
+func GetEventsOfType(rdtx sdk.DeliverTxHookInput, ty string) (res []abci.Event) {
 	for _, event := range rdtx.Events {
 		if event.Type == ty {
 			res = append(res, event)
