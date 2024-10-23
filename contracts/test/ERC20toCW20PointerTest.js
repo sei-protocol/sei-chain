@@ -204,21 +204,21 @@ describe("ERC20 to CW20 Pointer", function () {
                     const owner = accounts[0].evmAddress;
                     const spender = accounts[1].evmAddress;
                     const maxUint128 = new BigNumber("0xffffffffffffffffffffffffffffffff", 16);
-                    const tx = await pointer.approve(spender, maxUint128.toFixed());
+                    const tx = await pointer.approve(spender, maxUint128.toFixed(), { gasPrice: ethers.parseUnits('100', 'gwei') });
                     await tx.wait();
                     const allowance = await pointer.allowance(owner, spender);
                     expect(allowance).to.equal(maxUint128.toFixed());
 
                     // approving uint128 max int + 1 should work but only approve uint128
                     const maxUint128Plus1 = maxUint128.plus(1);
-                    const tx128plus1 = await pointer.approve(spender, maxUint128Plus1.toFixed());
+                    const tx128plus1 = await pointer.approve(spender, maxUint128Plus1.toFixed(), { gasPrice: ethers.parseUnits('100', 'gwei') });
                     await tx128plus1.wait();
                     const allowance128plus1 = await pointer.allowance(owner, spender);
                     expect(allowance128plus1).to.equal(maxUint128.toFixed());
 
                     // approving uint256 should also work but only approve uint128
                     const maxUint256 = new BigNumber("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 16);
-                    const tx256 = await pointer.approve(spender, maxUint256.toFixed());
+                    const tx256 = await pointer.approve(spender, maxUint256.toFixed(), { gasPrice: ethers.parseUnits('100', 'gwei') });
                     await tx256.wait();
                     const allowance256 = await pointer.allowance(owner, spender);
                     expect(allowance256).to.equal(maxUint128.toFixed());
@@ -244,7 +244,7 @@ describe("ERC20 to CW20 Pointer", function () {
                     expect(Number(allowanceBefore)).to.be.greaterThanOrEqual(amountToTransfer);
 
                     // transfer
-                    const tfTx = await pointer.connect(spender.signer).transferFrom(owner.evmAddress, recipient.evmAddress, amountToTransfer);
+                    const tfTx = await pointer.connect(spender.signer).transferFrom(owner.evmAddress, recipient.evmAddress, amountToTransfer, { gasPrice: ethers.parseUnits('100', 'gwei') });
                     const receipt = await tfTx.wait();
 
                     // capture balances after
