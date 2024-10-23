@@ -280,12 +280,13 @@ describe("ERC20 to CW20 Pointer", function () {
                     const owner = accounts[0];
                     const spender = accounts[1];
 
-                    const tx = await pointer.approve(spender.evmAddress, 10);
+                    const tx = await pointer.approve(spender.evmAddress, 10, { gasPrice: ethers.parseUnits('100', 'gwei') });
                     await tx.wait();
 
-                    await expect(pointer.connect(spender.signer).transferFrom(owner.evmAddress, recipient.evmAddress, 20)).to.be.revertedWith("CosmWasm execute failed");
+                    await expect(pointer.connect(spender.signer).transferFrom(owner.evmAddress, recipient.evmAddress, 20, { gasPrice: ethers.parseUnits('100', 'gwei') })).to.be.revertedWith("CosmWasm execute failed");
                     // put it back
-                    await (await pointer.approve(spender.evmAddress, 0)).wait()
+                    await (await pointer.approve(spender.evmAddress, 0, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait()
+                });
                 });
             });
         });
