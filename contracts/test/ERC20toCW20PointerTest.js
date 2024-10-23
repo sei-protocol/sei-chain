@@ -287,7 +287,6 @@ describe("ERC20 to CW20 Pointer", function () {
                     // put it back
                     await (await pointer.approve(spender.evmAddress, 0, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait()
                 });
-                });
             });
         });
     }
