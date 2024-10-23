@@ -194,7 +194,7 @@ describe("ERC20 to CW20 Pointer", function () {
                 it("should lower approval", async function () {
                     const owner = accounts[0].evmAddress;
                     const spender = accounts[1].evmAddress;
-                    const tx = await pointer.approve(spender, 0);
+                    const tx = await pointer.approve(spender, 0, { gasPrice: ethers.parseUnits('100', 'gwei') });
                     await tx.wait();
                     const allowance = await pointer.allowance(owner, spender);
                     expect(Number(allowance)).to.equal(0);
