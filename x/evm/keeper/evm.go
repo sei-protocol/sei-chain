@@ -32,7 +32,7 @@ func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEV
 	}
 	senderAddr, err := sdk.AccAddressFromBech32(req.Sender)
 	if err != nil {
-		return nil, err
+		return nil, types.ErrInvalidBech32
 	}
 	ret, err := k.CallEVM(ctx, k.GetEVMAddressOrDefault(ctx, senderAddr), to, req.Value, req.Data)
 	if err != nil {
@@ -75,10 +75,10 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 
 func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Address, val *sdk.Int, data []byte) (retdata []byte, reterr error) {
 	if ctx.IsEVM() && !ctx.EVMEntryViaWasmdPrecompile() {
-		return nil, errors.New("sei does not support EVM->CW->EVM call pattern")
+		return nil, types.ErrMoreThanOneHop
 	}
 	if to == nil && len(data) > params.MaxInitCodeSize {
-		return nil, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
+		return nil, sdkerrors.Wrap(types.ErrMaxInitCodeSize, fmt.Sprintf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize))
 	}
 	value := utils.Big0
 	if val != nil {
@@ -105,15 +105,15 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	}
 	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
 	if err != nil {
-		return nil, err
+		return nil, sdkerrors.Wrap(types.ErrEVMExecution, err.Error())
 	}
 	k.consumeEvmGas(ctx, res.UsedGas)
 	if res.Err != nil {
-		return nil, res.Err
+		return nil, sdkerrors.Wrap(types.ErrResult, res.Err.Error())
 	}
 	surplus, err := stateDB.Finalize()
 	if err != nil {
-		return nil, err
+		return nil, sdkerrors.Wrap(types.ErrFinalizeState, err.Error())
 	}
 	vmErr := ""
 	if res.Err != nil {
@@ -138,7 +138,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	}
 	receipt, err := k.WriteReceipt(ctx, stateDB, evmMsg, ethtypes.LegacyTxType, ctx.TxSum(), res.UsedGas, vmErr)
 	if err != nil {
-		return nil, err
+		return nil, sdkerrors.Wrap(types.ErrWriteReceipt, err.Error())
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
@@ -165,7 +165,7 @@ func (k *Keeper) callEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	ret, leftoverGas, err := f(vm.AccountRef(from), to, data, evmGasLimit, value)
 	k.consumeEvmGas(ctx, evmGasLimit-leftoverGas)
 	if err != nil {
-		return nil, err
+		return nil, sdkerrors.Wrap(types.ErrEVMExecution, err.Error())
 	}
 	return ret, nil
 }
