@@ -27,6 +27,25 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.0.0
+sei-chain
+* https://github.com/sei-protocol/sei-chain/pull/1890/files?
+* [#1889](https://github.com/sei-protocol/sei-chain/pull/1889) Fix amino registry for custom modules
+* [#1888](https://github.com/sei-protocol/sei-chain/pull/1888) Set EIP-1559 default values
+* [#1884](https://github.com/sei-protocol/sei-chain/pull/1884) Update gas tip cap param range
+* [#1878](https://github.com/sei-protocol/sei-chain/pull/1878) Add endpoint to estimate gas after simulating calls
+
+sei-cosmos
+* [#538](https://github.com/sei-protocol/sei-cosmos/pull/538) Token allowlist feature
+
+sei-tendermint
+* [#245](https://github.com/sei-protocol/sei-tendermint/pull/245) Exclude unconditional peers when connection limit checking
+* [#244](https://github.com/sei-protocol/sei-tendermint/pull/244) Add new config to speed up block sync
+
+sei-db
+* [#75](https://github.com/sei-protocol/sei-db/pull/75) Online archive node migration
+
+
 ## v5.9.0
 sei-chain
 * [#1867](https://github.com/sei-protocol/sei-chain/pull/1867) Add synthetic events in separate sei endpoints
@@ -38,7 +57,8 @@ sei-chain
 * [#1844](https://github.com/sei-protocol/sei-chain/pull/1844) Allowlist for token extensions
 
 sei-iavl
-*[#41](https://github.com/sei-protocol/sei-iavl/pull/41) Fix tree versions causing slow restart and OOM
+* [#41](https://github.com/sei-protocol/sei-iavl/pull/41) Fix tree versions causing slow restart and OOM
+
 ## v5.8.0
 sei-chain
 * [#1840](https://github.com/sei-protocol/sei-chain/pull/1840) Add migration for new params
