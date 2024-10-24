@@ -29,7 +29,11 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.0.0
 sei-chain
+<<<<<<< HEAD
 * [#1905](https://github.com/sei-protocol/sei-chain/pull/1905) Use limited wasm gas meter
+=======
+* https://github.com/sei-protocol/sei-chain/pull/1890/files?
+>>>>>>> 7215c653 (bump tm, seidb)
 * [#1889](https://github.com/sei-protocol/sei-chain/pull/1889) Fix amino registry for custom modules
 * [#1888](https://github.com/sei-protocol/sei-chain/pull/1888) Set EIP-1559 default values
 * [#1884](https://github.com/sei-protocol/sei-chain/pull/1884) Update gas tip cap param range
@@ -39,7 +43,10 @@ sei-cosmos
 * [#538](https://github.com/sei-protocol/sei-cosmos/pull/538) Token allowlist feature
 
 sei-tendermint
+<<<<<<< HEAD
 * [#247](https://github.com/sei-protocol/sei-tendermint/pull/247) Fix handshake and dial timeout
+=======
+>>>>>>> 7215c653 (bump tm, seidb)
 * [#245](https://github.com/sei-protocol/sei-tendermint/pull/245) Exclude unconditional peers when connection limit checking
 * [#244](https://github.com/sei-protocol/sei-tendermint/pull/244) Add new config to speed up block sync
 
