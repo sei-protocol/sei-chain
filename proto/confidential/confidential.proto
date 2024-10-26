@@ -1,0 +1,17 @@
+syntax = "proto3";
+package seiprotocol.seichain.confidential;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/confidential/types";
+
+
+// CtAccount represents an confidential account state
+message CtAccount {
+  bytes  public_key = 1;  // serialized public key
+  bytes  pending_balance_lo = 2;    // lo bits of the pending balance TODO: Use Ciphertext
+  bytes  pending_balance_hi = 3; // hi bits of the pending balance TODO: Use Ciphertext
+  uint32   pending_balance_credit_counter = 4;
+  bytes   available_balance = 5; // elgamal encoded balance TODO: Use Ciphertext
+  string   decryptable_available_balance = 6; // aes encoded balance
+}
