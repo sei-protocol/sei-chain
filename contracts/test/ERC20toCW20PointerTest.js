@@ -165,9 +165,9 @@ describe("ERC20 to CW20 Pointer", function () {
                 it("should approve", async function () {
                     const owner = accounts[0].evmAddress;
                     const spender = accounts[1].evmAddress;
-                    const blockNumber = await ethers.provider.getBlockNumber();
                     const tx = await pointer.approve(spender, 1000000);
                     const receipt = await tx.wait();
+                    const blockNumber = await receipt.blockNumber;
                     const allowance = await pointer.allowance(owner, spender);
                     expect(Number(allowance)).to.equal(1000000);
 
