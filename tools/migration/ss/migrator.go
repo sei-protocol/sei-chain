@@ -117,10 +117,15 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 	startTimeTotal := time.Now() // Start measuring total time
 
 	var batchLeafNodeCount int
+	startModuleFound := startModule == "" // true if no start module specified
 
 	for _, module := range modules {
-		if module != startModule && startModule != "" {
-			continue
+		if !startModuleFound {
+			if module == startModule {
+				startModuleFound = true
+			} else {
+				continue
+			}
 		}
 		startTimeModule := time.Now() // Measure time for each module
 		fmt.Printf("SeiDB Archive Migration: Iterating through %s module...\n", module)
