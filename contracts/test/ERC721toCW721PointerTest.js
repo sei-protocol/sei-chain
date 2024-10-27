@@ -83,7 +83,7 @@ describe("ERC721 to CW721 Pointer", function () {
     describe("write", function(){
         it("approve", async function () {
             const blockNumber = await ethers.provider.getBlockNumber();
-            const approvedTxResp = await pointerAcc0.approve(accounts[1].evmAddress, 2)
+            const approvedTxResp = await pointerAcc0.approve(accounts[1].evmAddress, 2, { gasPrice: ethers.parseUnits('100', 'gwei') })
             await approvedTxResp.wait()
             const approved = await pointerAcc0.getApproved(2); 
             expect(approved).to.equal(accounts[1].evmAddress);
@@ -113,7 +113,7 @@ describe("ERC721 to CW721 Pointer", function () {
         });
 
         it("cannot approve token you don't own", async function () {
-            await expect(pointerAcc0.approve(accounts[1].evmAddress, 1)).to.be.reverted;
+            await expect(pointerAcc0.approve(accounts[1].evmAddress, 1, { gasPrice: ethers.parseUnits('100', 'gwei') })).to.be.reverted;
         });
 
         it("transfer from", async function () {
@@ -147,9 +147,9 @@ describe("ERC721 to CW721 Pointer", function () {
             expect(balance1).to.equal(2);
 
             // do same for eth_getBlockReceipts and sei_getBlockReceipts
-            const ethBlockReceipts = await ethers.provider.send('eth_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
+            const ethBlockReceipts = await ethers.provider.send('eth_getBlockReceipts', ['0x' + receipt.blockNumber.toString(16)]);
             expect(ethBlockReceipts.length).to.equal(1);
-            const seiBlockReceipts = await ethers.provider.send('sei_getBlockReceipts', ['0x' + blockNumber.toString(16)]);
+            const seiBlockReceipts = await ethers.provider.send('sei_getBlockReceipts', ['0x' + receipt.blockNumber.toString(16)]);
             expect(seiBlockReceipts.length).to.equal(1);
 
             const ethTx = await ethers.provider.send('eth_getTransactionReceipt', [receipt.hash]);
@@ -165,11 +165,11 @@ describe("ERC721 to CW721 Pointer", function () {
         });
 
         it("cannot transfer token you don't own", async function () {
-            await expect(pointerAcc0.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 3)).to.be.reverted;
+            await expect(pointerAcc0.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 3, { gasPrice: ethers.parseUnits('100', 'gwei') })).to.be.reverted;
         });
 
         it("set approval for all", async function () {
-            const setApprovalForAllTxResp = await pointerAcc0.setApprovalForAll(accounts[1].evmAddress, true);
+            const setApprovalForAllTxResp = await pointerAcc0.setApprovalForAll(accounts[1].evmAddress, true, { gasPrice: ethers.parseUnits('100', 'gwei') });
             await setApprovalForAllTxResp.wait();
             await expect(setApprovalForAllTxResp)
                 .to.emit(pointerAcc0, 'ApprovalForAll')
