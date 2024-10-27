@@ -121,13 +121,14 @@ describe("ERC721 to CW721 Pointer", function () {
             await mine(pointerAcc0.approve(accounts[1].evmAddress, 2));
             transferTxResp = await pointerAcc1.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 2);
             const receipt = await transferTxResp.wait();
+            const blockNumber = receipt.blockNumber;
+
             const filter = {
                 fromBlock: '0x' + blockNumber.toString(16),
                 toBlock: 'latest',
                 address: await pointerAcc1.getAddress(),
                 topics: [ethers.id("Transfer(address,address,uint256)")]
             };
-            const blockNumber = receipt.blockNumber;
             // send via eth_ endpoint - synthetic event doesn't show up
             const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
             expect(ethlogs.length).to.equal(1);
