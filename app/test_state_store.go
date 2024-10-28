@@ -17,6 +17,26 @@ type InMemoryStateStore struct {
 	earliestVersion int64
 }
 
+func (s *InMemoryStateStore) GetLatestMigratedKey() ([]byte, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (s *InMemoryStateStore) SetLatestMigratedKey(key []byte) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (s *InMemoryStateStore) GetLatestMigratedModule() (string, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (s *InMemoryStateStore) SetLatestMigratedModule(module string) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 func NewInMemoryStateStore() *InMemoryStateStore {
 	return &InMemoryStateStore{
 		data:            make(map[string]map[int64]map[string][]byte),

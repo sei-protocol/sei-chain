@@ -29,7 +29,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.0.0
 sei-chain
-* https://github.com/sei-protocol/sei-chain/pull/1890/files?
+* [#1905](https://github.com/sei-protocol/sei-chain/pull/1905) Use limited wasm gas meter
 * [#1889](https://github.com/sei-protocol/sei-chain/pull/1889) Fix amino registry for custom modules
 * [#1888](https://github.com/sei-protocol/sei-chain/pull/1888) Set EIP-1559 default values
 * [#1884](https://github.com/sei-protocol/sei-chain/pull/1884) Update gas tip cap param range
