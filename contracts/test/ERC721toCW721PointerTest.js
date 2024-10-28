@@ -2,6 +2,7 @@ const {setupSigners, deployErc721PointerForCw721, getAdmin, deployWasm,  execute
     registerPointerForERC721
 } = require("./lib");
 const {expect} = require("chai");
+const {ethers} = require("ethers");
 
 const CW721_BASE_WASM_LOCATION = "../contracts/wasm/cw721_base.wasm";
 
@@ -119,10 +120,9 @@ describe("ERC721 to CW721 Pointer", function () {
         it("transfer from", async function () {
             // accounts[0] should transfer token id 2 to accounts[1]
             await mine(pointerAcc0.approve(accounts[1].evmAddress, 2));
-            transferTxResp = await pointerAcc1.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 2);
+            const blockNumber = await ethers.provider.getBlockNumber();
+            transferTxResp = await pointerAcc1.transferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 2, { gasPrice: ethers.parseUnits('100', 'gwei') });
             const receipt = await transferTxResp.wait();
-            const blockNumber = receipt.blockNumber;
-
             const filter = {
                 fromBlock: '0x' + blockNumber.toString(16),
                 toBlock: 'latest',
