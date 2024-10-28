@@ -2,7 +2,6 @@ const {setupSigners, deployErc721PointerForCw721, getAdmin, deployWasm,  execute
     registerPointerForERC721
 } = require("./lib");
 const {expect} = require("chai");
-const {ethers} = require("ethers");
 
 const CW721_BASE_WASM_LOCATION = "../contracts/wasm/cw721_base.wasm";
 
