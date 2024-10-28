@@ -14,7 +14,8 @@ The overall process will work as follows:
 3. Note down MIGRATION_HEIGHT
 4. Re start seid with `--migrate-iavl` enabled (migrating state store in background)
 5. Verify migration at various sampled heights once state store is complete
-6. Stop seid, clear out iavl and restart seid normally, now only using SeiDB fully
+6. Restart seid normally and verify node runs properly
+7. Clear out iavl and restart seid normally, now only using SeiDB fully
 
 You may need to ensure you have sufficient disk space available, as during the migration process, both IAVL and SeiDB state stores will need to be maintained simultaneously. This could potentially double your storage requirements temporarily.
 
@@ -138,9 +139,21 @@ seid tools verify-migration --version $VERIFICATION_HEIGHT
 This will output `Verification Succeeded` if the verification was successful.
 
 
-### Step 6: Clear out Iavl and restart seid
-Once the verification is complete, we can proceed to clear out the iavl and
-restart seid normally.
+### Step 6: Restart seid normally and verify node runs properly
+Once the verification has completed, we can restart seid normally and verify
+that the node operates.
+
+```bash
+seid start --chain-id pacific-1
+```
+
+Note how we are not using the `--migrate-iavl` and `--migration-height` flags.
+We can let this run for a couple hours and verify node oeprates normally.
+
+
+### Step 7: Clear out Iavl and restart seid
+Once it has been confirmed that the node has been running normally,
+we can proceed to clear out the iavl and restart seid normally.
 
 ```bash
 systemctl stop seid
