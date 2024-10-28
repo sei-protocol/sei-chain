@@ -18,23 +18,23 @@ type InMemoryStateStore struct {
 }
 
 func (s *InMemoryStateStore) GetLatestMigratedKey() ([]byte, error) {
-	//TODO implement me
-	panic("implement me")
+	// TODO: Add get call here
+	return nil, nil
 }
 
 func (s *InMemoryStateStore) SetLatestMigratedKey(key []byte) error {
-	//TODO implement me
-	panic("implement me")
+	// TODO: Add set call here
+	return nil
 }
 
 func (s *InMemoryStateStore) GetLatestMigratedModule() (string, error) {
-	//TODO implement me
-	panic("implement me")
+	// TODO: Add get call here
+	return "", nil
 }
 
 func (s *InMemoryStateStore) SetLatestMigratedModule(module string) error {
-	//TODO implement me
-	panic("implement me")
+	// TODO: Add set call here
+	return nil
 }
 
 func NewInMemoryStateStore() *InMemoryStateStore {
