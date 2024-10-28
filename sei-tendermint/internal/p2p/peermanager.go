@@ -553,7 +553,7 @@ func (m *PeerManager) TryDialNext() (NodeAddress, error) {
 
 			// We now have an eligible address to dial. If we're full but have
 			// upgrade capacity (as checked above), we find a lower-scored peer
-			// we can replace and mark it as upgrading so noone else claims it.
+			// we can replace and mark it as upgrading so no one else claims it.
 			//
 			// If we don't find one, there is no point in trying additional
 			// peers, since they will all have the same or lower score than this
@@ -567,6 +567,7 @@ func (m *PeerManager) TryDialNext() (NodeAddress, error) {
 			}
 
 			m.dialing[peer.ID] = true
+			m.logger.Info(fmt.Sprintf("Going to dial peer %s with address %s", peer.ID, addressInfo.Address))
 			return addressInfo.Address, nil
 		}
 	}
