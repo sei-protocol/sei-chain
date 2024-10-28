@@ -14,6 +14,9 @@ const (
 	// StoreKey is the string store representation
 	StoreKey = ModuleName
 
+	// StoreKey is the string store representation
+	MemStoreKey = "oracle_mem"
+
 	// RouterKey is the msg router key for the oracle module
 	RouterKey = ModuleName
 
@@ -44,6 +47,7 @@ var (
 	AggregateExchangeRateVoteKey = []byte{0x05} // prefix for each key to a aggregate vote
 	VoteTargetKey                = []byte{0x06} // prefix for each key to a vote target
 	PriceSnapshotKey             = []byte{0x07} // key for price snapshots history
+	SpamPreventionCounter        = []byte{0x08} // key for spam prevention counter
 )
 
 // GetExchangeRateKey - stored by *denom*
@@ -64,6 +68,11 @@ func GetVotePenaltyCounterKey(v sdk.ValAddress) []byte {
 // GetAggregateExchangeRateVoteKey - stored by *Validator* address
 func GetAggregateExchangeRateVoteKey(v sdk.ValAddress) []byte {
 	return append(AggregateExchangeRateVoteKey, address.MustLengthPrefix(v)...)
+}
+
+// GetSpamPreventionCounterKey - stored by *Validator* address
+func GetSpamPreventionCounterKey(v sdk.ValAddress) []byte {
+	return append(SpamPreventionCounter, address.MustLengthPrefix(v)...)
 }
 
 func GetVoteTargetKey(d string) []byte {

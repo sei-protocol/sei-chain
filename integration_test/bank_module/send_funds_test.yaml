@@ -6,12 +6,37 @@
       env: ADMIN_ACC
     - cmd: seid keys show -a bank-test --keyring-backend test
       env: BANK_TEST_ACC
+    - cmd: seid q block | jq -r ".block.header.height"
+      env: BEGINNING_BLOCK_HEIGHT
+    - cmd: seid q bank balances $ADMIN_ACC --denom usei --output json | jq -r .amount
+      env: BEGINNING_ADMIN_BALANCE
     # Send funds
-    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ACC $BANK_TEST_ACC 1sei -b block --fees 2000usei --chain-id sei -y
-    # Validate
-    - cmd: seid q bank balances $BANK_TEST_ACC --output json | jq -r .balances[0].amount
-      env: BANK_TEST_BAL
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ACC $BANK_TEST_ACC 1sei -b block --fees 2000usei --chain-id sei -y --output json |jq -r ".height"
+      env: TX_HEIGHT_1
+    # Sleep 10s to let chain progress
+    - cmd: sleep 10
+    # Send more funds
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ACC $BANK_TEST_ACC 1sei -b block --fees 2000usei --chain-id sei -y --output json |jq -r ".height"
+      env: TX_HEIGHT_2
+    # Get bank balance at first height
+    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $TX_HEIGHT_1 --output json | jq -r .amount
+      env: FIRST_HISTORICAL_BANK_BAL
+    # Get bank balance at second height
+    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $TX_HEIGHT_2 --output json | jq -r .amount
+      env: SECOND_HISTORICAL_BANK_BAL
+    # Get bank balance at second height - 1
+    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $((TX_HEIGHT_2 - 1)) --output json | jq -r .amount
+      env: BALANCE_BEFORE_SECOND_HEIGHT
+    # Get bank balance for latest height
+    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --output json | jq -r .amount
+      env: LATEST_BANK_BALANCE
   verifiers:
     # Bank balance should be 1sei
     - type: eval
-      expr: BANK_TEST_BAL == 1000000
+      expr: FIRST_HISTORICAL_BANK_BAL == 1000000
+    - type: eval
+      expr: SECOND_HISTORICAL_BANK_BAL == 2000000
+    - type: eval
+      expr: BALANCE_BEFORE_SECOND_HEIGHT == 1000000
+    - type: eval
+      expr: LATEST_BANK_BALANCE == 2000000

@@ -13,19 +13,11 @@ import (
 )
 
 func TestGateProvider_GetTickerPrices(t *testing.T) {
-	// use mock provider server
-	server := NewMockProviderServer()
-	server.Start()
-	defer server.Close()
 
 	p, err := NewGateProvider(
 		context.TODO(),
 		zerolog.Nop(),
-		config.ProviderEndpoint{
-			Name:      config.ProviderGate,
-			Rest:      "",
-			Websocket: server.GetBaseURL(),
-		},
+		config.ProviderEndpoint{},
 		types.CurrencyPair{Base: "ATOM", Quote: "USDT"},
 	)
 	require.NoError(t, err)
@@ -83,26 +75,16 @@ func TestGateProvider_GetTickerPrices(t *testing.T) {
 
 	t.Run("invalid_request_invalid_ticker", func(t *testing.T) {
 		prices, err := p.GetTickerPrices(types.CurrencyPair{Base: "FOO", Quote: "BAR"})
-		require.Error(t, err)
-		require.Equal(t, "gate provider failed to get ticker price for FOO_BAR", err.Error())
-		require.Nil(t, prices)
+		require.NoError(t, err)
+		require.Zero(t, len(prices))
 	})
 }
 
 func TestGateProvider_SubscribeCurrencyPairs(t *testing.T) {
-	// // use mock provider server
-	server := NewMockProviderServer()
-	server.Start()
-	defer server.Close()
-
 	p, err := NewGateProvider(
 		context.TODO(),
 		zerolog.Nop(),
-		config.ProviderEndpoint{
-			Name:      config.ProviderGate,
-			Rest:      "",
-			Websocket: server.GetBaseURL(),
-		},
+		config.ProviderEndpoint{},
 		types.CurrencyPair{Base: "ATOM", Quote: "USDT"},
 	)
 	require.NoError(t, err)

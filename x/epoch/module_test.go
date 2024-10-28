@@ -1,6 +1,8 @@
 package epoch_test
 
 import (
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"testing"
 	"time"
 
@@ -16,7 +18,7 @@ import (
 func TestBasic(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false)
+	app := app.Setup(false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,
@@ -35,10 +37,26 @@ func TestBasic(t *testing.T) {
 	require.Equal(t, appModule.EndBlock(ctx, abci.RequestEndBlock{}), []abci.ValidatorUpdate{})
 }
 
+// This test is just to make sure that the routes can be added without crashing
+func TestRoutesAddition(t *testing.T) {
+	testApp := app.Setup(false, false)
+	appModule := epoch.NewAppModule(
+		testApp.AppCodec(),
+		testApp.EpochKeeper,
+		testApp.AccountKeeper,
+		testApp.BankKeeper,
+	)
+
+	mux := runtime.NewServeMux()
+	appModule.RegisterGRPCGatewayRoutes(client.Context{}, mux)
+
+	require.NotNil(t, appModule)
+}
+
 func TestExportGenesis(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false)
+	app := app.Setup(false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,
@@ -62,7 +80,7 @@ func hasEventType(ctx sdk.Context, eventType string) bool {
 func TestBeginBlock(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false)
+	app := app.Setup(false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,

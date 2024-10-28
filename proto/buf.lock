@@ -2,18 +2,12 @@
 version: v1
 deps:
   - remote: buf.build
-    owner: cosmos
-    repository: cosmos-proto
-    commit: 1935555c206d4afb9e94615dfd0fad31
-  - remote: buf.build
-    owner: cosmos
+    owner: sei-protocol
     repository: cosmos-sdk
-    commit: ba6f49b203494db3b1056dc6c717f287
+    commit: 3d29d814d0f9416a83a1db65d5ef4b9b
+    digest: shake256:a28bddd252a07da38e1aa523a957e8fa837a92531090dce461e5b588716669688df8eb855a8e441f8edac0dfac6b59a16c6b07d8f23f5252af6a5db25684f5c9
   - remote: buf.build
-    owner: cosmos
-    repository: gogo-proto
-    commit: bee5511075b7499da6178d9e4aaa628b
-  - remote: buf.build
-    owner: googleapis
-    repository: googleapis
-    commit: cf209eca30404c41a80fec3caba9903f
+    owner: sei-protocol
+    repository: third-party
+    commit: ec63a6f27ea04039953185599c21efc2
+    digest: shake256:a4e513745f8b44d28ab1fe93e633424b8dc7f6275bcab228376fbf27b8dafc08360bcae8255c1d65339db5d4f38665273fa844302b6e048f992929dbdc919a5e

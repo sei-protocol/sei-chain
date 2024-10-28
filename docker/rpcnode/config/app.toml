@@ -201,3 +201,68 @@ query_gas_limit = 300000
 # This is the number of wasm vm instances we keep cached in memory for speed-up
 # Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
 lru_size = 0
+
+###############################################################################
+###                             SeiDB Configuration                       ###
+###############################################################################
+
+[state-commit]
+
+# Enable defines if the state-commit (memiavl) should be enabled to override existing IAVL db backend.
+sc-enable = true
+
+# ZeroCopy defines if memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
+# the zero-copied slices must not be retained beyond current block's execution.
+# the sdk address cache will be disabled if zero-copy is enabled.
+sc-zero-copy = false
+
+# AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
+# performance, <=0 means synchronous commit.
+sc-async-commit-buffer = 100
+
+# SnapshotKeepRecent defines how many state-commit snapshots (besides the latest one) to keep
+# defaults to 1 to make sure ibc relayers work.
+sc-keep-recent = 1
+
+# SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.
+sc-snapshot-interval = 1000
+
+# SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
+sc-snapshot-writer-limit = 2
+
+# CacheSize defines the size of the LRU cache for each store on top of the tree, default to 100000.
+sc-cache-size = 1000
+
+[state-store]
+
+# Enable defines if the state-store should be enabled for historical queries.
+# In order to use state-store, you need to make sure to enable state-commit at the same time
+ss-enable = true
+
+# DBBackend defines the backend database used for state-store.
+# Supported backends: pebbledb, rocksdb, sqlite
+# defaults to pebbledb (recommended)
+ss-backend = "pebbledb"
+
+# AsyncWriteBuffer defines the async queue length for commits to be applied to State Store
+# Set <= 0 for synchronous writes, which means commits also need to wait for data to be persisted in State Store.
+# defaults to 100
+ss-async-write-buffer = 100
+
+# KeepRecent defines the number of versions to keep in state store
+# Setting it to 0 means keep everything, default to 0
+ss-keep-recent = 1000
+
+# PruneIntervalSeconds defines the minimum interval in seconds + some random delay to trigger pruning.
+# It is more efficient to trigger pruning less frequently with large interval.
+# default to 600 seconds
+ss-prune-interval = 60
+
+# ImportNumWorkers defines the concurrency for state sync import
+# defaults to 1
+ss-import-num-workers = 1
+
+[evm]
+
+# EnableTestAPI enables the EVM test API
+enable_test_api = true

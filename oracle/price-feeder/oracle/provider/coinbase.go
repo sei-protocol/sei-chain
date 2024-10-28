@@ -150,7 +150,8 @@ func (p *CoinbaseProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[str
 	for _, currencyPair := range pairs {
 		price, err := p.getTickerPrice(currencyPair)
 		if err != nil {
-			return nil, err
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch tickers for pair ", currencyPair))
+			continue
 		}
 
 		tickerPrices[currencyPair.String()] = price
@@ -168,7 +169,8 @@ func (p *CoinbaseProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[str
 		key := currencyPairToCoinbasePair(cp)
 		tradeSet, err := p.getTradePrices(key)
 		if err != nil {
-			return nil, err
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch candles for pair ", cp))
+			continue
 		}
 		tradeMap[key] = tradeSet
 	}
@@ -287,11 +289,7 @@ func (p *CoinbaseProvider) subscribe(cps ...types.CurrencyPair) error {
 	}
 
 	tickerMsg := newCoinbaseSubscription(topics...)
-	if err := p.subscribePairs(tickerMsg); err != nil {
-		return err
-	}
-
-	return nil
+	return p.subscribePairs(tickerMsg)
 }
 
 // subscribedPairsToSlice returns the map of subscribed pairs as a slice.
@@ -518,7 +516,7 @@ func (p *CoinbaseProvider) ping() error {
 	return p.wsClient.WriteMessage(websocket.PingMessage, ping)
 }
 
-func (p *CoinbaseProvider) pongHandler(appData string) error {
+func (p *CoinbaseProvider) pongHandler(_ string) error {
 	p.resetReconnectTimer()
 	return nil
 }

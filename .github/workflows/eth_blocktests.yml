@@ -1,0 +1,55 @@
+name: ETH Blocktests
+
+on:
+  push:
+    branches:
+      - main
+      - seiv2
+  pull_request:
+    branches:
+      - main
+      - seiv2
+
+defaults:
+ run:
+  shell: bash
+
+env:
+  TOTAL_RUNNERS: 5
+
+jobs:
+  runner-indexes:
+    runs-on: ubuntu-latest
+    name: Generate runner indexes
+    outputs:
+      json: ${{ steps.generate-index-list.outputs.json }}
+    steps:
+      - id: generate-index-list
+        run: |
+          MAX_INDEX=$((${{ env.TOTAL_RUNNERS }}-1))
+          INDEX_LIST=$(seq 0 ${MAX_INDEX})
+          INDEX_JSON=$(jq --null-input --compact-output '. |= [inputs]' <<< ${INDEX_LIST})
+          echo "json=${INDEX_JSON}" >> $GITHUB_OUTPUT
+
+  eth-blocktests:
+    name: "Run ETH Blocktests ${{ matrix.runner-index }}"
+    runs-on: ubuntu-latest
+    needs: runner-indexes
+    strategy:
+      fail-fast: false
+      matrix:
+        # generate runner index array from 0 to total-runners
+        runner-index: ${{fromJson(needs.runner-indexes.outputs.json)}}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.21
+
+      - name: Clone ETH Blocktests
+        run: git clone https://github.com/ethereum/tests.git ethtests
+
+      - name: "Run ETH Blocktest"
+        run: ./run_blocktests.sh ./ethtests/BlockchainTests/ ${{ matrix.runner-index }} ${{ env.TOTAL_RUNNERS }}

@@ -1,4 +1,4 @@
-package aclTokenFactorymapping_test
+package acltokenfactorymapping_test
 
 import (
 	"fmt"

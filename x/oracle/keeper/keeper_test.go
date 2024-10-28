@@ -25,27 +25,33 @@ func TestExchangeRate(t *testing.T) {
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
-	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
+	rate, lastUpdate, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
 	require.NoError(t, err)
 	require.Equal(t, cnyExchangeRate, rate)
 	require.Equal(t, sdk.ZeroInt(), lastUpdate)
 
 	input.Ctx = input.Ctx.WithBlockHeight(3)
+	ts := time.Now()
+	input.Ctx = input.Ctx.WithBlockTime(ts)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, gbpExchangeRate)
-	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	rate, lastUpdate, lastUpdateTimestamp, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.NoError(t, err)
 	require.Equal(t, gbpExchangeRate, rate)
 	require.Equal(t, sdk.NewInt(3), lastUpdate)
+	require.Equal(t, ts.UnixMilli(), lastUpdateTimestamp)
 
 	input.Ctx = input.Ctx.WithBlockHeight(15)
+	laterTS := ts.Add(time.Hour)
+	input.Ctx = input.Ctx.WithBlockTime(laterTS)
 
 	// verify behavior works with event too
 	input.OracleKeeper.SetBaseExchangeRateWithEvent(input.Ctx, utils.MicroAtomDenom, krwExchangeRate)
-	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, lastUpdateTimestamp, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, krwExchangeRate, rate)
 	require.Equal(t, sdk.NewInt(15), lastUpdate)
+	require.Equal(t, laterTS.UnixMilli(), lastUpdateTimestamp)
 	require.True(t, func() bool {
 		expectedEvent := sdk.NewEvent(types.EventTypeExchangeRateUpdate,
 			sdk.NewAttribute(types.AttributeKeyDenom, utils.MicroAtomDenom),
@@ -67,7 +73,7 @@ func TestExchangeRate(t *testing.T) {
 	}())
 
 	input.OracleKeeper.DeleteBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
-	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	numExchangeRates := 0
@@ -78,6 +84,18 @@ func TestExchangeRate(t *testing.T) {
 	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, handler)
 
 	require.Equal(t, 2, numExchangeRates)
+
+	// eth removed
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroSeiDenom)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+	// should remove eth
+	input.OracleKeeper.RemoveExcessFeeds(input.Ctx)
+
+	numExchangeRates = 0
+	input.OracleKeeper.IterateBaseExchangeRates(input.Ctx, handler)
+	require.Equal(t, 1, numExchangeRates)
+
 }
 
 func TestIterateSeiExchangeRates(t *testing.T) {
@@ -674,4 +692,139 @@ func TestCalculateTwaps(t *testing.T) {
 	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 0)
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
+}
+
+func TestCalculateTwapsWithUnsupportedDenom(t *testing.T) {
+	input := CreateTestInput(t)
+
+	_, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.Error(t, err)
+	require.Equal(t, types.ErrNoTwapData, err)
+
+	priceSnapshots := types.PriceSnapshots{
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(40),
+				LastUpdate:   sdk.NewInt(1800),
+			}),
+		}, 1200),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(10),
+				LastUpdate:   sdk.NewInt(3600),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(20),
+				LastUpdate:   sdk.NewInt(3600),
+			}),
+		}, 3600),
+		types.NewPriceSnapshot(types.PriceSnapshotItems{
+			types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(20),
+				LastUpdate:   sdk.NewInt(4500),
+			}),
+			types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+				ExchangeRate: sdk.NewDec(40),
+				LastUpdate:   sdk.NewInt(4500),
+			}),
+		}, 4500),
+	}
+	for _, snap := range priceSnapshots {
+		input.OracleKeeper.SetPriceSnapshot(input.Ctx, snap)
+	}
+	// eth removed
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(5400, 0))
+	twaps, err := input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap := twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(3600), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(35), atomTwap.Twap)
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6000, 0))
+
+	// we still expect the out of range data point from 1200 to be kept for calculating TWAP for the full interval
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(30),
+			LastUpdate:   sdk.NewInt(6000),
+		}),
+	}, 6000))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6600, 0))
+
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3600)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap = twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(3600), atomTwap.LookbackSeconds)
+
+	expectedTwap, _ := sdk.NewDecFromStr("33.333333333333333333")
+	require.Equal(t, expectedTwap, atomTwap.Twap)
+
+	// test with shorter lookback
+	// microeth is not in this one because it's not in the snapshot used for TWAP calculation
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 300)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap = twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(300), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(30), atomTwap.Twap)
+
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroAtomDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(20),
+			LastUpdate:   sdk.NewInt(6000),
+		}),
+	}, 6600))
+
+	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(types.PriceSnapshotItems{
+		types.NewPriceSnapshotItem(utils.MicroEthDenom, types.OracleExchangeRate{
+			ExchangeRate: sdk.NewDec(20),
+			LastUpdate:   sdk.NewInt(6900),
+		}),
+	}, 6900))
+
+	input.Ctx = input.Ctx.WithBlockTime(time.Unix(6900, 0))
+
+	// the older interval weight should be appropriately shorted to the start of the lookback interval,
+	// so the TWAP should be 25 instead of 26.666 because the 20 and 30 are weighted 50-50 instead of 33.3-66.6
+	twaps, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 600)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(twaps))
+	atomTwap = twaps[0]
+	require.Equal(t, utils.MicroAtomDenom, atomTwap.Denom)
+	require.Equal(t, int64(600), atomTwap.LookbackSeconds)
+	require.Equal(t, sdk.NewDec(25), atomTwap.Twap)
+
+	// test error when lookback too large
+	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 3700)
+	require.Error(t, err)
+	require.Equal(t, types.ErrInvalidTwapLookback, err)
+
+	// test error when lookback is 0
+	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 0)
+	require.Error(t, err)
+	require.Equal(t, types.ErrInvalidTwapLookback, err)
+}
+
+func TestSpamPreventionCounter(t *testing.T) {
+	input := CreateTestInput(t)
+
+	// verify value == -1 when not set
+	require.Equal(t, int64(-1), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
+
+	input.Ctx = input.Ctx.WithBlockHeight(3)
+
+	input.OracleKeeper.SetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0]))
+	// verify counter value correct when set
+	require.Equal(t, int64(3), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
+	// verify value == -1 for a different address
+	require.Equal(t, int64(-1), input.OracleKeeper.GetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[1])))
 }

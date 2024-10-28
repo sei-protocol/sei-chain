@@ -47,14 +47,13 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
 		denom := string(iter.Value())
-		if denomMetadata, err := m.keeper.bankKeeper.GetDenomMetaData(ctx, denom); !err {
+		denomMetadata, found := m.keeper.bankKeeper.GetDenomMetaData(ctx, denom)
+		if !found {
 			panic(fmt.Errorf("denom %s does not exist", denom))
-		} else {
-			fmt.Printf("Migrating denom: %s\n", denom)
-			m.SetMetadata(&denomMetadata)
-			m.keeper.bankKeeper.SetDenomMetaData(ctx, denomMetadata)
 		}
-
+		fmt.Printf("Migrating denom: %s\n", denom)
+		m.SetMetadata(&denomMetadata)
+		m.keeper.bankKeeper.SetDenomMetaData(ctx, denomMetadata)
 	}
 	return nil
 }

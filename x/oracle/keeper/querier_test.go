@@ -63,8 +63,8 @@ func TestQueryExchangeRates(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, types.DenomOracleExchangeRatePairs{
-		types.NewDenomOracleExchangeRatePair(utils.MicroAtomDenom, rate, sdk.ZeroInt()),
-		types.NewDenomOracleExchangeRatePair(utils.MicroSeiDenom, rate, sdk.ZeroInt()),
+		types.NewDenomOracleExchangeRatePair(utils.MicroAtomDenom, rate, sdk.ZeroInt(), input.Ctx.BlockTime().UnixMilli()),
+		types.NewDenomOracleExchangeRatePair(utils.MicroSeiDenom, rate, sdk.ZeroInt(), input.Ctx.BlockTime().UnixMilli()),
 	}, res.DenomOracleExchangeRatePairs)
 }
 

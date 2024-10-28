@@ -31,7 +31,7 @@ func TestOracleThreshold(t *testing.T) {
 	oracle.MidBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 
-	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
+	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	// Case 2.
@@ -53,7 +53,7 @@ func TestOracleThreshold(t *testing.T) {
 	oracle.MidBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(1), input.OracleKeeper)
 
-	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
+	rate, lastUpdate, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(1), utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
 	require.Equal(t, int64(1), lastUpdate.Int64())
@@ -74,7 +74,7 @@ func TestOracleThreshold(t *testing.T) {
 	oracle.MidBlocker(input.Ctx.WithBlockHeight(3), input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx.WithBlockHeight(3), input.OracleKeeper)
 
-	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(3), utils.MicroAtomDenom)
+	rate, lastUpdate, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx.WithBlockHeight(3), utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
 	// This should still be an older value due to staleness
@@ -93,7 +93,7 @@ func TestOracleDrop(t *testing.T) {
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
-	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
 	// The value should have a stale height
@@ -194,14 +194,14 @@ func TestOracleTallyTiming(t *testing.T) {
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	_, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	input.Ctx = input.Ctx.WithBlockHeight(int64(params.VotePeriod - 1))
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	_, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 }
 
@@ -398,12 +398,12 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
-	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
 	require.Equal(t, endBlockerHeight, lastUpdate.Int64())
 
-	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	rate, lastUpdate, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
 	require.Equal(t, endBlockerHeight, lastUpdate.Int64())
@@ -439,13 +439,13 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 
 	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
 
-	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, anotherRandomExchangeRate, rate)
 	require.Equal(t, newEndBlockerHeight, lastUpdate.Int64())
 
 	// the old value should be persisted because asset didnt meet ballot threshold
-	rate, lastUpdate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	rate, lastUpdate, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
 	// block height should be old
@@ -571,7 +571,7 @@ func TestAbstainWithSmallStakingPower(t *testing.T) {
 
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
-	_, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, _, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 }
 
@@ -591,11 +591,12 @@ func TestOraclePriceSnapshot(t *testing.T) {
 	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
-	rate, lastUpdate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	rate, lastUpdate, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
 	require.Equal(t, randomExchangeRate, rate)
 	// The value should have a stale height
 	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+	ts := input.Ctx.BlockTime().UnixMilli()
 
 	snapshot := input.OracleKeeper.GetPriceSnapshot(input.Ctx, 100)
 	require.NoError(t, err)
@@ -605,8 +606,9 @@ func TestOraclePriceSnapshot(t *testing.T) {
 			{
 				Denom: utils.MicroAtomDenom,
 				OracleExchangeRate: types.OracleExchangeRate{
-					ExchangeRate: randomExchangeRate,
-					LastUpdate:   sdk.NewInt(input.Ctx.BlockHeight()),
+					ExchangeRate:        randomExchangeRate,
+					LastUpdate:          sdk.NewInt(input.Ctx.BlockHeight()),
+					LastUpdateTimestamp: ts,
 				},
 			},
 		},
@@ -622,8 +624,9 @@ func TestOraclePriceSnapshot(t *testing.T) {
 			{
 				Denom: utils.MicroAtomDenom,
 				OracleExchangeRate: types.OracleExchangeRate{
-					ExchangeRate: randomExchangeRate,
-					LastUpdate:   sdk.NewInt(input.Ctx.BlockHeight()),
+					ExchangeRate:        randomExchangeRate,
+					LastUpdate:          sdk.NewInt(input.Ctx.BlockHeight()),
+					LastUpdateTimestamp: ts,
 				},
 			},
 		},
@@ -635,4 +638,37 @@ func makeAggregateVote(t *testing.T, input keeper.TestInput, h sdk.Handler, heig
 	voteMsg := types.NewMsgAggregateExchangeRateVote(rates.String(), keeper.Addrs[idx], keeper.ValAddrs[idx])
 	_, err := h(input.Ctx.WithBlockHeight(height), voteMsg)
 	require.NoError(t, err)
+}
+
+func TestEndWindowClearExcessFeeds(t *testing.T) {
+	input, _ := setup(t)
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
+	input.OracleKeeper.SetParams(input.Ctx, params)
+
+	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, randomExchangeRate)
+	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, randomExchangeRate)
+
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+
+	earlyCtx := sdk.WrapSDKContext(input.Ctx)
+	earlyQuerier := keeper.NewQuerier(input.OracleKeeper)
+
+	response, err := earlyQuerier.Actives(earlyCtx, &types.QueryActivesRequest{})
+	require.NoError(t, err)
+	require.Equal(t, 2, len(response.Actives))
+
+	votePeriodsPerWindow := sdk.NewDec(int64(input.OracleKeeper.SlashWindow(input.Ctx))).QuoInt64(int64(input.OracleKeeper.VotePeriod(input.Ctx))).TruncateInt64()
+
+	input.Ctx = input.Ctx.WithBlockHeight(votePeriodsPerWindow - 1)
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+
+	ctx := sdk.WrapSDKContext(input.Ctx)
+	querier := keeper.NewQuerier(input.OracleKeeper)
+
+	response2, err := querier.Actives(ctx, &types.QueryActivesRequest{})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(response2.Actives))
 }

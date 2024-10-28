@@ -1,4 +1,4 @@
-package aclTokenFactorymapping
+package acltokenfactorymapping
 
 import (
 	"encoding/hex"
@@ -26,7 +26,7 @@ func GetTokenFactoryDependencyGenerators() aclkeeper.DependencyGeneratorMap {
 	return dependencyGeneratorMap
 }
 
-func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
+func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, _ sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
 	mintMsg, ok := msg.(*tfktypes.MsgMint)
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrInvalidMessageType
@@ -117,7 +117,7 @@ func TokenFactoryMintDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Contex
 	}, nil
 }
 
-func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, ctx sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
+func TokenFactoryBurnDependencyGenerator(keeper aclkeeper.Keeper, _ sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
 	burnMsg, ok := msg.(*tfktypes.MsgBurn)
 	if !ok {
 		return []sdkacltypes.AccessOperation{}, ErrInvalidMessageType

@@ -1,12 +1,13 @@
 {
-    "grpc_endpoint": "127.0.0.1:9090",
-    "blockchain_endpoint": "http://localhost:26657/blockchain",
+    "grpc_endpoints": "127.0.0.1:9090",
+    "evm_rpc_endpoints": "http://127.0.0.1:8545",
+    "blockchain_endpoint": "http://localhost:26657",
     "node_uri": "tcp://localhost:26657",
     "tls": false,
-    "msgs_per_tx": 10,
+    "msgs_per_tx": 1,
     "chain_id": "sei-loadtest-testnet",
-    "txs_per_block": 400,
-    "rounds": 5,
+    "target_tps": 500,
+    "max_accounts": 500,
     "price_distribution": {
         "min": "45",
         "max": "55",
@@ -17,10 +18,15 @@
         "max": "21",
         "number_of_distinct_values": 20
     },
+    "post_tx_evm_queries": {
+      "block_by_number": 0,
+      "receipt": 0,
+      "filters": 0
+    },
     "message_configs": {
       "default": {
         "gas": 3000000,
-        "fee": 50000
+        "fee": 200000
       },
       "collect_rewards": {
         "gas": 10000000,
@@ -42,9 +48,22 @@
             "begin_redelegate_percentage": "0.25"
         }
     },
-    "constant": true,
-    "loadtest_interval": 600,
-    "message_type": "bank,dex,staking,failure_dex_malformed,failure_dex_invalid,collect_rewards,distribute_rewards,wasm_instantiate",
+    "message_types": [
+      "bank",
+      "dex",
+      "staking",
+      "failure_dex_malformed",
+      "failure_dex_invalid",
+      "collect_rewards",
+      "distribute_rewards",
+      "wasm_instantiate",
+      "wasm_occ_iterator_write",
+      "wasm_occ_iterator_range",
+      "wasm_occ_parallel_write",
+      "evm",
+      "univ2"
+    ],
+    "evm_use_eip1559_txs": true,
     "run_oracle": false,
     "metrics_port": 9695,
     "wasm_msg_types": {
@@ -60,6 +79,7 @@
         "payload": "{}"
       }
     },
+    "sei_tester_address": "",
     "contract_distribution": [
       {
         "contract_address": "sei1zwv6feuzhy6a9wekh96cd57lsarmqlwxdypdsplw6zhfncqw6ftqr428wx",
@@ -101,5 +121,6 @@
         "contract_address": "sei1nwp0ynjv84wxysf2f5ctvysl6dpm8ngm70hss6jeqt8q7e7u345s8zru6u",
         "percentage": "0.1"
       }
-  ]
+  ],
+  "ticks": 0
 }

@@ -194,7 +194,8 @@ func (p *CryptoProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[strin
 		key := currencyPairToCryptoPair(cp)
 		price, err := p.getTickerPrice(key)
 		if err != nil {
-			return nil, err
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch tickers for pair ", cp))
+			continue
 		}
 		tickerPrices[cp.String()] = price
 	}
@@ -210,7 +211,8 @@ func (p *CryptoProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[strin
 		key := currencyPairToCryptoPair(cp)
 		prices, err := p.getCandlePrices(key)
 		if err != nil {
-			return nil, err
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch candles for pair ", cp))
+			continue
 		}
 		candlePrices[cp.String()] = prices
 	}

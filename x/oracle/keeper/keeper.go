@@ -22,6 +22,7 @@ import (
 type Keeper struct {
 	cdc        codec.BinaryCodec
 	storeKey   sdk.StoreKey
+	memKey     sdk.StoreKey
 	paramSpace paramstypes.Subspace
 
 	accountKeeper types.AccountKeeper
@@ -33,7 +34,7 @@ type Keeper struct {
 }
 
 // NewKeeper constructs a new keeper for oracle
-func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey,
+func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, memKey sdk.StoreKey,
 	paramspace paramstypes.Subspace, accountKeeper types.AccountKeeper,
 	bankKeeper types.BankKeeper, distrKeeper types.DistributionKeeper,
 	stakingKeeper types.StakingKeeper, distrName string,
@@ -51,6 +52,7 @@ func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey,
 	return Keeper{
 		cdc:           cdc,
 		storeKey:      storeKey,
+		memKey:        memKey,
 		paramSpace:    paramspace,
 		accountKeeper: accountKeeper,
 		bankKeeper:    bankKeeper,
@@ -68,22 +70,23 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 //-----------------------------------
 // ExchangeRate logic
 
-func (k Keeper) GetBaseExchangeRate(ctx sdk.Context, denom string) (sdk.Dec, sdk.Int, error) {
+func (k Keeper) GetBaseExchangeRate(ctx sdk.Context, denom string) (sdk.Dec, sdk.Int, int64, error) {
 	store := ctx.KVStore(k.storeKey)
 	b := store.Get(types.GetExchangeRateKey(denom))
 	if b == nil {
-		return sdk.ZeroDec(), sdk.ZeroInt(), sdkerrors.Wrap(types.ErrUnknownDenom, denom)
+		return sdk.ZeroDec(), sdk.ZeroInt(), 0, sdkerrors.Wrap(types.ErrUnknownDenom, denom)
 	}
 
 	exchangeRate := types.OracleExchangeRate{}
 	k.cdc.MustUnmarshal(b, &exchangeRate)
-	return exchangeRate.ExchangeRate, exchangeRate.LastUpdate, nil
+	return exchangeRate.ExchangeRate, exchangeRate.LastUpdate, exchangeRate.LastUpdateTimestamp, nil
 }
 
 func (k Keeper) SetBaseExchangeRate(ctx sdk.Context, denom string, exchangeRate sdk.Dec) {
 	store := ctx.KVStore(k.storeKey)
 	currHeight := sdk.NewInt(ctx.BlockHeight())
-	rate := types.OracleExchangeRate{ExchangeRate: exchangeRate, LastUpdate: currHeight}
+	blockTimestamp := ctx.BlockTime().UnixMilli()
+	rate := types.OracleExchangeRate{ExchangeRate: exchangeRate, LastUpdate: currHeight, LastUpdateTimestamp: blockTimestamp}
 	bz := k.cdc.MustMarshal(&rate)
 	store.Set(types.GetExchangeRateKey(denom), bz)
 }
@@ -114,6 +117,33 @@ func (k Keeper) IterateBaseExchangeRates(ctx sdk.Context, handler func(denom str
 		if handler(denom, rate) {
 			break
 		}
+	}
+}
+
+func (k Keeper) RemoveExcessFeeds(ctx sdk.Context) {
+	// get actives
+	excessActives := make(map[string]struct{})
+	k.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
+		excessActives[denom] = struct{}{}
+		return false
+	})
+	// get vote targets
+	k.IterateVoteTargets(ctx, func(denom string, denomInfo types.Denom) (stop bool) {
+		// remove vote targets from actives
+		delete(excessActives, denom)
+		return false
+	})
+	// compare
+	activesToClear := make([]string, len(excessActives))
+	i := 0
+	for denom := range excessActives {
+		activesToClear[i] = denom
+		i++
+	}
+	sort.Strings(activesToClear)
+	for _, denom := range activesToClear {
+		// clear exchange rates
+		k.DeleteBaseExchangeRate(ctx, denom)
 	}
 }
 
@@ -451,6 +481,13 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 	denomToTimeWeightedMap := make(map[string]sdk.Dec)
 	denomDurationMap := make(map[string]int64)
 
+	// get targets - only calculate for the targets
+	targetsMap := make(map[string]struct{})
+	k.IterateVoteTargets(ctx, func(denom string, denomInfo types.Denom) (stop bool) {
+		targetsMap[denom] = struct{}{}
+		return false
+	})
+
 	k.IteratePriceSnapshotsReverse(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
 		stop = false
 		snapshotTimestamp := snapshot.SnapshotTimestamp
@@ -467,6 +504,9 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 		snapshotPriceItems := snapshot.PriceSnapshotItems
 		for _, priceItem := range snapshotPriceItems {
 			denom := priceItem.Denom
+			if _, ok := targetsMap[denom]; !ok {
+				continue
+			}
 
 			_, exists := denomToTimeWeightedMap[denom]
 			if !exists {
@@ -489,7 +529,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 			denomToTimeWeightedMap[denom] = denomTimeWeightedSum
 			denomDurationMap[denom] = timeTraversed
 		}
-		return
+		return stop
 	})
 
 	denomKeys := make([]string, 0, len(denomToTimeWeightedMap))
@@ -532,4 +572,23 @@ func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds uint64)
 	}
 
 	return nil
+}
+
+func (k Keeper) GetSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) int64 {
+	store := ctx.KVStore(k.memKey)
+	bz := store.Get(types.GetSpamPreventionCounterKey(validatorAddr))
+	if bz == nil {
+		return -1
+	}
+
+	return int64(sdk.BigEndianToUint64(bz))
+}
+
+func (k Keeper) SetSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) {
+	store := ctx.KVStore(k.memKey)
+
+	height := ctx.BlockHeight()
+	bz := sdk.Uint64ToBigEndian(uint64(height))
+
+	store.Set(types.GetSpamPreventionCounterKey(validatorAddr), bz)
 }

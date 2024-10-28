@@ -2,7 +2,9 @@ package app
 
 import (
 	"log"
+	"os"
 	"sort"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
@@ -56,6 +58,68 @@ var upgradesList = []string{
 	"3.0.4",
 	"3.0.5",
 	"3.0.6",
+	"3.0.7",
+	"3.0.8",
+	// We change naming convention to prepend version with "v"
+	"v3.0.9",
+	"v3.1.1",
+	"v3.2.1",
+	"v3.3.0",
+	"v3.5.0",
+	"v3.6.1",
+	"v3.7.0",
+	"v3.8.0",
+	"v3.9.0",
+	"v4.0.0-evm-devnet",
+	"v4.0.1-evm-devnet",
+	"v4.0.3-evm-devnet",
+	"v4.0.4-evm-devnet",
+	"v4.0.5-evm-devnet",
+	"v4.0.6-evm-devnet",
+	"v4.0.7-evm-devnet",
+	"v4.0.8-evm-devnet",
+	"v4.0.9-evm-devnet",
+	"v4.1.0-evm-devnet",
+	"v4.1.1-evm-devnet",
+	"v4.1.2-evm-devnet",
+	"v4.1.3-evm-devnet",
+	"v4.1.4-evm-devnet",
+	"v4.1.5-evm-devnet",
+	"v4.1.6-evm-devnet",
+	"v4.1.7-evm-devnet",
+	"v4.1.8-evm-devnet",
+	"v4.1.9-evm-devnet",
+	"v4.2.0-evm-devnet",
+	"v5.0.0",
+	"v5.0.1",
+	"v5.1.0",
+	"v5.2.0",
+	"v5.2.1",
+	"v5.2.2",
+	"v5.3.0",
+	"v5.4.0",
+	"v5.5.0",
+	"v5.5.1",
+	"v5.5.2",
+	"v5.5.5",
+	"v5.6.0",
+	"v5.6.2",
+	"v5.7.0",
+	"v5.7.1",
+	"v5.7.2",
+	"v5.7.4",
+	"v5.7.5",
+	"v5.8.0",
+	"v5.9.0",
+}
+
+// if there is an override list, use that instead, for integration tests
+func overrideList() {
+	// if there is an override list, use that instead, for integration tests
+	envList := os.Getenv("UPGRADE_VERSION_LIST")
+	if envList != "" {
+		upgradesList = strings.Split(envList, ",")
+	}
 }
 
 func (app App) RegisterUpgradeHandlers() {
@@ -64,6 +128,9 @@ func (app App) RegisterUpgradeHandlers() {
 	if !sort.StringsAreSorted(upgradesList) {
 		log.Fatal("New upgrades must be appended to 'upgradesList' in alphabetical order")
 	}
+
+	// if there is an override list, use that instead, for integration tests
+	overrideList()
 	for _, upgradeName := range upgradesList {
 		app.UpgradeKeeper.SetUpgradeHandler(upgradeName, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 			// Set params to Distribution here when migrating

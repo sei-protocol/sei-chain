@@ -23,7 +23,7 @@ Detailed instruction: see the `Makefile` in the root of [the repo](https://githu
 **To start a single local node (Not Recommended)**
 
 ```sh
-make build-docker-node && make run-docker-node
+make build-docker-node && make run-local-node
 ```
 
 **To start 4 node cluster**
@@ -41,7 +41,7 @@ All the logs and genesis files will be generated under the temporary build/gener
 
 ```sh
 # To monitor logs after cluster is started
-tail -f build/generated/seid-0.log
+tail -f build/generated/logs/seid-0.log
 ```
 
 **To ssh into a single node**
@@ -93,4 +93,4 @@ go mod edit -replace github.com/tendermint/tendermint=../sei-tendermint
 # Build with Us!
 If you are interested in building with Sei Network:
 Email us at team@seinetwork.io
-DM us on Twitter https://twitter.com/SeiNetwor
+DM us on Twitter https://twitter.com/SeiNetwork

@@ -110,7 +110,7 @@ func NewBinanceProvider(
 		}
 	}()
 	if err != nil {
-		return nil, fmt.Errorf("error connecting to Binance websocket: %w", err)
+		return nil, fmt.Errorf("error connecting to Binance websocket: %w, %v", err, response)
 	}
 
 	provider := &BinanceProvider{
@@ -140,7 +140,8 @@ func (p *BinanceProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[stri
 		key := cp.String()
 		price, err := p.getTickerPrice(key)
 		if err != nil {
-			return nil, err
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch tickers for pair ", cp))
+			continue
 		}
 		tickerPrices[key] = price
 	}
@@ -156,7 +157,8 @@ func (p *BinanceProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[stri
 		key := cp.String()
 		prices, err := p.getCandlePrices(key)
 		if err != nil {
-			return nil, err
+			p.logger.Debug().AnErr("err", err).Msg(fmt.Sprint("failed to fetch candles for pair ", cp))
+			continue
 		}
 		candlePrices[key] = prices
 	}

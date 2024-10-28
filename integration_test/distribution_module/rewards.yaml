@@ -7,17 +7,19 @@
     - cmd: seid keys show -a distribution-test --keyring-backend test
       env: DISTRIBUTION_TEST_ACC
     # Get current rewards
-    - cmd: seid q distribution rewards $NODE_ADMIN_ACC -o json | jq -r ".total[0].amount"
+    - cmd: seid q distribution rewards $NODE_ADMIN_ACC -o json | jq -r ".total[0].amount | tonumber"
       env: REWARDS_START
     # Simple tx to increase rewards
     - cmd: printf "12345678\n" | seid tx bank send $NODE_ADMIN_ACC $DISTRIBUTION_TEST_ACC 1sei -b block --fees 2000usei --chain-id sei -y
+    # Wait a couple seconds before querying to reduce likelihood of flaky test results
+    - cmd: sleep 1
     # Get rewards after tx
-    - cmd: seid q distribution rewards $NODE_ADMIN_ACC -o json | jq -r ".total[0].amount"
+    - cmd: seid q distribution rewards $NODE_ADMIN_ACC -o json | jq -r ".total[0].amount | tonumber"
       env: REWARDS_AFTER_TX
     # Withdraw all rewards
     - cmd: printf "12345678\n" | seid tx distribution withdraw-all-rewards -b block --fees 2000usei --chain-id sei -y --from node_admin
     # Get rewards after withdraw
-    - cmd: seid q distribution rewards $NODE_ADMIN_ACC -o json | jq -r ".total[0].amount"
+    - cmd: seid q distribution rewards $NODE_ADMIN_ACC -o json | jq -r ".total[0].amount | tonumber"
       env: REWARDS_AFTER_WITHDRAW
   verifiers:
     # Rewards should have increased

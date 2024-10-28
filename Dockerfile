@@ -1,6 +1,6 @@
 # docker build . -t sei-protocol/sei:latest
 # docker run --rm -it sei-protocol/sei:latest /bin/sh
-FROM golang:1.20-alpine AS go-builder
+FROM golang:1.21.4-alpine AS go-builder
 
 # this comes from standard alpine nightly file
 #  https://github.com/rust-lang/docker-rust-nightly/blob/master/alpine3.12/Dockerfile
@@ -37,7 +37,7 @@ RUN LEDGER_ENABLED=false BUILD_TAGS=muslc LINK_STATICALLY=true make build -B \
   && (file /code/build/seid | grep "statically linked")
 
 # --------------------------------------------------------
-FROM alpine:3.16
+FROM alpine:3.18
 
 COPY --from=go-builder /code/build/seid /usr/bin/seid
 

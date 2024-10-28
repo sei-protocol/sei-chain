@@ -26,7 +26,7 @@ const (
 )
 
 var modules = []string{
-	"dex", "wasm", "accesscontrol", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
+	"wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "crisis", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
 }
 
 func DumpIavlCmd() *cobra.Command {
@@ -49,6 +49,7 @@ $ %s debug dump-iavl 12345
 	return cmd
 }
 
+//nolint:gosec
 func dumpIavlCmdHandler(cmd *cobra.Command, args []string) error {
 	var err error
 	home, err := os.UserHomeDir()

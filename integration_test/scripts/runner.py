@@ -22,23 +22,23 @@ class TestRunner:
     # Function to execute a single test case
     def run_test(self, test):
         test_name = test["name"]
-        print("\n========== " + test_name + " =========")
+        print("\n========== " + test_name + " =========", flush=True)
         inputs = test["inputs"]
         env_map = {}
         for input in inputs:
             cmd = input['cmd']
             container = input.get("node", "sei-node-0")
-            print(f'Input : {cmd}')
+            print(f'Input : {cmd}', flush=True)
             output = self.run_bash_command(cmd, True, container, env_map, False)
             if input.get('env'):
                 env_map[input['env']] = output
             result = output
-            print(f'Output: {result}')
+            print(f'Output: {result}', flush=True)
         for verifier in test["verifiers"]:
             if not self.verify_result(env_map, verifier):
-                print("Test failed for {}".format(verifier))
+                print("Test failed for {}".format(verifier), flush=True)
                 exit(1)
-        print("Test Passed")
+        print("Test Passed", flush=True)
 
     # Function to verify the result of a single test case
     def verify_result(self, env_map, verifier):
@@ -72,7 +72,7 @@ class TestRunner:
             if env_map:
                 for key in env_map:
                     envs += f'-e {key}=\'{env_map[key]}\' '
-            full_cmd = f'docker exec {envs} {container} /bin/bash -c \'export PATH=$PATH:/root/go/bin && {command}\''
+            full_cmd = f'docker exec {envs} {container} /bin/bash -c \'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && {command}\''
         else:
             full_cmd = command
         if verbose:

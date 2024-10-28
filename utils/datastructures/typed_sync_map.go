@@ -59,21 +59,21 @@ func (m *TypedSyncMap[K, V]) Range(f func(K, V) bool) {
 }
 
 func (m *TypedSyncMap[K, V]) Len() int {
-	len := 0
+	length := 0
 	m.Range(func(_ K, _ V) bool {
-		len++
+		length++
 		return true
 	})
-	return len
+	return length
 }
 
 func (m *TypedSyncMap[K, V]) DeepCopy(copier func(V) V) *TypedSyncMap[K, V] {
-	copy := NewTypedSyncMap[K, V]()
+	mapcopy := NewTypedSyncMap[K, V]()
 	m.Range(func(key K, val V) bool {
-		copy.Store(key, copier(val))
+		mapcopy.Store(key, copier(val))
 		return true
 	})
-	return copy
+	return mapcopy
 }
 
 func (m *TypedSyncMap[K, V]) DeepApply(toApply func(V)) {
@@ -141,12 +141,12 @@ func (m *TypedNestedSyncMap[K1, K2, V]) DeleteNested(key1 K1, key2 K2) {
 func (m *TypedNestedSyncMap[K1, K2, V]) DeepCopy(copier func(V) V) *TypedNestedSyncMap[K1, K2, V] {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	copy := NewTypedNestedSyncMap[K1, K2, V]()
+	mapcopy := NewTypedNestedSyncMap[K1, K2, V]()
 	m.Range(func(key K1, val *TypedSyncMap[K2, V]) bool {
-		copy.Store(key, val.DeepCopy(copier))
+		mapcopy.Store(key, val.DeepCopy(copier))
 		return true
 	})
-	return copy
+	return mapcopy
 }
 
 func (m *TypedNestedSyncMap[K1, K2, V]) DeepApply(toApply func(V)) {

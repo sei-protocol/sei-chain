@@ -1,9 +1,13 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/spf13/cobra"
 
@@ -13,8 +17,16 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+)
+
+const (
+	FlagAllowList            = "allow-list"
+	FlagAllowListDescription = "Path to the allow list JSON file with an array of addresses " +
+		"that are allowed to send/receive the token. The file should have the following format: {\"addresses\": " +
+		"[\"addr1\", \"addr2\"]}, where addr1 and addr2 are bech32 Sei native addresses or EVM addresses."
 )
 
 // GetTxCmd returns the transaction commands for this module
@@ -29,10 +41,11 @@ func GetTxCmd() *cobra.Command {
 
 	cmd.AddCommand(
 		NewCreateDenomCmd(),
+		NewUpdateDenomCmd(),
 		NewMintCmd(),
 		NewBurnCmd(),
-		// NewForceTransferCmd(),
 		NewChangeAdminCmd(),
+		NewSetDenomMetadataCmd(),
 	)
 
 	return cmd
@@ -49,6 +62,16 @@ func NewCreateDenomCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			queryClientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := evmtypes.NewQueryClient(queryClientCtx)
+
+			allowListFilePath, err := cmd.Flags().GetString(FlagAllowList)
+			if err != nil {
+				return err
+			}
 
 			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
 
@@ -57,11 +80,71 @@ func NewCreateDenomCmd() *cobra.Command {
 				args[0],
 			)
 
+			// only parse allow list if it is provided
+			if allowListFilePath != "" {
+				// Parse the allow list
+				allowList, err := ParseAllowListJSON(allowListFilePath, queryClient)
+				if err != nil {
+					return err
+				}
+				msg.AllowList = &allowList
+			}
+
 			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
 		},
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
+	cmd.Flags().String(FlagAllowList, "", FlagAllowListDescription)
+	return cmd
+}
+
+// NewUpdateDenomCmd broadcast MsgUpdateDenom
+func NewUpdateDenomCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update-denom [denom] [flags]",
+		Short: "update a denom from an account",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := evmtypes.NewQueryClient(queryClientCtx)
+
+			allowListFilePath, err := cmd.Flags().GetString(FlagAllowList)
+			if err != nil {
+				return err
+			}
+
+			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
+
+			// Fail if allow list is not provided as this is the only feature that can be updated for now
+			if allowListFilePath == "" {
+				return fmt.Errorf("allow list file path is required")
+			}
+
+			allowList, err := ParseAllowListJSON(allowListFilePath, queryClient)
+			if err != nil {
+				return err
+			}
+
+			msg := types.NewMsgUpdateDenom(
+				clientCtx.GetFromAddress().String(),
+				args[0],
+				&allowList,
+			)
+
+			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+	cmd.Flags().String(FlagAllowList, "", FlagAllowListDescription)
 	return cmd
 }
 
@@ -227,4 +310,47 @@ func ParseMetadataJSON(cdc *codec.LegacyAmino, metadataFile string) (banktypes.M
 	}
 
 	return proposal, nil
+}
+
+func ParseAllowListJSON(allowListFile string, queryClient evmtypes.QueryClient) (banktypes.AllowList, error) {
+	allowList := banktypes.AllowList{}
+
+	file, err := os.Open(allowListFile)
+	if err != nil {
+		return allowList, err
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&allowList); err != nil {
+		return allowList, err
+	}
+
+	addressMap := make(map[string]struct{})
+	uniqueAddresses := []string{}
+	for _, addr := range allowList.Addresses {
+		if _, exists := addressMap[addr]; exists {
+			continue // Skip duplicate addresses
+		}
+		addressMap[addr] = struct{}{}
+
+		if common.IsHexAddress(addr) {
+			res, err := queryClient.SeiAddressByEVMAddress(context.Background(), &evmtypes.QuerySeiAddressByEVMAddressRequest{EvmAddress: addr})
+			if res != nil && !res.Associated {
+				return allowList, fmt.Errorf("address %s is not associated", addr)
+			}
+			if err != nil {
+				return allowList, err
+			}
+			uniqueAddresses = append(uniqueAddresses, res.SeiAddress)
+			continue
+		}
+		if _, err := sdk.AccAddressFromBech32(addr); err != nil {
+			return allowList, fmt.Errorf("invalid address %s: %w", addr, err)
+		}
+		uniqueAddresses = append(uniqueAddresses, addr)
+	}
+
+	allowList.Addresses = uniqueAddresses
+	return allowList, nil
 }

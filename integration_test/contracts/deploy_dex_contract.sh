@@ -46,7 +46,7 @@ contract_pair=$(printf "12345678\n" | $seidbin tx dex register-pairs integration
 rm -rf integration_test/contracts/"$contract_name"-pair.json
 
 
-sleep 10s
+sleep 10
 
 echo "Deployed contracts:"
 echo "$contract_addr"

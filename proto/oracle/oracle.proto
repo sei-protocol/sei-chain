@@ -95,6 +95,9 @@ message OracleExchangeRate {
     (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
     (gogoproto.nullable)   = false
   ];
+  int64 last_update_timestamp = 3 [
+    (gogoproto.moretags)   = "yaml:\"last_update_timestamp\""
+  ];
 }
 
 message PriceSnapshotItem {
@@ -103,7 +106,7 @@ message PriceSnapshotItem {
 }
 
 message PriceSnapshot {
-  int64 snapshotTimestamp = 1 [
+  int64 snapshot_timestamp = 1 [
     (gogoproto.moretags)     = "yaml:\"snapshot_timestamp\""
   ];
   repeated PriceSnapshotItem price_snapshot_items = 2 [

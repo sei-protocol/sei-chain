@@ -33,7 +33,7 @@ type App struct {
 
 func NewTestApp() *App {
 	a := &App{
-		App:           app.Setup(false),
+		App:           app.Setup(false, false),
 		height:        1,
 		accToMnemonic: map[string]string{},
 		accToSeqDelta: map[string]uint64{},
@@ -124,7 +124,7 @@ func (a *App) GetProposer() stakingtypes.Validator {
 	return a.GetAllValidators()[a.proposer]
 }
 
-func (a *App) GenerateSignableKey(name string) (addr sdk.AccAddress) {
+func (a *App) GenerateSignableKey(_ string) (addr sdk.AccAddress) {
 	entropySeed, err := bip39.NewEntropy(256)
 	if err != nil {
 		panic(err)

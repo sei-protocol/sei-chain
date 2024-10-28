@@ -10,9 +10,9 @@ import (
 
 const (
 	OracleRoute       = "oracle"
-	DexRoute          = "dex"
 	EpochRoute        = "epoch"
 	TokenFactoryRoute = "tokenfactory"
+	EVMRoute          = "evm"
 )
 
 type SeiQueryWrapper struct {
@@ -31,12 +31,12 @@ func CustomQuerier(qp *QueryPlugin) func(ctx sdk.Context, request json.RawMessag
 		switch contractQuery.Route {
 		case OracleRoute:
 			return qp.HandleOracleQuery(ctx, contractQuery.QueryData)
-		case DexRoute:
-			return qp.HandleDexQuery(ctx, contractQuery.QueryData)
 		case EpochRoute:
 			return qp.HandleEpochQuery(ctx, contractQuery.QueryData)
 		case TokenFactoryRoute:
 			return qp.HandleTokenFactoryQuery(ctx, contractQuery.QueryData)
+		case EVMRoute:
+			return qp.HandleEVMQuery(ctx, contractQuery.QueryData)
 		default:
 			return nil, wasmvmtypes.UnsupportedRequest{Kind: "Unknown Sei Query Route"}
 		}

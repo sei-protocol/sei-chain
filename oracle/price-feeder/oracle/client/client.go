@@ -17,6 +17,7 @@ import (
 	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/rs/zerolog"
@@ -45,6 +46,9 @@ type (
 		GRPCEndpoint        string
 		KeyringPassphrase   string
 		BlockHeightEvents   chan int64
+
+		// MockBroadcastTx allows for a basic mock without refactoring this to an interface
+		MockBroadcastTx func(clientCtx client.Context, msgs ...sdk.Msg) (*sdk.TxResponse, error)
 	}
 
 	passReader struct {
@@ -150,6 +154,11 @@ func (oc OracleClient) BroadcastTx(
 	clientCtx client.Context,
 	msgs ...sdk.Msg) (*sdk.TxResponse, error) {
 
+	// this allows for basic mocking without refactoring this to an interface (much larger change)
+	if oc.MockBroadcastTx != nil {
+		return oc.MockBroadcastTx(clientCtx, msgs...)
+	}
+
 	startTime := time.Now()
 	defer telemetry.MeasureSince(startTime, "latency", "broadcast")
 
@@ -183,8 +192,8 @@ func (oc OracleClient) BroadcastTx(
 
 	oc.Logger.Info().Msg(fmt.Sprintf("Sending broadcastTx with account sequence number %d", txf.Sequence()))
 	resp, err := clientCtx.BroadcastTx(txBytes)
-	if resp != nil && resp.Code != 0 {
-		err = fmt.Errorf("received error response code from broadcast tx: %d", resp.Code)
+	if resp != nil && resp.Code != 0 && resp.Code != sdkerrors.ErrAlreadyExists.ABCICode() {
+		err = fmt.Errorf("received error response code %d from broadcast tx: %s", resp.Code, resp.Logs.String())
 	}
 	if err != nil {
 		// When error happen, it could be that the sequence number are mismatching

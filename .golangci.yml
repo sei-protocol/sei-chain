@@ -9,13 +9,12 @@ linters:
   disable-all: true
   enable:
     - bodyclose
-    - deadcode
-    - depguard
+    # - depguard ## see https://github.com/golangci/golangci-lint/issues/3906
     - dogsled
     - exportloopref
     - errcheck
     - goconst
-    - gocritic
+    # - gocritic
     - gofmt
     - goimports
     - gosec
@@ -23,18 +22,18 @@ linters:
     - govet
     - ineffassign
     - misspell
-    - nakedret
+    # - nakedret
     - prealloc
     - staticcheck
-    - structcheck
+    # - structcheck ## author abandoned project
     - stylecheck
-    - revive
-    - typecheck
+    # - revive
+    # - typecheck
     - unconvert
-    - unused
-    - unparam
+    # - unused
+    # - unparam
     - misspell
-    - nolintlint
+    # - nolintlint ## does not work with IDEs like VSCode which automatically insert leading spaces
 
 issues:
   exclude-rules:

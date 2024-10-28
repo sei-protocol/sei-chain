@@ -5,9 +5,14 @@ name: Docker Integration Test
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+      - seiv2
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+      - seiv2
+      - evm
 
 defaults:
   run:
@@ -21,17 +26,15 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     strategy:
       # other jobs should run even if one integration test fails
       fail-fast: false
       matrix:
         test: [
           {
-            name: "Dex & Wasm Module",
+            name: "Wasm Module",
             scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_dex_contract.sh mars",
-              "python3 integration_test/scripts/runner.py integration_test/dex_module/place_order_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/dex_module/cancel_order_test.yaml",
               "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
               "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml",
@@ -69,13 +72,6 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml"
             ]
-
-          },
-          {
-            name: "Accesscontrol Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/acl_module/accesscontrol_register_test.yaml",
-            ]
           },
           {
             name: "Distribution Module",
@@ -84,12 +80,63 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
             ]
           },
+          {
+            name: "Upgrade Module (Major)",
+            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
+            ]
+          },
+          {
+            name: "Upgrade Module (Minor)",
+            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
+            ]
+          },
+          {
+            name: "SeiDB State Store",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
+              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+            ],
+          },
+          {
+            name: "SeiDB State Store",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
+              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+            ]
+          },
+          {
+            name: "EVM Module",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_tests.sh",
+            ]
+          },
+          {
+            name: "EVM Interoperability",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
+            ]
+          },
+          {
+            name: "dApp Tests",
+            scripts: [
+              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '20'
 
       - name: Pyyaml
         run: |
@@ -101,10 +148,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.18
+          go-version: 1.21
 
       - name: Start 4 node docker cluster
-        run: make clean && INVARIANT_CHECK_INTERVAL=10 make docker-cluster-start &
+        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
 
       - name: Wait for docker cluster to start
         run: |
