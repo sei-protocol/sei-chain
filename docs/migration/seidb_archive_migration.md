@@ -162,4 +162,16 @@ seid start --chain-id pacific-1
 ```
 
 
+## Metrics
+
+During the State Store Migration, there are exported metrics that are helpful to keep track of
+the progress.
+
+`sei_migration_leaf_nodes_exported` keeps track of how many nodes have been exported from iavl.
+
+`sei_migration_nodes_imported` keeps track of how many nodes have been imported into SeiDB (pebbledb).
+
+Both of these metrics have a `module` label which indicates what module is currently being exported / imported.
+
+
 ## FAQ
