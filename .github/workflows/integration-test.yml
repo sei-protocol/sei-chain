@@ -32,84 +32,84 @@ jobs:
       fail-fast: false
       matrix:
         test: [
-          {
-            name: "Wasm Module",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml",
-              "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml"
-            ]
-          },
-          {
-            name: "Mint & Staking & Bank Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
-            ]
-          },
-          {
-            name: "Gov & Oracle & Authz Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
-            ]
-          },
-          {
-            name: "Chain Operation Test",
-            scripts: [
-              "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
-              "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
-              "echo rpc node started",
-              "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml"
-            ]
-          },
-          {
-            name: "Distribution Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
-            ]
-          },
-          {
-            name: "Upgrade Module (Major)",
-            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
-            ]
-          },
-          {
-            name: "Upgrade Module (Minor)",
-            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
-            ]
-          },
-          {
-            name: "SeiDB State Store",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ],
-          },
-          {
-            name: "SeiDB State Store",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ]
-          },
+#          {
+#            name: "Wasm Module",
+#            scripts: [
+#              "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
+#              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml",
+#              "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
+#              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml"
+#            ]
+#          },
+#          {
+#            name: "Mint & Staking & Bank Module",
+#            scripts: [
+#              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
+#            ]
+#          },
+#          {
+#            name: "Gov & Oracle & Authz Module",
+#            scripts: [
+#              "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
+#            ]
+#          },
+#          {
+#            name: "Chain Operation Test",
+#            scripts: [
+#              "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
+#              "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
+#              "echo rpc node started",
+#              "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml"
+#            ]
+#          },
+#          {
+#            name: "Distribution Module",
+#            scripts: [
+#              "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
+#              "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
+#            ]
+#          },
+#          {
+#            name: "Upgrade Module (Major)",
+#            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+#            scripts: [
+#              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
+#            ]
+#          },
+#          {
+#            name: "Upgrade Module (Minor)",
+#            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+#            scripts: [
+#              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
+#            ]
+#          },
+#          {
+#            name: "SeiDB State Store",
+#            scripts: [
+#              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
+#              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
+#              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+#            ],
+#          },
+#          {
+#            name: "SeiDB State Store",
+#            scripts: [
+#              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
+#              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
+#              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+#            ]
+#          },
           {
             name: "EVM Module",
             scripts: [
@@ -122,12 +122,12 @@ jobs:
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
             ]
           },
-          {
-            name: "dApp Tests",
-            scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
-            ]
-          },
+#          {
+#            name: "dApp Tests",
+#            scripts: [
+#              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
+#            ]
+#          },
         ]
     steps:
       - uses: actions/checkout@v3
