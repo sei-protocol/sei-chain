@@ -39,8 +39,8 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		return
 	}
 	logs := []*ethtypes.Log{}
-	// wasmGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx)
-	queryCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+	wasmGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx)
+	queryCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmGasLimit))
 	for _, wasmEvent := range wasmEvents {
 		contractAddr, found := GetAttributeValue(wasmEvent, wasmtypes.AttributeKeyContractAddr)
 		if !found {
