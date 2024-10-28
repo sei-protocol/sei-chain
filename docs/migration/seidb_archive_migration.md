@@ -9,9 +9,9 @@ In order to run an archive node with SeiDB, we need to run a migration from iavl
 
 The overall process will work as follows:
 
-1. Stop archive node and note down its height, call it MIGRATION_HEIGHT
-2. Update config to enable SeiDB (state committment + state store)
-3. Run sc migration at the MIGRATION_HEIGHT
+1. Update config to enable SeiDB (state committment + state store)
+2. Stop the node and Run SC Migration
+3. Note down MIGRATION_HEIGHT
 4. Re start seid with `--migrate-iavl` enabled (migrating state store in background)
 5. Verify migration at various sampled heights once state store is complete
 6. Stop seid, clear out iavl and restart seid normally, now only using SeiDB fully
@@ -21,14 +21,7 @@ You may need to ensure you have sufficient disk space available, as during the m
 
 ## Migration Steps
 
-### Step 1: Stop Node and note down latest height
-Stop the seid process and note down the latest height. Save it as an env var $MIGRATION_HEIGHT.
-```bash
-MIGRATION_HEIGHT=$(seid q block | jq ".block.last_commit.height" | tr -d '"')
-systemctl stop seid
-```
-
-### Step 2: Add SeiDB Configurations
+### Step 1: Add SeiDB Configurations
 We can enable SeiDB by adding the following configs to app.toml file.
 Usually you can find this file under ~/.sei/config/app.toml.
 ```bash
@@ -92,14 +85,23 @@ ss-import-num-workers = 1
 ```
 
 
-### Step 3: Run SC Migration
+### Step 2: Stop the node and Run SC Migration
 
 ```bash
+systemctl stop seid
 seid tools migrate-iavl --target-db SC --home-dir /root/.sei
 ```
 
 This may take a couple hours to run. You will see logs of form
 `Start restoring SC store for height`
+
+
+### Step 3: Note down MIGRATION_HEIGHT
+Note down the latest height as outputted from the sc migration. 
+Save it as an env var $MIGRATION_HEIGHT.
+```bash
+MIGRATION_HEIGHT=<>
+```
 
 
 ### Step 4: Restart seid with background SS migration
