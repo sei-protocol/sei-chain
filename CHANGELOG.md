@@ -39,6 +39,7 @@ sei-cosmos
 * [#538](https://github.com/sei-protocol/sei-cosmos/pull/538) Token allowlist feature
 
 sei-tendermint
+* [#247](https://github.com/sei-protocol/sei-tendermint/pull/247) Fix handshake and dial timeout
 * [#245](https://github.com/sei-protocol/sei-tendermint/pull/245) Exclude unconditional peers when connection limit checking
 * [#244](https://github.com/sei-protocol/sei-tendermint/pull/244) Add new config to speed up block sync
 
