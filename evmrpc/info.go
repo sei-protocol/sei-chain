@@ -80,12 +80,15 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	}
 	if len(feeHist.Reward) == 0 || len(feeHist.Reward[0]) == 0 {
 		// if there is no EVM tx in the most recent block, return the minimum fee param
-		return (*hexutil.Big)(i.keeper.GetMinimumFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()), nil
+		baseFee := i.keeper.GetMinimumFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+		return (*hexutil.Big)(baseFee), nil
 	}
-	return (*hexutil.Big)(new(big.Int).Add(
+	baseFee := i.keeper.GetDynamicBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	sum := new(big.Int).Add(
 		feeHist.Reward[0][0].ToInt(),
-		i.keeper.GetBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt(),
-	)), nil
+		baseFee,
+	)
+	return (*hexutil.Big)(sum), nil
 }
 
 // lastBlock is inclusive
@@ -195,7 +198,8 @@ func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
 			res = nil
 		}
 	}()
-	res = i.keeper.GetBaseFeePerGas(i.ctxProvider(targetHeight)).BigInt()
+	baseFee := i.keeper.GetDynamicBaseFeePerGas(i.ctxProvider(targetHeight))
+	res = baseFee.TruncateInt().BigInt()
 	return
 }
 

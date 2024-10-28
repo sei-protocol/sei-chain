@@ -10,11 +10,14 @@ import (
 )
 
 var (
-	KeyPriorityNormalizer        = []byte("KeyPriorityNormalizer")
-	KeyBaseFeePerGas             = []byte("KeyBaseFeePerGas")
-	KeyMinFeePerGas              = []byte("KeyMinFeePerGas")
-	KeyDeliverTxHookWasmGasLimit = []byte("KeyDeliverTxHookWasmGasLimit")
+	KeyPriorityNormalizer                  = []byte("KeyPriorityNormalizer")
+	KeyMinFeePerGas                        = []byte("KeyMinFeePerGas")
+	KeyDeliverTxHookWasmGasLimit           = []byte("KeyDeliverTxHookWasmGasLimit")
+	KeyMaxDynamicBaseFeeUpwardAdjustment   = []byte("KeyMaxDynamicBaseFeeUpwardAdjustment")
+	KeyMaxDynamicBaseFeeDownwardAdjustment = []byte("KeyMaxDynamicBaseFeeDownwardAdjustment")
+	KeyTargetGasUsedPerBlock               = []byte("KeyTargetGasUsedPerBlock")
 	// deprecated
+	KeyBaseFeePerGas                          = []byte("KeyBaseFeePerGas")
 	KeyWhitelistedCwCodeHashesForDelegateCall = []byte("KeyWhitelistedCwCodeHashesForDelegateCall")
 )
 
@@ -23,11 +26,15 @@ var DefaultPriorityNormalizer = sdk.NewDec(1)
 // DefaultBaseFeePerGas determines how much usei per gas spent is
 // burnt rather than go to validators (similar to base fee on
 // Ethereum).
-var DefaultBaseFeePerGas = sdk.NewDec(0)
-var DefaultMinFeePerGas = sdk.NewDec(100000000000)
+var DefaultBaseFeePerGas = sdk.NewDec(0)         // used for static base fee, deprecated in favor of dynamic base fee
+var DefaultMinFeePerGas = sdk.NewDec(1000000000) // 1gwei
 var DefaultDeliverTxHookWasmGasLimit = uint64(300000)
 
 var DefaultWhitelistedCwCodeHashesForDelegateCall = generateDefaultWhitelistedCwCodeHashesForDelegateCall()
+
+var DefaultMaxDynamicBaseFeeUpwardAdjustment = sdk.NewDecWithPrec(189, 4)  // 1.89%
+var DefaultMaxDynamicBaseFeeDownwardAdjustment = sdk.NewDecWithPrec(39, 4) // .39%
+var DefaultTargetGasUsedPerBlock = uint64(250000)                          // 250k
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -39,9 +46,12 @@ func DefaultParams() Params {
 	return Params{
 		PriorityNormalizer:                     DefaultPriorityNormalizer,
 		BaseFeePerGas:                          DefaultBaseFeePerGas,
+		MaxDynamicBaseFeeUpwardAdjustment:      DefaultMaxDynamicBaseFeeUpwardAdjustment,
+		MaxDynamicBaseFeeDownwardAdjustment:    DefaultMaxDynamicBaseFeeDownwardAdjustment,
 		MinimumFeePerGas:                       DefaultMinFeePerGas,
 		DeliverTxHookWasmGasLimit:              DefaultDeliverTxHookWasmGasLimit,
 		WhitelistedCwCodeHashesForDelegateCall: DefaultWhitelistedCwCodeHashesForDelegateCall,
+		TargetGasUsedPerBlock:                  DefaultTargetGasUsedPerBlock,
 	}
 }
 
@@ -49,9 +59,12 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &p.PriorityNormalizer, validatePriorityNormalizer),
 		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &p.BaseFeePerGas, validateBaseFeePerGas),
+		paramtypes.NewParamSetPair(KeyMaxDynamicBaseFeeUpwardAdjustment, &p.MaxDynamicBaseFeeUpwardAdjustment, validateBaseFeeAdjustment),
+		paramtypes.NewParamSetPair(KeyMaxDynamicBaseFeeDownwardAdjustment, &p.MaxDynamicBaseFeeDownwardAdjustment, validateBaseFeeAdjustment),
 		paramtypes.NewParamSetPair(KeyMinFeePerGas, &p.MinimumFeePerGas, validateMinFeePerGas),
 		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &p.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
 		paramtypes.NewParamSetPair(KeyDeliverTxHookWasmGasLimit, &p.DeliverTxHookWasmGasLimit, validateDeliverTxHookWasmGasLimit),
+		paramtypes.NewParamSetPair(KeyTargetGasUsedPerBlock, &p.TargetGasUsedPerBlock, func(i interface{}) error { return nil }),
 	}
 }
 
@@ -71,7 +84,27 @@ func (p Params) Validate() error {
 	if p.MinimumFeePerGas.LT(p.BaseFeePerGas) {
 		return errors.New("minimum fee cannot be lower than base fee")
 	}
+	if err := validateBaseFeeAdjustment(p.MaxDynamicBaseFeeUpwardAdjustment); err != nil {
+		return fmt.Errorf("invalid max dynamic base fee upward adjustment: %s, err: %s", p.MaxDynamicBaseFeeUpwardAdjustment, err)
+	}
+	if err := validateBaseFeeAdjustment(p.MaxDynamicBaseFeeDownwardAdjustment); err != nil {
+		return fmt.Errorf("invalid max dynamic base fee downward adjustment: %s, err: %s", p.MaxDynamicBaseFeeDownwardAdjustment, err)
+	}
 	return validateWhitelistedCwHashesForDelegateCall(p.WhitelistedCwCodeHashesForDelegateCall)
+}
+
+func validateBaseFeeAdjustment(i interface{}) error {
+	adjustment, ok := i.(sdk.Dec)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	if adjustment.IsNegative() {
+		return fmt.Errorf("negative base fee adjustment: %s", adjustment)
+	}
+	if adjustment.GT(sdk.OneDec()) {
+		return fmt.Errorf("base fee adjustment must be less than or equal to 1: %s", adjustment)
+	}
+	return nil
 }
 
 func (p Params) String() string {

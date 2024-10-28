@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/BurntSushi/toml v1.3.2
 	github.com/CosmWasm/wasmd v0.27.0
-	github.com/CosmWasm/wasmvm v1.5.4
+	github.com/CosmWasm/wasmvm v1.5.5
 	github.com/armon/go-metrics v0.4.1
 	github.com/btcsuite/btcd v0.22.1
 	github.com/cosmos/cosmos-sdk v0.45.10
@@ -346,15 +346,15 @@ require (
 replace (
 	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.2.4
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.37-0.20241007142359-ca29513f17aa
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.39-0.20241028105359-4193e4f26917
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.2
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-9.0.20240923025222-815b87dde97b
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-23
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.45-0.20241009171123-c9b6c253819b
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.3.8
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.3.9-0.20240926181940-e9348a908b27
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )

@@ -25,8 +25,8 @@ import (
 )
 
 var (
-	DefaultPriorityFee = big.NewInt(1000000000) // 1gwei
-	DefaultMaxFee      = big.NewInt(1000000000) // 1gwei
+	DefaultPriorityFee = big.NewInt(1000000000)    // 1gwei
+	DefaultMaxFee      = big.NewInt(1000000000000) // 1000gwei
 )
 
 type EvmTxClient struct {
@@ -112,7 +112,7 @@ func (txClient *EvmTxClient) GenerateSendFundsTx() *ethtypes.Transaction {
 	if !txClient.useEip1559 {
 		tx = ethtypes.NewTx(&ethtypes.LegacyTx{
 			Nonce:    txClient.nextNonce(),
-			GasPrice: txClient.gasPrice,
+			GasPrice: DefaultMaxFee,
 			Gas:      uint64(21000),
 			To:       &txClient.accountAddress,
 			Value:    randomValue(),
@@ -186,7 +186,7 @@ func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 		panic(fmt.Sprintf("Failed to create transactor: %v \n", err))
 	}
 	if !txClient.useEip1559 {
-		auth.GasPrice = txClient.gasPrice
+		auth.GasPrice = DefaultMaxFee
 	} else {
 		auth.GasFeeCap = DefaultMaxFee
 		auth.GasTipCap = DefaultPriorityFee
@@ -221,7 +221,6 @@ func (txClient *EvmTxClient) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess
 	if err != nil {
 		fmt.Printf("Failed to send evm transaction: %v \n", err)
 	} else {
-		// We choose not to GetTxReceipt because we assume the EVM RPC would be running with broadcast mode = block
 		onSuccess()
 	}
 }
