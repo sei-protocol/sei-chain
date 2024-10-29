@@ -39,17 +39,17 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		return
 	}
 	logs := []*ethtypes.Log{}
-	wasmGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx)
-	queryCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmGasLimit))
+	wasmToEvmEventGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)))
+	wasmToEvmEventCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmToEvmEventGasLimit))
 	for _, wasmEvent := range wasmEvents {
 		contractAddr, found := GetAttributeValue(wasmEvent, wasmtypes.AttributeKeyContractAddr)
 		if !found {
 			continue
 		}
 		// check if there is a ERC20 pointer to contractAddr
-		pointerAddr, _, exists := app.EvmKeeper.GetERC20CW20Pointer(queryCtx, contractAddr)
+		pointerAddr, _, exists := app.EvmKeeper.GetERC20CW20Pointer(wasmToEvmEventCtx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW20Event(queryCtx, wasmEvent, pointerAddr, contractAddr)
+			log, eligible := app.translateCW20Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
@@ -57,9 +57,9 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			continue
 		}
 		// check if there is a ERC721 pointer to contract Addr
-		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(queryCtx, contractAddr)
+		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(wasmToEvmEventCtx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW721Event(queryCtx, wasmEvent, pointerAddr, contractAddr)
+			log, eligible := app.translateCW721Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
@@ -75,14 +75,14 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		txHash = common.HexToHash(response.EvmTxInfo.TxHash)
 	}
 	var bloom ethtypes.Bloom
-	if r, err := app.EvmKeeper.GetTransientReceipt(ctx, txHash); err == nil && r != nil {
+	if r, err := app.EvmKeeper.GetTransientReceipt(wasmToEvmEventCtx, txHash); err == nil && r != nil {
 		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)...)
 		for i, l := range r.Logs {
 			l.Index = uint32(i)
 		}
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r)}})
 		r.LogsBloom = bloom[:]
-		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, r)
+		_ = app.EvmKeeper.SetTransientReceipt(wasmToEvmEventCtx, txHash, r)
 	} else {
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: logs}})
 		receipt := &evmtypes.Receipt{
@@ -98,14 +98,14 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		sigTx, ok := tx.(authsigning.SigVerifiableTx)
 		if ok && len(sigTx.GetSigners()) > 0 {
 			// use the first signer as the `from`
-			receipt.From = app.EvmKeeper.GetEVMAddressOrDefault(ctx, sigTx.GetSigners()[0]).Hex()
+			receipt.From = app.EvmKeeper.GetEVMAddressOrDefault(wasmToEvmEventCtx, sigTx.GetSigners()[0]).Hex()
 		}
-		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, receipt)
+		_ = app.EvmKeeper.SetTransientReceipt(wasmToEvmEventCtx, txHash, receipt)
 	}
 	if d, found := app.EvmKeeper.GetEVMTxDeferredInfo(ctx); found {
-		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, d.Surplus)
+		app.EvmKeeper.AppendToEvmTxDeferredInfo(wasmToEvmEventCtx, bloom, txHash, d.Surplus)
 	} else {
-		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, sdk.ZeroInt())
+		app.EvmKeeper.AppendToEvmTxDeferredInfo(wasmToEvmEventCtx, bloom, txHash, sdk.ZeroInt())
 	}
 }
 
