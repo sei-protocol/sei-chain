@@ -2,6 +2,7 @@ package types
 
 import (
 	"errors"
+
 	"github.com/coinbase/kryptology/pkg/bulletproof"
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
