@@ -2,9 +2,11 @@ package types
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"testing"
 )
 
@@ -15,11 +17,15 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
 	destinationKeypair, _ := eg.KeyGen(*destPrivateKey, testDenom)
+	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	require.NoError(t, err)
 
 	amountLo := uint64(100)
 	amountHi := uint64(0)
 
 	remainingBalance := uint64(200)
+
+	decryptableBalance, err := encryption.EncryptAESGCM(remainingBalance, aesPK)
 
 	// Encrypt the amount using source and destination public keys
 	sourceCiphertextAmountLo, sourceCiphertextAmountLoR, _ := eg.Encrypt(sourceKeypair.PublicKey, amountLo)
@@ -74,7 +80,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		ToAmountLo:         destinationAmountLo,
 		ToAmountHi:         destinationAmountHi,
 		RemainingBalance:   remainingBalanceProto,
-		DecryptableBalance: "sdfsdf",
+		DecryptableBalance: decryptableBalance,
 		Proofs:             proofsProto,
 	}
 
@@ -97,6 +103,11 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	assert.True(t, destinationCipherAmountHi.D.Equal(result.RecipientTransferAmountHi.D))
 	assert.True(t, remainingBalanceCiphertext.C.Equal(result.RemainingBalanceCommitment.C))
 	assert.True(t, remainingBalanceCiphertext.D.Equal(result.RemainingBalanceCommitment.D))
+
+	decryptedRemainingBalance, err := encryption.DecryptAESGCM(result.DecryptableBalance, aesPK)
+	assert.NoError(t, err)
+
+	assert.Equal(t, remainingBalance, decryptedRemainingBalance)
 
 	// Make sure the proofs are valid
 	assert.True(t, zkproofs.VerifyCiphertextValidity(
@@ -125,5 +136,4 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.True(t, valid)
-
 }
