@@ -112,6 +112,8 @@ MIGRATION_HEIGHT=<>
 
 
 ### Step 4: Restart seid with background SS migration
+
+If you are using systemd, make sure to update your service configuration to use this command:
 ```bash
 seid start --migrate-iavl --migrate-height $MIGRATION_HEIGHT --chain-id pacific-1
 ```
@@ -123,10 +125,9 @@ You will see logs of form
 `SeiDB Archive Migration: Iterating through %s module...` and 
 `SeiDB Archive Migration: Last 1,000,000 iterations took:...`
 
-
 NOTE: While this is running, any historical queries will be routed to iavl if
 they are for a height BEFORE the migrate-height. Any queries on heights
-AFTER the migrate-height will be routed to state store (pebbbledb).
+AFTER the migrate-height will be routed to state store (pebbledb).
 
 
 ### Step 5: Verify State Store Migration after completion
@@ -149,6 +150,7 @@ This will output `Verification Succeeded` if the verification was successful.
 Once the verification has completed, we can restart seid normally and verify
 that the node operates.
 
+If you are using systemd, make sure to update your service configuration to use this command:
 ```bash
 seid start --chain-id pacific-1
 ```
