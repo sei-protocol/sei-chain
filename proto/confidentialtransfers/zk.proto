@@ -11,6 +11,9 @@ message TransferProofs {
   CiphertextValidityProof recipient_transfer_amount_lo_validity_proof = 4;
   CiphertextValidityProof recipient_transfer_amount_hi_validity_proof = 5;
   RangeProof remaining_balance_range_proof = 6;
+  CiphertextCommitmentEqualityProof remaining_balance_equality_proof = 7;
+  CiphertextCiphertextEqualityProof transfer_amount_lo_equality_proof = 8;
+  CiphertextCiphertextEqualityProof transfer_amount_hi_equality_proof = 9;
 }
 
 message CiphertextValidityProof {
@@ -31,4 +34,23 @@ message RangeProof {
   bytes proof = 1;
   bytes randomness = 2;
   int64 upper_bound = 3;
+}
+
+message CiphertextCommitmentEqualityProof {
+  bytes y0 = 1;
+  bytes y1 = 2;
+  bytes y2 = 3;
+  bytes zs = 4;
+  bytes zx = 5;
+  bytes zr = 6;
+}
+
+message CiphertextCiphertextEqualityProof {
+  bytes y0 = 1;
+  bytes y1 = 2;
+  bytes y2 = 3;
+  bytes y3 = 4;
+  bytes zs = 5;
+  bytes zx = 6;
+  bytes zr = 7;
 }
