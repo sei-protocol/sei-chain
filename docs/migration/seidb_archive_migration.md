@@ -113,7 +113,8 @@ MIGRATION_HEIGHT=<>
 
 ### Step 4: Restart seid with background SS migration
 
-If you are using systemd, make sure to update your service configuration to use this command:
+If you are using systemd, make sure to update your service configuration to use this command.
+Always be sure to run with these flags until migration is complete.
 ```bash
 seid start --migrate-iavl --migrate-height $MIGRATION_HEIGHT --chain-id pacific-1
 ```
