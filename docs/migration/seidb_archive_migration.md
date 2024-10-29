@@ -105,7 +105,17 @@ This may take a couple hours to run. You will see logs of form
 
 ### Step 3: Note down MIGRATION_HEIGHT
 Note down the latest height as outputted from the sc migration log. 
-Save it as an env var $MIGRATION_HEIGHT.
+
+As an example the sc migration log would show:
+```
+latest version: 111417590
+D[2024-10-29|15:26:03.657] Finished loading IAVL tree
+D[2024-10-29|15:26:03.657] Finished loading IAVL tree
+D[2024-10-29|15:26:03.657] Finished loading IAVL tree
+```
+
+Save that `latest version` (in example 111417590) as an env var $MIGRATION_HEIGHT.
+
 ```bash
 MIGRATION_HEIGHT=<>
 ```
