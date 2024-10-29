@@ -90,7 +90,7 @@ ss-import-num-workers = 1
 
 ```bash
 systemctl stop seid
-seid tools migrate-iavl --target-db SC --home-dir /root/.sei
+seid tools migrate-iavl --home-dir /root/.sei
 ```
 
 This may take a couple hours to run. You will see logs of form
@@ -98,7 +98,7 @@ This may take a couple hours to run. You will see logs of form
 
 
 ### Step 3: Note down MIGRATION_HEIGHT
-Note down the latest height as outputted from the sc migration. 
+Note down the latest height as outputted from the sc migration log. 
 Save it as an env var $MIGRATION_HEIGHT.
 ```bash
 MIGRATION_HEIGHT=<>
@@ -175,3 +175,14 @@ Both of these metrics have a `module` label which indicates what module is curre
 
 
 ## FAQ
+
+### Can the state store migration be stopped and restarted?
+
+The state store migration can be stopped and restarted at any time. The migration
+process saves the latest `module` and `key` written to State Store (pebbledb) and will
+automatically resume the migration from that latest key once restarted.
+
+All one needs to do is restart seid with the migration command as in step 4
+```bash
+seid start --migrate-iavl --migrate-height $MIGRATION_HEIGHT --chain-id pacific-1
+```
