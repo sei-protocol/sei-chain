@@ -11,6 +11,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/testutil"
+	"github.com/cosmos/cosmos-sdk/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -199,4 +200,28 @@ func (ps *paramStore) Get(_ sdk.Context, key []byte, ptr interface{}) {
 	if err := json.Unmarshal(bz, ptr); err != nil {
 		panic(err)
 	}
+}
+func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
+	logger := defaultLogger()
+	db := dbm.NewMemDB()
+	name := t.Name()
+	app := NewBaseApp(name, logger, db, nil, nil, &testutil.TestAppOpts{})
+
+	// Mock a non-queryable cms
+	mockCMS := &mockNonQueryableMultiStore{}
+	app.cms = mockCMS
+
+	path := []string{"store", "test"}
+	req := abci.RequestQuery{
+		Path:   "store/test",
+		Height: 1,
+	}
+
+	resp := handleQueryStore(app, path, req)
+	require.True(t, resp.IsErr())
+	require.Contains(t, resp.Log, "multistore doesn't support queries")
+}
+
+type mockNonQueryableMultiStore struct {
+	types.CommitMultiStore
 }

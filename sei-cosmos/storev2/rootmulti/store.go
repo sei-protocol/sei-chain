@@ -63,6 +63,7 @@ func NewStore(
 	logger log.Logger,
 	scConfig config.StateCommitConfig,
 	ssConfig config.StateStoreConfig,
+	migrateIavl bool,
 ) *Store {
 	scStore := sc.NewCommitStore(homeDir, logger, scConfig)
 	store := &Store{
@@ -81,7 +82,7 @@ func NewStore(
 		// Check whether SC was enabled before but SS was not
 		ssVersion, _ := ssStore.GetLatestVersion()
 		scVersion, _ := scStore.GetLatestVersion()
-		if ssVersion <= 0 && scVersion > 0 {
+		if ssVersion <= 0 && scVersion > 0 && !migrateIavl {
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
 		if err = ss.RecoverStateStore(logger, homeDir, ssStore); err != nil {
@@ -212,6 +213,11 @@ func (rs *Store) GetPruning() types.PruningOptions {
 // Implements interface Store
 func (rs *Store) GetStoreType() types.StoreType {
 	return types.StoreTypeMulti
+}
+
+// GetStateStore returns the ssStore instance
+func (rs *Store) GetStateStore() sstypes.StateStore {
+	return rs.ssStore
 }
 
 // Implements interface CacheWrapper
@@ -757,7 +763,7 @@ loop:
 			scImporter.AddNode(node)
 
 			// Check if we should also import to SS store
-			if rs.ssStore != nil && node.Height == 0 && ssImporter != nil {
+			if rs.ssStore != nil && ssImporter != nil {
 				ssImporter <- sstypes.SnapshotNode{
 					StoreKey: storeKey,
 					Key:      node.Key,
