@@ -103,6 +103,10 @@ func (m *MsgTransfer) ValidateBasic() error {
 	if transfer.Proofs.RecipientTransferAmountHiValidityProof == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RecipientTransferAmountHiValidityProof is required")
 	}
+
+	if transfer.Proofs.RemainingBalanceRangeProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalanceRangeProof is required")
+	}
 	return nil
 }
 
