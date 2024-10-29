@@ -173,4 +173,18 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		&sourceKeypair.PublicKey,
 		remainingBalanceCiphertext,
 		&remainingBalanceCiphertext.C))
+
+	assert.True(t, zkproofs.VerifyCiphertextCiphertextEquality(
+		result.Proofs.TransferAmountLoEqualityProof,
+		&sourceKeypair.PublicKey,
+		&destinationKeypair.PublicKey,
+		result.SenderTransferAmountLo,
+		result.RecipientTransferAmountLo))
+
+	assert.True(t, zkproofs.VerifyCiphertextCiphertextEquality(
+		result.Proofs.TransferAmountHiEqualityProof,
+		&sourceKeypair.PublicKey,
+		&destinationKeypair.PublicKey,
+		result.SenderTransferAmountHi,
+		result.RecipientTransferAmountHi))
 }
