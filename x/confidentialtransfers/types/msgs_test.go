@@ -1,12 +1,14 @@
 package types
 
 import (
+	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"math/big"
 	"testing"
 )
 
@@ -40,10 +42,10 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	fromAmountHi := ciphertext.ToProto(sourceCiphertextAmountHi)
 
 	destinationCipherAmountLo, destinationCipherAmountLoR, _ := eg.Encrypt(destinationKeypair.PublicKey, amountLo)
-	destinationCipherAmountLoValidityProof, err :=
+	destinationCipherAmountLoValidityProof, _ :=
 		zkproofs.NewCiphertextValidityProof(&destinationCipherAmountLoR, destinationKeypair.PublicKey, destinationCipherAmountLo, amountLo)
 	destinationCipherAmountHi, destinationCipherAmountHiR, _ := eg.Encrypt(destinationKeypair.PublicKey, amountHi)
-	destinationCipherAmountHiValidityProof, err :=
+	destinationCipherAmountHiValidityProof, _ :=
 		zkproofs.NewCiphertextValidityProof(&destinationCipherAmountHiR, destinationKeypair.PublicKey, destinationCipherAmountHi, amountHi)
 
 	destinationAmountLo := ciphertext.ToProto(destinationCipherAmountLo)
@@ -52,10 +54,36 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	remainingBalanceCiphertext, remainingBalanceRandomness, _ := eg.Encrypt(sourceKeypair.PublicKey, remainingBalance)
 	remainingBalanceProto := ciphertext.ToProto(remainingBalanceCiphertext)
 
-	remainingBalanceCommitmentValidityProof, err :=
-		zkproofs.NewCiphertextValidityProof(&remainingBalanceRandomness, sourceKeypair.PublicKey, remainingBalanceCiphertext, remainingBalance)
+	remainingBalanceCommitmentValidityProof, _ := zkproofs.NewCiphertextValidityProof(&remainingBalanceRandomness, sourceKeypair.PublicKey, remainingBalanceCiphertext, remainingBalance)
 
-	remainingBalanceRangeProof, err := zkproofs.NewRangeProof(64, int(remainingBalance), remainingBalanceRandomness)
+	remainingBalanceRangeProof, _ := zkproofs.NewRangeProof(64, int(remainingBalance), remainingBalanceRandomness)
+
+	ed25519Curve := curves.ED25519()
+
+	scalarAmtValue := new(big.Int).SetUint64(remainingBalance)
+	scalarAmount, _ := ed25519Curve.Scalar.SetBigInt(scalarAmtValue)
+	remainingBalanceEqualityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(
+		sourceKeypair, remainingBalanceCiphertext, &remainingBalanceRandomness, &scalarAmount)
+
+	scalarAmountValueLo := new(big.Int).SetUint64(amountLo)
+	scalarAmountLo, _ := ed25519Curve.Scalar.SetBigInt(scalarAmountValueLo)
+
+	transferAmountLoEqualityProof, _ := zkproofs.NewCiphertextCiphertextEqualityProof(
+		sourceKeypair,
+		&destinationKeypair.PublicKey,
+		sourceCiphertextAmountLo,
+		&destinationCipherAmountLoR,
+		&scalarAmountLo)
+
+	scalarAmountValueHi := new(big.Int).SetUint64(amountHi)
+	scalarAmountHi, _ := ed25519Curve.Scalar.SetBigInt(scalarAmountValueHi)
+
+	transferAmountHiEqualityProof, _ := zkproofs.NewCiphertextCiphertextEqualityProof(
+		sourceKeypair,
+		&destinationKeypair.PublicKey,
+		sourceCiphertextAmountHi,
+		&destinationCipherAmountHiR,
+		&scalarAmountHi)
 
 	proofs := &Proofs{
 		RemainingBalanceCommitmentValidityProof: remainingBalanceCommitmentValidityProof,
@@ -64,6 +92,9 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		RecipientTransferAmountLoValidityProof:  destinationCipherAmountLoValidityProof,
 		RecipientTransferAmountHiValidityProof:  destinationCipherAmountHiValidityProof,
 		RemainingBalanceRangeProof:              remainingBalanceRangeProof,
+		RemainingBalanceEqualityProof:           remainingBalanceEqualityProof,
+		TransferAmountLoEqualityProof:           transferAmountLoEqualityProof,
+		TransferAmountHiEqualityProof:           transferAmountHiEqualityProof,
 	}
 
 	transferProofs := &TransferProofs{}
@@ -136,4 +167,10 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.True(t, valid)
+
+	assert.True(t, zkproofs.VerifyCiphertextCommitmentEquality(
+		result.Proofs.RemainingBalanceEqualityProof,
+		&sourceKeypair.PublicKey,
+		remainingBalanceCiphertext,
+		&remainingBalanceCiphertext.C))
 }
