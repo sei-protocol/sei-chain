@@ -95,7 +95,7 @@ func (m *Migrator) Verify(version int64) error {
 				verifyErr = fmt.Errorf("verification error: value doesn't match for key %s", string(key))
 			}
 			count++
-			if count%10000 == 0 {
+			if count%1000000 == 0 {
 				fmt.Printf("SeiDB Archive Migration:: Verified %d keys in for module %s\n", count, module)
 			}
 			return false
