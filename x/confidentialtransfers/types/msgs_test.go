@@ -49,12 +49,15 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	remainingBalanceCommitmentValidityProof, err :=
 		zkproofs.NewCiphertextValidityProof(&remainingBalanceRandomness, sourceKeypair.PublicKey, remainingBalanceCiphertext, remainingBalance)
 
+	remainingBalanceRangeProof, err := zkproofs.NewRangeProof(64, int(remainingBalance), remainingBalanceRandomness)
+
 	proofs := &Proofs{
 		RemainingBalanceCommitmentValidityProof: remainingBalanceCommitmentValidityProof,
 		SenderTransferAmountLoValidityProof:     sourceCiphertextAmountLoValidityProof,
 		SenderTransferAmountHiValidityProof:     sourceCiphertextAmountHiValidityProof,
 		RecipientTransferAmountLoValidityProof:  destinationCipherAmountLoValidityProof,
 		RecipientTransferAmountHiValidityProof:  destinationCipherAmountHiValidityProof,
+		RemainingBalanceRangeProof:              remainingBalanceRangeProof,
 	}
 
 	transferProofs := &TransferProofs{}
@@ -97,22 +100,30 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 
 	// Make sure the proofs are valid
 	assert.True(t, zkproofs.VerifyCiphertextValidity(
-		sourceCiphertextAmountLoValidityProof,
+		result.Proofs.SenderTransferAmountLoValidityProof,
 		sourceKeypair.PublicKey,
-		sourceCiphertextAmountLo))
+		result.SenderTransferAmountLo))
 
 	assert.True(t, zkproofs.VerifyCiphertextValidity(
-		sourceCiphertextAmountHiValidityProof,
+		result.Proofs.SenderTransferAmountHiValidityProof,
 		sourceKeypair.PublicKey,
-		sourceCiphertextAmountHi))
+		result.SenderTransferAmountHi))
 
 	assert.True(t, zkproofs.VerifyCiphertextValidity(
-		destinationCipherAmountLoValidityProof,
+		result.Proofs.RecipientTransferAmountLoValidityProof,
 		destinationKeypair.PublicKey,
-		destinationCipherAmountLo))
+		result.RecipientTransferAmountLo))
 
 	assert.True(t, zkproofs.VerifyCiphertextValidity(
-		destinationCipherAmountHiValidityProof,
+		result.Proofs.RecipientTransferAmountHiValidityProof,
 		destinationKeypair.PublicKey,
-		destinationCipherAmountHi))
+		result.RecipientTransferAmountHi))
+
+	valid, err := zkproofs.VerifyRangeProof(
+		result.Proofs.RemainingBalanceRangeProof,
+		result.RemainingBalanceCommitment, 64)
+
+	assert.NoError(t, err)
+	assert.True(t, valid)
+
 }
