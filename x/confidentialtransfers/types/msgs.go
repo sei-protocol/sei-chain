@@ -107,6 +107,18 @@ func (m *MsgTransfer) ValidateBasic() error {
 	if transfer.Proofs.RemainingBalanceRangeProof == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalanceRangeProof is required")
 	}
+
+	if transfer.Proofs.RemainingBalanceEqualityProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalanceEqualityProof is required")
+	}
+
+	if transfer.Proofs.TransferAmountLoEqualityProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "TransferAmountLoEqualityProof is required")
+	}
+
+	if transfer.Proofs.TransferAmountHiEqualityProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "TransferAmountHiEqualityProof is required")
+	}
 	return nil
 }
 
