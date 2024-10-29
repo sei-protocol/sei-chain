@@ -17,7 +17,13 @@ The overall process will work as follows:
 6. Restart seid normally and verify node runs properly
 7. Clear out iavl and restart seid normally, now only using SeiDB fully
 
-You may need to ensure you have sufficient disk space available, as during the migration process, both IAVL and SeiDB state stores will need to be maintained simultaneously. This could potentially double your storage requirements temporarily.
+
+## Requirements
+
+### Additional Disk Space
+
+Ensure you have at least 10TB of free disk space available for the migration process. This extra space is needed because during migration, both IAVL and SeiDB state stores will exist simultaneously. Note
+that this is ONLY during the migration process, and will not be necessary after completion
 
 
 ## Migration Steps
