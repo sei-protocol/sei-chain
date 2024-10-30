@@ -1,7 +1,7 @@
 package types
 
 import (
-	"errors"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
 	"github.com/coinbase/kryptology/pkg/bulletproof"
 	"github.com/coinbase/kryptology/pkg/core/curves"
@@ -9,41 +9,40 @@ import (
 )
 
 func (c *TransferProofs) Validate() error {
-
 	if c.RemainingBalanceCommitmentValidityProof == nil {
-		return errors.New("remaining balance commitment validity proof is nil")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance commitment validity proof is required")
 	}
 
 	if c.SenderTransferAmountLoValidityProof == nil {
-		return errors.New("sender transfer amount lo validity proof is nil")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "sender transfer amount lo validity proof is required")
 	}
 
 	if c.SenderTransferAmountHiValidityProof == nil {
-		return errors.New("sender transfer amount hi validity proof is nil")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "sender transfer amount hi validity proof is required")
 	}
 
 	if c.RecipientTransferAmountLoValidityProof == nil {
-		return errors.New("recipient transfer amount lo validity proof is nil")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "recipient transfer amount lo validity proof is required")
 	}
 
 	if c.RecipientTransferAmountHiValidityProof == nil {
-		return errors.New("recipient transfer amount hi validity proof is nil")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "recipient transfer amount hi validity proof is required")
 	}
 
 	if c.RemainingBalanceRangeProof == nil {
-		return errors.New("remaining balance range proof is nil")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance range proof is required")
 	}
 
 	if c.RemainingBalanceEqualityProof == nil {
-		return errors.New("remaining balance equality proof is nil")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance equality proof is required")
 	}
 
 	if c.TransferAmountLoEqualityProof == nil {
-		return errors.New("transfer amount lo equality proof is nil")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "transfer amount lo equality proof is required")
 	}
 
 	if c.TransferAmountHiEqualityProof == nil {
-		return errors.New("transfer amount hi equality proof is nil")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "transfer amount hi equality proof is required")
 	}
 
 	return nil
@@ -122,6 +121,13 @@ func (c *TransferProofs) FromProto() (*Proofs, error) {
 	}, nil
 }
 
+func (c *CiphertextValidityProof) Validate() error {
+	if c.Commitment_1 == nil || c.Commitment_2 == nil || c.Response_1 == nil || c.Response_2 == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ciphertext validity proof is invalid")
+	}
+	return nil
+}
+
 func (c *CiphertextValidityProof) ToProto(zkp *zkproofs.CiphertextValidityProof) *CiphertextValidityProof {
 	return &CiphertextValidityProof{
 		Commitment_1: zkp.Commitment1.ToAffineCompressed(),
@@ -161,6 +167,13 @@ func (c *CiphertextValidityProof) FromProto() (*zkproofs.CiphertextValidityProof
 	}, nil
 }
 
+func (r *RangeProof) Validate() error {
+	if r.Proof == nil || r.Randomness == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "range proof is invalid")
+	}
+	return nil
+}
+
 func (r *RangeProof) ToProto(zkp *zkproofs.RangeProof) *RangeProof {
 	return &RangeProof{
 		Proof:      zkp.Proof.MarshalBinary(),
@@ -188,6 +201,13 @@ func (r *RangeProof) FromProto() (*zkproofs.RangeProof, error) {
 		Randomness: randomness,
 		UpperBound: int(r.UpperBound),
 	}, nil
+}
+
+func (c *CiphertextCommitmentEqualityProof) Validate() error {
+	if c.Y0 == nil || c.Y1 == nil || c.Y2 == nil || c.Zr == nil || c.Zs == nil || c.Zx == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ciphertext commitment equality proof is invalid")
+	}
+	return nil
 }
 
 func (c *CiphertextCommitmentEqualityProof) ToProto(zkp *zkproofs.CiphertextCommitmentEqualityProof) *CiphertextCommitmentEqualityProof {
@@ -242,6 +262,13 @@ func (c *CiphertextCommitmentEqualityProof) FromProto() (*zkproofs.CiphertextCom
 		Zs: zS,
 		Zx: zX,
 	}, nil
+}
+
+func (c *CiphertextCiphertextEqualityProof) Validate() error {
+	if c.Y0 == nil || c.Y1 == nil || c.Y2 == nil || c.Y3 == nil || c.Zr == nil || c.Zs == nil || c.Zx == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ciphertext ciphertext equality proof is invalid")
+	}
+	return nil
 }
 
 func (c *CiphertextCiphertextEqualityProof) ToProto(zkp *zkproofs.CiphertextCiphertextEqualityProof) *CiphertextCiphertextEqualityProof {
@@ -303,6 +330,13 @@ func (c *CiphertextCiphertextEqualityProof) FromProto() (*zkproofs.CiphertextCip
 		Zs: zS,
 		Zx: zX,
 	}, nil
+}
+
+func (a *Auditor) Validate() error {
+	if a.EncryptedTransferAmountLo == nil || a.EncryptedTransferAmountHi == nil || a.TransferAmountLoValidityProof == nil || a.TransferAmountHiValidityProof == nil || a.TransferAmountLoEqualityProof == nil || a.TransferAmountHiEqualityProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "auditor is invalid")
+	}
+	return nil
 }
 
 func (a *Auditor) ToProto(transferAuditor *TransferAuditor) *Auditor {
