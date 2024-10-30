@@ -536,12 +536,10 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 
 	// in the synchronous case, we only want to re-execute tasks that need re-executing
 	if s.synchronous {
-		// if already validated, then this does another validation
+		// even if already validated, it could become invalid again due to preceeding
+		// reruns. Make sure previous writes are invalidated before rerunning.
 		if task.IsStatus(statusValidated) {
-			s.shouldRerun(task)
-			if task.IsStatus(statusValidated) {
-				return
-			}
+			s.invalidateTask(task)
 		}
 
 		// waiting transactions may not yet have been reset
