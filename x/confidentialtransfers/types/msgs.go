@@ -178,6 +178,16 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 		return nil, err
 	}
 
+	// iterate over m.Auditors and convert them to types.Auditor
+	var auditors []*TransferAuditor
+	for _, auditor := range m.Auditors {
+		auditorData, e := auditor.FromProto()
+		if e != nil {
+			return nil, e
+		}
+		auditors = append(auditors, auditorData)
+	}
+
 	return &Transfer{
 		FromAddress:                m.FromAddress,
 		ToAddress:                  m.ToAddress,
@@ -189,5 +199,6 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 		RemainingBalanceCommitment: remainingBalanceCommitment,
 		DecryptableBalance:         m.DecryptableBalance,
 		Proofs:                     proofs,
+		Auditors:                   auditors,
 	}, nil
 }

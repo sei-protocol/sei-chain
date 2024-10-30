@@ -304,3 +304,60 @@ func (c *CiphertextCiphertextEqualityProof) FromProto() (*zkproofs.CiphertextCip
 		Zx: zX,
 	}, nil
 }
+
+func (a *Auditor) ToProto(transferAuditor *TransferAuditor) *Auditor {
+	ciphertext := &Ciphertext{}
+	transferAmountLo := ciphertext.ToProto(transferAuditor.EncryptedTransferAmountLo)
+	transferAmountHi := ciphertext.ToProto(transferAuditor.EncryptedTransferAmountHi)
+	cipherTextValidity := CiphertextValidityProof{}
+	transferAmountLoValidityProof := cipherTextValidity.ToProto(transferAuditor.TransferAmountLoValidityProof)
+	transferAmountHiValidityProof := cipherTextValidity.ToProto(transferAuditor.TransferAmountHiValidityProof)
+	ciphertextCiphertextEquality := CiphertextCiphertextEqualityProof{}
+	transferAmountLoEqualityProof := ciphertextCiphertextEquality.ToProto(transferAuditor.TransferAmountLoEqualityProof)
+	transferAmountHiEqualityProof := ciphertextCiphertextEquality.ToProto(transferAuditor.TransferAmountHiEqualityProof)
+	return &Auditor{
+		AuditorAddress:                transferAuditor.Address,
+		EncryptedTransferAmountLo:     transferAmountLo,
+		EncryptedTransferAmountHi:     transferAmountHi,
+		TransferAmountLoValidityProof: transferAmountLoValidityProof,
+		TransferAmountHiValidityProof: transferAmountHiValidityProof,
+		TransferAmountLoEqualityProof: transferAmountLoEqualityProof,
+		TransferAmountHiEqualityProof: transferAmountHiEqualityProof,
+	}
+}
+
+func (a *Auditor) FromProto() (*TransferAuditor, error) {
+	transferAmountLo, err := a.EncryptedTransferAmountLo.FromProto()
+	if err != nil {
+		return nil, err
+	}
+	transferAmountHi, err := a.EncryptedTransferAmountHi.FromProto()
+	if err != nil {
+		return nil, err
+	}
+	transferAmountLoValidityProof, err := a.TransferAmountLoValidityProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+	transferAmountHiValidityProof, err := a.TransferAmountHiValidityProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+	transferAmountLoEqualityProof, err := a.TransferAmountLoEqualityProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+	transferAmountHiEqualityProof, err := a.TransferAmountLoEqualityProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+	return &TransferAuditor{
+		Address:                       a.AuditorAddress,
+		EncryptedTransferAmountLo:     transferAmountLo,
+		EncryptedTransferAmountHi:     transferAmountHi,
+		TransferAmountLoValidityProof: transferAmountLoValidityProof,
+		TransferAmountHiValidityProof: transferAmountHiValidityProof,
+		TransferAmountLoEqualityProof: transferAmountLoEqualityProof,
+		TransferAmountHiEqualityProof: transferAmountHiEqualityProof,
+	}, nil
+}
