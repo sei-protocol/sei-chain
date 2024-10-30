@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -15,6 +16,7 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -63,8 +65,8 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
-	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
+func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
+	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfig: txConfig, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
 		namespace:      namespace,
@@ -276,6 +278,7 @@ func (a *FilterAPI) UninstallFilter(
 type LogFetcher struct {
 	tmClient                 rpcclient.Client
 	k                        *keeper.Keeper
+	txConfig                 client.TxConfig
 	ctxProvider              func(int64) sdk.Context
 	filterConfig             *FilterConfig
 	includeSyntheticReceipts bool
@@ -358,7 +361,34 @@ func (f *LogFetcher) FindBlockesByBloom(begin, end int64, filters [][]bloomIndex
 
 func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (res []*ethtypes.Log) {
 	ctx := f.ctxProvider(LatestCtxHeight)
-	txHashes := f.k.GetTxHashesOnHeight(ctx, height)
+	block, err := blockByNumberWithRetry(context.Background(), f.tmClient, &height, 1)
+	if err != nil {
+		fmt.Printf("error getting block when querying logs: %s\n", err)
+		return
+	}
+
+	if block == nil {
+		fmt.Printf("no block found when querying logs for height %d\n", height)
+		return
+	}
+	txHashes := []common.Hash{}
+	for i, tx := range block.Block.Data.Txs {
+		sdkTx, err := f.txConfig.TxDecoder()(tx)
+		if err != nil {
+			fmt.Printf("error decoding tx %d in block %d, skipping\n", i, height)
+			continue
+		}
+		if len(sdkTx.GetMsgs()) == 0 {
+			continue
+		}
+		if evmTx, ok := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction); ok {
+			if evmTx.IsAssociateTx() {
+				continue
+			}
+			ethtx, _ := evmTx.AsTransaction()
+			txHashes = append(txHashes, ethtx.Hash())
+		}
+	}
 	for _, hash := range txHashes {
 		receipt, err := f.k.GetReceipt(ctx, hash)
 		if err != nil {
