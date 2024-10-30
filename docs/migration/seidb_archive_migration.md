@@ -99,6 +99,11 @@ systemctl stop seid
 seid tools migrate-iavl --home-dir /root/.sei
 ```
 
+You can also run this sc migration in the background:
+```bash
+seid tools migrate-iavl --home-dir /root/.sei > migrate-sc.log 2>&1 &
+```
+
 This may take a couple hours to run. You will see logs of form
 `Start restoring SC store for height`
 
