@@ -3,6 +3,7 @@ package types
 import (
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -264,4 +265,135 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		&auditorKeypair.PublicKey,
 		result.SenderTransferAmountLo,
 		result.Auditors[0].EncryptedTransferAmountLo))
+}
+
+func TestMsgTransfer_ValidateBasic(t *testing.T) {
+	validAddress := sdk.AccAddress("address1").String()
+	invalidAddress := "invalid_address"
+	validDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+
+	tests := []struct {
+		name    string
+		msg     MsgTransfer
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "invalid from address",
+			msg: MsgTransfer{
+				FromAddress: invalidAddress,
+				ToAddress:   validAddress,
+				Denom:       validDenom,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidAddress.Error(),
+		},
+		{
+			name: "invalid to address",
+			msg: MsgTransfer{
+				FromAddress: validAddress,
+				ToAddress:   invalidAddress,
+				Denom:       validDenom,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidAddress.Error(),
+		},
+		{
+			name: "invalid denom",
+			msg: MsgTransfer{
+				FromAddress: validAddress,
+				ToAddress:   validAddress,
+				Denom:       "",
+			},
+			wantErr: true,
+			errMsg:  "invalid denom",
+		},
+		{
+			name: "missing from amount lo",
+			msg: MsgTransfer{
+				FromAddress: validAddress,
+				ToAddress:   validAddress,
+				Denom:       validDenom,
+			},
+			wantErr: true,
+			errMsg:  "FromAmountLo is required",
+		},
+		{
+			name: "missing from amount hi",
+			msg: MsgTransfer{
+				FromAddress:  validAddress,
+				ToAddress:    validAddress,
+				Denom:        validDenom,
+				FromAmountLo: &Ciphertext{},
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing to amount lo",
+			msg: MsgTransfer{
+				FromAddress:  validAddress,
+				ToAddress:    validAddress,
+				Denom:        validDenom,
+				FromAmountLo: &Ciphertext{},
+				FromAmountHi: &Ciphertext{},
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing to amount hi",
+			msg: MsgTransfer{
+				FromAddress:  validAddress,
+				ToAddress:    validAddress,
+				Denom:        validDenom,
+				FromAmountLo: &Ciphertext{},
+				FromAmountHi: &Ciphertext{},
+				ToAmountLo:   &Ciphertext{},
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing remaining balance",
+			msg: MsgTransfer{
+				FromAddress:  validAddress,
+				ToAddress:    validAddress,
+				Denom:        validDenom,
+				FromAmountLo: &Ciphertext{},
+				FromAmountHi: &Ciphertext{},
+				ToAmountLo:   &Ciphertext{},
+				ToAmountHi:   &Ciphertext{},
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing proofs",
+			msg: MsgTransfer{
+				FromAddress:      validAddress,
+				ToAddress:        validAddress,
+				Denom:            validDenom,
+				FromAmountLo:     &Ciphertext{},
+				FromAmountHi:     &Ciphertext{},
+				ToAmountLo:       &Ciphertext{},
+				ToAmountHi:       &Ciphertext{},
+				RemainingBalance: &Ciphertext{},
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.msg.ValidateBasic()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
