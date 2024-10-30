@@ -39,6 +39,8 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		return
 	}
 	logs := []*ethtypes.Log{}
+	// Note: txs with a very large number of WASM events may run out of gas due to
+	// additional gas consumption from EVM receipt generation and event translation
 	wasmToEvmEventGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)))
 	wasmToEvmEventCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmToEvmEventGasLimit))
 	for _, wasmEvent := range wasmEvents {
@@ -46,7 +48,6 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		if !found {
 			continue
 		}
-		// check if there is a ERC20 pointer to contractAddr
 		pointerAddr, _, exists := app.EvmKeeper.GetERC20CW20Pointer(wasmToEvmEventCtx, contractAddr)
 		if exists {
 			log, eligible := app.translateCW20Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr)
