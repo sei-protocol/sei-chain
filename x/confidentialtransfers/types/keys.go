@@ -8,7 +8,7 @@ import (
 // TODO: Remove keys that are eventually not required
 const (
 	// ModuleName defines the module name
-	ModuleName = "confidential"
+	ModuleName = "confidentialtransfers"
 
 	// StoreKey defines the primary module store key
 	StoreKey = ModuleName

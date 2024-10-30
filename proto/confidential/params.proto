@@ -1,7 +1,0 @@
-syntax = "proto3";
-package seiprotocol.seichain.confidential;
-
-option go_package = "github.com/sei-protocol/sei-chain/x/confidential/types";
-
-// Params defines the parameters for the tokenfactory module.
-message Params {}

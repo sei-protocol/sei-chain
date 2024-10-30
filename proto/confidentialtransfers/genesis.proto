@@ -1,10 +1,10 @@
 syntax = "proto3";
-package seiprotocol.seichain.confidential;
+package seiprotocol.seichain.confidentialtransfers;
 
 import "gogoproto/gogo.proto";
-import "confidential/params.proto";
+import "confidentialtransfers/params.proto";
 
-option go_package = "github.com/sei-protocol/sei-chain/x/confidential/types";
+option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
 
 // GenesisState defines the confidential module's genesis state.
 // TODO: Implement this. This should probably look like an array of empty Account objects.

@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
-	"github.com/sei-protocol/sei-chain/x/confidential/types"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
 	"github.com/tendermint/tendermint/libs/log"
 
@@ -32,7 +32,7 @@ func (k Keeper) TestQuery(ctx context.Context, request *types.TestQueryRequest) 
 	panic("implement me")
 }
 
-// NewKeeper returns a new instance of the x/confidential keeper
+// NewKeeper returns a new instance of the x/confidentialtransfers keeper
 func NewKeeper(
 	codec codec.Codec,
 	storeKey sdk.StoreKey,
@@ -69,7 +69,7 @@ func (k Keeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string
 	store.Set(key, bz)                 // Store the serialized account under the key
 }
 
-// Logger returns a logger for the x/confidential module
+// Logger returns a logger for the x/confidentialtransfers module
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }

@@ -1,20 +1,20 @@
 /*
-The confidential module allows users to store and transfer tokens to other users while keeping the amounts transferred confidential.
+The confidentialtransfers module allows users to store and transfer tokens to other users while keeping the amounts transferred confidentialtransfers.
 
 At a high level, users will:
-- Initialize a confidential token account for some denom
-- Deposit tokens into the confidential module
-- Transfer tokens to other users who have confidential token accounts for the same denom
-- Withdraw tokens from their confidential module back into the bank module
+- Initialize a confidentialtransfers token account for some denom
+- Deposit tokens into the confidentialtransfers module
+- Transfer tokens to other users who have confidentialtransfers token accounts for the same denom
+- Withdraw tokens from their confidentialtransfers module back into the bank module
 */
-package confidential
+package confidentialtransfers
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"github.com/sei-protocol/sei-chain/x/confidential/keeper"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
 	"github.com/spf13/cobra"
 	"math/rand"
 
@@ -28,7 +28,7 @@ import (
 
 	//"github.com/sei-protocol/sei-chain/x/tokenfactory/client/cli"
 	//"github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
-	"github.com/sei-protocol/sei-chain/x/confidential/types"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 )
@@ -49,7 +49,7 @@ func NewAppModuleBasic() AppModuleBasic {
 	return AppModuleBasic{}
 }
 
-// Name returns the x/confidential module's name.
+// Name returns the x/confidentialtransfers module's name.
 func (AppModuleBasic) Name() string {
 	return types.ModuleName
 }
@@ -63,12 +63,12 @@ func (a AppModuleBasic) RegisterInterfaces(reg cdctypes.InterfaceRegistry) {
 	types.RegisterInterfaces(reg)
 }
 
-// DefaultGenesis returns the x/confidential module's default genesis state.
+// DefaultGenesis returns the x/confidentialtransfers module's default genesis state.
 func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
 	return cdc.MustMarshalJSON(types.DefaultGenesis())
 }
 
-// ValidateGenesis performs genesis state validation for the x/confidential module.
+// ValidateGenesis performs genesis state validation for the x/confidentialtransfers module.
 func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
 	var genState types.GenesisState
 	if err := cdc.UnmarshalJSON(bz, &genState); err != nil {
@@ -90,14 +90,14 @@ func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *r
 }
 
 // TODO: Implement this when we add the CLI methods
-// GetTxCmd returns the x/confidential module's root tx command.
+// GetTxCmd returns the x/confidentialtransfers module's root tx command.
 func (a AppModuleBasic) GetTxCmd() *cobra.Command {
 	//return cli.GetTxCmd()
 	return nil
 }
 
 // TODO: Implement this when we add the CLI methods
-// GetQueryCmd returns the x/confidential module's root query command.
+// GetQueryCmd returns the x/confidentialtransfers module's root query command.
 func (AppModuleBasic) GetQueryCmd() *cobra.Command {
 	//return cli.GetQueryCmd()
 	return nil
@@ -125,20 +125,20 @@ func NewAppModule(
 	}
 }
 
-// Name returns the x/confidential module's name.
+// Name returns the x/confidentialtransfers module's name.
 func (am AppModule) Name() string {
 	return am.AppModuleBasic.Name()
 }
 
-// Route returns the x/confidential module's message routing key.
+// Route returns the x/confidentialtransfers module's message routing key.
 func (am AppModule) Route() sdk.Route {
 	return sdk.Route{}
 }
 
-// QuerierRoute returns the x/confidential module's query routing key.
+// QuerierRoute returns the x/confidentialtransfers module's query routing key.
 func (AppModule) QuerierRoute() string { return types.QuerierRoute }
 
-// LegacyQuerierHandler returns the x/confidential module's Querier.
+// LegacyQuerierHandler returns the x/confidentialtransfers module's Querier.
 func (am AppModule) LegacyQuerierHandler(_ *codec.LegacyAmino) sdk.Querier {
 	return nil
 }
@@ -156,10 +156,10 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	//_ = cfg.RegisterMigration(types.ModuleName, 3, m.Migrate3to4)
 }
 
-// RegisterInvariants registers the x/confidential module's invariants.
+// RegisterInvariants registers the x/confidentialtransfers module's invariants.
 func (am AppModule) RegisterInvariants(_ sdk.InvariantRegistry) {}
 
-// InitGenesis performs the x/confidential module's genesis initialization. It
+// InitGenesis performs the x/confidentialtransfers module's genesis initialization. It
 // returns no validator updates.
 func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, gs json.RawMessage) []abci.ValidatorUpdate {
 	var genState types.GenesisState
@@ -171,7 +171,7 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, gs json.Ra
 	return []abci.ValidatorUpdate{}
 }
 
-// ExportGenesis returns the x/confidential module's exported genesis state as raw
+// ExportGenesis returns the x/confidentialtransfers module's exported genesis state as raw
 // JSON bytes.
 func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
 	// TODO: Implement once we implement keeper/Genesis
@@ -180,7 +180,7 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 	return nil
 }
 
-// ExportGenesisStream returns the confidential module's exported genesis state as raw JSON bytes in a streaming fashion.
+// ExportGenesisStream returns the confidentialtransfers module's exported genesis state as raw JSON bytes in a streaming fashion.
 func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
 	ch := make(chan json.RawMessage)
 	go func() {
@@ -190,7 +190,7 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 	return ch
 }
 
-// ValidateGenesisStream performs genesis state validation for the x/confidential module in a streaming fashion.
+// ValidateGenesisStream performs genesis state validation for the x/confidentialtransfers module in a streaming fashion.
 func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
 	for genesis := range genesisCh {
 		err := am.ValidateGenesis(cdc, config, genesis)
@@ -204,10 +204,10 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 // ConsensusVersion implements ConsensusVersion.
 func (AppModule) ConsensusVersion() uint64 { return 4 }
 
-// BeginBlock executes all ABCI BeginBlock logic respective to the confidential module.
+// BeginBlock executes all ABCI BeginBlock logic respective to the confidentialtransfers module.
 func (am AppModule) BeginBlock(_ sdk.Context, _ abci.RequestBeginBlock) {}
 
-// EndBlock executes all ABCI EndBlock logic respective to the confidential module. It
+// EndBlock executes all ABCI EndBlock logic respective to the confidentialtransfers module. It
 // returns no validator updates.
 func (am AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	return []abci.ValidatorUpdate{}
@@ -217,7 +217,7 @@ func (am AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.Valid
 
 // AppModuleSimulation functions
 // TODO: The functions below seem optional to implement. We should revisit if we need any/all of them.
-// GenerateGenesisState creates a randomized GenState of the confidential module.
+// GenerateGenesisState creates a randomized GenState of the confidentialtransfers module.
 func (am AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(types.DefaultGenesis())
 }
@@ -232,7 +232,7 @@ func (am AppModule) RandomizedParams(_ *rand.Rand) []simtypes.ParamChange {
 	return nil
 }
 
-// RegisterStoreDecoder registers a decoder for confidential module's types
+// RegisterStoreDecoder registers a decoder for confidentialtransfers module's types
 func (am AppModule) RegisterStoreDecoder(_ sdk.StoreDecoderRegistry) {
 }
 

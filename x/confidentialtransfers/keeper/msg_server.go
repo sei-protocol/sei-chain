@@ -1,6 +1,6 @@
 package keeper
 
-import "github.com/sei-protocol/sei-chain/x/confidential/types"
+import "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
 type msgServer struct {
 	Keeper
