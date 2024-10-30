@@ -16,7 +16,6 @@ import (
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -367,29 +366,7 @@ func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (re
 		return
 	}
 
-	if block == nil {
-		fmt.Printf("no block found when querying logs for height %d\n", height)
-		return
-	}
-	txHashes := []common.Hash{}
-	for i, tx := range block.Block.Data.Txs {
-		sdkTx, err := f.txConfig.TxDecoder()(tx)
-		if err != nil {
-			fmt.Printf("error decoding tx %d in block %d, skipping\n", i, height)
-			continue
-		}
-		if len(sdkTx.GetMsgs()) == 0 {
-			continue
-		}
-		if evmTx, ok := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction); ok {
-			if evmTx.IsAssociateTx() {
-				continue
-			}
-			ethtx, _ := evmTx.AsTransaction()
-			txHashes = append(txHashes, ethtx.Hash())
-		}
-	}
-	for _, hash := range txHashes {
+	for _, hash := range getEvmTxHashesFromBlock(block, f.txConfig) {
 		receipt, err := f.k.GetReceipt(ctx, hash)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))

@@ -148,30 +148,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		return nil, err
 	}
 
-	if block == nil {
-		return nil, errors.New("could not retrieve block requested")
-	}
-
 	// Get all tx hashes for the block
 	height := block.Block.Header.Height
-	txHashes := []common.Hash{}
-	for i, tx := range block.Block.Data.Txs {
-		sdkTx, err := a.txConfig.TxDecoder()(tx)
-		if err != nil {
-			fmt.Printf("error decoding tx %d in block %d, skipping\n", i, height)
-			continue
-		}
-		if len(sdkTx.GetMsgs()) == 0 {
-			continue
-		}
-		if evmTx, ok := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction); ok {
-			if evmTx.IsAssociateTx() {
-				continue
-			}
-			ethtx, _ := evmTx.AsTransaction()
-			txHashes = append(txHashes, ethtx.Hash())
-		}
-	}
+	txHashes := getEvmTxHashesFromBlock(block, a.txConfig)
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}

@@ -15,10 +15,12 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/tendermint/tendermint/libs/bytes"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -202,4 +204,26 @@ func shouldIncludeSynthetic(namespace string) bool {
 		panic(fmt.Sprintf("unknown namespace %s", namespace))
 	}
 	return namespace == "sei"
+}
+
+func getEvmTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig) []common.Hash {
+	txHashes := []common.Hash{}
+	for i, tx := range block.Block.Data.Txs {
+		sdkTx, err := txConfig.TxDecoder()(tx)
+		if err != nil {
+			fmt.Printf("error decoding tx %d in block %d, skipping\n", i, block.Block.Height)
+			continue
+		}
+		if len(sdkTx.GetMsgs()) == 0 {
+			continue
+		}
+		if evmTx, ok := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction); ok {
+			if evmTx.IsAssociateTx() {
+				continue
+			}
+			ethtx, _ := evmTx.AsTransaction()
+			txHashes = append(txHashes, ethtx.Hash())
+		}
+	}
+	return txHashes
 }
