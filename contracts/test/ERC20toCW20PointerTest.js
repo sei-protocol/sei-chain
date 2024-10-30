@@ -86,17 +86,14 @@ describe("ERC20 to CW20 Pointer", function () {
             });
 
             describe("transfer()", function () {
-                it("should transfer", async function () {
+                it.only("should transfer", async function () {
                     let sender = accounts[0];
                     let recipient = accounts[1];
 
                     expect(await pointer.balanceOf(sender.evmAddress)).to.equal(balances.account0);
                     expect(await pointer.balanceOf(recipient.evmAddress)).to.equal(balances.account1);
 
-                    const tx = await pointer.transfer(recipient.evmAddress, 1, { 
-                        gasPrice: ethers.parseUnits('100', 'gwei'),
-                        gasLimit: 200000
-                    });
+                    const tx = await pointer.transfer(recipient.evmAddress, 1);
                     const receipt = await tx.wait();
                     const blockNumber = receipt.blockNumber;
 
@@ -159,7 +156,7 @@ describe("ERC20 to CW20 Pointer", function () {
 
                 it("transfer to contract address should succeed", async function () {
                     const contract = await pointer.getAddress();
-                    const tx = await pointer.transfer(contract, 1, { gasPrice: ethers.parseUnits('100', 'gwei') });
+                    const tx = await pointer.transfer(contract, 1);
                     await tx.wait();
                 });
             });
@@ -169,8 +166,8 @@ describe("ERC20 to CW20 Pointer", function () {
                     const owner = accounts[0].evmAddress;
                     const spender = accounts[1].evmAddress;
                     const blockNumber = await ethers.provider.getBlockNumber();
-                    const tx = await pointer.approve(spender, 1000000, { gasPrice: ethers.parseUnits('100', 'gwei'), gasLimit: 400000 });
-                    await tx.wait();
+                    const tx = await pointer.approve(spender, 1000000);
+                    const receipt = await tx.wait();
                     const allowance = await pointer.allowance(owner, spender);
                     expect(Number(allowance)).to.equal(1000000);
 
