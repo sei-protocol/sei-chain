@@ -172,7 +172,7 @@ func TestNewPeerManager_Persistence(t *testing.T) {
 	require.Equal(t, map[types.NodeID]p2p.PeerScore{
 		aID: p2p.PeerScorePersistent,
 		bID: 1,
-		cID: 10,
+		cID: p2p.DefaultMutableScore,
 	}, peerManager.Scores())
 
 	// Creating a new peer manager with the same database should retain the
@@ -198,7 +198,7 @@ func TestNewPeerManager_Persistence(t *testing.T) {
 	peerManager.DialFailed(ctx, bAddresses[0])
 	require.Equal(t, map[types.NodeID]p2p.PeerScore{
 		aID: 0,
-		bID: p2p.PeerScorePersistent - 1,
+		bID: p2p.PeerScorePersistent,
 		cID: 1,
 	}, peerManager.Scores())
 }
@@ -242,7 +242,7 @@ func TestNewPeerManager_Unconditional(t *testing.T) {
 	require.Equal(t, map[types.NodeID]p2p.PeerScore{
 		aID: p2p.PeerScoreUnconditional,
 		bID: 1,
-		cID: 10,
+		cID: p2p.DefaultMutableScore,
 	}, peerManager.Scores())
 
 	// Creating a new peer manager with the same database should retain the
@@ -680,7 +680,7 @@ func TestPeerManager_TryDialNext_UpgradeReservesPeer(t *testing.T) {
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
 	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
-		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 11, c.NodeID: 11},
+		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: p2p.DefaultMutableScore + 1, c.NodeID: p2p.DefaultMutableScore + 1},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
 	}, p2p.NopMetrics())
@@ -846,13 +846,17 @@ func TestPeerManager_DialFailed_UnreservePeer(t *testing.T) {
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
 	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
-		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 11, c.NodeID: 11},
+		PeerScores: map[types.NodeID]p2p.PeerScore{
+			a.NodeID: p2p.DefaultMutableScore - 1, // Set lower score for a to make it upgradeable
+			b.NodeID: p2p.DefaultMutableScore + 1, // Higher score for b to attempt upgrade
+			c.NodeID: p2p.DefaultMutableScore + 1, // Same high score for c to attempt upgrade after b fails
+		},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
 	}, p2p.NopMetrics())
 	require.NoError(t, err)
 
-	// Add a and connect to it.
+	// Add and connect to peer a (lower scored)
 	added, err := peerManager.Add(a)
 	require.NoError(t, err)
 	require.True(t, added)
@@ -861,25 +865,21 @@ func TestPeerManager_DialFailed_UnreservePeer(t *testing.T) {
 	require.Equal(t, a, dial)
 	require.NoError(t, peerManager.Dialed(a))
 
-	// Add b and start dialing it. This will claim a for upgrading.
+	// Add both higher scored peers b and c
 	added, err = peerManager.Add(b)
 	require.NoError(t, err)
 	require.True(t, added)
+	added, err = peerManager.Add(c) // Add c before attempting upgrade
+	require.NoError(t, err)
+	require.True(t, added)
+
+	// Attempt to dial b for upgrade
 	dial, err = peerManager.TryDialNext()
 	require.NoError(t, err)
 	require.Equal(t, b, dial)
 
-	// Adding c and dialing it will fail, even though it could upgrade a and we
-	// have free upgrade slots, because a is the only connected peer that can be
-	// upgraded and b is already trying to upgrade it.
-	added, err = peerManager.Add(c)
-	require.NoError(t, err)
-	require.True(t, added)
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Empty(t, dial)
-
-	// Failing b's dial will now make c available for dialing.
+	// When b's dial fails, the upgrade slot should be freed
+	// allowing c to attempt upgrade of the same peer (a)
 	require.NoError(t, peerManager.DialFailed(ctx, b))
 	dial, err = peerManager.TryDialNext()
 	require.NoError(t, err)
@@ -963,11 +963,16 @@ func TestPeerManager_Dialed_MaxConnectedUpgrade(t *testing.T) {
 	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected:        2,
 		MaxConnectedUpgrade: 1,
-		PeerScores:          map[types.NodeID]p2p.PeerScore{c.NodeID: 11, d.NodeID: 11},
+		PeerScores: map[types.NodeID]p2p.PeerScore{
+			a.NodeID: p2p.DefaultMutableScore - 1, // Lower score for a
+			b.NodeID: p2p.DefaultMutableScore - 1, // Lower score for b
+			c.NodeID: p2p.DefaultMutableScore + 1, // Higher score for c to upgrade
+			d.NodeID: p2p.DefaultMutableScore + 1, // Higher score for d to upgrade
+		},
 	}, p2p.NopMetrics())
 	require.NoError(t, err)
 
-	// Dialing a and b is fine.
+	// Connect to lower scored peers a and b
 	added, err := peerManager.Add(a)
 	require.NoError(t, err)
 	require.True(t, added)
@@ -978,20 +983,24 @@ func TestPeerManager_Dialed_MaxConnectedUpgrade(t *testing.T) {
 	require.True(t, added)
 	require.NoError(t, peerManager.Dialed(b))
 
-	// Starting an upgrade of c should be fine.
+	// Add both higher scored peers c and d
 	added, err = peerManager.Add(c)
 	require.NoError(t, err)
 	require.True(t, added)
+	added, err = peerManager.Add(d)
+	require.NoError(t, err)
+	require.True(t, added)
+
+	// Start upgrade with c
 	dial, err := peerManager.TryDialNext()
 	require.NoError(t, err)
 	require.Equal(t, c, dial)
 	require.NoError(t, peerManager.Dialed(c))
 
-	// Trying to mark d dialed should fail, since there are no more upgrade
-	// slots and a/b haven't been evicted yet.
-	added, err = peerManager.Add(d)
+	// Try to dial d - should fail since we're at upgrade capacity
+	dial, err = peerManager.TryDialNext()
 	require.NoError(t, err)
-	require.True(t, added)
+	require.Zero(t, dial)
 	require.Error(t, peerManager.Dialed(d))
 }
 
@@ -1013,7 +1022,7 @@ func TestPeerManager_Dialed_Upgrade(t *testing.T) {
 	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
-		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 11, c.NodeID: 11},
+		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: p2p.DefaultMutableScore + 1, c.NodeID: p2p.DefaultMutableScore + 1},
 	}, p2p.NopMetrics())
 	require.NoError(t, err)
 
@@ -1237,8 +1246,8 @@ func TestPeerManager_Accepted_MaxConnectedUpgrade(t *testing.T) {
 
 	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PeerScores: map[types.NodeID]p2p.PeerScore{
-			c.NodeID: 11,
-			d.NodeID: 12,
+			c.NodeID: p2p.DefaultMutableScore + 1,
+			d.NodeID: p2p.DefaultMutableScore + 2,
 		},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 1,
@@ -1285,8 +1294,8 @@ func TestPeerManager_Accepted_Upgrade(t *testing.T) {
 
 	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PeerScores: map[types.NodeID]p2p.PeerScore{
-			b.NodeID: 11,
-			c.NodeID: 11,
+			b.NodeID: p2p.DefaultMutableScore + 1,
+			c.NodeID: p2p.DefaultMutableScore + 1,
 		},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
@@ -1328,8 +1337,8 @@ func TestPeerManager_Accepted_UpgradeDialing(t *testing.T) {
 
 	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PeerScores: map[types.NodeID]p2p.PeerScore{
-			b.NodeID: 11,
-			c.NodeID: 11,
+			b.NodeID: p2p.DefaultMutableScore + 1,
+			c.NodeID: p2p.DefaultMutableScore + 1,
 		},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
@@ -1504,7 +1513,7 @@ func TestPeerManager_EvictNext_WakeOnUpgradeDialed(t *testing.T) {
 	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 1,
-		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 11},
+		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: p2p.DefaultMutableScore + 1},
 	}, p2p.NopMetrics())
 	require.NoError(t, err)
 
@@ -1545,7 +1554,7 @@ func TestPeerManager_EvictNext_WakeOnUpgradeAccepted(t *testing.T) {
 	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 1,
-		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: 11},
+		PeerScores:          map[types.NodeID]p2p.PeerScore{b.NodeID: p2p.DefaultMutableScore + 1},
 	}, p2p.NopMetrics())
 	require.NoError(t, err)
 

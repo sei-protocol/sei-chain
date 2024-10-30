@@ -258,6 +258,10 @@ func (r *Reactor) handleMessage(ctx context.Context, envelope *p2p.Envelope, blo
 			return r.respondToPeer(ctx, msg, envelope.From, blockSyncCh)
 		case *bcproto.BlockResponse:
 			block, err := types.BlockFromProto(msg.Block)
+
+			r.logger.Info("received block response from peer",
+				"peer", envelope.From,
+				"height", block.Height)
 			if err != nil {
 				r.logger.Error("failed to convert block from proto",
 					"peer", envelope.From,
@@ -495,6 +499,7 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 	var (
 		trySyncTicker           = time.NewTicker(trySyncIntervalMS * time.Millisecond)
 		switchToConsensusTicker = time.NewTicker(switchToConsensusIntervalSeconds * time.Second)
+		lastApplyBlockTime      = time.Now()
 
 		blocksSynced = uint64(0)
 
@@ -695,7 +700,11 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 
 			// TODO: Same thing for app - but we would need a way to get the hash
 			// without persisting the state.
+			r.logger.Info(fmt.Sprintf("Requesting block %d from peer took %s", first.Height, time.Since(lastApplyBlockTime)))
+			startTime := time.Now()
 			state, err = r.blockExec.ApplyBlock(ctx, state, firstID, first, nil)
+			r.logger.Info(fmt.Sprintf("ApplyBlock %d took %s", first.Height, time.Since(startTime)))
+			lastApplyBlockTime = time.Now()
 			if err != nil {
 				panic(fmt.Sprintf("failed to process committed block (%d:%X): %v", first.Height, first.Hash(), err))
 			}

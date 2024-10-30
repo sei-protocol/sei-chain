@@ -25,8 +25,6 @@ import (
 const (
 	// retryNever is returned by retryDelay() when retries are disabled.
 	retryNever time.Duration = math.MaxInt64
-	// DefaultMutableScore is the default score for a peer during initialization
-	DefaultMutableScore int64 = 10
 )
 
 // PeerStatus is a peer status.
@@ -47,9 +45,10 @@ const (
 type PeerScore uint8
 
 const (
-	PeerScoreUnconditional    PeerScore = math.MaxUint8              // unconditional peers
-	PeerScorePersistent       PeerScore = PeerScoreUnconditional - 1 // persistent peers
-	MaxPeerScoreNotPersistent PeerScore = PeerScorePersistent - 1
+	PeerScoreUnconditional    PeerScore = math.MaxUint8                  // unconditional peers, 255
+	PeerScorePersistent       PeerScore = PeerScoreUnconditional - 1     // persistent peers, 254
+	MaxPeerScoreNotPersistent PeerScore = PeerScorePersistent - 1        // not persistent peers, 253
+	DefaultMutableScore       PeerScore = MaxPeerScoreNotPersistent - 10 // mutable score, 243
 )
 
 // PeerUpdate is a peer update event sent via PeerUpdates.
@@ -598,6 +597,7 @@ func (m *PeerManager) DialFailed(ctx context.Context, address NodeAddress) error
 
 	addressInfo.LastDialFailure = time.Now().UTC()
 	addressInfo.DialFailures++
+	peer.ConsecSuccessfulBlocks = 0
 	// We need to invalidate the cache after score changed
 	m.store.ranked = nil
 	if err := m.store.Set(peer); err != nil {
@@ -845,7 +845,15 @@ func (m *PeerManager) Disconnected(ctx context.Context, peerID types.NodeID) {
 
 	// Update score and invalidate cache if a peer got disconnected
 	if _, ok := m.store.peers[peerID]; ok {
-		m.store.peers[peerID].NumOfDisconnections++
+		// check for potential overflow
+		if m.store.peers[peerID].NumOfDisconnections < math.MaxInt64 {
+			m.store.peers[peerID].NumOfDisconnections++
+		} else {
+			fmt.Printf("Warning: NumOfDisconnections for peer %s has reached its maximum value\n", peerID)
+			m.store.peers[peerID].NumOfDisconnections = 0
+		}
+
+		m.store.peers[peerID].ConsecSuccessfulBlocks = 0
 		m.store.ranked = nil
 	}
 
@@ -992,15 +1000,15 @@ func (m *PeerManager) processPeerEvent(ctx context.Context, pu PeerUpdate) {
 		return
 	}
 
-	if _, ok := m.store.peers[pu.NodeID]; !ok {
-		m.store.peers[pu.NodeID] = &peerInfo{}
-	}
-
 	switch pu.Status {
 	case PeerStatusBad:
 		m.store.peers[pu.NodeID].MutableScore--
 	case PeerStatusGood:
 		m.store.peers[pu.NodeID].MutableScore++
+	}
+
+	if _, ok := m.store.peers[pu.NodeID]; !ok {
+		m.store.peers[pu.NodeID] = &peerInfo{}
 	}
 	// Invalidate the cache after score changed
 	m.store.ranked = nil
@@ -1350,7 +1358,9 @@ type peerInfo struct {
 	Height        int64
 	FixedScore    PeerScore // mainly for tests
 
-	MutableScore int64 // updated by router
+	MutableScore PeerScore // updated by router
+
+	ConsecSuccessfulBlocks int64
 }
 
 // peerInfoFromProto converts a Protobuf PeerInfo message to a peerInfo,
@@ -1408,6 +1418,7 @@ func (p *peerInfo) Copy() peerInfo {
 // Score calculates a score for the peer. Higher-scored peers will be
 // preferred over lower scores.
 func (p *peerInfo) Score() PeerScore {
+	// Use predetermined scores if set
 	if p.FixedScore > 0 {
 		return p.FixedScore
 	}
@@ -1415,20 +1426,27 @@ func (p *peerInfo) Score() PeerScore {
 		return PeerScoreUnconditional
 	}
 
-	score := p.MutableScore
+	score := int64(p.MutableScore)
 	if p.Persistent || p.BlockSync {
 		score = int64(PeerScorePersistent)
 	}
 
+	// Add points for block sync performance
+	score += p.ConsecSuccessfulBlocks / 5
+
+	// Penalize for dial failures with time decay
 	for _, addr := range p.AddressInfo {
-		// DialFailures is reset when dials succeed, so this
-		// is either the number of dial failures or 0.
-		score -= int64(addr.DialFailures)
+		failureScore := float64(addr.DialFailures) * math.Exp(-0.1*float64(time.Since(addr.LastDialFailure).Hours()))
+		score -= int64(failureScore)
 	}
 
-	// We consider lowering the score for every 3 disconnection events
-	score -= p.NumOfDisconnections / 3
+	// Penalize for disconnections with time decay
+	timeSinceLastDisconnect := time.Since(p.LastConnected)
+	decayFactor := math.Exp(-0.1 * timeSinceLastDisconnect.Hours())
+	effectiveDisconnections := int64(float64(p.NumOfDisconnections) * decayFactor)
+	score -= effectiveDisconnections / 3
 
+	// Cap score for non-persistent peers
 	if !p.Persistent && score > int64(MaxPeerScoreNotPersistent) {
 		score = int64(MaxPeerScoreNotPersistent)
 	}
@@ -1534,4 +1552,14 @@ func keyPeerInfoRange() ([]byte, []byte) {
 func (m *PeerManager) MarkReadyConnected(nodeId types.NodeID) {
 	m.ready[nodeId] = true
 	m.connected[nodeId] = true
+}
+
+func (m *PeerManager) IncrementBlockSyncs(peerID types.NodeID) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+
+	if peer, ok := m.store.peers[peerID]; ok {
+		peer.ConsecSuccessfulBlocks++
+		m.store.ranked = nil
+	}
 }

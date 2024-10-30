@@ -332,12 +332,18 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		defer commitSpan.End()
 	}
 	// Lock mempool, commit app state, update mempoool.
+	commitStart := time.Now()
 	retainHeight, err := blockExec.Commit(ctx, state, block, fBlockRes.TxResults)
 	if err != nil {
 		return state, fmt.Errorf("commit failed for application: %w", err)
 	}
 	if commitSpan != nil {
 		commitSpan.End()
+	}
+	if time.Since(commitStart) > 1000*time.Millisecond {
+		blockExec.logger.Info("commit in blockExec",
+			"duration", time.Since(commitStart),
+			"height", block.Height)
 	}
 
 	// Update evpool with the latest state.
