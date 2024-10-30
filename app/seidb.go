@@ -56,7 +56,7 @@ func SetupSeiDB(
 
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
-	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig)
+	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, false)
 	baseAppOptions = append([]func(*baseapp.BaseApp){
 		func(baseApp *baseapp.BaseApp) {
 			baseApp.SetCMS(cms)
