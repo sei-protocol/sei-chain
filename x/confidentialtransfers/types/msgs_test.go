@@ -16,9 +16,11 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
 	sourcePrivateKey, _ := elgamal.GenerateKey()
 	destPrivateKey, _ := elgamal.GenerateKey()
+	auditorPrivateKey, _ := elgamal.GenerateKey()
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
 	destinationKeypair, _ := eg.KeyGen(*destPrivateKey, testDenom)
+	auditorKeypair, _ := eg.KeyGen(*auditorPrivateKey, testDenom)
 	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
 	require.NoError(t, err)
 
@@ -101,6 +103,41 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	proofsProto := transferProofs.ToProto(proofs)
 	address1 := sdk.AccAddress("address1")
 	address2 := sdk.AccAddress("address2")
+	auditorAddress := sdk.AccAddress("auditor")
+
+	// Auditor data
+	auditorCipherAmountLo, auditorCipherAmountLoR, _ := eg.Encrypt(auditorKeypair.PublicKey, amountLo)
+	auditorCipherAmountLoValidityProof, _ :=
+		zkproofs.NewCiphertextValidityProof(&auditorCipherAmountLoR, auditorKeypair.PublicKey, auditorCipherAmountLo, amountLo)
+	auditorCipherAmountHi, auditorCipherAmountHiR, _ := eg.Encrypt(auditorKeypair.PublicKey, amountHi)
+	auditorCipherAmountHiValidityProof, _ :=
+		zkproofs.NewCiphertextValidityProof(&auditorCipherAmountHiR, auditorKeypair.PublicKey, auditorCipherAmountHi, amountHi)
+
+	auditorTransferAmountLoEqualityProof, _ := zkproofs.NewCiphertextCiphertextEqualityProof(
+		sourceKeypair,
+		&auditorKeypair.PublicKey,
+		sourceCiphertextAmountLo,
+		&auditorCipherAmountLoR,
+		&scalarAmountLo)
+
+	auditorTransferAmountHiEqualityProof, _ := zkproofs.NewCiphertextCiphertextEqualityProof(
+		sourceKeypair,
+		&auditorKeypair.PublicKey,
+		sourceCiphertextAmountHi,
+		&auditorCipherAmountHiR,
+		&scalarAmountHi)
+
+	auditor := Auditor{}
+	transferAuditor := &TransferAuditor{
+		Address:                       auditorAddress.String(),
+		EncryptedTransferAmountLo:     auditorCipherAmountLo,
+		EncryptedTransferAmountHi:     auditorCipherAmountHi,
+		TransferAmountLoValidityProof: auditorCipherAmountLoValidityProof,
+		TransferAmountHiValidityProof: auditorCipherAmountHiValidityProof,
+		TransferAmountLoEqualityProof: auditorTransferAmountLoEqualityProof,
+		TransferAmountHiEqualityProof: auditorTransferAmountHiEqualityProof,
+	}
+	auditorProto := auditor.ToProto(transferAuditor)
 
 	m := &MsgTransfer{
 		FromAddress:        address1.String(),
@@ -113,6 +150,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		RemainingBalance:   remainingBalanceProto,
 		DecryptableBalance: decryptableBalance,
 		Proofs:             proofsProto,
+		Auditors:           []*Auditor{auditorProto},
 	}
 
 	assert.NoError(t, m.ValidateBasic())
@@ -134,6 +172,11 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	assert.True(t, destinationCipherAmountHi.D.Equal(result.RecipientTransferAmountHi.D))
 	assert.True(t, remainingBalanceCiphertext.C.Equal(result.RemainingBalanceCommitment.C))
 	assert.True(t, remainingBalanceCiphertext.D.Equal(result.RemainingBalanceCommitment.D))
+	assert.Equal(t, transferAuditor.Address, result.Auditors[0].Address)
+	assert.True(t, transferAuditor.EncryptedTransferAmountLo.C.Equal(result.Auditors[0].EncryptedTransferAmountLo.C))
+	assert.True(t, transferAuditor.EncryptedTransferAmountLo.D.Equal(result.Auditors[0].EncryptedTransferAmountLo.D))
+	assert.True(t, transferAuditor.EncryptedTransferAmountHi.C.Equal(result.Auditors[0].EncryptedTransferAmountHi.C))
+	assert.True(t, transferAuditor.EncryptedTransferAmountHi.D.Equal(result.Auditors[0].EncryptedTransferAmountHi.D))
 
 	decryptedRemainingBalance, err := encryption.DecryptAESGCM(result.DecryptableBalance, aesPK)
 	assert.NoError(t, err)
@@ -187,4 +230,28 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		&destinationKeypair.PublicKey,
 		result.SenderTransferAmountHi,
 		result.RecipientTransferAmountHi))
+
+	assert.True(t, zkproofs.VerifyCiphertextValidity(
+		result.Auditors[0].TransferAmountLoValidityProof,
+		auditorKeypair.PublicKey,
+		result.Auditors[0].EncryptedTransferAmountLo))
+
+	assert.True(t, zkproofs.VerifyCiphertextValidity(
+		result.Auditors[0].TransferAmountHiValidityProof,
+		auditorKeypair.PublicKey,
+		result.Auditors[0].EncryptedTransferAmountHi))
+
+	assert.True(t, zkproofs.VerifyCiphertextCiphertextEquality(
+		result.Auditors[0].TransferAmountLoEqualityProof,
+		&sourceKeypair.PublicKey,
+		&auditorKeypair.PublicKey,
+		result.SenderTransferAmountLo,
+		result.Auditors[0].EncryptedTransferAmountLo))
+
+	assert.True(t, zkproofs.VerifyCiphertextCiphertextEquality(
+		result.Auditors[0].TransferAmountHiEqualityProof,
+		&sourceKeypair.PublicKey,
+		&auditorKeypair.PublicKey,
+		result.SenderTransferAmountLo,
+		result.Auditors[0].EncryptedTransferAmountLo))
 }
