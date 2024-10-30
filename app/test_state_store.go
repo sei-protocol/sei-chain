@@ -264,6 +264,26 @@ func (s *InMemoryStateStore) RawImport(ch <-chan types.RawSnapshotNode) error {
 	return nil
 }
 
+func (s *InMemoryStateStore) SetLatestMigratedModule(module string) error {
+	// TODO: Add set call here
+	return nil
+}
+
+func (s *InMemoryStateStore) GetLatestMigratedModule() (string, error) {
+	// TODO: Add get call here
+	return "", nil
+}
+
+func (s *InMemoryStateStore) SetLatestMigratedKey(key []byte) error {
+	// TODO: Add set call here
+	return nil
+}
+
+func (s *InMemoryStateStore) GetLatestMigratedKey() ([]byte, error) {
+	// TODO: Add get call here
+	return nil, nil
+}
+
 func (s *InMemoryStateStore) Prune(version int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

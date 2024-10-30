@@ -1355,9 +1355,14 @@ github.com/sei-protocol/sei-db v0.0.45/go.mod h1:m5g7p0QeAS3dNJHIl28zQpzOgxQmvYq
 =======
 github.com/sei-protocol/sei-cosmos v0.3.41 h1:w5ekTGC5J/7kxJhRkfdHk2KWOqi1zhic0gOXNm6W5vI=
 github.com/sei-protocol/sei-cosmos v0.3.41/go.mod h1:ZwWxF/69WlcLEn4BzVjPPToTFkE2sjPanU8PNNyKoOk=
+<<<<<<< HEAD
 github.com/sei-protocol/sei-db v0.0.44 h1:HMgcyDTQlmXdJysHJxmIo66EKeXn1CSQT9qXDnxjJgI=
 github.com/sei-protocol/sei-db v0.0.44/go.mod h1:F/ZKZA8HJPcUzSZPA8yt6pfwlGriJ4RDR4eHKSGLStI=
 >>>>>>> 6a3c5f30 (refactor: use wasm-to-evm gas limit for all interop operations (#1912))
+=======
+github.com/sei-protocol/sei-db v0.0.45 h1:95ygzGFMyvaGwEUmzlKi8MxwXfbluoNzbaIjy9zOG6o=
+github.com/sei-protocol/sei-db v0.0.45/go.mod h1:m5g7p0QeAS3dNJHIl28zQpzOgxQmvYqPb7t4hwgIOCA=
+>>>>>>> dd940e56 (Archive Node Online Migration (#1863))
 github.com/sei-protocol/sei-iavl v0.2.0 h1:OisPjXiDT+oe+aeckzDEFgkZCYuUjHgs/PP8DPicN+I=
 github.com/sei-protocol/sei-iavl v0.2.0/go.mod h1:qRf8QYUPfrAO7K6VDB2B2l/N7K5L76OorioGBcJBIbw=
 github.com/sei-protocol/sei-ibc-go/v3 v3.3.2 h1:BaMZ6gjwqe3R/5dLmcJ1TkSZ3omcWy2TjaAZAeOJH44=
