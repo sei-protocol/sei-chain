@@ -63,6 +63,10 @@ func (c *TransferProofs) ToProto(proofs *Proofs) *TransferProofs {
 }
 
 func (c *TransferProofs) FromProto() (*Proofs, error) {
+	err := c.Validate()
+	if err != nil {
+		return nil, err
+	}
 	remainingBalanceCommitmentValidityProof, err := c.RemainingBalanceCommitmentValidityProof.FromProto()
 	if err != nil {
 		return nil, err
@@ -138,6 +142,10 @@ func (c *CiphertextValidityProof) ToProto(zkp *zkproofs.CiphertextValidityProof)
 }
 
 func (c *CiphertextValidityProof) FromProto() (*zkproofs.CiphertextValidityProof, error) {
+	err := c.Validate()
+	if err != nil {
+		return nil, err
+	}
 	ed25519Curve := curves.ED25519()
 
 	c1, err := ed25519Curve.Point.FromAffineCompressed(c.Commitment_1)
@@ -183,6 +191,10 @@ func (r *RangeProof) ToProto(zkp *zkproofs.RangeProof) *RangeProof {
 }
 
 func (r *RangeProof) FromProto() (*zkproofs.RangeProof, error) {
+	err := r.Validate()
+	if err != nil {
+		return nil, err
+	}
 	ed25519Curve := curves.ED25519()
 	proof := bulletproof.NewRangeProof(ed25519Curve)
 
@@ -222,6 +234,10 @@ func (c *CiphertextCommitmentEqualityProof) ToProto(zkp *zkproofs.CiphertextComm
 }
 
 func (c *CiphertextCommitmentEqualityProof) FromProto() (*zkproofs.CiphertextCommitmentEqualityProof, error) {
+	err := c.Validate()
+	if err != nil {
+		return nil, err
+	}
 	ed25519Curve := curves.ED25519()
 
 	y0, err := ed25519Curve.Point.FromAffineCompressed(c.Y0)
@@ -284,6 +300,10 @@ func (c *CiphertextCiphertextEqualityProof) ToProto(zkp *zkproofs.CiphertextCiph
 }
 
 func (c *CiphertextCiphertextEqualityProof) FromProto() (*zkproofs.CiphertextCiphertextEqualityProof, error) {
+	err := c.Validate()
+	if err != nil {
+		return nil, err
+	}
 	ed25519Curve := curves.ED25519()
 
 	y0, err := ed25519Curve.Point.FromAffineCompressed(c.Y0)
@@ -361,6 +381,10 @@ func (a *Auditor) ToProto(transferAuditor *TransferAuditor) *Auditor {
 }
 
 func (a *Auditor) FromProto() (*TransferAuditor, error) {
+	err := a.Validate()
+	if err != nil {
+		return nil, err
+	}
 	transferAmountLo, err := a.EncryptedTransferAmountLo.FromProto()
 	if err != nil {
 		return nil, err
