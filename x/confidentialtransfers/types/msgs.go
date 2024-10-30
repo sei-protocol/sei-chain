@@ -179,7 +179,7 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 	}
 
 	// iterate over m.Auditors and convert them to types.Auditor
-	var auditors []*TransferAuditor
+	auditors := make([]*TransferAuditor, 0, len(m.Auditors))
 	for _, auditor := range m.Auditors {
 		auditorData, e := auditor.FromProto()
 		if e != nil {
