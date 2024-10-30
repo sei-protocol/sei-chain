@@ -155,6 +155,16 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 
 	assert.NoError(t, m.ValidateBasic())
 
+	marshalled, err := m.Marshal()
+	require.NoError(t, err)
+
+	// Reset the message
+	m = &MsgTransfer{}
+	err = m.Unmarshal(marshalled)
+	require.NoError(t, err)
+
+	assert.NoError(t, m.ValidateBasic())
+
 	result, err := m.FromProto()
 
 	assert.NoError(t, err)
