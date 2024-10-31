@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/iavl"
 	"github.com/ethereum/go-ethereum/common"
@@ -91,12 +92,12 @@ func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, receipt *types
 }
 
 func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
-	iter := ctx.TransientStore(k.transientStoreKey).Iterator(nil, nil)
+	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix).Iterator(nil, nil)
 	defer iter.Close()
 	var pairs []*iavl.KVPair
 	var changesets []*proto.NamedChangeSet
 	for ; iter.Valid(); iter.Next() {
-		kvPair := &iavl.KVPair{Key: iter.Key(), Value: iter.Value()}
+		kvPair := &iavl.KVPair{Key: types.ReceiptKey(common.Hash(iter.Key())), Value: iter.Value()}
 		pairs = append(pairs, kvPair)
 	}
 	if len(pairs) == 0 {

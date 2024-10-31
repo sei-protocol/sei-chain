@@ -3,7 +3,6 @@ package types
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 )
 
 // confidential transfers message types
@@ -35,78 +34,35 @@ func (m *MsgTransfer) ValidateBasic() error {
 		return err
 	}
 
-	transfer, err := m.FromProto()
+	if m.FromAmountLo == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "FromAmountLo is required")
+	}
+
+	if m.FromAmountHi == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "FromAmountHi is required")
+	}
+
+	if m.ToAmountLo == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ToAmountLo is required")
+	}
+
+	if m.ToAmountHi == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ToAmountHi is required")
+	}
+
+	if m.RemainingBalance == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalance is required")
+	}
+
+	if m.Proofs == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
+	}
+
+	err = m.Proofs.Validate()
 	if err != nil {
 		return err
 	}
 
-	if transfer.SenderTransferAmountLo == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "SenderTransferAmountLo is required")
-	}
-
-	if transfer.SenderTransferAmountHi == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "SenderTransferAmountHi is required")
-	}
-
-	if transfer.RecipientTransferAmountLo == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RecipientTransferAmountLo is required")
-	}
-
-	if transfer.RecipientTransferAmountHi == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RecipientTransferAmountHi is required")
-	}
-
-	if transfer.RemainingBalanceCommitment == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalanceCommitment is required")
-	}
-
-	if transfer.Proofs == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
-	}
-
-	if transfer.Proofs.RemainingBalanceCommitmentValidityProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalanceCommitmentValidityProof is required")
-	}
-
-	if transfer.Proofs.SenderTransferAmountLoValidityProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "SenderTransferAmountLoValidityProof is required")
-	}
-
-	if transfer.Proofs.SenderTransferAmountHiValidityProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "SenderTransferAmountHiValidityProof is required")
-	}
-
-	if transfer.Proofs.RecipientTransferAmountLoValidityProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RecipientTransferAmountLoValidityProof is required")
-	}
-
-	if transfer.Proofs.RecipientTransferAmountHiValidityProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RecipientTransferAmountHiValidityProof is required")
-	}
-
-	if transfer.Proofs.RemainingBalanceCommitmentValidityProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalanceCommitmentValidityProof is required")
-	}
-
-	if transfer.Proofs.SenderTransferAmountLoValidityProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "SenderTransferAmountLoValidityProof is required")
-	}
-
-	if transfer.Proofs.SenderTransferAmountHiValidityProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "SenderTransferAmountHiValidityProof is required")
-	}
-
-	if transfer.Proofs.RecipientTransferAmountLoValidityProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RecipientTransferAmountLoValidityProof is required")
-	}
-
-	if transfer.Proofs.RecipientTransferAmountHiValidityProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RecipientTransferAmountHiValidityProof is required")
-	}
-
-	if transfer.Proofs.RemainingBalanceRangeProof == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalanceRangeProof is required")
-	}
 	return nil
 }
 
@@ -120,50 +76,48 @@ func (m *MsgTransfer) GetSigners() []sdk.AccAddress {
 }
 
 func (m *MsgTransfer) FromProto() (*Transfer, error) {
-	var senderTransferAmountLo *elgamal.Ciphertext
-	var err error
-	if m.FromAmountLo != nil {
-		senderTransferAmountLo, err = m.FromAmountLo.FromProto()
-		if err != nil {
-			return nil, err
-		}
+	err := m.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+	senderTransferAmountLo, err := m.FromAmountLo.FromProto()
+	if err != nil {
+		return nil, err
 	}
 
-	var senderTransferAmountHi *elgamal.Ciphertext
-	if m.FromAmountHi != nil {
-		senderTransferAmountHi, err = m.FromAmountHi.FromProto()
-		if err != nil {
-			return nil, err
-		}
+	senderTransferAmountHi, err := m.FromAmountHi.FromProto()
+	if err != nil {
+		return nil, err
 	}
 
-	var recipientTransferAmountLo *elgamal.Ciphertext
-	if m.ToAmountLo != nil {
-		recipientTransferAmountLo, err = m.ToAmountLo.FromProto()
-		if err != nil {
-			return nil, err
-		}
+	recipientTransferAmountLo, err := m.ToAmountLo.FromProto()
+	if err != nil {
+		return nil, err
 	}
 
-	var recipientTransferAmountHi *elgamal.Ciphertext
-	if m.ToAmountHi != nil {
-		recipientTransferAmountHi, err = m.ToAmountHi.FromProto()
-		if err != nil {
-			return nil, err
-		}
+	recipientTransferAmountHi, err := m.ToAmountHi.FromProto()
+	if err != nil {
+		return nil, err
 	}
 
-	var remainingBalanceCommitment *elgamal.Ciphertext
-	if m.RemainingBalance != nil {
-		remainingBalanceCommitment, err = m.RemainingBalance.FromProto()
-		if err != nil {
-			return nil, err
-		}
+	remainingBalanceCommitment, err := m.RemainingBalance.FromProto()
+	if err != nil {
+		return nil, err
 	}
 
 	proofs, err := m.Proofs.FromProto()
 	if err != nil {
 		return nil, err
+	}
+
+	// iterate over m.Auditors and convert them to types.Auditor
+	auditors := make([]*TransferAuditor, 0, len(m.Auditors))
+	for _, auditor := range m.Auditors {
+		auditorData, e := auditor.FromProto()
+		if e != nil {
+			return nil, e
+		}
+		auditors = append(auditors, auditorData)
 	}
 
 	return &Transfer{
@@ -177,5 +131,6 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 		RemainingBalanceCommitment: remainingBalanceCommitment,
 		DecryptableBalance:         m.DecryptableBalance,
 		Proofs:                     proofs,
+		Auditors:                   auditors,
 	}, nil
 }

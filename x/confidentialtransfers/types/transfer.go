@@ -16,7 +16,7 @@ type Transfer struct {
 	RemainingBalanceCommitment *elgamal.Ciphertext `json:"remaining_balance_commitment"`
 	DecryptableBalance         string              `json:"decryptable_balance"`
 	Proofs                     *Proofs             `json:"proofs"`
-	Auditors                   []*Auditor          `json:"auditors,omitempty"` //optional field
+	Auditors                   []*TransferAuditor  `json:"auditors,omitempty"` //optional field
 }
 
 type Proofs struct {
@@ -29,4 +29,14 @@ type Proofs struct {
 	RemainingBalanceEqualityProof           *zkproofs.CiphertextCommitmentEqualityProof `json:"remaining_balance_equality_proof"`
 	TransferAmountLoEqualityProof           *zkproofs.CiphertextCiphertextEqualityProof `json:"transfer_amount_lo_equality_proof"`
 	TransferAmountHiEqualityProof           *zkproofs.CiphertextCiphertextEqualityProof `json:"transfer_amount_hi_equality_proof"`
+}
+
+type TransferAuditor struct {
+	Address                       string                                      `json:"address"`
+	EncryptedTransferAmountLo     *elgamal.Ciphertext                         `json:"encrypted_transfer_amount_lo"`
+	EncryptedTransferAmountHi     *elgamal.Ciphertext                         `json:"encrypted_transfer_amount_hi"`
+	TransferAmountLoValidityProof *zkproofs.CiphertextValidityProof           `json:"transfer_amount_lo_validity_proof"`
+	TransferAmountHiValidityProof *zkproofs.CiphertextValidityProof           `json:"transfer_amount_hi_validity_proof"`
+	TransferAmountLoEqualityProof *zkproofs.CiphertextCiphertextEqualityProof `json:"transfer_amount_lo_equality_proof"`
+	TransferAmountHiEqualityProof *zkproofs.CiphertextCiphertextEqualityProof `json:"transfer_amount_hi_equality_proof"`
 }

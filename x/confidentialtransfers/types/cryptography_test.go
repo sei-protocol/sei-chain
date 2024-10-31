@@ -30,3 +30,23 @@ func TestFromCiphertext(t *testing.T) {
 	assert.True(t, afterConversion.C.Equal(pointC))
 	assert.True(t, afterConversion.D.Equal(pointD))
 }
+
+func TestFromCiphertextInvalid(t *testing.T) {
+	c := &Ciphertext{
+		C: nil,
+		D: nil,
+	}
+
+	_, err := c.FromProto()
+	assert.Error(t, err)
+}
+
+func TestInvalidCiphertextFailsValidation(t *testing.T) {
+	c := &Ciphertext{
+		C: nil,
+		D: nil,
+	}
+
+	err := c.Validate()
+	assert.Error(t, err)
+}
