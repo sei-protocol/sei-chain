@@ -12,6 +12,9 @@ option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/t
 service Msg {
   // Transfer defines a method for sending coins from one account to another account.
   rpc Transfer(MsgTransfer) returns (MsgTransferResponse);
+
+  // ApplyPendingBalance defines a method for applying pending balance to an account.
+  rpc ApplyPendingBalance(MsgApplyPendingBalance) returns (MsgApplyPendingBalanceResponse);
 }
 
 // MsgTransfer represents a message to send coins from one account to another.
@@ -46,8 +49,10 @@ message Auditor {
 }
 
 // Message to be used in apply pending balance instruction/transaction
-message PendingBalance {
+message MsgApplyPendingBalance {
   string address = 1;
   string denom = 2;
   string new_decryptable_available_balance = 3;
 }
+
+message MsgApplyPendingBalanceResponse {}

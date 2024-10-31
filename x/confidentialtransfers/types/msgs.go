@@ -7,7 +7,8 @@ import (
 
 // confidential transfers message types
 const (
-	TypeMsgTransfer = "transfer"
+	TypeMsgTransfer            = "transfer"
+	TypeMsgApplyPendingBalance = "apply_pending_balance"
 )
 
 var _ sdk.Msg = &MsgTransfer{}
@@ -133,4 +134,36 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 		Proofs:                     proofs,
 		Auditors:                   auditors,
 	}, nil
+}
+
+var _ sdk.Msg = &MsgApplyPendingBalance{}
+
+// Route Implements Msg.
+func (m *MsgApplyPendingBalance) Route() string { return RouterKey }
+
+// Type Implements Msg.
+func (m *MsgApplyPendingBalance) Type() string { return TypeMsgApplyPendingBalance }
+
+func (m *MsgApplyPendingBalance) ValidateBasic() error {
+	if len(m.Address) == 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Address is required")
+	}
+
+	if len(m.Denom) == 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Denom is required")
+	}
+
+	if len(m.NewDecryptableAvailableBalance) == 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "NewDecryptableAvailableBalance is required")
+	}
+	return nil
+}
+
+func (m *MsgApplyPendingBalance) GetSignBytes() []byte {
+	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(m))
+}
+
+func (m *MsgApplyPendingBalance) GetSigners() []sdk.AccAddress {
+	sender, _ := sdk.AccAddressFromBech32(m.Address)
+	return []sdk.AccAddress{sender}
 }
