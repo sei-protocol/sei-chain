@@ -84,7 +84,7 @@ def take_manual_inputs():
 
     env = ["local", "devnet", "testnet", "mainnet"][int(env) - 1]
 
-    db_choice = input("Choose the database backend (1: legacy [default], 2: sei-db): ").strip() or "1"
+    db_choice = input("Choose the database backend (1: sei-db [default], 2: legacy): ").strip() or "1"
     if db_choice not in ["1", "2"]:
         db_choice = "1"  # Default to "1" if the input is invalid or empty
     return env, db_choice
@@ -291,10 +291,10 @@ def get_state_sync_params(rpc_url, trust_height_delta, chain_id):
     
     # Determine the rounding based on the chain_id
     if chain_id.lower() == 'pacific-1':
-        # Round sync block height to the next 100,000 for mainnet
+        # Round sync block height to the next 100,000 + add 2 for mainnet
         rounded_sync_block_height = math.ceil(sync_block_height / 100000) * 100000 + 2
     else:
-        # Round sync block height to the next 2,000 for devnet or testnet
+        # Round sync block height to the next 2,000 + add 2 for devnet or testnet
         rounded_sync_block_height = math.ceil(sync_block_height / 2000) * 2000 + 2
     
     # Fetch block hash
@@ -427,7 +427,7 @@ def main():
                 app_data = app_data.replace('address = "tcp://0.0.0.0:1317"', f'address = "tcp://0.0.0.0:{lcd_port}"')
                 app_data = app_data.replace('address = "0.0.0.0:9090"', f'address = "0.0.0.0:{grpc_port}"')
                 app_data = app_data.replace('address = "0.0.0.0:9091"', f'address = "0.0.0.0:{grpc_web_port}"')
-                if db_choice == "2":
+                if db_choice == "1":
                     app_data = app_data.replace('sc-enable = false', 'sc-enable = true')
                     app_data = app_data.replace('ss-enable = false', 'ss-enable = true')
 
