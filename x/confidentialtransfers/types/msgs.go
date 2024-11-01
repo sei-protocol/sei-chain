@@ -9,6 +9,7 @@ import (
 const (
 	TypeMsgTransfer            = "transfer"
 	TypeMsgApplyPendingBalance = "apply_pending_balance"
+	TypeMsgCloseAccount        = "close_account"
 )
 
 var _ sdk.Msg = &MsgTransfer{}
@@ -164,6 +165,44 @@ func (m *MsgApplyPendingBalance) GetSignBytes() []byte {
 }
 
 func (m *MsgApplyPendingBalance) GetSigners() []sdk.AccAddress {
+	sender, _ := sdk.AccAddressFromBech32(m.Address)
+	return []sdk.AccAddress{sender}
+}
+
+var _ sdk.Msg = &MsgCloseAccount{}
+
+// Route Implements Msg.
+func (m *MsgCloseAccount) Route() string { return RouterKey }
+
+// Type Implements Msg.
+func (m *MsgCloseAccount) Type() string { return TypeMsgCloseAccount }
+
+func (m *MsgCloseAccount) ValidateBasic() error {
+	if len(m.Address) == 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Address is required")
+	}
+
+	if len(m.Denom) == 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Denom is required")
+	}
+
+	if m.Proof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
+	}
+
+	err := m.Proof.Validate()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *MsgCloseAccount) GetSignBytes() []byte {
+	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(m))
+}
+
+func (m *MsgCloseAccount) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.Address)
 	return []sdk.AccAddress{sender}
 }

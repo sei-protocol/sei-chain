@@ -15,6 +15,9 @@ service Msg {
 
   // ApplyPendingBalance defines a method for applying pending balance to an account.
   rpc ApplyPendingBalance(MsgApplyPendingBalance) returns (MsgApplyPendingBalanceResponse);
+
+  // CloseAccount defines a method for closing an account.
+  rpc CloseAccount(MsgCloseAccount) returns (MsgCloseAccountResponse);
 }
 
 // MsgTransfer represents a message to send coins from one account to another.
@@ -56,3 +59,12 @@ message MsgApplyPendingBalance {
 }
 
 message MsgApplyPendingBalanceResponse {}
+
+// Message to be used in close account instruction/transaction
+message MsgCloseAccount {
+  string address = 1;
+  string denom = 2;
+  CloseAccountProof proof = 3;
+}
+
+message MsgCloseAccountResponse {}
