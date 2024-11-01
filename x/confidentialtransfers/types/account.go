@@ -31,20 +31,3 @@ type Account struct {
 	// This is stored as the Base64-encoded ciphertext
 	DecryptableAvailableBalance string
 }
-
-func (m *Account) ToProto() *CtAccount {
-	pubkeyCompressed := m.PublicKey.ToAffineCompressed()
-
-	pendingBalanceLo := m.PendingBalanceLo.ToProto()
-	pendingBalanceHi := m.PendingBalanceHi.ToProto()
-	availableBalance := m.AvailableBalance.ToProto()
-
-	return &CtAccount{
-		PublicKey:                   pubkeyCompressed,
-		PendingBalanceLo:            pendingBalanceLo,
-		PendingBalanceHi:            pendingBalanceHi,
-		AvailableBalance:            availableBalance,
-		DecryptableAvailableBalance: m.DecryptableAvailableBalance,
-		PendingBalanceCreditCounter: uint32(m.PendingBalanceCreditCounter),
-	}
-}

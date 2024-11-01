@@ -7,28 +7,23 @@ import (
 )
 
 func (m *CtAccount) ValidateBasic() error {
-	account, err := m.FromProto()
-	if err != nil {
-		return err
-	}
-
-	if account.PublicKey == nil {
+	if m.PublicKey == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "PublicKey is required")
 	}
 
-	if account.PendingBalanceLo == nil {
+	if m.PendingBalanceLo == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "PendingBalanceLo is required")
 	}
 
-	if account.PendingBalanceHi == nil {
+	if m.PendingBalanceHi == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "PendingBalanceHi is required")
 	}
 
-	if account.AvailableBalance == nil {
+	if m.AvailableBalance == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "AvailableBalance is required")
 	}
 
-	if account.DecryptableAvailableBalance == "" {
+	if m.DecryptableAvailableBalance == "" {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "DecryptableAvailableBalance is required")
 	}
 
@@ -76,4 +71,21 @@ func (m *CtAccount) FromProto() (*Account, error) {
 		DecryptableAvailableBalance: m.DecryptableAvailableBalance,
 		PendingBalanceCreditCounter: uint16(m.PendingBalanceCreditCounter),
 	}, nil
+}
+
+func ToProto(account *Account) *CtAccount {
+	pubkeyCompressed := account.PublicKey.ToAffineCompressed()
+
+	pendingBalanceLo := account.PendingBalanceLo.ToProto()
+	pendingBalanceHi := account.PendingBalanceHi.ToProto()
+	availableBalance := account.AvailableBalance.ToProto()
+
+	return &CtAccount{
+		PublicKey:                   pubkeyCompressed,
+		PendingBalanceLo:            pendingBalanceLo,
+		PendingBalanceHi:            pendingBalanceHi,
+		AvailableBalance:            availableBalance,
+		DecryptableAvailableBalance: account.DecryptableAvailableBalance,
+		PendingBalanceCreditCounter: uint32(account.PendingBalanceCreditCounter),
+	}
 }
