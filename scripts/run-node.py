@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Advanced user configs
 moniker = "seinode"  # Custom moniker for the node
-trust_height_delta = 100000  # Negative height offset for state sync
+trust_height_delta = 0  # Negative height offset for state sync
 version_override = False  # Override version fetching. if true, specify version(s) below
 p2p_port = 26656
 rpc_port = 26657
@@ -28,8 +28,8 @@ pprof_port = 6060
 
 # Chain binary version ["version_override" must be true to use]
 MAINNET_VERSION = "v5.9.0-hotfix"
-DEVNET_VERSION = "v5.9.0-hotfix"
 TESTNET_VERSION = "v5.9.0-hotfix"
+DEVNET_VERSION = "v5.9.0-hotfix"
 
 # Map env to chain ID and optional manual version override
 ENV_TO_CONFIG = {
@@ -292,10 +292,10 @@ def get_state_sync_params(rpc_url, trust_height_delta, chain_id):
     # Determine the rounding based on the chain_id
     if chain_id.lower() == 'pacific-1':
         # Round sync block height to the next 100,000 + add 2 for mainnet
-        rounded_sync_block_height = math.ceil(sync_block_height / 100000) * 100000 + 2
+        rounded_sync_block_height = math.floor(sync_block_height / 100000) * 100000 + 2
     else:
         # Round sync block height to the next 2,000 + add 2 for devnet or testnet
-        rounded_sync_block_height = math.ceil(sync_block_height / 2000) * 2000 + 2
+        rounded_sync_block_height = math.floor(sync_block_height / 2000) * 2000 + 2
     
     # Fetch block hash
     response = requests.get(f"{rpc_url}/block?height={rounded_sync_block_height}")
@@ -385,9 +385,10 @@ def main():
             # Clean up previous data, init seid with given chain ID and moniker
             subprocess.run(["rm", "-rf", home_dir])
             subprocess.run(["seid", "init", moniker, "--chain-id", chain_id], check=True)
+            subprocess.run(["sudo", "mount", "-t", "tmpfs", "-o", "size=12G,mode=1777", "overflow", "/tmp"], check=True)
 
             # Fetch state-sync params and persistent peers
-            sync_block_height, sync_block_hash = get_state_sync_params(rpc_url, trust_height_delta,chain_id)
+            sync_block_height, sync_block_hash = get_state_sync_params(rpc_url, trust_height_delta, chain_id)
             persistent_peers = get_persistent_peers(rpc_url)
 
             # Fetch and write genesis
