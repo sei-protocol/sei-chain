@@ -763,7 +763,7 @@ loop:
 			scImporter.AddNode(node)
 
 			// Check if we should also import to SS store
-			if rs.ssStore != nil && ssImporter != nil {
+			if rs.ssStore != nil && node.Height == 0 && ssImporter != nil {
 				ssImporter <- sstypes.SnapshotNode{
 					StoreKey: storeKey,
 					Key:      node.Key,
