@@ -34,7 +34,7 @@ func (m *CtAccount) FromProto() (*Account, error) {
 	var err error
 
 	ed25519Curve := curves.ED25519()
-	pubkey, err := ed25519Curve.Point.FromAffineCompressed(c.PublicKey)
+	pubkey, err := ed25519Curve.Point.FromAffineCompressed(m.PublicKey)
 	if err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidPubKey, "Invalid public key (%s)", err)
 	}
@@ -73,12 +73,12 @@ func (m *CtAccount) FromProto() (*Account, error) {
 	}, nil
 }
 
-func ToProto(account *Account) *CtAccount {
+func NewCtAccount(account *Account) *CtAccount {
 	pubkeyCompressed := account.PublicKey.ToAffineCompressed()
 
-	pendingBalanceLo := account.PendingBalanceLo.ToProto()
-	pendingBalanceHi := account.PendingBalanceHi.ToProto()
-	availableBalance := account.AvailableBalance.ToProto()
+	pendingBalanceLo := NewCiphertextProto(account.PendingBalanceLo)
+	pendingBalanceHi := NewCiphertextProto(account.PendingBalanceHi)
+	availableBalance := NewCiphertextProto(account.AvailableBalance)
 
 	return &CtAccount{
 		PublicKey:                   pubkeyCompressed,

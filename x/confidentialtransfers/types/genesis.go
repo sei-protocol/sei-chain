@@ -9,7 +9,7 @@ const DefaultIndex uint64 = 1
 // TODO: Define the Genesis State as a .proto message once it's properly fleshed out
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
-		Params: DefaultParams(),
+		Params: Params{},
 	}
 }
 

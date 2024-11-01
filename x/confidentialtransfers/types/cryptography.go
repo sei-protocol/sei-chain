@@ -14,7 +14,7 @@ func (c *Ciphertext) Validate() error {
 	return nil
 }
 
-func (c *Ciphertext) ToProto(ciphertext *elgamal.Ciphertext) *Ciphertext {
+func NewCiphertextProto(ciphertext *elgamal.Ciphertext) *Ciphertext {
 	return &Ciphertext{
 		C: ciphertext.C.ToAffineCompressed(),
 		D: ciphertext.D.ToAffineCompressed(),
