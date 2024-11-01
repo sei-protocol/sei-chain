@@ -360,9 +360,8 @@ func (a *Auditor) Validate() error {
 }
 
 func (a *Auditor) ToProto(transferAuditor *TransferAuditor) *Auditor {
-	ciphertext := &Ciphertext{}
-	transferAmountLo := ciphertext.ToProto(transferAuditor.EncryptedTransferAmountLo)
-	transferAmountHi := ciphertext.ToProto(transferAuditor.EncryptedTransferAmountHi)
+	transferAmountLo := NewCiphertextProto(transferAuditor.EncryptedTransferAmountLo)
+	transferAmountHi := NewCiphertextProto(transferAuditor.EncryptedTransferAmountHi)
 	cipherTextValidity := CiphertextValidityProof{}
 	transferAmountLoValidityProof := cipherTextValidity.ToProto(transferAuditor.TransferAmountLoValidityProof)
 	transferAmountHiValidityProof := cipherTextValidity.ToProto(transferAuditor.TransferAmountHiValidityProof)

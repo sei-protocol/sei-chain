@@ -15,9 +15,9 @@ import (
 
 func TestMsgTransfer_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := elgamal.GenerateKey()
-	destPrivateKey, _ := elgamal.GenerateKey()
-	auditorPrivateKey, _ := elgamal.GenerateKey()
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	destPrivateKey, _ := encryption.GenerateKey()
+	auditorPrivateKey, _ := encryption.GenerateKey()
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
 	destinationKeypair, _ := eg.KeyGen(*destPrivateKey, testDenom)
