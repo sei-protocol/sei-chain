@@ -12,6 +12,12 @@ option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/t
 service Msg {
   // Transfer defines a method for sending coins from one account to another account.
   rpc Transfer(MsgTransfer) returns (MsgTransferResponse);
+
+  // ApplyPendingBalance defines a method for applying pending balance to an account.
+  rpc ApplyPendingBalance(MsgApplyPendingBalance) returns (MsgApplyPendingBalanceResponse);
+
+  // CloseAccount defines a method for closing an account.
+  rpc CloseAccount(MsgCloseAccount) returns (MsgCloseAccountResponse);
 }
 
 // MsgTransfer represents a message to send coins from one account to another.
@@ -44,3 +50,21 @@ message Auditor {
   CiphertextCiphertextEqualityProof transfer_amount_lo_equality_proof = 6 [(gogoproto.moretags) = "yaml:\"transfer_amount_lo_equality_proof\""];
   CiphertextCiphertextEqualityProof transfer_amount_hi_equality_proof = 7 [(gogoproto.moretags) = "yaml:\"transfer_amount_hi_equality_proof\""];
 }
+
+// Message to be used in apply pending balance instruction/transaction
+message MsgApplyPendingBalance {
+  string address = 1;
+  string denom = 2;
+  string new_decryptable_available_balance = 3;
+}
+
+message MsgApplyPendingBalanceResponse {}
+
+// Message to be used in close account instruction/transaction
+message MsgCloseAccount {
+  string address = 1;
+  string denom = 2;
+  CloseAccountProof proof = 3;
+}
+
+message MsgCloseAccountResponse {}
