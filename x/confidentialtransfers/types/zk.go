@@ -1,14 +1,14 @@
 package types
 
 import (
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-
 	"github.com/coinbase/kryptology/pkg/bulletproof"
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 )
 
-func (c *TransferProofs) Validate() error {
+func (c *TransferMsgProofs) Validate() error {
 	if c.RemainingBalanceCommitmentValidityProof == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance commitment validity proof is required")
 	}
@@ -48,8 +48,8 @@ func (c *TransferProofs) Validate() error {
 	return nil
 }
 
-func (c *TransferProofs) ToProto(proofs *Proofs) *TransferProofs {
-	return &TransferProofs{
+func (c *TransferMsgProofs) ToProto(proofs *TransferProofs) *TransferMsgProofs {
+	return &TransferMsgProofs{
 		RemainingBalanceCommitmentValidityProof: c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.RemainingBalanceCommitmentValidityProof),
 		SenderTransferAmountLoValidityProof:     c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.SenderTransferAmountLoValidityProof),
 		SenderTransferAmountHiValidityProof:     c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.SenderTransferAmountHiValidityProof),
@@ -62,7 +62,7 @@ func (c *TransferProofs) ToProto(proofs *Proofs) *TransferProofs {
 	}
 }
 
-func (c *TransferProofs) FromProto() (*Proofs, error) {
+func (c *TransferMsgProofs) FromProto() (*TransferProofs, error) {
 	err := c.Validate()
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func (c *TransferProofs) FromProto() (*Proofs, error) {
 		return nil, err
 	}
 
-	return &Proofs{
+	return &TransferProofs{
 		RemainingBalanceCommitmentValidityProof: remainingBalanceCommitmentValidityProof,
 		SenderTransferAmountLoValidityProof:     senderTransferAmountLoValidityProof,
 		SenderTransferAmountHiValidityProof:     senderTransferAmountHiValidityProof,
@@ -122,6 +122,36 @@ func (c *TransferProofs) FromProto() (*Proofs, error) {
 		RemainingBalanceEqualityProof:           remainingBalanceEqualityProof,
 		TransferAmountLoEqualityProof:           transferAmountLoEqualityProof,
 		TransferAmountHiEqualityProof:           transferAmountHiEqualityProof,
+	}, nil
+}
+
+func (c *InitializeAccountMsgProofs) Validate() error {
+	if c.PubkeyValidityProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pubkey validity proof is required")
+	}
+
+	return nil
+}
+
+func NewInitializeAccountMsgProofs(proofs *InitializeAccountProofs) *InitializeAccountMsgProofs {
+	return &InitializeAccountMsgProofs{
+		PubkeyValidityProof: NewPubkeyValidityProofProto(proofs.PubkeyValidityProof),
+	}
+}
+
+func (c *InitializeAccountMsgProofs) FromProto() (*InitializeAccountProofs, error) {
+	err := c.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	pubkeyValidityProof, err := c.PubkeyValidityProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &InitializeAccountProofs{
+		PubkeyValidityProof: pubkeyValidityProof,
 	}, nil
 }
 
@@ -416,5 +446,42 @@ func (a *Auditor) FromProto() (*TransferAuditor, error) {
 		TransferAmountHiValidityProof: transferAmountHiValidityProof,
 		TransferAmountLoEqualityProof: transferAmountLoEqualityProof,
 		TransferAmountHiEqualityProof: transferAmountHiEqualityProof,
+	}, nil
+}
+
+func (p *PubkeyValidityProof) Validate() error {
+	if p.Y == nil || p.Z == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pubkey validity proof is invalid")
+	}
+	return nil
+}
+
+func NewPubkeyValidityProofProto(zkp *zkproofs.PubKeyValidityProof) *PubkeyValidityProof {
+	return &PubkeyValidityProof{
+		Y: zkp.Y.ToAffineCompressed(),
+		Z: zkp.Z.Bytes(),
+	}
+}
+
+func (p *PubkeyValidityProof) FromProto() (*zkproofs.PubKeyValidityProof, error) {
+	err := p.Validate()
+	if err != nil {
+		return nil, err
+	}
+	ed25519Curve := curves.ED25519()
+
+	y, err := ed25519Curve.Point.FromAffineCompressed(p.Y)
+	if err != nil {
+		return nil, err
+	}
+
+	z, err := ed25519Curve.Scalar.SetBytes(p.Z)
+	if err != nil {
+		return nil, err
+	}
+
+	return &zkproofs.PubKeyValidityProof{
+		Y: y,
+		Z: z,
 	}, nil
 }

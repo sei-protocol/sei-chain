@@ -1,6 +1,7 @@
 package types
 
 import (
+	crand "crypto/rand"
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -40,9 +41,8 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	sourceCiphertextAmountHiValidityProof, _ :=
 		zkproofs.NewCiphertextValidityProof(&sourceCiphertextAmountHiR, sourceKeypair.PublicKey, sourceCiphertextAmountHi, amountHi)
 
-	ciphertext := &Ciphertext{}
-	fromAmountLo := ciphertext.ToProto(sourceCiphertextAmountLo)
-	fromAmountHi := ciphertext.ToProto(sourceCiphertextAmountHi)
+	fromAmountLo := NewCiphertextProto(sourceCiphertextAmountLo)
+	fromAmountHi := NewCiphertextProto(sourceCiphertextAmountHi)
 
 	destinationCipherAmountLo, destinationCipherAmountLoR, _ := eg.Encrypt(destinationKeypair.PublicKey, amountLo)
 	destinationCipherAmountLoValidityProof, _ :=
@@ -51,11 +51,11 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	destinationCipherAmountHiValidityProof, _ :=
 		zkproofs.NewCiphertextValidityProof(&destinationCipherAmountHiR, destinationKeypair.PublicKey, destinationCipherAmountHi, amountHi)
 
-	destinationAmountLo := ciphertext.ToProto(destinationCipherAmountLo)
-	destinationAmountHi := ciphertext.ToProto(destinationCipherAmountHi)
+	destinationAmountLo := NewCiphertextProto(destinationCipherAmountLo)
+	destinationAmountHi := NewCiphertextProto(destinationCipherAmountHi)
 
 	remainingBalanceCiphertext, remainingBalanceRandomness, _ := eg.Encrypt(sourceKeypair.PublicKey, remainingBalance)
-	remainingBalanceProto := ciphertext.ToProto(remainingBalanceCiphertext)
+	remainingBalanceProto := NewCiphertextProto(remainingBalanceCiphertext)
 
 	remainingBalanceCommitmentValidityProof, _ := zkproofs.NewCiphertextValidityProof(&remainingBalanceRandomness, sourceKeypair.PublicKey, remainingBalanceCiphertext, remainingBalance)
 
@@ -88,7 +88,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		&destinationCipherAmountHiR,
 		&scalarAmountHi)
 
-	proofs := &Proofs{
+	proofs := &TransferProofs{
 		RemainingBalanceCommitmentValidityProof: remainingBalanceCommitmentValidityProof,
 		SenderTransferAmountLoValidityProof:     sourceCiphertextAmountLoValidityProof,
 		SenderTransferAmountHiValidityProof:     sourceCiphertextAmountHiValidityProof,
@@ -100,7 +100,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		TransferAmountHiEqualityProof:           transferAmountHiEqualityProof,
 	}
 
-	transferProofs := &TransferProofs{}
+	transferProofs := &TransferMsgProofs{}
 	proofsProto := transferProofs.ToProto(proofs)
 	address1 := sdk.AccAddress("address1")
 	address2 := sdk.AccAddress("address2")
@@ -379,6 +379,130 @@ func TestMsgTransfer_ValidateBasic(t *testing.T) {
 				ToAmountLo:       &Ciphertext{},
 				ToAmountHi:       &Ciphertext{},
 				RemainingBalance: &Ciphertext{},
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.msg.ValidateBasic()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMsgInitializeAccount_FromProto(t *testing.T) {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	require.NoError(t, err)
+
+	decryptableBalance, err := encryption.EncryptAESGCM(0, aesPK)
+
+	// Generate the proof
+	pubkeyValidityProof, _ := zkproofs.NewPubKeyValidityProof(
+		sourceKeypair.PublicKey,
+		sourceKeypair.PrivateKey)
+
+	proofs := &InitializeAccountProofs{
+		pubkeyValidityProof,
+	}
+	address1 := sdk.AccAddress("address1")
+
+	proofsProto := NewInitializeAccountMsgProofs(proofs)
+	m := &MsgInitializeAccount{
+		FromAddress:        address1.String(),
+		Denom:              testDenom,
+		PublicKey:          sourceKeypair.PublicKey.ToAffineCompressed(),
+		DecryptableBalance: decryptableBalance,
+		Proofs:             proofsProto,
+	}
+
+	assert.NoError(t, m.ValidateBasic())
+
+	marshalled, err := m.Marshal()
+	require.NoError(t, err)
+
+	// Reset the message
+	m = &MsgInitializeAccount{}
+	err = m.Unmarshal(marshalled)
+	require.NoError(t, err)
+
+	assert.NoError(t, m.ValidateBasic())
+
+	result, err := m.FromProto()
+
+	assert.NoError(t, err)
+	assert.Equal(t, m.FromAddress, result.FromAddress)
+	assert.Equal(t, m.Denom, result.Denom)
+	assert.Equal(t, m.DecryptableBalance, result.DecryptableBalance)
+	assert.Equal(t, m.PublicKey, result.Pubkey)
+
+	decryptedRemainingBalance, err := encryption.DecryptAESGCM(result.DecryptableBalance, aesPK)
+	assert.NoError(t, err)
+
+	assert.Equal(t, uint64(0), decryptedRemainingBalance)
+
+	// Make sure the proofs are valid
+	assert.True(t, zkproofs.VerifyPubKeyValidity(
+		*result.Pubkey,
+		*result.Proofs.PubkeyValidityProof))
+}
+
+func TestMsgInitializeAccount_ValidateBasic(t *testing.T) {
+	validAddress := sdk.AccAddress("address1").String()
+	invalidAddress := "invalid_address"
+	validDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+
+	tests := []struct {
+		name    string
+		msg     MsgInitializeAccount
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "invalid from address",
+			msg: MsgInitializeAccount{
+				FromAddress: invalidAddress,
+				Denom:       validDenom,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidAddress.Error(),
+		},
+		{
+			name: "invalid denom",
+			msg: MsgInitializeAccount{
+				FromAddress: validAddress,
+				Denom:       "",
+			},
+			wantErr: true,
+			errMsg:  "invalid denom",
+		},
+		{
+			name: "missing pubkey",
+			msg: MsgInitializeAccount{
+				FromAddress: validAddress,
+				Denom:       validDenom,
+				PublicKey:   nil,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing proofs",
+			msg: MsgInitializeAccount{
+				FromAddress: validAddress,
+				Denom:       validDenom,
+				PublicKey:   curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
 			},
 			wantErr: true,
 			errMsg:  sdkerrors.ErrInvalidRequest.Error(),

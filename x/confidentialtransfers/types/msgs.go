@@ -1,16 +1,19 @@
 package types
 
 import (
+	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
 // confidential transfers message types
 const (
-	TypeMsgTransfer = "transfer"
+	TypeMsgTransfer          = "transfer"
+	TypeMsgInitializeAccount = "initialize_account"
 )
 
 var _ sdk.Msg = &MsgTransfer{}
+var _ sdk.Msg = &MsgInitializeAccount{}
 
 // Route Implements Msg.
 func (m *MsgTransfer) Route() string { return RouterKey }
@@ -132,5 +135,77 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 		DecryptableBalance:         m.DecryptableBalance,
 		Proofs:                     proofs,
 		Auditors:                   auditors,
+	}, nil
+}
+
+// Route Implements Msg.
+func (m *MsgInitializeAccount) Route() string { return RouterKey }
+
+// Type Implements Msg.
+func (m *MsgInitializeAccount) Type() string { return TypeMsgInitializeAccount }
+
+func (m *MsgInitializeAccount) ValidateBasic() error {
+	_, err := sdk.AccAddressFromBech32(m.FromAddress)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+	}
+
+	err = sdk.ValidateDenom(m.Denom)
+	if err != nil {
+		return err
+	}
+
+	if m.PublicKey == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "PublicKey is required")
+	}
+
+	if m.DecryptableBalance == "" {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "DecryptableBalance is required")
+	}
+
+	if m.Proofs == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
+	}
+
+	err = m.Proofs.Validate()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *MsgInitializeAccount) GetSignBytes() []byte {
+	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(m))
+}
+
+func (m *MsgInitializeAccount) GetSigners() []sdk.AccAddress {
+	sender, _ := sdk.AccAddressFromBech32(m.FromAddress)
+	return []sdk.AccAddress{sender}
+}
+
+func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
+	err := m.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+	ed25519Curve := curves.ED25519()
+
+	pubkey, err := ed25519Curve.Point.FromAffineCompressed(m.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	proofs, err := m.Proofs.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &InitializeAccount{
+		FromAddress:        m.FromAddress,
+		Denom:              m.Denom,
+		Pubkey:             &pubkey,
+		DecryptableBalance: m.DecryptableBalance,
+		Proofs:             proofs,
 	}, nil
 }

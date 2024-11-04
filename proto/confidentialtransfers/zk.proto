@@ -4,7 +4,7 @@ package seiprotocol.seichain.confidentialtransfers;
 option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
 
 
-message TransferProofs {
+message TransferMsgProofs {
   CiphertextValidityProof remaining_balance_commitment_validity_proof = 1;
   CiphertextValidityProof sender_transfer_amount_lo_validity_proof = 2;
   CiphertextValidityProof sender_transfer_amount_hi_validity_proof = 3;
@@ -14,6 +14,15 @@ message TransferProofs {
   CiphertextCommitmentEqualityProof remaining_balance_equality_proof = 7;
   CiphertextCiphertextEqualityProof transfer_amount_lo_equality_proof = 8;
   CiphertextCiphertextEqualityProof transfer_amount_hi_equality_proof = 9;
+}
+
+message InitializeAccountMsgProofs {
+  PubkeyValidityProof pubkey_validity_proof = 1;
+}
+
+message PubkeyValidityProof {
+  bytes y = 1;
+  bytes z = 2;
 }
 
 message CiphertextValidityProof {

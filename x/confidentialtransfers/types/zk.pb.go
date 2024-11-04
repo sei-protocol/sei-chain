@@ -22,7 +22,7 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-type TransferProofs struct {
+type TransferMsgProofs struct {
 	RemainingBalanceCommitmentValidityProof *CiphertextValidityProof           `protobuf:"bytes,1,opt,name=remaining_balance_commitment_validity_proof,json=remainingBalanceCommitmentValidityProof,proto3" json:"remaining_balance_commitment_validity_proof,omitempty"`
 	SenderTransferAmountLoValidityProof     *CiphertextValidityProof           `protobuf:"bytes,2,opt,name=sender_transfer_amount_lo_validity_proof,json=senderTransferAmountLoValidityProof,proto3" json:"sender_transfer_amount_lo_validity_proof,omitempty"`
 	SenderTransferAmountHiValidityProof     *CiphertextValidityProof           `protobuf:"bytes,3,opt,name=sender_transfer_amount_hi_validity_proof,json=senderTransferAmountHiValidityProof,proto3" json:"sender_transfer_amount_hi_validity_proof,omitempty"`
@@ -34,18 +34,18 @@ type TransferProofs struct {
 	TransferAmountHiEqualityProof           *CiphertextCiphertextEqualityProof `protobuf:"bytes,9,opt,name=transfer_amount_hi_equality_proof,json=transferAmountHiEqualityProof,proto3" json:"transfer_amount_hi_equality_proof,omitempty"`
 }
 
-func (m *TransferProofs) Reset()         { *m = TransferProofs{} }
-func (m *TransferProofs) String() string { return proto.CompactTextString(m) }
-func (*TransferProofs) ProtoMessage()    {}
-func (*TransferProofs) Descriptor() ([]byte, []int) {
+func (m *TransferMsgProofs) Reset()         { *m = TransferMsgProofs{} }
+func (m *TransferMsgProofs) String() string { return proto.CompactTextString(m) }
+func (*TransferMsgProofs) ProtoMessage()    {}
+func (*TransferMsgProofs) Descriptor() ([]byte, []int) {
 	return fileDescriptor_71d8640cbb42ddec, []int{0}
 }
-func (m *TransferProofs) XXX_Unmarshal(b []byte) error {
+func (m *TransferMsgProofs) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransferProofs) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *TransferMsgProofs) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransferProofs.Marshal(b, m, deterministic)
+		return xxx_messageInfo_TransferMsgProofs.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -55,77 +55,173 @@ func (m *TransferProofs) XXX_Marshal(b []byte, deterministic bool) ([]byte, erro
 		return b[:n], nil
 	}
 }
-func (m *TransferProofs) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransferProofs.Merge(m, src)
+func (m *TransferMsgProofs) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransferMsgProofs.Merge(m, src)
 }
-func (m *TransferProofs) XXX_Size() int {
+func (m *TransferMsgProofs) XXX_Size() int {
 	return m.Size()
 }
-func (m *TransferProofs) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransferProofs.DiscardUnknown(m)
+func (m *TransferMsgProofs) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransferMsgProofs.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransferProofs proto.InternalMessageInfo
+var xxx_messageInfo_TransferMsgProofs proto.InternalMessageInfo
 
-func (m *TransferProofs) GetRemainingBalanceCommitmentValidityProof() *CiphertextValidityProof {
+func (m *TransferMsgProofs) GetRemainingBalanceCommitmentValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.RemainingBalanceCommitmentValidityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetSenderTransferAmountLoValidityProof() *CiphertextValidityProof {
+func (m *TransferMsgProofs) GetSenderTransferAmountLoValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.SenderTransferAmountLoValidityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetSenderTransferAmountHiValidityProof() *CiphertextValidityProof {
+func (m *TransferMsgProofs) GetSenderTransferAmountHiValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.SenderTransferAmountHiValidityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetRecipientTransferAmountLoValidityProof() *CiphertextValidityProof {
+func (m *TransferMsgProofs) GetRecipientTransferAmountLoValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.RecipientTransferAmountLoValidityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetRecipientTransferAmountHiValidityProof() *CiphertextValidityProof {
+func (m *TransferMsgProofs) GetRecipientTransferAmountHiValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.RecipientTransferAmountHiValidityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetRemainingBalanceRangeProof() *RangeProof {
+func (m *TransferMsgProofs) GetRemainingBalanceRangeProof() *RangeProof {
 	if m != nil {
 		return m.RemainingBalanceRangeProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetRemainingBalanceEqualityProof() *CiphertextCommitmentEqualityProof {
+func (m *TransferMsgProofs) GetRemainingBalanceEqualityProof() *CiphertextCommitmentEqualityProof {
 	if m != nil {
 		return m.RemainingBalanceEqualityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetTransferAmountLoEqualityProof() *CiphertextCiphertextEqualityProof {
+func (m *TransferMsgProofs) GetTransferAmountLoEqualityProof() *CiphertextCiphertextEqualityProof {
 	if m != nil {
 		return m.TransferAmountLoEqualityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetTransferAmountHiEqualityProof() *CiphertextCiphertextEqualityProof {
+func (m *TransferMsgProofs) GetTransferAmountHiEqualityProof() *CiphertextCiphertextEqualityProof {
 	if m != nil {
 		return m.TransferAmountHiEqualityProof
+	}
+	return nil
+}
+
+type InitializeAccountMsgProofs struct {
+	PubkeyValidityProof *PubkeyValidityProof `protobuf:"bytes,1,opt,name=pubkey_validity_proof,json=pubkeyValidityProof,proto3" json:"pubkey_validity_proof,omitempty"`
+}
+
+func (m *InitializeAccountMsgProofs) Reset()         { *m = InitializeAccountMsgProofs{} }
+func (m *InitializeAccountMsgProofs) String() string { return proto.CompactTextString(m) }
+func (*InitializeAccountMsgProofs) ProtoMessage()    {}
+func (*InitializeAccountMsgProofs) Descriptor() ([]byte, []int) {
+	return fileDescriptor_71d8640cbb42ddec, []int{1}
+}
+func (m *InitializeAccountMsgProofs) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *InitializeAccountMsgProofs) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_InitializeAccountMsgProofs.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *InitializeAccountMsgProofs) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_InitializeAccountMsgProofs.Merge(m, src)
+}
+func (m *InitializeAccountMsgProofs) XXX_Size() int {
+	return m.Size()
+}
+func (m *InitializeAccountMsgProofs) XXX_DiscardUnknown() {
+	xxx_messageInfo_InitializeAccountMsgProofs.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_InitializeAccountMsgProofs proto.InternalMessageInfo
+
+func (m *InitializeAccountMsgProofs) GetPubkeyValidityProof() *PubkeyValidityProof {
+	if m != nil {
+		return m.PubkeyValidityProof
+	}
+	return nil
+}
+
+type PubkeyValidityProof struct {
+	Y []byte `protobuf:"bytes,1,opt,name=y,proto3" json:"y,omitempty"`
+	Z []byte `protobuf:"bytes,2,opt,name=z,proto3" json:"z,omitempty"`
+}
+
+func (m *PubkeyValidityProof) Reset()         { *m = PubkeyValidityProof{} }
+func (m *PubkeyValidityProof) String() string { return proto.CompactTextString(m) }
+func (*PubkeyValidityProof) ProtoMessage()    {}
+func (*PubkeyValidityProof) Descriptor() ([]byte, []int) {
+	return fileDescriptor_71d8640cbb42ddec, []int{2}
+}
+func (m *PubkeyValidityProof) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *PubkeyValidityProof) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_PubkeyValidityProof.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *PubkeyValidityProof) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PubkeyValidityProof.Merge(m, src)
+}
+func (m *PubkeyValidityProof) XXX_Size() int {
+	return m.Size()
+}
+func (m *PubkeyValidityProof) XXX_DiscardUnknown() {
+	xxx_messageInfo_PubkeyValidityProof.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PubkeyValidityProof proto.InternalMessageInfo
+
+func (m *PubkeyValidityProof) GetY() []byte {
+	if m != nil {
+		return m.Y
+	}
+	return nil
+}
+
+func (m *PubkeyValidityProof) GetZ() []byte {
+	if m != nil {
+		return m.Z
 	}
 	return nil
 }
@@ -145,7 +241,7 @@ func (m *CiphertextValidityProof) Reset()         { *m = CiphertextValidityProof
 func (m *CiphertextValidityProof) String() string { return proto.CompactTextString(m) }
 func (*CiphertextValidityProof) ProtoMessage()    {}
 func (*CiphertextValidityProof) Descriptor() ([]byte, []int) {
-	return fileDescriptor_71d8640cbb42ddec, []int{1}
+	return fileDescriptor_71d8640cbb42ddec, []int{3}
 }
 func (m *CiphertextValidityProof) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -212,7 +308,7 @@ func (m *RangeProof) Reset()         { *m = RangeProof{} }
 func (m *RangeProof) String() string { return proto.CompactTextString(m) }
 func (*RangeProof) ProtoMessage()    {}
 func (*RangeProof) Descriptor() ([]byte, []int) {
-	return fileDescriptor_71d8640cbb42ddec, []int{2}
+	return fileDescriptor_71d8640cbb42ddec, []int{4}
 }
 func (m *RangeProof) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -275,7 +371,7 @@ func (m *CiphertextCommitmentEqualityProof) Reset()         { *m = CiphertextCom
 func (m *CiphertextCommitmentEqualityProof) String() string { return proto.CompactTextString(m) }
 func (*CiphertextCommitmentEqualityProof) ProtoMessage()    {}
 func (*CiphertextCommitmentEqualityProof) Descriptor() ([]byte, []int) {
-	return fileDescriptor_71d8640cbb42ddec, []int{3}
+	return fileDescriptor_71d8640cbb42ddec, []int{5}
 }
 func (m *CiphertextCommitmentEqualityProof) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -360,7 +456,7 @@ func (m *CiphertextCiphertextEqualityProof) Reset()         { *m = CiphertextCip
 func (m *CiphertextCiphertextEqualityProof) String() string { return proto.CompactTextString(m) }
 func (*CiphertextCiphertextEqualityProof) ProtoMessage()    {}
 func (*CiphertextCiphertextEqualityProof) Descriptor() ([]byte, []int) {
-	return fileDescriptor_71d8640cbb42ddec, []int{4}
+	return fileDescriptor_71d8640cbb42ddec, []int{6}
 }
 func (m *CiphertextCiphertextEqualityProof) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -439,7 +535,9 @@ func (m *CiphertextCiphertextEqualityProof) GetZr() []byte {
 }
 
 func init() {
-	proto.RegisterType((*TransferProofs)(nil), "seiprotocol.seichain.confidentialtransfers.TransferProofs")
+	proto.RegisterType((*TransferMsgProofs)(nil), "seiprotocol.seichain.confidentialtransfers.TransferMsgProofs")
+	proto.RegisterType((*InitializeAccountMsgProofs)(nil), "seiprotocol.seichain.confidentialtransfers.InitializeAccountMsgProofs")
+	proto.RegisterType((*PubkeyValidityProof)(nil), "seiprotocol.seichain.confidentialtransfers.PubkeyValidityProof")
 	proto.RegisterType((*CiphertextValidityProof)(nil), "seiprotocol.seichain.confidentialtransfers.CiphertextValidityProof")
 	proto.RegisterType((*RangeProof)(nil), "seiprotocol.seichain.confidentialtransfers.RangeProof")
 	proto.RegisterType((*CiphertextCommitmentEqualityProof)(nil), "seiprotocol.seichain.confidentialtransfers.CiphertextCommitmentEqualityProof")
@@ -449,49 +547,53 @@ func init() {
 func init() { proto.RegisterFile("confidentialtransfers/zk.proto", fileDescriptor_71d8640cbb42ddec) }
 
 var fileDescriptor_71d8640cbb42ddec = []byte{
-	// 617 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x96, 0xc1, 0x8b, 0xd3, 0x4e,
-	0x14, 0xc7, 0x77, 0xb2, 0xbf, 0xed, 0xfe, 0x76, 0x5a, 0xf6, 0x10, 0x04, 0x45, 0x68, 0xdc, 0x56,
-	0xd0, 0x45, 0x31, 0xdd, 0xa4, 0xe0, 0x55, 0x6c, 0x11, 0xf6, 0xa0, 0x20, 0x41, 0x04, 0xbd, 0x84,
-	0x69, 0x3a, 0x6d, 0x07, 0x93, 0x99, 0x38, 0x33, 0x95, 0xa6, 0x57, 0xff, 0x01, 0x41, 0x50, 0x10,
-	0x04, 0xfd, 0x6f, 0x3c, 0xee, 0xd1, 0xa3, 0xb4, 0xff, 0x86, 0x07, 0xc9, 0x34, 0x69, 0x9b, 0x69,
-	0xdd, 0xae, 0xeb, 0xae, 0xb7, 0x7e, 0xe7, 0xcd, 0xcc, 0xf7, 0x93, 0x37, 0xef, 0x3d, 0x0a, 0xad,
-	0x80, 0xd1, 0x1e, 0xe9, 0x62, 0x2a, 0x09, 0x0a, 0x25, 0x47, 0x54, 0xf4, 0x30, 0x17, 0x8d, 0xf1,
-	0x2b, 0x3b, 0xe6, 0x4c, 0x32, 0xf3, 0x8e, 0xc0, 0x44, 0xfd, 0x0a, 0x58, 0x68, 0x0b, 0x4c, 0x82,
-	0x01, 0x22, 0xd4, 0x5e, 0x7b, 0xa8, 0xfe, 0x13, 0xc2, 0xfd, 0x67, 0x99, 0x7a, 0xca, 0x19, 0xeb,
-	0x09, 0xf3, 0x2b, 0x80, 0x77, 0x39, 0x8e, 0x10, 0xa1, 0x84, 0xf6, 0xfd, 0x0e, 0x0a, 0x11, 0x0d,
-	0xb0, 0x1f, 0xb0, 0x28, 0x22, 0x32, 0xc2, 0x54, 0xfa, 0x6f, 0x50, 0x48, 0xba, 0x44, 0x26, 0x7e,
-	0x9c, 0x1e, 0xb8, 0x06, 0x0e, 0xc0, 0x61, 0xd9, 0x6d, 0xdb, 0x67, 0x77, 0xb5, 0xdb, 0x24, 0x1e,
-	0x60, 0x2e, 0xf1, 0x48, 0x3e, 0xcf, 0xee, 0x52, 0xde, 0xde, 0xed, 0xb9, 0x6f, 0x6b, 0x66, 0xdb,
-	0x9e, 0xbb, 0x16, 0x36, 0x9a, 0x9f, 0x00, 0x3c, 0x14, 0x98, 0x76, 0x31, 0xf7, 0xf3, 0x5b, 0x7d,
-	0x14, 0xb1, 0x21, 0x95, 0x7e, 0xc8, 0x74, 0x40, 0xe3, 0xe2, 0x00, 0x6f, 0xce, 0x4c, 0xf3, 0x8c,
-	0x3d, 0x54, 0x96, 0x8f, 0xd9, 0x99, 0xe1, 0x06, 0x44, 0x87, 0xdb, 0xbe, 0x64, 0xb8, 0x63, 0x52,
-	0x84, 0xfb, 0xa2, 0x5e, 0x37, 0x20, 0x31, 0x49, 0x9f, 0x72, 0x73, 0xf2, 0xfe, 0xbb, 0x38, 0xbe,
-	0x5b, 0x73, 0xdf, 0xd3, 0xf3, 0x77, 0x3a, 0xe2, 0x6a, 0x0a, 0x77, 0x2e, 0x1f, 0x51, 0xcf, 0x62,
-	0x02, 0xab, 0xab, 0x2d, 0xc2, 0x11, 0xed, 0xe3, 0x8c, 0xa9, 0xa4, 0x98, 0xee, 0xff, 0x09, 0x93,
-	0x97, 0x1e, 0x9f, 0x61, 0x5c, 0xd7, 0xfb, 0x60, 0x11, 0x33, 0x3f, 0x00, 0x78, 0xb0, 0xea, 0x8d,
-	0x5f, 0x0f, 0x51, 0xb8, 0x48, 0xc9, 0xae, 0xb2, 0x7f, 0x72, 0xbe, 0x94, 0x2c, 0x9a, 0xee, 0x51,
-	0x76, 0xeb, 0x8c, 0xaa, 0xaa, 0x53, 0x15, 0xc2, 0xe6, 0x47, 0x00, 0x6b, 0x6b, 0xea, 0x49, 0x23,
-	0xfb, 0xff, 0xaf, 0xc8, 0xe6, 0xbf, 0x34, 0x32, 0xa9, 0x15, 0xd4, 0x66, 0xb2, 0x01, 0xd1, 0xc9,
-	0xf6, 0xfe, 0x01, 0xd9, 0x31, 0x29, 0x84, 0xeb, 0x9f, 0x01, 0xbc, 0xfa, 0x9b, 0x5a, 0x34, 0x6b,
-	0xb0, 0xb2, 0x34, 0x74, 0x1d, 0x35, 0x67, 0x2b, 0x5e, 0x79, 0xb1, 0xe6, 0x68, 0x5b, 0x5c, 0x35,
-	0xe9, 0x0a, 0x5b, 0x5c, 0xb3, 0x0a, 0x21, 0xc7, 0x22, 0x66, 0x54, 0x60, 0xdf, 0x51, 0xdd, 0x5c,
-	0xf1, 0xf6, 0xf2, 0x15, 0xa7, 0x10, 0x76, 0x55, 0x27, 0x2d, 0x85, 0xdd, 0x7a, 0x00, 0xe1, 0x52,
-	0xe9, 0x5d, 0x81, 0x3b, 0x8b, 0x91, 0x5f, 0xf1, 0x66, 0xc2, 0xb4, 0x20, 0xe4, 0x88, 0x76, 0x59,
-	0x44, 0xb1, 0x10, 0x19, 0xc2, 0xd2, 0x8a, 0x79, 0x03, 0x96, 0x87, 0x71, 0x8c, 0xb9, 0xdf, 0x61,
-	0x43, 0xda, 0x55, 0x03, 0x6f, 0xdb, 0x83, 0x6a, 0xa9, 0x95, 0xae, 0xd4, 0xdf, 0x02, 0x58, 0xdb,
-	0x58, 0x7d, 0xe6, 0x3e, 0x34, 0x92, 0xa3, 0xcc, 0xd9, 0x48, 0x8e, 0x94, 0x76, 0x32, 0x3b, 0x23,
-	0x71, 0x94, 0x76, 0xd5, 0xed, 0xa9, 0x76, 0x53, 0x3d, 0x16, 0xd9, 0x07, 0x1b, 0x63, 0xa1, 0xf4,
-	0x28, 0xfb, 0x42, 0x63, 0x3c, 0x52, 0x9a, 0xab, 0x3e, 0x4d, 0x35, 0xaf, 0xbf, 0x2f, 0x52, 0xac,
-	0x7f, 0xcf, 0xf3, 0x50, 0x24, 0xcd, 0x9c, 0x22, 0x69, 0x66, 0x54, 0x3b, 0x1a, 0x55, 0x49, 0xa3,
-	0xda, 0xcd, 0xa9, 0x5a, 0x2f, 0xbe, 0x4d, 0x2c, 0x70, 0x32, 0xb1, 0xc0, 0x8f, 0x89, 0x05, 0xde,
-	0x4d, 0xad, 0xad, 0x93, 0xa9, 0xb5, 0xf5, 0x7d, 0x6a, 0x6d, 0xbd, 0x7c, 0xd0, 0x27, 0x72, 0x30,
-	0xec, 0xd8, 0x01, 0x8b, 0x1a, 0x02, 0x93, 0x7b, 0x79, 0xcd, 0x2a, 0xa1, 0x8a, 0xb6, 0x31, 0x6a,
-	0xac, 0xff, 0xa7, 0x20, 0x93, 0x18, 0x8b, 0x4e, 0x49, 0x9d, 0x68, 0xfe, 0x0a, 0x00, 0x00, 0xff,
-	0xff, 0x62, 0x8c, 0x5f, 0x27, 0x4f, 0x08, 0x00, 0x00,
+	// 680 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x96, 0x5d, 0x6b, 0x13, 0x4d,
+	0x14, 0xc7, 0x3b, 0xe9, 0xd3, 0xf6, 0xe9, 0x69, 0x10, 0xdc, 0x2a, 0x4a, 0xa1, 0x6b, 0xbb, 0x82,
+	0x16, 0xc5, 0xa4, 0xbb, 0x05, 0x6f, 0x4b, 0x5b, 0x84, 0x0a, 0x16, 0xca, 0x22, 0x82, 0xde, 0x2c,
+	0x9b, 0xcd, 0x34, 0x19, 0x9a, 0x9d, 0x59, 0x67, 0x26, 0x92, 0xdd, 0x5b, 0xbf, 0x80, 0x22, 0x28,
+	0x08, 0x82, 0x7e, 0x1b, 0x2f, 0x7b, 0xe9, 0xa5, 0xb4, 0x1f, 0x44, 0xd9, 0xc9, 0xe4, 0x65, 0x27,
+	0xb1, 0x69, 0x6b, 0xeb, 0xdd, 0xfe, 0xe7, 0xe5, 0xfc, 0x7f, 0x7b, 0xf6, 0x9c, 0x93, 0x80, 0x1d,
+	0x31, 0x7a, 0x40, 0xea, 0x98, 0x4a, 0x12, 0xb6, 0x24, 0x0f, 0xa9, 0x38, 0xc0, 0x5c, 0x54, 0xb3,
+	0xc3, 0x4a, 0xc2, 0x99, 0x64, 0xd6, 0x03, 0x81, 0x89, 0x7a, 0x8a, 0x58, 0xab, 0x22, 0x30, 0x89,
+	0x9a, 0x21, 0xa1, 0x95, 0xb1, 0x97, 0x9c, 0x5f, 0x00, 0xd7, 0x9f, 0x6b, 0xb5, 0x27, 0x1a, 0xfb,
+	0x9c, 0xb1, 0x03, 0x61, 0x7d, 0x43, 0xf0, 0x90, 0xe3, 0x38, 0x24, 0x94, 0xd0, 0x46, 0x50, 0x0b,
+	0x5b, 0x21, 0x8d, 0x70, 0x10, 0xb1, 0x38, 0x26, 0x32, 0xc6, 0x54, 0x06, 0x6f, 0xc2, 0x16, 0xa9,
+	0x13, 0x99, 0x06, 0x49, 0x7e, 0xe1, 0x36, 0x5a, 0x41, 0x6b, 0x0b, 0xde, 0x4e, 0xe5, 0xec, 0xc6,
+	0x95, 0x1d, 0x92, 0x34, 0x31, 0x97, 0xb8, 0x23, 0x5f, 0xe8, 0x58, 0xca, 0xdb, 0xbf, 0xdf, 0xf7,
+	0xdd, 0xee, 0xda, 0xee, 0xf4, 0x5d, 0x0b, 0x07, 0xad, 0xcf, 0x08, 0xd6, 0x04, 0xa6, 0x75, 0xcc,
+	0x83, 0x5e, 0xd4, 0x20, 0x8c, 0x59, 0x9b, 0xca, 0xa0, 0xc5, 0x4c, 0xc0, 0xd2, 0xe5, 0x01, 0xde,
+	0xed, 0x9a, 0xf6, 0x92, 0xb6, 0xa5, 0x2c, 0x9f, 0xb1, 0x33, 0xc3, 0x35, 0x89, 0x09, 0x37, 0x7d,
+	0xc5, 0x70, 0xbb, 0xa4, 0x08, 0xf7, 0x55, 0x7d, 0xdd, 0x88, 0x24, 0x24, 0xff, 0x94, 0x93, 0x93,
+	0xf7, 0xdf, 0xe5, 0xf1, 0xdd, 0xeb, 0xfb, 0x9e, 0x9e, 0xbf, 0xd3, 0x11, 0x47, 0x53, 0x38, 0x73,
+	0xf5, 0x88, 0x66, 0x16, 0x53, 0x58, 0x1e, 0x6d, 0x11, 0x1e, 0xd2, 0x06, 0xd6, 0x4c, 0xb3, 0x8a,
+	0xe9, 0xf1, 0x79, 0x98, 0xfc, 0xfc, 0x7a, 0x17, 0x63, 0xc9, 0xec, 0x83, 0xc1, 0x9e, 0xf5, 0x11,
+	0xc1, 0xca, 0xa8, 0x37, 0x7e, 0xdd, 0x0e, 0x5b, 0x83, 0x94, 0xcc, 0x29, 0xfb, 0xbd, 0x8b, 0xa5,
+	0x64, 0xd0, 0x74, 0x4f, 0x74, 0xd4, 0x2e, 0xd5, 0xb2, 0x49, 0x55, 0xd8, 0xb6, 0x3e, 0x21, 0x58,
+	0x1d, 0x53, 0x4f, 0x06, 0xd9, 0xff, 0x7f, 0x45, 0xd6, 0x7f, 0x32, 0xc8, 0xa4, 0x51, 0x50, 0x93,
+	0xc9, 0x9a, 0xc4, 0x24, 0x9b, 0xff, 0x07, 0x64, 0xbb, 0xa4, 0xb0, 0xed, 0xbc, 0x47, 0xb0, 0xf4,
+	0x94, 0x92, 0x3c, 0x2a, 0xc9, 0xf0, 0x56, 0x14, 0xe5, 0x87, 0x06, 0xa3, 0x58, 0xc0, 0xcd, 0xa4,
+	0x5d, 0x3b, 0xc4, 0xe9, 0xf8, 0x99, 0xbb, 0x79, 0x1e, 0xd6, 0x7d, 0x15, 0xa8, 0x58, 0xee, 0x8b,
+	0xc9, 0xe8, 0xa2, 0xe3, 0xc2, 0xe2, 0x98, 0xb3, 0x56, 0x19, 0x50, 0xaa, 0x7c, 0xcb, 0x3e, 0x4a,
+	0x73, 0x95, 0xa9, 0xc1, 0x5a, 0xf6, 0x51, 0xe6, 0x7c, 0x41, 0x70, 0xeb, 0x0f, 0x2d, 0x65, 0xad,
+	0x42, 0x79, 0xe8, 0xb7, 0xc3, 0xd5, 0x21, 0x16, 0x06, 0x6b, 0xae, 0x71, 0xc4, 0xd3, 0x71, 0x87,
+	0x8e, 0x78, 0xd6, 0x32, 0x00, 0xc7, 0x22, 0x61, 0x54, 0xe0, 0xc0, 0x55, 0x43, 0xa9, 0xec, 0xcf,
+	0xf7, 0x56, 0xdc, 0xc2, 0xb6, 0xa7, 0x06, 0xc2, 0xd0, 0xb6, 0xe7, 0x44, 0x00, 0x43, 0x1d, 0x74,
+	0x03, 0x66, 0x06, 0x59, 0x2c, 0xfb, 0x5d, 0x61, 0xd9, 0x00, 0x3c, 0xa4, 0x75, 0x16, 0x53, 0x2c,
+	0x84, 0x46, 0x18, 0x5a, 0xb1, 0xee, 0xc0, 0x42, 0x3b, 0x49, 0x30, 0x0f, 0x6a, 0xac, 0x4d, 0xeb,
+	0x6a, 0x6e, 0x4f, 0xfb, 0xa0, 0x96, 0xb6, 0xf3, 0x15, 0xe7, 0x2d, 0x82, 0xd5, 0x89, 0x4d, 0x64,
+	0x5d, 0x83, 0x52, 0xba, 0xae, 0x9d, 0x4b, 0xe9, 0xba, 0xd2, 0xae, 0xb6, 0x2b, 0xa5, 0xae, 0xd2,
+	0x9e, 0x8a, 0x9e, 0x6b, 0x2f, 0xd7, 0x99, 0xd0, 0x2f, 0x5c, 0xca, 0x84, 0xd2, 0x1d, 0xfd, 0x86,
+	0xa5, 0xac, 0xa3, 0x34, 0x57, 0xe3, 0x26, 0xd7, 0xdc, 0xf9, 0x50, 0xa4, 0x18, 0x5f, 0x96, 0x17,
+	0xa1, 0x48, 0x37, 0x7a, 0x14, 0xe9, 0x86, 0xa6, 0x9a, 0x31, 0xa8, 0x66, 0x0d, 0xaa, 0xb9, 0x1e,
+	0xd5, 0xf6, 0xcb, 0xef, 0xc7, 0x36, 0x3a, 0x3a, 0xb6, 0xd1, 0xcf, 0x63, 0x1b, 0xbd, 0x3b, 0xb1,
+	0xa7, 0x8e, 0x4e, 0xec, 0xa9, 0x1f, 0x27, 0xf6, 0xd4, 0xab, 0xcd, 0x06, 0x91, 0xcd, 0x76, 0xad,
+	0x12, 0xb1, 0xb8, 0x2a, 0x30, 0x79, 0xd4, 0x2b, 0x67, 0x25, 0x54, 0x3d, 0x57, 0x3b, 0xd5, 0xf1,
+	0xff, 0x79, 0x64, 0x9a, 0x60, 0x51, 0x9b, 0x55, 0x37, 0x36, 0x7e, 0x07, 0x00, 0x00, 0xff, 0xff,
+	0xe1, 0xa1, 0xeb, 0x04, 0x19, 0x09, 0x00, 0x00,
 }
 
-func (m *TransferProofs) Marshal() (dAtA []byte, err error) {
+func (m *TransferMsgProofs) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -501,12 +603,12 @@ func (m *TransferProofs) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TransferProofs) MarshalTo(dAtA []byte) (int, error) {
+func (m *TransferMsgProofs) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransferProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *TransferMsgProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -616,6 +718,78 @@ func (m *TransferProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			i -= size
 			i = encodeVarintZk(dAtA, i, uint64(size))
 		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *InitializeAccountMsgProofs) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *InitializeAccountMsgProofs) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *InitializeAccountMsgProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.PubkeyValidityProof != nil {
+		{
+			size, err := m.PubkeyValidityProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PubkeyValidityProof) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PubkeyValidityProof) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PubkeyValidityProof) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Z) > 0 {
+		i -= len(m.Z)
+		copy(dAtA[i:], m.Z)
+		i = encodeVarintZk(dAtA, i, uint64(len(m.Z)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Y) > 0 {
+		i -= len(m.Y)
+		copy(dAtA[i:], m.Y)
+		i = encodeVarintZk(dAtA, i, uint64(len(m.Y)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -863,7 +1037,7 @@ func encodeVarintZk(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-func (m *TransferProofs) Size() (n int) {
+func (m *TransferMsgProofs) Size() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -903,6 +1077,36 @@ func (m *TransferProofs) Size() (n int) {
 	}
 	if m.TransferAmountHiEqualityProof != nil {
 		l = m.TransferAmountHiEqualityProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	return n
+}
+
+func (m *InitializeAccountMsgProofs) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.PubkeyValidityProof != nil {
+		l = m.PubkeyValidityProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	return n
+}
+
+func (m *PubkeyValidityProof) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Y)
+	if l > 0 {
+		n += 1 + l + sovZk(uint64(l))
+	}
+	l = len(m.Z)
+	if l > 0 {
 		n += 1 + l + sovZk(uint64(l))
 	}
 	return n
@@ -1029,7 +1233,7 @@ func sovZk(x uint64) (n int) {
 func sozZk(x uint64) (n int) {
 	return sovZk(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-func (m *TransferProofs) Unmarshal(dAtA []byte) error {
+func (m *TransferMsgProofs) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1052,10 +1256,10 @@ func (m *TransferProofs) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: TransferProofs: wiretype end group for non-group")
+			return fmt.Errorf("proto: TransferMsgProofs: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: TransferProofs: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: TransferMsgProofs: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -1380,6 +1584,210 @@ func (m *TransferProofs) Unmarshal(dAtA []byte) error {
 			}
 			if err := m.TransferAmountHiEqualityProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipZk(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthZk
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *InitializeAccountMsgProofs) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowZk
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: InitializeAccountMsgProofs: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: InitializeAccountMsgProofs: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PubkeyValidityProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.PubkeyValidityProof == nil {
+				m.PubkeyValidityProof = &PubkeyValidityProof{}
+			}
+			if err := m.PubkeyValidityProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipZk(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthZk
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PubkeyValidityProof) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowZk
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PubkeyValidityProof: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PubkeyValidityProof: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Y", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Y = append(m.Y[:0], dAtA[iNdEx:postIndex]...)
+			if m.Y == nil {
+				m.Y = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Z", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Z = append(m.Z[:0], dAtA[iNdEx:postIndex]...)
+			if m.Z == nil {
+				m.Z = []byte{}
 			}
 			iNdEx = postIndex
 		default:

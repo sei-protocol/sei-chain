@@ -15,11 +15,11 @@ type Transfer struct {
 	RecipientTransferAmountHi  *elgamal.Ciphertext `json:"recipient_transfer_amount_hi"`
 	RemainingBalanceCommitment *elgamal.Ciphertext `json:"remaining_balance_commitment"`
 	DecryptableBalance         string              `json:"decryptable_balance"`
-	Proofs                     *Proofs             `json:"proofs"`
+	Proofs                     *TransferProofs     `json:"proofs"`
 	Auditors                   []*TransferAuditor  `json:"auditors,omitempty"` //optional field
 }
 
-type Proofs struct {
+type TransferProofs struct {
 	RemainingBalanceCommitmentValidityProof *zkproofs.CiphertextValidityProof           `json:"remaining_balance_commitment_validity_proof"`
 	SenderTransferAmountLoValidityProof     *zkproofs.CiphertextValidityProof           `json:"sender_transfer_amount_lo_validity_proof"`
 	SenderTransferAmountHiValidityProof     *zkproofs.CiphertextValidityProof           `json:"sender_transfer_amount_hi_validity_proof"`

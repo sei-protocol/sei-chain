@@ -1,21 +1,22 @@
 package types
 
 import (
-	"testing"
-
+	crand "crypto/rand"
+	"github.com/coinbase/kryptology/pkg/core/curves"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func TestTransferProofs_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		proofs  TransferProofs
+		proofs  TransferMsgProofs
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name: "valid proofs",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -30,13 +31,13 @@ func TestTransferProofs_Validate(t *testing.T) {
 		},
 		{
 			name:    "missing RemainingBalanceCommitmentValidityProof",
-			proofs:  TransferProofs{},
+			proofs:  TransferMsgProofs{},
 			wantErr: true,
 			errMsg:  "remaining balance commitment validity proof is required",
 		},
 		{
 			name: "missing SenderTransferAmountLoValidityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 			},
 			wantErr: true,
@@ -44,7 +45,7 @@ func TestTransferProofs_Validate(t *testing.T) {
 		},
 		{
 			name: "missing SenderTransferAmountHiValidityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 			},
@@ -53,7 +54,7 @@ func TestTransferProofs_Validate(t *testing.T) {
 		},
 		{
 			name: "missing RecipientTransferAmountLoValidityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -63,7 +64,7 @@ func TestTransferProofs_Validate(t *testing.T) {
 		},
 		{
 			name: "missing RecipientTransferAmountHiValidityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -74,7 +75,7 @@ func TestTransferProofs_Validate(t *testing.T) {
 		},
 		{
 			name: "missing RemainingBalanceRangeProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -86,7 +87,7 @@ func TestTransferProofs_Validate(t *testing.T) {
 		},
 		{
 			name: "missing RemainingBalanceEqualityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -99,7 +100,7 @@ func TestTransferProofs_Validate(t *testing.T) {
 		},
 		{
 			name: "missing TransferAmountLoEqualityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -113,7 +114,7 @@ func TestTransferProofs_Validate(t *testing.T) {
 		},
 		{
 			name: "missing TransferAmountHiEqualityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -141,22 +142,22 @@ func TestTransferProofs_Validate(t *testing.T) {
 	}
 }
 
-func TestTransferProofs_FromProto(t *testing.T) {
+func TestTransferMsgProofs_FromProto(t *testing.T) {
 	tests := []struct {
 		name    string
-		proofs  TransferProofs
+		proofs  TransferMsgProofs
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name:    "missing RemainingBalanceCommitmentValidityProof",
-			proofs:  TransferProofs{},
+			proofs:  TransferMsgProofs{},
 			wantErr: true,
 			errMsg:  "remaining balance commitment validity proof is required",
 		},
 		{
 			name: "missing SenderTransferAmountLoValidityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 			},
 			wantErr: true,
@@ -164,7 +165,7 @@ func TestTransferProofs_FromProto(t *testing.T) {
 		},
 		{
 			name: "missing SenderTransferAmountHiValidityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 			},
@@ -173,7 +174,7 @@ func TestTransferProofs_FromProto(t *testing.T) {
 		},
 		{
 			name: "missing RecipientTransferAmountLoValidityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -183,7 +184,7 @@ func TestTransferProofs_FromProto(t *testing.T) {
 		},
 		{
 			name: "missing RecipientTransferAmountHiValidityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -194,7 +195,7 @@ func TestTransferProofs_FromProto(t *testing.T) {
 		},
 		{
 			name: "missing RemainingBalanceRangeProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -206,7 +207,7 @@ func TestTransferProofs_FromProto(t *testing.T) {
 		},
 		{
 			name: "missing RemainingBalanceEqualityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -219,7 +220,7 @@ func TestTransferProofs_FromProto(t *testing.T) {
 		},
 		{
 			name: "missing TransferAmountLoEqualityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -233,7 +234,7 @@ func TestTransferProofs_FromProto(t *testing.T) {
 		},
 		{
 			name: "missing TransferAmountHiEqualityProof",
-			proofs: TransferProofs{
+			proofs: TransferMsgProofs{
 				RemainingBalanceCommitmentValidityProof: &CiphertextValidityProof{},
 				SenderTransferAmountLoValidityProof:     &CiphertextValidityProof{},
 				SenderTransferAmountHiValidityProof:     &CiphertextValidityProof{},
@@ -245,6 +246,79 @@ func TestTransferProofs_FromProto(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "transfer amount hi equality proof is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.proofs.FromProto()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestInitializeAccountMsgProofs_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		proofs  InitializeAccountMsgProofs
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid proofs",
+			proofs: InitializeAccountMsgProofs{
+				PubkeyValidityProof: &PubkeyValidityProof{},
+			},
+			wantErr: false,
+		},
+		{
+			name:    "missing PubkeyValidityProof",
+			proofs:  InitializeAccountMsgProofs{},
+			wantErr: true,
+			errMsg:  "pubkey validity proof is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.proofs.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestInitializeAccountMsgProofs_FromProto(t *testing.T) {
+	tests := []struct {
+		name    string
+		proofs  InitializeAccountMsgProofs
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid proofs",
+			proofs: InitializeAccountMsgProofs{
+				PubkeyValidityProof: &PubkeyValidityProof{
+					Y: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z: curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name:    "missing PubkeyValidityProof",
+			proofs:  InitializeAccountMsgProofs{},
+			wantErr: true,
+			errMsg:  "pubkey validity proof is required",
 		},
 	}
 

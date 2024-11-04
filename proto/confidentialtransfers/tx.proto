@@ -28,11 +28,11 @@ message MsgTransfer {
   Ciphertext to_amount_hi = 7 [(gogoproto.moretags) = "yaml:\"to_amount_hi\""];
   Ciphertext remaining_balance = 8 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
   string decryptable_balance = 9 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
-  TransferProofs proofs = 10 [(gogoproto.moretags) = "yaml:\"proofs\""];
+  TransferMsgProofs proofs = 10 [(gogoproto.moretags) = "yaml:\"proofs\""];
   repeated Auditor auditors = 11 [(gogoproto.moretags) = "yaml:\"auditors\""];
 }
 
-// MsgSendResponse defines the Msg/Send response type.
+// MsgTransferResponse defines the Msg/Send response type.
 message MsgTransferResponse {}
 
 message Auditor {
@@ -44,3 +44,28 @@ message Auditor {
   CiphertextCiphertextEqualityProof transfer_amount_lo_equality_proof = 6 [(gogoproto.moretags) = "yaml:\"transfer_amount_lo_equality_proof\""];
   CiphertextCiphertextEqualityProof transfer_amount_hi_equality_proof = 7 [(gogoproto.moretags) = "yaml:\"transfer_amount_hi_equality_proof\""];
 }
+
+// MsgInitializeAccount represents a message to create a new confidential transfer account.
+message MsgInitializeAccount {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string   from_address = 1 [(gogoproto.moretags) = "yaml:\"from_address\""];
+  string   denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
+  bytes public_key = 3 [(gogoproto.moretags) = "yaml:\"public_key\""];
+  string decryptable_balance = 4 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
+  InitializeAccountMsgProofs proofs = 5 [(gogoproto.moretags) = "yaml:\"proofs\""];
+}
+
+// MsgInitializeAccountResponse defines the Msg/Send response type.
+message MsgInitializeAccountResponse {}
+
+// MsgDeposit represents a message for depositing tokens into a confidential account
+message MsgDeposit {
+  string from_address = 1 [(gogoproto.moretags) = "yaml:\"from_address\""];
+  string denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
+  uint64 amount = 3 [(gogoproto.moretags) = "yaml:\"amount\""];
+}
+
+// MsgDepositResponse defines the Msg/Send response type.
+message MsgDepositResponse {}
