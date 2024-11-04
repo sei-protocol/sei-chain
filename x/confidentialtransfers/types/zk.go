@@ -418,3 +418,95 @@ func (a *Auditor) FromProto() (*TransferAuditor, error) {
 		TransferAmountHiEqualityProof: transferAmountHiEqualityProof,
 	}, nil
 }
+
+func (z *ZeroBalanceProof) Validate() error {
+	if z.YP == nil || z.YD == nil || z.Z == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "zero proof is invalid")
+	}
+	return nil
+}
+
+func (z *ZeroBalanceProof) ToProto(zkp *zkproofs.ZeroBalanceProof) *ZeroBalanceProof {
+	return &ZeroBalanceProof{
+		YP: zkp.Yp.ToAffineCompressed(),
+		YD: zkp.Yd.ToAffineCompressed(),
+		Z:  zkp.Z.Bytes(),
+	}
+}
+
+func (z *ZeroBalanceProof) FromProto() (*zkproofs.ZeroBalanceProof, error) {
+	err := z.Validate()
+	if err != nil {
+		return nil, err
+	}
+	ed25519Curve := curves.ED25519()
+
+	yp, err := ed25519Curve.Point.FromAffineCompressed(z.YP)
+	if err != nil {
+		return nil, err
+	}
+
+	yd, err := ed25519Curve.Point.FromAffineCompressed(z.YD)
+	if err != nil {
+		return nil, err
+	}
+
+	zScalar, err := ed25519Curve.Scalar.SetBytes(z.Z)
+	if err != nil {
+		return nil, err
+	}
+
+	return &zkproofs.ZeroBalanceProof{
+		Yp: yp,
+		Yd: yd,
+		Z:  zScalar,
+	}, nil
+}
+
+type CloseAccountProofs struct {
+	ZeroAvailableBalanceProof *zkproofs.ZeroBalanceProof
+	ZeroPendingBalanceLoProof *zkproofs.ZeroBalanceProof
+	ZeroPendingBalanceHiProof *zkproofs.ZeroBalanceProof
+}
+
+func (c *CloseAccountProof) Validate() error {
+	if c.ZeroAvailableBalanceProof == nil || c.ZeroPendingBalanceLoProof == nil || c.ZeroPendingBalanceHiProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "close account proof is invalid")
+	}
+	return nil
+}
+
+func (c *CloseAccountProof) ToProto(proofs *CloseAccountProofs) *CloseAccountProof {
+	return &CloseAccountProof{
+		ZeroAvailableBalanceProof: c.ZeroAvailableBalanceProof.ToProto(proofs.ZeroAvailableBalanceProof),
+		ZeroPendingBalanceLoProof: c.ZeroPendingBalanceLoProof.ToProto(proofs.ZeroPendingBalanceLoProof),
+		ZeroPendingBalanceHiProof: c.ZeroPendingBalanceHiProof.ToProto(proofs.ZeroPendingBalanceHiProof),
+	}
+}
+
+func (c *CloseAccountProof) FromProto() (*CloseAccountProofs, error) {
+	err := c.Validate()
+	if err != nil {
+		return nil, err
+	}
+	zeroAvailableBalanceProof, err := c.ZeroAvailableBalanceProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	zeroPendingBalanceLoProof, err := c.ZeroPendingBalanceLoProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	zeroPendingBalanceHiProof, err := c.ZeroPendingBalanceHiProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &CloseAccountProofs{
+		ZeroAvailableBalanceProof: zeroAvailableBalanceProof,
+		ZeroPendingBalanceLoProof: zeroPendingBalanceLoProof,
+		ZeroPendingBalanceHiProof: zeroPendingBalanceHiProof,
+	}, nil
+}
