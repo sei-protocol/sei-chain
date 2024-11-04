@@ -10,10 +10,12 @@ import (
 const (
 	TypeMsgTransfer          = "transfer"
 	TypeMsgInitializeAccount = "initialize_account"
+	TypeMsgDeposit           = "deposit"
 )
 
 var _ sdk.Msg = &MsgTransfer{}
 var _ sdk.Msg = &MsgInitializeAccount{}
+var _ sdk.Msg = &MsgDeposit{}
 
 // Route Implements Msg.
 func (m *MsgTransfer) Route() string { return RouterKey }
@@ -208,4 +210,37 @@ func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
 		DecryptableBalance: m.DecryptableBalance,
 		Proofs:             proofs,
 	}, nil
+}
+
+// Route Implements Msg.
+func (m *MsgDeposit) Route() string { return RouterKey }
+
+// Type Implements Msg.
+func (m *MsgDeposit) Type() string { return TypeMsgDeposit }
+
+func (m *MsgDeposit) ValidateBasic() error {
+	_, err := sdk.AccAddressFromBech32(m.FromAddress)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+	}
+
+	err = sdk.ValidateDenom(m.Denom)
+	if err != nil {
+		return err
+	}
+
+	if m.Amount <= 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Positive amount is required")
+	}
+
+	return nil
+}
+
+func (m *MsgDeposit) GetSignBytes() []byte {
+	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(m))
+}
+
+func (m *MsgDeposit) GetSigners() []sdk.AccAddress {
+	sender, _ := sdk.AccAddressFromBech32(m.FromAddress)
+	return []sdk.AccAddress{sender}
 }
