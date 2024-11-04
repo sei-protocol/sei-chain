@@ -139,6 +139,47 @@ func NewInitializeAccountMsgProofs(proofs *InitializeAccountProofs) *InitializeA
 	}
 }
 
+func (w *WithdrawMsgProofs) FromProto() (*WithdrawProofs, error) {
+	err := w.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	remainingBalanceRangeProof, err := w.RemainingBalanceRangeProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	remainingBalanceEqualityProof, err := w.RemainingBalanceEqualityProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &WithdrawProofs{
+		RemainingBalanceRangeProof:    remainingBalanceRangeProof,
+		RemainingBalanceEqualityProof: remainingBalanceEqualityProof,
+	}, nil
+}
+
+func (w *WithdrawMsgProofs) Validate() error {
+	if w.RemainingBalanceRangeProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance range proof is required")
+	}
+
+	if w.RemainingBalanceEqualityProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance equality proof is required")
+	}
+
+	return nil
+}
+
+func (w *WithdrawMsgProofs) NewWithdrawMsgProofs(proofs *WithdrawProofs) *WithdrawMsgProofs {
+	return &WithdrawMsgProofs{
+		RemainingBalanceRangeProof:    w.RemainingBalanceRangeProof.ToProto(proofs.RemainingBalanceRangeProof),
+		RemainingBalanceEqualityProof: w.RemainingBalanceEqualityProof.ToProto(proofs.RemainingBalanceEqualityProof),
+	}
+}
+
 func (c *InitializeAccountMsgProofs) FromProto() (*InitializeAccountProofs, error) {
 	err := c.Validate()
 	if err != nil {

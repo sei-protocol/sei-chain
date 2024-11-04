@@ -20,6 +20,11 @@ message InitializeAccountMsgProofs {
   PubkeyValidityProof pubkey_validity_proof = 1;
 }
 
+message WithdrawMsgProofs {
+  RangeProof remaining_balance_range_proof = 1;
+  CiphertextCommitmentEqualityProof remaining_balance_equality_proof = 2;
+}
+
 message PubkeyValidityProof {
   bytes y = 1;
   bytes z = 2;

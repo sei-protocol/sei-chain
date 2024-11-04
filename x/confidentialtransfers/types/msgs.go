@@ -11,11 +11,13 @@ const (
 	TypeMsgTransfer          = "transfer"
 	TypeMsgInitializeAccount = "initialize_account"
 	TypeMsgDeposit           = "deposit"
+	TypeMsgWithdraw          = "withdraw"
 )
 
 var _ sdk.Msg = &MsgTransfer{}
 var _ sdk.Msg = &MsgInitializeAccount{}
 var _ sdk.Msg = &MsgDeposit{}
+var _ sdk.Msg = &MsgWithdraw{}
 
 // Route Implements Msg.
 func (m *MsgTransfer) Route() string { return RouterKey }
@@ -243,4 +245,77 @@ func (m *MsgDeposit) GetSignBytes() []byte {
 func (m *MsgDeposit) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.FromAddress)
 	return []sdk.AccAddress{sender}
+}
+
+// Route Implements Msg.
+func (m *MsgWithdraw) Route() string { return RouterKey }
+
+// Type Implements Msg.
+func (m *MsgWithdraw) Type() string { return TypeMsgWithdraw }
+
+func (m *MsgWithdraw) ValidateBasic() error {
+	_, err := sdk.AccAddressFromBech32(m.FromAddress)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+	}
+
+	err = sdk.ValidateDenom(m.Denom)
+	if err != nil {
+		return err
+	}
+
+	if m.Amount <= 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Positive amount is required")
+	}
+
+	if m.RemainingBalanceCommitment == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalanceCommitment is required")
+	}
+
+	if m.DecryptableBalance == "" {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "DecryptableBalance is required")
+	}
+
+	if m.Proofs == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
+	}
+
+	err = m.Proofs.Validate()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *MsgWithdraw) GetSignBytes() []byte {
+	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(m))
+}
+
+func (m *MsgWithdraw) GetSigners() []sdk.AccAddress {
+	sender, _ := sdk.AccAddressFromBech32(m.FromAddress)
+	return []sdk.AccAddress{sender}
+}
+
+func (m *MsgWithdraw) FromProto() (*Withdraw, error) {
+	err := m.ValidateBasic()
+
+	remainingBalanceCommitment, err := m.RemainingBalanceCommitment.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	proofs, err := m.Proofs.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &Withdraw{
+		FromAddress:                m.FromAddress,
+		Denom:                      m.Denom,
+		Amount:                     m.Amount,
+		RemainingBalanceCommitment: remainingBalanceCommitment,
+		DecryptableBalance:         m.DecryptableBalance,
+		Proofs:                     proofs,
+	}, nil
 }

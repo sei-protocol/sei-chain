@@ -521,3 +521,195 @@ func TestMsgInitializeAccount_ValidateBasic(t *testing.T) {
 		})
 	}
 }
+
+func TestMsgWithdraw_FromProto(t *testing.T) {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	require.NoError(t, err)
+
+	currentBalance := uint64(500000000)
+	currentBalanceCt, _, _ := eg.Encrypt(sourceKeypair.PublicKey, currentBalance)
+	withdrawAmount := uint64(10000)
+	withdrawAmountCt, _ := eg.SubScalar(currentBalanceCt, withdrawAmount)
+	newBalance := currentBalance - withdrawAmount
+	newBalanceScalar := curves.ED25519().Scalar.New(int(newBalance))
+	decryptableBalance, err := encryption.EncryptAESGCM(newBalance, aesPK)
+	newBalanceCommitment, randomness, err := eg.Encrypt(sourceKeypair.PublicKey, newBalance)
+	require.NoError(t, err)
+
+	// Generate the proofs
+	rangeProof, _ := zkproofs.NewRangeProof(64, int(newBalance), randomness)
+	ciphertextCommitmentEqualityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(
+		sourceKeypair,
+		withdrawAmountCt,
+		&randomness,
+		&newBalanceScalar)
+
+	proofs := &WithdrawProofs{
+		rangeProof,
+		ciphertextCommitmentEqualityProof,
+	}
+	address1 := sdk.AccAddress("address1")
+
+	newBalanceProto := NewCiphertextProto(newBalanceCommitment)
+
+	withdrawMsgProof := WithdrawMsgProofs{}
+	proofsProto := withdrawMsgProof.NewWithdrawMsgProofs(proofs)
+	m := &MsgWithdraw{
+		FromAddress:                address1.String(),
+		Denom:                      testDenom,
+		Amount:                     withdrawAmount,
+		RemainingBalanceCommitment: newBalanceProto,
+		DecryptableBalance:         decryptableBalance,
+		Proofs:                     proofsProto,
+	}
+
+	assert.NoError(t, m.ValidateBasic())
+
+	marshalled, err := m.Marshal()
+	require.NoError(t, err)
+
+	// Reset the message
+	m = &MsgWithdraw{}
+	err = m.Unmarshal(marshalled)
+	require.NoError(t, err)
+
+	assert.NoError(t, m.ValidateBasic())
+
+	result, err := m.FromProto()
+
+	assert.NoError(t, err)
+	assert.Equal(t, m.FromAddress, result.FromAddress)
+	assert.Equal(t, m.Denom, result.Denom)
+	assert.Equal(t, m.Amount, result.Amount)
+	assert.Equal(t, m.DecryptableBalance, result.DecryptableBalance)
+	assert.True(t, newBalanceCommitment.C.Equal(result.RemainingBalanceCommitment.C))
+	assert.True(t, newBalanceCommitment.D.Equal(result.RemainingBalanceCommitment.D))
+
+	decryptedRemainingBalance, err := encryption.DecryptAESGCM(result.DecryptableBalance, aesPK)
+	assert.NoError(t, err)
+	assert.Equal(t, newBalance, decryptedRemainingBalance)
+
+	decryptedCommitment, err := eg.DecryptLargeNumber(sourceKeypair.PrivateKey, result.RemainingBalanceCommitment, 32)
+	assert.NoError(t, err)
+	assert.Equal(t, newBalance, decryptedCommitment)
+
+	// Make sure the proofs are valid
+	verified, err := zkproofs.VerifyRangeProof(result.Proofs.RemainingBalanceRangeProof, result.RemainingBalanceCommitment, 64)
+	assert.NoError(t, err)
+	assert.True(t, verified)
+
+	assert.True(t, zkproofs.VerifyCiphertextCommitmentEquality(
+		result.Proofs.RemainingBalanceEqualityProof,
+		&sourceKeypair.PublicKey,
+		withdrawAmountCt,
+		&result.RemainingBalanceCommitment.C))
+}
+
+func TestMsgWithdraw_ValidateBasic(t *testing.T) {
+	validAddress := sdk.AccAddress("address1").String()
+	invalidAddress := "invalid_address"
+	validDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+
+	tests := []struct {
+		name    string
+		msg     MsgWithdraw
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "invalid from address",
+			msg: MsgWithdraw{
+				FromAddress: invalidAddress,
+				Denom:       validDenom,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidAddress.Error(),
+		},
+		{
+			name: "invalid denom",
+			msg: MsgWithdraw{
+				FromAddress: validAddress,
+				Denom:       "",
+			},
+			wantErr: true,
+			errMsg:  "invalid denom",
+		},
+		{
+			name: "missing remaining balance commitment",
+			msg: MsgWithdraw{
+				FromAddress:                validAddress,
+				Denom:                      validDenom,
+				RemainingBalanceCommitment: nil,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing amount",
+			msg: MsgWithdraw{
+				FromAddress:                validAddress,
+				Denom:                      validDenom,
+				RemainingBalanceCommitment: &Ciphertext{},
+				Amount:                     0,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing decryptable balance",
+			msg: MsgWithdraw{
+				FromAddress:                validAddress,
+				Denom:                      validDenom,
+				RemainingBalanceCommitment: &Ciphertext{},
+				Amount:                     100,
+				DecryptableBalance:         "",
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing proofs",
+			msg: MsgWithdraw{
+				FromAddress:                validAddress,
+				Denom:                      validDenom,
+				RemainingBalanceCommitment: &Ciphertext{},
+				Amount:                     100,
+				DecryptableBalance:         "notnil",
+				Proofs:                     nil,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "happy path",
+			msg: MsgWithdraw{
+				FromAddress:                validAddress,
+				Denom:                      validDenom,
+				Amount:                     100,
+				RemainingBalanceCommitment: &Ciphertext{},
+				DecryptableBalance:         "notnil",
+				Proofs: &WithdrawMsgProofs{
+					&RangeProof{},
+					&CiphertextCommitmentEqualityProof{},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.msg.ValidateBasic()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

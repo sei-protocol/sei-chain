@@ -3,6 +3,9 @@ package types
 import (
 	crand "crypto/rand"
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
+	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
+	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -325,6 +328,128 @@ func TestInitializeAccountMsgProofs_FromProto(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := tt.proofs.FromProto()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestWithdrawMsgProofs_FromProto(t *testing.T) {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	value := uint64(100)
+	scalarValue := curves.ED25519().Scalar.New(int(value))
+	encrypted, randomness, _ := eg.Encrypt(sourceKeypair.PublicKey, value)
+	rangeProof, _ := zkproofs.NewRangeProof(64, int(value), randomness)
+	rp := RangeProof{}
+	rangeProofProto := rp.ToProto(rangeProof)
+
+	ep := CiphertextCommitmentEqualityProof{}
+	equalityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(sourceKeypair, encrypted, &randomness, &scalarValue)
+	equalityProofProto := ep.ToProto(equalityProof)
+
+	tests := []struct {
+		name    string
+		proofs  WithdrawMsgProofs
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid proofs",
+			proofs: WithdrawMsgProofs{
+				RemainingBalanceRangeProof:    rangeProofProto,
+				RemainingBalanceEqualityProof: equalityProofProto,
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing RangeProof",
+			proofs: WithdrawMsgProofs{
+				RemainingBalanceEqualityProof: equalityProofProto,
+			},
+			wantErr: true,
+			errMsg:  "range proof is required",
+		},
+		{
+			name: "missing CiphertextCommitmentEqualityProof",
+			proofs: WithdrawMsgProofs{
+				RemainingBalanceRangeProof: rangeProofProto,
+			},
+			wantErr: true,
+			errMsg:  "remaining balance equality proof is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.proofs.FromProto()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestWithdrawMsgProofs_Validate(t *testing.T) {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	value := uint64(100)
+	scalarValue := curves.ED25519().Scalar.New(int(value))
+	encrypted, randomness, _ := eg.Encrypt(sourceKeypair.PublicKey, value)
+	rangeProof, _ := zkproofs.NewRangeProof(64, int(value), randomness)
+	rp := RangeProof{}
+	rangeProofProto := rp.ToProto(rangeProof)
+
+	ep := CiphertextCommitmentEqualityProof{}
+	equalityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(sourceKeypair, encrypted, &randomness, &scalarValue)
+	equalityProofProto := ep.ToProto(equalityProof)
+
+	tests := []struct {
+		name    string
+		proofs  WithdrawMsgProofs
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid proofs",
+			proofs: WithdrawMsgProofs{
+				RemainingBalanceRangeProof:    rangeProofProto,
+				RemainingBalanceEqualityProof: equalityProofProto,
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing RangeProof",
+			proofs: WithdrawMsgProofs{
+				RemainingBalanceEqualityProof: equalityProofProto,
+			},
+			wantErr: true,
+			errMsg:  "range proof is required",
+		},
+		{
+			name: "missing CiphertextCommitmentEqualityProof",
+			proofs: WithdrawMsgProofs{
+				RemainingBalanceRangeProof: rangeProofProto,
+			},
+			wantErr: true,
+			errMsg:  "remaining balance equality proof is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.proofs.Validate()
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errMsg)

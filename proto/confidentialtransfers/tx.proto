@@ -62,6 +62,9 @@ message MsgInitializeAccountResponse {}
 
 // MsgDeposit represents a message for depositing tokens into a confidential account
 message MsgDeposit {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
   string from_address = 1 [(gogoproto.moretags) = "yaml:\"from_address\""];
   string denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
   uint64 amount = 3 [(gogoproto.moretags) = "yaml:\"amount\""];
@@ -69,3 +72,19 @@ message MsgDeposit {
 
 // MsgDepositResponse defines the Msg/Send response type.
 message MsgDepositResponse {}
+
+// MsgWithdraw represents a message to withdraw from a confidential module account.
+message MsgWithdraw {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string   from_address = 1 [(gogoproto.moretags) = "yaml:\"from_address\""];
+  string   denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
+  uint64 amount = 3 [(gogoproto.moretags) = "yaml:\"amount\""];
+  string decryptable_balance = 4 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
+  Ciphertext remaining_balance_commitment = 5 [(gogoproto.moretags) = "yaml:\"remaining_balance_commitment\""];
+  WithdrawMsgProofs proofs = 6 [(gogoproto.moretags) = "yaml:\"proofs\""];
+}
+
+// MsgWithdrawResponse defines the Msg/Send response type.
+message MsgWithdrawResponse {}
