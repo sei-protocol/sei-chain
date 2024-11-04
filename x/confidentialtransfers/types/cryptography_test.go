@@ -20,8 +20,7 @@ func TestFromCiphertext(t *testing.T) {
 	}
 
 	// Convert to our Ciphertext type
-	c := &Ciphertext{}
-	cProto := c.ToProto(&ciphertext)
+	cProto := NewCiphertextProto(&ciphertext)
 
 	assert.NoError(t, cProto.Validate())
 

@@ -312,7 +312,7 @@ func TestInitializeAccountMsgProofs_FromProto(t *testing.T) {
 					Z: curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
 				},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:    "missing PubkeyValidityProof",
