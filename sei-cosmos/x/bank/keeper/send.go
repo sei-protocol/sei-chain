@@ -13,8 +13,7 @@ import (
 )
 
 const (
-	TokenFactoryPrefix     = "factory"
-	TokenFactoryModuleName = "tokenfactory"
+	TokenFactoryPrefix = "factory"
 )
 
 // SendKeeper defines a module interface that facilitates the transfer of coins
@@ -38,7 +37,7 @@ type SendKeeper interface {
 	IsSendEnabledCoins(ctx sdk.Context, coins ...sdk.Coin) error
 	SetDenomAllowList(ctx sdk.Context, denom string, allowList types.AllowList)
 	GetDenomAllowList(ctx sdk.Context, denom string) types.AllowList
-	IsAllowedToSendCoins(ctx sdk.Context, addr sdk.AccAddress, coins sdk.Coins, cache map[string]AllowedAddresses) bool
+	IsInDenomAllowList(ctx sdk.Context, addr sdk.AccAddress, coins sdk.Coins, cache map[string]AllowedAddresses) bool
 
 	BlockedAddr(addr sdk.AccAddress) bool
 	RegisterRecipientChecker(RecipientChecker)
@@ -99,12 +98,6 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 	if err := types.ValidateInputsOutputs(inputs, outputs); err != nil {
 		return err
 	}
-
-	err := k.validateInputOutputAddressesAllowedToSendCoins(ctx, inputs, outputs)
-	if err != nil {
-		return err
-	}
-
 	for _, in := range inputs {
 		inAddress, err := sdk.AccAddressFromBech32(in.Address)
 		if err != nil {
@@ -156,45 +149,9 @@ func (k BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.Input, 
 	return nil
 }
 
-func (k BaseSendKeeper) validateInputOutputAddressesAllowedToSendCoins(ctx sdk.Context, inputs []types.Input, outputs []types.Output) error {
-	denomToAllowListCache := make(map[string]AllowedAddresses)
-	for _, in := range inputs {
-		inAddress, err := sdk.AccAddressFromBech32(in.Address)
-		if err != nil {
-			return err
-		}
-		allowedToSend := k.IsAllowedToSendCoins(ctx, inAddress, in.Coins, denomToAllowListCache)
-		if !allowedToSend {
-			return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to send funds", inAddress)
-		}
-	}
-	for _, out := range outputs {
-		outAddress, err := sdk.AccAddressFromBech32(out.Address)
-		if err != nil {
-			return err
-		}
-		allowedToReceive := k.IsAllowedToSendCoins(ctx, outAddress, out.Coins, denomToAllowListCache)
-		if !allowedToReceive {
-			return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", outAddress)
-		}
-	}
-	return nil
-}
-
 // SendCoins transfers amt coins from a sending account to a receiving account.
 // An error is returned upon failure.
 func (k BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error {
-	denomToAllowedAddressesCache := make(map[string]AllowedAddresses)
-	fromAllowed := k.IsAllowedToSendCoins(ctx, fromAddr, amt, denomToAllowedAddressesCache)
-	if !fromAllowed {
-		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to send funds", fromAddr)
-	}
-
-	toAllowed := k.IsAllowedToSendCoins(ctx, toAddr, amt, denomToAllowedAddressesCache)
-	if !toAllowed {
-		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", toAddr)
-	}
-
 	if err := k.SendCoinsWithoutAccCreation(ctx, fromAddr, toAddr, amt); err != nil {
 		return err
 	}
@@ -507,27 +464,27 @@ func (k BaseSendKeeper) GetDenomAllowList(ctx sdk.Context, denom string) types.A
 	return allowList
 }
 
-// IsAllowedToSendCoins checks if the given address is allowed to send the given coins.
+// IsInDenomAllowList checks if the given address is allowed to send the given coins.
 // The check is performed only fot token factory denoms. For each token factory denom,
 // it checks if there is allow list for the given denom. If there is no allow list,
 // the address is allowed to send the coins. If there is an allow list, the address is
 // allowed to send the coins only if it is in the allow list.
-func (k BaseSendKeeper) IsAllowedToSendCoins(ctx sdk.Context, addr sdk.AccAddress, coins sdk.Coins, cache map[string]AllowedAddresses) bool {
+func (k BaseSendKeeper) IsInDenomAllowList(ctx sdk.Context, addr sdk.AccAddress, coins sdk.Coins, cache map[string]AllowedAddresses) bool {
 	for _, coin := range coins {
-		// process only if denom does contain token factory prefix
-		if strings.HasPrefix(coin.Denom, TokenFactoryPrefix) {
-			allowedAddresses := k.getAllowedAddresses(ctx, cache, coin.Denom)
-			if len(allowedAddresses.set) > 0 {
-				// Add token factory module address to allowlist for minting tokens if allowlist is not empty
-				tokenFactoryAddr := k.ak.GetModuleAddress(TokenFactoryModuleName)
-				if tokenFactoryAddr != nil {
-					allowedAddresses.set[tokenFactoryAddr.String()] = struct{}{}
-				}
+		// Skip if denom does not contain the token factory prefix
+		if !strings.HasPrefix(coin.Denom, TokenFactoryPrefix) {
+			continue
+		}
 
-				if !allowedAddresses.contains(addr) {
-					return false
-				}
-			}
+		allowedAddresses := k.getAllowedAddresses(ctx, cache, coin.Denom)
+		// skip if there is no allow list for the denom
+		if len(allowedAddresses.set) == 0 {
+			continue
+		}
+
+		// Return false if the address is neither allowed nor a module address
+		if !allowedAddresses.contains(addr) {
+			return false
 		}
 	}
 	return true

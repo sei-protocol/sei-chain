@@ -52,10 +52,6 @@ func newFactoryFooCoin(address sdk.AccAddress, amt int64) sdk.Coin {
 	return sdk.NewInt64Coin(fmt.Sprintf("%s/%s/%s", factoryDenomPrefix, address, fooDenom), amt)
 }
 
-func newFactoryBarCoin(address sdk.AccAddress, amt int64) sdk.Coin {
-	return sdk.NewInt64Coin(fmt.Sprintf("%s/%s/%s", factoryDenomPrefix, address, barDenom), amt)
-}
-
 func newBarCoin(amt int64) sdk.Coin {
 	return sdk.NewInt64Coin(barDenom, amt)
 }
@@ -494,108 +490,6 @@ func (suite *IntegrationTestSuite) TestInputOutputCoins() {
 	suite.Require().Equal(expected, acc3Balances)
 }
 
-func (suite *IntegrationTestSuite) TestInputOutputCoinsWithAllowList() {
-	app, ctx := suite.app, suite.ctx
-
-	addr1 := sdk.AccAddress("addr1_______________")
-	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
-	app.AccountKeeper.SetAccount(ctx, acc1)
-	factoryCoin := newFactoryFooCoin(addr1, 100)
-	balances := sdk.NewCoins(factoryCoin)
-
-	addr2 := sdk.AccAddress("addr2_______________")
-	acc2 := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
-	app.AccountKeeper.SetAccount(ctx, acc2)
-
-	addr3 := sdk.AccAddress("addr3_______________")
-	acc3 := app.AccountKeeper.NewAccountWithAddress(ctx, addr3)
-	app.AccountKeeper.SetAccount(ctx, acc3)
-
-	addr4 := sdk.AccAddress("addr4_______________")
-	acc4 := app.AccountKeeper.NewAccountWithAddress(ctx, addr4)
-	app.AccountKeeper.SetAccount(ctx, acc4)
-
-	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr1, balances))
-	app.BankKeeper.SetDenomAllowList(ctx, factoryCoin.Denom,
-		types.AllowList{
-			Addresses: []string{addr1.String(), addr2.String(), addr3.String()}})
-
-	inputs := []types.Input{
-		{Address: addr1.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 30))},
-		{Address: addr1.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 30))},
-	}
-	outputs := []types.Output{
-		{Address: addr2.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 30))},
-		{Address: addr3.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 30))},
-	}
-	suite.Require().NoError(app.BankKeeper.InputOutputCoins(ctx, inputs, outputs))
-
-	acc1Balances := app.BankKeeper.GetAllBalances(ctx, addr1)
-	expected := sdk.NewCoins(newFactoryFooCoin(addr1, 40))
-	suite.Require().Equal(expected, acc1Balances)
-
-	acc2Balances := app.BankKeeper.GetAllBalances(ctx, addr2)
-	expected = sdk.NewCoins(newFactoryFooCoin(addr1, 30))
-	suite.Require().Equal(expected, acc2Balances)
-
-	acc3Balances := app.BankKeeper.GetAllBalances(ctx, addr3)
-	expected = sdk.NewCoins(newFactoryFooCoin(addr1, 30))
-	suite.Require().Equal(expected, acc3Balances)
-
-	inputs1 := []types.Input{
-		{Address: addr1.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 5))},
-		{Address: addr1.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 10))},
-	}
-	outputs1 := []types.Output{
-		{Address: addr2.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 5))},
-		{Address: addr4.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 10))},
-	}
-
-	err := app.BankKeeper.InputOutputCoins(ctx, inputs1, outputs1)
-	suite.Require().Error(err)
-	suite.Require().Equal(
-		fmt.Sprintf("%s is not allowed to receive funds: unauthorized", addr4.String()), err.Error())
-
-	acc1Balances = app.BankKeeper.GetAllBalances(ctx, addr1)
-	expected = sdk.NewCoins(newFactoryFooCoin(addr1, 40))
-	suite.Require().Equal(expected, acc1Balances)
-
-	acc2Balances = app.BankKeeper.GetAllBalances(ctx, addr2)
-	expected = sdk.NewCoins(newFactoryFooCoin(addr1, 30))
-	suite.Require().Equal(expected, acc2Balances)
-
-	acc3Balances = app.BankKeeper.GetAllBalances(ctx, addr3)
-	expected = sdk.NewCoins(newFactoryFooCoin(addr1, 30))
-	suite.Require().Equal(expected, acc3Balances)
-
-	inputs2 := []types.Input{
-		{Address: addr4.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 5))},
-		{Address: addr4.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 10))},
-	}
-	outputs2 := []types.Output{
-		{Address: addr1.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 5))},
-		{Address: addr2.String(), Coins: sdk.NewCoins(newFactoryFooCoin(addr1, 10))},
-	}
-
-	err = app.BankKeeper.InputOutputCoins(ctx, inputs2, outputs2)
-	suite.Require().Error(err)
-	suite.Require().Equal(
-		fmt.Sprintf("%s is not allowed to send funds: unauthorized", addr4.String()), err.Error())
-
-	acc1Balances = app.BankKeeper.GetAllBalances(ctx, addr1)
-	expected = sdk.NewCoins(newFactoryFooCoin(addr1, 40))
-	suite.Require().Equal(expected, acc1Balances)
-
-	acc2Balances = app.BankKeeper.GetAllBalances(ctx, addr2)
-	expected = sdk.NewCoins(newFactoryFooCoin(addr1, 30))
-	suite.Require().Equal(expected, acc2Balances)
-
-	acc3Balances = app.BankKeeper.GetAllBalances(ctx, addr3)
-	expected = sdk.NewCoins(newFactoryFooCoin(addr1, 30))
-	suite.Require().Equal(expected, acc3Balances)
-
-}
-
 func (suite *IntegrationTestSuite) TestSendCoins() {
 	app, ctx := suite.app, suite.ctx
 	balances := sdk.NewCoins(newFooCoin(100), newBarCoin(50))
@@ -661,68 +555,136 @@ func (suite *IntegrationTestSuite) TestSendCoinsWithAllowList() {
 	suite.Require().Equal(expected, acc2Balances)
 }
 
-func (suite *IntegrationTestSuite) TestSendCoinsWithSenderNotInAllowList() {
-	app, ctx := suite.app, suite.ctx
+// Test that creating allowlist does not block module to module transfers
+func (suite *IntegrationTestSuite) TestSendCoinsModuleToModuleWithAllowList() {
+	// add module accounts to supply keeper
+	ctx := suite.ctx
+	_, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+	app := suite.app
+	app.BankKeeper = keeper
+
 	addr1 := sdk.AccAddress("addr1_______________")
 	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
 	app.AccountKeeper.SetAccount(ctx, acc1)
 	factoryCoin := newFactoryFooCoin(addr1, 100)
 	balances := sdk.NewCoins(factoryCoin, newBarCoin(50))
-	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr1, balances))
+	app.BankKeeper.SetDenomAllowList(ctx, factoryCoin.Denom, types.AllowList{
+		Addresses: []string{addr1.String()}})
 
-	addr2 := sdk.AccAddress("addr2_______________")
-	acc2 := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
-	app.AccountKeeper.SetAccount(ctx, acc2)
+	// set up bank balances
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, multiPermAcc.GetAddress(), balances))
 
-	app.BankKeeper.SetDenomAllowList(ctx, factoryCoin.Denom,
-		types.AllowList{Addresses: []string{addr2.String()}})
-
-	sendAmt := sdk.NewCoins(newFactoryFooCoin(addr1, 5), newBarCoin(5))
-	err := app.BankKeeper.SendCoins(ctx, addr1, addr2, sendAmt)
-	suite.Require().Error(err)
-	suite.Require().Equal(
-		fmt.Sprintf("%s is not allowed to send funds: unauthorized", addr1.String()), err.Error())
-
-	// Balances should remain the same
-	acc1Balances := app.BankKeeper.GetAllBalances(ctx, addr1)
-	expected := sdk.NewCoins(newFactoryFooCoin(addr1, 100), newBarCoin(50))
-	suite.Require().Equal(expected, acc1Balances)
-
-	acc2Balances := app.BankKeeper.GetAllBalances(ctx, addr2)
-	expected = sdk.NewCoins(newFactoryFooCoin(addr1, 0), newBarCoin(0))
-	suite.Require().Equal(expected, acc2Balances)
+	sendCoins := sdk.NewCoins(newFactoryFooCoin(addr1, 50), newBarCoin(20))
+	suite.Require().NoError(app.BankKeeper.SendCoinsFromModuleToModule(ctx, multiPerm, randomPerm, sendCoins))
+	expectedBankBalances := sdk.NewCoins(newFactoryFooCoin(addr1, 50), newBarCoin(30))
+	// assert module balances correct
+	bals := app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	// assert receiver balances correct
+	userBals := app.BankKeeper.GetAllBalances(ctx, randomPermAcc.GetAddress())
+	suite.Require().Equal(sendCoins, userBals)
 }
 
-func (suite *IntegrationTestSuite) TestSendCoinsWithReceiverNotInAllowList() {
-	app, ctx := suite.app, suite.ctx
+// Test that creating allowlist does not block sending from module to account even though we are not explicitly adding
+// the module account to the allowlist
+func (suite *IntegrationTestSuite) TestSendCoinsModuleToAccountWithAllowList() {
+	// add module accounts to supply keeper
+	ctx := suite.ctx
+	moduleAddresses := make(map[string]bool)
+	moduleAddresses[multiPermAcc.GetAddress().String()] = true
+	moduleAddresses[suite.app.AccountKeeper.GetModuleAddress("mint").String()] = true
+	_, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+	app := suite.app
+	app.BankKeeper = keeper
+
 	addr1 := sdk.AccAddress("addr1_______________")
 	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
 	app.AccountKeeper.SetAccount(ctx, acc1)
 	factoryCoin := newFactoryFooCoin(addr1, 100)
 	balances := sdk.NewCoins(factoryCoin, newBarCoin(50))
+	app.BankKeeper.SetDenomAllowList(ctx, factoryCoin.Denom, types.AllowList{
+		Addresses: []string{addr1.String()}})
+
+	// set up bank balances
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, multiPermAcc.GetAddress(), balances))
+
+	sendCoins := sdk.NewCoins(newFactoryFooCoin(addr1, 50), newBarCoin(20))
+	suite.Require().NoError(app.BankKeeper.SendCoinsFromModuleToAccount(ctx, multiPerm, addr1, sendCoins))
+
+	expectedBankBalances := sdk.NewCoins(newFactoryFooCoin(addr1, 50), newBarCoin(30))
+	// assert module balances correct
+	bals := app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(expectedBankBalances, bals)
+	// assert receiver balances correct
+	userBals := app.BankKeeper.GetAllBalances(ctx, addr1)
+	suite.Require().Equal(sendCoins, userBals)
+}
+
+// Test that creating allowlist does not block sending from account to module even though we are not explicitly adding
+// the module account to the allowlist
+func (suite *IntegrationTestSuite) TestSendCoinsAccountToModuleWithAllowList() {
+	// add module accounts to supply keeper
+	ctx := suite.ctx
+	moduleAddresses := make(map[string]bool)
+	moduleAddresses[multiPermAcc.GetAddress().String()] = true
+	moduleAddresses[suite.app.AccountKeeper.GetModuleAddress("mint").String()] = true
+	_, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+	app := suite.app
+	app.BankKeeper = keeper
+
+	addr1 := sdk.AccAddress("addr1_______________")
+	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
+	app.AccountKeeper.SetAccount(ctx, acc1)
+	factoryCoin := newFactoryFooCoin(addr1, 100)
+	balances := sdk.NewCoins(factoryCoin, newBarCoin(50))
+	app.BankKeeper.SetDenomAllowList(ctx, factoryCoin.Denom, types.AllowList{
+		Addresses: []string{addr1.String()}})
+
+	// set up bank balances
 	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr1, balances))
 
-	addr2 := sdk.AccAddress("addr2_______________")
-	acc2 := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
-	app.AccountKeeper.SetAccount(ctx, acc2)
+	sendCoins := sdk.NewCoins(newFactoryFooCoin(addr1, 50), newBarCoin(20))
+	suite.Require().NoError(app.BankKeeper.SendCoinsFromAccountToModule(ctx, addr1, multiPerm, sendCoins))
+	expectedBankBalances := sdk.NewCoins(newFactoryFooCoin(addr1, 50), newBarCoin(30))
+	// assert account balances correct
+	bals := app.BankKeeper.GetAllBalances(ctx, addr1)
+	suite.Require().Equal(expectedBankBalances, bals)
+	// assert module balances correct
+	userBals := app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(sendCoins, userBals)
+}
 
-	app.BankKeeper.SetDenomAllowList(ctx, factoryCoin.Denom,
-		types.AllowList{Addresses: []string{addr1.String()}})
+// Test that creating allowlist does not block sending from account to module even though we are not explicitly adding
+// the module account to the allowlist
+func (suite *IntegrationTestSuite) TestDeferredSendCoinsAccountToModuleWithAllowList() {
+	// add module accounts to supply keeper
+	ctx := suite.ctx
+	_, keeper := suite.initKeepersWithmAccPerms(make(map[string]bool))
+	app := suite.app
+	app.BankKeeper = keeper
 
-	sendAmt := sdk.NewCoins(newFactoryFooCoin(addr1, 5), newBarCoin(5))
-	err := app.BankKeeper.SendCoins(ctx, addr1, addr2, sendAmt)
-	suite.Require().Error(err)
-	suite.Require().Equal(
-		fmt.Sprintf("%s is not allowed to receive funds: unauthorized", addr2.String()), err.Error())
+	addr1 := sdk.AccAddress("addr1_______________")
+	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
+	app.AccountKeeper.SetAccount(ctx, acc1)
+	factoryCoin := newFactoryFooCoin(addr1, 100)
+	balances := sdk.NewCoins(factoryCoin, newBarCoin(50))
+	app.BankKeeper.SetDenomAllowList(ctx, factoryCoin.Denom, types.AllowList{
+		Addresses: []string{addr1.String()}})
 
-	// Balances should remain the same
-	acc1Balances := app.BankKeeper.GetAllBalances(ctx, addr1)
-	expected := sdk.NewCoins(newFactoryFooCoin(addr1, 100), newBarCoin(50))
-	suite.Require().Equal(expected, acc1Balances)
+	// set up bank balances
+	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr1, balances))
 
-	acc2Balances := app.BankKeeper.GetAllBalances(ctx, addr2)
-	expected = sdk.NewCoins(newFactoryFooCoin(addr1, 0), newBarCoin(0))
-	suite.Require().Equal(expected, acc2Balances)
+	sendCoins := sdk.NewCoins(newFactoryFooCoin(addr1, 50), newBarCoin(20))
+	suite.Require().NoError(app.BankKeeper.DeferredSendCoinsFromAccountToModule(ctx, addr1, multiPerm, sendCoins))
+	app.BankKeeper.WriteDeferredBalances(ctx)
+
+	expectedBankBalances := sdk.NewCoins(newFactoryFooCoin(addr1, 50), newBarCoin(30))
+	// assert account balances correct
+	bals := app.BankKeeper.GetAllBalances(ctx, addr1)
+	suite.Require().Equal(expectedBankBalances, bals)
+	// assert module balances correct
+	userBals := app.BankKeeper.GetAllBalances(ctx, multiPermAcc.GetAddress())
+	suite.Require().Equal(sendCoins, userBals)
 }
 
 func (suite *IntegrationTestSuite) TestSendCoinsModuleToAccount() {
@@ -1728,11 +1690,11 @@ func (suite *IntegrationTestSuite) TestBaseKeeper_IsAllowedToSendCoins() {
 			}
 			denomToAllowedAddressesCache := make(map[string]keeper.AllowedAddresses)
 			isAllowed :=
-				app.BankKeeper.IsAllowedToSendCoins(ctx, tt.args.addr, coins, denomToAllowedAddressesCache)
+				app.BankKeeper.IsInDenomAllowList(ctx, tt.args.addr, coins, denomToAllowedAddressesCache)
 
 			// Use suite.Require to assert the results
 			suite.Require().Equal(tt.isAllowed, isAllowed,
-				fmt.Errorf("IsAllowedToSendCoins() isAllowed = %v, want %v",
+				fmt.Errorf("IsInDenomAllowList() isAllowed = %v, want %v",
 					isAllowed, tt.isAllowed))
 		})
 	}
