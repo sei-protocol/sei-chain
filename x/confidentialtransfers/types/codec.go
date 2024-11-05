@@ -9,11 +9,23 @@ import (
 
 func RegisterCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&MsgTransfer{}, "confidentialtransfers/MsgTransfer", nil)
+	cdc.RegisterConcrete(&MsgInitializeAccount{}, "confidentialtransfers/MsgInitializeAccount", nil)
+	cdc.RegisterConcrete(&MsgDeposit{}, "confidentialtransfers/MsgDeposit", nil)
+	cdc.RegisterConcrete(&MsgWithdraw{}, "confidentialtransfers/MsgWithdraw", nil)
 }
 
 func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 	registry.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgTransfer{},
+	)
+	registry.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgInitializeAccount{},
+	)
+	registry.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgDeposit{},
+	)
+	registry.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgWithdraw{},
 	)
 
 	msgservice.RegisterMsgServiceDesc(registry, &_Msg_serviceDesc)

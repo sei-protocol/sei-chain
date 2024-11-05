@@ -1,14 +1,13 @@
 package types
 
 import (
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-
 	"github.com/coinbase/kryptology/pkg/bulletproof"
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 )
 
-func (c *TransferProofs) Validate() error {
+func (c *TransferMsgProofs) Validate() error {
 	if c.RemainingBalanceCommitmentValidityProof == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance commitment validity proof is required")
 	}
@@ -48,21 +47,21 @@ func (c *TransferProofs) Validate() error {
 	return nil
 }
 
-func (c *TransferProofs) ToProto(proofs *Proofs) *TransferProofs {
-	return &TransferProofs{
-		RemainingBalanceCommitmentValidityProof: c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.RemainingBalanceCommitmentValidityProof),
-		SenderTransferAmountLoValidityProof:     c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.SenderTransferAmountLoValidityProof),
-		SenderTransferAmountHiValidityProof:     c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.SenderTransferAmountHiValidityProof),
-		RecipientTransferAmountLoValidityProof:  c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.RecipientTransferAmountLoValidityProof),
-		RecipientTransferAmountHiValidityProof:  c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.RecipientTransferAmountHiValidityProof),
-		RemainingBalanceRangeProof:              c.RemainingBalanceRangeProof.ToProto(proofs.RemainingBalanceRangeProof),
-		RemainingBalanceEqualityProof:           c.RemainingBalanceEqualityProof.ToProto(proofs.RemainingBalanceEqualityProof),
-		TransferAmountLoEqualityProof:           c.TransferAmountLoEqualityProof.ToProto(proofs.TransferAmountLoEqualityProof),
-		TransferAmountHiEqualityProof:           c.TransferAmountHiEqualityProof.ToProto(proofs.TransferAmountHiEqualityProof),
+func NewTransferMsgProofs(proofs *TransferProofs) *TransferMsgProofs {
+	return &TransferMsgProofs{
+		RemainingBalanceCommitmentValidityProof: NewCiphertextValidityProofProto(proofs.RemainingBalanceCommitmentValidityProof),
+		SenderTransferAmountLoValidityProof:     NewCiphertextValidityProofProto(proofs.SenderTransferAmountLoValidityProof),
+		SenderTransferAmountHiValidityProof:     NewCiphertextValidityProofProto(proofs.SenderTransferAmountHiValidityProof),
+		RecipientTransferAmountLoValidityProof:  NewCiphertextValidityProofProto(proofs.RecipientTransferAmountLoValidityProof),
+		RecipientTransferAmountHiValidityProof:  NewCiphertextValidityProofProto(proofs.RecipientTransferAmountHiValidityProof),
+		RemainingBalanceRangeProof:              NewRangeProofProto(proofs.RemainingBalanceRangeProof),
+		RemainingBalanceEqualityProof:           NewCiphertextCommitmentEqualityProofProto(proofs.RemainingBalanceEqualityProof),
+		TransferAmountLoEqualityProof:           NewCiphertextCiphertextEqualityProofProto(proofs.TransferAmountLoEqualityProof),
+		TransferAmountHiEqualityProof:           NewCiphertextCiphertextEqualityProofProto(proofs.TransferAmountHiEqualityProof),
 	}
 }
 
-func (c *TransferProofs) FromProto() (*Proofs, error) {
+func (c *TransferMsgProofs) FromProto() (*TransferProofs, error) {
 	err := c.Validate()
 	if err != nil {
 		return nil, err
@@ -112,7 +111,7 @@ func (c *TransferProofs) FromProto() (*Proofs, error) {
 		return nil, err
 	}
 
-	return &Proofs{
+	return &TransferProofs{
 		RemainingBalanceCommitmentValidityProof: remainingBalanceCommitmentValidityProof,
 		SenderTransferAmountLoValidityProof:     senderTransferAmountLoValidityProof,
 		SenderTransferAmountHiValidityProof:     senderTransferAmountHiValidityProof,
@@ -125,6 +124,77 @@ func (c *TransferProofs) FromProto() (*Proofs, error) {
 	}, nil
 }
 
+func (c *InitializeAccountMsgProofs) Validate() error {
+	if c.PubkeyValidityProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pubkey validity proof is required")
+	}
+
+	return nil
+}
+
+func NewInitializeAccountMsgProofs(proofs *InitializeAccountProofs) *InitializeAccountMsgProofs {
+	return &InitializeAccountMsgProofs{
+		PubkeyValidityProof: NewPubkeyValidityProofProto(proofs.PubkeyValidityProof),
+	}
+}
+
+func (w *WithdrawMsgProofs) FromProto() (*WithdrawProofs, error) {
+	err := w.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	remainingBalanceRangeProof, err := w.RemainingBalanceRangeProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	remainingBalanceEqualityProof, err := w.RemainingBalanceEqualityProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &WithdrawProofs{
+		RemainingBalanceRangeProof:    remainingBalanceRangeProof,
+		RemainingBalanceEqualityProof: remainingBalanceEqualityProof,
+	}, nil
+}
+
+func (w *WithdrawMsgProofs) Validate() error {
+	if w.RemainingBalanceRangeProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance range proof is required")
+	}
+
+	if w.RemainingBalanceEqualityProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance equality proof is required")
+	}
+
+	return nil
+}
+
+func (w *WithdrawMsgProofs) NewWithdrawMsgProofs(proofs *WithdrawProofs) *WithdrawMsgProofs {
+	return &WithdrawMsgProofs{
+		RemainingBalanceRangeProof:    NewRangeProofProto(proofs.RemainingBalanceRangeProof),
+		RemainingBalanceEqualityProof: NewCiphertextCommitmentEqualityProofProto(proofs.RemainingBalanceEqualityProof),
+	}
+}
+
+func (c *InitializeAccountMsgProofs) FromProto() (*InitializeAccountProofs, error) {
+	err := c.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	pubkeyValidityProof, err := c.PubkeyValidityProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &InitializeAccountProofs{
+		PubkeyValidityProof: pubkeyValidityProof,
+	}, nil
+}
+
 func (c *CiphertextValidityProof) Validate() error {
 	if c.Commitment_1 == nil || c.Commitment_2 == nil || c.Response_1 == nil || c.Response_2 == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ciphertext validity proof is invalid")
@@ -132,7 +202,7 @@ func (c *CiphertextValidityProof) Validate() error {
 	return nil
 }
 
-func (c *CiphertextValidityProof) ToProto(zkp *zkproofs.CiphertextValidityProof) *CiphertextValidityProof {
+func NewCiphertextValidityProofProto(zkp *zkproofs.CiphertextValidityProof) *CiphertextValidityProof {
 	return &CiphertextValidityProof{
 		Commitment_1: zkp.Commitment1.ToAffineCompressed(),
 		Commitment_2: zkp.Commitment2.ToAffineCompressed(),
@@ -182,7 +252,7 @@ func (r *RangeProof) Validate() error {
 	return nil
 }
 
-func (r *RangeProof) ToProto(zkp *zkproofs.RangeProof) *RangeProof {
+func NewRangeProofProto(zkp *zkproofs.RangeProof) *RangeProof {
 	return &RangeProof{
 		Proof:      zkp.Proof.MarshalBinary(),
 		Randomness: zkp.Randomness.ToAffineCompressed(),
@@ -222,7 +292,7 @@ func (c *CiphertextCommitmentEqualityProof) Validate() error {
 	return nil
 }
 
-func (c *CiphertextCommitmentEqualityProof) ToProto(zkp *zkproofs.CiphertextCommitmentEqualityProof) *CiphertextCommitmentEqualityProof {
+func NewCiphertextCommitmentEqualityProofProto(zkp *zkproofs.CiphertextCommitmentEqualityProof) *CiphertextCommitmentEqualityProof {
 	return &CiphertextCommitmentEqualityProof{
 		Y0: zkp.Y0.ToAffineCompressed(),
 		Y1: zkp.Y1.ToAffineCompressed(),
@@ -287,7 +357,7 @@ func (c *CiphertextCiphertextEqualityProof) Validate() error {
 	return nil
 }
 
-func (c *CiphertextCiphertextEqualityProof) ToProto(zkp *zkproofs.CiphertextCiphertextEqualityProof) *CiphertextCiphertextEqualityProof {
+func NewCiphertextCiphertextEqualityProofProto(zkp *zkproofs.CiphertextCiphertextEqualityProof) *CiphertextCiphertextEqualityProof {
 	return &CiphertextCiphertextEqualityProof{
 		Y0: zkp.Y0.ToAffineCompressed(),
 		Y1: zkp.Y1.ToAffineCompressed(),
@@ -359,15 +429,13 @@ func (a *Auditor) Validate() error {
 	return nil
 }
 
-func (a *Auditor) ToProto(transferAuditor *TransferAuditor) *Auditor {
+func NewAuditorProto(transferAuditor *TransferAuditor) *Auditor {
 	transferAmountLo := NewCiphertextProto(transferAuditor.EncryptedTransferAmountLo)
 	transferAmountHi := NewCiphertextProto(transferAuditor.EncryptedTransferAmountHi)
-	cipherTextValidity := CiphertextValidityProof{}
-	transferAmountLoValidityProof := cipherTextValidity.ToProto(transferAuditor.TransferAmountLoValidityProof)
-	transferAmountHiValidityProof := cipherTextValidity.ToProto(transferAuditor.TransferAmountHiValidityProof)
-	ciphertextCiphertextEquality := CiphertextCiphertextEqualityProof{}
-	transferAmountLoEqualityProof := ciphertextCiphertextEquality.ToProto(transferAuditor.TransferAmountLoEqualityProof)
-	transferAmountHiEqualityProof := ciphertextCiphertextEquality.ToProto(transferAuditor.TransferAmountHiEqualityProof)
+	transferAmountLoValidityProof := NewCiphertextValidityProofProto(transferAuditor.TransferAmountLoValidityProof)
+	transferAmountHiValidityProof := NewCiphertextValidityProofProto(transferAuditor.TransferAmountHiValidityProof)
+	transferAmountLoEqualityProof := NewCiphertextCiphertextEqualityProofProto(transferAuditor.TransferAmountLoEqualityProof)
+	transferAmountHiEqualityProof := NewCiphertextCiphertextEqualityProofProto(transferAuditor.TransferAmountHiEqualityProof)
 	return &Auditor{
 		AuditorAddress:                transferAuditor.Address,
 		EncryptedTransferAmountLo:     transferAmountLo,
@@ -419,6 +487,13 @@ func (a *Auditor) FromProto() (*TransferAuditor, error) {
 	}, nil
 }
 
+func (p *PubkeyValidityProof) Validate() error {
+	if p.Y == nil || p.Z == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pubkey validity proof is invalid")
+	}
+	return nil
+}
+
 func (z *ZeroBalanceProof) Validate() error {
 	if z.YP == nil || z.YD == nil || z.Z == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "zero proof is invalid")
@@ -426,7 +501,36 @@ func (z *ZeroBalanceProof) Validate() error {
 	return nil
 }
 
-func (z *ZeroBalanceProof) ToProto(zkp *zkproofs.ZeroBalanceProof) *ZeroBalanceProof {
+func NewPubkeyValidityProofProto(zkp *zkproofs.PubKeyValidityProof) *PubkeyValidityProof {
+	return &PubkeyValidityProof{
+		Y: zkp.Y.ToAffineCompressed(),
+		Z: zkp.Z.Bytes(),
+	}
+}
+
+func (p *PubkeyValidityProof) FromProto() (*zkproofs.PubKeyValidityProof, error) {
+	err := p.Validate()
+	if err != nil {
+		return nil, err
+	}
+	ed25519Curve := curves.ED25519()
+	y, err := ed25519Curve.Point.FromAffineCompressed(p.Y)
+	if err != nil {
+		return nil, err
+	}
+
+	z, err := ed25519Curve.Scalar.SetBytes(p.Z)
+	if err != nil {
+		return nil, err
+	}
+
+	return &zkproofs.PubKeyValidityProof{
+		Y: y,
+		Z: z,
+	}, nil
+}
+
+func NewZeroBalanceProofProto(zkp *zkproofs.ZeroBalanceProof) *ZeroBalanceProof {
 	return &ZeroBalanceProof{
 		YP: zkp.Yp.ToAffineCompressed(),
 		YD: zkp.Yd.ToAffineCompressed(),
@@ -469,22 +573,22 @@ type CloseAccountProofs struct {
 	ZeroPendingBalanceHiProof *zkproofs.ZeroBalanceProof
 }
 
-func (c *CloseAccountProof) Validate() error {
+func (c *CloseAccountMsgProofs) Validate() error {
 	if c.ZeroAvailableBalanceProof == nil || c.ZeroPendingBalanceLoProof == nil || c.ZeroPendingBalanceHiProof == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "close account proof is invalid")
 	}
 	return nil
 }
 
-func (c *CloseAccountProof) ToProto(proofs *CloseAccountProofs) *CloseAccountProof {
-	return &CloseAccountProof{
-		ZeroAvailableBalanceProof: c.ZeroAvailableBalanceProof.ToProto(proofs.ZeroAvailableBalanceProof),
-		ZeroPendingBalanceLoProof: c.ZeroPendingBalanceLoProof.ToProto(proofs.ZeroPendingBalanceLoProof),
-		ZeroPendingBalanceHiProof: c.ZeroPendingBalanceHiProof.ToProto(proofs.ZeroPendingBalanceHiProof),
+func NewCloseAccountMsgProofs(proofs *CloseAccountProofs) *CloseAccountMsgProofs {
+	return &CloseAccountMsgProofs{
+		ZeroAvailableBalanceProof: NewZeroBalanceProofProto(proofs.ZeroAvailableBalanceProof),
+		ZeroPendingBalanceLoProof: NewZeroBalanceProofProto(proofs.ZeroPendingBalanceLoProof),
+		ZeroPendingBalanceHiProof: NewZeroBalanceProofProto(proofs.ZeroPendingBalanceHiProof),
 	}
 }
 
-func (c *CloseAccountProof) FromProto() (*CloseAccountProofs, error) {
+func (c *CloseAccountMsgProofs) FromProto() (*CloseAccountProofs, error) {
 	err := c.Validate()
 	if err != nil {
 		return nil, err

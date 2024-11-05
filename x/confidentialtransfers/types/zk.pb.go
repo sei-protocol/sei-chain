@@ -22,7 +22,7 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-type TransferProofs struct {
+type TransferMsgProofs struct {
 	RemainingBalanceCommitmentValidityProof *CiphertextValidityProof           `protobuf:"bytes,1,opt,name=remaining_balance_commitment_validity_proof,json=remainingBalanceCommitmentValidityProof,proto3" json:"remaining_balance_commitment_validity_proof,omitempty"`
 	SenderTransferAmountLoValidityProof     *CiphertextValidityProof           `protobuf:"bytes,2,opt,name=sender_transfer_amount_lo_validity_proof,json=senderTransferAmountLoValidityProof,proto3" json:"sender_transfer_amount_lo_validity_proof,omitempty"`
 	SenderTransferAmountHiValidityProof     *CiphertextValidityProof           `protobuf:"bytes,3,opt,name=sender_transfer_amount_hi_validity_proof,json=senderTransferAmountHiValidityProof,proto3" json:"sender_transfer_amount_hi_validity_proof,omitempty"`
@@ -34,18 +34,18 @@ type TransferProofs struct {
 	TransferAmountHiEqualityProof           *CiphertextCiphertextEqualityProof `protobuf:"bytes,9,opt,name=transfer_amount_hi_equality_proof,json=transferAmountHiEqualityProof,proto3" json:"transfer_amount_hi_equality_proof,omitempty"`
 }
 
-func (m *TransferProofs) Reset()         { *m = TransferProofs{} }
-func (m *TransferProofs) String() string { return proto.CompactTextString(m) }
-func (*TransferProofs) ProtoMessage()    {}
-func (*TransferProofs) Descriptor() ([]byte, []int) {
+func (m *TransferMsgProofs) Reset()         { *m = TransferMsgProofs{} }
+func (m *TransferMsgProofs) String() string { return proto.CompactTextString(m) }
+func (*TransferMsgProofs) ProtoMessage()    {}
+func (*TransferMsgProofs) Descriptor() ([]byte, []int) {
 	return fileDescriptor_71d8640cbb42ddec, []int{0}
 }
-func (m *TransferProofs) XXX_Unmarshal(b []byte) error {
+func (m *TransferMsgProofs) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransferProofs) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *TransferMsgProofs) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransferProofs.Marshal(b, m, deterministic)
+		return xxx_messageInfo_TransferMsgProofs.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -55,77 +55,285 @@ func (m *TransferProofs) XXX_Marshal(b []byte, deterministic bool) ([]byte, erro
 		return b[:n], nil
 	}
 }
-func (m *TransferProofs) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransferProofs.Merge(m, src)
+func (m *TransferMsgProofs) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransferMsgProofs.Merge(m, src)
 }
-func (m *TransferProofs) XXX_Size() int {
+func (m *TransferMsgProofs) XXX_Size() int {
 	return m.Size()
 }
-func (m *TransferProofs) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransferProofs.DiscardUnknown(m)
+func (m *TransferMsgProofs) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransferMsgProofs.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransferProofs proto.InternalMessageInfo
+var xxx_messageInfo_TransferMsgProofs proto.InternalMessageInfo
 
-func (m *TransferProofs) GetRemainingBalanceCommitmentValidityProof() *CiphertextValidityProof {
+func (m *TransferMsgProofs) GetRemainingBalanceCommitmentValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.RemainingBalanceCommitmentValidityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetSenderTransferAmountLoValidityProof() *CiphertextValidityProof {
+func (m *TransferMsgProofs) GetSenderTransferAmountLoValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.SenderTransferAmountLoValidityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetSenderTransferAmountHiValidityProof() *CiphertextValidityProof {
+func (m *TransferMsgProofs) GetSenderTransferAmountHiValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.SenderTransferAmountHiValidityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetRecipientTransferAmountLoValidityProof() *CiphertextValidityProof {
+func (m *TransferMsgProofs) GetRecipientTransferAmountLoValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.RecipientTransferAmountLoValidityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetRecipientTransferAmountHiValidityProof() *CiphertextValidityProof {
+func (m *TransferMsgProofs) GetRecipientTransferAmountHiValidityProof() *CiphertextValidityProof {
 	if m != nil {
 		return m.RecipientTransferAmountHiValidityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetRemainingBalanceRangeProof() *RangeProof {
+func (m *TransferMsgProofs) GetRemainingBalanceRangeProof() *RangeProof {
 	if m != nil {
 		return m.RemainingBalanceRangeProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetRemainingBalanceEqualityProof() *CiphertextCommitmentEqualityProof {
+func (m *TransferMsgProofs) GetRemainingBalanceEqualityProof() *CiphertextCommitmentEqualityProof {
 	if m != nil {
 		return m.RemainingBalanceEqualityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetTransferAmountLoEqualityProof() *CiphertextCiphertextEqualityProof {
+func (m *TransferMsgProofs) GetTransferAmountLoEqualityProof() *CiphertextCiphertextEqualityProof {
 	if m != nil {
 		return m.TransferAmountLoEqualityProof
 	}
 	return nil
 }
 
-func (m *TransferProofs) GetTransferAmountHiEqualityProof() *CiphertextCiphertextEqualityProof {
+func (m *TransferMsgProofs) GetTransferAmountHiEqualityProof() *CiphertextCiphertextEqualityProof {
 	if m != nil {
 		return m.TransferAmountHiEqualityProof
+	}
+	return nil
+}
+
+type InitializeAccountMsgProofs struct {
+	PubkeyValidityProof *PubkeyValidityProof `protobuf:"bytes,1,opt,name=pubkey_validity_proof,json=pubkeyValidityProof,proto3" json:"pubkey_validity_proof,omitempty"`
+}
+
+func (m *InitializeAccountMsgProofs) Reset()         { *m = InitializeAccountMsgProofs{} }
+func (m *InitializeAccountMsgProofs) String() string { return proto.CompactTextString(m) }
+func (*InitializeAccountMsgProofs) ProtoMessage()    {}
+func (*InitializeAccountMsgProofs) Descriptor() ([]byte, []int) {
+	return fileDescriptor_71d8640cbb42ddec, []int{1}
+}
+func (m *InitializeAccountMsgProofs) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *InitializeAccountMsgProofs) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_InitializeAccountMsgProofs.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *InitializeAccountMsgProofs) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_InitializeAccountMsgProofs.Merge(m, src)
+}
+func (m *InitializeAccountMsgProofs) XXX_Size() int {
+	return m.Size()
+}
+func (m *InitializeAccountMsgProofs) XXX_DiscardUnknown() {
+	xxx_messageInfo_InitializeAccountMsgProofs.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_InitializeAccountMsgProofs proto.InternalMessageInfo
+
+func (m *InitializeAccountMsgProofs) GetPubkeyValidityProof() *PubkeyValidityProof {
+	if m != nil {
+		return m.PubkeyValidityProof
+	}
+	return nil
+}
+
+type WithdrawMsgProofs struct {
+	RemainingBalanceRangeProof    *RangeProof                        `protobuf:"bytes,1,opt,name=remaining_balance_range_proof,json=remainingBalanceRangeProof,proto3" json:"remaining_balance_range_proof,omitempty"`
+	RemainingBalanceEqualityProof *CiphertextCommitmentEqualityProof `protobuf:"bytes,2,opt,name=remaining_balance_equality_proof,json=remainingBalanceEqualityProof,proto3" json:"remaining_balance_equality_proof,omitempty"`
+}
+
+func (m *WithdrawMsgProofs) Reset()         { *m = WithdrawMsgProofs{} }
+func (m *WithdrawMsgProofs) String() string { return proto.CompactTextString(m) }
+func (*WithdrawMsgProofs) ProtoMessage()    {}
+func (*WithdrawMsgProofs) Descriptor() ([]byte, []int) {
+	return fileDescriptor_71d8640cbb42ddec, []int{2}
+}
+func (m *WithdrawMsgProofs) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *WithdrawMsgProofs) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_WithdrawMsgProofs.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *WithdrawMsgProofs) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_WithdrawMsgProofs.Merge(m, src)
+}
+func (m *WithdrawMsgProofs) XXX_Size() int {
+	return m.Size()
+}
+func (m *WithdrawMsgProofs) XXX_DiscardUnknown() {
+	xxx_messageInfo_WithdrawMsgProofs.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_WithdrawMsgProofs proto.InternalMessageInfo
+
+func (m *WithdrawMsgProofs) GetRemainingBalanceRangeProof() *RangeProof {
+	if m != nil {
+		return m.RemainingBalanceRangeProof
+	}
+	return nil
+}
+
+func (m *WithdrawMsgProofs) GetRemainingBalanceEqualityProof() *CiphertextCommitmentEqualityProof {
+	if m != nil {
+		return m.RemainingBalanceEqualityProof
+	}
+	return nil
+}
+
+type CloseAccountMsgProofs struct {
+	ZeroAvailableBalanceProof *ZeroBalanceProof `protobuf:"bytes,1,opt,name=zero_available_balance_proof,json=zeroAvailableBalanceProof,proto3" json:"zero_available_balance_proof,omitempty"`
+	ZeroPendingBalanceLoProof *ZeroBalanceProof `protobuf:"bytes,2,opt,name=zero_pending_balance_lo_proof,json=zeroPendingBalanceLoProof,proto3" json:"zero_pending_balance_lo_proof,omitempty"`
+	ZeroPendingBalanceHiProof *ZeroBalanceProof `protobuf:"bytes,3,opt,name=zero_pending_balance_hi_proof,json=zeroPendingBalanceHiProof,proto3" json:"zero_pending_balance_hi_proof,omitempty"`
+}
+
+func (m *CloseAccountMsgProofs) Reset()         { *m = CloseAccountMsgProofs{} }
+func (m *CloseAccountMsgProofs) String() string { return proto.CompactTextString(m) }
+func (*CloseAccountMsgProofs) ProtoMessage()    {}
+func (*CloseAccountMsgProofs) Descriptor() ([]byte, []int) {
+	return fileDescriptor_71d8640cbb42ddec, []int{3}
+}
+func (m *CloseAccountMsgProofs) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *CloseAccountMsgProofs) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_CloseAccountMsgProofs.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *CloseAccountMsgProofs) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CloseAccountMsgProofs.Merge(m, src)
+}
+func (m *CloseAccountMsgProofs) XXX_Size() int {
+	return m.Size()
+}
+func (m *CloseAccountMsgProofs) XXX_DiscardUnknown() {
+	xxx_messageInfo_CloseAccountMsgProofs.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_CloseAccountMsgProofs proto.InternalMessageInfo
+
+func (m *CloseAccountMsgProofs) GetZeroAvailableBalanceProof() *ZeroBalanceProof {
+	if m != nil {
+		return m.ZeroAvailableBalanceProof
+	}
+	return nil
+}
+
+func (m *CloseAccountMsgProofs) GetZeroPendingBalanceLoProof() *ZeroBalanceProof {
+	if m != nil {
+		return m.ZeroPendingBalanceLoProof
+	}
+	return nil
+}
+
+func (m *CloseAccountMsgProofs) GetZeroPendingBalanceHiProof() *ZeroBalanceProof {
+	if m != nil {
+		return m.ZeroPendingBalanceHiProof
+	}
+	return nil
+}
+
+type PubkeyValidityProof struct {
+	Y []byte `protobuf:"bytes,1,opt,name=y,proto3" json:"y,omitempty"`
+	Z []byte `protobuf:"bytes,2,opt,name=z,proto3" json:"z,omitempty"`
+}
+
+func (m *PubkeyValidityProof) Reset()         { *m = PubkeyValidityProof{} }
+func (m *PubkeyValidityProof) String() string { return proto.CompactTextString(m) }
+func (*PubkeyValidityProof) ProtoMessage()    {}
+func (*PubkeyValidityProof) Descriptor() ([]byte, []int) {
+	return fileDescriptor_71d8640cbb42ddec, []int{4}
+}
+func (m *PubkeyValidityProof) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *PubkeyValidityProof) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_PubkeyValidityProof.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *PubkeyValidityProof) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PubkeyValidityProof.Merge(m, src)
+}
+func (m *PubkeyValidityProof) XXX_Size() int {
+	return m.Size()
+}
+func (m *PubkeyValidityProof) XXX_DiscardUnknown() {
+	xxx_messageInfo_PubkeyValidityProof.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PubkeyValidityProof proto.InternalMessageInfo
+
+func (m *PubkeyValidityProof) GetY() []byte {
+	if m != nil {
+		return m.Y
+	}
+	return nil
+}
+
+func (m *PubkeyValidityProof) GetZ() []byte {
+	if m != nil {
+		return m.Z
 	}
 	return nil
 }
@@ -145,7 +353,7 @@ func (m *CiphertextValidityProof) Reset()         { *m = CiphertextValidityProof
 func (m *CiphertextValidityProof) String() string { return proto.CompactTextString(m) }
 func (*CiphertextValidityProof) ProtoMessage()    {}
 func (*CiphertextValidityProof) Descriptor() ([]byte, []int) {
-	return fileDescriptor_71d8640cbb42ddec, []int{1}
+	return fileDescriptor_71d8640cbb42ddec, []int{5}
 }
 func (m *CiphertextValidityProof) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -212,7 +420,7 @@ func (m *RangeProof) Reset()         { *m = RangeProof{} }
 func (m *RangeProof) String() string { return proto.CompactTextString(m) }
 func (*RangeProof) ProtoMessage()    {}
 func (*RangeProof) Descriptor() ([]byte, []int) {
-	return fileDescriptor_71d8640cbb42ddec, []int{2}
+	return fileDescriptor_71d8640cbb42ddec, []int{6}
 }
 func (m *RangeProof) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -275,7 +483,7 @@ func (m *CiphertextCommitmentEqualityProof) Reset()         { *m = CiphertextCom
 func (m *CiphertextCommitmentEqualityProof) String() string { return proto.CompactTextString(m) }
 func (*CiphertextCommitmentEqualityProof) ProtoMessage()    {}
 func (*CiphertextCommitmentEqualityProof) Descriptor() ([]byte, []int) {
-	return fileDescriptor_71d8640cbb42ddec, []int{3}
+	return fileDescriptor_71d8640cbb42ddec, []int{7}
 }
 func (m *CiphertextCommitmentEqualityProof) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -360,7 +568,7 @@ func (m *CiphertextCiphertextEqualityProof) Reset()         { *m = CiphertextCip
 func (m *CiphertextCiphertextEqualityProof) String() string { return proto.CompactTextString(m) }
 func (*CiphertextCiphertextEqualityProof) ProtoMessage()    {}
 func (*CiphertextCiphertextEqualityProof) Descriptor() ([]byte, []int) {
-	return fileDescriptor_71d8640cbb42ddec, []int{4}
+	return fileDescriptor_71d8640cbb42ddec, []int{8}
 }
 func (m *CiphertextCiphertextEqualityProof) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -448,7 +656,7 @@ func (m *ZeroBalanceProof) Reset()         { *m = ZeroBalanceProof{} }
 func (m *ZeroBalanceProof) String() string { return proto.CompactTextString(m) }
 func (*ZeroBalanceProof) ProtoMessage()    {}
 func (*ZeroBalanceProof) Descriptor() ([]byte, []int) {
-	return fileDescriptor_71d8640cbb42ddec, []int{5}
+	return fileDescriptor_71d8640cbb42ddec, []int{9}
 }
 func (m *ZeroBalanceProof) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -498,129 +706,77 @@ func (m *ZeroBalanceProof) GetZ() []byte {
 	return nil
 }
 
-type CloseAccountProof struct {
-	ZeroAvailableBalanceProof *ZeroBalanceProof `protobuf:"bytes,1,opt,name=zero_available_balance_proof,json=zeroAvailableBalanceProof,proto3" json:"zero_available_balance_proof,omitempty"`
-	ZeroPendingBalanceLoProof *ZeroBalanceProof `protobuf:"bytes,2,opt,name=zero_pending_balance_lo_proof,json=zeroPendingBalanceLoProof,proto3" json:"zero_pending_balance_lo_proof,omitempty"`
-	ZeroPendingBalanceHiProof *ZeroBalanceProof `protobuf:"bytes,3,opt,name=zero_pending_balance_hi_proof,json=zeroPendingBalanceHiProof,proto3" json:"zero_pending_balance_hi_proof,omitempty"`
-}
-
-func (m *CloseAccountProof) Reset()         { *m = CloseAccountProof{} }
-func (m *CloseAccountProof) String() string { return proto.CompactTextString(m) }
-func (*CloseAccountProof) ProtoMessage()    {}
-func (*CloseAccountProof) Descriptor() ([]byte, []int) {
-	return fileDescriptor_71d8640cbb42ddec, []int{6}
-}
-func (m *CloseAccountProof) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *CloseAccountProof) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_CloseAccountProof.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *CloseAccountProof) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_CloseAccountProof.Merge(m, src)
-}
-func (m *CloseAccountProof) XXX_Size() int {
-	return m.Size()
-}
-func (m *CloseAccountProof) XXX_DiscardUnknown() {
-	xxx_messageInfo_CloseAccountProof.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_CloseAccountProof proto.InternalMessageInfo
-
-func (m *CloseAccountProof) GetZeroAvailableBalanceProof() *ZeroBalanceProof {
-	if m != nil {
-		return m.ZeroAvailableBalanceProof
-	}
-	return nil
-}
-
-func (m *CloseAccountProof) GetZeroPendingBalanceLoProof() *ZeroBalanceProof {
-	if m != nil {
-		return m.ZeroPendingBalanceLoProof
-	}
-	return nil
-}
-
-func (m *CloseAccountProof) GetZeroPendingBalanceHiProof() *ZeroBalanceProof {
-	if m != nil {
-		return m.ZeroPendingBalanceHiProof
-	}
-	return nil
-}
-
 func init() {
-	proto.RegisterType((*TransferProofs)(nil), "seiprotocol.seichain.confidentialtransfers.TransferProofs")
+	proto.RegisterType((*TransferMsgProofs)(nil), "seiprotocol.seichain.confidentialtransfers.TransferMsgProofs")
+	proto.RegisterType((*InitializeAccountMsgProofs)(nil), "seiprotocol.seichain.confidentialtransfers.InitializeAccountMsgProofs")
+	proto.RegisterType((*WithdrawMsgProofs)(nil), "seiprotocol.seichain.confidentialtransfers.WithdrawMsgProofs")
+	proto.RegisterType((*CloseAccountMsgProofs)(nil), "seiprotocol.seichain.confidentialtransfers.CloseAccountMsgProofs")
+	proto.RegisterType((*PubkeyValidityProof)(nil), "seiprotocol.seichain.confidentialtransfers.PubkeyValidityProof")
 	proto.RegisterType((*CiphertextValidityProof)(nil), "seiprotocol.seichain.confidentialtransfers.CiphertextValidityProof")
 	proto.RegisterType((*RangeProof)(nil), "seiprotocol.seichain.confidentialtransfers.RangeProof")
 	proto.RegisterType((*CiphertextCommitmentEqualityProof)(nil), "seiprotocol.seichain.confidentialtransfers.CiphertextCommitmentEqualityProof")
 	proto.RegisterType((*CiphertextCiphertextEqualityProof)(nil), "seiprotocol.seichain.confidentialtransfers.CiphertextCiphertextEqualityProof")
 	proto.RegisterType((*ZeroBalanceProof)(nil), "seiprotocol.seichain.confidentialtransfers.ZeroBalanceProof")
-	proto.RegisterType((*CloseAccountProof)(nil), "seiprotocol.seichain.confidentialtransfers.CloseAccountProof")
 }
 
 func init() { proto.RegisterFile("confidentialtransfers/zk.proto", fileDescriptor_71d8640cbb42ddec) }
 
 var fileDescriptor_71d8640cbb42ddec = []byte{
-	// 733 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x96, 0x5d, 0x6b, 0x13, 0x4d,
-	0x14, 0xc7, 0xbb, 0xc9, 0xd3, 0xf6, 0xe9, 0x69, 0xa8, 0xba, 0x08, 0xbe, 0x60, 0xd6, 0x36, 0x82,
-	0x16, 0xc5, 0xa4, 0xd9, 0x82, 0x57, 0x82, 0x34, 0x51, 0xe8, 0x45, 0x85, 0xb2, 0x88, 0x60, 0x6f,
-	0x96, 0xc9, 0xee, 0xb4, 0x19, 0xdc, 0x9d, 0x59, 0x67, 0x36, 0x25, 0xbb, 0xa0, 0x37, 0x7e, 0x01,
-	0x51, 0x50, 0x10, 0x04, 0xfd, 0x36, 0x5e, 0xf6, 0xd2, 0x4b, 0x69, 0xbf, 0x86, 0x17, 0xb2, 0xb3,
-	0x9b, 0x4d, 0x76, 0x1a, 0xfb, 0x66, 0xea, 0x5d, 0xce, 0x39, 0x3b, 0xf3, 0xff, 0xcd, 0x99, 0x73,
-	0xce, 0x04, 0x0c, 0x87, 0xd1, 0x6d, 0xe2, 0x62, 0x1a, 0x12, 0xe4, 0x85, 0x1c, 0x51, 0xb1, 0x8d,
-	0xb9, 0x68, 0xc4, 0x2f, 0xeb, 0x01, 0x67, 0x21, 0xd3, 0xef, 0x0a, 0x4c, 0xe4, 0x2f, 0x87, 0x79,
-	0x75, 0x81, 0x89, 0xd3, 0x45, 0x84, 0xd6, 0xc7, 0x2e, 0xaa, 0xfd, 0x02, 0x58, 0x78, 0x96, 0x59,
-	0x9b, 0x9c, 0xb1, 0x6d, 0xa1, 0x7f, 0xd3, 0xe0, 0x1e, 0xc7, 0x3e, 0x22, 0x94, 0xd0, 0x1d, 0xbb,
-	0x83, 0x3c, 0x44, 0x1d, 0x6c, 0x3b, 0xcc, 0xf7, 0x49, 0xe8, 0x63, 0x1a, 0xda, 0xbb, 0xc8, 0x23,
-	0x2e, 0x09, 0x23, 0x3b, 0x48, 0x16, 0x5c, 0xd5, 0x16, 0xb5, 0xe5, 0x79, 0xb3, 0x5d, 0x3f, 0xb9,
-	0x6a, 0xbd, 0x4d, 0x82, 0x2e, 0xe6, 0x21, 0xee, 0x87, 0xcf, 0xb3, 0xbd, 0xa4, 0xb6, 0x75, 0x27,
-	0xd7, 0x6d, 0xa5, 0xb2, 0xed, 0x5c, 0xb5, 0xf0, 0xa1, 0xfe, 0x59, 0x83, 0x65, 0x81, 0xa9, 0x8b,
-	0xb9, 0x3d, 0xd8, 0xd5, 0x46, 0x3e, 0xeb, 0xd1, 0xd0, 0xf6, 0x98, 0x0a, 0x58, 0x9a, 0x1c, 0xe0,
-	0xad, 0x54, 0x74, 0x90, 0xb1, 0x35, 0x29, 0xb9, 0xc1, 0x4e, 0x0c, 0xd7, 0x25, 0x2a, 0x5c, 0xf9,
-	0x9c, 0xe1, 0xd6, 0x49, 0x11, 0xee, 0xab, 0xbc, 0x5d, 0x87, 0x04, 0x24, 0xb9, 0xca, 0xe3, 0x93,
-	0xf7, 0xdf, 0xe4, 0xf8, 0x6e, 0xe7, 0xba, 0x47, 0xe7, 0xef, 0x68, 0xc4, 0xc3, 0x29, 0x9c, 0x3e,
-	0x7f, 0x44, 0x35, 0x8b, 0x11, 0x54, 0x0f, 0xb7, 0x08, 0x47, 0x74, 0x07, 0x67, 0x4c, 0x33, 0x92,
-	0xe9, 0xc1, 0x69, 0x98, 0xac, 0x64, 0x79, 0x8a, 0x71, 0x5d, 0xed, 0x83, 0x61, 0x4c, 0xff, 0xa8,
-	0xc1, 0xe2, 0x61, 0x6d, 0xfc, 0xaa, 0x87, 0xbc, 0x61, 0x4a, 0x66, 0xa5, 0xfc, 0xd3, 0xb3, 0xa5,
-	0x64, 0xd8, 0x74, 0x4f, 0xb2, 0x5d, 0x53, 0xaa, 0xaa, 0x4a, 0x55, 0x08, 0xeb, 0x9f, 0x34, 0x58,
-	0x1a, 0x53, 0x4f, 0x0a, 0xd9, 0xff, 0x7f, 0x45, 0x96, 0xff, 0x52, 0xc8, 0x42, 0xa5, 0xa0, 0x8e,
-	0x27, 0xeb, 0x12, 0x95, 0x6c, 0xee, 0x1f, 0x90, 0xad, 0x93, 0x42, 0xb8, 0xf6, 0x45, 0x83, 0x2b,
-	0x7f, 0xa8, 0x45, 0x7d, 0x09, 0x2a, 0x23, 0x43, 0xb7, 0x29, 0xe7, 0x6c, 0xc5, 0x9a, 0x1f, 0xfa,
-	0x9a, 0xca, 0x27, 0xa6, 0x9c, 0x74, 0x85, 0x4f, 0x4c, 0xbd, 0x0a, 0xc0, 0xb1, 0x08, 0x18, 0x15,
-	0xd8, 0x6e, 0xca, 0x6e, 0xae, 0x58, 0x73, 0x03, 0x4f, 0xb3, 0x10, 0x36, 0x65, 0x27, 0x8d, 0x84,
-	0xcd, 0x9a, 0x03, 0x30, 0x52, 0x7a, 0x97, 0x61, 0x7a, 0x38, 0xf2, 0x2b, 0x56, 0x6a, 0xe8, 0x06,
-	0x00, 0x47, 0xd4, 0x65, 0x3e, 0xc5, 0x42, 0x64, 0x08, 0x23, 0x1e, 0xfd, 0x26, 0xcc, 0xf7, 0x82,
-	0x00, 0x73, 0xbb, 0xc3, 0x7a, 0xd4, 0x95, 0x03, 0xaf, 0x6c, 0x81, 0x74, 0xb5, 0x12, 0x4f, 0xed,
-	0xad, 0x06, 0x4b, 0xc7, 0x56, 0x9f, 0xbe, 0x00, 0xa5, 0x68, 0x25, 0x53, 0x2e, 0x45, 0x2b, 0xd2,
-	0x6e, 0x66, 0x72, 0xa5, 0xa8, 0x29, 0x6d, 0x53, 0xee, 0x9e, 0xd8, 0x66, 0x62, 0xc7, 0x22, 0x3b,
-	0x70, 0x29, 0x16, 0xd2, 0xee, 0x67, 0x27, 0x2c, 0xc5, 0x7d, 0x69, 0x73, 0xd9, 0xa7, 0x89, 0xcd,
-	0x6b, 0x1f, 0x8a, 0x14, 0xe3, 0xef, 0xf3, 0x2c, 0x14, 0xd1, 0xea, 0x80, 0x22, 0x5a, 0xcd, 0xa8,
-	0xa6, 0x15, 0xaa, 0x19, 0x85, 0x6a, 0x36, 0xa7, 0x6a, 0xc1, 0xc5, 0x2d, 0xcc, 0x59, 0xd6, 0x70,
-	0x29, 0xc3, 0x05, 0x28, 0x47, 0x76, 0x90, 0x43, 0x6c, 0xa6, 0x0e, 0x37, 0xa7, 0x78, 0xac, 0x57,
-	0x40, 0x8b, 0x33, 0x08, 0x2d, 0xae, 0xbd, 0x2f, 0xc3, 0xa5, 0xb6, 0xc7, 0x04, 0x5e, 0x73, 0x9c,
-	0xa4, 0x08, 0xd3, 0x5d, 0x5e, 0xc3, 0x8d, 0x18, 0x73, 0x66, 0xa3, 0x5d, 0x44, 0x3c, 0xd4, 0xf1,
-	0x70, 0x3e, 0x4b, 0x46, 0x9f, 0xf5, 0x87, 0xa7, 0x69, 0x07, 0x95, 0xd4, 0xba, 0x96, 0x28, 0xac,
-	0x0d, 0x04, 0x0a, 0x87, 0x78, 0x03, 0x55, 0x29, 0x1f, 0x60, 0xea, 0x8e, 0x0e, 0x32, 0x8f, 0x15,
-	0x5e, 0xed, 0x09, 0xe8, 0x6f, 0xa6, 0x0a, 0x59, 0x60, 0x83, 0x1d, 0xad, 0xdf, 0x25, 0x85, 0x87,
-	0x79, 0xe2, 0xfa, 0xeb, 0x44, 0x86, 0x5a, 0x2f, 0xbe, 0xef, 0x1b, 0xda, 0xde, 0xbe, 0xa1, 0xfd,
-	0xdc, 0x37, 0xb4, 0x77, 0x07, 0xc6, 0xd4, 0xde, 0x81, 0x31, 0xf5, 0xe3, 0xc0, 0x98, 0xda, 0x7a,
-	0xb4, 0x43, 0xc2, 0x6e, 0xaf, 0x53, 0x77, 0x98, 0xdf, 0x10, 0x98, 0xdc, 0x1f, 0xa8, 0x4b, 0x43,
-	0xca, 0x37, 0xfa, 0x8d, 0xf1, 0x7f, 0x01, 0xc3, 0x28, 0xc0, 0xa2, 0x33, 0x23, 0x57, 0xac, 0xfe,
-	0x0e, 0x00, 0x00, 0xff, 0xff, 0x03, 0x9f, 0x29, 0xdb, 0x28, 0x0a, 0x00, 0x00,
+	// 813 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x96, 0x51, 0x6b, 0xd3, 0x50,
+	0x14, 0xc7, 0x77, 0x53, 0xb7, 0xb9, 0xbb, 0xa2, 0x2e, 0x73, 0xa8, 0xc3, 0xc6, 0x2d, 0x82, 0x0e,
+	0xc5, 0x76, 0xed, 0xc0, 0x27, 0x61, 0xac, 0x55, 0x98, 0xb0, 0x41, 0x29, 0xa2, 0xb8, 0x97, 0x90,
+	0x26, 0x77, 0xed, 0x65, 0xe9, 0xbd, 0xf1, 0xde, 0x74, 0x36, 0x01, 0x7d, 0xf1, 0x0b, 0x28, 0xc2,
+	0x04, 0x41, 0xd0, 0x27, 0xbf, 0x8a, 0x8f, 0x7b, 0xf4, 0x51, 0xb6, 0x0f, 0xa2, 0xe4, 0x26, 0x4d,
+	0x93, 0xb4, 0xae, 0xdb, 0xec, 0xe6, 0x5b, 0xce, 0x39, 0xf7, 0x9e, 0xff, 0x2f, 0xe7, 0x9e, 0x93,
+	0x1b, 0xa8, 0x18, 0x94, 0x6c, 0x63, 0x13, 0x11, 0x07, 0xeb, 0x96, 0xc3, 0x74, 0xc2, 0xb7, 0x11,
+	0xe3, 0x05, 0x6f, 0x27, 0x6f, 0x33, 0xea, 0x50, 0xf9, 0x1e, 0x47, 0x58, 0x3c, 0x19, 0xd4, 0xca,
+	0x73, 0x84, 0x8d, 0xa6, 0x8e, 0x49, 0x7e, 0xe0, 0x26, 0xf5, 0x37, 0x84, 0x33, 0xcf, 0x42, 0x6b,
+	0x93, 0x37, 0xaa, 0x8c, 0xd2, 0x6d, 0x2e, 0x7f, 0x03, 0xf0, 0x3e, 0x43, 0x2d, 0x1d, 0x13, 0x4c,
+	0x1a, 0x5a, 0x5d, 0xb7, 0x74, 0x62, 0x20, 0xcd, 0xa0, 0xad, 0x16, 0x76, 0x5a, 0x88, 0x38, 0xda,
+	0xae, 0x6e, 0x61, 0x13, 0x3b, 0xae, 0x66, 0xfb, 0x1b, 0xae, 0x83, 0x05, 0xb0, 0x34, 0x5d, 0xaa,
+	0xe4, 0x8f, 0x2f, 0x9c, 0xaf, 0x60, 0xbb, 0x89, 0x98, 0x83, 0x3a, 0xce, 0xf3, 0x30, 0x97, 0xd0,
+	0xae, 0xdd, 0x8d, 0x74, 0xcb, 0x81, 0x6c, 0x25, 0x52, 0x4d, 0x2c, 0x94, 0x3f, 0x03, 0xb8, 0xc4,
+	0x11, 0x31, 0x11, 0xd3, 0xba, 0x59, 0x35, 0xbd, 0x45, 0xdb, 0xc4, 0xd1, 0x2c, 0x9a, 0x06, 0x94,
+	0x46, 0x07, 0x78, 0x3b, 0x10, 0xed, 0x16, 0x6d, 0x4d, 0x48, 0x6e, 0xd0, 0x63, 0xc3, 0x35, 0x71,
+	0x1a, 0x2e, 0x73, 0xc6, 0x70, 0xeb, 0x38, 0x09, 0xf7, 0x55, 0x9c, 0xae, 0x81, 0x6d, 0xec, 0x1f,
+	0xe5, 0xf0, 0xe2, 0x5d, 0x18, 0x1d, 0xdf, 0x9d, 0x48, 0xf7, 0xe8, 0xfa, 0x1d, 0x8d, 0xd8, 0x5f,
+	0xc2, 0xf1, 0xb3, 0x47, 0x4c, 0x57, 0xd1, 0x85, 0xb9, 0xfe, 0x11, 0x61, 0x3a, 0x69, 0xa0, 0x90,
+	0x69, 0x42, 0x30, 0x3d, 0x3c, 0x09, 0x53, 0xcd, 0xdf, 0x1e, 0x60, 0xcc, 0xa7, 0xe7, 0xa0, 0x17,
+	0x93, 0xf7, 0x00, 0x5c, 0xe8, 0xd7, 0x46, 0xaf, 0xda, 0xba, 0xd5, 0x2b, 0xc9, 0xa4, 0x90, 0xdf,
+	0x3c, 0x5d, 0x49, 0x7a, 0x43, 0xf7, 0x24, 0xcc, 0x1a, 0x50, 0xe5, 0xd2, 0x54, 0x89, 0xb0, 0xfc,
+	0x09, 0xc0, 0xc5, 0x01, 0xfd, 0x94, 0x22, 0xbb, 0xf8, 0x4f, 0x64, 0xd1, 0x53, 0x8a, 0xcc, 0x49,
+	0x35, 0xd4, 0x70, 0xb2, 0x26, 0x4e, 0x93, 0x4d, 0x9d, 0x03, 0xd9, 0x3a, 0x4e, 0x84, 0xd5, 0x0f,
+	0x00, 0xce, 0x3f, 0x25, 0xd8, 0xcf, 0x8a, 0x3d, 0xb4, 0x66, 0x18, 0xfe, 0xa2, 0xde, 0xa7, 0x98,
+	0xc3, 0x39, 0xbb, 0x5d, 0xdf, 0x41, 0xee, 0xe0, 0x6f, 0xee, 0xea, 0x49, 0x58, 0xab, 0x22, 0x51,
+	0xb2, 0xdd, 0x67, 0xed, 0x7e, 0xa7, 0xfa, 0x5d, 0x82, 0x33, 0x2f, 0xb0, 0xd3, 0x34, 0x99, 0xfe,
+	0xba, 0x87, 0x32, 0xb4, 0xe3, 0xc1, 0xff, 0xed, 0x78, 0xe9, 0xfc, 0x3b, 0x5e, 0xdd, 0xcb, 0xc0,
+	0xb9, 0x8a, 0x45, 0x79, 0xff, 0xc1, 0xbd, 0x81, 0x37, 0x3d, 0xc4, 0xa8, 0xa6, 0xef, 0xea, 0xd8,
+	0xd2, 0xeb, 0x16, 0x8a, 0xb0, 0xe3, 0xc5, 0x7a, 0x74, 0x12, 0xda, 0x2d, 0xc4, 0x68, 0x48, 0x11,
+	0xc0, 0xdd, 0xf0, 0x15, 0xd6, 0xba, 0x02, 0xf1, 0x90, 0xfc, 0x16, 0xe6, 0x84, 0xbc, 0x8d, 0x88,
+	0x19, 0xaf, 0x99, 0x45, 0x13, 0xd5, 0x1a, 0x81, 0x7e, 0x35, 0x50, 0x08, 0x03, 0x1b, 0xf4, 0x68,
+	0xfd, 0x26, 0x4e, 0xdc, 0x7a, 0x23, 0xd7, 0x5f, 0xc7, 0xc1, 0xc1, 0x14, 0xe1, 0xec, 0x80, 0x76,
+	0x97, 0xb3, 0x10, 0xb8, 0xa2, 0xf4, 0xd9, 0x1a, 0x70, 0x7d, 0xcb, 0x13, 0x85, 0xc8, 0xd6, 0x80,
+	0xa7, 0x7e, 0x01, 0xf0, 0xda, 0x5f, 0x6e, 0x05, 0x79, 0x11, 0x66, 0x63, 0xbf, 0x3f, 0xc5, 0x30,
+	0xc5, 0x74, 0xcf, 0x57, 0x4c, 0x2d, 0x29, 0x85, 0x79, 0x63, 0x4b, 0x4a, 0x72, 0x0e, 0x42, 0x86,
+	0xb8, 0x4d, 0x09, 0x47, 0x5a, 0x51, 0xdc, 0xab, 0xd9, 0xda, 0x54, 0xd7, 0x53, 0x4c, 0x84, 0x4b,
+	0xe2, 0x4e, 0x8b, 0x85, 0x4b, 0xaa, 0x01, 0x61, 0x6c, 0x24, 0xae, 0xc2, 0xf1, 0x5e, 0x23, 0x65,
+	0x6b, 0x81, 0x21, 0x2b, 0x10, 0x32, 0x9d, 0x98, 0xb4, 0x45, 0x10, 0xe7, 0x21, 0x42, 0xcc, 0x23,
+	0xdf, 0x82, 0xd3, 0x6d, 0xdb, 0x46, 0x4c, 0xab, 0xd3, 0x36, 0x31, 0xc5, 0x21, 0x64, 0x6a, 0x50,
+	0xb8, 0xca, 0xbe, 0x47, 0x7d, 0x07, 0xe0, 0xe2, 0xd0, 0xa9, 0x90, 0x2f, 0x41, 0xc9, 0x5d, 0x0e,
+	0x95, 0x25, 0x77, 0x59, 0xd8, 0xc5, 0x50, 0x4e, 0x72, 0x8b, 0xc2, 0x2e, 0x89, 0xec, 0xbe, 0x5d,
+	0xf2, 0x6d, 0x8f, 0x87, 0x2f, 0x2c, 0x79, 0x5c, 0xd8, 0x9d, 0xf0, 0x0d, 0x25, 0xaf, 0x23, 0x6c,
+	0x26, 0x6e, 0x4c, 0xdf, 0x66, 0xea, 0xc7, 0x24, 0xc5, 0xe0, 0x2f, 0xeb, 0x69, 0x28, 0xdc, 0x95,
+	0x2e, 0x85, 0xbb, 0x12, 0x52, 0x8d, 0xa7, 0xa8, 0x26, 0x52, 0x54, 0x93, 0x11, 0x55, 0x19, 0x5e,
+	0x49, 0xb7, 0xa0, 0x7c, 0x19, 0x66, 0x5c, 0xcd, 0x8e, 0x20, 0xaa, 0x81, 0xc3, 0x8c, 0x28, 0x1e,
+	0x07, 0x4d, 0x96, 0x09, 0x9b, 0xac, 0xfc, 0xf2, 0xc7, 0x81, 0x02, 0xf6, 0x0f, 0x14, 0xf0, 0xeb,
+	0x40, 0x01, 0xef, 0x0f, 0x95, 0xb1, 0xfd, 0x43, 0x65, 0xec, 0xe7, 0xa1, 0x32, 0xb6, 0xb5, 0xda,
+	0xc0, 0x4e, 0xb3, 0x5d, 0xcf, 0x1b, 0xb4, 0x55, 0xe0, 0x08, 0x3f, 0xe8, 0x4e, 0x85, 0x30, 0xc4,
+	0x58, 0x14, 0x3a, 0x85, 0xc1, 0xbf, 0xfe, 0x8e, 0x6b, 0x23, 0x5e, 0x9f, 0x10, 0x3b, 0x56, 0xfe,
+	0x04, 0x00, 0x00, 0xff, 0xff, 0x3a, 0xd7, 0x9a, 0x56, 0x20, 0x0c, 0x00, 0x00,
 }
 
-func (m *TransferProofs) Marshal() (dAtA []byte, err error) {
+func (m *TransferMsgProofs) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -630,12 +786,12 @@ func (m *TransferProofs) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TransferProofs) MarshalTo(dAtA []byte) (int, error) {
+func (m *TransferMsgProofs) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransferProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *TransferMsgProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -745,6 +901,184 @@ func (m *TransferProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			i -= size
 			i = encodeVarintZk(dAtA, i, uint64(size))
 		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *InitializeAccountMsgProofs) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *InitializeAccountMsgProofs) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *InitializeAccountMsgProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.PubkeyValidityProof != nil {
+		{
+			size, err := m.PubkeyValidityProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *WithdrawMsgProofs) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *WithdrawMsgProofs) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *WithdrawMsgProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.RemainingBalanceEqualityProof != nil {
+		{
+			size, err := m.RemainingBalanceEqualityProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.RemainingBalanceRangeProof != nil {
+		{
+			size, err := m.RemainingBalanceRangeProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *CloseAccountMsgProofs) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *CloseAccountMsgProofs) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *CloseAccountMsgProofs) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.ZeroPendingBalanceHiProof != nil {
+		{
+			size, err := m.ZeroPendingBalanceHiProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.ZeroPendingBalanceLoProof != nil {
+		{
+			size, err := m.ZeroPendingBalanceLoProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.ZeroAvailableBalanceProof != nil {
+		{
+			size, err := m.ZeroAvailableBalanceProof.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintZk(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PubkeyValidityProof) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PubkeyValidityProof) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PubkeyValidityProof) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Z) > 0 {
+		i -= len(m.Z)
+		copy(dAtA[i:], m.Z)
+		i = encodeVarintZk(dAtA, i, uint64(len(m.Z)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Y) > 0 {
+		i -= len(m.Y)
+		copy(dAtA[i:], m.Y)
+		i = encodeVarintZk(dAtA, i, uint64(len(m.Y)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -1025,65 +1359,6 @@ func (m *ZeroBalanceProof) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *CloseAccountProof) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *CloseAccountProof) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *CloseAccountProof) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.ZeroPendingBalanceHiProof != nil {
-		{
-			size, err := m.ZeroPendingBalanceHiProof.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintZk(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x1a
-	}
-	if m.ZeroPendingBalanceLoProof != nil {
-		{
-			size, err := m.ZeroPendingBalanceLoProof.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintZk(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.ZeroAvailableBalanceProof != nil {
-		{
-			size, err := m.ZeroAvailableBalanceProof.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintZk(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
 func encodeVarintZk(dAtA []byte, offset int, v uint64) int {
 	offset -= sovZk(v)
 	base := offset
@@ -1095,7 +1370,7 @@ func encodeVarintZk(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-func (m *TransferProofs) Size() (n int) {
+func (m *TransferMsgProofs) Size() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -1135,6 +1410,74 @@ func (m *TransferProofs) Size() (n int) {
 	}
 	if m.TransferAmountHiEqualityProof != nil {
 		l = m.TransferAmountHiEqualityProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	return n
+}
+
+func (m *InitializeAccountMsgProofs) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.PubkeyValidityProof != nil {
+		l = m.PubkeyValidityProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	return n
+}
+
+func (m *WithdrawMsgProofs) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.RemainingBalanceRangeProof != nil {
+		l = m.RemainingBalanceRangeProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	if m.RemainingBalanceEqualityProof != nil {
+		l = m.RemainingBalanceEqualityProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	return n
+}
+
+func (m *CloseAccountMsgProofs) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ZeroAvailableBalanceProof != nil {
+		l = m.ZeroAvailableBalanceProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	if m.ZeroPendingBalanceLoProof != nil {
+		l = m.ZeroPendingBalanceLoProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	if m.ZeroPendingBalanceHiProof != nil {
+		l = m.ZeroPendingBalanceHiProof.Size()
+		n += 1 + l + sovZk(uint64(l))
+	}
+	return n
+}
+
+func (m *PubkeyValidityProof) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Y)
+	if l > 0 {
+		n += 1 + l + sovZk(uint64(l))
+	}
+	l = len(m.Z)
+	if l > 0 {
 		n += 1 + l + sovZk(uint64(l))
 	}
 	return n
@@ -1276,34 +1619,13 @@ func (m *ZeroBalanceProof) Size() (n int) {
 	return n
 }
 
-func (m *CloseAccountProof) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.ZeroAvailableBalanceProof != nil {
-		l = m.ZeroAvailableBalanceProof.Size()
-		n += 1 + l + sovZk(uint64(l))
-	}
-	if m.ZeroPendingBalanceLoProof != nil {
-		l = m.ZeroPendingBalanceLoProof.Size()
-		n += 1 + l + sovZk(uint64(l))
-	}
-	if m.ZeroPendingBalanceHiProof != nil {
-		l = m.ZeroPendingBalanceHiProof.Size()
-		n += 1 + l + sovZk(uint64(l))
-	}
-	return n
-}
-
 func sovZk(x uint64) (n int) {
 	return (math_bits.Len64(x|1) + 6) / 7
 }
 func sozZk(x uint64) (n int) {
 	return sovZk(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-func (m *TransferProofs) Unmarshal(dAtA []byte) error {
+func (m *TransferMsgProofs) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1326,10 +1648,10 @@ func (m *TransferProofs) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: TransferProofs: wiretype end group for non-group")
+			return fmt.Errorf("proto: TransferMsgProofs: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: TransferProofs: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: TransferMsgProofs: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -1654,6 +1976,490 @@ func (m *TransferProofs) Unmarshal(dAtA []byte) error {
 			}
 			if err := m.TransferAmountHiEqualityProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipZk(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthZk
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *InitializeAccountMsgProofs) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowZk
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: InitializeAccountMsgProofs: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: InitializeAccountMsgProofs: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PubkeyValidityProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.PubkeyValidityProof == nil {
+				m.PubkeyValidityProof = &PubkeyValidityProof{}
+			}
+			if err := m.PubkeyValidityProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipZk(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthZk
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *WithdrawMsgProofs) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowZk
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: WithdrawMsgProofs: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: WithdrawMsgProofs: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RemainingBalanceRangeProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.RemainingBalanceRangeProof == nil {
+				m.RemainingBalanceRangeProof = &RangeProof{}
+			}
+			if err := m.RemainingBalanceRangeProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RemainingBalanceEqualityProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.RemainingBalanceEqualityProof == nil {
+				m.RemainingBalanceEqualityProof = &CiphertextCommitmentEqualityProof{}
+			}
+			if err := m.RemainingBalanceEqualityProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipZk(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthZk
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *CloseAccountMsgProofs) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowZk
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: CloseAccountMsgProofs: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: CloseAccountMsgProofs: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ZeroAvailableBalanceProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ZeroAvailableBalanceProof == nil {
+				m.ZeroAvailableBalanceProof = &ZeroBalanceProof{}
+			}
+			if err := m.ZeroAvailableBalanceProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ZeroPendingBalanceLoProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ZeroPendingBalanceLoProof == nil {
+				m.ZeroPendingBalanceLoProof = &ZeroBalanceProof{}
+			}
+			if err := m.ZeroPendingBalanceLoProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ZeroPendingBalanceHiProof", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.ZeroPendingBalanceHiProof == nil {
+				m.ZeroPendingBalanceHiProof = &ZeroBalanceProof{}
+			}
+			if err := m.ZeroPendingBalanceHiProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipZk(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthZk
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PubkeyValidityProof) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowZk
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PubkeyValidityProof: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PubkeyValidityProof: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Y", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Y = append(m.Y[:0], dAtA[iNdEx:postIndex]...)
+			if m.Y == nil {
+				m.Y = []byte{}
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Z", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowZk
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthZk
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthZk
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Z = append(m.Z[:0], dAtA[iNdEx:postIndex]...)
+			if m.Z == nil {
+				m.Z = []byte{}
 			}
 			iNdEx = postIndex
 		default:
@@ -2671,164 +3477,6 @@ func (m *ZeroBalanceProof) Unmarshal(dAtA []byte) error {
 			m.Z = append(m.Z[:0], dAtA[iNdEx:postIndex]...)
 			if m.Z == nil {
 				m.Z = []byte{}
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipZk(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthZk
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *CloseAccountProof) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowZk
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: CloseAccountProof: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: CloseAccountProof: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ZeroAvailableBalanceProof", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowZk
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthZk
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthZk
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.ZeroAvailableBalanceProof == nil {
-				m.ZeroAvailableBalanceProof = &ZeroBalanceProof{}
-			}
-			if err := m.ZeroAvailableBalanceProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ZeroPendingBalanceLoProof", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowZk
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthZk
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthZk
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.ZeroPendingBalanceLoProof == nil {
-				m.ZeroPendingBalanceLoProof = &ZeroBalanceProof{}
-			}
-			if err := m.ZeroPendingBalanceLoProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ZeroPendingBalanceHiProof", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowZk
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthZk
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthZk
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.ZeroPendingBalanceHiProof == nil {
-				m.ZeroPendingBalanceHiProof = &ZeroBalanceProof{}
-			}
-			if err := m.ZeroPendingBalanceHiProof.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
 			}
 			iNdEx = postIndex
 		default:
