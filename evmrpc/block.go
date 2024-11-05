@@ -148,13 +148,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		return nil, err
 	}
 
-	if block == nil {
-		return nil, errors.New("could not retrieve block requested")
-	}
-
 	// Get all tx hashes for the block
 	height := block.Block.Header.Height
-	txHashes := a.keeper.GetTxHashesOnHeight(a.ctxProvider(height), height)
+	txHashes := getEvmTxHashesFromBlock(block, a.txConfig)
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
