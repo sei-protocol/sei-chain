@@ -379,6 +379,9 @@ func (m *MsgWithdraw) GetSigners() []sdk.AccAddress {
 
 func (m *MsgWithdraw) FromProto() (*Withdraw, error) {
 	err := m.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
 
 	remainingBalanceCommitment, err := m.RemainingBalanceCommitment.FromProto()
 	if err != nil {
