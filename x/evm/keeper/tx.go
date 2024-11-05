@@ -6,6 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+// deprecated
 func (k *Keeper) GetTxHashesOnHeight(ctx sdk.Context, height int64) (res []common.Hash) {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.TxHashesKey(height))
@@ -18,6 +19,7 @@ func (k *Keeper) GetTxHashesOnHeight(ctx sdk.Context, height int64) (res []commo
 	return
 }
 
+// deprecated
 func (k *Keeper) SetTxHashesOnHeight(ctx sdk.Context, height int64, hashes []common.Hash) {
 	if len(hashes) == 0 {
 		return
