@@ -13,11 +13,21 @@ service Msg {
   // Transfer defines a method for sending coins from one account to another account.
   rpc Transfer(MsgTransfer) returns (MsgTransferResponse);
 
+  // InitializeAccount defines a method for creating a new confidential transfers account for some denom.
+  rpc InitializeAccount(MsgInitializeAccount) returns (MsgInitializeAccount);
+
+  // Deposit defines a method for depositing funds into a confidential transfers account.
+  rpc Deposit(MsgDeposit) returns (MsgDeposit);
+
+  // Withdraw defines a method for withdrawing funds from a confidential transfers account.
+  rpc Withdraw(MsgWithdraw) returns (MsgWithdraw);
+
   // ApplyPendingBalance defines a method for applying pending balance to an account.
   rpc ApplyPendingBalance(MsgApplyPendingBalance) returns (MsgApplyPendingBalanceResponse);
 
   // CloseAccount defines a method for closing an account.
   rpc CloseAccount(MsgCloseAccount) returns (MsgCloseAccountResponse);
+
 }
 
 // MsgTransfer represents a message to send coins from one account to another.
@@ -34,11 +44,11 @@ message MsgTransfer {
   Ciphertext to_amount_hi = 7 [(gogoproto.moretags) = "yaml:\"to_amount_hi\""];
   Ciphertext remaining_balance = 8 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
   string decryptable_balance = 9 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
-  TransferProofs proofs = 10 [(gogoproto.moretags) = "yaml:\"proofs\""];
+  TransferMsgProofs proofs = 10 [(gogoproto.moretags) = "yaml:\"proofs\""];
   repeated Auditor auditors = 11 [(gogoproto.moretags) = "yaml:\"auditors\""];
 }
 
-// MsgSendResponse defines the Msg/Send response type.
+// MsgTransferResponse defines the Msg/Send response type.
 message MsgTransferResponse {}
 
 message Auditor {
@@ -51,8 +61,55 @@ message Auditor {
   CiphertextCiphertextEqualityProof transfer_amount_hi_equality_proof = 7 [(gogoproto.moretags) = "yaml:\"transfer_amount_hi_equality_proof\""];
 }
 
+// MsgInitializeAccount represents a message to create a new confidential transfer account.
+message MsgInitializeAccount {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string   from_address = 1 [(gogoproto.moretags) = "yaml:\"from_address\""];
+  string   denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
+  bytes public_key = 3 [(gogoproto.moretags) = "yaml:\"public_key\""];
+  string decryptable_balance = 4 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
+  InitializeAccountMsgProofs proofs = 5 [(gogoproto.moretags) = "yaml:\"proofs\""];
+}
+
+// MsgInitializeAccountResponse defines the Msg/Send response type.
+message MsgInitializeAccountResponse {}
+
+// MsgDeposit represents a message for depositing tokens into a confidential account
+message MsgDeposit {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string from_address = 1 [(gogoproto.moretags) = "yaml:\"from_address\""];
+  string denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
+  uint64 amount = 3 [(gogoproto.moretags) = "yaml:\"amount\""];
+}
+
+// MsgDepositResponse defines the Msg/Send response type.
+message MsgDepositResponse {}
+
+// MsgWithdraw represents a message to withdraw from a confidential module account.
+message MsgWithdraw {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string   from_address = 1 [(gogoproto.moretags) = "yaml:\"from_address\""];
+  string   denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
+  uint64 amount = 3 [(gogoproto.moretags) = "yaml:\"amount\""];
+  string decryptable_balance = 4 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
+  Ciphertext remaining_balance_commitment = 5 [(gogoproto.moretags) = "yaml:\"remaining_balance_commitment\""];
+  WithdrawMsgProofs proofs = 6 [(gogoproto.moretags) = "yaml:\"proofs\""];
+}
+
+// MsgWithdrawResponse defines the Msg/Send response type.
+message MsgWithdrawResponse {}
+
 // Message to be used in apply pending balance instruction/transaction
 message MsgApplyPendingBalance {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
   string address = 1;
   string denom = 2;
   string new_decryptable_available_balance = 3;
@@ -62,9 +119,12 @@ message MsgApplyPendingBalanceResponse {}
 
 // Message to be used in close account instruction/transaction
 message MsgCloseAccount {
-  string address = 1;
-  string denom = 2;
-  CloseAccountProof proof = 3;
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string address = 1 [(gogoproto.moretags) = "yaml:\"address\""];
+  string denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
+  CloseAccountMsgProofs proofs = 3 [(gogoproto.moretags) = "yaml:\"proofs\""];
 }
 
 message MsgCloseAccountResponse {}

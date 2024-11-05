@@ -4,7 +4,7 @@ package seiprotocol.seichain.confidentialtransfers;
 option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
 
 
-message TransferProofs {
+message TransferMsgProofs {
   CiphertextValidityProof remaining_balance_commitment_validity_proof = 1;
   CiphertextValidityProof sender_transfer_amount_lo_validity_proof = 2;
   CiphertextValidityProof sender_transfer_amount_hi_validity_proof = 3;
@@ -14,6 +14,26 @@ message TransferProofs {
   CiphertextCommitmentEqualityProof remaining_balance_equality_proof = 7;
   CiphertextCiphertextEqualityProof transfer_amount_lo_equality_proof = 8;
   CiphertextCiphertextEqualityProof transfer_amount_hi_equality_proof = 9;
+}
+
+message InitializeAccountMsgProofs {
+  PubkeyValidityProof pubkey_validity_proof = 1;
+}
+
+message WithdrawMsgProofs {
+  RangeProof remaining_balance_range_proof = 1;
+  CiphertextCommitmentEqualityProof remaining_balance_equality_proof = 2;
+}
+
+message CloseAccountMsgProofs {
+  ZeroBalanceProof zero_available_balance_proof = 1;
+  ZeroBalanceProof zero_pending_balance_lo_proof = 2;
+  ZeroBalanceProof zero_pending_balance_hi_proof = 3;
+}
+
+message PubkeyValidityProof {
+  bytes y = 1;
+  bytes z = 2;
 }
 
 message CiphertextValidityProof {
@@ -59,10 +79,4 @@ message ZeroBalanceProof {
   bytes y_p = 1;
   bytes y_d = 2;
   bytes z = 3;
-}
-
-message CloseAccountProof {
-  ZeroBalanceProof zero_available_balance_proof = 1;
-  ZeroBalanceProof zero_pending_balance_lo_proof = 2;
-  ZeroBalanceProof zero_pending_balance_hi_proof = 3;
 }

@@ -1,6 +1,7 @@
 package types
 
 import (
+	crand "crypto/rand"
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -40,9 +41,8 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	sourceCiphertextAmountHiValidityProof, _ :=
 		zkproofs.NewCiphertextValidityProof(&sourceCiphertextAmountHiR, sourceKeypair.PublicKey, sourceCiphertextAmountHi, amountHi)
 
-	ciphertext := &Ciphertext{}
-	fromAmountLo := ciphertext.ToProto(sourceCiphertextAmountLo)
-	fromAmountHi := ciphertext.ToProto(sourceCiphertextAmountHi)
+	fromAmountLo := NewCiphertextProto(sourceCiphertextAmountLo)
+	fromAmountHi := NewCiphertextProto(sourceCiphertextAmountHi)
 
 	destinationCipherAmountLo, destinationCipherAmountLoR, _ := eg.Encrypt(destinationKeypair.PublicKey, amountLo)
 	destinationCipherAmountLoValidityProof, _ :=
@@ -51,11 +51,11 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	destinationCipherAmountHiValidityProof, _ :=
 		zkproofs.NewCiphertextValidityProof(&destinationCipherAmountHiR, destinationKeypair.PublicKey, destinationCipherAmountHi, amountHi)
 
-	destinationAmountLo := ciphertext.ToProto(destinationCipherAmountLo)
-	destinationAmountHi := ciphertext.ToProto(destinationCipherAmountHi)
+	destinationAmountLo := NewCiphertextProto(destinationCipherAmountLo)
+	destinationAmountHi := NewCiphertextProto(destinationCipherAmountHi)
 
 	remainingBalanceCiphertext, remainingBalanceRandomness, _ := eg.Encrypt(sourceKeypair.PublicKey, remainingBalance)
-	remainingBalanceProto := ciphertext.ToProto(remainingBalanceCiphertext)
+	remainingBalanceProto := NewCiphertextProto(remainingBalanceCiphertext)
 
 	remainingBalanceCommitmentValidityProof, _ := zkproofs.NewCiphertextValidityProof(&remainingBalanceRandomness, sourceKeypair.PublicKey, remainingBalanceCiphertext, remainingBalance)
 
@@ -88,7 +88,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		&destinationCipherAmountHiR,
 		&scalarAmountHi)
 
-	proofs := &Proofs{
+	proofs := &TransferProofs{
 		RemainingBalanceCommitmentValidityProof: remainingBalanceCommitmentValidityProof,
 		SenderTransferAmountLoValidityProof:     sourceCiphertextAmountLoValidityProof,
 		SenderTransferAmountHiValidityProof:     sourceCiphertextAmountHiValidityProof,
@@ -100,8 +100,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		TransferAmountHiEqualityProof:           transferAmountHiEqualityProof,
 	}
 
-	transferProofs := &TransferProofs{}
-	proofsProto := transferProofs.ToProto(proofs)
+	proofsProto := NewTransferMsgProofs(proofs)
 	address1 := sdk.AccAddress("address1")
 	address2 := sdk.AccAddress("address2")
 	auditorAddress := sdk.AccAddress("auditor")
@@ -128,7 +127,6 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		&auditorCipherAmountHiR,
 		&scalarAmountHi)
 
-	auditor := Auditor{}
 	transferAuditor := &TransferAuditor{
 		Address:                       auditorAddress.String(),
 		EncryptedTransferAmountLo:     auditorCipherAmountLo,
@@ -138,7 +136,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		TransferAmountLoEqualityProof: auditorTransferAmountLoEqualityProof,
 		TransferAmountHiEqualityProof: auditorTransferAmountHiEqualityProof,
 	}
-	auditorProto := auditor.ToProto(transferAuditor)
+	auditorProto := NewAuditorProto(transferAuditor)
 
 	m := &MsgTransfer{
 		FromAddress:        address1.String(),
@@ -398,10 +396,326 @@ func TestMsgTransfer_ValidateBasic(t *testing.T) {
 	}
 }
 
+func TestMsgInitializeAccount_FromProto(t *testing.T) {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	require.NoError(t, err)
+
+	decryptableBalance, err := encryption.EncryptAESGCM(0, aesPK)
+
+	// Generate the proof
+	pubkeyValidityProof, _ := zkproofs.NewPubKeyValidityProof(
+		sourceKeypair.PublicKey,
+		sourceKeypair.PrivateKey)
+
+	proofs := &InitializeAccountProofs{
+		pubkeyValidityProof,
+	}
+	address1 := sdk.AccAddress("address1")
+
+	proofsProto := NewInitializeAccountMsgProofs(proofs)
+	m := &MsgInitializeAccount{
+		FromAddress:        address1.String(),
+		Denom:              testDenom,
+		PublicKey:          sourceKeypair.PublicKey.ToAffineCompressed(),
+		DecryptableBalance: decryptableBalance,
+		Proofs:             proofsProto,
+	}
+
+	assert.NoError(t, m.ValidateBasic())
+	marshalled, err := m.Marshal()
+	require.NoError(t, err)
+
+	// Reset the message
+	m = &MsgInitializeAccount{}
+	err = m.Unmarshal(marshalled)
+	require.NoError(t, err)
+
+	assert.NoError(t, m.ValidateBasic())
+
+	result, err := m.FromProto()
+
+	assert.NoError(t, err)
+
+	assert.Equal(t, m.FromAddress, result.FromAddress)
+	assert.Equal(t, m.Denom, result.Denom)
+	assert.Equal(t, m.DecryptableBalance, result.DecryptableBalance)
+	assert.True(t, sourceKeypair.PublicKey.Equal(*result.Pubkey))
+
+	decryptedRemainingBalance, err := encryption.DecryptAESGCM(result.DecryptableBalance, aesPK)
+	assert.NoError(t, err)
+
+	assert.Equal(t, uint64(0), decryptedRemainingBalance)
+
+	// Make sure the proofs are valid
+	assert.True(t, zkproofs.VerifyPubKeyValidity(
+		*result.Pubkey,
+		*result.Proofs.PubkeyValidityProof))
+}
+
+func TestMsgInitializeAccount_ValidateBasic(t *testing.T) {
+	validAddress := sdk.AccAddress("address1").String()
+	invalidAddress := "invalid_address"
+	validDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+
+	tests := []struct {
+		name    string
+		msg     MsgInitializeAccount
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "invalid from address",
+			msg: MsgInitializeAccount{
+				FromAddress: invalidAddress,
+				Denom:       validDenom,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidAddress.Error(),
+		},
+		{
+			name: "invalid denom",
+			msg: MsgInitializeAccount{
+				FromAddress: validAddress,
+				Denom:       "",
+			},
+			wantErr: true,
+			errMsg:  "invalid denom",
+		},
+		{
+			name: "missing pubkey",
+			msg: MsgInitializeAccount{
+				FromAddress: validAddress,
+				Denom:       validDenom,
+				PublicKey:   nil,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing proofs",
+			msg: MsgInitializeAccount{
+				FromAddress: validAddress,
+				Denom:       validDenom,
+				PublicKey:   curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.msg.ValidateBasic()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMsgWithdraw_FromProto(t *testing.T) {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	require.NoError(t, err)
+
+	currentBalance := uint64(500000000)
+	currentBalanceCt, _, _ := eg.Encrypt(sourceKeypair.PublicKey, currentBalance)
+	withdrawAmount := uint64(10000)
+	withdrawAmountCt, _ := eg.SubScalar(currentBalanceCt, withdrawAmount)
+	newBalance := currentBalance - withdrawAmount
+	newBalanceScalar := curves.ED25519().Scalar.New(int(newBalance))
+	decryptableBalance, err := encryption.EncryptAESGCM(newBalance, aesPK)
+	newBalanceCommitment, randomness, err := eg.Encrypt(sourceKeypair.PublicKey, newBalance)
+	require.NoError(t, err)
+
+	// Generate the proofs
+	rangeProof, _ := zkproofs.NewRangeProof(64, int(newBalance), randomness)
+	ciphertextCommitmentEqualityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(
+		sourceKeypair,
+		withdrawAmountCt,
+		&randomness,
+		&newBalanceScalar)
+
+	proofs := &WithdrawProofs{
+		rangeProof,
+		ciphertextCommitmentEqualityProof,
+	}
+	address1 := sdk.AccAddress("address1")
+
+	newBalanceProto := NewCiphertextProto(newBalanceCommitment)
+
+	withdrawMsgProof := WithdrawMsgProofs{}
+	proofsProto := withdrawMsgProof.NewWithdrawMsgProofs(proofs)
+	m := &MsgWithdraw{
+		FromAddress:                address1.String(),
+		Denom:                      testDenom,
+		Amount:                     withdrawAmount,
+		RemainingBalanceCommitment: newBalanceProto,
+		DecryptableBalance:         decryptableBalance,
+		Proofs:                     proofsProto,
+	}
+
+	assert.NoError(t, m.ValidateBasic())
+
+	marshalled, err := m.Marshal()
+	require.NoError(t, err)
+
+	// Reset the message
+	m = &MsgWithdraw{}
+	err = m.Unmarshal(marshalled)
+	require.NoError(t, err)
+
+	assert.NoError(t, m.ValidateBasic())
+
+	result, err := m.FromProto()
+
+	assert.NoError(t, err)
+	assert.Equal(t, m.FromAddress, result.FromAddress)
+	assert.Equal(t, m.Denom, result.Denom)
+	assert.Equal(t, m.Amount, result.Amount)
+	assert.Equal(t, m.DecryptableBalance, result.DecryptableBalance)
+	assert.True(t, newBalanceCommitment.C.Equal(result.RemainingBalanceCommitment.C))
+	assert.True(t, newBalanceCommitment.D.Equal(result.RemainingBalanceCommitment.D))
+
+	decryptedRemainingBalance, err := encryption.DecryptAESGCM(result.DecryptableBalance, aesPK)
+	assert.NoError(t, err)
+	assert.Equal(t, newBalance, decryptedRemainingBalance)
+
+	decryptedCommitment, err := eg.DecryptLargeNumber(sourceKeypair.PrivateKey, result.RemainingBalanceCommitment, 32)
+	assert.NoError(t, err)
+	assert.Equal(t, newBalance, decryptedCommitment)
+
+	// Make sure the proofs are valid
+	verified, err := zkproofs.VerifyRangeProof(result.Proofs.RemainingBalanceRangeProof, result.RemainingBalanceCommitment, 64)
+	assert.NoError(t, err)
+	assert.True(t, verified)
+
+	assert.True(t, zkproofs.VerifyCiphertextCommitmentEquality(
+		result.Proofs.RemainingBalanceEqualityProof,
+		&sourceKeypair.PublicKey,
+		withdrawAmountCt,
+		&result.RemainingBalanceCommitment.C))
+}
+
+func TestMsgWithdraw_ValidateBasic(t *testing.T) {
+	validAddress := sdk.AccAddress("address1").String()
+	invalidAddress := "invalid_address"
+	validDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+
+	tests := []struct {
+		name    string
+		msg     MsgWithdraw
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "invalid from address",
+			msg: MsgWithdraw{
+				FromAddress: invalidAddress,
+				Denom:       validDenom,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidAddress.Error(),
+		},
+		{
+			name: "invalid denom",
+			msg: MsgWithdraw{
+				FromAddress: validAddress,
+				Denom:       "",
+			},
+			wantErr: true,
+			errMsg:  "invalid denom",
+		},
+		{
+			name: "missing remaining balance commitment",
+			msg: MsgWithdraw{
+				FromAddress:                validAddress,
+				Denom:                      validDenom,
+				RemainingBalanceCommitment: nil,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing amount",
+			msg: MsgWithdraw{
+				FromAddress:                validAddress,
+				Denom:                      validDenom,
+				RemainingBalanceCommitment: &Ciphertext{},
+				Amount:                     0,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing decryptable balance",
+			msg: MsgWithdraw{
+				FromAddress:                validAddress,
+				Denom:                      validDenom,
+				RemainingBalanceCommitment: &Ciphertext{},
+				Amount:                     100,
+				DecryptableBalance:         "",
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing proofs",
+			msg: MsgWithdraw{
+				FromAddress:                validAddress,
+				Denom:                      validDenom,
+				RemainingBalanceCommitment: &Ciphertext{},
+				Amount:                     100,
+				DecryptableBalance:         "notnil",
+				Proofs:                     nil,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "happy path",
+			msg: MsgWithdraw{
+				FromAddress:                validAddress,
+				Denom:                      validDenom,
+				Amount:                     100,
+				RemainingBalanceCommitment: &Ciphertext{},
+				DecryptableBalance:         "notnil",
+				Proofs: &WithdrawMsgProofs{
+					&RangeProof{},
+					&CiphertextCommitmentEqualityProof{},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.msg.ValidateBasic()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestMsgCloseAccount_FromProto(t *testing.T) {
 	address := sdk.AccAddress("address1")
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	privateKey, _ := elgamal.GenerateKey()
+	privateKey, _ := encryption.GenerateKey()
 	eg := elgamal.NewTwistedElgamal()
 	keypair, _ := eg.KeyGen(*privateKey, testDenom)
 	availableBalanceCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, 0)
@@ -421,26 +735,24 @@ func TestMsgCloseAccount_FromProto(t *testing.T) {
 		ZeroPendingBalanceHiProof: pendingBalanceProofHi,
 	}
 
-	closeAccountProof := CloseAccountProof{}
-	proof := closeAccountProof.ToProto(closeAccountProofs)
+	proof := NewCloseAccountMsgProofs(closeAccountProofs)
 
 	m := &MsgCloseAccount{
 		Address: address.String(),
 		Denom:   testDenom,
-		Proof:   proof,
+		Proofs:  proof,
 	}
 
 	marshalled, err := m.Marshal()
 	require.NoError(t, err)
 
-	// Reset the message
 	result := &MsgCloseAccount{}
 	err = result.Unmarshal(marshalled)
 	require.NoError(t, err)
 
 	assert.Equal(t, m.Address, result.Address)
 	assert.Equal(t, m.Denom, result.Denom)
-	resultProof, err := result.Proof.FromProto()
+	resultProof, err := result.Proofs.FromProto()
 	require.NoError(t, err)
 
 	assert.NoError(t, result.ValidateBasic())
@@ -466,5 +778,198 @@ func TestMsgCloseAccount_FromProto(t *testing.T) {
 
 	assert.True(t, zkproofs.VerifyZeroBalance(
 		resultProof.ZeroPendingBalanceHiProof, &keypair.PublicKey, pendingBalanceHiCiphertext))
+}
 
+func TestMsgCloseAccount_ValidateBasic(t *testing.T) {
+	validAddress := sdk.AccAddress("address1").String()
+	invalidAddress := "invalid_address"
+	validDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+
+	tests := []struct {
+		name    string
+		msg     MsgCloseAccount
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "invalid address",
+			msg: MsgCloseAccount{
+				Address: invalidAddress,
+				Denom:   validDenom,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidAddress.Error(),
+		},
+		{
+			name: "invalid denom",
+			msg: MsgCloseAccount{
+				Address: validAddress,
+				Denom:   "",
+			},
+			wantErr: true,
+			errMsg:  "invalid denom",
+		},
+		{
+			name: "missing proofs",
+			msg: MsgCloseAccount{
+				Address: validAddress,
+				Denom:   validDenom,
+				Proofs:  nil,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "happy path",
+			msg: MsgCloseAccount{
+				Address: validAddress,
+				Denom:   validDenom,
+				Proofs: &CloseAccountMsgProofs{
+					&ZeroBalanceProof{},
+					&ZeroBalanceProof{},
+					&ZeroBalanceProof{},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.msg.ValidateBasic()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMsgDeposit_ValidateBasic(t *testing.T) {
+	validAddress := sdk.AccAddress("address1").String()
+	invalidAddress := "invalid_address"
+	validDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+
+	tests := []struct {
+		name    string
+		msg     MsgDeposit
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "invalid from address",
+			msg: MsgDeposit{
+				FromAddress: invalidAddress,
+				Denom:       validDenom,
+				Amount:      100,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidAddress.Error(),
+		},
+		{
+			name: "invalid denom",
+			msg: MsgDeposit{
+				FromAddress: validAddress,
+				Denom:       "",
+				Amount:      100,
+			},
+			wantErr: true,
+			errMsg:  "invalid denom",
+		},
+		{
+			name: "zero amount",
+			msg: MsgDeposit{
+				FromAddress: validAddress,
+				Denom:       validDenom,
+				Amount:      0,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "valid message",
+			msg: MsgDeposit{
+				FromAddress: validAddress,
+				Denom:       validDenom,
+				Amount:      100,
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.msg.ValidateBasic()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMsgApplyPendingBalance_ValidateBasic(t *testing.T) {
+	validAddress := sdk.AccAddress("address1").String()
+	invalidAddress := "invalid_address"
+	validDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+
+	tests := []struct {
+		name    string
+		msg     MsgApplyPendingBalance
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "invalid address",
+			msg: MsgApplyPendingBalance{
+				Address: invalidAddress,
+				Denom:   validDenom,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidAddress.Error(),
+		},
+		{
+			name: "invalid denom",
+			msg: MsgApplyPendingBalance{
+				Address: validAddress,
+				Denom:   "",
+			},
+			wantErr: true,
+			errMsg:  "invalid denom",
+		},
+		{
+			name: "missing new decryptable available balance",
+			msg: MsgApplyPendingBalance{
+				Address: validAddress,
+				Denom:   validDenom,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "valid message",
+			msg: MsgApplyPendingBalance{
+				Address:                        validAddress,
+				Denom:                          validDenom,
+				NewDecryptableAvailableBalance: "some_balance",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.msg.ValidateBasic()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

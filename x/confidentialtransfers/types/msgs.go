@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -8,6 +9,9 @@ import (
 // confidential transfers message types
 const (
 	TypeMsgTransfer            = "transfer"
+	TypeMsgInitializeAccount   = "initialize_account"
+	TypeMsgDeposit             = "deposit"
+	TypeMsgWithdraw            = "withdraw"
 	TypeMsgApplyPendingBalance = "apply_pending_balance"
 	TypeMsgCloseAccount        = "close_account"
 )
@@ -137,6 +141,80 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 	}, nil
 }
 
+var _ sdk.Msg = &MsgInitializeAccount{}
+
+// Route Implements Msg.
+func (m *MsgInitializeAccount) Route() string { return RouterKey }
+
+// Type Implements Msg.
+func (m *MsgInitializeAccount) Type() string { return TypeMsgInitializeAccount }
+
+func (m *MsgInitializeAccount) ValidateBasic() error {
+	_, err := sdk.AccAddressFromBech32(m.FromAddress)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+	}
+
+	err = sdk.ValidateDenom(m.Denom)
+	if err != nil {
+		return err
+	}
+
+	if m.PublicKey == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "PublicKey is required")
+	}
+
+	if m.DecryptableBalance == "" {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "DecryptableBalance is required")
+	}
+
+	if m.Proofs == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
+	}
+
+	err = m.Proofs.Validate()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *MsgInitializeAccount) GetSignBytes() []byte {
+	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(m))
+}
+
+func (m *MsgInitializeAccount) GetSigners() []sdk.AccAddress {
+	sender, _ := sdk.AccAddressFromBech32(m.FromAddress)
+	return []sdk.AccAddress{sender}
+}
+
+func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
+	err := m.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+	ed25519Curve := curves.ED25519()
+
+	pubkey, err := ed25519Curve.Point.FromAffineCompressed(m.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	proofs, err := m.Proofs.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &InitializeAccount{
+		FromAddress:        m.FromAddress,
+		Denom:              m.Denom,
+		Pubkey:             &pubkey,
+		DecryptableBalance: m.DecryptableBalance,
+		Proofs:             proofs,
+	}, nil
+}
+
 var _ sdk.Msg = &MsgApplyPendingBalance{}
 
 // Route Implements Msg.
@@ -146,12 +224,14 @@ func (m *MsgApplyPendingBalance) Route() string { return RouterKey }
 func (m *MsgApplyPendingBalance) Type() string { return TypeMsgApplyPendingBalance }
 
 func (m *MsgApplyPendingBalance) ValidateBasic() error {
-	if len(m.Address) == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Address is required")
+	_, err := sdk.AccAddressFromBech32(m.Address)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid address (%s)", err)
 	}
 
-	if len(m.Denom) == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Denom is required")
+	err = sdk.ValidateDenom(m.Denom)
+	if err != nil {
+		return err
 	}
 
 	if len(m.NewDecryptableAvailableBalance) == 0 {
@@ -178,19 +258,22 @@ func (m *MsgCloseAccount) Route() string { return RouterKey }
 func (m *MsgCloseAccount) Type() string { return TypeMsgCloseAccount }
 
 func (m *MsgCloseAccount) ValidateBasic() error {
-	if len(m.Address) == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Address is required")
+	_, err := sdk.AccAddressFromBech32(m.Address)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid address (%s)", err)
 	}
 
-	if len(m.Denom) == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Denom is required")
+	err = sdk.ValidateDenom(m.Denom)
+	if err != nil {
+		return err
 	}
 
-	if m.Proof == nil {
+	if m.Proofs == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
 	}
 
-	err := m.Proof.Validate()
+	err = m.Proofs.Validate()
+
 	if err != nil {
 		return err
 	}
@@ -205,4 +288,117 @@ func (m *MsgCloseAccount) GetSignBytes() []byte {
 func (m *MsgCloseAccount) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.Address)
 	return []sdk.AccAddress{sender}
+}
+
+var _ sdk.Msg = &MsgDeposit{}
+
+// Route Implements Msg.
+func (m *MsgDeposit) Route() string { return RouterKey }
+
+// Type Implements Msg.
+func (m *MsgDeposit) Type() string { return TypeMsgDeposit }
+
+func (m *MsgDeposit) ValidateBasic() error {
+	_, err := sdk.AccAddressFromBech32(m.FromAddress)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+	}
+
+	err = sdk.ValidateDenom(m.Denom)
+	if err != nil {
+		return err
+	}
+
+	if m.Amount <= 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Positive amount is required")
+	}
+
+	return nil
+}
+
+func (m *MsgDeposit) GetSignBytes() []byte {
+	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(m))
+}
+
+func (m *MsgDeposit) GetSigners() []sdk.AccAddress {
+	sender, _ := sdk.AccAddressFromBech32(m.FromAddress)
+	return []sdk.AccAddress{sender}
+}
+
+var _ sdk.Msg = &MsgWithdraw{}
+
+// Route Implements Msg.
+func (m *MsgWithdraw) Route() string { return RouterKey }
+
+// Type Implements Msg.
+func (m *MsgWithdraw) Type() string { return TypeMsgWithdraw }
+
+func (m *MsgWithdraw) ValidateBasic() error {
+	_, err := sdk.AccAddressFromBech32(m.FromAddress)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+	}
+
+	err = sdk.ValidateDenom(m.Denom)
+	if err != nil {
+		return err
+	}
+
+	if m.Amount <= 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Positive amount is required")
+	}
+
+	if m.RemainingBalanceCommitment == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalanceCommitment is required")
+	}
+
+	if m.DecryptableBalance == "" {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "DecryptableBalance is required")
+	}
+
+	if m.Proofs == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
+	}
+
+	err = m.Proofs.Validate()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *MsgWithdraw) GetSignBytes() []byte {
+	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(m))
+}
+
+func (m *MsgWithdraw) GetSigners() []sdk.AccAddress {
+	sender, _ := sdk.AccAddressFromBech32(m.FromAddress)
+	return []sdk.AccAddress{sender}
+}
+
+func (m *MsgWithdraw) FromProto() (*Withdraw, error) {
+	err := m.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+
+	remainingBalanceCommitment, err := m.RemainingBalanceCommitment.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	proofs, err := m.Proofs.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &Withdraw{
+		FromAddress:                m.FromAddress,
+		Denom:                      m.Denom,
+		Amount:                     m.Amount,
+		RemainingBalanceCommitment: remainingBalanceCommitment,
+		DecryptableBalance:         m.DecryptableBalance,
+		Proofs:                     proofs,
+	}, nil
 }
