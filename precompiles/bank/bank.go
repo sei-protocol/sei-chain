@@ -8,6 +8,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -39,6 +40,7 @@ var f embed.FS
 type PrecompileExecutor struct {
 	accountKeeper pcommon.AccountKeeper
 	bankKeeper    pcommon.BankKeeper
+	bankMsgServer pcommon.BankMsgServer
 	evmKeeper     pcommon.EVMKeeper
 	address       common.Address
 
@@ -57,10 +59,11 @@ type CoinBalance struct {
 	Denom  string
 }
 
-func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(bankKeeper pcommon.BankKeeper, bankMsgServer pcommon.BankMsgServer, evmKeeper pcommon.EVMKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 	p := &PrecompileExecutor{
 		bankKeeper:    bankKeeper,
+		bankMsgServer: bankMsgServer,
 		evmKeeper:     evmKeeper,
 		accountKeeper: accountKeeper,
 		address:       common.HexToAddress(BankAddress),
@@ -150,7 +153,18 @@ func (p PrecompileExecutor) send(ctx sdk.Context, caller common.Address, method 
 		return nil, err
 	}
 
-	if err := p.bankKeeper.SendCoins(ctx, senderSeiAddr, receiverSeiAddr, sdk.NewCoins(sdk.NewCoin(denom, sdk.NewIntFromBigInt(amount)))); err != nil {
+	msg := &banktypes.MsgSend{
+		FromAddress: senderSeiAddr.String(),
+		ToAddress:   receiverSeiAddr.String(),
+		Amount:      sdk.NewCoins(sdk.NewCoin(denom, sdk.NewIntFromBigInt(amount))),
+	}
+
+	err = msg.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.bankMsgServer.Send(sdk.WrapSDKContext(ctx), msg); err != nil {
 		return nil, err
 	}
 
