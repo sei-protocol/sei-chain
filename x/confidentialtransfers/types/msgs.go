@@ -15,9 +15,6 @@ const (
 )
 
 var _ sdk.Msg = &MsgTransfer{}
-var _ sdk.Msg = &MsgInitializeAccount{}
-var _ sdk.Msg = &MsgDeposit{}
-var _ sdk.Msg = &MsgWithdraw{}
 
 // Route Implements Msg.
 func (m *MsgTransfer) Route() string { return RouterKey }
@@ -142,6 +139,8 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 	}, nil
 }
 
+var _ sdk.Msg = &MsgInitializeAccount{}
+
 // Route Implements Msg.
 func (m *MsgInitializeAccount) Route() string { return RouterKey }
 
@@ -214,6 +213,8 @@ func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
 	}, nil
 }
 
+var _ sdk.Msg = &MsgDeposit{}
+
 // Route Implements Msg.
 func (m *MsgDeposit) Route() string { return RouterKey }
 
@@ -246,6 +247,8 @@ func (m *MsgDeposit) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.FromAddress)
 	return []sdk.AccAddress{sender}
 }
+
+var _ sdk.Msg = &MsgWithdraw{}
 
 // Route Implements Msg.
 func (m *MsgWithdraw) Route() string { return RouterKey }

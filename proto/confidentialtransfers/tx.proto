@@ -12,6 +12,15 @@ option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/t
 service Msg {
   // Transfer defines a method for sending coins from one account to another account.
   rpc Transfer(MsgTransfer) returns (MsgTransferResponse);
+
+  // InitializeAccount defines a method for creating a new confidential transfers account for some denom.
+  rpc InitializeAccount(MsgInitializeAccount) returns (MsgInitializeAccount);
+
+  // Deposit defines a method for depositing funds into a confidential transfers account.
+  rpc Deposit(MsgDeposit) returns (MsgDeposit);
+
+  // Withdraw defines a method for withdrawing funds from a confidential transfers account.
+  rpc Withdraw(MsgWithdraw) returns (MsgWithdraw);
 }
 
 // MsgTransfer represents a message to send coins from one account to another.
