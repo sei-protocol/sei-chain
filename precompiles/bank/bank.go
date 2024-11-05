@@ -164,7 +164,7 @@ func (p PrecompileExecutor) send(ctx sdk.Context, caller common.Address, method 
 		return nil, err
 	}
 
-	if _, err := p.bankMsgServer.Send(sdk.WrapSDKContext(ctx), msg); err != nil {
+	if _, err = p.bankMsgServer.Send(sdk.WrapSDKContext(ctx), msg); err != nil {
 		return nil, err
 	}
 
