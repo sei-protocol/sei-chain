@@ -4,7 +4,6 @@ import (
 	"github.com/coinbase/kryptology/pkg/bulletproof"
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 )
 
@@ -48,17 +47,17 @@ func (c *TransferMsgProofs) Validate() error {
 	return nil
 }
 
-func (c *TransferMsgProofs) ToProto(proofs *TransferProofs) *TransferMsgProofs {
+func NewTransferMsgProofs(proofs *TransferProofs) *TransferMsgProofs {
 	return &TransferMsgProofs{
-		RemainingBalanceCommitmentValidityProof: c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.RemainingBalanceCommitmentValidityProof),
-		SenderTransferAmountLoValidityProof:     c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.SenderTransferAmountLoValidityProof),
-		SenderTransferAmountHiValidityProof:     c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.SenderTransferAmountHiValidityProof),
-		RecipientTransferAmountLoValidityProof:  c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.RecipientTransferAmountLoValidityProof),
-		RecipientTransferAmountHiValidityProof:  c.RemainingBalanceCommitmentValidityProof.ToProto(proofs.RecipientTransferAmountHiValidityProof),
-		RemainingBalanceRangeProof:              c.RemainingBalanceRangeProof.ToProto(proofs.RemainingBalanceRangeProof),
-		RemainingBalanceEqualityProof:           c.RemainingBalanceEqualityProof.ToProto(proofs.RemainingBalanceEqualityProof),
-		TransferAmountLoEqualityProof:           c.TransferAmountLoEqualityProof.ToProto(proofs.TransferAmountLoEqualityProof),
-		TransferAmountHiEqualityProof:           c.TransferAmountHiEqualityProof.ToProto(proofs.TransferAmountHiEqualityProof),
+		RemainingBalanceCommitmentValidityProof: NewCiphertextValidityProofProto(proofs.RemainingBalanceCommitmentValidityProof),
+		SenderTransferAmountLoValidityProof:     NewCiphertextValidityProofProto(proofs.SenderTransferAmountLoValidityProof),
+		SenderTransferAmountHiValidityProof:     NewCiphertextValidityProofProto(proofs.SenderTransferAmountHiValidityProof),
+		RecipientTransferAmountLoValidityProof:  NewCiphertextValidityProofProto(proofs.RecipientTransferAmountLoValidityProof),
+		RecipientTransferAmountHiValidityProof:  NewCiphertextValidityProofProto(proofs.RecipientTransferAmountHiValidityProof),
+		RemainingBalanceRangeProof:              NewRangeProofProto(proofs.RemainingBalanceRangeProof),
+		RemainingBalanceEqualityProof:           NewCiphertextCommitmentEqualityProofProto(proofs.RemainingBalanceEqualityProof),
+		TransferAmountLoEqualityProof:           NewCiphertextCiphertextEqualityProofProto(proofs.TransferAmountLoEqualityProof),
+		TransferAmountHiEqualityProof:           NewCiphertextCiphertextEqualityProofProto(proofs.TransferAmountHiEqualityProof),
 	}
 }
 
@@ -175,8 +174,8 @@ func (w *WithdrawMsgProofs) Validate() error {
 
 func (w *WithdrawMsgProofs) NewWithdrawMsgProofs(proofs *WithdrawProofs) *WithdrawMsgProofs {
 	return &WithdrawMsgProofs{
-		RemainingBalanceRangeProof:    w.RemainingBalanceRangeProof.ToProto(proofs.RemainingBalanceRangeProof),
-		RemainingBalanceEqualityProof: w.RemainingBalanceEqualityProof.ToProto(proofs.RemainingBalanceEqualityProof),
+		RemainingBalanceRangeProof:    NewRangeProofProto(proofs.RemainingBalanceRangeProof),
+		RemainingBalanceEqualityProof: NewCiphertextCommitmentEqualityProofProto(proofs.RemainingBalanceEqualityProof),
 	}
 }
 
@@ -203,7 +202,7 @@ func (c *CiphertextValidityProof) Validate() error {
 	return nil
 }
 
-func (c *CiphertextValidityProof) ToProto(zkp *zkproofs.CiphertextValidityProof) *CiphertextValidityProof {
+func NewCiphertextValidityProofProto(zkp *zkproofs.CiphertextValidityProof) *CiphertextValidityProof {
 	return &CiphertextValidityProof{
 		Commitment_1: zkp.Commitment1.ToAffineCompressed(),
 		Commitment_2: zkp.Commitment2.ToAffineCompressed(),
@@ -253,7 +252,7 @@ func (r *RangeProof) Validate() error {
 	return nil
 }
 
-func (r *RangeProof) ToProto(zkp *zkproofs.RangeProof) *RangeProof {
+func NewRangeProofProto(zkp *zkproofs.RangeProof) *RangeProof {
 	return &RangeProof{
 		Proof:      zkp.Proof.MarshalBinary(),
 		Randomness: zkp.Randomness.ToAffineCompressed(),
@@ -293,7 +292,7 @@ func (c *CiphertextCommitmentEqualityProof) Validate() error {
 	return nil
 }
 
-func (c *CiphertextCommitmentEqualityProof) ToProto(zkp *zkproofs.CiphertextCommitmentEqualityProof) *CiphertextCommitmentEqualityProof {
+func NewCiphertextCommitmentEqualityProofProto(zkp *zkproofs.CiphertextCommitmentEqualityProof) *CiphertextCommitmentEqualityProof {
 	return &CiphertextCommitmentEqualityProof{
 		Y0: zkp.Y0.ToAffineCompressed(),
 		Y1: zkp.Y1.ToAffineCompressed(),
@@ -358,7 +357,7 @@ func (c *CiphertextCiphertextEqualityProof) Validate() error {
 	return nil
 }
 
-func (c *CiphertextCiphertextEqualityProof) ToProto(zkp *zkproofs.CiphertextCiphertextEqualityProof) *CiphertextCiphertextEqualityProof {
+func NewCiphertextCiphertextEqualityProofProto(zkp *zkproofs.CiphertextCiphertextEqualityProof) *CiphertextCiphertextEqualityProof {
 	return &CiphertextCiphertextEqualityProof{
 		Y0: zkp.Y0.ToAffineCompressed(),
 		Y1: zkp.Y1.ToAffineCompressed(),
@@ -430,15 +429,13 @@ func (a *Auditor) Validate() error {
 	return nil
 }
 
-func (a *Auditor) ToProto(transferAuditor *TransferAuditor) *Auditor {
+func NewAuditorProto(transferAuditor *TransferAuditor) *Auditor {
 	transferAmountLo := NewCiphertextProto(transferAuditor.EncryptedTransferAmountLo)
 	transferAmountHi := NewCiphertextProto(transferAuditor.EncryptedTransferAmountHi)
-	cipherTextValidity := CiphertextValidityProof{}
-	transferAmountLoValidityProof := cipherTextValidity.ToProto(transferAuditor.TransferAmountLoValidityProof)
-	transferAmountHiValidityProof := cipherTextValidity.ToProto(transferAuditor.TransferAmountHiValidityProof)
-	ciphertextCiphertextEquality := CiphertextCiphertextEqualityProof{}
-	transferAmountLoEqualityProof := ciphertextCiphertextEquality.ToProto(transferAuditor.TransferAmountLoEqualityProof)
-	transferAmountHiEqualityProof := ciphertextCiphertextEquality.ToProto(transferAuditor.TransferAmountHiEqualityProof)
+	transferAmountLoValidityProof := NewCiphertextValidityProofProto(transferAuditor.TransferAmountLoValidityProof)
+	transferAmountHiValidityProof := NewCiphertextValidityProofProto(transferAuditor.TransferAmountHiValidityProof)
+	transferAmountLoEqualityProof := NewCiphertextCiphertextEqualityProofProto(transferAuditor.TransferAmountLoEqualityProof)
+	transferAmountHiEqualityProof := NewCiphertextCiphertextEqualityProofProto(transferAuditor.TransferAmountHiEqualityProof)
 	return &Auditor{
 		AuditorAddress:                transferAuditor.Address,
 		EncryptedTransferAmountLo:     transferAmountLo,
@@ -533,7 +530,7 @@ func (p *PubkeyValidityProof) FromProto() (*zkproofs.PubKeyValidityProof, error)
 	}, nil
 }
 
-func (z *ZeroBalanceProof) ToProto(zkp *zkproofs.ZeroBalanceProof) *ZeroBalanceProof {
+func NewZeroBalanceProofProto(zkp *zkproofs.ZeroBalanceProof) *ZeroBalanceProof {
 	return &ZeroBalanceProof{
 		YP: zkp.Yp.ToAffineCompressed(),
 		YD: zkp.Yd.ToAffineCompressed(),
@@ -576,22 +573,22 @@ type CloseAccountProofs struct {
 	ZeroPendingBalanceHiProof *zkproofs.ZeroBalanceProof
 }
 
-func (c *CloseAccountProof) Validate() error {
+func (c *CloseAccountMsgProofs) Validate() error {
 	if c.ZeroAvailableBalanceProof == nil || c.ZeroPendingBalanceLoProof == nil || c.ZeroPendingBalanceHiProof == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "close account proof is invalid")
 	}
 	return nil
 }
 
-func (c *CloseAccountProof) ToProto(proofs *CloseAccountProofs) *CloseAccountProof {
-	return &CloseAccountProof{
-		ZeroAvailableBalanceProof: c.ZeroAvailableBalanceProof.ToProto(proofs.ZeroAvailableBalanceProof),
-		ZeroPendingBalanceLoProof: c.ZeroPendingBalanceLoProof.ToProto(proofs.ZeroPendingBalanceLoProof),
-		ZeroPendingBalanceHiProof: c.ZeroPendingBalanceHiProof.ToProto(proofs.ZeroPendingBalanceHiProof),
+func NewCloseAccountMsgProofs(proofs *CloseAccountProofs) *CloseAccountMsgProofs {
+	return &CloseAccountMsgProofs{
+		ZeroAvailableBalanceProof: NewZeroBalanceProofProto(proofs.ZeroAvailableBalanceProof),
+		ZeroPendingBalanceLoProof: NewZeroBalanceProofProto(proofs.ZeroPendingBalanceLoProof),
+		ZeroPendingBalanceHiProof: NewZeroBalanceProofProto(proofs.ZeroPendingBalanceHiProof),
 	}
 }
 
-func (c *CloseAccountProof) FromProto() (*CloseAccountProofs, error) {
+func (c *CloseAccountMsgProofs) FromProto() (*CloseAccountProofs, error) {
 	err := c.Validate()
 	if err != nil {
 		return nil, err

@@ -224,12 +224,14 @@ func (m *MsgApplyPendingBalance) Route() string { return RouterKey }
 func (m *MsgApplyPendingBalance) Type() string { return TypeMsgApplyPendingBalance }
 
 func (m *MsgApplyPendingBalance) ValidateBasic() error {
-	if len(m.Address) == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Address is required")
+	_, err := sdk.AccAddressFromBech32(m.Address)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid address (%s)", err)
 	}
 
-	if len(m.Denom) == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Denom is required")
+	err = sdk.ValidateDenom(m.Denom)
+	if err != nil {
+		return err
 	}
 
 	if len(m.NewDecryptableAvailableBalance) == 0 {
@@ -256,19 +258,21 @@ func (m *MsgCloseAccount) Route() string { return RouterKey }
 func (m *MsgCloseAccount) Type() string { return TypeMsgCloseAccount }
 
 func (m *MsgCloseAccount) ValidateBasic() error {
-	if len(m.Address) == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Address is required")
+	_, err := sdk.AccAddressFromBech32(m.Address)
+	if err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid address (%s)", err)
 	}
 
-	if len(m.Denom) == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Denom is required")
+	err = sdk.ValidateDenom(m.Denom)
+	if err != nil {
+		return err
 	}
 
-	if m.Proof == nil {
+	if m.Proofs == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
 	}
 
-	err := m.Proof.Validate()
+	err = m.Proofs.Validate()
 
 	if err != nil {
 		return err

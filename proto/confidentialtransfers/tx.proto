@@ -107,6 +107,9 @@ message MsgWithdrawResponse {}
 
 // Message to be used in apply pending balance instruction/transaction
 message MsgApplyPendingBalance {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
   string address = 1;
   string denom = 2;
   string new_decryptable_available_balance = 3;
@@ -116,9 +119,12 @@ message MsgApplyPendingBalanceResponse {}
 
 // Message to be used in close account instruction/transaction
 message MsgCloseAccount {
-  string address = 1;
-  string denom = 2;
-  CloseAccountProof proof = 3;
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string address = 1 [(gogoproto.moretags) = "yaml:\"address\""];
+  string denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
+  CloseAccountMsgProofs proofs = 3 [(gogoproto.moretags) = "yaml:\"proofs\""];
 }
 
 message MsgCloseAccountResponse {}

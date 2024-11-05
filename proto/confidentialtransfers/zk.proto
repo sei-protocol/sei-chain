@@ -25,6 +25,12 @@ message WithdrawMsgProofs {
   CiphertextCommitmentEqualityProof remaining_balance_equality_proof = 2;
 }
 
+message CloseAccountMsgProofs {
+  ZeroBalanceProof zero_available_balance_proof = 1;
+  ZeroBalanceProof zero_pending_balance_lo_proof = 2;
+  ZeroBalanceProof zero_pending_balance_hi_proof = 3;
+}
+
 message PubkeyValidityProof {
   bytes y = 1;
   bytes z = 2;
@@ -73,10 +79,4 @@ message ZeroBalanceProof {
   bytes y_p = 1;
   bytes y_d = 2;
   bytes z = 3;
-}
-
-message CloseAccountProof {
-  ZeroBalanceProof zero_available_balance_proof = 1;
-  ZeroBalanceProof zero_pending_balance_lo_proof = 2;
-  ZeroBalanceProof zero_pending_balance_hi_proof = 3;
 }

@@ -347,12 +347,10 @@ func TestWithdrawMsgProofs_FromProto(t *testing.T) {
 	scalarValue := curves.ED25519().Scalar.New(int(value))
 	encrypted, randomness, _ := eg.Encrypt(sourceKeypair.PublicKey, value)
 	rangeProof, _ := zkproofs.NewRangeProof(64, int(value), randomness)
-	rp := RangeProof{}
-	rangeProofProto := rp.ToProto(rangeProof)
+	rangeProofProto := NewRangeProofProto(rangeProof)
 
-	ep := CiphertextCommitmentEqualityProof{}
 	equalityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(sourceKeypair, encrypted, &randomness, &scalarValue)
-	equalityProofProto := ep.ToProto(equalityProof)
+	equalityProofProto := NewCiphertextCommitmentEqualityProofProto(equalityProof)
 
 	tests := []struct {
 		name    string
@@ -408,12 +406,10 @@ func TestWithdrawMsgProofs_Validate(t *testing.T) {
 	scalarValue := curves.ED25519().Scalar.New(int(value))
 	encrypted, randomness, _ := eg.Encrypt(sourceKeypair.PublicKey, value)
 	rangeProof, _ := zkproofs.NewRangeProof(64, int(value), randomness)
-	rp := RangeProof{}
-	rangeProofProto := rp.ToProto(rangeProof)
+	rangeProofProto := NewRangeProofProto(rangeProof)
 
-	ep := CiphertextCommitmentEqualityProof{}
 	equalityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(sourceKeypair, encrypted, &randomness, &scalarValue)
-	equalityProofProto := ep.ToProto(equalityProof)
+	equalityProofProto := NewCiphertextCommitmentEqualityProofProto(equalityProof)
 
 	tests := []struct {
 		name    string
@@ -450,6 +446,126 @@ func TestWithdrawMsgProofs_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.proofs.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCloseAccountMsgProofs_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		proofs  CloseAccountMsgProofs
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid proofs",
+			proofs: CloseAccountMsgProofs{
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{},
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{},
+				ZeroPendingBalanceHiProof: &ZeroBalanceProof{},
+			},
+			wantErr: false,
+		},
+		{
+			name:    "missing ZeroAvailableBalanceProof",
+			proofs:  CloseAccountMsgProofs{},
+			wantErr: true,
+			errMsg:  "close account proof is invalid",
+		},
+		{
+			name: "missing ZeroPendingBalanceLoProof",
+			proofs: CloseAccountMsgProofs{
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{},
+			},
+			wantErr: true,
+			errMsg:  "close account proof is invalid",
+		},
+		{
+			name: "missing ZeroPendingBalanceHiProof",
+			proofs: CloseAccountMsgProofs{
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{},
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{},
+			},
+			wantErr: true,
+			errMsg:  "close account proof is invalid",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.proofs.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCloseAccountMsgProofs_FromProto(t *testing.T) {
+	tests := []struct {
+		name    string
+		proofs  CloseAccountMsgProofs
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "missing ZeroAvailableBalanceProof",
+			proofs:  CloseAccountMsgProofs{},
+			wantErr: true,
+			errMsg:  "close account proof is invalid",
+		},
+		{
+			name: "missing ZeroPendingBalanceLoProof",
+			proofs: CloseAccountMsgProofs{
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{},
+			},
+			wantErr: true,
+			errMsg:  "close account proof is invalid",
+		},
+		{
+			name: "missing ZeroPendingBalanceHiProof",
+			proofs: CloseAccountMsgProofs{
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{},
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{},
+			},
+			wantErr: true,
+			errMsg:  "close account proof is invalid",
+		},
+		{
+			name: "valid proofs",
+			proofs: CloseAccountMsgProofs{
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroPendingBalanceHiProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.proofs.FromProto()
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errMsg)
