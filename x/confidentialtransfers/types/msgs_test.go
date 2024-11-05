@@ -428,7 +428,6 @@ func TestMsgInitializeAccount_FromProto(t *testing.T) {
 	}
 
 	assert.NoError(t, m.ValidateBasic())
-
 	marshalled, err := m.Marshal()
 	require.NoError(t, err)
 
@@ -712,4 +711,73 @@ func TestMsgWithdraw_ValidateBasic(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMsgCloseAccount_FromProto(t *testing.T) {
+	address := sdk.AccAddress("address1")
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	privateKey, _ := elgamal.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	keypair, _ := eg.KeyGen(*privateKey, testDenom)
+	availableBalanceCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, 0)
+	pendingBalanceLoCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, 0)
+	pendingBalanceHiCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, 0)
+
+	availableBalanceProof, err := zkproofs.NewZeroBalanceProof(keypair, availableBalanceCiphertext)
+	require.NoError(t, err)
+	pendingBalanceProofLo, err := zkproofs.NewZeroBalanceProof(keypair, pendingBalanceLoCiphertext)
+	require.NoError(t, err)
+	pendingBalanceProofHi, err := zkproofs.NewZeroBalanceProof(keypair, pendingBalanceHiCiphertext)
+	require.NoError(t, err)
+
+	closeAccountProofs := &CloseAccountProofs{
+		ZeroAvailableBalanceProof: availableBalanceProof,
+		ZeroPendingBalanceLoProof: pendingBalanceProofLo,
+		ZeroPendingBalanceHiProof: pendingBalanceProofHi,
+	}
+
+	closeAccountProof := CloseAccountProof{}
+	proof := closeAccountProof.ToProto(closeAccountProofs)
+
+	m := &MsgCloseAccount{
+		Address: address.String(),
+		Denom:   testDenom,
+		Proof:   proof,
+	}
+
+	marshalled, err := m.Marshal()
+	require.NoError(t, err)
+
+	result := &MsgCloseAccount{}
+	err = result.Unmarshal(marshalled)
+	require.NoError(t, err)
+
+	assert.Equal(t, m.Address, result.Address)
+	assert.Equal(t, m.Denom, result.Denom)
+	resultProof, err := result.Proof.FromProto()
+	require.NoError(t, err)
+
+	assert.NoError(t, result.ValidateBasic())
+
+	assert.True(t, closeAccountProofs.ZeroAvailableBalanceProof.Yd.Equal(resultProof.ZeroAvailableBalanceProof.Yd))
+	assert.True(t, closeAccountProofs.ZeroAvailableBalanceProof.Yp.Equal(resultProof.ZeroAvailableBalanceProof.Yp))
+	assert.Equal(t, closeAccountProofs.ZeroAvailableBalanceProof.Z, resultProof.ZeroAvailableBalanceProof.Z)
+
+	assert.True(t, closeAccountProofs.ZeroPendingBalanceLoProof.Yd.Equal(resultProof.ZeroPendingBalanceLoProof.Yd))
+	assert.True(t, closeAccountProofs.ZeroPendingBalanceLoProof.Yp.Equal(resultProof.ZeroPendingBalanceLoProof.Yp))
+	assert.Equal(t, closeAccountProofs.ZeroPendingBalanceLoProof.Z, resultProof.ZeroPendingBalanceLoProof.Z)
+
+	assert.True(t, closeAccountProofs.ZeroPendingBalanceHiProof.Yd.Equal(resultProof.ZeroPendingBalanceHiProof.Yd))
+	assert.True(t, closeAccountProofs.ZeroPendingBalanceHiProof.Yp.Equal(resultProof.ZeroPendingBalanceHiProof.Yp))
+	assert.Equal(t, closeAccountProofs.ZeroPendingBalanceHiProof.Z, resultProof.ZeroPendingBalanceHiProof.Z)
+
+	// Make sure the proofs are valid
+	assert.True(t, zkproofs.VerifyZeroBalance(
+		resultProof.ZeroAvailableBalanceProof, &keypair.PublicKey, availableBalanceCiphertext))
+
+	assert.True(t, zkproofs.VerifyZeroBalance(
+		resultProof.ZeroPendingBalanceLoProof, &keypair.PublicKey, pendingBalanceLoCiphertext))
+
+	assert.True(t, zkproofs.VerifyZeroBalance(
+		resultProof.ZeroPendingBalanceHiProof, &keypair.PublicKey, pendingBalanceHiCiphertext))
 }

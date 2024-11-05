@@ -21,6 +21,13 @@ service Msg {
 
   // Withdraw defines a method for withdrawing funds from a confidential transfers account.
   rpc Withdraw(MsgWithdraw) returns (MsgWithdraw);
+
+  // ApplyPendingBalance defines a method for applying pending balance to an account.
+  rpc ApplyPendingBalance(MsgApplyPendingBalance) returns (MsgApplyPendingBalanceResponse);
+
+  // CloseAccount defines a method for closing an account.
+  rpc CloseAccount(MsgCloseAccount) returns (MsgCloseAccountResponse);
+
 }
 
 // MsgTransfer represents a message to send coins from one account to another.
@@ -97,3 +104,21 @@ message MsgWithdraw {
 
 // MsgWithdrawResponse defines the Msg/Send response type.
 message MsgWithdrawResponse {}
+
+// Message to be used in apply pending balance instruction/transaction
+message MsgApplyPendingBalance {
+  string address = 1;
+  string denom = 2;
+  string new_decryptable_available_balance = 3;
+}
+
+message MsgApplyPendingBalanceResponse {}
+
+// Message to be used in close account instruction/transaction
+message MsgCloseAccount {
+  string address = 1;
+  string denom = 2;
+  CloseAccountProof proof = 3;
+}
+
+message MsgCloseAccountResponse {}
