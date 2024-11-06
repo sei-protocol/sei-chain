@@ -11,8 +11,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
 // TODO: This is just scaffolding. To be implemented.
@@ -22,8 +20,7 @@ type (
 
 		cdc codec.Codec
 
-		// TODO: Add any required keepers here
-		// accountKeeper types.AccountKeeper
+		bankKeeper types.BankKeeper
 	}
 )
 
@@ -36,11 +33,17 @@ func (k Keeper) TestQuery(ctx context.Context, request *types.TestQueryRequest) 
 func NewKeeper(
 	codec codec.Codec,
 	storeKey sdk.StoreKey,
-	paramSpace paramtypes.Subspace,
+	ak types.AccountKeeper,
+	bk types.BankKeeper,
 ) Keeper {
+	if addr := ak.GetModuleAddress(types.ModuleName); addr == nil {
+		panic("the confidential transfers module account has not been set")
+	}
+
 	return Keeper{
-		cdc:      codec,
-		storeKey: storeKey,
+		cdc:        codec,
+		storeKey:   storeKey,
+		bankKeeper: bk,
 	}
 }
 
@@ -61,10 +64,10 @@ func (k Keeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string
 	return *account, true
 }
 
-func (k Keeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account) {
+func (k Keeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account *types.Account) {
 	store := ctx.KVStore(k.storeKey)
 	key := types.GetAccountKey(address, denom)
-	ctAccount := account.ToProto()
+	ctAccount := types.NewCtAccount(account)
 	bz := k.cdc.MustMarshal(ctAccount) // Marshal the Account object into bytes
 	store.Set(key, bz)                 // Store the serialized account under the key
 }

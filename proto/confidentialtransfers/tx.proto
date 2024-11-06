@@ -14,13 +14,13 @@ service Msg {
   rpc Transfer(MsgTransfer) returns (MsgTransferResponse);
 
   // InitializeAccount defines a method for creating a new confidential transfers account for some denom.
-  rpc InitializeAccount(MsgInitializeAccount) returns (MsgInitializeAccount);
+  rpc InitializeAccount(MsgInitializeAccount) returns (MsgInitializeAccountResponse);
 
   // Deposit defines a method for depositing funds into a confidential transfers account.
-  rpc Deposit(MsgDeposit) returns (MsgDeposit);
+  rpc Deposit(MsgDeposit) returns (MsgDepositResponse);
 
   // Withdraw defines a method for withdrawing funds from a confidential transfers account.
-  rpc Withdraw(MsgWithdraw) returns (MsgWithdraw);
+  rpc Withdraw(MsgWithdraw) returns (MsgWithdrawResponse);
 
   // ApplyPendingBalance defines a method for applying pending balance to an account.
   rpc ApplyPendingBalance(MsgApplyPendingBalance) returns (MsgApplyPendingBalanceResponse);
