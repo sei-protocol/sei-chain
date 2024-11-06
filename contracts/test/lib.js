@@ -446,6 +446,7 @@ function execCommand(command) {
                 reject(new Error(stderr));
                 return;
             }
+            console.log(stdout)
             resolve(stdout);
         });
     })
