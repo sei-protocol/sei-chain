@@ -61,7 +61,6 @@ describe("NFT Marketplace", function () {
 
                 // Send one NFT to the seller so they can list it.
                 await estimateAndCall(nftContract, "transferFrom", [deployer.address, seller.address, tokenId]);
-
                 let nftOwner = await nftContract.ownerOf(tokenId);
 
                 // Seller should have the token here
