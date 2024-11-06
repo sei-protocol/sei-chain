@@ -168,6 +168,18 @@ func (m *MsgInitializeAccount) ValidateBasic() error {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "DecryptableBalance is required")
 	}
 
+	if m.PendingBalanceLo == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "PendingAmountLo is required")
+	}
+
+	if m.PendingBalanceHi == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "PendingAmountHi is required")
+	}
+
+	if m.AvailableBalance == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "AvailableBalance is required")
+	}
+
 	if m.Proofs == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
 	}
@@ -201,6 +213,21 @@ func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
 		return nil, err
 	}
 
+	pendingBalanceLo, err := m.PendingBalanceLo.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	pendingBalanceHi, err := m.PendingBalanceHi.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	availableBalance, err := m.AvailableBalance.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
 	proofs, err := m.Proofs.FromProto()
 	if err != nil {
 		return nil, err
@@ -210,6 +237,9 @@ func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
 		FromAddress:        m.FromAddress,
 		Denom:              m.Denom,
 		Pubkey:             &pubkey,
+		PendingAmountLo:    pendingBalanceLo,
+		PendingAmountHi:    pendingBalanceHi,
+		AvailableBalance:   availableBalance,
 		DecryptableBalance: m.DecryptableBalance,
 		Proofs:             proofs,
 	}, nil

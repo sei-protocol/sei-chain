@@ -18,6 +18,9 @@ message TransferMsgProofs {
 
 message InitializeAccountMsgProofs {
   PubkeyValidityProof pubkey_validity_proof = 1;
+  ZeroBalanceProof zero_pending_balance_lo_proof = 2;
+  ZeroBalanceProof zero_pending_balance_hi_proof = 3;
+  ZeroBalanceProof zero_available_balance_proof = 4;
 }
 
 message WithdrawMsgProofs {
