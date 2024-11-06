@@ -368,6 +368,7 @@ type App struct {
 
 	genesisImportConfig genesistypes.GenesisImportConfig
 
+	stateStore   seidb.StateStore
 	receiptStore seidb.StateStore
 }
 
@@ -396,7 +397,7 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bAppOptions := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
+	bAppOptions, stateStore := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
 
 	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
@@ -429,6 +430,7 @@ func New(
 		versionInfo:       version.NewInfo(),
 		metricCounter:     &map[string]float32{},
 		encodingConfig:    encodingConfig,
+		stateStore:        stateStore,
 	}
 
 	for _, option := range appOptions {
@@ -695,6 +697,7 @@ func New(
 			false,
 			&app.EvmKeeper,
 			app.BankKeeper,
+			bankkeeper.NewMsgServerImpl(app.BankKeeper),
 			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
 			app.WasmKeeper,
 			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
@@ -1063,6 +1066,9 @@ func (app *App) Name() string { return app.BaseApp.Name() }
 
 // GetBaseApp returns the base app of the application
 func (app App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
+
+// GetStateStore returns the state store of the application
+func (app App) GetStateStore() seidb.StateStore { return app.stateStore }
 
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
