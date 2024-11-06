@@ -239,6 +239,7 @@ async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRp
         command = command + ` --evm-rpc=${evmRpc}`
     }
     const output = await execute(command);
+    console.log(output);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
     while(attempt < 15) {
