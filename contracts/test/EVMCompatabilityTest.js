@@ -157,7 +157,7 @@ describe("EVM Test", function () {
 
           await delay()
           // Call balanceOf using callAnotherContract from EVMCompatibilityTester
-          await evmTester.callAnotherContract(tokenAddress, balanceOfData, {gasPrice: (await ethers.provider.getFeeData()).gasPrice});
+          await evmTester.callAnotherContract(tokenAddress, balanceOfData);
 
           await delay()
           // Verify the balance using MyToken contract directly
