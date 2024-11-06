@@ -243,6 +243,7 @@ async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRp
     let attempt = 0;
     while(attempt < 15) {
         const receipt = await provider.getTransactionReceipt(txHash);
+        console.log(`Receipt ${attempt}: ${receipt}`)
         if(receipt) {
             return (await getPointerForNative(name)).pointer
         }

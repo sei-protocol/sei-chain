@@ -160,6 +160,7 @@ async function deployUniswapContracts(deployer, testChain, accounts){
 
   if (testChain === 'seilocal') {
     const tx = await fundAddress(deployer.address, amount="2000000000000000000000");
+    console.log('Fund Tx Result is', tx);
     await waitFor(1);
   }
 
