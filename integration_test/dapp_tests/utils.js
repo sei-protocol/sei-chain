@@ -132,7 +132,7 @@ async function writeAddressesIntoUniswapConfig(deployer, testChain, accounts){
 }
 
 async function writeAddressesIntoSteakConfig(testChain){
-  const contracts = await deployContractsForSteakTests(testChain);
+  const {contracts} = await deployContractsForSteakTests(testChain);
   const contractAddresses = {
     hubAddress: contracts.hubAddress,
     tokenAddress: contracts.tokenAddress,
@@ -594,7 +594,7 @@ async function deployAndReturnContractsForSteakTests(deployer, testChain, accoun
 async function deployContractsForSteakTests(testChain){
   let owner;
   // Set up the owner account
-  if (testChain === 'seilocal') {
+  if (testChain === 'seilocal' || testChain === 'seiCluster') {
     owner = await setupAccount("steak-owner");
   } else {
     const accounts = hre.config.networks[testChain].accounts
@@ -613,7 +613,6 @@ async function deployContractsForSteakTests(testChain){
     owner.address,
     testChain,
   );
-
   return {contracts, owner};
 }
 
@@ -621,11 +620,9 @@ async function deploySteakContracts(ownerAddress, testChain) {
   // Store CW20 token wasm
   const STEAK_TOKEN_WASM = (await isDocker()) ? '../integration_test/dapp_tests/steak/contracts/steak_token.wasm' : path.resolve(__dirname, 'steak/contracts/steak_token.wasm')
   const tokenCodeId = await storeWasm(STEAK_TOKEN_WASM, ownerAddress);
-
   // Store Hub contract
   const STEAK_HUB_WASM = (await isDocker()) ? '../integration_test/dapp_tests/steak/contracts/steak_hub.wasm' : path.resolve(__dirname, 'steak/contracts/steak_hub.wasm')
   const hubCodeId = await storeWasm(STEAK_HUB_WASM, ownerAddress);
-
   // Instantiate hub and token contracts
   const validators = await getValidators();
   const instantiateMsg = {
@@ -638,13 +635,13 @@ async function deploySteakContracts(ownerAddress, testChain) {
     unbond_period: 1814400,
     validators: validators.slice(0, 3),
   };
+
   const contractAddresses = await instantiateHubContract(
     hubCodeId,
     ownerAddress,
     instantiateMsg,
     "steakhub"
   );
-
   // Deploy pointer for token contract
   const pointerAddr = await deployErc20PointerForCw20(
     hre.ethers.provider,
