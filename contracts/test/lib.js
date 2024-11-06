@@ -217,6 +217,7 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, fro
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
+    console.log('Deploy command ran');
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
@@ -439,7 +440,7 @@ function execCommand(command) {
     return new Promise((resolve, reject) => {
         exec(command, (error, stdout, stderr) => {
             if (error) {
-                console.log(error)
+                console.log(error);
                 reject(error);
                 return;
             }
@@ -448,7 +449,7 @@ function execCommand(command) {
                 reject(new Error(stderr));
                 return;
             }
-            console.log(stdout)
+            console.log('stdout is ', stdout);
             resolve(stdout);
         });
     })
