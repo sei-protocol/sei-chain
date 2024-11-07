@@ -131,10 +131,10 @@ func getCommonFilterLogTests() []GetFilterLogTests {
 		},
 		{
 			name:    "filter by single topic with default range",
-			topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
+			topics:  [][]common.Hash{{common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")}},
 			wantErr: false,
 			check: func(t *testing.T, log map[string]interface{}) {
-				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", log["topics"].([]interface{})[0].(string))
+				require.Equal(t, "0x1111111111111111111111111111111111111111111111111111111111111111", log["topics"].([]interface{})[0].(string))
 			},
 			wantLen: 1,
 		},
@@ -283,7 +283,7 @@ func TestFilterGetFilterLogs(t *testing.T) {
 
 	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 4, len(logs))
+	require.Equal(t, 7, len(logs))
 	for _, log := range logs {
 		logObj := log.(map[string]interface{})
 		require.Equal(t, "0x2", logObj["blockNumber"].(string))

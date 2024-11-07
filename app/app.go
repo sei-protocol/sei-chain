@@ -697,6 +697,7 @@ func New(
 			false,
 			&app.EvmKeeper,
 			app.BankKeeper,
+			bankkeeper.NewMsgServerImpl(app.BankKeeper),
 			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
 			app.WasmKeeper,
 			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
