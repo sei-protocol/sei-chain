@@ -116,6 +116,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	ctkeeper "github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -338,7 +339,8 @@ type App struct {
 
 	EpochKeeper epochmodulekeeper.Keeper
 
-	TokenFactoryKeeper tokenfactorykeeper.Keeper
+	TokenFactoryKeeper          tokenfactorykeeper.Keeper
+	ConfidentialTransfersKeeper ctkeeper.Keeper
 
 	// mm is the module manager
 	mm *module.Manager

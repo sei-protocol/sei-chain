@@ -16,18 +16,28 @@ import (
 )
 
 // TODO: This is just scaffolding. To be implemented.
-type (
-	Keeper struct {
-		storeKey sdk.StoreKey
+type Keeper interface {
+	InitGenesis(sdk.Context, *types.GenesisState)
+	ExportGenesis(sdk.Context) *types.GenesisState
 
-		cdc codec.Codec
+	GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool)
+	SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account)
 
-		// TODO: Add any required keepers here
-		// accountKeeper types.AccountKeeper
-	}
-)
+	GetParams(ctx sdk.Context) types.Params
+	SetParams(ctx sdk.Context, params types.Params)
+}
 
-func (k Keeper) TestQuery(ctx context.Context, request *types.TestQueryRequest) (*types.TestQueryResponse, error) {
+type BaseKeeper struct {
+	storeKey sdk.StoreKey
+
+	cdc codec.Codec
+
+	paramSpace paramtypes.Subspace
+	// TODO: Add any required keepers here
+	// accountKeeper types.AccountKeeper
+}
+
+func (k BaseKeeper) TestQuery(ctx context.Context, request *types.TestQueryRequest) (*types.TestQueryResponse, error) {
 	//TODO: This is not a real gRPC query. This was added to the query.proto file as a placeholder. We should remove this and add the real queries once we better define query.proto.
 	panic("implement me")
 }
@@ -38,13 +48,18 @@ func NewKeeper(
 	storeKey sdk.StoreKey,
 	paramSpace paramtypes.Subspace,
 ) Keeper {
-	return Keeper{
+
+	if !paramSpace.HasKeyTable() {
+		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
+	}
+
+	return BaseKeeper{
 		cdc:      codec,
 		storeKey: storeKey,
 	}
 }
 
-func (k Keeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool) {
+func (k BaseKeeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool) {
 	store := ctx.KVStore(k.storeKey)
 	key := types.GetAccountKey(address, denom)
 	if !store.Has(key) {
@@ -61,22 +76,22 @@ func (k Keeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string
 	return *account, true
 }
 
-func (k Keeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account) {
+func (k BaseKeeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account) {
 	store := ctx.KVStore(k.storeKey)
 	key := types.GetAccountKey(address, denom)
-	ctAccount := account.ToProto()
+	ctAccount := types.NewCtAccount(&account)
 	bz := k.cdc.MustMarshal(ctAccount) // Marshal the Account object into bytes
 	store.Set(key, bz)                 // Store the serialized account under the key
 }
 
 // Logger returns a logger for the x/confidentialtransfers module
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
+func (k BaseKeeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }
 
 // GetAccountsForAddress iterates over all accounts associated with a given address
 // and returns a mapping of denom:account
-func (k Keeper) GetAccountsForAddress(ctx sdk.Context, address sdk.AccAddress) (map[string]*types.Account, error) {
+func (k BaseKeeper) GetAccountsForAddress(ctx sdk.Context, address sdk.AccAddress) (map[string]*types.Account, error) {
 	// Create a prefix store scoped to the address
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.GetAddressPrefix(address))
 
@@ -102,4 +117,21 @@ func (k Keeper) GetAccountsForAddress(ctx sdk.Context, address sdk.AccAddress) (
 	}
 
 	return accounts, nil
+}
+
+func (k BaseKeeper) GetParams(ctx sdk.Context) (params types.Params) {
+	k.paramSpace.GetParamSet(ctx, &params)
+	return params
+}
+
+// SetParams sets the total set of bank parameters.
+func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
+	k.paramSpace.SetParamSet(ctx, &params)
+}
+
+// getAccountStore gets the account store of the given address.
+func (k BaseKeeper) getCtAccountStore(ctx sdk.Context, addr sdk.AccAddress) prefix.Store {
+	store := ctx.KVStore(k.storeKey)
+
+	return prefix.NewStore(store, types.CreateAccountBalancesPrefix(addr))
 }

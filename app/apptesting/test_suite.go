@@ -116,6 +116,11 @@ func (s *KeeperTestHelper) SetupTokenFactory() {
 	s.App.TokenFactoryKeeper.CreateModuleAccount(s.Ctx)
 }
 
+// SetupTokenFactory sets up a token module account for the TokenFactoryKeeper.
+func (s *KeeperTestHelper) SetupConfidentialTransfers() {
+	s.App.TokenFactoryKeeper.CreateModuleAccount(s.Ctx)
+}
+
 // EndBlock ends the block.
 func (s *KeeperTestHelper) EndBlock() {
 	reqEndBlock := abci.RequestEndBlock{Height: s.Ctx.BlockHeight()}

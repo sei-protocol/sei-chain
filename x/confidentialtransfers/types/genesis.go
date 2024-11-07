@@ -1,21 +1,44 @@
 package types
 
-// this line is used by starport scaffolding # genesis/types/import
+import "fmt"
 
-// DefaultIndex is the default capability global index
-const DefaultIndex uint64 = 1
-
-// DefaultGenesis returns the default Capability genesis state
-// TODO: Define the Genesis State as a .proto message once it's properly fleshed out
-func DefaultGenesis() *GenesisState {
-	return &GenesisState{
-		Params: Params{},
-	}
+// DefaultGenesisState returns the default Capability genesis state
+func DefaultGenesisState() *GenesisState {
+	return NewGenesisState(DefaultParams(), []GenesisCtAccount{})
 }
 
 // Validate performs basic genesis state validation returning an error upon any
 // failure.
-// TODO: Implement this method once DefaultGenesis is defined.
 func (gs GenesisState) Validate() error {
+	if err := gs.Params.Validate(); err != nil {
+		return err
+	}
+
+	accounts := make(map[string]bool)
+	for _, genesisCtAccount := range gs.Accounts {
+		if genesisCtAccount.Key == "" {
+			return fmt.Errorf("genesisCtAccount key cannot be empty")
+		}
+
+		if err := genesisCtAccount.Account.ValidateBasic(); err != nil {
+			return err
+		}
+
+		account := genesisCtAccount.Account
+		publicKey := string(account.PublicKey)
+		if accounts[publicKey] {
+			return fmt.Errorf("duplicate genesisCtAccount for public key %s", publicKey)
+		}
+		accounts[publicKey] = true
+
+	}
 	return nil
+}
+
+// NewGenesisState creates a new genesis state.
+func NewGenesisState(params Params, accounts []GenesisCtAccount) *GenesisState {
+	return &GenesisState{
+		Params:   params,
+		Accounts: accounts,
+	}
 }
