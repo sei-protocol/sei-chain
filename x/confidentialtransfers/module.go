@@ -158,7 +158,7 @@ func (am AppModule) LegacyQuerierHandler(_ *codec.LegacyAmino) sdk.Querier {
 // module-specific GRPC queries.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
-	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+	// types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	// TODO: Confirm that we don't need to define any Migrator here
 	//m := keeper.NewMigrator(am.keeper)

@@ -340,7 +340,8 @@ type App struct {
 
 	EpochKeeper epochmodulekeeper.Keeper
 
-	TokenFactoryKeeper          tokenfactorykeeper.Keeper
+	TokenFactoryKeeper tokenfactorykeeper.Keeper
+	// ConfidentialTransfers module is not live yet, but we add the keeper for testing
 	ConfidentialTransfersKeeper ctkeeper.Keeper
 
 	// mm is the module manager
@@ -415,6 +416,7 @@ func New(
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
+		// ConfidentialTransfers module is not live yet, but we add the key for testing
 		cttypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)

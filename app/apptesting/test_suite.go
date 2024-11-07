@@ -116,7 +116,7 @@ func (s *KeeperTestHelper) SetupTokenFactory() {
 	s.App.TokenFactoryKeeper.CreateModuleAccount(s.Ctx)
 }
 
-// SetupTokenFactory sets up a token module account for the TokenFactoryKeeper.
+// SetupConfidentialTransfers sets up a token module account for the ConfidentialTransfersKeeper.
 func (s *KeeperTestHelper) SetupConfidentialTransfers() {
 	s.App.ConfidentialTransfersKeeper.CreateModuleAccount(s.Ctx)
 }
