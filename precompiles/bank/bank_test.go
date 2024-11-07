@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"math/big"
 	"strings"
 	"testing"
@@ -65,7 +66,7 @@ func TestRun(t *testing.T) {
 	// Setup receiving addresses
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -272,7 +273,7 @@ func TestSendForUnlinkedReceiver(t *testing.T) {
 
 	// Setup receiving addresses - NOT linked
 	_, evmAddr := testkeeper.MockAddressPair()
-	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -342,7 +343,7 @@ func TestMetadata(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
-	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -381,7 +382,7 @@ func TestMetadata(t *testing.T) {
 
 func TestRequiredGas(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
-	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
 	require.Nil(t, err)
 	balanceRequiredGas := p.RequiredGas(p.GetExecutor().(*bank.PrecompileExecutor).BalanceID)
 	require.Equal(t, uint64(1000), balanceRequiredGas)
@@ -391,7 +392,7 @@ func TestRequiredGas(t *testing.T) {
 
 func TestAddress(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
-	p, err := bank.NewPrecompile(k.BankKeeper(), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
 	require.Nil(t, err)
 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
 }
