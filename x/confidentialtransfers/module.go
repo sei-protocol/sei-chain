@@ -13,10 +13,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
+
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
 	"github.com/spf13/cobra"
-	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -59,23 +60,34 @@ func (AppModuleBasic) RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {
 }
 
 // RegisterInterfaces registers the module's interface types
-func (a AppModuleBasic) RegisterInterfaces(reg cdctypes.InterfaceRegistry) {
+func (AppModuleBasic) RegisterInterfaces(reg cdctypes.InterfaceRegistry) {
 	types.RegisterInterfaces(reg)
 }
 
 // DefaultGenesis returns the x/confidentialtransfers module's default genesis state.
-func (AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
-	return cdc.MustMarshalJSON(types.DefaultGenesis())
+func (am AppModuleBasic) DefaultGenesis(cdc codec.JSONCodec) json.RawMessage {
+	return cdc.MustMarshalJSON(types.DefaultGenesisState())
 }
 
 // ValidateGenesis performs genesis state validation for the x/confidentialtransfers module.
-func (AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
+func (am AppModuleBasic) ValidateGenesis(cdc codec.JSONCodec, _ client.TxEncodingConfig, bz json.RawMessage) error {
 	var genState types.GenesisState
 	if err := cdc.UnmarshalJSON(bz, &genState); err != nil {
 		return fmt.Errorf("failed to unmarshal %s genesis state: %w", types.ModuleName, err)
 	}
 
 	return genState.Validate()
+}
+
+// ValidateGenesisStream performs genesis state validation for the x/confidentialtransfers module in a streaming fashion.
+func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
+	for genesis := range genesisCh {
+		err := am.ValidateGenesis(cdc, config, genesis)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // TODO: Look into whether we require REST endpoints
@@ -91,7 +103,7 @@ func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *r
 
 // TODO: Implement this when we add the CLI methods
 // GetTxCmd returns the x/confidentialtransfers module's root tx command.
-func (a AppModuleBasic) GetTxCmd() *cobra.Command {
+func (am AppModuleBasic) GetTxCmd() *cobra.Command {
 	//return cli.GetTxCmd()
 	return nil
 }
@@ -147,7 +159,7 @@ func (am AppModule) LegacyQuerierHandler(_ *codec.LegacyAmino) sdk.Querier {
 // module-specific GRPC queries.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
-	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+	// types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	// TODO: Confirm that we don't need to define any Migrator here
 	//m := keeper.NewMigrator(am.keeper)
@@ -165,8 +177,7 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, gs json.Ra
 	var genState types.GenesisState
 	cdc.MustUnmarshalJSON(gs, &genState)
 
-	// TODO: Uncomment once we implement InitGenesis
-	//am.keeper.InitGenesis(ctx, genState)
+	am.keeper.InitGenesis(ctx, &genState)
 
 	return []abci.ValidatorUpdate{}
 }
@@ -175,9 +186,8 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, gs json.Ra
 // JSON bytes.
 func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
 	// TODO: Implement once we implement keeper/Genesis
-	//genState := am.keeper.ExportGenesis(ctx)
-	//return cdc.MustMarshalJSON(genState)
-	return nil
+	genState := am.keeper.ExportGenesis(ctx)
+	return cdc.MustMarshalJSON(genState)
 }
 
 // ExportGenesisStream returns the confidentialtransfers module's exported genesis state as raw JSON bytes in a streaming fashion.
@@ -188,17 +198,6 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 		close(ch)
 	}()
 	return ch
-}
-
-// ValidateGenesisStream performs genesis state validation for the x/confidentialtransfers module in a streaming fashion.
-func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
-	for genesis := range genesisCh {
-		err := am.ValidateGenesis(cdc, config, genesis)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // ConsensusVersion implements ConsensusVersion.
@@ -219,7 +218,7 @@ func (am AppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.Valid
 // TODO: The functions below seem optional to implement. We should revisit if we need any/all of them.
 // GenerateGenesisState creates a randomized GenState of the confidentialtransfers module.
 func (am AppModule) GenerateGenesisState(simState *module.SimulationState) {
-	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(types.DefaultGenesis())
+	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(types.DefaultGenesisState())
 }
 
 // ProposalContents doesn't return any content functions for governance proposals.
