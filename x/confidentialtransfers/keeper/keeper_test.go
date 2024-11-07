@@ -27,5 +27,10 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.SetupTokenFactory()
 
 	suite.queryClient = types.NewQueryClient(suite.QueryHelper)
+	suite.App.ConfidentialTransfersKeeper = keeper.NewKeeper(
+		suite.App.AppCodec(),
+		suite.App.GetKey(types.StoreKey),
+		suite.App.GetSubspace(types.ModuleName),
+		suite.App.AccountKeeper)
 	suite.msgServer = keeper.NewMsgServerImpl(suite.App.ConfidentialTransfersKeeper)
 }

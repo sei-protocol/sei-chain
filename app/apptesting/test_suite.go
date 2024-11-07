@@ -118,7 +118,7 @@ func (s *KeeperTestHelper) SetupTokenFactory() {
 
 // SetupTokenFactory sets up a token module account for the TokenFactoryKeeper.
 func (s *KeeperTestHelper) SetupConfidentialTransfers() {
-	s.App.TokenFactoryKeeper.CreateModuleAccount(s.Ctx)
+	s.App.ConfidentialTransfersKeeper.CreateModuleAccount(s.Ctx)
 }
 
 // EndBlock ends the block.

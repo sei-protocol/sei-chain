@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
 	"github.com/tendermint/tendermint/libs/log"
@@ -15,7 +16,6 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
-// TODO: This is just scaffolding. To be implemented.
 type Keeper interface {
 	InitGenesis(sdk.Context, *types.GenesisState)
 	ExportGenesis(sdk.Context) *types.GenesisState
@@ -25,6 +25,8 @@ type Keeper interface {
 
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
+
+	CreateModuleAccount(ctx sdk.Context)
 }
 
 type BaseKeeper struct {
@@ -32,9 +34,8 @@ type BaseKeeper struct {
 
 	cdc codec.Codec
 
-	paramSpace paramtypes.Subspace
-	// TODO: Add any required keepers here
-	// accountKeeper types.AccountKeeper
+	paramSpace    paramtypes.Subspace
+	accountKeeper types.AccountKeeper
 }
 
 func (k BaseKeeper) TestQuery(ctx context.Context, request *types.TestQueryRequest) (*types.TestQueryResponse, error) {
@@ -47,6 +48,7 @@ func NewKeeper(
 	codec codec.Codec,
 	storeKey sdk.StoreKey,
 	paramSpace paramtypes.Subspace,
+	accountKeeper types.AccountKeeper,
 ) Keeper {
 
 	if !paramSpace.HasKeyTable() {
@@ -54,8 +56,9 @@ func NewKeeper(
 	}
 
 	return BaseKeeper{
-		cdc:      codec,
-		storeKey: storeKey,
+		cdc:           codec,
+		storeKey:      storeKey,
+		accountKeeper: accountKeeper,
 	}
 }
 
@@ -129,9 +132,7 @@ func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.paramSpace.SetParamSet(ctx, &params)
 }
 
-// getAccountStore gets the account store of the given address.
-func (k BaseKeeper) getCtAccountStore(ctx sdk.Context, addr sdk.AccAddress) prefix.Store {
-	store := ctx.KVStore(k.storeKey)
-
-	return prefix.NewStore(store, types.CreateAccountBalancesPrefix(addr))
+func (k BaseKeeper) CreateModuleAccount(ctx sdk.Context) {
+	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName, authtypes.Minter, authtypes.Burner)
+	k.accountKeeper.SetModuleAccount(ctx, moduleAcc)
 }

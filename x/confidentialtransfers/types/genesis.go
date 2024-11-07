@@ -16,7 +16,7 @@ func (gs GenesisState) Validate() error {
 
 	accounts := make(map[string]bool)
 	for _, genesisCtAccount := range gs.Accounts {
-		if genesisCtAccount.Key == "" {
+		if genesisCtAccount.Key == nil {
 			return fmt.Errorf("genesisCtAccount key cannot be empty")
 		}
 
