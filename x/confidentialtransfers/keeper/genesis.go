@@ -11,7 +11,8 @@ import (
 
 func (k BaseKeeper) InitGenesis(ctx sdk.Context, gs *types.GenesisState) {
 	k.SetParams(ctx, gs.Params)
-	for _, genesisCtAccount := range gs.Accounts {
+	for i := range gs.Accounts {
+		genesisCtAccount := gs.Accounts[i]
 		store := ctx.KVStore(k.storeKey)
 		bz := k.cdc.MustMarshal(&genesisCtAccount.Account) // Marshal the Account object into bytes
 		store.Set(genesisCtAccount.Key, bz)

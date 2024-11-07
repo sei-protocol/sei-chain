@@ -13,10 +13,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
+
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
 	"github.com/spf13/cobra"
-	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"

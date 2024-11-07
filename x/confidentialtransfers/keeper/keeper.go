@@ -60,6 +60,7 @@ func NewKeeper(
 		cdc:           codec,
 		storeKey:      storeKey,
 		accountKeeper: accountKeeper,
+		paramSpace:    paramSpace,
 	}
 }
 
