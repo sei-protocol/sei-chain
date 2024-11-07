@@ -226,6 +226,12 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, fro
         if(receipt && receipt.status === 1) {
             return (await getPointerForCw20(cw20Address)).pointer
         } else if(receipt){
+            const output = await execute(command);
+            const txHash = output.replace(/.*0x/, "0x").trim()
+            const receipt = await provider.getTransactionReceipt(txHash);
+            if (receipt && receipt.status === 1){
+                return (await getPointerForCw20(cw20Address)).pointer
+            }
             throw new Error("contract deployment failed")
         }
         await sleep(500)
