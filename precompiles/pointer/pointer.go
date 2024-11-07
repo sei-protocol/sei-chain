@@ -134,7 +134,7 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	if err != nil {
 		return nil, 0, err
 	}
-	res, err := p.wasmdKeeper.QuerySmart(ctx, cwAddress, []byte("{\"token_info\":{}}"))
+	res, err := p.wasmdKeeper.QuerySmartSafe(ctx, cwAddress, []byte("{\"token_info\":{}}"))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -165,7 +165,7 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	if err != nil {
 		return nil, 0, err
 	}
-	res, err := p.wasmdKeeper.QuerySmart(ctx, cwAddress, []byte("{\"contract_info\":{}}"))
+	res, err := p.wasmdKeeper.QuerySmartSafe(ctx, cwAddress, []byte("{\"contract_info\":{}}"))
 	if err != nil {
 		return nil, 0, err
 	}

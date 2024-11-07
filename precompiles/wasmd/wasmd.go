@@ -448,8 +448,7 @@ func (p PrecompileExecutor) query(ctx sdk.Context, method *abi.Method, args []in
 		rerr = err
 		return
 	}
-
-	res, err := p.wasmdViewKeeper.QuerySmart(ctx, contractAddr, req)
+	res, err := p.wasmdViewKeeper.QuerySmartSafe(ctx, contractAddr, req)
 	if err != nil {
 		rerr = err
 		return
