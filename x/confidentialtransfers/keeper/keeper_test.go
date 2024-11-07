@@ -24,8 +24,6 @@ func TestKeeperTestSuite(t *testing.T) {
 func (suite *KeeperTestSuite) SetupTest() {
 	suite.Setup()
 
-	suite.SetupConfidentialTransfers()
-
 	suite.queryClient = types.NewQueryClient(suite.QueryHelper)
 	// TODO: remove this once the app initializes confidentialtransfers keeper
 	suite.App.ConfidentialTransfersKeeper = keeper.NewKeeper(
