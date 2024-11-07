@@ -1,53 +1,32 @@
 #!/bin/bash
-echo -n Chain ID:
-read CHAIN_ID
-echo
-echo -n Your Key Name:
-read KEY
-echo
-echo -n Your Key Password:
-read PASSWORD
-echo
-echo -n Moniker:
-read MONIKER
-echo
-echo -n "Seid version commit (e.g. 5f3f795fc612c796a83726a0bbb46658586ca8fe):"
-read REQUIRED_COMMIT
-echo
-echo -n State Sync RPC Endpoint:
-read STATE_SYNC_RPC
-echo
-echo -n State Sync Peer:
-read STATE_SYNC_PEER
-echo
+# Usage: ./statesynctrustha.sh <RPC URL>
+# Example: ./statesynctrustha.sh https://rpc.sei-apis.com
 
-COMMIT=$(seid version --long | grep commit)
-COMMITPARTS=($COMMIT)
-if [ ${COMMITPARTS[1]} != $REQUIRED_COMMIT ]
-then
-  echo "incorrect seid version"
-  exit 1
-fi
-mkdir $HOME/key_backup
-printf ""$PASSWORD"\n"$PASSWORD"\n"$PASSWORD"\n" | seid keys export $KEY > $HOME/key_backup/key
-cp $HOME/.sei/config/priv_validator_key.json $HOME/key_backup
-cp $HOME/.sei/data/priv_validator_state.json $HOME/key_backup
-mkdir $HOME/.sei_backup
-mv $HOME/.sei/config $HOME/.sei_backup
-mv $HOME/.sei/data $HOME/.sei_backup
-mv $HOME/.sei/wasm $HOME/.sei_backup
-cd $HOME/.sei && ls | grep -xv "cosmovisor" | xargs rm -rf
-seid tendermint unsafe-reset-all
-seid init --chain-id $CHAIN_ID $MONIKER
-printf ""$PASSWORD"\n"$PASSWORD"\n"$PASSWORD"\n" | seid keys import $KEY $HOME/key_backup/key
-cp $HOME/key_backup/priv_validator_key.json $HOME/.sei/config/
-cp $HOME/key_backup/priv_validator_state.json $HOME/.sei/data/
-LATEST_HEIGHT=$(curl -s $STATE_SYNC_RPC/block | jq -r .result.block.header.height); \
-BLOCK_HEIGHT=$((LATEST_HEIGHT - 1000)); \
-TRUST_HASH=$(curl -s "$STATE_SYNC_RPC/block?height=$BLOCK_HEIGHT" | jq -r .result.block_id.hash)
-sed -i.bak -E "s|^(enable[[:space:]]+=[[:space:]]+).*$|\1true| ; \
-s|^(rpc_servers[[:space:]]+=[[:space:]]+).*$|\1\"$STATE_SYNC_RPC,$STATE_SYNC_RPC\"| ; \
-s|^(trust_height[[:space:]]+=[[:space:]]+).*$|\1$BLOCK_HEIGHT| ; \
-s|^(trust_hash[[:space:]]+=[[:space:]]+).*$|\1\"$TRUST_HASH\"|" $HOME/.sei/config/config.toml
-sed -i.bak -e "s|^persistent_peers *=.*|persistent_peers = \"$STATE_SYNC_PEER\"|" \
-  $HOME/.sei/config/config.toml
+RPCADDR=$1
+DAEMON="sei"
+
+# Get the latest block height
+LATEST_BLOCK_HEIGHT=$(curl -s "$RPCADDR/status" | jq -r .sync_info.latest_block_height)
+
+# Calculate the block height for the trust hash query (latest - 5000)
+TRUST_HEIGHT=$((LATEST_BLOCK_HEIGHT - 5000))
+
+# Get the trust hash at the calculated block height
+TRUST_HASH=$(curl -s "$RPCADDR/block?height=$TRUST_HEIGHT" | jq -r .block_id.hash)
+
+# Output the TRUST_HEIGHT and TRUST_HASH
+echo "TRUST_HEIGHT: $TRUST_HEIGHT"
+echo "TRUST_HASH: $TRUST_HASH"
+
+# Path to the config.toml file
+CONFIG_FILE="$HOME/.sei/config/config.toml"
+
+# Update config.toml with TRUST_HEIGHT, TRUST_HASH, RPC servers, and chunk fetchers
+sed -i "s|^enable = .*|enable = true|" "$CONFIG_FILE"
+sed -i "s|^use-p2p = .*|use-p2p = false|" "$CONFIG_FILE"
+sed -i "s|^rpc-servers = .*|rpc-servers = \"$RPCADDR,$RPCADDR\"|" "$CONFIG_FILE"
+sed -i "s|^trust_height = .*|trust_height = $TRUST_HEIGHT|" "$CONFIG_FILE"
+sed -i "s|^trust_hash = .*|trust_hash = \"$TRUST_HASH\"|" "$CONFIG_FILE"
+sed -i "s|^fetchers = .*|fetchers = \"4\"|" "$CONFIG_FILE"
+
+echo "Updated $CONFIG_FILE with TRUST_HEIGHT, TRUST_HASH, RPC server settings, and chunk fetchers set to 4."
