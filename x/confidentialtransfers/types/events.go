@@ -9,6 +9,8 @@ const (
 	EventTypeTransfer            = "transfer"
 	EventTypeCloseAccount        = "close_account"
 
-	AttributeDenom   = "denom"
-	AttributeAddress = "address"
+	AttributeDenom     = "denom"
+	AttributeAddress   = "address"
+	AttributeSender    = "sender"
+	AttributeRecipient = "recipient"
 )

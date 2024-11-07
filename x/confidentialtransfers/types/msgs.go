@@ -311,6 +311,24 @@ func (m *MsgCloseAccount) ValidateBasic() error {
 	return nil
 }
 
+func (m *MsgCloseAccount) FromProto() (*CloseAccount, error) {
+	err := m.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+
+	proofs, err := m.Proofs.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &CloseAccount{
+		Address: m.Address,
+		Denom:   m.Denom,
+		Proofs:  proofs,
+	}, nil
+}
+
 func (m *MsgCloseAccount) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(m))
 }

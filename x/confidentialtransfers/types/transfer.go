@@ -1,6 +1,8 @@
 package types
 
 import (
+	"errors"
+	"github.com/coinbase/kryptology/pkg/core/curves"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 )
@@ -39,4 +41,92 @@ type TransferAuditor struct {
 	TransferAmountHiValidityProof *zkproofs.CiphertextValidityProof           `json:"transfer_amount_hi_validity_proof"`
 	TransferAmountLoEqualityProof *zkproofs.CiphertextCiphertextEqualityProof `json:"transfer_amount_lo_equality_proof"`
 	TransferAmountHiEqualityProof *zkproofs.CiphertextCiphertextEqualityProof `json:"transfer_amount_hi_equality_proof"`
+}
+
+// Verifies the proofs sent in the transfer request. This does not verify proofs for auditors.
+func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipientPubkey *curves.Point, newBalanceCiphertext *elgamal.Ciphertext) error {
+	// First we verify all the proofs.
+	// Verify the validity proofs that the ciphertexts sent are valid.
+	ok := zkproofs.VerifyCiphertextValidity(params.Proofs.RemainingBalanceCommitmentValidityProof, *senderPubkey, params.RemainingBalanceCommitment)
+	if !ok {
+		return errors.New("Failed to verify remaining balance commitment")
+	}
+
+	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.SenderTransferAmountLoValidityProof, *senderPubkey, params.SenderTransferAmountLo)
+	if !ok {
+		return errors.New("Failed to verify senderTransferAmountLo")
+	}
+
+	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.SenderTransferAmountHiValidityProof, *senderPubkey, params.SenderTransferAmountHi)
+	if !ok {
+		return errors.New("Failed to verify senderTransferAmountHi")
+	}
+
+	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.RecipientTransferAmountLoValidityProof, *recipientPubkey, params.RecipientTransferAmountLo)
+	if !ok {
+		return errors.New("Failed to verify recipientTransferAmountLo")
+	}
+
+	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.RecipientTransferAmountHiValidityProof, *recipientPubkey, params.RecipientTransferAmountHi)
+	if !ok {
+		return errors.New("Failed to verify recipientTransferAmountHi")
+	}
+
+	// Verify that the remaining balance is greater than zero.
+	ok, err := zkproofs.VerifyRangeProof(params.Proofs.RemainingBalanceRangeProof, params.RemainingBalanceCommitment, 64)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("Range proof verification failed")
+	}
+
+	ok = zkproofs.VerifyCiphertextCommitmentEquality(params.Proofs.RemainingBalanceEqualityProof, senderPubkey, newBalanceCiphertext, &params.RemainingBalanceCommitment.C)
+	if !ok {
+		return errors.New("Ciphertext Commitment equality verification failed")
+	}
+
+	// Lastly verify that the transferAmount ciphertexts encode the same value
+	ok = zkproofs.VerifyCiphertextCiphertextEquality(params.Proofs.TransferAmountLoEqualityProof, senderPubkey, recipientPubkey, params.SenderTransferAmountLo, params.RecipientTransferAmountLo)
+	if !ok {
+		return errors.New("Ciphertext Ciphertext equality verification on transferAmountLo failed")
+	}
+
+	ok = zkproofs.VerifyCiphertextCiphertextEquality(params.Proofs.TransferAmountHiEqualityProof, senderPubkey, recipientPubkey, params.SenderTransferAmountHi, params.RecipientTransferAmountHi)
+	if !ok {
+		return errors.New("Ciphertext Ciphertext equality verification on transferAmountHi failed")
+	}
+
+	return nil
+}
+
+// Verifies the proofs sent for an individual auditor.
+func VerifyAuditorProof(
+	senderTransferAmountLo,
+	senderTransferAmountHi *elgamal.Ciphertext,
+	auditorParams *TransferAuditor,
+	senderPubkey *curves.Point,
+	auditorPubkey *curves.Point) error {
+	ok := zkproofs.VerifyCiphertextValidity(auditorParams.TransferAmountLoValidityProof, *auditorPubkey, auditorParams.EncryptedTransferAmountLo)
+	if !ok {
+		return errors.New("Failed to verify auditor TransferAmountLo")
+	}
+
+	ok = zkproofs.VerifyCiphertextValidity(auditorParams.TransferAmountHiValidityProof, *auditorPubkey, auditorParams.EncryptedTransferAmountHi)
+	if !ok {
+		return errors.New("Failed to verify auditor TransferAmountHi")
+	}
+
+	// Lastly verify that the transferAmount ciphertexts encode the same value
+	ok = zkproofs.VerifyCiphertextCiphertextEquality(auditorParams.TransferAmountLoEqualityProof, senderPubkey, auditorPubkey, senderTransferAmountLo, auditorParams.EncryptedTransferAmountLo)
+	if !ok {
+		return errors.New("Ciphertext Ciphertext equality verification on auditor transferAmountLo failed")
+	}
+
+	ok = zkproofs.VerifyCiphertextCiphertextEquality(auditorParams.TransferAmountHiEqualityProof, senderPubkey, auditorPubkey, senderTransferAmountHi, auditorParams.EncryptedTransferAmountHi)
+	if !ok {
+		return errors.New("Ciphertext Ciphertext equality verification on auditor transferAmountHi failed")
+	}
+
+	return nil
 }

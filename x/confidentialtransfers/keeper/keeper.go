@@ -72,6 +72,12 @@ func (k Keeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string
 	store.Set(key, bz)                 // Store the serialized account under the key
 }
 
+func (k Keeper) DeleteAccount(ctx sdk.Context, address sdk.AccAddress, denom string) {
+	store := ctx.KVStore(k.storeKey)
+	key := types.GetAccountKey(address, denom)
+	store.Delete(key) // Store the serialized account under the key
+}
+
 // Logger returns a logger for the x/confidentialtransfers module
 func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))

@@ -600,12 +600,6 @@ func (z *ZeroBalanceProof) FromProto() (*zkproofs.ZeroBalanceProof, error) {
 	}, nil
 }
 
-type CloseAccountProofs struct {
-	ZeroAvailableBalanceProof *zkproofs.ZeroBalanceProof
-	ZeroPendingBalanceLoProof *zkproofs.ZeroBalanceProof
-	ZeroPendingBalanceHiProof *zkproofs.ZeroBalanceProof
-}
-
 func (c *CloseAccountMsgProofs) Validate() error {
 	if c.ZeroAvailableBalanceProof == nil || c.ZeroPendingBalanceLoProof == nil || c.ZeroPendingBalanceHiProof == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "close account proof is invalid")
