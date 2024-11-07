@@ -618,6 +618,12 @@ func (k Keeper) getLastContractHistoryEntry(ctx sdk.Context, contractAddr sdk.Ac
 	return r
 }
 
+// QuerySmartSafe queries the smart contract itself with a cached context
+func (k Keeper) QuerySmartSafe(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error) {
+	cacheCtx, _ := ctx.CacheContext()
+	return k.QuerySmart(cacheCtx, contractAddr, req)
+}
+
 // QuerySmart queries the smart contract itself.
 func (k Keeper) QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error) {
 	defer telemetry.MeasureSince(time.Now(), "wasm", "contract", "query-smart")
