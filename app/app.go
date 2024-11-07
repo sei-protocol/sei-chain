@@ -116,6 +116,8 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	ctkeeper "github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
+	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -342,6 +344,8 @@ type App struct {
 	EpochKeeper epochmodulekeeper.Keeper
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
+	// ConfidentialTransfers module is not live yet, but we add the keeper for testing
+	ConfidentialTransfersKeeper ctkeeper.Keeper
 
 	// mm is the module manager
 	mm *module.Manager
@@ -415,6 +419,8 @@ func New(
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
+		// ConfidentialTransfers module is not live yet, but we add the key for testing
+		cttypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)

@@ -17,7 +17,7 @@ type msgServer struct {
 // NewMsgServerImpl returns an implementation of the MsgServer interface
 // for the provided Keeper.
 func NewMsgServerImpl(keeper Keeper) types.MsgServer {
-	return &msgServer{Keeper: keeper}
+	return msgServer{keeper}
 }
 
 var _ types.MsgServer = msgServer{}
@@ -76,7 +76,7 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	}
 
 	// Store the account
-	m.Keeper.SetAccount(ctx, address, req.Denom, &account)
+	m.Keeper.SetAccount(ctx, address, req.Denom, account)
 
 	ctx.EventManager().EmitEvents(sdk.Events{
 		sdk.NewEvent(
@@ -149,7 +149,7 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	account.PendingBalanceCreditCounter += 1
 
 	// Save the changes to the account state
-	m.Keeper.SetAccount(ctx, address, req.Denom, &account)
+	m.Keeper.SetAccount(ctx, address, req.Denom, account)
 
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{
@@ -207,7 +207,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	account.AvailableBalance = remainingBalanceCalculated
 
 	// Save the account state
-	m.Keeper.SetAccount(ctx, address, req.Denom, &account)
+	m.Keeper.SetAccount(ctx, address, req.Denom, account)
 
 	// Return the tokens to the sender
 	coins := sdk.NewCoins(sdk.NewCoin(instruction.Denom, sdk.NewIntFromUint64(instruction.Amount)))
@@ -266,7 +266,7 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 	account.PendingBalanceCreditCounter = 0
 
 	// Save the changes to the account state
-	m.Keeper.SetAccount(ctx, address, req.Denom, &account)
+	m.Keeper.SetAccount(ctx, address, req.Denom, account)
 
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{
@@ -420,8 +420,8 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	senderAccount.AvailableBalance = newSenderBalanceCiphertext
 
 	// Save the account states
-	m.Keeper.SetAccount(ctx, senderAddress, req.Denom, &senderAccount)
-	m.Keeper.SetAccount(ctx, recipientAddress, req.Denom, &recipientAccount)
+	m.Keeper.SetAccount(ctx, senderAddress, req.Denom, senderAccount)
+	m.Keeper.SetAccount(ctx, recipientAddress, req.Denom, recipientAccount)
 
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{
