@@ -2,7 +2,7 @@ package types
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"strings"
+	"github.com/cosmos/cosmos-sdk/types/address"
 )
 
 // TODO: Remove keys that are eventually not required
@@ -25,18 +25,16 @@ const (
 const KeySeparator = "|"
 
 var (
-	AccountsKey = "account"
-	DenomKey    = []byte("denom")
+	AccountsKey = []byte{0x01}
+	DenomKey    = []byte{0x02}
 )
 
 // GetAccountKey generates the key for storing Account information based on address and denom
-// The key is of the form: account | <addr> | <denom>
-func GetAccountKey(address sdk.AccAddress, denom string) []byte {
-	return []byte(strings.Join([]string{AccountsKey, address.String(), denom, ""}, KeySeparator))
+func GetAccountKey(addr sdk.AccAddress, denom string) []byte {
+	return append(GetAddressPrefix(addr), []byte(denom)...)
 }
 
 // GetAddressPrefix generates the prefix for all accounts under a specific address
-// The prefix is of the form: account|<addr>|
-func GetAddressPrefix(address sdk.AccAddress) []byte {
-	return []byte(strings.Join([]string{AccountsKey, address.String(), ""}, KeySeparator))
+func GetAddressPrefix(addr sdk.AccAddress) []byte {
+	return append(AccountsKey, address.MustLengthPrefix(addr)...)
 }
