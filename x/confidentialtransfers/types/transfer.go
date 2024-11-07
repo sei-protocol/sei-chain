@@ -45,8 +45,7 @@ type TransferAuditor struct {
 
 // Verifies the proofs sent in the transfer request. This does not verify proofs for auditors.
 func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipientPubkey *curves.Point, newBalanceCiphertext *elgamal.Ciphertext) error {
-	// First we verify all the proofs.
-	// Verify the validity proofs that the ciphertexts sent are valid.
+	// Verify the validity proofs that the ciphertexts sent are valid (encrypted with the correct pubkey).
 	ok := zkproofs.VerifyCiphertextValidity(params.Proofs.RemainingBalanceCommitmentValidityProof, *senderPubkey, params.RemainingBalanceCommitment)
 	if !ok {
 		return errors.New("Failed to verify remaining balance commitment")
@@ -72,7 +71,8 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 		return errors.New("Failed to verify recipientTransferAmountHi")
 	}
 
-	// Verify that the remaining balance is greater than zero.
+	// Verify that the account's remaining balance is greater than zero after this transfer.
+	// This validates the RemainingBalanceCommitment sent by the user, so an additional check is needed to make sure this matches what is calculated by the server.
 	ok, err := zkproofs.VerifyRangeProof(params.Proofs.RemainingBalanceRangeProof, params.RemainingBalanceCommitment, 64)
 	if err != nil {
 		return err
@@ -81,6 +81,7 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 		return errors.New("Range proof verification failed")
 	}
 
+	// As part of the range proof above, we verify that the RemainingBalanceCommitment sent by the user is equal to the remaining balance calculated by the server.
 	ok = zkproofs.VerifyCiphertextCommitmentEquality(params.Proofs.RemainingBalanceEqualityProof, senderPubkey, newBalanceCiphertext, &params.RemainingBalanceCommitment.C)
 	if !ok {
 		return errors.New("Ciphertext Commitment equality verification failed")
@@ -107,6 +108,7 @@ func VerifyAuditorProof(
 	auditorParams *TransferAuditor,
 	senderPubkey *curves.Point,
 	auditorPubkey *curves.Point) error {
+	// Verify that the transfer amounts are valid (encrypted with the correct pubkey).
 	ok := zkproofs.VerifyCiphertextValidity(auditorParams.TransferAmountLoValidityProof, *auditorPubkey, auditorParams.EncryptedTransferAmountLo)
 	if !ok {
 		return errors.New("Failed to verify auditor TransferAmountLo")
@@ -117,7 +119,7 @@ func VerifyAuditorProof(
 		return errors.New("Failed to verify auditor TransferAmountHi")
 	}
 
-	// Lastly verify that the transferAmount ciphertexts encode the same value
+	// Then, verify that the transferAmount ciphertexts encode the same value
 	ok = zkproofs.VerifyCiphertextCiphertextEquality(auditorParams.TransferAmountLoEqualityProof, senderPubkey, auditorPubkey, senderTransferAmountLo, auditorParams.EncryptedTransferAmountLo)
 	if !ok {
 		return errors.New("Ciphertext Ciphertext equality verification on auditor transferAmountLo failed")

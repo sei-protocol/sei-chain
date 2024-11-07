@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
 	"github.com/tendermint/tendermint/libs/log"
@@ -20,7 +21,8 @@ type (
 
 		cdc codec.Codec
 
-		bankKeeper types.BankKeeper
+		accountKeeper types.AccountKeeper
+		bankKeeper    types.BankKeeper
 	}
 )
 
@@ -36,14 +38,11 @@ func NewKeeper(
 	ak types.AccountKeeper,
 	bk types.BankKeeper,
 ) Keeper {
-	if addr := ak.GetModuleAddress(types.ModuleName); addr == nil {
-		panic("the confidential transfers module account has not been set")
-	}
-
 	return Keeper{
-		cdc:        codec,
-		storeKey:   storeKey,
-		bankKeeper: bk,
+		cdc:           codec,
+		storeKey:      storeKey,
+		accountKeeper: ak,
+		bankKeeper:    bk,
 	}
 }
 
@@ -111,4 +110,13 @@ func (k Keeper) GetAccountsForAddress(ctx sdk.Context, address sdk.AccAddress) (
 	}
 
 	return accounts, nil
+}
+
+// CreateModuleAccount creates the module account for confidentialtransfers
+func (k Keeper) CreateModuleAccount(ctx sdk.Context) {
+	account := k.accountKeeper.GetModuleAccount(ctx, types.ModuleName)
+	if account == nil {
+		moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName)
+		k.accountKeeper.SetModuleAccount(ctx, moduleAcc)
+	}
 }

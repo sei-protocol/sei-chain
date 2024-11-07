@@ -47,19 +47,19 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid public key")
 	}
 
-	// Validate the pending balance lo
+	// Validate the pending balance lo is zero.
 	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceLoProof, instruction.Pubkey, instruction.PendingAmountLo)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid pending balance lo")
 	}
 
-	// Validate the pending balance hi
+	// Validate the pending balance hi is zero.
 	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceHiProof, instruction.Pubkey, instruction.PendingAmountHi)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid pending balance hi")
 	}
 
-	// Validate the available balance
+	// Validate the available balance is zero.
 	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroAvailableBalanceProof, instruction.Pubkey, instruction.AvailableBalance)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid available balance")
@@ -89,6 +89,145 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	return &types.MsgInitializeAccountResponse{}, nil
 }
 
+func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types.MsgDepositResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	// Check if the account exists
+	address, err := sdk.AccAddressFromBech32(req.FromAddress)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Address")
+	}
+
+	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
+	if !exists {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account does not exist")
+	}
+
+	// The maximum transfer amount is 2^48
+	if req.Amount > uint64((2<<48)-1) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Exceeded maximum transfer amount")
+	}
+
+	// Check that account does not have the maximum limit of pending transactions.
+	if account.PendingBalanceCreditCounter == math.MaxUint16 {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account has too many pending transactions")
+	}
+
+	// Deduct amount from user's token balance.
+	// Define the amount to be transferred as sdk.Coins
+	coins := sdk.NewCoins(sdk.NewCoin(req.Denom, sdk.NewIntFromUint64(req.Amount)))
+
+	// Transfer the amount from the sender's account to the module account
+	if err := m.Keeper.bankKeeper.SendCoinsFromAccountToModule(ctx, address, types.ModuleName, coins); err != nil {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to deposit %d %s", req.Amount, req.Denom)
+	}
+
+	// Split the deposit amount into lo and hi bits.
+	// Extract the bottom 16 bits (rightmost 16 bits)
+	bottom16 := uint16(req.Amount & 0xFFFF)
+
+	// Extract the next 32 bits (from bit 16 to bit 47) (Everything else is ignored since the max is 48 bits)
+	next32 := uint32((req.Amount >> 16) & 0xFFFFFFFF)
+
+	account.PendingBalanceCreditCounter += 1
+
+	// Compute the new balances
+	teg := elgamal.NewTwistedElgamal()
+	newPendingBalanceLo, err := teg.AddScalar(account.PendingBalanceLo, uint64(bottom16))
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error adding pending balance lo")
+	}
+
+	newPendingBalanceHi, err := teg.AddScalar(account.PendingBalanceHi, uint64(next32))
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error adding pending balance hi")
+	}
+
+	// Update the account state
+	account.PendingBalanceLo = newPendingBalanceLo
+	account.PendingBalanceHi = newPendingBalanceHi
+	account.PendingBalanceCreditCounter += 1
+
+	// Save the changes to the account state
+	m.Keeper.SetAccount(ctx, address, req.Denom, &account)
+
+	// Emit any required events
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			types.EventTypeDeposit,
+			sdk.NewAttribute(types.AttributeDenom, req.Denom),
+			sdk.NewAttribute(types.AttributeAddress, req.FromAddress),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, sdk.NewCoin(req.Denom, sdk.NewIntFromUint64(req.Amount)).String()),
+		),
+	})
+
+	return &types.MsgDepositResponse{}, nil
+}
+
+func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*types.MsgWithdrawResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	// Check if the account exists
+	address, err := sdk.AccAddressFromBech32(req.FromAddress)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Address")
+	}
+
+	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
+	if !exists {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account does not exist")
+	}
+
+	instruction, err := req.FromProto()
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Msg")
+	}
+
+	// Verify that the account has sufficient funds (Remaining balance after making the transfer is greater than or equal to zero.)
+	// This range proof verification is performed on the RemainingBalanceCommitment sent by the user. An additional check is required to ensure that this matches the remaining balance calculated by the server.
+	verified, err := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 64)
+	if !verified {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Range proof verification failed")
+	}
+
+	// Verify that the remaining balance sent by the user matches the remaining balance calculated by the server.
+	teg := elgamal.NewTwistedElgamal()
+	remainingBalanceCalculated, err := teg.SubScalar(account.AvailableBalance, instruction.Amount)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error subtracting amount")
+	}
+
+	verified = zkproofs.VerifyCiphertextCommitmentEquality(instruction.Proofs.RemainingBalanceEqualityProof, &account.PublicKey, remainingBalanceCalculated, &instruction.RemainingBalanceCommitment.C)
+	if !verified {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Ciphertext Commitment equality verification failed")
+	}
+
+	// Update the account state
+	account.DecryptableAvailableBalance = instruction.DecryptableBalance
+	account.AvailableBalance = remainingBalanceCalculated
+
+	// Save the account state
+	m.Keeper.SetAccount(ctx, address, req.Denom, &account)
+
+	// Return the tokens to the sender
+	coins := sdk.NewCoins(sdk.NewCoin(instruction.Denom, sdk.NewIntFromUint64(instruction.Amount)))
+	if err := m.Keeper.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, address, coins); err != nil {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to withdraw %d %s", req.Amount, req.Denom)
+	}
+
+	// Emit any required events
+	ctx.EventManager().EmitEvents(sdk.Events{
+		sdk.NewEvent(
+			types.EventTypeWithdraw,
+			sdk.NewAttribute(types.AttributeDenom, instruction.Denom),
+			sdk.NewAttribute(types.AttributeAddress, instruction.FromAddress),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, sdk.NewCoin(instruction.Denom, sdk.NewIntFromUint64(instruction.Amount)).String()),
+		),
+	})
+
+	return &types.MsgWithdrawResponse{}, nil
+}
+
 func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgApplyPendingBalance) (*types.MsgApplyPendingBalanceResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
@@ -103,7 +242,7 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account does not exist")
 	}
 
-	// Apply the changes to the account state
+	// Calculate updated balances
 	teg := elgamal.NewTwistedElgamal()
 	newAvailableBalance, err := teg.AddWithLoHi(account.AvailableBalance, account.PendingBalanceLo, account.PendingBalanceHi)
 	if err != nil {
@@ -119,6 +258,7 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error zeroing pending balance hi")
 	}
 
+	// Apply the changes to the account state
 	account.AvailableBalance = newAvailableBalance
 	account.DecryptableAvailableBalance = req.NewDecryptableAvailableBalance
 	account.PendingBalanceLo = zeroCiphertextLo
@@ -159,17 +299,19 @@ func (m msgServer) CloseAccount(goCtx context.Context, req *types.MsgCloseAccoun
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Msg")
 	}
 
-	// Validate proofs that account is all zeroed out.
+	// Validate proof that pending balance lo is zero.
 	validated := zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceLoProof, &account.PublicKey, account.PendingBalanceLo)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pending balance lo must be 0")
 	}
 
+	// Validate proof that pending balance hi is zero.
 	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceHiProof, &account.PublicKey, account.PendingBalanceHi)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pending balance hi must be 0")
 	}
 
+	// Validate proof that available balance is zero.
 	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroAvailableBalanceProof, &account.PublicKey, account.AvailableBalance)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "available balance must be 0")
