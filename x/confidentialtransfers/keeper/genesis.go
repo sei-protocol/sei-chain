@@ -9,7 +9,7 @@ import (
 
 func (k BaseKeeper) InitGenesis(ctx sdk.Context, gs *types.GenesisState) {
 	k.SetParams(ctx, gs.Params)
-	store := ctx.KVStore(k.storeKey)
+	store := k.getAccountStore(ctx)
 	for i := range gs.Accounts {
 		genesisCtAccount := gs.Accounts[i]
 
@@ -30,7 +30,7 @@ func (k BaseKeeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 }
 
 func (k BaseKeeper) GetPaginatedAccounts(ctx sdk.Context, pagination *query.PageRequest) ([]types.GenesisCtAccount, *query.PageResponse, error) {
-	store := ctx.KVStore(k.storeKey)
+	store := k.getAccountStore(ctx)
 
 	genesisAccounts := make([]types.GenesisCtAccount, 0)
 	pageRes, err := query.Paginate(store, pagination, func(key, value []byte) error {

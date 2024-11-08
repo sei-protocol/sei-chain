@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 
@@ -65,8 +64,8 @@ func NewKeeper(
 }
 
 func (k BaseKeeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool) {
-	store := ctx.KVStore(k.storeKey)
-	key := types.GetAccountKey(address, denom)
+	store := k.getAccountStoreForAddress(ctx, address)
+	key := []byte(denom)
 	if !store.Has(key) {
 		return types.Account{}, false
 	}
@@ -82,11 +81,10 @@ func (k BaseKeeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom st
 }
 
 func (k BaseKeeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account) {
-	store := ctx.KVStore(k.storeKey)
-	key := types.GetAccountKey(address, denom)
+	store := k.getAccountStoreForAddress(ctx, address)
 	ctAccount := types.NewCtAccount(&account)
 	bz := k.cdc.MustMarshal(ctAccount) // Marshal the Account object into bytes
-	store.Set(key, bz)                 // Store the serialized account under the key
+	store.Set([]byte(denom), bz)       // Store the serialized account under denom name as key
 }
 
 // Logger returns a logger for the x/confidentialtransfers module
@@ -98,7 +96,7 @@ func (k BaseKeeper) Logger(ctx sdk.Context) log.Logger {
 // and returns a mapping of denom:account
 func (k BaseKeeper) GetAccountsForAddress(ctx sdk.Context, address sdk.AccAddress) (map[string]*types.Account, error) {
 	// Create a prefix store scoped to the address
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.GetAddressPrefix(address))
+	store := k.getAccountStoreForAddress(ctx, address)
 
 	// Iterate over all keys in the prefix store
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
@@ -115,10 +113,8 @@ func (k BaseKeeper) GetAccountsForAddress(ctx sdk.Context, address sdk.AccAddres
 
 		// Extract the denom from the key
 		key := iterator.Key()
-		// Key format: account|<addr>|<denom>, so denom starts after "account|<addr>|"
-		denom := string(bytes.TrimPrefix(key, types.GetAddressPrefix(address)))
 
-		accounts[denom] = account
+		accounts[string(key)] = account
 	}
 
 	return accounts, nil
@@ -137,4 +133,14 @@ func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
 func (k BaseKeeper) CreateModuleAccount(ctx sdk.Context) {
 	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName, authtypes.Minter, authtypes.Burner)
 	k.accountKeeper.SetModuleAccount(ctx, moduleAcc)
+}
+
+func (k BaseKeeper) getAccountStore(ctx sdk.Context) prefix.Store {
+	store := ctx.KVStore(k.storeKey)
+	return prefix.NewStore(store, types.AccountsKey)
+}
+
+func (k BaseKeeper) getAccountStoreForAddress(ctx sdk.Context, addr sdk.AccAddress) prefix.Store {
+	store := ctx.KVStore(k.storeKey)
+	return prefix.NewStore(store, types.GetAddressPrefix(addr))
 }

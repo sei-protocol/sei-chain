@@ -22,17 +22,10 @@ const (
 	// MemStoreKey defines the in-memory store key
 	MemStoreKey = "mem_confidential"
 )
-const KeySeparator = "|"
 
 var (
 	AccountsKey = []byte{0x01}
-	DenomKey    = []byte{0x02}
 )
-
-// GetAccountKey generates the key for storing Account information based on address and denom
-func GetAccountKey(addr sdk.AccAddress, denom string) []byte {
-	return append(GetAddressPrefix(addr), []byte(denom)...)
-}
 
 // GetAddressPrefix generates the prefix for all accounts under a specific address
 func GetAddressPrefix(addr sdk.AccAddress) []byte {

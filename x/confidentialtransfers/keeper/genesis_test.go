@@ -35,11 +35,11 @@ func (suite *KeeperTestSuite) TestGenesisExportImportState() {
 
 	accounts := []types.GenesisCtAccount{
 		{
-			Key:     types.GetAccountKey(addr1, testDenom1),
+			Key:     []byte(addr1.String() + testDenom1),
 			Account: ctAcc1,
 		},
 		{
-			Key:     types.GetAccountKey(addr2, testDenom2),
+			Key:     []byte(addr2.String() + testDenom2),
 			Account: ctAcc2,
 		},
 	}
@@ -48,6 +48,7 @@ func (suite *KeeperTestSuite) TestGenesisExportImportState() {
 	suite.Ctx = app.BaseApp.NewContext(false, tmproto.Header{})
 
 	suite.App.ConfidentialTransfersKeeper.InitGenesis(suite.Ctx, genesisState)
+
 	exportedGenesis := suite.App.ConfidentialTransfersKeeper.ExportGenesis(suite.Ctx)
 	suite.Require().NotNil(exportedGenesis)
 	suite.Require().Equal(genesisState, exportedGenesis)
