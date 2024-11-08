@@ -5,11 +5,20 @@
 RPCADDR=$1
 DAEMON="sei"
 
+# Set /tmp as a 12G RAM disk to allow for more than 400 state sync chunks
+sudo umount -l /tmp && sudo mount -t tmpfs -o size=12G,mode=1777 overflow /tmp
+
 # Get the latest block height
 LATEST_BLOCK_HEIGHT=$(curl -s "$RPCADDR/status" | jq -r .sync_info.latest_block_height)
 
-# Calculate the block height for the trust hash query (latest - 5000)
-TRUST_HEIGHT=$((LATEST_BLOCK_HEIGHT - 5000))
+# Fetch the latest block height from the State Sync RPC endpoint
+LATEST_HEIGHT=$(curl -s $STATE_SYNC_RPC/block | jq -r .result.block.header.height)
+
+# Calculate the trust height (rounded down to the nearest 100,000)
+BLOCK_HEIGHT=$(( (LATEST_HEIGHT / 100000) * 100000 ))
+
+# Fetch the block hash at the trust height
+TRUST_HASH=$(curl -s "$STATE_SYNC_RPC/block?height=$BLOCK_HEIGHT" | jq -r .result.block_id.hash)
 
 # Get the trust hash at the calculated block height
 TRUST_HASH=$(curl -s "$RPCADDR/block?height=$TRUST_HEIGHT" | jq -r .block_id.hash)
