@@ -22,5 +22,5 @@ func (suite *KeeperTestSuite) TestAccountQuery() {
 		&types.GetAccountRequest{Address: addr.String(), Denom: testDenom})
 	suite.Require().NoError(err)
 
-	suite.Require().Equal(account, result.Account)
+	suite.Require().Equal(&ctAccount, result.Account)
 }
