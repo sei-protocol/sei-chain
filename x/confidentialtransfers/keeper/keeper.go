@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -16,17 +15,20 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
+var _ Keeper = (*BaseKeeper)(nil)
+
 type Keeper interface {
 	InitGenesis(sdk.Context, *types.GenesisState)
 	ExportGenesis(sdk.Context) *types.GenesisState
 
-	GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool)
 	SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account)
 
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
 
 	CreateModuleAccount(ctx sdk.Context)
+
+	types.QueryServer
 }
 
 type BaseKeeper struct {
@@ -36,11 +38,6 @@ type BaseKeeper struct {
 
 	paramSpace    paramtypes.Subspace
 	accountKeeper types.AccountKeeper
-}
-
-func (k BaseKeeper) TestQuery(ctx context.Context, request *types.TestQueryRequest) (*types.TestQueryResponse, error) {
-	//TODO: This is not a real gRPC query. This was added to the query.proto file as a placeholder. We should remove this and add the real queries once we better define query.proto.
-	panic("implement me")
 }
 
 // NewKeeper returns a new instance of the x/confidentialtransfers keeper
@@ -63,21 +60,29 @@ func NewKeeper(
 	}
 }
 
-func (k BaseKeeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool) {
-	store := k.getAccountStoreForAddress(ctx, address)
-	key := []byte(denom)
-	if !store.Has(key) {
+func (k BaseKeeper) getAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool) {
+	ctAccount, found := k.getCtAccount(ctx, address, denom)
+	if !found {
 		return types.Account{}, false
 	}
-
-	var ctAccount types.CtAccount
-	bz := store.Get(key)
-	k.cdc.MustUnmarshal(bz, &ctAccount) // Unmarshal the bytes back into the CtAccount object
 	account, err := ctAccount.FromProto()
 	if err != nil {
 		return types.Account{}, false
 	}
 	return *account, true
+}
+
+func (k BaseKeeper) getCtAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.CtAccount, bool) {
+	store := k.getAccountStoreForAddress(ctx, address)
+	key := []byte(denom)
+	if !store.Has(key) {
+		return types.CtAccount{}, false
+	}
+
+	var ctAccount types.CtAccount
+	bz := store.Get(key)
+	k.cdc.MustUnmarshal(bz, &ctAccount) // Unmarshal the bytes back into the CtAccount object
+	return ctAccount, true
 }
 
 func (k BaseKeeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account) {

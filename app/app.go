@@ -116,6 +116,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	ctmodule "github.com/sei-protocol/sei-chain/x/confidentialtransfers"
 	ctkeeper "github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
 	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
@@ -226,6 +227,7 @@ var (
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
+		cttypes.ModuleName:             {},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -757,6 +759,7 @@ func New(
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
+		ctmodule.NewAppModule(nil),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
@@ -788,6 +791,7 @@ func New(
 		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
+		cttypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -819,6 +823,7 @@ func New(
 		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
+		cttypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -848,6 +853,7 @@ func New(
 		feegrant.ModuleName,
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
+		cttypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		wasm.ModuleName,
 		evmtypes.ModuleName,
@@ -879,6 +885,7 @@ func New(
 		transferModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
+		ctmodule.NewAppModule(nil),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 	app.sm.RegisterStoreDecoders()

@@ -3,26 +3,38 @@ package seiprotocol.seichain.confidentialtransfers;
 
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "confidentialtransfers/confidential.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
 
-// TODO: Define any query messages here
 // Query defines the gRPC querier service.
 service Query {
-  // TODO: This is a mock method. Remove when we add real queries
-  rpc TestQuery (TestQueryRequest) returns (TestQueryResponse) {
+  rpc GetAccount (GetAccountRequest) returns (GetAccountResponse) {
     option (google.api.http) = {
-      get: "/seichain/confidentialtransfers/test_query"
+      get: "/seichain/confidentialtransfers/account/{address}/{denom}"
+    };
+  }
+
+  rpc GetAllAccounts (GetAllAccountsRequest) returns (GetAllAccountsResponse) {
+    option (google.api.http) = {
+      get: "/seichain/confidentialtransfers/account/{address}"
     };
   }
 }
 
-// TODO: This is a mock method. Remove when we add real queries
-message TestQueryRequest {
-  string test_field = 1;
+message GetAccountRequest {
+  string address = 1;
+  string denom = 2;
 }
 
-// TODO: This is a mock method. Remove when we add real queries
-message TestQueryResponse {
-  string test_field = 1;
+message GetAccountResponse {
+  CtAccount account = 1;
+}
+
+message GetAllAccountsRequest {
+  string address = 1;
+}
+
+message GetAllAccountsResponse {
+  repeated CtAccount accounts = 1;
 }

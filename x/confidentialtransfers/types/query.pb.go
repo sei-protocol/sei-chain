@@ -29,23 +29,23 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// TODO: This is a mock method. Remove when we add real queries
-type TestQueryRequest struct {
-	TestField string `protobuf:"bytes,1,opt,name=test_field,json=testField,proto3" json:"test_field,omitempty"`
+type GetAccountRequest struct {
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	Denom   string `protobuf:"bytes,2,opt,name=denom,proto3" json:"denom,omitempty"`
 }
 
-func (m *TestQueryRequest) Reset()         { *m = TestQueryRequest{} }
-func (m *TestQueryRequest) String() string { return proto.CompactTextString(m) }
-func (*TestQueryRequest) ProtoMessage()    {}
-func (*TestQueryRequest) Descriptor() ([]byte, []int) {
+func (m *GetAccountRequest) Reset()         { *m = GetAccountRequest{} }
+func (m *GetAccountRequest) String() string { return proto.CompactTextString(m) }
+func (*GetAccountRequest) ProtoMessage()    {}
+func (*GetAccountRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_35280e71e5f6c1ab, []int{0}
 }
-func (m *TestQueryRequest) XXX_Unmarshal(b []byte) error {
+func (m *GetAccountRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TestQueryRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *GetAccountRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TestQueryRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_GetAccountRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -55,42 +55,48 @@ func (m *TestQueryRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, er
 		return b[:n], nil
 	}
 }
-func (m *TestQueryRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TestQueryRequest.Merge(m, src)
+func (m *GetAccountRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetAccountRequest.Merge(m, src)
 }
-func (m *TestQueryRequest) XXX_Size() int {
+func (m *GetAccountRequest) XXX_Size() int {
 	return m.Size()
 }
-func (m *TestQueryRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_TestQueryRequest.DiscardUnknown(m)
+func (m *GetAccountRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetAccountRequest.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TestQueryRequest proto.InternalMessageInfo
+var xxx_messageInfo_GetAccountRequest proto.InternalMessageInfo
 
-func (m *TestQueryRequest) GetTestField() string {
+func (m *GetAccountRequest) GetAddress() string {
 	if m != nil {
-		return m.TestField
+		return m.Address
 	}
 	return ""
 }
 
-// TODO: This is a mock method. Remove when we add real queries
-type TestQueryResponse struct {
-	TestField string `protobuf:"bytes,1,opt,name=test_field,json=testField,proto3" json:"test_field,omitempty"`
+func (m *GetAccountRequest) GetDenom() string {
+	if m != nil {
+		return m.Denom
+	}
+	return ""
 }
 
-func (m *TestQueryResponse) Reset()         { *m = TestQueryResponse{} }
-func (m *TestQueryResponse) String() string { return proto.CompactTextString(m) }
-func (*TestQueryResponse) ProtoMessage()    {}
-func (*TestQueryResponse) Descriptor() ([]byte, []int) {
+type GetAccountResponse struct {
+	Account *CtAccount `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+}
+
+func (m *GetAccountResponse) Reset()         { *m = GetAccountResponse{} }
+func (m *GetAccountResponse) String() string { return proto.CompactTextString(m) }
+func (*GetAccountResponse) ProtoMessage()    {}
+func (*GetAccountResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_35280e71e5f6c1ab, []int{1}
 }
-func (m *TestQueryResponse) XXX_Unmarshal(b []byte) error {
+func (m *GetAccountResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TestQueryResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *GetAccountResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TestQueryResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_GetAccountResponse.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -100,53 +106,150 @@ func (m *TestQueryResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, e
 		return b[:n], nil
 	}
 }
-func (m *TestQueryResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TestQueryResponse.Merge(m, src)
+func (m *GetAccountResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetAccountResponse.Merge(m, src)
 }
-func (m *TestQueryResponse) XXX_Size() int {
+func (m *GetAccountResponse) XXX_Size() int {
 	return m.Size()
 }
-func (m *TestQueryResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_TestQueryResponse.DiscardUnknown(m)
+func (m *GetAccountResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetAccountResponse.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TestQueryResponse proto.InternalMessageInfo
+var xxx_messageInfo_GetAccountResponse proto.InternalMessageInfo
 
-func (m *TestQueryResponse) GetTestField() string {
+func (m *GetAccountResponse) GetAccount() *CtAccount {
 	if m != nil {
-		return m.TestField
+		return m.Account
+	}
+	return nil
+}
+
+type GetAllAccountsRequest struct {
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+}
+
+func (m *GetAllAccountsRequest) Reset()         { *m = GetAllAccountsRequest{} }
+func (m *GetAllAccountsRequest) String() string { return proto.CompactTextString(m) }
+func (*GetAllAccountsRequest) ProtoMessage()    {}
+func (*GetAllAccountsRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_35280e71e5f6c1ab, []int{2}
+}
+func (m *GetAllAccountsRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *GetAllAccountsRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_GetAllAccountsRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *GetAllAccountsRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetAllAccountsRequest.Merge(m, src)
+}
+func (m *GetAllAccountsRequest) XXX_Size() int {
+	return m.Size()
+}
+func (m *GetAllAccountsRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetAllAccountsRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetAllAccountsRequest proto.InternalMessageInfo
+
+func (m *GetAllAccountsRequest) GetAddress() string {
+	if m != nil {
+		return m.Address
 	}
 	return ""
+}
+
+type GetAllAccountsResponse struct {
+	Accounts []*CtAccount `protobuf:"bytes,1,rep,name=accounts,proto3" json:"accounts,omitempty"`
+}
+
+func (m *GetAllAccountsResponse) Reset()         { *m = GetAllAccountsResponse{} }
+func (m *GetAllAccountsResponse) String() string { return proto.CompactTextString(m) }
+func (*GetAllAccountsResponse) ProtoMessage()    {}
+func (*GetAllAccountsResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_35280e71e5f6c1ab, []int{3}
+}
+func (m *GetAllAccountsResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *GetAllAccountsResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_GetAllAccountsResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *GetAllAccountsResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetAllAccountsResponse.Merge(m, src)
+}
+func (m *GetAllAccountsResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *GetAllAccountsResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetAllAccountsResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetAllAccountsResponse proto.InternalMessageInfo
+
+func (m *GetAllAccountsResponse) GetAccounts() []*CtAccount {
+	if m != nil {
+		return m.Accounts
+	}
+	return nil
 }
 
 func init() {
-	proto.RegisterType((*TestQueryRequest)(nil), "seiprotocol.seichain.confidentialtransfers.TestQueryRequest")
-	proto.RegisterType((*TestQueryResponse)(nil), "seiprotocol.seichain.confidentialtransfers.TestQueryResponse")
+	proto.RegisterType((*GetAccountRequest)(nil), "seiprotocol.seichain.confidentialtransfers.GetAccountRequest")
+	proto.RegisterType((*GetAccountResponse)(nil), "seiprotocol.seichain.confidentialtransfers.GetAccountResponse")
+	proto.RegisterType((*GetAllAccountsRequest)(nil), "seiprotocol.seichain.confidentialtransfers.GetAllAccountsRequest")
+	proto.RegisterType((*GetAllAccountsResponse)(nil), "seiprotocol.seichain.confidentialtransfers.GetAllAccountsResponse")
 }
 
 func init() { proto.RegisterFile("confidentialtransfers/query.proto", fileDescriptor_35280e71e5f6c1ab) }
 
 var fileDescriptor_35280e71e5f6c1ab = []byte{
-	// 292 bytes of a gzipped FileDescriptorProto
+	// 404 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x52, 0x4c, 0xce, 0xcf, 0x4b,
 	0xcb, 0x4c, 0x49, 0xcd, 0x2b, 0xc9, 0x4c, 0xcc, 0x29, 0x29, 0x4a, 0xcc, 0x2b, 0x4e, 0x4b, 0x2d,
 	0x2a, 0xd6, 0x2f, 0x2c, 0x4d, 0x2d, 0xaa, 0xd4, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xd2, 0x2a,
 	0x4e, 0xcd, 0x04, 0xb3, 0x92, 0xf3, 0x73, 0xf4, 0x8a, 0x53, 0x33, 0x93, 0x33, 0x12, 0x33, 0xf3,
 	0xf4, 0xb0, 0xea, 0x93, 0x12, 0x49, 0xcf, 0x4f, 0xcf, 0x07, 0x2b, 0xd6, 0x07, 0xb1, 0x20, 0x26,
 	0x48, 0xc9, 0xa4, 0xe7, 0xe7, 0xa7, 0xe7, 0xa4, 0xea, 0x27, 0x16, 0x64, 0xea, 0x27, 0xe6, 0xe5,
-	0xe5, 0x97, 0x24, 0x96, 0x64, 0xe6, 0xe7, 0x15, 0x43, 0x64, 0x95, 0x0c, 0xb9, 0x04, 0x42, 0x52,
-	0x8b, 0x4b, 0x02, 0x41, 0x56, 0x06, 0xa5, 0x16, 0x96, 0xa6, 0x16, 0x97, 0x08, 0xc9, 0x72, 0x71,
-	0x95, 0xa4, 0x16, 0x97, 0xc4, 0xa7, 0x65, 0xa6, 0xe6, 0xa4, 0x48, 0x30, 0x2a, 0x30, 0x6a, 0x70,
-	0x06, 0x71, 0x82, 0x44, 0xdc, 0x40, 0x02, 0x4a, 0x46, 0x5c, 0x82, 0x48, 0x5a, 0x8a, 0x0b, 0xf2,
-	0xf3, 0x8a, 0x53, 0x09, 0xe8, 0x31, 0x3a, 0xc6, 0xc8, 0xc5, 0x0a, 0xd6, 0x20, 0xb4, 0x87, 0x91,
-	0x8b, 0x13, 0xae, 0x5d, 0xc8, 0x46, 0x8f, 0x78, 0xff, 0xe9, 0xa1, 0x3b, 0x54, 0xca, 0x96, 0x4c,
-	0xdd, 0x10, 0x37, 0x2b, 0x19, 0x35, 0x5d, 0x7e, 0x32, 0x99, 0x49, 0x47, 0x48, 0x4b, 0x1f, 0xa6,
-	0x55, 0x1f, 0x7b, 0x84, 0x80, 0x7d, 0x06, 0x8e, 0x15, 0xa7, 0xc8, 0x13, 0x8f, 0xe4, 0x18, 0x2f,
-	0x3c, 0x92, 0x63, 0x7c, 0xf0, 0x48, 0x8e, 0x71, 0xc2, 0x63, 0x39, 0x86, 0x0b, 0x8f, 0xe5, 0x18,
-	0x6e, 0x3c, 0x96, 0x63, 0x88, 0xb2, 0x4f, 0xcf, 0x2c, 0xc9, 0x28, 0x4d, 0xd2, 0x4b, 0xce, 0xcf,
-	0x05, 0x99, 0xa7, 0x0b, 0x73, 0x17, 0x98, 0x03, 0x31, 0xbd, 0x02, 0x97, 0xf9, 0x95, 0x05, 0xa9,
-	0xc5, 0x49, 0x6c, 0x60, 0x1d, 0xc6, 0x80, 0x00, 0x00, 0x00, 0xff, 0xff, 0xb9, 0x17, 0x87, 0x5b,
-	0x16, 0x02, 0x00, 0x00,
+	0xe5, 0x97, 0x24, 0x96, 0x64, 0xe6, 0xe7, 0x15, 0x43, 0x65, 0x35, 0xb0, 0x3b, 0x01, 0x59, 0x14,
+	0xa2, 0x52, 0xc9, 0x99, 0x4b, 0xd0, 0x3d, 0xb5, 0xc4, 0x31, 0x39, 0x39, 0xbf, 0x34, 0xaf, 0x24,
+	0x28, 0xb5, 0xb0, 0x34, 0xb5, 0xb8, 0x44, 0x48, 0x82, 0x8b, 0x3d, 0x31, 0x25, 0xa5, 0x28, 0xb5,
+	0xb8, 0x58, 0x82, 0x51, 0x81, 0x51, 0x83, 0x33, 0x08, 0xc6, 0x15, 0x12, 0xe1, 0x62, 0x4d, 0x49,
+	0xcd, 0xcb, 0xcf, 0x95, 0x60, 0x02, 0x8b, 0x43, 0x38, 0x4a, 0xa9, 0x5c, 0x42, 0xc8, 0x86, 0x14,
+	0x17, 0xe4, 0xe7, 0x15, 0xa7, 0x0a, 0xf9, 0x73, 0xb1, 0x27, 0x42, 0x84, 0xc0, 0xa6, 0x70, 0x1b,
+	0x99, 0xea, 0x11, 0xef, 0x6d, 0x3d, 0x67, 0xb8, 0x79, 0x30, 0x53, 0x94, 0x0c, 0xb9, 0x44, 0x41,
+	0xd6, 0xe4, 0xe4, 0x40, 0x65, 0x8a, 0x09, 0xba, 0x57, 0x29, 0x9b, 0x4b, 0x0c, 0x5d, 0x0b, 0xd4,
+	0x75, 0x81, 0x5c, 0x1c, 0x50, 0x73, 0x41, 0x9a, 0x98, 0xc9, 0x77, 0x1e, 0xdc, 0x18, 0xa3, 0xb5,
+	0xcc, 0x5c, 0xac, 0x81, 0xa0, 0x58, 0x16, 0x3a, 0xc7, 0xc8, 0xc5, 0x85, 0x08, 0x11, 0x21, 0x5b,
+	0x52, 0x4c, 0xc6, 0x88, 0x0e, 0x29, 0x3b, 0x72, 0xb5, 0x43, 0xbc, 0xaa, 0xe4, 0xd8, 0x74, 0xf9,
+	0xc9, 0x64, 0x26, 0x6b, 0x21, 0x4b, 0x7d, 0x98, 0x5e, 0x7d, 0xec, 0xe9, 0x03, 0xea, 0x13, 0xfd,
+	0x6a, 0x68, 0xf0, 0xd5, 0xea, 0x57, 0x83, 0x23, 0xb8, 0x56, 0xe8, 0x12, 0x23, 0x17, 0x1f, 0x6a,
+	0x40, 0x0a, 0x39, 0x92, 0xea, 0x2a, 0x8c, 0x78, 0x93, 0x72, 0xa2, 0xc4, 0x08, 0xa8, 0xe7, 0x2c,
+	0xc1, 0x9e, 0x33, 0x16, 0x32, 0x24, 0xd9, 0x73, 0x4e, 0x91, 0x27, 0x1e, 0xc9, 0x31, 0x5e, 0x78,
+	0x24, 0xc7, 0xf8, 0xe0, 0x91, 0x1c, 0xe3, 0x84, 0xc7, 0x72, 0x0c, 0x17, 0x1e, 0xcb, 0x31, 0xdc,
+	0x78, 0x2c, 0xc7, 0x10, 0x65, 0x9f, 0x9e, 0x59, 0x92, 0x51, 0x9a, 0xa4, 0x97, 0x9c, 0x9f, 0x0b,
+	0x32, 0x56, 0x17, 0xe6, 0x46, 0x30, 0x07, 0x62, 0x49, 0x05, 0x0e, 0x6b, 0x4a, 0x2a, 0x0b, 0x52,
+	0x8b, 0x93, 0xd8, 0xc0, 0x3a, 0x8c, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0xd6, 0xd8, 0xbe, 0xaf,
+	0x0c, 0x04, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -161,8 +264,8 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type QueryClient interface {
-	// TODO: This is a mock method. Remove when we add real queries
-	TestQuery(ctx context.Context, in *TestQueryRequest, opts ...grpc.CallOption) (*TestQueryResponse, error)
+	GetAccount(ctx context.Context, in *GetAccountRequest, opts ...grpc.CallOption) (*GetAccountResponse, error)
+	GetAllAccounts(ctx context.Context, in *GetAllAccountsRequest, opts ...grpc.CallOption) (*GetAllAccountsResponse, error)
 }
 
 type queryClient struct {
@@ -173,9 +276,18 @@ func NewQueryClient(cc grpc1.ClientConn) QueryClient {
 	return &queryClient{cc}
 }
 
-func (c *queryClient) TestQuery(ctx context.Context, in *TestQueryRequest, opts ...grpc.CallOption) (*TestQueryResponse, error) {
-	out := new(TestQueryResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.confidentialtransfers.Query/TestQuery", in, out, opts...)
+func (c *queryClient) GetAccount(ctx context.Context, in *GetAccountRequest, opts ...grpc.CallOption) (*GetAccountResponse, error) {
+	out := new(GetAccountResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.confidentialtransfers.Query/GetAccount", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *queryClient) GetAllAccounts(ctx context.Context, in *GetAllAccountsRequest, opts ...grpc.CallOption) (*GetAllAccountsResponse, error) {
+	out := new(GetAllAccountsResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.confidentialtransfers.Query/GetAllAccounts", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -184,36 +296,57 @@ func (c *queryClient) TestQuery(ctx context.Context, in *TestQueryRequest, opts 
 
 // QueryServer is the server API for Query service.
 type QueryServer interface {
-	// TODO: This is a mock method. Remove when we add real queries
-	TestQuery(context.Context, *TestQueryRequest) (*TestQueryResponse, error)
+	GetAccount(context.Context, *GetAccountRequest) (*GetAccountResponse, error)
+	GetAllAccounts(context.Context, *GetAllAccountsRequest) (*GetAllAccountsResponse, error)
 }
 
 // UnimplementedQueryServer can be embedded to have forward compatible implementations.
 type UnimplementedQueryServer struct {
 }
 
-func (*UnimplementedQueryServer) TestQuery(ctx context.Context, req *TestQueryRequest) (*TestQueryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method TestQuery not implemented")
+func (*UnimplementedQueryServer) GetAccount(ctx context.Context, req *GetAccountRequest) (*GetAccountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccount not implemented")
+}
+func (*UnimplementedQueryServer) GetAllAccounts(ctx context.Context, req *GetAllAccountsRequest) (*GetAllAccountsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllAccounts not implemented")
 }
 
 func RegisterQueryServer(s grpc1.Server, srv QueryServer) {
 	s.RegisterService(&_Query_serviceDesc, srv)
 }
 
-func _Query_TestQuery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TestQueryRequest)
+func _Query_GetAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(QueryServer).TestQuery(ctx, in)
+		return srv.(QueryServer).GetAccount(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.confidentialtransfers.Query/TestQuery",
+		FullMethod: "/seiprotocol.seichain.confidentialtransfers.Query/GetAccount",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueryServer).TestQuery(ctx, req.(*TestQueryRequest))
+		return srv.(QueryServer).GetAccount(ctx, req.(*GetAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Query_GetAllAccounts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAllAccountsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QueryServer).GetAllAccounts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/seiprotocol.seichain.confidentialtransfers.Query/GetAllAccounts",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QueryServer).GetAllAccounts(ctx, req.(*GetAllAccountsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -223,15 +356,19 @@ var _Query_serviceDesc = grpc.ServiceDesc{
 	HandlerType: (*QueryServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "TestQuery",
-			Handler:    _Query_TestQuery_Handler,
+			MethodName: "GetAccount",
+			Handler:    _Query_GetAccount_Handler,
+		},
+		{
+			MethodName: "GetAllAccounts",
+			Handler:    _Query_GetAllAccounts_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "confidentialtransfers/query.proto",
 }
 
-func (m *TestQueryRequest) Marshal() (dAtA []byte, err error) {
+func (m *GetAccountRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -241,27 +378,34 @@ func (m *TestQueryRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TestQueryRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *GetAccountRequest) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TestQueryRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *GetAccountRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if len(m.TestField) > 0 {
-		i -= len(m.TestField)
-		copy(dAtA[i:], m.TestField)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.TestField)))
+	if len(m.Denom) > 0 {
+		i -= len(m.Denom)
+		copy(dAtA[i:], m.Denom)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Denom)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Address) > 0 {
+		i -= len(m.Address)
+		copy(dAtA[i:], m.Address)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Address)))
 		i--
 		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *TestQueryResponse) Marshal() (dAtA []byte, err error) {
+func (m *GetAccountResponse) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -271,22 +415,94 @@ func (m *TestQueryResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TestQueryResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *GetAccountResponse) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TestQueryResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *GetAccountResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if len(m.TestField) > 0 {
-		i -= len(m.TestField)
-		copy(dAtA[i:], m.TestField)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.TestField)))
+	if m.Account != nil {
+		{
+			size, err := m.Account.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintQuery(dAtA, i, uint64(size))
+		}
 		i--
 		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GetAllAccountsRequest) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetAllAccountsRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetAllAccountsRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Address) > 0 {
+		i -= len(m.Address)
+		copy(dAtA[i:], m.Address)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Address)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GetAllAccountsResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetAllAccountsResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetAllAccountsResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Accounts) > 0 {
+		for iNdEx := len(m.Accounts) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Accounts[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintQuery(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0xa
+		}
 	}
 	return len(dAtA) - i, nil
 }
@@ -302,28 +518,60 @@ func encodeVarintQuery(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-func (m *TestQueryRequest) Size() (n int) {
+func (m *GetAccountRequest) Size() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.TestField)
+	l = len(m.Address)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.Denom)
 	if l > 0 {
 		n += 1 + l + sovQuery(uint64(l))
 	}
 	return n
 }
 
-func (m *TestQueryResponse) Size() (n int) {
+func (m *GetAccountResponse) Size() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.TestField)
+	if m.Account != nil {
+		l = m.Account.Size()
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	return n
+}
+
+func (m *GetAllAccountsRequest) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Address)
 	if l > 0 {
 		n += 1 + l + sovQuery(uint64(l))
+	}
+	return n
+}
+
+func (m *GetAllAccountsResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Accounts) > 0 {
+		for _, e := range m.Accounts {
+			l = e.Size()
+			n += 1 + l + sovQuery(uint64(l))
+		}
 	}
 	return n
 }
@@ -334,7 +582,7 @@ func sovQuery(x uint64) (n int) {
 func sozQuery(x uint64) (n int) {
 	return sovQuery(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-func (m *TestQueryRequest) Unmarshal(dAtA []byte) error {
+func (m *GetAccountRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -357,15 +605,15 @@ func (m *TestQueryRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: TestQueryRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: GetAccountRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: TestQueryRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: GetAccountRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TestField", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -393,7 +641,39 @@ func (m *TestQueryRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.TestField = string(dAtA[iNdEx:postIndex])
+			m.Address = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Denom", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Denom = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -416,7 +696,7 @@ func (m *TestQueryRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TestQueryResponse) Unmarshal(dAtA []byte) error {
+func (m *GetAccountResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -439,15 +719,101 @@ func (m *TestQueryResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: TestQueryResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: GetAccountResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: TestQueryResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: GetAccountResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TestField", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Account", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Account == nil {
+				m.Account = &CtAccount{}
+			}
+			if err := m.Account.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetAllAccountsRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetAllAccountsRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetAllAccountsRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -475,7 +841,91 @@ func (m *TestQueryResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.TestField = string(dAtA[iNdEx:postIndex])
+			m.Address = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetAllAccountsResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetAllAccountsResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetAllAccountsResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Accounts", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Accounts = append(m.Accounts, &CtAccount{})
+			if err := m.Accounts[len(m.Accounts)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

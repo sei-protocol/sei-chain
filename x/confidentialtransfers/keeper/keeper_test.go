@@ -32,4 +32,5 @@ func (suite *KeeperTestSuite) SetupTest() {
 		suite.App.GetSubspace(types.ModuleName),
 		suite.App.AccountKeeper)
 	suite.msgServer = keeper.NewMsgServerImpl(suite.App.ConfidentialTransfersKeeper)
+
 }

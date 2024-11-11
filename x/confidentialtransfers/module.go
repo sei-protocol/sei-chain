@@ -92,7 +92,8 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 
 // TODO: Look into whether we require REST endpoints
 // RegisterRESTRoutes registers the capability module's REST service handlers.
-func (AppModuleBasic) RegisterRESTRoutes(_ client.Context, _ *mux.Router) {
+func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, _ *mux.Router) {
+	//rest.RegisterHandlers(clientCtx, rtr)
 }
 
 // TODO: Look into whether we require gRPC Gateway support
@@ -158,8 +159,8 @@ func (am AppModule) LegacyQuerierHandler(_ *codec.LegacyAmino) sdk.Querier {
 // RegisterServices registers a GRPC query service to respond to the
 // module-specific GRPC queries.
 func (am AppModule) RegisterServices(cfg module.Configurator) {
-	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
-	// types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+	//types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
+	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	// TODO: Confirm that we don't need to define any Migrator here
 	//m := keeper.NewMigrator(am.keeper)
