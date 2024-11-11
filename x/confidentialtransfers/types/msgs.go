@@ -141,6 +141,36 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 	}, nil
 }
 
+func NewMsgTransferProto(transfer *Transfer) *MsgTransfer {
+	fromAmountLo := NewCiphertextProto(transfer.SenderTransferAmountLo)
+	fromAmountHi := NewCiphertextProto(transfer.SenderTransferAmountHi)
+	toAmountLo := NewCiphertextProto(transfer.RecipientTransferAmountLo)
+	toAmountHi := NewCiphertextProto(transfer.RecipientTransferAmountHi)
+	remainingBalance := NewCiphertextProto(transfer.RemainingBalanceCommitment)
+	proofs := NewTransferMsgProofs(transfer.Proofs)
+
+	// iterate over transfer.Auditors and convert them to types.Auditor
+	auditors := make([]*Auditor, 0, len(transfer.Auditors))
+	for _, auditorData := range transfer.Auditors {
+		auditor := NewAuditorProto(auditorData)
+		auditors = append(auditors, auditor)
+	}
+
+	return &MsgTransfer{
+		FromAddress:        transfer.FromAddress,
+		ToAddress:          transfer.ToAddress,
+		Denom:              transfer.Denom,
+		FromAmountLo:       fromAmountLo,
+		FromAmountHi:       fromAmountHi,
+		ToAmountLo:         toAmountLo,
+		ToAmountHi:         toAmountHi,
+		RemainingBalance:   remainingBalance,
+		DecryptableBalance: transfer.DecryptableBalance,
+		Proofs:             proofs,
+		Auditors:           auditors,
+	}
+}
+
 var _ sdk.Msg = &MsgInitializeAccount{}
 
 // Route Implements Msg.
@@ -237,12 +267,37 @@ func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
 		FromAddress:        m.FromAddress,
 		Denom:              m.Denom,
 		Pubkey:             &pubkey,
-		PendingAmountLo:    pendingBalanceLo,
-		PendingAmountHi:    pendingBalanceHi,
+		PendingBalanceLo:   pendingBalanceLo,
+		PendingBalanceHi:   pendingBalanceHi,
 		AvailableBalance:   availableBalance,
 		DecryptableBalance: m.DecryptableBalance,
 		Proofs:             proofs,
 	}, nil
+}
+
+// convert the InitializeAccount to MsgInitializeAccount
+func NewMsgInitializeAccountProto(initializeAccount *InitializeAccount) *MsgInitializeAccount {
+	pubkeyRaw := *initializeAccount.Pubkey
+	pubkey := pubkeyRaw.ToAffineCompressed()
+
+	pendingBalanceLo := NewCiphertextProto(initializeAccount.PendingBalanceLo)
+
+	pendingBalanceHi := NewCiphertextProto(initializeAccount.PendingBalanceHi)
+
+	availableBalance := NewCiphertextProto(initializeAccount.AvailableBalance)
+
+	proofs := NewInitializeAccountMsgProofs(initializeAccount.Proofs)
+
+	return &MsgInitializeAccount{
+		FromAddress:        initializeAccount.FromAddress,
+		Denom:              initializeAccount.Denom,
+		PublicKey:          pubkey,
+		DecryptableBalance: initializeAccount.DecryptableBalance,
+		PendingBalanceLo:   pendingBalanceLo,
+		PendingBalanceHi:   pendingBalanceHi,
+		AvailableBalance:   availableBalance,
+		Proofs:             proofs,
+	}
 }
 
 var _ sdk.Msg = &MsgApplyPendingBalance{}
@@ -336,6 +391,15 @@ func (m *MsgCloseAccount) GetSignBytes() []byte {
 func (m *MsgCloseAccount) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.Address)
 	return []sdk.AccAddress{sender}
+}
+
+func NewMsgCloseAccountProto(closeAccount *CloseAccount) *MsgCloseAccount {
+	proofs := NewCloseAccountMsgProofs(closeAccount.Proofs)
+	return &MsgCloseAccount{
+		Address: closeAccount.Address,
+		Denom:   closeAccount.Denom,
+		Proofs:  proofs,
+	}
 }
 
 var _ sdk.Msg = &MsgDeposit{}
@@ -449,4 +513,19 @@ func (m *MsgWithdraw) FromProto() (*Withdraw, error) {
 		DecryptableBalance:         m.DecryptableBalance,
 		Proofs:                     proofs,
 	}, nil
+}
+
+func NewMsgWithdrawProto(withdraw *Withdraw) *MsgWithdraw {
+	remainingBalanceCommitment := NewCiphertextProto(withdraw.RemainingBalanceCommitment)
+
+	proofs := NewWithdrawMsgProofs(withdraw.Proofs)
+
+	return &MsgWithdraw{
+		FromAddress:                withdraw.FromAddress,
+		Denom:                      withdraw.Denom,
+		Amount:                     withdraw.Amount,
+		RemainingBalanceCommitment: remainingBalanceCommitment,
+		DecryptableBalance:         withdraw.DecryptableBalance,
+		Proofs:                     proofs,
+	}
 }

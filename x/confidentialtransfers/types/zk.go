@@ -221,7 +221,7 @@ func (w *WithdrawMsgProofs) Validate() error {
 	return nil
 }
 
-func (w *WithdrawMsgProofs) NewWithdrawMsgProofs(proofs *WithdrawProofs) *WithdrawMsgProofs {
+func NewWithdrawMsgProofs(proofs *WithdrawProofs) *WithdrawMsgProofs {
 	return &WithdrawMsgProofs{
 		RemainingBalanceRangeProof:    NewRangeProofProto(proofs.RemainingBalanceRangeProof),
 		RemainingBalanceEqualityProof: NewCiphertextCommitmentEqualityProofProto(proofs.RemainingBalanceEqualityProof),
@@ -505,7 +505,7 @@ func (a *Auditor) FromProto() (*TransferAuditor, error) {
 	if err != nil {
 		return nil, err
 	}
-	transferAmountHiEqualityProof, err := a.TransferAmountLoEqualityProof.FromProto()
+	transferAmountHiEqualityProof, err := a.TransferAmountHiEqualityProof.FromProto()
 	if err != nil {
 		return nil, err
 	}

@@ -405,23 +405,35 @@ func TestMsgInitializeAccount_FromProto(t *testing.T) {
 	require.NoError(t, err)
 
 	decryptableBalance, err := encryption.EncryptAESGCM(0, aesPK)
+	encryptedZero, _, err := eg.Encrypt(sourceKeypair.PublicKey, 0)
 
 	// Generate the proof
 	pubkeyValidityProof, _ := zkproofs.NewPubKeyValidityProof(
 		sourceKeypair.PublicKey,
 		sourceKeypair.PrivateKey)
 
+	zeroBalProof, _ := zkproofs.NewZeroBalanceProof(
+		sourceKeypair,
+		encryptedZero)
+
 	proofs := &InitializeAccountProofs{
 		pubkeyValidityProof,
+		zeroBalProof,
+		zeroBalProof,
+		zeroBalProof,
 	}
 	address1 := sdk.AccAddress("address1")
 
+	encryptedZeroProto := NewCiphertextProto(encryptedZero)
 	proofsProto := NewInitializeAccountMsgProofs(proofs)
 	m := &MsgInitializeAccount{
 		FromAddress:        address1.String(),
 		Denom:              testDenom,
 		PublicKey:          sourceKeypair.PublicKey.ToAffineCompressed(),
 		DecryptableBalance: decryptableBalance,
+		PendingBalanceLo:   encryptedZeroProto,
+		PendingBalanceHi:   encryptedZeroProto,
+		AvailableBalance:   encryptedZeroProto,
 		Proofs:             proofsProto,
 	}
 
@@ -554,8 +566,7 @@ func TestMsgWithdraw_FromProto(t *testing.T) {
 
 	newBalanceProto := NewCiphertextProto(newBalanceCommitment)
 
-	withdrawMsgProof := WithdrawMsgProofs{}
-	proofsProto := withdrawMsgProof.NewWithdrawMsgProofs(proofs)
+	proofsProto := NewWithdrawMsgProofs(proofs)
 	m := &MsgWithdraw{
 		FromAddress:                address1.String(),
 		Denom:                      testDenom,

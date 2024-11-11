@@ -25,6 +25,7 @@ var _ types.MsgServer = msgServer{}
 func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitializeAccount) (*types.MsgInitializeAccountResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	// Convert the instruction to proto. This also validates the request.
 	instruction, err := req.FromProto()
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Msg")
@@ -48,13 +49,13 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	}
 
 	// Validate the pending balance lo is zero.
-	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceLoProof, instruction.Pubkey, instruction.PendingAmountLo)
+	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceLoProof, instruction.Pubkey, instruction.PendingBalanceLo)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid pending balance lo")
 	}
 
 	// Validate the pending balance hi is zero.
-	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceHiProof, instruction.Pubkey, instruction.PendingAmountHi)
+	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceHiProof, instruction.Pubkey, instruction.PendingBalanceHi)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid pending balance hi")
 	}
@@ -68,8 +69,8 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	// Create the account
 	account := types.Account{
 		PublicKey:                   *instruction.Pubkey,
-		PendingBalanceLo:            instruction.PendingAmountLo,
-		PendingBalanceHi:            instruction.PendingAmountHi,
+		PendingBalanceLo:            instruction.PendingBalanceLo,
+		PendingBalanceHi:            instruction.PendingBalanceHi,
 		AvailableBalance:            instruction.AvailableBalance,
 		DecryptableAvailableBalance: instruction.DecryptableBalance,
 		PendingBalanceCreditCounter: 0,
@@ -91,6 +92,12 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 
 func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types.MsgDepositResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	// Validate request
+	err := req.ValidateBasic()
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Request")
+	}
 
 	// Check if the account exists
 	address, err := sdk.AccAddressFromBech32(req.FromAddress)
@@ -118,7 +125,7 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	coins := sdk.NewCoins(sdk.NewCoin(req.Denom, sdk.NewIntFromUint64(req.Amount)))
 
 	// Transfer the amount from the sender's account to the module account
-	if err := m.Keeper.bankKeeper.SendCoinsFromAccountToModule(ctx, address, types.ModuleName, coins); err != nil {
+	if err := m.Keeper.ReceiveTokens(ctx, address, coins); err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to deposit %d %s", req.Amount, req.Denom)
 	}
 
@@ -128,8 +135,6 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 
 	// Extract the next 32 bits (from bit 16 to bit 47) (Everything else is ignored since the max is 48 bits)
 	next32 := uint32((req.Amount >> 16) & 0xFFFFFFFF)
-
-	account.PendingBalanceCreditCounter += 1
 
 	// Compute the new balances
 	teg := elgamal.NewTwistedElgamal()
@@ -167,17 +172,19 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*types.MsgWithdrawResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// Check if the account exists
+	// Get the requested address.
 	address, err := sdk.AccAddressFromBech32(req.FromAddress)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Address")
 	}
 
+	// Get the user's account
 	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
 	if !exists {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account does not exist")
 	}
 
+	// Convert the struct to a usable form. This also validates the request.
 	instruction, err := req.FromProto()
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Msg")
@@ -211,7 +218,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 
 	// Return the tokens to the sender
 	coins := sdk.NewCoins(sdk.NewCoin(instruction.Denom, sdk.NewIntFromUint64(instruction.Amount)))
-	if err := m.Keeper.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, address, coins); err != nil {
+	if err := m.Keeper.SendTokens(ctx, address, coins); err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to withdraw %d %s", req.Amount, req.Denom)
 	}
 
@@ -240,6 +247,10 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
 	if !exists {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account does not exist")
+	}
+
+	if account.PendingBalanceCreditCounter == 0 {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "No pending balance to apply")
 	}
 
 	// Calculate updated balances
@@ -356,7 +367,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "sender account does not exist")
 	}
 
-	recipientAccount, exists := m.Keeper.GetAccount(ctx, senderAddress, req.Denom)
+	recipientAccount, exists := m.Keeper.GetAccount(ctx, recipientAddress, req.Denom)
 	if !exists {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "recipient account does not exist")
 	}

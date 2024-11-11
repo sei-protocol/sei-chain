@@ -226,8 +226,8 @@ var (
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
-		// TODO: Add confidential transfers module here when we enable it
-		// confidentialtransferstypes.ModuleName: nil,
+		// Confidential Transfers module is not live yet, but we add the permissions for testing
+		cttypes.ModuleName: nil,
 
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}

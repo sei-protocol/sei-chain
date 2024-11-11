@@ -27,6 +27,9 @@ type Keeper interface {
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
 
+	SendTokens(ctx sdk.Context, to sdk.AccAddress, amount sdk.Coins) error
+	ReceiveTokens(ctx sdk.Context, from sdk.AccAddress, amount sdk.Coins) error
+
 	CreateModuleAccount(ctx sdk.Context)
 }
 
@@ -150,4 +153,12 @@ func (k BaseKeeper) GetParams(ctx sdk.Context) (params types.Params) {
 // SetParams sets the total set of bank parameters.
 func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.paramSpace.SetParamSet(ctx, &params)
+}
+
+func (k BaseKeeper) SendTokens(ctx sdk.Context, to sdk.AccAddress, amount sdk.Coins) error {
+	return k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, to, amount)
+}
+
+func (k BaseKeeper) ReceiveTokens(ctx sdk.Context, from sdk.AccAddress, amount sdk.Coins) error {
+	return k.bankKeeper.SendCoinsFromAccountToModule(ctx, from, types.ModuleName, amount)
 }
