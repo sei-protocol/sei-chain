@@ -192,7 +192,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 
 	// Verify that the account has sufficient funds (Remaining balance after making the transfer is greater than or equal to zero.)
 	// This range proof verification is performed on the RemainingBalanceCommitment sent by the user. An additional check is required to ensure that this matches the remaining balance calculated by the server.
-	verified, err := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 64)
+	verified, _ := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 64)
 	if !verified {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Range proof verification failed")
 	}
@@ -380,6 +380,9 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	// Calculate senders new available balance.
 	teg := elgamal.NewTwistedElgamal()
 	newSenderBalanceCiphertext, err := teg.SubWithLoHi(senderAccount.AvailableBalance, instruction.SenderTransferAmountLo, instruction.SenderTransferAmountHi)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error subtracting sender transfer amount")
+	}
 
 	// Validate proofs
 	err = types.VerifyTransferProofs(instruction, &senderAccount.PublicKey, &recipientAccount.PublicKey, newSenderBalanceCiphertext)

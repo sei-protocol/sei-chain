@@ -44,6 +44,9 @@ func NewWithdraw(
 
 	teg := elgamal.NewTwistedElgamal()
 	keyPair, err := teg.KeyGen(privateKey, denom)
+	if err != nil {
+		return &Withdraw{}, err
+	}
 
 	currentBalance, err := encryption.DecryptAESGCM(currentDecryptableBalance, aesKey)
 	if err != nil {

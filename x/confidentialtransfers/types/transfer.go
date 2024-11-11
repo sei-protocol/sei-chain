@@ -118,8 +118,19 @@ func NewTransfer(
 	// Now that we have all the params we need, start generating the proofs wrt the Sender params.
 	// First we generate validity proofs that all the ciphertexts are valid.
 	newCommitmentValidityProof, err := zkproofs.NewCiphertextValidityProof(&newBalanceRandomness, senderKeyPair.PublicKey, newBalanceCommitment, newBalance)
+	if err != nil {
+		return &Transfer{}, err
+	}
+
 	senderLoBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&senderLoBitsRandomness, senderKeyPair.PublicKey, senderEncryptedTransferLoBits, uint64(transferLoBits))
+	if err != nil {
+		return &Transfer{}, err
+	}
+
 	senderHiBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&senderHiBitsRandomness, senderKeyPair.PublicKey, senderEncryptedTransferHiBits, uint64(transferHiBits))
+	if err != nil {
+		return &Transfer{}, err
+	}
 
 	// Secondly, we generate a Range Proof to prove that the PedersonCommitment to the new balance is greater than zero.
 	newBalanceRangeProof, err := zkproofs.NewRangeProof(64, int(newBalance), newBalanceRandomness)
