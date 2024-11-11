@@ -261,8 +261,8 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		result.Auditors[0].TransferAmountHiEqualityProof,
 		&sourceKeypair.PublicKey,
 		&auditorKeypair.PublicKey,
-		result.SenderTransferAmountLo,
-		result.Auditors[0].EncryptedTransferAmountLo))
+		result.SenderTransferAmountHi,
+		result.Auditors[0].EncryptedTransferAmountHi))
 }
 
 func TestMsgTransfer_ValidateBasic(t *testing.T) {
