@@ -86,11 +86,6 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGas", s.connectionType, startTime, returnErr)
-	defer func() {
-		if err := recover(); err != nil {
-			returnErr = fmt.Errorf("%s", err)
-		}
-	}()
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash

@@ -59,8 +59,12 @@ type CoinBalance struct {
 	Denom  string
 }
 
+func GetABI() abi.ABI {
+	return pcommon.MustGetABI(f, "abi.json")
+}
+
 func NewPrecompile(bankKeeper pcommon.BankKeeper, bankMsgServer pcommon.BankMsgServer, evmKeeper pcommon.EVMKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.DynamicGasPrecompile, error) {
-	newAbi := pcommon.MustGetABI(f, "abi.json")
+	newAbi := GetABI()
 	p := &PrecompileExecutor{
 		bankKeeper:    bankKeeper,
 		bankMsgServer: bankMsgServer,
