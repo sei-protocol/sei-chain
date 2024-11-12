@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"github.com/cosmos/cosmos-sdk/types/query"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
@@ -56,12 +57,22 @@ func (k BaseKeeper) GetAllAccounts(ctx context.Context, req *types.GetAllAccount
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	accounts, err := k.getCtAccountsForAddress(sdkCtx, address)
+	store := k.getAccountStoreForAddress(sdkCtx, address)
+	accounts := make([]types.CtAccount, 0)
+	pageRes, err := query.Paginate(store, req.Pagination, func(_, value []byte) error {
+		var result types.CtAccount
+		err = k.cdc.Unmarshal(value, &result)
+		if err != nil {
+			return err
+		}
+		accounts = append(accounts, result)
+		return nil
+	})
 
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to fetch accounts: %s", err.Error())
+		return nil, status.Errorf(codes.InvalidArgument, "paginate: %v", err)
 	}
 
-	return &types.GetAllAccountsResponse{Accounts: accounts}, nil
+	return &types.GetAllAccountsResponse{Accounts: accounts, Pagination: pageRes}, nil
 
 }

@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"fmt"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 )
@@ -99,7 +100,7 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 	testCases := []struct {
 		name            string
 		req             *types.GetAllAccountsRequest
-		expResponse     []types.CtAccount
+		expResponse     *types.GetAllAccountsResponse
 		expFail         bool
 		expErrorMessage string
 	}{
@@ -119,12 +120,34 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 		{
 			name:        "account for address does not exist",
 			req:         &types.GetAllAccountsRequest{Address: nonExistingAddr.String()},
-			expResponse: []types.CtAccount(nil),
+			expResponse: &types.GetAllAccountsResponse{Pagination: &query.PageResponse{}},
 		},
 		{
-			name:        "accounts for address exist",
-			req:         &types.GetAllAccountsRequest{Address: addr.String()},
-			expResponse: []types.CtAccount{ctAccount1, ctAccount2},
+			name: "accounts for address exist",
+			req:  &types.GetAllAccountsRequest{Address: addr.String()},
+			expResponse: &types.GetAllAccountsResponse{
+				Accounts:   []types.CtAccount{ctAccount1, ctAccount2},
+				Pagination: &query.PageResponse{Total: 2},
+			},
+		},
+		{
+			name: "paginated request",
+			req:  &types.GetAllAccountsRequest{Address: addr.String(), Pagination: &query.PageRequest{Limit: 1}},
+			expResponse: &types.GetAllAccountsResponse{
+				Accounts:   []types.CtAccount{ctAccount1},
+				Pagination: &query.PageResponse{Total: 0, NextKey: []byte(testDenom2)},
+			},
+		},
+		{
+			name: "paginated request - second page",
+			req: &types.GetAllAccountsRequest{Address: addr.String(), Pagination: &query.PageRequest{
+				Limit: 1,
+				Key:   []byte(testDenom2)},
+			},
+			expResponse: &types.GetAllAccountsResponse{
+				Accounts:   []types.CtAccount{ctAccount2},
+				Pagination: &query.PageResponse{},
+			},
 		},
 	}
 
@@ -144,7 +167,7 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 			} else {
 				suite.Require().NoError(err)
 				suite.Require().NotNil(result)
-				suite.Require().Equal(tc.expResponse, result.Accounts)
+				suite.Require().Equal(tc.expResponse, result)
 			}
 		})
 	}
