@@ -448,10 +448,9 @@ async function verifyPointerDeployment(provider, txHash, address, command, attem
             console.log('Deployment failed, retrying one more time');
             const output = await execute(command);
             const txHash = output.replace(/.*0x/, "0x").trim()
-            await verifyPointerDeployment(provider, txHash, address, command, attempts, attempt, isNative);
+            await verifyPointerDeployment(provider, txHash, address, command, attempts, attempt, contractType);
         }
         await sleep(500);
-        console.log(attempt)
         attempt++
     }
     throw new Error("contract deployment failed")
