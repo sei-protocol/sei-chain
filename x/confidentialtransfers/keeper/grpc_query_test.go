@@ -13,6 +13,10 @@ func (suite *KeeperTestSuite) TestAccountQuery() {
 	testDenom := fmt.Sprintf("factory/%s/TEST", addr.String())
 	nonExistingDenom := fmt.Sprintf("factory/%s/NONEXISTING", addr.String())
 
+	pk1, _ := encryption.GenerateKey()
+	ctAccount := generateCtAccount(pk1, testDenom, 1000)
+	account, _ := ctAccount.FromProto()
+
 	testCases := []struct {
 		name            string
 		req             *types.GetAccountRequest
@@ -20,7 +24,7 @@ func (suite *KeeperTestSuite) TestAccountQuery() {
 		expErrorMessage string
 	}{
 		{
-			name:            "empty address",
+			name:            "empty request",
 			req:             &types.GetAccountRequest{},
 			expFail:         true,
 			expErrorMessage: "rpc error: code = InvalidArgument desc = address cannot be empty",
@@ -56,11 +60,6 @@ func (suite *KeeperTestSuite) TestAccountQuery() {
 			suite.SetupTest() // reset
 			app, ctx, queryClient := suite.App, suite.Ctx, suite.queryClient
 
-			pk1, _ := encryption.GenerateKey()
-
-			ctAccount := generateCtAccount(pk1, testDenom, 1000)
-			account, _ := ctAccount.FromProto()
-
 			app.ConfidentialTransfersKeeper.SetAccount(ctx, addr, testDenom, *account)
 
 			result, err := queryClient.GetAccount(ctx.Context(), tc.req)
@@ -72,7 +71,6 @@ func (suite *KeeperTestSuite) TestAccountQuery() {
 				suite.Require().NoError(err)
 				suite.Require().NotNil(result)
 				suite.Require().Equal(&ctAccount, result.Account)
-
 			}
 		})
 	}
