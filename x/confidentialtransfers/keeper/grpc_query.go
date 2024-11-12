@@ -13,7 +13,7 @@ import (
 
 var _ types.QueryServer = BaseKeeper{}
 
-func (k BaseKeeper) GetAccount(ctx context.Context, req *types.GetAccountRequest) (*types.GetAccountResponse, error) {
+func (k BaseKeeper) GetCtAccount(ctx context.Context, req *types.GetCtAccountRequest) (*types.GetCtAccountResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "empty request")
 	}
@@ -39,10 +39,10 @@ func (k BaseKeeper) GetAccount(ctx context.Context, req *types.GetAccountRequest
 			req.Address, req.Denom)
 	}
 
-	return &types.GetAccountResponse{Account: &ctAccount}, nil
+	return &types.GetCtAccountResponse{Account: &ctAccount}, nil
 }
 
-func (k BaseKeeper) GetAllAccounts(ctx context.Context, req *types.GetAllAccountsRequest) (*types.GetAllAccountsResponse, error) {
+func (k BaseKeeper) GetAllCtAccounts(ctx context.Context, req *types.GetAllCtAccountsRequest) (*types.GetAllCtAccountsResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "empty request")
 	}
@@ -75,6 +75,6 @@ func (k BaseKeeper) GetAllAccounts(ctx context.Context, req *types.GetAllAccount
 		return nil, status.Errorf(codes.InvalidArgument, "paginate: %v", err)
 	}
 
-	return &types.GetAllAccountsResponse{Accounts: accounts, Pagination: pageRes}, nil
+	return &types.GetAllCtAccountsResponse{Accounts: accounts, Pagination: pageRes}, nil
 
 }

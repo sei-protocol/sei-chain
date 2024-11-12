@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"fmt"
-
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
@@ -21,7 +20,8 @@ type Keeper interface {
 	InitGenesis(sdk.Context, *types.GenesisState)
 	ExportGenesis(sdk.Context) *types.GenesisState
 
-	SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account)
+	GetAccount(ctx sdk.Context, addrString string, denom string) (types.Account, bool)
+	SetAccount(ctx sdk.Context, addrString string, denom string, account types.Account) error
 
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
@@ -60,8 +60,12 @@ func NewKeeper(
 	}
 }
 
-func (k BaseKeeper) getAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool) {
-	ctAccount, found := k.getCtAccount(ctx, address, denom)
+func (k BaseKeeper) GetAccount(ctx sdk.Context, address string, denom string) (types.Account, bool) {
+	addr, err := sdk.AccAddressFromBech32(address)
+	if err != nil {
+		return types.Account{}, false
+	}
+	ctAccount, found := k.getCtAccount(ctx, addr, denom)
 	if !found {
 		return types.Account{}, false
 	}
@@ -85,11 +89,16 @@ func (k BaseKeeper) getCtAccount(ctx sdk.Context, address sdk.AccAddress, denom 
 	return ctAccount, true
 }
 
-func (k BaseKeeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account) {
-	store := k.getAccountStoreForAddress(ctx, address)
+func (k BaseKeeper) SetAccount(ctx sdk.Context, address string, denom string, account types.Account) error {
+	addr, err := sdk.AccAddressFromBech32(address)
+	if err != nil {
+		return err
+	}
+	store := k.getAccountStoreForAddress(ctx, addr)
 	ctAccount := types.NewCtAccount(&account)
 	bz := k.cdc.MustMarshal(ctAccount) // Marshal the Account object into bytes
 	store.Set([]byte(denom), bz)       // Store the serialized account under denom name as key
+	return nil
 }
 
 // Logger returns a logger for the x/confidentialtransfers module
