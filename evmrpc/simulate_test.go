@@ -67,6 +67,48 @@ func TestEstimateGas(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(8)
 }
 
+func TestEstimateGasAfterCalls(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	// estimate get after set
+	_, from := testkeeper.MockAddressPair()
+	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20)))
+	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(from[:]), amts)
+	_, contractAddr := testkeeper.MockAddressPair()
+	code, err := os.ReadFile("../example/contracts/simplestorage/SimpleStorage.bin")
+	require.Nil(t, err)
+	bz, err := hex.DecodeString(string(code))
+	require.Nil(t, err)
+	abi, err := simplestorage.SimplestorageMetaData.GetAbi()
+	require.Nil(t, err)
+	call, err := abi.Pack("set", big.NewInt(20))
+	require.Nil(t, err)
+	input, err := abi.Pack("get")
+	require.Nil(t, err)
+	EVMKeeper.SetCode(Ctx, contractAddr, bz)
+	txArgs := map[string]interface{}{
+		"from":    from.Hex(),
+		"to":      contractAddr.Hex(),
+		"value":   "0x0",
+		"nonce":   "0x2",
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"input":   fmt.Sprintf("%#x", input),
+	}
+	callArgs := map[string]interface{}{
+		"from":    from.Hex(),
+		"to":      contractAddr.Hex(),
+		"value":   "0x0",
+		"nonce":   "0x2",
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"input":   fmt.Sprintf("%#x", call),
+	}
+	resObj := sendRequestGood(t, "estimateGasAfterCalls", txArgs, []interface{}{callArgs}, nil, map[string]interface{}{})
+	result := resObj["result"].(string)
+	require.Equal(t, "0x536d", result) // 21357 for get
+
+	Ctx = Ctx.WithBlockHeight(8)
+}
+
 func TestCreateAccessList(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
 
@@ -89,7 +131,7 @@ func TestCreateAccessList(t *testing.T) {
 		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 		"input":   fmt.Sprintf("%#x", input),
 	}
-	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20)))
+	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(2000000)))
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
 	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(from[:]), amts)
 	resObj := sendRequestGood(t, "createAccessList", txArgs, "latest")
@@ -148,10 +190,8 @@ func TestEthCallHighAmount(t *testing.T) {
 		from.Hex(): {"balance": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
 	}
 	resObj := sendRequestGood(t, "call", txArgs, "latest", overrides)
-	fmt.Println("resObj = ", resObj)
 	errMap := resObj["error"].(map[string]interface{})
 	result := errMap["message"]
-	fmt.Println("res = ", result)
 	require.Equal(t, result, "error: balance override overflow")
 
 	Ctx = Ctx.WithBlockHeight(8)

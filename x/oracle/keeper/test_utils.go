@@ -70,7 +70,7 @@ func MakeEncodingConfig(_ *testing.T) simparams.EncodingConfig {
 
 	ModuleBasics.RegisterLegacyAminoCodec(amino)
 	ModuleBasics.RegisterInterfaces(interfaceRegistry)
-	types.RegisterLegacyAminoCodec(amino)
+	types.RegisterCodec(amino)
 	types.RegisterInterfaces(interfaceRegistry)
 	return simparams.EncodingConfig{
 		InterfaceRegistry: interfaceRegistry,

@@ -174,7 +174,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", tx["blockHash"])
 	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", tx["from"])
 	require.Equal(t, "0x3e8", tx["gas"])
-	require.Equal(t, "0x0", tx["gasPrice"])
+	require.Equal(t, "0xa", tx["gasPrice"])
 	require.Equal(t, "0xa", tx["maxFeePerGas"])
 	require.Equal(t, "0x0", tx["maxPriorityFeePerGas"])
 	require.Equal(t, "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e", tx["hash"])
@@ -192,7 +192,7 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x0", tx["yParity"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", resObj["transactionsRoot"])
 	require.Equal(t, []interface{}{}, resObj["uncles"])
-	require.Equal(t, "0x0", resObj["baseFeePerGas"])
+	require.Equal(t, "0x3b9aca00", resObj["baseFeePerGas"])
 	require.Equal(t, "0x0", resObj["totalDifficulty"])
 }
 

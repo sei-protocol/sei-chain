@@ -220,7 +220,7 @@ func EncodeTmBlock(
 	txHash := common.HexToHash(block.Block.DataHash.String())
 	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
 	miner := common.HexToAddress(block.Block.ProposerAddress.String())
-	baseFeePerGas := k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
+	baseFeePerGas := k.GetDynamicBaseFeePerGas(ctx).TruncateInt().BigInt()
 	var blockGasUsed int64
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}

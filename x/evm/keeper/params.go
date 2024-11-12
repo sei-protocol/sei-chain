@@ -37,8 +37,20 @@ func (k *Keeper) GetBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	return k.GetParams(ctx).BaseFeePerGas
 }
 
+func (k *Keeper) GetMaxDynamicBaseFeeUpwardAdjustment(ctx sdk.Context) sdk.Dec {
+	return k.GetParams(ctx).MaxDynamicBaseFeeUpwardAdjustment
+}
+
+func (k *Keeper) GetMaxDynamicBaseFeeDownwardAdjustment(ctx sdk.Context) sdk.Dec {
+	return k.GetParams(ctx).MaxDynamicBaseFeeDownwardAdjustment
+}
+
 func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 	return k.GetParams(ctx).MinimumFeePerGas
+}
+
+func (k *Keeper) GetTargetGasUsedPerBlock(ctx sdk.Context) uint64 {
+	return k.GetParams(ctx).TargetGasUsedPerBlock
 }
 
 func (k *Keeper) GetDeliverTxHookWasmGasLimit(ctx sdk.Context) uint64 {

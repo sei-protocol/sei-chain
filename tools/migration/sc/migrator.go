@@ -56,7 +56,7 @@ var Keys = sdk.NewKVStoreKeys(
 	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 	govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
 	evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
-	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey, "dex",
+	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
 )
 
 func NewMigrator(homeDir string, db dbm.DB) *Migrator {
@@ -76,8 +76,9 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	scConfig := config.DefaultStateCommitConfig()
 	scConfig.Enable = true
 	ssConfig := config.DefaultStateStoreConfig()
-	ssConfig.Enable = false
-	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig)
+	ssConfig.Enable = true
+	ssConfig.KeepRecent = 0
+	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig, true)
 	for _, key := range Keys {
 		cmsV2.MountStoreWithDB(key, sdk.StoreTypeIAVL, db)
 	}

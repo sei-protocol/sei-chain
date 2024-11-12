@@ -78,7 +78,7 @@ describe("Firehose tracer", function () {
         if (deployment.cw20EvmPointerAddress) {
             cw20EvmPointerAddress = deployment.cw20EvmPointerAddress;
         } else {
-            cw20EvmPointerAddress = deployment.cw20EvmPointerAddress = await deployErc20PointerForCw20(hre.ethers.provider, cw20Address);
+            cw20EvmPointerAddress = deployment.cw20EvmPointerAddress = await deployErc20PointerForCw20(hre.ethers.provider, cw20Address, 5);
         }
 
         contract = new hre.ethers.Contract(cw20EvmPointerAddress, ABI.ERC20, hre.ethers.provider);
@@ -90,7 +90,7 @@ describe("Firehose tracer", function () {
             wrappedCw20EvmPointerContract = await contract.connect(accounts[0].signer);
         } else {
             contract = await ethers.getContractFactory("ERC20PreTransferFromWrapper")
-            wrappedCw20EvmPointerContract = await contract.deploy(await cw20EvmPointerAddress);
+            wrappedCw20EvmPointerContract = await contract.deploy(await cw20EvmPointerAddress, { gasPrice: ethers.parseUnits('100', 'gwei') });
             await wrappedCw20EvmPointerContract.waitForDeployment();
             wrappedCw20EvmPointerAddress = deployment.wrappedCw20EvmPointerAddress = await wrappedCw20EvmPointerContract.getAddress();
         }
@@ -157,7 +157,7 @@ describe("Firehose tracer", function () {
 
         const startBlockNumber = await ethers.provider.getBlockNumber();
 
-        tx = await wrappedCw20EvmPointerContract.transferFrom(sender.evmAddress, recipient.evmAddress, 1);
+        tx = await wrappedCw20EvmPointerContract.transferFrom(sender.evmAddress, recipient.evmAddress, 1, { gasPrice: ethers.parseUnits('100', 'gwei') });
         receipt = await tx.wait();
 
         // We can cleanup right now, we just check the logs
@@ -237,6 +237,7 @@ describe("Firehose tracer", function () {
             try {
                 tx = await wrappedCw20EvmPointerContract.transferFrom(sender.evmAddress, recipient.evmAddress, 1, {
                     nonce: nonce + (index - 1),
+                    gasPrice: ethers.parseUnits('100', 'gwei')
                 });
             } catch (error) {
                 console.log(`Transfer ${index} send transaction failed`, error);
