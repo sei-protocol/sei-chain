@@ -213,6 +213,7 @@ async function deployUniswapContracts(deployer, testChain, accounts){
   // Gets the amount of WETH9 required to instantiate pools by depositing Sei to the contract
   let gasEstimate = await weth9.estimateGas.deposit({ value: amountETH })
   let gasPrice = await deployer.getGasPrice();
+  console.log('Depositing weth9');
   const txWrap = await weth9.deposit({ value: amountETH, gasPrice, gasLimit: BigNumber.from(gasEstimate).add('100000')});
   await txWrap.wait();
   console.log(`Deposited ${amountETH.toString()} to WETH9`);

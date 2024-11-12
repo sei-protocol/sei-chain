@@ -284,7 +284,7 @@ async function passProposal(proposalId,  desposit="200000000usei", fees="20000us
     throw new Error("could not pass proposal "+proposalId)
 }
 
-async function registerPointerForERC20(erc20Address, fees="20000usei", from=adminKeyName) {
+async function registerPointerForERC20(erc20Address, fees="25000usei", from=adminKeyName) {
     const command = `seid tx evm register-cw-pointer ERC20 ${erc20Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
     const output = await execute(command);
     const response = JSON.parse(output)

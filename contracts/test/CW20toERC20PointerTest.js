@@ -12,7 +12,7 @@ describe("CW20 to ERC20 Pointer", function () {
     let cw20Pointer;
 
     async function setBalance(addr, balance) {
-        const resp = await testToken.setBalance(addr, balance);
+        const resp = await testToken.setBalance(addr, balance, { gasPrice: ethers.parseUnits('100', 'gwei') });
         await resp.wait();
     }
 
