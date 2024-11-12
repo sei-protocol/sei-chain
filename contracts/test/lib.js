@@ -442,7 +442,6 @@ async function verifyPointerDeployment(provider, txHash, address, command, attem
                 return (await getPointerForCw721(address)).pointer
             } else {
                 return (await getPointerForNative(address)).pointer
-
             }
         } else if(receipt){
             console.log('Deployment failed, retrying one more time');
@@ -453,7 +452,21 @@ async function verifyPointerDeployment(provider, txHash, address, command, attem
         await sleep(500);
         attempt++
     }
-    throw new Error("contract deployment failed")
+    const output = await execute(command);
+    const hash = output.replace(/.*0x/, "0x").trim()
+    await sleep(2000);
+    const receipt = await provider.getTransactionReceipt(hash);
+    if (!receipt){
+        throw new Error("contract deployment failed")
+    } else {
+        if (contractType === 'cw20') {
+            return (await getPointerForCw20(address)).pointer
+        } else if (contractType === 'cw721'){
+            return (await getPointerForCw721(address)).pointer
+        } else {
+            return (await getPointerForNative(address)).pointer
+        }
+    }
 }
 
 module.exports = {

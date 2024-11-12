@@ -336,6 +336,7 @@ async function estimateAndCall(contract, method, args=[], value=0) {
     }
   }
   gasLimit = BigNumber.from(gasLimit).add('100000');
+  console.log(gasLimit);
   const gasPrice = await contract.signer.getGasPrice();
   let output;
   if (value) {
