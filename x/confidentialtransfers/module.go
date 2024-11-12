@@ -92,9 +92,7 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 
 // TODO: Look into whether we require REST endpoints
 // RegisterRESTRoutes registers the capability module's REST service handlers.
-func (AppModuleBasic) RegisterRESTRoutes(clientCtx client.Context, _ *mux.Router) {
-	//rest.RegisterHandlers(clientCtx, rtr)
-}
+func (AppModuleBasic) RegisterRESTRoutes(_ client.Context, _ *mux.Router) {}
 
 // TODO: Look into whether we require gRPC Gateway support
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the module.

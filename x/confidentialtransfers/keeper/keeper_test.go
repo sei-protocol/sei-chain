@@ -25,12 +25,6 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.Setup()
 
 	suite.queryClient = types.NewQueryClient(suite.QueryHelper)
-	//// TODO: remove this once the app initializes confidentialtransfers keeper
-	//suite.App.ConfidentialTransfersKeeper = keeper.NewKeeper(
-	//	suite.App.AppCodec(),
-	//	suite.App.GetKey(types.StoreKey),
-	//	suite.App.GetSubspace(types.ModuleName),
-	//	suite.App.AccountKeeper)
 	suite.msgServer = keeper.NewMsgServerImpl(suite.App.ConfidentialTransfersKeeper)
 
 }
