@@ -1,6 +1,7 @@
 syntax = "proto3";
 package seiprotocol.seichain.confidentialtransfers;
 
+import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "confidentialtransfers/confidential.proto";
@@ -32,9 +33,18 @@ message GetAccountResponse {
 }
 
 message GetAllAccountsRequest {
+  option (gogoproto.equal)           = false;
+  option (gogoproto.goproto_getters) = false;
+
   string address = 1;
+
+  // pagination defines an optional pagination for the request.
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
 }
 
 message GetAllAccountsResponse {
-  repeated CtAccount accounts = 1;
+  repeated CtAccount accounts = 1 [(gogoproto.nullable) = false];
+
+  // pagination defines the pagination in the response.
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

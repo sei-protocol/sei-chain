@@ -99,7 +99,7 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 	testCases := []struct {
 		name            string
 		req             *types.GetAllAccountsRequest
-		expResponse     []*types.CtAccount
+		expResponse     []types.CtAccount
 		expFail         bool
 		expErrorMessage string
 	}{
@@ -119,12 +119,12 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 		{
 			name:        "account for address does not exist",
 			req:         &types.GetAllAccountsRequest{Address: nonExistingAddr.String()},
-			expResponse: []*types.CtAccount(nil),
+			expResponse: []types.CtAccount(nil),
 		},
 		{
 			name:        "accounts for address exist",
 			req:         &types.GetAllAccountsRequest{Address: addr.String()},
-			expResponse: []*types.CtAccount{&ctAccount1, &ctAccount2},
+			expResponse: []types.CtAccount{ctAccount1, ctAccount2},
 		},
 	}
 

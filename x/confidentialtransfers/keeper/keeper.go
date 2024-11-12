@@ -125,7 +125,7 @@ func (k BaseKeeper) GetAccountsForAddress(ctx sdk.Context, address sdk.AccAddres
 }
 
 // getCtAccountsForAddress gets all accounts associated with a given address
-func (k BaseKeeper) getCtAccountsForAddress(ctx sdk.Context, address sdk.AccAddress) ([]*types.CtAccount, error) {
+func (k BaseKeeper) getCtAccountsForAddress(ctx sdk.Context, address sdk.AccAddress) ([]types.CtAccount, error) {
 	// Create a prefix store scoped to the address
 	store := k.getAccountStoreForAddress(ctx, address)
 
@@ -138,11 +138,11 @@ func (k BaseKeeper) getCtAccountsForAddress(ctx sdk.Context, address sdk.AccAddr
 		}
 	}(iterator)
 
-	accounts := make([]*types.CtAccount, 0)
+	accounts := make([]types.CtAccount, 0)
 	for ; iterator.Valid(); iterator.Next() {
 		var ctAccount types.CtAccount
 		k.cdc.MustUnmarshal(iterator.Value(), &ctAccount)
-		accounts = append(accounts, &ctAccount)
+		accounts = append(accounts, ctAccount)
 	}
 
 	return accounts, nil
