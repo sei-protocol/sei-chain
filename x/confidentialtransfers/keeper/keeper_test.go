@@ -34,6 +34,8 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.Setup()
 
 	suite.queryClient = types.NewQueryClient(suite.QueryHelper)
+	suite.msgServer = keeper.NewMsgServerImpl(suite.App.ConfidentialTransfersKeeper)
+
 	// TODO: remove this once the app initializes confidentialtransfers keeper
 	suite.App.ConfidentialTransfersKeeper = keeper.NewKeeper(
 		suite.App.AppCodec(),
@@ -115,7 +117,7 @@ func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, de
 	}
 
 	addr := privkeyToAddress(privateKey)
-	suite.App.ConfidentialTransfersKeeper.SetAccount(suite.Ctx, addr, denom, initialAccountState)
+	suite.App.ConfidentialTransfersKeeper.SetAccount(suite.Ctx, addr.String(), denom, initialAccountState)
 
 	bankModuleTokens := sdk.NewCoins(sdk.Coin{Amount: sdk.NewInt(int64(bankAmount)), Denom: denom})
 

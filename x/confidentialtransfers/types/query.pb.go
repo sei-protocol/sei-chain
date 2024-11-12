@@ -6,6 +6,7 @@ package types
 import (
 	context "context"
 	fmt "fmt"
+	query "github.com/cosmos/cosmos-sdk/types/query"
 	_ "github.com/gogo/protobuf/gogoproto"
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
@@ -29,23 +30,23 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// TODO: This is a mock method. Remove when we add real queries
-type TestQueryRequest struct {
-	TestField string `protobuf:"bytes,1,opt,name=test_field,json=testField,proto3" json:"test_field,omitempty"`
+type GetCtAccountRequest struct {
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	Denom   string `protobuf:"bytes,2,opt,name=denom,proto3" json:"denom,omitempty"`
 }
 
-func (m *TestQueryRequest) Reset()         { *m = TestQueryRequest{} }
-func (m *TestQueryRequest) String() string { return proto.CompactTextString(m) }
-func (*TestQueryRequest) ProtoMessage()    {}
-func (*TestQueryRequest) Descriptor() ([]byte, []int) {
+func (m *GetCtAccountRequest) Reset()         { *m = GetCtAccountRequest{} }
+func (m *GetCtAccountRequest) String() string { return proto.CompactTextString(m) }
+func (*GetCtAccountRequest) ProtoMessage()    {}
+func (*GetCtAccountRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_35280e71e5f6c1ab, []int{0}
 }
-func (m *TestQueryRequest) XXX_Unmarshal(b []byte) error {
+func (m *GetCtAccountRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TestQueryRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *GetCtAccountRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TestQueryRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_GetCtAccountRequest.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -55,42 +56,48 @@ func (m *TestQueryRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, er
 		return b[:n], nil
 	}
 }
-func (m *TestQueryRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TestQueryRequest.Merge(m, src)
+func (m *GetCtAccountRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetCtAccountRequest.Merge(m, src)
 }
-func (m *TestQueryRequest) XXX_Size() int {
+func (m *GetCtAccountRequest) XXX_Size() int {
 	return m.Size()
 }
-func (m *TestQueryRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_TestQueryRequest.DiscardUnknown(m)
+func (m *GetCtAccountRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetCtAccountRequest.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TestQueryRequest proto.InternalMessageInfo
+var xxx_messageInfo_GetCtAccountRequest proto.InternalMessageInfo
 
-func (m *TestQueryRequest) GetTestField() string {
+func (m *GetCtAccountRequest) GetAddress() string {
 	if m != nil {
-		return m.TestField
+		return m.Address
 	}
 	return ""
 }
 
-// TODO: This is a mock method. Remove when we add real queries
-type TestQueryResponse struct {
-	TestField string `protobuf:"bytes,1,opt,name=test_field,json=testField,proto3" json:"test_field,omitempty"`
+func (m *GetCtAccountRequest) GetDenom() string {
+	if m != nil {
+		return m.Denom
+	}
+	return ""
 }
 
-func (m *TestQueryResponse) Reset()         { *m = TestQueryResponse{} }
-func (m *TestQueryResponse) String() string { return proto.CompactTextString(m) }
-func (*TestQueryResponse) ProtoMessage()    {}
-func (*TestQueryResponse) Descriptor() ([]byte, []int) {
+type GetCtAccountResponse struct {
+	Account *CtAccount `protobuf:"bytes,1,opt,name=account,proto3" json:"account,omitempty"`
+}
+
+func (m *GetCtAccountResponse) Reset()         { *m = GetCtAccountResponse{} }
+func (m *GetCtAccountResponse) String() string { return proto.CompactTextString(m) }
+func (*GetCtAccountResponse) ProtoMessage()    {}
+func (*GetCtAccountResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_35280e71e5f6c1ab, []int{1}
 }
-func (m *TestQueryResponse) XXX_Unmarshal(b []byte) error {
+func (m *GetCtAccountResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TestQueryResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *GetCtAccountResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TestQueryResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_GetCtAccountResponse.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -100,53 +107,160 @@ func (m *TestQueryResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, e
 		return b[:n], nil
 	}
 }
-func (m *TestQueryResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TestQueryResponse.Merge(m, src)
+func (m *GetCtAccountResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetCtAccountResponse.Merge(m, src)
 }
-func (m *TestQueryResponse) XXX_Size() int {
+func (m *GetCtAccountResponse) XXX_Size() int {
 	return m.Size()
 }
-func (m *TestQueryResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_TestQueryResponse.DiscardUnknown(m)
+func (m *GetCtAccountResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetCtAccountResponse.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TestQueryResponse proto.InternalMessageInfo
+var xxx_messageInfo_GetCtAccountResponse proto.InternalMessageInfo
 
-func (m *TestQueryResponse) GetTestField() string {
+func (m *GetCtAccountResponse) GetAccount() *CtAccount {
 	if m != nil {
-		return m.TestField
+		return m.Account
 	}
-	return ""
+	return nil
+}
+
+type GetAllCtAccountsRequest struct {
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// pagination defines an optional pagination for the request.
+	Pagination *query.PageRequest `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+}
+
+func (m *GetAllCtAccountsRequest) Reset()         { *m = GetAllCtAccountsRequest{} }
+func (m *GetAllCtAccountsRequest) String() string { return proto.CompactTextString(m) }
+func (*GetAllCtAccountsRequest) ProtoMessage()    {}
+func (*GetAllCtAccountsRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_35280e71e5f6c1ab, []int{2}
+}
+func (m *GetAllCtAccountsRequest) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *GetAllCtAccountsRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_GetAllCtAccountsRequest.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *GetAllCtAccountsRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetAllCtAccountsRequest.Merge(m, src)
+}
+func (m *GetAllCtAccountsRequest) XXX_Size() int {
+	return m.Size()
+}
+func (m *GetAllCtAccountsRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetAllCtAccountsRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetAllCtAccountsRequest proto.InternalMessageInfo
+
+type GetAllCtAccountsResponse struct {
+	Accounts []CtAccountWithDenom `protobuf:"bytes,1,rep,name=accounts,proto3" json:"accounts"`
+	// pagination defines the pagination in the response.
+	Pagination *query.PageResponse `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
+}
+
+func (m *GetAllCtAccountsResponse) Reset()         { *m = GetAllCtAccountsResponse{} }
+func (m *GetAllCtAccountsResponse) String() string { return proto.CompactTextString(m) }
+func (*GetAllCtAccountsResponse) ProtoMessage()    {}
+func (*GetAllCtAccountsResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_35280e71e5f6c1ab, []int{3}
+}
+func (m *GetAllCtAccountsResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *GetAllCtAccountsResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_GetAllCtAccountsResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *GetAllCtAccountsResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GetAllCtAccountsResponse.Merge(m, src)
+}
+func (m *GetAllCtAccountsResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *GetAllCtAccountsResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_GetAllCtAccountsResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GetAllCtAccountsResponse proto.InternalMessageInfo
+
+func (m *GetAllCtAccountsResponse) GetAccounts() []CtAccountWithDenom {
+	if m != nil {
+		return m.Accounts
+	}
+	return nil
+}
+
+func (m *GetAllCtAccountsResponse) GetPagination() *query.PageResponse {
+	if m != nil {
+		return m.Pagination
+	}
+	return nil
 }
 
 func init() {
-	proto.RegisterType((*TestQueryRequest)(nil), "seiprotocol.seichain.confidentialtransfers.TestQueryRequest")
-	proto.RegisterType((*TestQueryResponse)(nil), "seiprotocol.seichain.confidentialtransfers.TestQueryResponse")
+	proto.RegisterType((*GetCtAccountRequest)(nil), "seiprotocol.seichain.confidentialtransfers.GetCtAccountRequest")
+	proto.RegisterType((*GetCtAccountResponse)(nil), "seiprotocol.seichain.confidentialtransfers.GetCtAccountResponse")
+	proto.RegisterType((*GetAllCtAccountsRequest)(nil), "seiprotocol.seichain.confidentialtransfers.GetAllCtAccountsRequest")
+	proto.RegisterType((*GetAllCtAccountsResponse)(nil), "seiprotocol.seichain.confidentialtransfers.GetAllCtAccountsResponse")
 }
 
 func init() { proto.RegisterFile("confidentialtransfers/query.proto", fileDescriptor_35280e71e5f6c1ab) }
 
 var fileDescriptor_35280e71e5f6c1ab = []byte{
-	// 292 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x52, 0x4c, 0xce, 0xcf, 0x4b,
-	0xcb, 0x4c, 0x49, 0xcd, 0x2b, 0xc9, 0x4c, 0xcc, 0x29, 0x29, 0x4a, 0xcc, 0x2b, 0x4e, 0x4b, 0x2d,
-	0x2a, 0xd6, 0x2f, 0x2c, 0x4d, 0x2d, 0xaa, 0xd4, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xd2, 0x2a,
-	0x4e, 0xcd, 0x04, 0xb3, 0x92, 0xf3, 0x73, 0xf4, 0x8a, 0x53, 0x33, 0x93, 0x33, 0x12, 0x33, 0xf3,
-	0xf4, 0xb0, 0xea, 0x93, 0x12, 0x49, 0xcf, 0x4f, 0xcf, 0x07, 0x2b, 0xd6, 0x07, 0xb1, 0x20, 0x26,
-	0x48, 0xc9, 0xa4, 0xe7, 0xe7, 0xa7, 0xe7, 0xa4, 0xea, 0x27, 0x16, 0x64, 0xea, 0x27, 0xe6, 0xe5,
-	0xe5, 0x97, 0x24, 0x96, 0x64, 0xe6, 0xe7, 0x15, 0x43, 0x64, 0x95, 0x0c, 0xb9, 0x04, 0x42, 0x52,
-	0x8b, 0x4b, 0x02, 0x41, 0x56, 0x06, 0xa5, 0x16, 0x96, 0xa6, 0x16, 0x97, 0x08, 0xc9, 0x72, 0x71,
-	0x95, 0xa4, 0x16, 0x97, 0xc4, 0xa7, 0x65, 0xa6, 0xe6, 0xa4, 0x48, 0x30, 0x2a, 0x30, 0x6a, 0x70,
-	0x06, 0x71, 0x82, 0x44, 0xdc, 0x40, 0x02, 0x4a, 0x46, 0x5c, 0x82, 0x48, 0x5a, 0x8a, 0x0b, 0xf2,
-	0xf3, 0x8a, 0x53, 0x09, 0xe8, 0x31, 0x3a, 0xc6, 0xc8, 0xc5, 0x0a, 0xd6, 0x20, 0xb4, 0x87, 0x91,
-	0x8b, 0x13, 0xae, 0x5d, 0xc8, 0x46, 0x8f, 0x78, 0xff, 0xe9, 0xa1, 0x3b, 0x54, 0xca, 0x96, 0x4c,
-	0xdd, 0x10, 0x37, 0x2b, 0x19, 0x35, 0x5d, 0x7e, 0x32, 0x99, 0x49, 0x47, 0x48, 0x4b, 0x1f, 0xa6,
-	0x55, 0x1f, 0x7b, 0x84, 0x80, 0x7d, 0x06, 0x8e, 0x15, 0xa7, 0xc8, 0x13, 0x8f, 0xe4, 0x18, 0x2f,
-	0x3c, 0x92, 0x63, 0x7c, 0xf0, 0x48, 0x8e, 0x71, 0xc2, 0x63, 0x39, 0x86, 0x0b, 0x8f, 0xe5, 0x18,
-	0x6e, 0x3c, 0x96, 0x63, 0x88, 0xb2, 0x4f, 0xcf, 0x2c, 0xc9, 0x28, 0x4d, 0xd2, 0x4b, 0xce, 0xcf,
-	0x05, 0x99, 0xa7, 0x0b, 0x73, 0x17, 0x98, 0x03, 0x31, 0xbd, 0x02, 0x97, 0xf9, 0x95, 0x05, 0xa9,
-	0xc5, 0x49, 0x6c, 0x60, 0x1d, 0xc6, 0x80, 0x00, 0x00, 0x00, 0xff, 0xff, 0xb9, 0x17, 0x87, 0x5b,
-	0x16, 0x02, 0x00, 0x00,
+	// 508 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0x52, 0x41, 0x6b, 0x13, 0x41,
+	0x14, 0xde, 0x6d, 0xad, 0xad, 0x13, 0x0f, 0x32, 0x06, 0x0c, 0x41, 0x36, 0xba, 0x07, 0x0d, 0x05,
+	0x67, 0x48, 0x8a, 0x87, 0x2a, 0x58, 0xd3, 0x56, 0x73, 0x54, 0x73, 0x11, 0x3d, 0x39, 0xd9, 0xbc,
+	0x6e, 0x06, 0x36, 0x33, 0xdb, 0x9d, 0x89, 0x58, 0x4a, 0x2f, 0x82, 0xe0, 0x51, 0xf0, 0x0f, 0xf4,
+	0x6f, 0xf8, 0x03, 0x84, 0x1e, 0x0b, 0x7a, 0xe8, 0x49, 0x24, 0xf1, 0xe0, 0xcf, 0x90, 0x9d, 0x99,
+	0xb4, 0x51, 0x57, 0x6a, 0xda, 0xdb, 0xbc, 0x37, 0xf3, 0x7d, 0xf3, 0x7d, 0xef, 0x7b, 0xe8, 0x66,
+	0x24, 0xc5, 0x16, 0xef, 0x81, 0xd0, 0x9c, 0x25, 0x3a, 0x63, 0x42, 0x6d, 0x41, 0xa6, 0xe8, 0xf6,
+	0x10, 0xb2, 0x1d, 0x92, 0x66, 0x52, 0x4b, 0xbc, 0xac, 0x80, 0x9b, 0x53, 0x24, 0x13, 0xa2, 0x80,
+	0x47, 0x7d, 0xc6, 0x05, 0x29, 0xc4, 0x55, 0x97, 0x23, 0xa9, 0x06, 0x52, 0xd1, 0x2e, 0x53, 0x60,
+	0x49, 0xe8, 0xeb, 0x46, 0x17, 0x34, 0x6b, 0xd0, 0x94, 0xc5, 0x5c, 0x30, 0xcd, 0xa5, 0xb0, 0xbc,
+	0xd5, 0x72, 0x2c, 0x63, 0x69, 0x8e, 0x34, 0x3f, 0xb9, 0xee, 0xf5, 0x58, 0xca, 0x38, 0x01, 0xca,
+	0x52, 0x4e, 0x99, 0x10, 0x52, 0x1b, 0x88, 0x72, 0xb7, 0xf5, 0x62, 0xb9, 0xd3, 0x5d, 0xfb, 0x32,
+	0x7c, 0x84, 0xae, 0xb6, 0x41, 0x6f, 0xe8, 0x56, 0x14, 0xc9, 0xa1, 0xd0, 0x1d, 0xd8, 0x1e, 0x82,
+	0xd2, 0xb8, 0x82, 0x16, 0x59, 0xaf, 0x97, 0x81, 0x52, 0x15, 0xff, 0x86, 0x5f, 0xbf, 0xd4, 0x99,
+	0x94, 0xb8, 0x8c, 0x16, 0x7a, 0x20, 0xe4, 0xa0, 0x32, 0x67, 0xfa, 0xb6, 0x08, 0x63, 0x54, 0xfe,
+	0x9d, 0x46, 0xa5, 0x52, 0x28, 0xc0, 0x4f, 0xd0, 0x22, 0xb3, 0x2d, 0xc3, 0x53, 0x6a, 0xde, 0x25,
+	0xff, 0x3f, 0x26, 0x72, 0xc2, 0x37, 0x61, 0x09, 0xdf, 0xf9, 0xe8, 0x5a, 0x1b, 0x74, 0x2b, 0x49,
+	0x8e, 0x2f, 0xd5, 0xe9, 0xa2, 0x1f, 0x23, 0x74, 0x32, 0x57, 0xa3, 0xbc, 0xd4, 0xbc, 0x45, 0x6c,
+	0x08, 0x24, 0x0f, 0x81, 0xd8, 0x24, 0x5d, 0x08, 0xe4, 0x29, 0x8b, 0xc1, 0xb1, 0x76, 0xa6, 0x90,
+	0xf7, 0x96, 0xde, 0xef, 0xd7, 0xbc, 0x9f, 0xfb, 0x35, 0x2f, 0xfc, 0xec, 0xa3, 0xca, 0xdf, 0x3a,
+	0x9c, 0xeb, 0x57, 0x68, 0xc9, 0xe9, 0xcd, 0x95, 0xcc, 0xd7, 0x4b, 0xcd, 0x07, 0x67, 0xb2, 0xfd,
+	0x9c, 0xeb, 0xfe, 0x66, 0x3e, 0xdf, 0xf5, 0x0b, 0x07, 0xdf, 0x6a, 0x5e, 0xe7, 0x98, 0x15, 0xb7,
+	0x0b, 0x0c, 0xdd, 0x3e, 0xd5, 0x90, 0x95, 0x37, 0xed, 0xa8, 0xf9, 0x69, 0x1e, 0x2d, 0x3c, 0xcb,
+	0x9f, 0xe2, 0xaf, 0x3e, 0xba, 0x3c, 0x9d, 0x21, 0x5e, 0x9b, 0x45, 0x73, 0xc1, 0x12, 0x55, 0x1f,
+	0x9e, 0x9d, 0xc0, 0x2a, 0x0d, 0x5b, 0x6f, 0xbf, 0xfc, 0xf8, 0x38, 0x77, 0x1f, 0xaf, 0xd2, 0x09,
+	0x9a, 0x16, 0x6f, 0xb6, 0x1b, 0x0c, 0xdd, 0x75, 0x89, 0xef, 0xd1, 0x5d, 0xb3, 0x98, 0x7b, 0xf8,
+	0xc8, 0x47, 0x57, 0xfe, 0x0c, 0x0a, 0x6f, 0xcc, 0xa8, 0xac, 0x68, 0xdd, 0xaa, 0x9b, 0xe7, 0x23,
+	0x71, 0x16, 0x57, 0x8d, 0xc5, 0x15, 0xdc, 0x98, 0xd9, 0xe2, 0xfa, 0x8b, 0x83, 0x51, 0xe0, 0x1f,
+	0x8e, 0x02, 0xff, 0xfb, 0x28, 0xf0, 0x3f, 0x8c, 0x03, 0xef, 0x70, 0x1c, 0x78, 0x47, 0xe3, 0xc0,
+	0x7b, 0xb9, 0x16, 0x73, 0xdd, 0x1f, 0x76, 0x49, 0x24, 0x07, 0x39, 0xed, 0x9d, 0x89, 0x4a, 0x53,
+	0xd8, 0x4f, 0xde, 0xfc, 0xe3, 0x1b, 0xbd, 0x93, 0x82, 0xea, 0x5e, 0x34, 0x88, 0x95, 0x5f, 0x01,
+	0x00, 0x00, 0xff, 0xff, 0xd0, 0xd2, 0xd2, 0xaa, 0xf8, 0x04, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -161,8 +275,8 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type QueryClient interface {
-	// TODO: This is a mock method. Remove when we add real queries
-	TestQuery(ctx context.Context, in *TestQueryRequest, opts ...grpc.CallOption) (*TestQueryResponse, error)
+	GetCtAccount(ctx context.Context, in *GetCtAccountRequest, opts ...grpc.CallOption) (*GetCtAccountResponse, error)
+	GetAllCtAccounts(ctx context.Context, in *GetAllCtAccountsRequest, opts ...grpc.CallOption) (*GetAllCtAccountsResponse, error)
 }
 
 type queryClient struct {
@@ -173,9 +287,18 @@ func NewQueryClient(cc grpc1.ClientConn) QueryClient {
 	return &queryClient{cc}
 }
 
-func (c *queryClient) TestQuery(ctx context.Context, in *TestQueryRequest, opts ...grpc.CallOption) (*TestQueryResponse, error) {
-	out := new(TestQueryResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.confidentialtransfers.Query/TestQuery", in, out, opts...)
+func (c *queryClient) GetCtAccount(ctx context.Context, in *GetCtAccountRequest, opts ...grpc.CallOption) (*GetCtAccountResponse, error) {
+	out := new(GetCtAccountResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.confidentialtransfers.Query/GetCtAccount", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *queryClient) GetAllCtAccounts(ctx context.Context, in *GetAllCtAccountsRequest, opts ...grpc.CallOption) (*GetAllCtAccountsResponse, error) {
+	out := new(GetAllCtAccountsResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.confidentialtransfers.Query/GetAllCtAccounts", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -184,36 +307,57 @@ func (c *queryClient) TestQuery(ctx context.Context, in *TestQueryRequest, opts 
 
 // QueryServer is the server API for Query service.
 type QueryServer interface {
-	// TODO: This is a mock method. Remove when we add real queries
-	TestQuery(context.Context, *TestQueryRequest) (*TestQueryResponse, error)
+	GetCtAccount(context.Context, *GetCtAccountRequest) (*GetCtAccountResponse, error)
+	GetAllCtAccounts(context.Context, *GetAllCtAccountsRequest) (*GetAllCtAccountsResponse, error)
 }
 
 // UnimplementedQueryServer can be embedded to have forward compatible implementations.
 type UnimplementedQueryServer struct {
 }
 
-func (*UnimplementedQueryServer) TestQuery(ctx context.Context, req *TestQueryRequest) (*TestQueryResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method TestQuery not implemented")
+func (*UnimplementedQueryServer) GetCtAccount(ctx context.Context, req *GetCtAccountRequest) (*GetCtAccountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCtAccount not implemented")
+}
+func (*UnimplementedQueryServer) GetAllCtAccounts(ctx context.Context, req *GetAllCtAccountsRequest) (*GetAllCtAccountsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllCtAccounts not implemented")
 }
 
 func RegisterQueryServer(s grpc1.Server, srv QueryServer) {
 	s.RegisterService(&_Query_serviceDesc, srv)
 }
 
-func _Query_TestQuery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TestQueryRequest)
+func _Query_GetCtAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCtAccountRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(QueryServer).TestQuery(ctx, in)
+		return srv.(QueryServer).GetCtAccount(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.confidentialtransfers.Query/TestQuery",
+		FullMethod: "/seiprotocol.seichain.confidentialtransfers.Query/GetCtAccount",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueryServer).TestQuery(ctx, req.(*TestQueryRequest))
+		return srv.(QueryServer).GetCtAccount(ctx, req.(*GetCtAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Query_GetAllCtAccounts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAllCtAccountsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QueryServer).GetAllCtAccounts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/seiprotocol.seichain.confidentialtransfers.Query/GetAllCtAccounts",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QueryServer).GetAllCtAccounts(ctx, req.(*GetAllCtAccountsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -223,15 +367,19 @@ var _Query_serviceDesc = grpc.ServiceDesc{
 	HandlerType: (*QueryServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "TestQuery",
-			Handler:    _Query_TestQuery_Handler,
+			MethodName: "GetCtAccount",
+			Handler:    _Query_GetCtAccount_Handler,
+		},
+		{
+			MethodName: "GetAllCtAccounts",
+			Handler:    _Query_GetAllCtAccounts_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "confidentialtransfers/query.proto",
 }
 
-func (m *TestQueryRequest) Marshal() (dAtA []byte, err error) {
+func (m *GetCtAccountRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -241,27 +389,34 @@ func (m *TestQueryRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TestQueryRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *GetCtAccountRequest) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TestQueryRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *GetCtAccountRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if len(m.TestField) > 0 {
-		i -= len(m.TestField)
-		copy(dAtA[i:], m.TestField)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.TestField)))
+	if len(m.Denom) > 0 {
+		i -= len(m.Denom)
+		copy(dAtA[i:], m.Denom)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Denom)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Address) > 0 {
+		i -= len(m.Address)
+		copy(dAtA[i:], m.Address)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Address)))
 		i--
 		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *TestQueryResponse) Marshal() (dAtA []byte, err error) {
+func (m *GetCtAccountResponse) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -271,22 +426,118 @@ func (m *TestQueryResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TestQueryResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *GetCtAccountResponse) MarshalTo(dAtA []byte) (int, error) {
 	size := m.Size()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TestQueryResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *GetCtAccountResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if len(m.TestField) > 0 {
-		i -= len(m.TestField)
-		copy(dAtA[i:], m.TestField)
-		i = encodeVarintQuery(dAtA, i, uint64(len(m.TestField)))
+	if m.Account != nil {
+		{
+			size, err := m.Account.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintQuery(dAtA, i, uint64(size))
+		}
 		i--
 		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GetAllCtAccountsRequest) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetAllCtAccountsRequest) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetAllCtAccountsRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Pagination != nil {
+		{
+			size, err := m.Pagination.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintQuery(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Address) > 0 {
+		i -= len(m.Address)
+		copy(dAtA[i:], m.Address)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Address)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GetAllCtAccountsResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GetAllCtAccountsResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GetAllCtAccountsResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Pagination != nil {
+		{
+			size, err := m.Pagination.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintQuery(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Accounts) > 0 {
+		for iNdEx := len(m.Accounts) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Accounts[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintQuery(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0xa
+		}
 	}
 	return len(dAtA) - i, nil
 }
@@ -302,27 +553,67 @@ func encodeVarintQuery(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-func (m *TestQueryRequest) Size() (n int) {
+func (m *GetCtAccountRequest) Size() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.TestField)
+	l = len(m.Address)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.Denom)
 	if l > 0 {
 		n += 1 + l + sovQuery(uint64(l))
 	}
 	return n
 }
 
-func (m *TestQueryResponse) Size() (n int) {
+func (m *GetCtAccountResponse) Size() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.TestField)
+	if m.Account != nil {
+		l = m.Account.Size()
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	return n
+}
+
+func (m *GetAllCtAccountsRequest) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Address)
 	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.Pagination != nil {
+		l = m.Pagination.Size()
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	return n
+}
+
+func (m *GetAllCtAccountsResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Accounts) > 0 {
+		for _, e := range m.Accounts {
+			l = e.Size()
+			n += 1 + l + sovQuery(uint64(l))
+		}
+	}
+	if m.Pagination != nil {
+		l = m.Pagination.Size()
 		n += 1 + l + sovQuery(uint64(l))
 	}
 	return n
@@ -334,7 +625,7 @@ func sovQuery(x uint64) (n int) {
 func sozQuery(x uint64) (n int) {
 	return sovQuery(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-func (m *TestQueryRequest) Unmarshal(dAtA []byte) error {
+func (m *GetCtAccountRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -357,15 +648,15 @@ func (m *TestQueryRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: TestQueryRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: GetCtAccountRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: TestQueryRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: GetCtAccountRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TestField", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -393,7 +684,39 @@ func (m *TestQueryRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.TestField = string(dAtA[iNdEx:postIndex])
+			m.Address = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Denom", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Denom = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -416,7 +739,7 @@ func (m *TestQueryRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TestQueryResponse) Unmarshal(dAtA []byte) error {
+func (m *GetCtAccountResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -439,15 +762,101 @@ func (m *TestQueryResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: TestQueryResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: GetCtAccountResponse: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: TestQueryResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: GetCtAccountResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field TestField", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Account", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Account == nil {
+				m.Account = &CtAccount{}
+			}
+			if err := m.Account.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetAllCtAccountsRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetAllCtAccountsRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetAllCtAccountsRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -475,7 +884,163 @@ func (m *TestQueryResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.TestField = string(dAtA[iNdEx:postIndex])
+			m.Address = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pagination", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Pagination == nil {
+				m.Pagination = &query.PageRequest{}
+			}
+			if err := m.Pagination.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GetAllCtAccountsResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GetAllCtAccountsResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GetAllCtAccountsResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Accounts", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Accounts = append(m.Accounts, CtAccountWithDenom{})
+			if err := m.Accounts[len(m.Accounts)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pagination", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Pagination == nil {
+				m.Pagination = &query.PageResponse{}
+			}
+			if err := m.Pagination.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
