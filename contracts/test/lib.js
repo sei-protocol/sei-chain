@@ -60,13 +60,13 @@ async function getEvmTx(provider, cosmosTxHash) {
     return await provider.send("sei_getEvmTx", [cosmosTxHash])
 }
 
-async function fundAddress(addr, amount="10000000000000000000") {
+async function fundAddress(addr, amount="1000000000000000000000") {
     const result = await evmSend(addr, adminKeyName, amount)
     await delay()
     return result
 }
 
-async function evmSend(addr, fromKey, amount="100000000000000000000000") {
+async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
     const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b block -y`);
     return output.replace(/.*0x/, "0x").trim()
 }

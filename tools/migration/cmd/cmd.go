@@ -7,7 +7,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/sei-protocol/sei-chain/tools/migration/sc"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
+	"github.com/sei-protocol/sei-db/config"
+	sstypes "github.com/sei-protocol/sei-db/ss"
 	"github.com/spf13/cobra"
+	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -18,13 +21,11 @@ func MigrateCmd() *cobra.Command {
 		Run:   execute,
 	}
 	cmd.PersistentFlags().String("home-dir", "/root/.sei", "Sei home directory")
-	cmd.PersistentFlags().String("target-db", "", "Available options: [SS, SC]")
 	return cmd
 }
 
 func execute(cmd *cobra.Command, _ []string) {
 	homeDir, _ := cmd.Flags().GetString("home-dir")
-	target, _ := cmd.Flags().GetString("target-db")
 	dataDir := filepath.Join(homeDir, "data")
 	db, err := dbm.NewGoLevelDB("application", dataDir)
 	if err != nil {
@@ -32,32 +33,15 @@ func execute(cmd *cobra.Command, _ []string) {
 	}
 	latestVersion := rootmulti.GetLatestVersion(db)
 	fmt.Printf("latest version: %d\n", latestVersion)
-	if target == "SS" {
-		if err = migrateSS(latestVersion, homeDir, db); err != nil {
-			panic(err)
-		}
-	} else if target == "SC" {
-		if err = migrateSC(latestVersion, homeDir, db); err != nil {
-			panic(err)
-		}
-	} else {
-		panic("Invalid target-db, either SS or SC should be provided")
+
+	if err = migrateSC(latestVersion, homeDir, db); err != nil {
+		panic(err)
 	}
 }
 
 func migrateSC(version int64, homeDir string, db dbm.DB) error {
 	migrator := sc.NewMigrator(homeDir, db)
 	return migrator.Migrate(version)
-}
-
-func migrateSS(version int64, homeDir string, db dbm.DB) error {
-	migrator := ss.NewMigrator(homeDir, db)
-	return migrator.Migrate(version, homeDir)
-}
-
-func verifySS(version int64, homeDir string, db dbm.DB) error {
-	migrator := ss.NewMigrator(homeDir, db)
-	return migrator.Verify(version)
 }
 
 func VerifyMigrationCmd() *cobra.Command {
@@ -96,4 +80,17 @@ func verify(cmd *cobra.Command, _ []string) {
 	}
 
 	fmt.Println("Verification Succeeded")
+}
+
+func verifySS(version int64, homeDir string, db dbm.DB) error {
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Enable = true
+
+	stateStore, err := sstypes.NewStateStore(log.NewNopLogger(), homeDir, ssConfig)
+	if err != nil {
+		return err
+	}
+
+	migrator := ss.NewMigrator(homeDir, db, stateStore)
+	return migrator.Verify(version)
 }

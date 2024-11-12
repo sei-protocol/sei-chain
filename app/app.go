@@ -375,6 +375,7 @@ type App struct {
 
 	genesisImportConfig genesistypes.GenesisImportConfig
 
+	stateStore   seidb.StateStore
 	receiptStore seidb.StateStore
 }
 
@@ -403,7 +404,7 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bAppOptions := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
+	bAppOptions, stateStore := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
 
 	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
@@ -436,6 +437,7 @@ func New(
 		versionInfo:       version.NewInfo(),
 		metricCounter:     &map[string]float32{},
 		encodingConfig:    encodingConfig,
+		stateStore:        stateStore,
 	}
 
 	for _, option := range appOptions {
@@ -1080,6 +1082,9 @@ func (app *App) Name() string { return app.BaseApp.Name() }
 // GetBaseApp returns the base app of the application
 func (app App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 
+// GetStateStore returns the state store of the application
+func (app App) GetStateStore() seidb.StateStore { return app.stateStore }
+
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
 	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
@@ -1635,8 +1640,15 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
 
+	// Sum up total used per block
+	blockTotalGasUsed := int64(0)
+	for _, txResult := range txResults {
+		blockTotalGasUsed += txResult.GasUsed
+	}
+
 	endBlockResp = app.EndBlock(ctx, abci.RequestEndBlock{
-		Height: req.GetHeight(),
+		Height:       req.GetHeight(),
+		BlockGasUsed: blockTotalGasUsed,
 	})
 
 	events = append(events, endBlockResp.Events...)
