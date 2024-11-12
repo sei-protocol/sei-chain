@@ -135,7 +135,7 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 			req:  &types.GetAllAccountsRequest{Address: addr.String(), Pagination: &query.PageRequest{Limit: 1}},
 			expResponse: &types.GetAllAccountsResponse{
 				Accounts:   []types.CtAccount{ctAccount1},
-				Pagination: &query.PageResponse{Total: 0, NextKey: []byte(testDenom2)},
+				Pagination: &query.PageResponse{NextKey: []byte(testDenom2)},
 			},
 		},
 		{
