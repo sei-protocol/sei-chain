@@ -40,5 +40,27 @@ func (k BaseKeeper) GetAccount(ctx context.Context, req *types.GetAccountRequest
 }
 
 func (k BaseKeeper) GetAllAccounts(ctx context.Context, req *types.GetAllAccountsRequest) (*types.GetAllAccountsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetAllAccounts not implemented")
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "empty request")
+	}
+
+	if req.Address == "" {
+		return nil, status.Error(codes.InvalidArgument, "address cannot be empty")
+	}
+
+	address, err := sdk.AccAddressFromBech32(req.Address)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid address: %s", err.Error())
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	accounts, err := k.getCtAccountsForAddress(sdkCtx, address)
+
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to fetch accounts: %s", err.Error())
+	}
+
+	return &types.GetAllAccountsResponse{Accounts: accounts}, nil
+
 }

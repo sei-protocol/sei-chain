@@ -36,6 +36,13 @@ func (suite *KeeperTestSuite) TestAccountQuery() {
 			expErrorMessage: "rpc error: code = InvalidArgument desc = invalid denom",
 		},
 		{
+			name:    "invalid address",
+			req:     &types.GetAccountRequest{Address: "INVALID"},
+			expFail: true,
+			expErrorMessage: "rpc error: code = InvalidArgument desc = invalid address: decoding bech32 failed: " +
+				"invalid bech32 string length 7",
+		},
+		{
 			name:    "account for address does not exist",
 			req:     &types.GetAccountRequest{Address: nonExistingAddr.String(), Denom: testDenom},
 			expFail: true,
@@ -50,7 +57,7 @@ func (suite *KeeperTestSuite) TestAccountQuery() {
 				"and denom %s", addr.String(), nonExistingDenom),
 		},
 		{
-			name: "existing denom can be found",
+			name: "existing account for address and denom",
 			req:  &types.GetAccountRequest{Address: addr.String(), Denom: testDenom},
 		},
 	}
@@ -71,6 +78,73 @@ func (suite *KeeperTestSuite) TestAccountQuery() {
 				suite.Require().NoError(err)
 				suite.Require().NotNil(result)
 				suite.Require().Equal(&ctAccount, result.Account)
+			}
+		})
+	}
+}
+
+func (suite *KeeperTestSuite) TestAllAccountsQuery() {
+	_, _, addr := testdata.KeyTestPubAddr()
+	_, _, nonExistingAddr := testdata.KeyTestPubAddr()
+	testDenom1 := fmt.Sprintf("factory/%s/FIRST", addr.String())
+	testDenom2 := fmt.Sprintf("factory/%s/SECOND", addr.String())
+
+	pk1, _ := encryption.GenerateKey()
+	pk2, _ := encryption.GenerateKey()
+	ctAccount1 := generateCtAccount(pk1, testDenom1, 1000)
+	ctAccount2 := generateCtAccount(pk2, testDenom2, 2000)
+	account1, _ := ctAccount1.FromProto()
+	account2, _ := ctAccount2.FromProto()
+
+	testCases := []struct {
+		name            string
+		req             *types.GetAllAccountsRequest
+		expResponse     []*types.CtAccount
+		expFail         bool
+		expErrorMessage string
+	}{
+		{
+			name:            "empty request",
+			req:             &types.GetAllAccountsRequest{},
+			expFail:         true,
+			expErrorMessage: "rpc error: code = InvalidArgument desc = address cannot be empty",
+		},
+		{
+			name:    "invalid address",
+			req:     &types.GetAllAccountsRequest{Address: "INVALID"},
+			expFail: true,
+			expErrorMessage: "rpc error: code = InvalidArgument desc = invalid address: decoding bech32 failed: " +
+				"invalid bech32 string length 7",
+		},
+		{
+			name:        "account for address does not exist",
+			req:         &types.GetAllAccountsRequest{Address: nonExistingAddr.String()},
+			expResponse: []*types.CtAccount(nil),
+		},
+		{
+			name:        "accounts for address exist",
+			req:         &types.GetAllAccountsRequest{Address: addr.String()},
+			expResponse: []*types.CtAccount{&ctAccount1, &ctAccount2},
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(fmt.Sprintf("Case %s", tc.name), func() {
+			suite.SetupTest() // reset
+			app, ctx, queryClient := suite.App, suite.Ctx, suite.queryClient
+
+			app.ConfidentialTransfersKeeper.SetAccount(ctx, addr, testDenom1, *account1)
+			app.ConfidentialTransfersKeeper.SetAccount(ctx, addr, testDenom2, *account2)
+
+			result, err := queryClient.GetAllAccounts(ctx.Context(), tc.req)
+
+			if tc.expFail {
+				suite.Require().Error(err)
+				suite.Require().EqualError(err, tc.expErrorMessage)
+			} else {
+				suite.Require().NoError(err)
+				suite.Require().NotNil(result)
+				suite.Require().Equal(tc.expResponse, result.Accounts)
 			}
 		})
 	}
