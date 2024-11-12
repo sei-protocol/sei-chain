@@ -680,7 +680,7 @@ func New(
 
 	app.GovKeeper = govkeeper.NewKeeper(
 		appCodec, keys[govtypes.StoreKey], app.GetSubspace(govtypes.ModuleName), app.AccountKeeper, app.BankKeeper,
-		&stakingKeeper, govRouter,
+		&stakingKeeper, app.ParamsKeeper, govRouter,
 	)
 
 	// this line is used by starport scaffolding # stargate/app/keeperDefinition
