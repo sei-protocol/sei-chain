@@ -126,7 +126,16 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 			name: "accounts for address exist",
 			req:  &types.GetAllAccountsRequest{Address: addr.String()},
 			expResponse: &types.GetAllAccountsResponse{
-				Accounts:   []types.CtAccount{ctAccount1, ctAccount2},
+				Accounts: []types.CtAccountWithDenom{
+					{
+						Denom:   testDenom1,
+						Account: ctAccount1,
+					},
+					{
+						Denom:   testDenom2,
+						Account: ctAccount2,
+					},
+				},
 				Pagination: &query.PageResponse{Total: 2},
 			},
 		},
@@ -134,7 +143,7 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 			name: "paginated request",
 			req:  &types.GetAllAccountsRequest{Address: addr.String(), Pagination: &query.PageRequest{Limit: 1}},
 			expResponse: &types.GetAllAccountsResponse{
-				Accounts:   []types.CtAccount{ctAccount1},
+				Accounts:   []types.CtAccountWithDenom{{Denom: testDenom1, Account: ctAccount1}},
 				Pagination: &query.PageResponse{NextKey: []byte(testDenom2)},
 			},
 		},
@@ -145,7 +154,7 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 				Key:   []byte(testDenom2)},
 			},
 			expResponse: &types.GetAllAccountsResponse{
-				Accounts:   []types.CtAccount{ctAccount2},
+				Accounts:   []types.CtAccountWithDenom{{Denom: testDenom2, Account: ctAccount2}},
 				Pagination: &query.PageResponse{},
 			},
 		},

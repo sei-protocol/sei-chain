@@ -16,3 +16,8 @@ message CtAccount {
   Ciphertext   available_balance = 5; // elgamal encoded balance
   string   decryptable_available_balance = 6; // aes encoded balance
 }
+
+message CtAccountWithDenom {
+  string denom = 1;
+  CtAccount account = 2 [(gogoproto.nullable) = false];
+}

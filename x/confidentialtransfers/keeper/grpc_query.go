@@ -59,14 +59,15 @@ func (k BaseKeeper) GetAllAccounts(ctx context.Context, req *types.GetAllAccount
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	store := k.getAccountStoreForAddress(sdkCtx, address)
-	accounts := make([]types.CtAccount, 0)
-	pageRes, err := query.Paginate(store, req.Pagination, func(_, value []byte) error {
-		var result types.CtAccount
-		err = k.cdc.Unmarshal(value, &result)
+	accounts := make([]types.CtAccountWithDenom, 0)
+	pageRes, err := query.Paginate(store, req.Pagination, func(denom, value []byte) error {
+
+		var ctAccount types.CtAccount
+		err = k.cdc.Unmarshal(value, &ctAccount)
 		if err != nil {
 			return err
 		}
-		accounts = append(accounts, result)
+		accounts = append(accounts, types.CtAccountWithDenom{Denom: string(denom), Account: ctAccount})
 		return nil
 	})
 

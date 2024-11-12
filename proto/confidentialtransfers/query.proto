@@ -43,7 +43,7 @@ message GetAllAccountsRequest {
 }
 
 message GetAllAccountsResponse {
-  repeated CtAccount accounts = 1 [(gogoproto.nullable) = false];
+  repeated CtAccountWithDenom accounts = 1 [(gogoproto.nullable) = false];
 
   // pagination defines the pagination in the response.
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
