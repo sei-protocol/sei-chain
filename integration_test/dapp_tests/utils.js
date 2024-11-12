@@ -15,6 +15,7 @@ const {chainIds, rpcUrls, evmRpcUrls} = require("./constants");
 const {expect} = require("chai");
 const {existsSync, readFileSync, writeFileSync} = require("node:fs");
 const {CosmWasmClient} = require("@cosmjs/cosmwasm-stargate");
+const {BigNumber} = require("ethers");
 
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
   const sqrtPriceX96 = BigInt(Math.sqrt(swapRatio) * (2 ** 96)); // Initial price (1:1)
@@ -213,7 +214,7 @@ async function deployUniswapContracts(deployer, testChain, accounts){
   // Gets the amount of WETH9 required to instantiate pools by depositing Sei to the contract
   let gasEstimate = await weth9.estimateGas.deposit({ value: amountETH })
   let gasPrice = await deployer.getGasPrice();
-  const txWrap = await weth9.deposit({ value: amountETH, gasPrice, gasLimit: gasEstimate });
+  const txWrap = await weth9.deposit({ value: amountETH, gasPrice, gasLimit: BigNumber.from(gasEstimate).add('100000')});
   await txWrap.wait();
   console.log(`Deposited ${amountETH.toString()} to WETH9`);
 
@@ -263,6 +264,7 @@ async function deployCw20WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
 }
 
 async function deployCw721WithPointer(deployerSeiAddr, signer, time, evmRpc="") {
+    console.log('Deploying cw721 pointer');
   const CW721_BASE_PATH = (await isDocker()) ? '../integration_test/dapp_tests/nftMarketplace/cw721_base.wasm' : path.resolve(__dirname, '../dapp_tests/nftMarketplace/cw721_base.wasm')
   const cw721Address = await deployWasm(CW721_BASE_PATH, deployerSeiAddr, "cw721", {
     "name": `testCw721${time}`,
@@ -270,6 +272,7 @@ async function deployCw721WithPointer(deployerSeiAddr, signer, time, evmRpc="") 
     "minter": deployerSeiAddr,
     "withdraw_address": deployerSeiAddr,
   }, deployerSeiAddr);
+  console.log('Wasm deployed and initialized');
   const pointerAddr = await deployErc721PointerForCw721(hre.ethers.provider, cw721Address, deployerSeiAddr, evmRpc);
   const pointerContract = new hre.ethers.Contract(pointerAddr, ABI.ERC721, signer);
   return {"pointerContract": pointerContract, "cw721Address": cw721Address}
@@ -280,7 +283,7 @@ async function deployEthersContract(name, abi, bytecode, deployer, deployParams=
   const deployTx = contract.getDeployTransaction(...deployParams);
   const gasEstimate = await deployer.estimateGas(deployTx);
   const gasPrice = await deployer.getGasPrice();
-  const deployed = await contract.deploy(...deployParams, {gasPrice, gasLimit: gasEstimate});
+  const deployed = await contract.deploy(...deployParams, {gasPrice, gasLimit: BigNumber.from(gasEstimate).add('100000')});
   await deployed.deployed();
   console.log(`${name} deployed to:`, deployed.address);
   return deployed;
@@ -332,6 +335,7 @@ async function estimateAndCall(contract, method, args=[], value=0) {
       console.error("Error fulfilling order:", error);
     }
   }
+  gasLimit = BigNumber.from(gasLimit).add('100000');
   const gasPrice = await contract.signer.getGasPrice();
   let output;
   if (value) {
@@ -703,7 +707,7 @@ async function deployContractsForNftTests(deployer, testChain, accounts){
 
   const numNftsToMint = 50
   await estimateAndCall(erc721token, "batchMint", [deployer.address, numNftsToMint]);
-
+  console.log('Batch minted');
   // Deploy CW721 token with ERC721 pointer
   const time = Date.now().toString();
   const deployerSeiAddr = await getSeiAddress(deployer.address);
